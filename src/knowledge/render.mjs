@@ -7,18 +7,20 @@
  * A slice is the same material cut to one role, one Story focus and a byte budget; it opens with
  * what a newcomer would get wrong, because that is what a prompt most needs.
  */
-export const KNOWLEDGE_VIEWS = Object.freeze(['overview', 'rules', 'journeys', 'entities', 'tests', 'system', 'change']);
+export const KNOWLEDGE_VIEWS = Object.freeze(['overview', 'business', 'rules', 'journeys', 'entities', 'tests', 'system', 'change']);
 export const KNOWLEDGE_ROLES = Object.freeze(['developer', 'tester', 'architect', 'product']);
 
 /** Which sections each role reads, most important first. */
 const ROLE_SECTIONS = Object.freeze({
   developer: ['pitfalls', 'summary', 'rules', 'journeys', 'entities', 'tests', 'impact', 'system', 'areas'],
-  tester: ['pitfalls', 'summary', 'rules', 'tests', 'errors', 'journeys', 'messages'],
+  tester: ['pitfalls', 'summary', 'requirements', 'rules', 'tests', 'errors', 'journeys', 'messages'],
   architect: ['summary', 'areas', 'journeys', 'system', 'entities', 'hotspots', 'errors', 'pitfalls'],
-  product: ['summary', 'journeys', 'rules', 'messages', 'entities', 'pitfalls']
+  product: ['summary', 'requirements', 'journeys', 'rules', 'messages', 'entities', 'pitfalls']
 });
 const VIEW_SECTIONS = Object.freeze({
-  overview: ['summary', 'pitfalls', 'areas', 'journeys', 'rules', 'entities', 'tests', 'system', 'hotspots'],
+  overview: ['summary', 'pitfalls', 'areas', 'journeys', 'rules', 'requirements', 'entities', 'tests', 'system', 'hotspots'],
+  // For a product owner: what was asked for, what the product does, what it decides and says.
+  business: ['summary', 'requirements', 'journeys', 'rules', 'messages', 'glossary'],
   rules: ['rules', 'messages', 'errors'],
   journeys: ['journeys', 'system'],
   entities: ['entities'],
@@ -85,8 +87,10 @@ function ruleLine(item, limits) {
 export function stemOf(word) {
   const value = String(word).toLowerCase();
   if (value.endsWith('ies') && value.length > 4) return `${value.slice(0, -3)}y`;
-  if (value.endsWith('ing') && value.length > 5) return value.slice(0, -3);
-  if (value.endsWith('ed') && value.length > 4) return value.slice(0, -2);
+  // "shipping" and "stopped" meet "ship" and "stop": a doubled final consonant is undone.
+  const undouble = (stem) => (/([bdgmnprt])\1$/u.test(stem) && stem.length > 4 ? stem.slice(0, -1) : stem);
+  if (value.endsWith('ing') && value.length > 5) return undouble(value.slice(0, -3));
+  if (value.endsWith('ed') && value.length > 4) return undouble(value.slice(0, -2));
   if (value.endsWith('s') && !value.endsWith('ss') && value.length > 4) return value.slice(0, -1);
   return value;
 }
@@ -104,7 +108,8 @@ export function focusItems(knowledge, focus) {
   const hit = new Set(knowledge.items.filter((item) => stems.some((stem) => text(item).includes(stem))).map((item) => item.id));
   const paths = new Set(knowledge.items.filter((item) => hit.has(item.id)).flatMap((item) => [item.subject?.path, ...item.citations.map((entry) => entry.path)]).filter(Boolean));
   for (const item of knowledge.items) {
-    if (item.relations.some((relation) => hit.has(relation.to))) hit.add(item.id);
+    // A word match is a lead, not a link: it never pulls an item into a Story's focus.
+    if (item.relations.some((relation) => !relation.inferred && hit.has(relation.to))) hit.add(item.id);
     if (['test-case', 'impact', 'untested-rule', 'drift', 'entity', 'error-path', 'message', 'limit'].includes(item.kind)
         && [item.subject?.path, ...item.citations.map((entry) => entry.path)].some((value) => paths.has(value))) hit.add(item.id);
   }
@@ -112,7 +117,7 @@ export function focusItems(knowledge, focus) {
   return hit.size ? { items, matched: hit.size } : { items: knowledge.items, matched: 0 };
 }
 
-function sections(knowledge, items, explanations = []) {
+function sections(knowledge, items, explanations = [], { focused = false } = {}) {
   const of = (kind) => items.filter((item) => item.kind === kind);
   const present = new Set(items.map((item) => item.id));
   const limits = new Map(of('limit').map((item) => [item.statement.name, item.statement.value]));
@@ -155,6 +160,33 @@ function sections(knowledge, items, explanations = []) {
     const choice = item.statement.steps.find((step) => step.k === 'switch');
     return choice ? [`**${item.subject.symbol}** chooses by ${code(choice.subject || 'value')}: ${choice.cases.map((entry) => entry.label).join(', ')} — ${at(item)}`] : [];
   })) };
+  // Approved clauses, then where code or tests name them; a word match is only a lead.
+  const byId = new Map(knowledge.items.map((item) => [item.id, item]));
+  out.requirements = { title: 'Approved requirements', lines: of('requirement').map((item) => {
+    const statement = item.statement;
+    const where = [
+      statement.implementedAt.length ? `implemented at ${statement.implementedAt.map((value) => `\`${value}\``).join(', ')}` : null,
+      statement.testedAt.length ? `tested at ${statement.testedAt.map((value) => `\`${value}\``).join(', ')}` : null
+    ].filter(Boolean);
+    const leads = (statement.wordMatches ?? []).map((entry) => byId.get(entry.item)).filter(Boolean)
+      .map((related) => `${related.subject?.symbol ?? related.statement.name ?? related.statement.label ?? related.kind} ${cite(related)}`);
+    const link = where.length ? where.join('; ')
+      : leads.length ? `no code names it; shares words with ${leads.join(', ')} (matched by words, inferred)` : 'no code names it';
+    const approved = [statement.story, statement.approvedBy ? `approved by ${statement.approvedBy}` : 'approved'].filter(Boolean).join(', ');
+    return `${statement.clause} "${statement.text.slice(0, 220)}" (${approved}) — ${link} — ${at(item)}`;
+  }).concat((focused ? [] : knowledge.repository.specificationsSkipped ?? []).map((entry) => `Not read: \`${entry.path}\`${entry.story ? ` (${entry.story})` : ''} ${
+    entry.reason === 'changed-after-approval' ? 'changed after it was approved; approve it again to use it'
+      : entry.reason === 'unreadable-clauses' ? `has clauses that could not be read: ${entry.detail}` : 'is over the size budget'}`)) };
+  // The words the code uses for things, with where each is defined.
+  out.glossary = { title: 'Words the code uses', lines: [
+    // Component props and hook results are how the code is wired, not words of the business.
+    ...of('entity').filter((item) => !['props', 'shape'].includes(item.statement.kind) && !/props$/iu.test(item.statement.name)).map((item) => {
+      const values = item.statement.values?.length ? `: one of ${item.statement.values.slice(0, 10).join(', ')}` : '';
+      const fields = !values && item.statement.fields?.length ? `: has ${item.statement.fields.slice(0, 8).map((field) => field.name).join(', ')}` : '';
+      return `${item.statement.name}${values}${fields} — ${at(item)}`;
+    }),
+    ...of('limit').filter((item) => /^-?\d[\d_.,]*$/u.test(String(item.statement.value))).map((item) => `${item.statement.name} = ${item.statement.value} — ${at(item)}`)
+  ] };
   out.messages = { title: 'What users are told', lines: of('message').map((item) => `"${item.statement.text}"${item.statement.when.length ? ` when ${item.statement.when.map(condition).join(' and ')}` : ''} — ${at(item)}`) };
   out.errors = { title: 'Error paths', lines: of('error-path').map((item) => `${item.statement.exception ?? 'error'}${item.statement.message ? ` "${item.statement.message}"` : ''}${item.statement.status ? ` → HTTP ${item.statement.status}` : ''} — ${at(item)}`) };
   out.entities = { title: 'Data shapes', lines: of('entity').filter((item) => item.statement.kind !== 'props' || items.length < 200).map((item) => {
@@ -201,9 +233,16 @@ function header(knowledge, label) {
   ];
 }
 
+/** The view that shows a whole section, for the "… more" pointer. */
+function viewOfSection(name) {
+  if (KNOWLEDGE_VIEWS.includes(name)) return name;
+  if (name === 'pitfalls' || name === 'summary') return 'overview';
+  return Object.entries(VIEW_SECTIONS).find(([view, list]) => view !== 'overview' && list.includes(name))?.[0] ?? 'overview';
+}
+
 /** Render named sections into Markdown under a byte budget, saying what was left out. */
-function renderSections(knowledge, items, order, label, maximumBytes, explanations = []) {
-  const built = sections(knowledge, items, explanations);
+function renderSections(knowledge, items, order, label, maximumBytes, explanations = [], { focused = false } = {}) {
+  const built = sections(knowledge, items, explanations, { focused });
   const lines = header(knowledge, label);
   const encoder = (value) => Buffer.byteLength(value, 'utf8');
   let used = encoder(lines.join('\n'));
@@ -220,7 +259,7 @@ function renderSections(knowledge, items, order, label, maximumBytes, explanatio
       added += 1;
     }
     if (!added) { omitted.push(`${section.title} (${section.lines.length})`); continue; }
-    if (added < section.lines.length) block.push(`- … ${section.lines.length - added} more in \`wm knowledge show ${name === 'pitfalls' ? 'overview' : name}\``);
+    if (added < section.lines.length) block.push(`- … ${section.lines.length - added} more in \`wm knowledge show ${viewOfSection(name)}\``);
     block.push('');
     used += encoder(block.join('\n'));
     lines.push(...block);
@@ -231,8 +270,8 @@ function renderSections(knowledge, items, order, label, maximumBytes, explanatio
 
 export function renderKnowledgeView(knowledge, view = 'overview', { maximumBytes = null, focus = null, explanations = [] } = {}) {
   if (!VIEW_SECTIONS[view]) throw new TypeError(`Unknown knowledge view '${view}'. Use one of: ${KNOWLEDGE_VIEWS.join(', ')}.`);
-  const { items } = focusItems(knowledge, focus);
-  return renderSections(knowledge, items, VIEW_SECTIONS[view], view === 'overview' ? 'how the code works' : view, maximumBytes, explanations);
+  const { items, matched } = focusItems(knowledge, focus);
+  return renderSections(knowledge, items, VIEW_SECTIONS[view], view === 'overview' ? 'how the code works' : view, maximumBytes, explanations, { focused: Boolean(matched) });
 }
 
 /** The slice a phase prompt receives: one role, an optional Story focus, a byte budget. */
@@ -240,5 +279,5 @@ export function renderKnowledgeSlice(knowledge, { role = 'developer', focus = nu
   if (!ROLE_SECTIONS[role]) throw new TypeError(`Unknown knowledge role '${role}'. Use one of: ${KNOWLEDGE_ROLES.join(', ')}.`);
   const { items, matched } = focusItems(knowledge, focus);
   const label = `knowledge for the ${role}${matched ? ' (focused on this Story)' : ''}`;
-  return renderSections(knowledge, items, ROLE_SECTIONS[role], label, maximumBytes, explanations);
+  return renderSections(knowledge, items, ROLE_SECTIONS[role], label, maximumBytes, explanations, { focused: Boolean(matched) });
 }

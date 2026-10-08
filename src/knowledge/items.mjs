@@ -20,7 +20,7 @@ export const KNOWLEDGE_GRAINS = Object.freeze(['repository', 'area', 'component'
 export const KNOWLEDGE_KINDS = Object.freeze([
   'language', 'manifest', 'command', 'area', 'layer', 'entity', 'module-dependency', 'entry-point',
   'decision', 'call', 'sink', 'error-path', 'rule', 'limit', 'message', 'concept', 'journey',
-  'test-case', 'test-coverage', 'untested-rule', 'drift', 'requirement-link', 'interface',
+  'test-case', 'test-coverage', 'untested-rule', 'drift', 'requirement', 'requirement-link', 'interface',
   'external-dependency', 'configuration', 'hotspot', 'co-change', 'impact'
 ]);
 
@@ -29,7 +29,7 @@ const LEVEL_OF_KIND = Object.freeze({
   area: 'L1', layer: 'L1', entity: 'L1', 'module-dependency': 'L1', 'entry-point': 'L1',
   decision: 'L2', call: 'L2', sink: 'L2', 'error-path': 'L2',
   rule: 'L3', limit: 'L3', message: 'L3', concept: 'L3', journey: 'L3', 'test-case': 'L3',
-  'test-coverage': 'L3', 'untested-rule': 'L3', drift: 'L3', 'requirement-link': 'L3',
+  'test-coverage': 'L3', 'untested-rule': 'L3', drift: 'L3', requirement: 'L3', 'requirement-link': 'L3',
   interface: 'L4', 'external-dependency': 'L4', configuration: 'L4',
   hotspot: 'L5', 'co-change': 'L5', impact: 'L5'
 });

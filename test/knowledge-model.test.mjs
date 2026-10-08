@@ -128,6 +128,47 @@ test('the cache is keyed by content: a second build is a hit, a new commit is a 
   assert.ok(rebuilt.knowledge.items.some((item) => item.kind === 'limit' && item.statement.name === 'MAX_COUPONS'));
 });
 
+test('approved specifications are cited sources: tag links, labelled word leads, never an edited spec', async (t) => {
+  const repository = await fixtureRepository(t, 'shop');
+  const { knowledge } = await buildKnowledge(repository, { history: false });
+  const requirements = knowledge.items.filter((item) => item.kind === 'requirement');
+  assert.deepEqual(requirements.map((item) => item.statement.clause).sort(),
+    ['WORK-1:AC-001', 'WORK-1:AC-002', 'WORK-1:REQ-001', 'WORK-1:REQ-002']);
+  const vip = requirements.find((item) => item.statement.clause === 'WORK-1:AC-001');
+  assert.deepEqual(vip.statement.testedAt, ['test/pricing.test.ts:10']);
+  assert.deepEqual(vip.statement.wordMatches, [], 'an exact tag link leaves no room for a guess');
+  assert.equal(vip.citations[0].path, 'singularity/work-items/WORK-1/artifacts/specification/spec.md');
+  assert.equal(vip.statement.approvedBy, 'pat@example.com');
+  const shipping = requirements.find((item) => item.statement.clause === 'WORK-1:REQ-001');
+  assert.ok(shipping.relations.length && shipping.relations.every((relation) => relation.type === 'matches-words' && relation.inferred));
+  assert.equal(knowledge.metrics.invalidCitations, 0);
+  // WORK-2's specification was edited after it was approved, so it is not the approved text.
+  assert.deepEqual(knowledge.repository.specificationsSkipped.map((entry) => [entry.story, entry.reason]), [['WORK-2', 'changed-after-approval']]);
+  assert.ok(!requirements.some((item) => item.statement.story === 'WORK-2'));
+
+  const business = renderKnowledgeView(knowledge, 'business');
+  assert.match(business, /WORK-1:AC-001 .* tested at `test\/pricing\.test\.ts:10`/u);
+  assert.match(business, /WORK-1:REQ-001 .* shares words with .*shipping .*\(matched by words, inferred\)/u);
+  assert.match(business, /Not read: `singularity\/work-items\/WORK-2\/[^`]+` \(WORK-2\) changed after it was approved/u);
+  assert.match(business, /## Words the code uses\n\n(?:- .*\n)*- MAX_QUANTITY_PER_LINE = 10/u);
+  assert.doesNotMatch(business, /Props|useCart result/u, 'component wiring is not business vocabulary');
+  const slice = renderKnowledgeSlice(knowledge, { role: 'product', focus: 'free shipping threshold' });
+  assert.match(slice, /WORK-1:REQ-001/u);
+  assert.doesNotMatch(slice, /WORK-1:REQ-002|Not read/u, 'a word match never pulls a requirement into a Story focus');
+
+  // Approving the edited text again makes it the approved specification.
+  const record = path.join(repository, 'singularity', 'work-items', 'WORK-2', 'workflow.json');
+  const workflow = JSON.parse(await readFile(record, 'utf8'));
+  workflow.phases.specification.artifacts[0].sha256 = createHash('sha256')
+    .update(await readFile(path.join(repository, workflow.phases.specification.artifacts[0].path))).digest('hex');
+  await writeFile(record, JSON.stringify(workflow));
+  git(repository, 'add', '-A');
+  git(repository, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', 'commit', '-qm', 'Approve again');
+  const approved = (await buildKnowledge(repository, { history: false })).knowledge;
+  assert.ok(approved.items.some((item) => item.kind === 'requirement' && item.statement.clause === 'WORK-2:REQ-001'));
+  assert.deepEqual(approved.repository.specificationsSkipped, []);
+});
+
 test('a citation stays valid only while its exact lines are unchanged', () => {
   const file = { path: 'a.ts', lines: ['const A = 1;', 'if (x > A) return 0;'] };
   const item = knowledgeItem({ kind: 'rule', key: 'k', citations: [{ path: 'a.ts', lines: [2, 2], spanSha256: null }], producer: 'test' });

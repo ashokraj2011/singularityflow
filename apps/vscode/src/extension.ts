@@ -8266,9 +8266,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // What the code does (rules, journeys, tests and their gaps), read from the committed source by the CLI.
     'singularityFlow.openRepositoryKnowledge': async () => {
       try {
+        const view = await vscode.window.showQuickPick([
+          { label: 'How the code works', description: 'rules, journeys, tests and their gaps', value: 'overview' },
+          { label: 'For product owners', description: 'approved requirements, journeys, rules, messages and vocabulary', value: 'business' },
+          { label: 'What a change touches', description: 'hotspots, impact and pitfalls', value: 'change' }
+        ], { title: 'Repository Knowledge' });
+        if (!view) return;
         const result = await vscode.window.withProgress(
           { location: vscode.ProgressLocation.Notification, title: 'Reading repository knowledge', cancellable: false },
-          () => client.run<{ markdown: string }>(['wm', 'knowledge', 'show', 'overview', '--json'])
+          () => client.run<{ markdown: string }>(['wm', 'knowledge', 'show', view.value, '--json'])
         );
         // A file in the extension's own storage, rewritten each time: the preview opens without leaving an unsaved document behind.
         const file = vscode.Uri.joinPath(context.globalStorageUri, 'repository-knowledge.md');

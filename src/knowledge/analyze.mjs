@@ -17,6 +17,7 @@ import {
   androidManifest, clientRoutes, configurationKeys, dataClasses, declaredHttpClients, enumsAndRecords, exceptionStatuses, gradleModules, manifestCommands, namedLimits, outboundHttp,
   pathAliases, resolvedImports, testCases, typeShapes
 } from './producers.mjs';
+import { clauseEndLine, textTerms, wordMatches } from './requirements.mjs';
 
 export const KNOWLEDGE_ANALYZER_VERSION = 1;
 const PRODUCER = `knowledge-analyzer@${KNOWLEDGE_ANALYZER_VERSION}`;
@@ -158,7 +159,7 @@ function comparisonIn(cond) {
 
 export function analyzeKnowledge(source, { churn = null, commits = null } = {}) {
   const files = source.files;
-  const filesByPath = new Map([...files, ...source.manifests].map((file) => [file.path, file]));
+  const filesByPath = new Map([...files, ...source.manifests, ...(source.documents ?? [])].map((file) => [file.path, file]));
   const knownPaths = new Set(files.map((file) => file.path));
   const items = [];
   const add = (spec) => {
@@ -803,6 +804,41 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
       relations: rules.map((rule) => ({ type: 'about', to: rule.id })) });
   }
 
+  // ---- L3 approved requirements -------------------------------------------------------------
+  // A clause of an approved specification, linked exactly to the code and tests that tag it, and
+  // separately (labelled as matched by words) to the rules, limits and journeys whose words it shares.
+  const tagged = new Map();
+  for (const link of items.filter((item) => item.kind === 'requirement-link')) {
+    const clause = String(link.statement.clause ?? '').toUpperCase();
+    if (!tagged.has(clause)) tagged.set(clause, []);
+    tagged.get(clause).push(link);
+  }
+  const matchable = items.filter((item) => (item.kind === 'rule' && item.statement.kind !== 'guard')
+      || ['limit', 'journey', 'message', 'entry-point'].includes(item.kind))
+    // On equal words a rule is the better lead than a message or a journey that passes through it.
+    .map((item) => ({ id: item.id, group: item.subject?.symbol ? `${item.subject.path}#${item.subject.symbol}` : item.id,
+      weight: item.kind === 'rule' ? 0.5 : item.kind === 'limit' ? 0.25 : 0, terms: textTerms(JSON.stringify([item.subject?.symbol, item.statement.name, item.statement.label,
+      item.statement.trigger, item.statement.text, item.statement.when, item.statement.then?.text, item.statement.value])) }));
+  for (const clause of source.requirements ?? []) {
+    const document = filesByPath.get(clause.source.path);
+    if (!document) continue;
+    const links = tagged.get(clause.id) ?? [];
+    const matched = links.length ? [] : wordMatches(clause.body, matchable);
+    add({ kind: 'requirement', key: `${clause.story}:${clause.id}`, grain: 'unit',
+      subject: { name: clause.id, path: clause.source.path, story: clause.story },
+      statement: { clause: clause.id, type: clause.type, text: String(clause.body ?? '').replace(/\s+/gu, ' ').trim().slice(0, 400),
+        story: clause.story, storyTitle: clause.title ?? null, phase: clause.phase, approvedAt: clause.approvedAt ?? null, approvedBy: clause.approvedBy ?? null,
+        implementedAt: links.filter((link) => !link.statement.test).map((link) => `${link.citations[0].path}:${link.citations[0].lines[0]}`),
+        testedAt: links.filter((link) => link.statement.test).map((link) => `${link.citations[0].path}:${link.citations[0].lines[0]}`),
+        wordMatches: matched.map((entry) => ({ item: entry.id, shared: entry.shared })) },
+      citations: [citation(document, clause.source.line, clauseEndLine(document, clause.source.line))],
+      relations: [
+        ...links.map((link) => ({ type: link.statement.test ? 'tested-by' : 'implemented-by', to: link.id })),
+        ...matched.map((entry) => ({ type: 'matches-words', to: entry.id, inferred: true }))
+      ],
+      area: links[0]?.area ?? null });
+  }
+
   // ---- Areas, levels and checks -------------------------------------------------------------
   for (const area of areas) {
     const label = area.path || '.';
@@ -832,7 +868,8 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
     format: KNOWLEDGE_FORMAT,
     analyzerVersion: KNOWLEDGE_ANALYZER_VERSION,
     repository: { name: source.name ?? null, commit: source.commit, area: source.area, roots: source.roots, frameworks,
-      files: files.length, manifests: source.manifests.length, skipped: source.skipped, commits: commits?.length ?? null },
+      files: files.length, manifests: source.manifests.length, skipped: source.skipped, commits: commits?.length ?? null,
+      specifications: (source.documents ?? []).length, specificationsSkipped: source.requirementSkipped ?? [] },
     areas: areas.map((area) => ({ path: area.path || '.', files: area.files, own: Boolean(area.own) })),
     levels,
     metrics: {

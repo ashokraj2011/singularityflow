@@ -1,0 +1,14 @@
+{
+  "workItem": { "id": "WORK-1", "title": "Checkout pricing" },
+  "phaseOrder": ["intake", "specification", "implementation"],
+  "currentPhase": "implementation",
+  "phases": {
+    "intake": { "id": "intake", "status": "approved", "artifacts": [] },
+    "specification": {
+      "id": "specification", "status": "approved", "approvedAt": "2026-10-01T10:00:00.000Z", "approvedBy": "pat@example.com",
+      "artifacts": [{ "path": "singularity/work-items/WORK-1/artifacts/specification/spec.md", "sha256": "9a2dfce6d30df7fc6e6c8dcf58257dfe72a4845dd369f196fc2568b9d2e48bf7", "status": "approved",
+        "approvedAt": "2026-10-01T10:00:00.000Z", "approvedBy": "pat@example.com" }]
+    },
+    "implementation": { "id": "implementation", "status": "in-progress", "artifacts": [] }
+  }
+}

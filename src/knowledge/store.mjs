@@ -20,7 +20,7 @@ import { inArea } from '../code-intelligence/generated/code-explainer-model.mjs'
 import { focusStems, stemOf } from './render.mjs';
 
 const KEEP_ENTRIES = 12;
-const ANALYZER_SOURCES = ['./analyze.mjs', './producers.mjs', './items.mjs', './source.mjs',
+const ANALYZER_SOURCES = ['./analyze.mjs', './producers.mjs', './items.mjs', './source.mjs', './requirements.mjs',
   '../code-intelligence/generated/code-explainer-model.mjs', '../code-intelligence/generated/code-explainer-lenses.mjs'];
 let analyzerIdentity = null;
 

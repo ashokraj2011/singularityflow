@@ -74,7 +74,11 @@ export async function knowledgeCommand(root, positionals, options) {
     const kinds = knowledge.metrics.byKind;
     console.log(`  ${kinds.rule ?? 0} rules, ${kinds.limit ?? 0} limits, ${kinds['entry-point'] ?? 0} entry points, ${kinds.journey ?? 0} journeys, ${kinds.entity ?? 0} data shapes, ${kinds['test-case'] ?? 0} test cases, ${kinds['untested-rule'] ?? 0} untested functions with rules, ${kinds.drift ?? 0} test/code disagreements.`);
     console.log(`  Citations: ${knowledge.metrics.citations}, ${knowledge.metrics.invalidCitations} invalid. Calls: ${knowledge.metrics.calls} (${knowledge.metrics.callsMatchedByName} matched by name).`);
-    console.log('  Read it: singularity-flow wm knowledge show [overview|rules|journeys|entities|tests|system|change]');
+    const skippedSpecifications = knowledge.repository.specificationsSkipped ?? [];
+    if (knowledge.repository.specifications || skippedSpecifications.length) {
+      console.log(`  Approved specifications: ${knowledge.repository.specifications ?? 0} read, ${kinds.requirement ?? 0} requirements${skippedSpecifications.length ? `; not read: ${skippedSpecifications.map((entry) => `${entry.path} (${entry.reason})`).join(', ')}` : ''}.`);
+    }
+    console.log(`  Read it: singularity-flow wm knowledge show [${KNOWLEDGE_VIEWS.join('|')}]`);
     return summary;
   }
   if (subcommand === 'show') {

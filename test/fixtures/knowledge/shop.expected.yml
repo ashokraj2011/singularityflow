@@ -32,6 +32,12 @@ drift:
 external:
   - call: POST /orders
   - call: GET /products
+# Clauses of the approved WORK-1 specification; WORK-2's was edited after approval and is not read.
+requirements:
+  - { clause: "WORK-1:REQ-001", leadsTo: shipping }
+  - { clause: "WORK-1:REQ-002", leadsTo: couponDiscount }
+  - { clause: "WORK-1:AC-001", tested: true }
+  - { clause: "WORK-1:AC-002", leadsTo: handleSubmit }
 # Known gaps, kept so the score stays honest: a careful reader lists these too.
 messages:
   - text: Products could not be loaded.

@@ -1,0 +1,12 @@
+{
+  "workItem": { "id": "WORK-2", "title": "Gift wrap" },
+  "phaseOrder": ["specification"],
+  "currentPhase": "specification",
+  "phases": {
+    "specification": {
+      "id": "specification", "status": "approved", "approvedAt": "2026-10-02T10:00:00.000Z", "approvedBy": "sam@example.com",
+      "artifacts": [{ "path": "singularity/work-items/WORK-2/artifacts/specification/spec.md",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "status": "approved" }]
+    }
+  }
+}

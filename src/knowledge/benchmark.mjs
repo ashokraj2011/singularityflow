@@ -19,6 +19,7 @@
  *   commands:    [{ command }]
  *   messages:    [{ text }]                             what users are told
  *   external:    [{ call }]                             outbound call, e.g. "POST /orders"
+ *   requirements: [{ clause, tested, implemented, leadsTo }]  approved clause; tag links; a word-matched lead
  */
 import YAML from 'yaml';
 
@@ -26,7 +27,7 @@ import { SingularityFlowError } from '../util.mjs';
 
 const CATEGORY_LEVEL = Object.freeze({
   commands: 'L0', entities: 'L1', entryPoints: 'L1', rules: 'L3', limits: 'L3', journeys: 'L3', tests: 'L3',
-  untested: 'L3', drift: 'L3', errorPaths: 'L2', external: 'L4', messages: 'L3'
+  untested: 'L3', drift: 'L3', errorPaths: 'L2', external: 'L4', messages: 'L3', requirements: 'L3'
 });
 
 const has = (haystack, needle) => String(haystack ?? '').toLowerCase().includes(String(needle ?? '').toLowerCase());
@@ -52,7 +53,14 @@ const MATCHERS = Object.freeze({
   messages: (expected, items) => items.some((item) => (item.kind === 'message' && has(item.statement.text, expected.text))
     || (item.kind === 'rule' && item.statement.then?.kind === 'shows' && has(item.statement.then.text, expected.text))),
   commands: (expected, items) => items.some((item) => item.kind === 'command' && has(item.statement.command, expected.command)),
-  external: (expected, items) => items.some((item) => item.kind === 'external-dependency' && has(`${item.statement.method} ${item.statement.target}`, expected.call))
+  external: (expected, items) => items.some((item) => item.kind === 'external-dependency' && has(`${item.statement.method} ${item.statement.target}`, expected.call)),
+  requirements: (expected, items) => items.some((item) => item.kind === 'requirement' && item.statement.clause === String(expected.clause).toUpperCase()
+    && (!expected.tested || item.statement.testedAt.length > 0)
+    && (!expected.implemented || item.statement.implementedAt.length > 0)
+    && (!expected.leadsTo || item.statement.wordMatches.some((entry) => {
+      const related = items.find((candidate) => candidate.id === entry.item);
+      return related && (has(related.subject?.symbol, expected.leadsTo) || has(related.statement.name, expected.leadsTo));
+    })))
 });
 
 export function parseKnowledgeExpectations(text) {

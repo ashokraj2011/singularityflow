@@ -22,7 +22,7 @@ same build finds every one of those rules with the line it is on.
 | L0 inventory | What is here? | languages, manifests, build and test commands |
 | L1 structure | How is it organised? | areas, layers, data shapes (classes, records, interfaces, enums), entry points (routes, HTTP endpoints, `main`), the resolved import graph |
 | L2 behaviour | What does the code do? | decision trees per function, calls, data reaching the network, database, storage or screen, error paths from a throw to the HTTP status its handler returns |
-| L3 domain | What does it mean? | rules (thresholds, matches, refusals, caps, calculations), named limits and where they are applied, what users are told, journeys from an endpoint or UI event to its effects, test cases and what they exercise, functions with rules no test reaches, test titles that contradict the code, `@clause` links |
+| L3 domain | What does it mean? | rules (thresholds, matches, refusals, caps, calculations), named limits and where they are applied, what users are told, journeys from an endpoint or UI event to its effects, test cases and what they exercise, functions with rules no test reaches, test titles that contradict the code, `@clause` links, clauses of approved Story specifications |
 | L4 system | How does it fit together? | outbound calls, configuration keys (secrets withheld) |
 | L5 change | What does a change touch? | hotspots (change count × complexity × importers), files that change together (from commits of at most 20 files, root commits excluded, noting pairs with no import between them), impact sets for every function with rules (callers, importers, tests, files it usually changes with) |
 
@@ -35,7 +35,7 @@ instead of padding a prompt.
 
 ```bash
 singularity-flow wm knowledge build [--area PATH] [--refresh] [--json]
-singularity-flow wm knowledge show [overview|rules|journeys|entities|tests|system|change] [--focus TEXT] [--max-bytes N]
+singularity-flow wm knowledge show [overview|business|rules|journeys|entities|tests|system|change] [--focus TEXT] [--max-bytes N]
 singularity-flow wm knowledge slice [--role developer|tester|architect|product | --phase PHASE] [--focus TEXT] [--max-bytes N]
 singularity-flow wm knowledge items [--kind KIND] [--json]
 singularity-flow wm knowledge eval --expected FILE [--json]
@@ -61,6 +61,23 @@ files it changed, then those whose folder names match the words of its title, de
 acceptance criteria (up to three), merged and marked as partial. A Story that names no area gets no
 knowledge slice and a warning instead of a guess. Measured on a generated 12,000-file Java
 repository: listing the areas takes about 1 second, building a 500-file area 0.7 seconds.
+
+## Approved specifications
+
+Code says what a repository does; an approved specification says what it was asked to do. A build
+reads every Story record under the work-item root at HEAD and, for each phase artifact the record
+lists as approved, the committed Markdown, but only while its bytes hash to the value recorded at
+approval: a specification edited after approval is listed as not read ("approve it again to use
+it"), never presented as approved. Each clause (`[WORK-1:AC-001]`) becomes a `requirement` item
+citing its line, with the Story and who approved it. It is linked exactly to code and tests that
+tag it in a comment of their own (`// @ac:WORK-1:AC-001` above the test), and, when nothing tags it,
+to up to three rules, limits or journeys whose words it shares, shown as "matched by words,
+inferred". A word match is a lead for a reader: it never counts as an implementation, and it never
+pulls a requirement into a Story's focus. Uploaded Story documents (`DOC-nnn`) are not read.
+
+`wm knowledge show business` is the product owner's view: approved requirements and where they
+are met, journeys, rules, what users are told, and the words the code uses (data shapes, enum
+values and numeric limits, without component props or hook results).
 
 ## Languages and frameworks
 
@@ -109,10 +126,10 @@ criteria and kept within `worldModel.knowledge.maxBytes` (default 8192):
 
 | Phase | Reader | Sections, in order |
 |---|---|---|
-| intake, specification, requirements | product | journeys, rules, what users are told, data shapes, pitfalls |
+| intake, specification, requirements | product | approved requirements, journeys, rules, what users are told, data shapes, pitfalls |
 | design, architecture, planning | architect | areas, journeys, external calls and configuration, data shapes, hotspots, error paths |
 | implementation and others | developer | pitfalls, rules, journeys, data shapes, tests, impact |
-| testing, verification, conformance | tester | pitfalls, rules, tests, error paths, journeys |
+| testing, verification, conformance | tester | pitfalls, approved requirements, rules, tests, error paths, journeys |
 
 "Pitfalls" is what a newcomer would get wrong: test/code disagreements, limits and where they are
 applied, refusals, and functions with rules no test reaches. The slice travels in the existing
@@ -123,12 +140,12 @@ unchanged. Turn it off with `worldModel.knowledge.prompt: off`.
 
 `wm knowledge eval` scores a build against an expectations file (rules, limits, entities, entry
 points, journeys, tests, untested functions, drift, error paths, messages, commands, outbound
-calls) and names every miss. The fixtures under `test/fixtures/knowledge/` are scored in the test
+calls, approved requirements) and names every miss. The fixtures under `test/fixtures/knowledge/` are scored in the test
 suite:
 
 | Fixture | Expected items | Found |
 |---|---|---|
-| React shop (TypeScript, Vitest) | 24 | 23; the Add button's journey runs through a prop and `useReducer` dispatch, which pattern analysis does not follow |
+| React shop (TypeScript, Vitest, one approved and one edited specification) | 28 | 27; the Add button's journey runs through a prop and `useReducer` dispatch, which pattern analysis does not follow |
 | Spring orders service (Java, JUnit) | 21 | 21 |
 | Android notes app (Kotlin, Gradle modules, Compose, Retrofit, Room, JUnit) | 20 | 20 |
 | FastAPI orders service (Python, pydantic, pytest) | 17 | 17 |
@@ -143,4 +160,5 @@ suite:
 - An explanation's check is lexical: a sentence that uses only plain words can still misread what it
   cites, which is why kept sentences stay labelled `inferred`.
 - History covers the last 12 months (at most 2,000 commits, merges skipped).
-- Not built yet: approved Story documents as cited sources.
+- Requirements come from approved Markdown phase artifacts only; uploaded documents, Jira text and
+  unapproved drafts are not read.

@@ -14,6 +14,7 @@ import { readRefTreeResult } from '../git-ref-tree.mjs';
 import { head } from '../git.mjs';
 import { normalizeSourceRoots } from '../source-scope.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { readApprovedRequirements } from './requirements.mjs';
 import { codeAreas, isCodeLanguage, languageOf } from '../code-intelligence/generated/code-explainer-model.mjs';
 
 export const KNOWLEDGE_SOURCE_LIMITS = Object.freeze({
@@ -113,7 +114,10 @@ export async function readKnowledgeSource(root, { area = null, ownOnly = false, 
     if (isCandidateSource(relative, pathContext)) files.push(entry);
     else manifests.push(entry);
   }
+  // What the code was asked to do: clauses of approved Story specifications, read at the same commit.
+  const requirements = readApprovedRequirements(root, definition);
   const key = digest(JSON.stringify([commit, roots, ownOnly, files.map((file) => [file.path, file.sha256]),
-    manifests.map((file) => [file.path, file.sha256])]));
-  return { ...base, status: 'ok', reason: null, key, files, manifests, skipped, bytes: total, name: path.basename(root) };
+    manifests.map((file) => [file.path, file.sha256]), requirements.documents.map((document) => [document.path, document.sha256])]));
+  return { ...base, status: 'ok', reason: null, key, files, manifests, skipped, bytes: total, name: path.basename(root),
+    documents: requirements.documents, requirements: requirements.clauses, requirementSkipped: requirements.skipped };
 }

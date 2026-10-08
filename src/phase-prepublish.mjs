@@ -31,8 +31,8 @@ import {
   predecessorSpecClauses
 } from './specifications.mjs';
 import { exists, posix, secureRepositoryPath, snapshot } from './util.mjs';
-import { parseVerificationContracts } from './verification/contracts.mjs';
 import { phaseFindingPolicy } from './phase-finding-policy.mjs';
+import { planningEvidenceRepair } from './planning-evidence-repair.mjs';
 
 function findingKey(finding) {
   return [finding.code, finding.path ?? '', finding.line ?? '',
@@ -87,6 +87,7 @@ function placeholderTestReason(reason) {
 async function specificationPublicationBlockers(root, config, workflow, phase, draft) {
   const blockers = [];
   const actions = [];
+  let evidenceRepair = null;
   if (!draft.artifact?.exists) return { blockers, actions };
 
   const artifactPath = draft.artifact.path;
@@ -161,21 +162,19 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
       add('specification.clause-source-required', 'planning-table',
         `No authoritative specification clauses exist before the code phase owned by '${phase.id}'. Add stable fully qualified anchors before planning tests.`);
     } else if (clauseIds.length) {
+      let plannedSource = null;
       try {
         const source = await secureRepositoryPath(root, artifactPath, {
           label: 'Planned claim source', mustExist: true, type: 'file'
         });
         const sourceSnapshot = await snapshot(source.absolute);
-        const authored = authoredArtifactText(await readFile(source.absolute, 'utf8'));
+        plannedSource = await readFile(source.absolute, 'utf8');
+        const authored = authoredArtifactText(plannedSource);
         const derived = derivePlannedClaimMap(authored, { clauseIds, policy: specPolicy,
           evidenceRoot: `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence` });
-        // Verification contracts are checked here too, so a defect shows before publishing [E2G-013].
-        let contracts = [];
-        try {
-          contracts = parseVerificationContracts(authored, { clauseIds, plannedClaims: derived.claimMap.claims });
-        } catch (error) {
-          add('specification.verification-contract-invalid', 'verification-contracts', error.message, { details: error.details ?? {} });
-        }
+        // Derivation already validates contracts through the author-owned visibility boundary.
+        // Re-parsing raw authored comments/examples would disagree with publication [E2G-013].
+        const contracts = derived.claimMap.verificationContracts ?? [];
         const placeholders = Object.entries(derived.claimMap.claims)
           .filter(([, claim]) => claim.testDisposition === 'not-applicable'
             && placeholderTestReason(claim.testReason))
@@ -224,7 +223,12 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
         }
       } catch (error) {
         add('specification.planned-test-invalid', 'planning-table', error.message,
-          { details: { sourceCode: error.code ?? null } });
+          { details: { ...error.details, sourceCode: error.code ?? null } });
+        if (plannedSource != null && ['SPEC_VERIFICATION_CONTRACT_INVALID',
+          'SPEC_PLANNED_EVIDENCE_TYPE_INVALID'].includes(error.code)) {
+          evidenceRepair = planningEvidenceRepair(plannedSource, { clauseIds, policy: specPolicy,
+            evidenceRoot: `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence` });
+        }
       }
     }
   }
@@ -234,7 +238,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
     detail: 'Get a reviewed answer for each unresolved marker, record it as a clarification, then update the specification and recheck.'
   });
   if (blockers.some((blocker) => blocker.category !== 'clarification')) actions.push(repair);
-  return { blockers, actions };
+  return { blockers, actions, evidenceRepair };
 }
 
 async function staticPublicationBlockers(root, config, workflow, phase, { retained = false } = {}) {
@@ -494,6 +498,10 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     next: ready ? retainedReadiness?.nextCommand ?? null : action?.command ?? null,
     publish: ready && !retained ? draft.commands.publish : null
   });
+  const planningRepairAllowed = specificationChecks.evidenceRepair?.status === 'producer-repair'
+    && specificationChecks.evidenceRepair.sourceSha256 === String(draft.artifact?.sha256 ?? '').replace(/^sha256:/u, '')
+    && !retained && lifecycleReady && !hardBlocker && !repairDependencies.length && agentOwnsRepair
+    && (ownedRecoveryRepair || draft.correction.sameTurn);
   const { phaseResolutionProjection } = await import('./phase-resolution.mjs');
   return Object.freeze({
     schemaVersion: 1,
@@ -530,6 +538,17 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
         ...entry, sameTurn: lifecycleReady && !hardBlocker && !repairDependencies.length
           && draft.correction.sameTurn && entry.sameTurn
       })))
+    }) : null,
+    // Suggestions belong only to this producer's open draft. They never amend a publication,
+    // create evidence, weaken an explicit witness contract or grant permission to advance.
+    planningEvidenceRepair: specificationChecks.evidenceRepair ? Object.freeze({
+      ...specificationChecks.evidenceRepair,
+      workId: workflow.workItem.id, phase: phase.id, generation: draft.generation,
+      artifact: { path: draft.artifact.path, sha256: draft.artifact.sha256 },
+      sameTurn: planningRepairAllowed,
+      status: specificationChecks.evidenceRepair.status === 'author-review' ? 'author-review'
+        : planningRepairAllowed ? 'producer-repair' : 'owner-review',
+      patches: planningRepairAllowed ? specificationChecks.evidenceRepair.patches : []
     }) : null,
     grounding: Object.freeze(dependencies.grounding),
     warnings: Object.freeze(dependencies.warnings),

@@ -7,6 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { verifyCodeDeliveryReceipt } from '../src/delivery-evidence.mjs';
+import { planningEvidenceRepair } from '../src/planning-evidence-repair.mjs';
 
 import {
   deriveObservedClaimMap, evaluateSpecCoverage, mergeObservedClaimRecords, normalizeClaimMap
@@ -113,7 +114,7 @@ test('a real Story delivers source, test-only, removal, document and reviewed sc
     '--description', 'Change the value, keep the guard, retire the legacy flag and document usage.');
   const item = path.join(root, 'singularity/work-items', W);
   cli('prepare', 'intake');
-  await writeFile(path.join(item, 'artifacts/intake/intake.md'), [
+  const intakeDraft = [
     `# ${W} — intake`, '', '## Request and outcome', '',
     'Return the value 2, keep refusing null input, retire the legacy flag and document how to call value().', '',
     '## Scope and constraints', '', 'Change only the listed modules, their tests and the usage document.', '',
@@ -135,11 +136,20 @@ test('a real Story delivers source, test-only, removal, document and reviewed sc
     `| \`${ac(5)}\` | \`docs/usage.md\` | \`test/usage.test.mjs\` | document | The usage page names value(). |`,
     `| \`${TEST_REQ}\` | - | \`test/regression.test.mjs\` | test-only | The value regression test is delivered. |`,
     `| \`${SCREEN_REQ}\` | \`${SCREEN}\` | not-applicable: The screenshot is reviewed visually, not executed as a test. | evidence | The captured file is retained. |`,
-    `| \`${ac(6)}\` | \`${SCREEN}\` | not-applicable: An authorized reviewer inspects the captured outcome. | evidence | The screenshot shows the approved outcome. |`, '',
-    '## Verification contracts', '', '| Criterion | Slot | Method | Witness |', '|---|---|---|---|',
-    `| \`${ac(6)}\` | screen | visual | \`desktop value\` |`, '',
+    `| \`${ac(6)}\` | \`src/value.mjs\` | not-applicable: An authorized reviewer inspects the captured outcome. | modified | The screenshot shows the approved outcome. |`, '',
+    '## Visual verification', `Primary visual verification contract for \`${ac(6)}\`. Retain \`${SCREEN}\`.`, '',
     '## Initial evidence', '', 'The baseline modules, tests and usage document at the pinned main revision.', ''
-  ].join('\n'));
+  ].join('\n');
+  // A producer reviews an exact suggestion while intake is still an unpublished draft. The
+  // resulting approved contract must work all the way through code/tests/visual review, without
+  // a late classification appeal or any silent reinterpretation of the approved plan.
+  const repair = planningEvidenceRepair(intakeDraft, { clauseIds: [1, 2, 3, 4, 5, 6].map(ac).concat(TEST_REQ, SCREEN_REQ),
+    evidenceRoot: `singularity/work-items/${W}/evidence` });
+  assert.equal(repair.status, 'producer-repair', repair.reason);
+  let correctedIntake = intakeDraft;
+  for (const patch of repair.patches) correctedIntake = patch.kind === 'append'
+    ? correctedIntake + patch.after : correctedIntake.replace(patch.before, () => patch.after);
+  await writeFile(path.join(item, 'artifacts/intake/intake.md'), correctedIntake);
   cli('wm', 'compose', '--phase', 'intake');
   cli('clarification', 'record', 'intake', '--question', 'Is retiring the legacy flag approved?', '--answer', 'Yes.');
   cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
@@ -171,18 +181,19 @@ test('a real Story delivers source, test-only, removal, document and reviewed sc
   const publishedImage = await readFile(path.join(root, SCREEN));
   await write(SCREEN, Buffer.concat([publishedImage, Buffer.from('local unpublished change')]));
   const unpublishedWitness = run(process.execPath, [CLI, '--no-model', 'decision', 'witness', W,
-    '--criterion', ac(6), '--slot', 'screen', '--file', SCREEN,
+    '--criterion', ac(6), '--slot', 'retained-evidence', '--file', SCREEN,
     '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',
     '--reason', 'This local image differs from the published candidate.'], root, { allowFailure: true });
   assert.notEqual(unpublishedWitness.status, 0);
   assert.match(`${unpublishedWitness.stdout}\n${unpublishedWitness.stderr}`, /does not match the published retained evidence/u);
   await write(SCREEN, publishedImage);
-  cli('decision', 'witness', W, '--criterion', ac(6), '--slot', 'screen', '--file', SCREEN,
+  cli('decision', 'witness', W, '--criterion', ac(6), '--slot', 'retained-evidence', '--file', SCREEN,
     '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',
     '--reason', 'The isolated fixture image was inspected for this exact candidate.');
   cli('approve', 'implementation', '--yes');
 
   const workflowState = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
+  assert.deepEqual(workflowState.planAmendments ?? [], [], 'a correctly repaired draft needs no late evidence-classification appeal');
   assert.equal(workflowState.phases.implementation.generation, 1, 'test-only REQ submission needs no rollover');
   const observed = JSON.parse(await readFile(path.join(root, workflowState.phases.implementation.claimMaps.observed.path), 'utf8'));
   assert.deepEqual(observed.claims[TEST_REQ].observedPaths, []);

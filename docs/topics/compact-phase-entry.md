@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals]
-version: 6
+version: 7
 ---
 # Compact phase entry for Copilot
 
@@ -51,6 +51,28 @@ review in the condition/readiness hash. Fixing the draft never clears or records
 This also applies to owned coverage gaps found only by recovery while the Markdown draft is ready:
 the bound author can repair the planned source/test bindings in the same open generation. Unclaimed
 paths, invalid evidence, withdrawn claims and lifecycle/authority findings retain their owner routes.
+
+Prevent that classification mismatch while the plan is still a draft. New/modified obligations
+name product source in Expected paths; a retained screenshot or document instead uses fulfillment
+`evidence` and its exact current-Story evidence path. An evidence acceptance criterion also needs
+a primary visual/inspection row in `## Verification contracts`; prose and passing unit tests alone
+do not establish visual correctness. Planned tests remain required by the execution policy.
+
+For any phase configured to own a downstream code phase's planned claims, prepublish can return
+`planningEvidenceRepair`: artifact/author-owned hashes, exact before/after patches and their clause,
+path and method. It only suggests an explicit, unambiguous declaration, validates the candidate with
+the publication parser and never writes it. The bound producer must compare its meaning with the
+approved criteria; apply only when `sameTurn` is true and the draft hash still matches, preserving
+managed inputs and unrelated clauses, then recheck. Ambiguous/unapproved clauses, unsafe paths,
+duplicate anchors and conflicting explicit witness contracts need author reconciliation; existing
+primary tests, combinations and assurance are not silently replaced. Reference existing clause IDs
+in backticks, not as new bracketed declarations, when the same phase also defines the clauses.
+
+These draft patches are not an amendment or visual acceptance. An already published/approved plan
+keeps its exact bytes and uses the reviewed append-only evidence correction or a reviewed successor.
+The repaired draft's eventual contract owns its retained file during implementation, without a late
+classification appeal. File presence still cannot pass the visual criterion: fresh tests, exact
+witness review and the normal phase approval remain independent gates.
 
 After reviewing that entry packet, use:
 

@@ -674,7 +674,8 @@ function parseNotApplicable(cell, label) {
   return reason;
 }
 
-function plannedClaimSource(markdown) {
+/** Shared author-owned visibility boundary for planning validation and repair suggestions. */
+export function plannedClaimSource(markdown) {
   const authored = authoredArtifactText(markdown);
   const ranges = ignoredRanges(authored, { includeInlineCode: false });
   if (!ranges.length) return authored;

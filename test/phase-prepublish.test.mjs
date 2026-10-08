@@ -487,3 +487,72 @@ test('prepublish checks every approved clause against the planning table without
     && /does not match the reviewed Markdown/u.test(finding.message)));
   assert.equal(await readFile(seedPath, 'utf8'), seededBytes);
 });
+
+test('any configured planning owner gets a hash-bound evidence repair before approval, not a late code gate', async t => {
+  const item = await fixture(t);
+  const AC = 'PRE-1:AC-001';
+  const screenshot = 'singularity/work-items/PRE-1/evidence/desktop.png';
+  item.phase.id = 'custom-design';
+  item.workflow.currentPhase = 'custom-design';
+  item.session.phaseId = 'custom-design';
+  item.workflow.phaseOrder = ['requirements', 'custom-design', 'custom-code'];
+  item.workflow.resolution.spec = { mode: 'record', namespace: 'PRE-1', acceptance: 'presence' };
+  item.workflow.resolution.plannedClaims = {
+    mode: 'required', clausePhases: ['requirements'], owners: { 'custom-code': 'custom-design' }
+  };
+  item.workflow.phases = {
+    requirements: { id: 'requirements', status: 'approved', generation: 1,
+      requiredArtifact: { path: 'artifacts/requirements/spec.md', kind: 'requirements' } },
+    'custom-design': item.phase, 'custom-code': { id: 'custom-code', generationPolicy: { task: 'code' } }
+  };
+  const spec = 'singularity/work-items/PRE-1/artifacts/requirements/spec.md';
+  await mkdir(path.join(item.root, path.dirname(spec)), { recursive: true });
+  await writeFile(path.join(item.root, spec), `# Requirements\n\n[${AC}]\nCapture the desktop result for human inspection.\n`);
+  await buildSpecIndex(item.root, spec, { workId: 'PRE-1', phase: 'requirements', generation: 1,
+    outputPath: 'singularity/work-items/PRE-1/context/spec-indexes/requirements-gen1.json',
+    policy: item.workflow.resolution.spec });
+  const source = ['# Plan', '', 'Retain the approved desktop result.', '',
+    '| Clause | Expected paths | Planned tests | Fulfillment |', '|---|---|---|---|',
+    `| [${AC}] | \`src/App.jsx\` | \`test/App.test.mjs\` | modified |`, '',
+    `Primary visual verification contract for [${AC}]. Retain \`${screenshot}\`.`, ''].join('\n');
+  await writeFile(item.absolute, source);
+  const inspect = () => phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  const blocked = await inspect();
+  assert.equal(blocked.status, 'correction-required');
+  assert.equal(blocked.commands.publish, null);
+  assert.equal(blocked.correction.sameTurn, true);
+  assert.equal(blocked.planningEvidenceRepair.status, 'producer-repair');
+  assert.equal(blocked.planningEvidenceRepair.sameTurn, true);
+  assert.equal(blocked.planningEvidenceRepair.phase, 'custom-design');
+  assert.equal(blocked.planningEvidenceRepair.artifact.sha256, blocked.artifact.sha256);
+  assert.equal(blocked.planningEvidenceRepair.sourceSha256, blocked.artifact.sha256.replace(/^sha256:/u, ''));
+  assert.equal(blocked.findings.find(finding => finding.code === 'specification.planned-test-invalid').details.path, screenshot);
+  assert.equal(await readFile(item.absolute, 'utf8'), source, 'inspection cannot rewrite the plan');
+  item.workflow.currentPhase = 'custom-code';
+  const wrongPhase = await inspect();
+  assert.equal(wrongPhase.planningEvidenceRepair.sameTurn, false);
+  assert.deepEqual(wrongPhase.planningEvidenceRepair.patches, []);
+  item.workflow.currentPhase = 'custom-design';
+  const foreign = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+    { session: { ...item.session, workId: 'OTHER-STORY' } });
+  assert.equal(foreign.planningEvidenceRepair.sameTurn, false);
+  assert.deepEqual(foreign.planningEvidenceRepair.patches, []);
+  item.phase.status = 'awaiting_approval';
+  const submitted = await inspect();
+  assert.equal(submitted.planningEvidenceRepair.sameTurn, false);
+  assert.deepEqual(submitted.planningEvidenceRepair.patches, []);
+  item.phase.status = 'in_progress';
+  let candidate = source;
+  for (const patch of blocked.planningEvidenceRepair.patches) candidate = patch.kind === 'append'
+    ? candidate + patch.after : candidate.replace(patch.before, () => patch.after);
+  await writeFile(item.absolute, candidate);
+  const ready = await inspect();
+  assert.equal(ready.status, 'ready', JSON.stringify(ready.findings));
+  assert.equal(ready.planningEvidenceRepair, null);
+  assert.deepEqual(derivePlannedClaimMap(candidate, { clauseIds: [AC],
+    evidenceRoot: 'singularity/work-items/PRE-1/evidence' }).claimMap.claims[AC].expectedPaths, [screenshot]);
+  assert.equal(item.phase.claimMaps, undefined, 'prepublish never publishes a map or accepts evidence');
+  await writeFile(item.absolute, `${candidate}\n<!-- Primary inspection verification contract for [${AC}]. -->\n`);
+  const ignored = await inspect();
+  assert.equal(ignored.status, 'ready', 'example/comment declarations must not disagree with publication parsing');
+});

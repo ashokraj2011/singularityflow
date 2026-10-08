@@ -35,14 +35,16 @@ async function definition() {
 test('world-model view registry catalogs structured prompt dependencies', async () => {
   const workflow = await definition();
   const references = structuredWorldModelViewReferences(workflow);
-  assert.ok(references.get('architecture').includes("agent 'architect' prompt"));
-  assert.ok(references.get('testing').includes("agent 'qa' prompt"));
-  assert.deepEqual(worldModelViewCatalog(workflow), workflow.worldModel.views);
+  assert.ok(references.get('arch.contracts').includes("agent 'architect' prompt"));
+  assert.ok(references.get('dev.impact').includes("agent 'qa' prompt"));
+  assert.deepEqual(worldModelViewCatalog(workflow), workflow.worldModel.views.map(view => view.split('@')[0]));
   assert.deepEqual(markdownWorldModelViews('Use views/security.md, `views/data-governance.md`, and views/dev.impact.md; ignore https://example.test/view.md.'), ['data-governance', 'dev.impact', 'security']);
 });
 
 test('world-model view designer adds unused views and protects referenced views', async () => {
-  const workflow = await definition();
+  // Free-form names remain supported only by an explicitly legacy catalog.
+  const workflow = { worldModel: { format: 'legacy-v3', views: ['architecture'] },
+    phases: { design: { worldModel: { views: ['architecture'] } } } };
   const added = addWorldModelView(workflow, 'data-governance');
   assert.ok(added.worldModel.views.includes('data-governance'));
   assert.ok(!workflow.worldModel.views.includes('data-governance'));
@@ -193,8 +195,8 @@ test('world-model workflow usage resolves inherited, overridden, empty, and disa
 
 test('workflow validation rejects undeclared structured world-model views', async () => {
   const workflow = await definition();
-  workflow.worldModel.views = workflow.worldModel.views.filter((view) => view !== 'architecture');
-  assert.throws(() => validateDefinition(workflow), /architecture.*not declared/);
+  workflow.worldModel.views = workflow.worldModel.views.filter((view) => view !== 'arch.contracts@4');
+  assert.throws(() => validateDefinition(workflow), /arch\.contracts.*not declared/);
 });
 
 test('the command sentinel all resolves once to concrete approved view IDs', () => {

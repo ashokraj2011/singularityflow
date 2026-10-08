@@ -9,7 +9,7 @@ import { isInitiativeGenerator } from './initiative-generators.mjs';
 import { secureRepositoryPath, SingularityFlowError, posix, snapshot } from './util.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
 import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/registry/views.mjs';
-import { effectiveWorldModelAssignmentViews } from './world-model-views.mjs';
+import { effectiveWorldModelAssignmentViews, worldModelViewIdentity } from './world-model-views.mjs';
 import { assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
 
 export { usesEpicPlanningLifecycle };
@@ -702,9 +702,16 @@ export function validatePortfolioWorldModelViews(portfolio, workflowDefinition) 
           assignment.label
         )
       : assignment.views;
-    for (const view of assigned) if (!declared.has(logical(view))) unknown.push(`${assignment.key}:${view}`);
+    for (const view of assigned) {
+      const id = registered ? worldModelViewIdentity(workflowDefinition, view)?.id : view;
+      if (!id || !declared.has(id)) unknown.push(`${assignment.key}:${view}`);
+    }
   }
-  if (unknown.length) throw new SingularityFlowError(`Initiative phases reference undeclared repository world-model views: ${unknown.join(', ')}.`);
+  if (unknown.length) throw new SingularityFlowError(
+    `Initiative phases reference undeclared repository world-model views: ${unknown.join(', ')}.`,
+    { code: registered ? 'WMB_VIEW_UNKNOWN' : 'WORLD_MODEL_VIEW_UNDECLARED',
+      details: { format: workflowDefinition.worldModel?.format ?? 'legacy-v3', assignments: unknown } }
+  );
   return true;
 }
 

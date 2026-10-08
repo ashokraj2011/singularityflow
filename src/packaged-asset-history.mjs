@@ -16,6 +16,9 @@ import { createHash } from 'node:crypto';
  * governed agent to remain registered.
  */
 const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
+  'singularity/templates/initiatives/epic/repository-map.yml': Object.freeze([
+    'd87a27fb71918827adbb9cbbcbc58efcf9e00689e24154215c021e217cb75b6b'
+  ]),
   '.github/agents/demo-web-analyst.agent.md': Object.freeze(['4bf52173acab7a379c75157795e1a37ff5deb8154dd88894d60f0e4fde857e3f']),
   '.github/agents/demo-web-developer.agent.md': Object.freeze(['1f6b44af2a0b2e15c8f8c39fd44812055baeda5fdb9faf6073b4aab1ee03684f']),
   '.github/agents/demo-web-tester.agent.md': Object.freeze(['33cd834531b9bada674063a86c6d0569e4ec0103926ae044b115544e9f6a480c']),
@@ -148,6 +151,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'f84db46cdf86cf8c4da4de0062d7150466d5dd291baf6495bd9523affa9a6453'
   ]),
   '.github/agents/architect.agent.md': Object.freeze([
+    '6b04a0161f445d0d585933d3891e07522cd652683e580752b5497f14ac86deb0',
     '184ad9effaad2977008687601def19a0677bb72c6a02365ef81b945f54ae6443',
     '0c8630b4f5d3bf2bbdabc4f67f4619caa7e537a566111cef40440c6c7abce016',
     '188198ceb7da73ef10814aaea2426dea127442f199fa16939f84a95415547ee5',
@@ -162,6 +166,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'da4f136ae11c0cb459500d4008a5629797f168ec4df87ba807da31c12a59c467'
   ]),
   '.github/agents/developer.agent.md': Object.freeze([
+    'e58aa358944af2247810f2f272d6571c253d43709da34b0ec7f012083a233606',
     '319bdfa6ac51ff128d8caad683f637f76c04818dc5fc7b05224d5275a76b8c41',
     '08a26b9ab8dfed985a6bce5d470c1cb1732f8546a1c3c49360005aa42a728105',
     '274adbcae64ecb9896bd9f53ef8c21a3109918fb7015496e0a8d8b5f57cc143b',
@@ -177,6 +182,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'edfba1ce014ba9a5cf379303efa3841eb4345dd1602f2b2566c8e5001d4c99d1'
   ]),
   '.github/agents/mobile-architect.agent.md': Object.freeze([
+    'fee53598c1cf2aa27a365979df06c7bd3f42e3d1b7994b9ecfc2214f31772478',
     '06685d32114d1278a825dfc9313d2c1ca6e4b84de9cf1c112b4b84f82367176d',
     '1cc19f6ab0b71a6c3296e8993c3610570c9ccfe82dc30308e5393e7e36f5ac33',
     '22e5fe1e93ff229de7bcc51b70078d8d4f48b925c0ef802a8ab20d1127883128',
@@ -191,6 +197,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'c0d882e1b6a6a946e4573756aa156e4ca918b578634baa35e6fccb74a595b698'
   ]),
   '.github/agents/poc-analyst.agent.md': Object.freeze([
+    '4df9fb95469acfa0a036d44d47ac93a2f2a21a9a70703c98abd43d8460e4442d',
     '94623517e943daa5cbab969fa1a50887319e34e68d826d06e23d17bd171ad2d9',
     '7f4fe9ad6e2bcf0aeab4aa0e2bb5245b38bb1a0434f23b1b604f2869fd9590e8',
     '1d4e071363256e214a58ab810819218cff8f4d288d571487eb6f18d2bca8b1d2',
@@ -203,6 +210,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'b2911fb7034dddec1d44266f83146a0460dc158a3efb6938cdefda2ae0d96086'
   ]),
   '.github/agents/poc-automation.agent.md': Object.freeze([
+    'fe311f2172c31133608d1a9d2f2a6afc9229fcec124e05bbd62080ee5b9ec99d',
     'a45c1645749fe9595d5b8bca9c620583f60a9fa34798e492764932d5411c435f',
     '5c113c502f9e02362ff280947747684130b9f0975391b6cbe27462e1faaac0f6',
     '0b6f0a8866f388767a216438b5bc5280615589fc0da50fd6288cf9388a902ef3',
@@ -217,6 +225,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'ec5709c720d979d389ebb20cb73977f0efc485d87781b62135857c622c625a7c'
   ]),
   '.github/agents/poc-explorer.agent.md': Object.freeze([
+    '839a0e22f66192fe3ff5cb503a211e6baec05760c0463da97a6651071508fcdb',
     'fc8ecbccd7fbfdcfcd318c45a1219bcb3354a09a87a30e941153df43ea390667',
     '5b863a56b6d645a71c858afd8edd29b6f7cbc60b441d4b3b2df513826611ee18',
     '6c471ac9d6bf14f865e73cd1a39a3cef635e3bdc7c4f455d182ae9b0845b7277',
@@ -243,6 +252,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'd2a01fd1beebae0b2399d0a2908d4ac0db5ad8cbc803020f40697914a2b7ee60'
   ]),
   '.github/agents/poc-test-developer.agent.md': Object.freeze([
+    '6576545a8047586326e2b48a77d8b92c5325807de7f717a636962eeef0622644',
     'da7785d620f669c41fa07921bcc6ef8bb26bc5fbb7eaca81f470b3fdf1feef8c',
     '20a6a09cc14dac8fd7cb461d412fe708eeaeaf3be55c3787212f4a09bed7e17d',
     '4c82f12e6642c42e60ef6b0e4a19b9c37b70a73c2089b8dfd2c525858d7a4681',
@@ -252,6 +262,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'dc91d663a83017267c7366a3ac3e903e7b4fd803af2284b9c7d252bf61c2c8a0'
   ]),
   '.github/agents/poc-validator.agent.md': Object.freeze([
+    '0d02fd985d4948ce8a4d3a1145f7334decf60e8d09f4869a9d05fe02715dbd1a',
     'b2bed98021cfb9dd5a9b8ae31d9f0fbea0fee920d0bf968f7d3f9217dd89719d',
     '083dd2ee6f941c5f873f9b42d4ec50faf450cb703fd55951dd55244d1bc1d82e',
     '0d391149188a912560efb6e5d750c06c63c92d8442c474dfbb6a036c7dbfd7e5',
@@ -264,6 +275,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'c4b60bf225a36ed4e44d00cfa6c28442eaf4ccc212dfdc0cc7ffdaf33ada0328'
   ]),
   '.github/agents/product-designer.agent.md': Object.freeze([
+    '93eec54ac8b0d671804123ee20bdcd67155a02cb274b5168380f7a77db2f1a11',
     '0f5fe7ec6f8e75d85493266f0982db49bac9fb20673867d119ff8e65cc3b54cf',
     '1103db033c0acf04448e1794c40296d50c0794c6860ff5be0b11b258998e230e',
     '2a347736d3ffa58635617b47721c4306d4cb3979af9101a08cb0604b03fe37ec',
@@ -280,6 +292,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'e71a3a77592c53010b2de7f107d64f8e401514215e891e37af9660a7ef8fc945'
   ]),
   '.github/agents/product-owner.agent.md': Object.freeze([
+    '62c866c5545c95b789bdaa7d279b19074f5d19d690c9a09501dc6464c7506882',
     '84bba38e1fe4dfa812b213255283c202c8a96b81179841bb3cb909f073b99b39',
     '491241469786c77bf5f99384fdb7f9c0da7abf637fb5e8fc531992a6168f0027',
     '54c7240d0b81c04e47c453fd19a29caf358c07d3d36a93b84ff84541e7f9aeb0',
@@ -295,6 +308,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'fcd6757dbc695423e0df1a9bd906e88569c7e000cd84c35f1a1b532bfcd822e2'
   ]),
   '.github/agents/qa.agent.md': Object.freeze([
+    'de84f6854724abbda3ba42c8040fdb710147f1574862ea04c8311628ece4e53c',
     '3af12e12be861a865ee17cf3348990798bdc3a89e1263e1abfe7a46c2a10df8a',
     '3c0c9560c422fc616b391277b38d409b004864449b1a9cf4aa06bd5e302233e5',
     '452100331664da07d932209875c45e725ee92f080e541909cd595d3d9bc5cf94',
@@ -337,21 +351,21 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/demo-web-e2e-testing/check.md': '31bc19257b108572d3043066a8747ade34dc0facb9bc75e013a5b5ded599e2c5',
   'singularity/templates/demo-web-e2e-testing/intake.md': '937e5b69f618050e79cb76e384994ba6349d8bbe59914c7d9117920af35e94f7',
   'singularity/templates/demo-web-e2e-testing/repair.md': '5cf8165f7981c55d1b6d2b6f09e23e0230261eeb98312de213f11b93091f332f',
-  '.github/agents/architect.agent.md': '6b04a0161f445d0d585933d3891e07522cd652683e580752b5497f14ac86deb0',
-  '.github/agents/developer.agent.md': 'e58aa358944af2247810f2f272d6571c253d43709da34b0ec7f012083a233606',
+  '.github/agents/architect.agent.md': '81348d097d9dc7e526319ea242d15178c5a35e7d027b26303be39fd4e8451aa8',
+  '.github/agents/developer.agent.md': '5e98b958632baa68321694536f5a6ddc80cef2b11e1bb422796cfbea6d7786c7',
   '.github/agents/document-analyst.agent.md': '03c307bb9396ec71ea8af1a347c45cae82c2e5cb04197588c24ce48ea6559d37',
-  '.github/agents/mobile-architect.agent.md': 'fee53598c1cf2aa27a365979df06c7bd3f42e3d1b7994b9ecfc2214f31772478',
-  '.github/agents/poc-analyst.agent.md': '4df9fb95469acfa0a036d44d47ac93a2f2a21a9a70703c98abd43d8460e4442d',
-  '.github/agents/poc-automation.agent.md': 'fe311f2172c31133608d1a9d2f2a6afc9229fcec124e05bbd62080ee5b9ec99d',
-  '.github/agents/poc-explorer.agent.md': '839a0e22f66192fe3ff5cb503a211e6baec05760c0463da97a6651071508fcdb',
+  '.github/agents/mobile-architect.agent.md': '393e8b3fe7bb07dcfd34f4e7f10be0f124414700414be01b038016087d785958',
+  '.github/agents/poc-analyst.agent.md': 'f80f745a90ea2bf7ef2a5aa9ded7438ba7ba10cd74e5364fb818ec29d80bccf4',
+  '.github/agents/poc-automation.agent.md': '5608247f349c259850f55ac38072875508e9550ad2ebe706fedfd94e8bfe2e80',
+  '.github/agents/poc-explorer.agent.md': '6c6e9515d390d6f4aa715a4921a6ae2748752fa038d2cdf9391b5e712602d45a',
   '.github/agents/poc-lite-implementer.agent.md': '9d907a1f75e54b75a0a581843aa1195c6635e72a351e54e3de0763daeeec0c29',
   '.github/agents/poc-lite-planner.agent.md': '74b564d5ca0063954fedf554d9c2350a9eebf78deef212ed2c6907283f35fdae',
   '.github/agents/poc-lite-verifier.agent.md': '14fe9eb15692eac47922cbc61de3686aec2eedf447544ae6ab6901c70995d33e',
-  '.github/agents/poc-test-developer.agent.md': '6576545a8047586326e2b48a77d8b92c5325807de7f717a636962eeef0622644',
-  '.github/agents/poc-validator.agent.md': '0d02fd985d4948ce8a4d3a1145f7334decf60e8d09f4869a9d05fe02715dbd1a',
-  '.github/agents/product-designer.agent.md': '93eec54ac8b0d671804123ee20bdcd67155a02cb274b5168380f7a77db2f1a11',
-  '.github/agents/product-owner.agent.md': '62c866c5545c95b789bdaa7d279b19074f5d19d690c9a09501dc6464c7506882',
-  '.github/agents/qa.agent.md': 'de84f6854724abbda3ba42c8040fdb710147f1574862ea04c8311628ece4e53c',
+  '.github/agents/poc-test-developer.agent.md': '31c1c375019c83474dec8e0108310d58a52f5cab92c287d59b36f7d6bcc84cd7',
+  '.github/agents/poc-validator.agent.md': '33d0cc77990f6320aa03305c0bd8051be7f2b696170132d4161c0aef4ba98894',
+  '.github/agents/product-designer.agent.md': '37df7604d2727eeea1cc23d5dee7200fd9a4a4bb16c10f4f9d0e4746a0cd13c5',
+  '.github/agents/product-owner.agent.md': '2fd9bdef16bbf508d58125ba519e1ca46f35cb593480cb544c3e91e6dc63ad8a',
+  '.github/agents/qa.agent.md': '6d73fddfc57e603970eba377123dfa43e2fbd4b444c006df9f13115496976959',
   '.github/agents/scenario-developer.agent.md': '9fc0f10ebd86aa0f3efb30414b5523fa8afc5732ffaa3402a1387bac671b4c26',
   '.github/agents/scenario-tester.agent.md': '3f9ea64bd093f5fd63c7d7c5837313deff922feae22c5a5b5e76bed6a131d3be',
   'singularity/agent-mappings.yml': '1b39a4f4caa3242749889a291e2259a361c815712bd762abde3db3cbe9f8a688',
@@ -404,7 +418,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/initiatives/epic/jira-write-plan.yml': '176c8c177d77e61df465472bdb5b9bfb67a9a3183e13e4704aafa1f4931e48e9',
   'singularity/templates/initiatives/epic/materialization-report.md': '18bdd184358ac5f1f08f4e0edda9e09bab7dab8b8dcbfe7a65a2e4196e99001c',
   'singularity/templates/initiatives/epic/parent-spec.md': '4c80b3cb91962fd1b1fe64f01bd7dc4b0ed14ec7fb889750cabf1522eaabfa72',
-  'singularity/templates/initiatives/epic/repository-map.yml': 'd87a27fb71918827adbb9cbbcbc58efcf9e00689e24154215c021e217cb75b6b',
+  'singularity/templates/initiatives/epic/repository-map.yml': 'f1d971a9d7791427572c8e6bca7fe86b30b3c7762b197e8f7189cd564fa4a64f',
   'singularity/templates/initiatives/epic/requirements-traceability.yml': '672a8ccb13f2945e9043e325f7fe0538bddfe8a43d3bf07864bee7937b680b73',
   'singularity/templates/initiatives/epic/requirements.md': '174d57ca16c5b43a23c6292873c683335f9fb08c6efd6d0a7bf6e6594aa5ec0b',
   'singularity/templates/initiatives/epic/story-plan.yml': '9ff2b979d06de8302c36ef0e1898c1c74df6f0dd92df64c1b68accdf360b555f',

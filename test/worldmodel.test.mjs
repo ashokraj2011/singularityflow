@@ -1,3 +1,4 @@
+import { initializeLegacyWorldModelDefinition as initializeDefinition } from './helpers/legacy-world-model.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -8,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import YAML from 'yaml';
-import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
+import { loadDefinition, resolveWorkType } from '../src/config.mjs';
 import { validateWorldModelDirectory, verifyGroundingRecord, worldModelRebuildReason, worldModelSourceSnapshot } from '../src/grounding.mjs';
 import { registerReference, resolveReference } from '../src/harness-imports.mjs';
 import { publishToStateBranch } from '../src/ledger.mjs';

@@ -204,7 +204,15 @@ planning:
   maxContextBytes: 1048576
 
 worldModel:
-  views: [business, architecture, development, testing, release, operations, security]
+  format: registered-v4
+  views: [arch.contracts@4, biz.rules@4, dev.hotspots@4, dev.impact@4]
+  # Native assignments select logical contract IDs per phase/agent. Legacy names are not aliases
+  # for these facts; only an explicitly reviewed migration may enable inherit-configured.
+  v4:
+    composer: deterministic
+    consumer: developer
+    cachePolicy: reuse-valid
+    legacyAssignments: strict
   # Typed architecture products are deterministic and model-free. The initial rollout is opt-in
   # and non-blocking so existing World Model publication trees remain byte-for-byte unchanged.
   projections:
@@ -226,7 +234,8 @@ worldModel:
   # Immutable exact-key history is additive on the state branch and must stay outside outputDir.
   # Most repositories should keep this default and never expose it as a day-to-day UI setting.
   historyDir: singularity/world-model-history
-  promptSource: singularity/prompts/worldmodel-builder.md
+  # Registered contracts own their composition instructions. The installed v3 builder is dormant.
+  promptSource: builtin
   # State-branch refresh is bounded so an offline corporate remote cannot hang prompt composition.
   stateFetchTimeoutMs: 10000
   generation:
@@ -271,8 +280,8 @@ worldModel:
     #   include: [domains/payments.md]
     # - when: { changedPaths: "src/api/**" }
     #   include: [domains/api.md]
-    # - when: { labels: security }
-    #   include: [views/security.md]
+    # - when: { phase: design }
+    #   include: [views/arch.contracts.md]
 
 # Reviewed Story architecture intent is independent from the shared base projection and is also
 # opt-in during rollout. It never writes a planned projection to the shared state branch.
@@ -1074,7 +1083,7 @@ phases:
     label: Intake
     defaultTemplate: common/intake.md
     artifact: { path: artifacts/intake/intake.md, kind: intake, minimumBytes: 200 }
-    worldModel: { views: [business], depth: quick }
+    worldModel: {views: [biz.rules], depth: quick}
     clarification:
       mode: required
       maxQuestions: 5
@@ -1085,7 +1094,7 @@ phases:
     label: Requirements
     defaultTemplate: feature/requirements.md
     artifact: { path: artifacts/requirements/requirements.md, kind: requirements, minimumBytes: 300 }
-    worldModel: { views: [business], depth: standard }
+    worldModel: {views: [biz.rules], depth: standard}
     clarification:
       mode: required
       maxQuestions: 5
@@ -1096,7 +1105,7 @@ phases:
     label: Architecture and design
     defaultTemplate: feature/design.md
     artifact: { path: artifacts/design/design.md, kind: design, minimumBytes: 300 }
-    worldModel: { views: [architecture, security], depth: standard }
+    worldModel: {views: [arch.contracts], depth: standard}
     clarification:
       mode: required
       maxQuestions: 5
@@ -1107,7 +1116,7 @@ phases:
     label: Implementation specification
     defaultTemplate: feature/implementation-spec.md
     artifact: { path: artifacts/implementation-spec/implementation-spec.md, kind: implementation-spec, minimumBytes: 400 }
-    worldModel: { views: [architecture, development, testing, security], depth: deep }
+    worldModel: {views: [arch.contracts, dev.impact], depth: deep}
     clarification:
       mode: required
       maxQuestions: 5
@@ -1118,7 +1127,7 @@ phases:
     label: Reproduction
     defaultTemplate: bugfix/reproduction.md
     artifact: { path: artifacts/reproduction/reproduction.md, kind: reproduction, minimumBytes: 250 }
-    worldModel: { views: [development, testing], depth: standard }
+    worldModel: {views: [dev.impact], depth: standard}
     clarification:
       mode: required
       maxQuestions: 5
@@ -1129,7 +1138,7 @@ phases:
     label: Fix design
     defaultTemplate: bugfix/fix-design.md
     artifact: { path: artifacts/fix-design/fix-design.md, kind: fix-design, minimumBytes: 250 }
-    worldModel: { views: [architecture, development, security], depth: standard }
+    worldModel: {views: [arch.contracts, dev.impact], depth: standard}
     clarification:
       mode: required
       maxQuestions: 5
@@ -1140,7 +1149,7 @@ phases:
     label: Fix specification
     defaultTemplate: bugfix/fix-spec.md
     artifact: { path: artifacts/fix-spec/fix-spec.md, kind: implementation-spec, minimumBytes: 300 }
-    worldModel: { views: [development, testing, security], depth: standard }
+    worldModel: {views: [dev.impact], depth: standard}
     clarification:
       mode: required
       maxQuestions: 5
@@ -1151,7 +1160,7 @@ phases:
     label: Design package intake
     defaultTemplate: figma-mobile/design-intake.md
     artifact: { path: artifacts/design-intake/design-package-intake.md, kind: design-intake, minimumBytes: 350 }
-    worldModel: { views: [business, architecture], depth: standard }
+    worldModel: {views: [biz.rules, arch.contracts], depth: standard}
     clarification:
       mode: required
       maxQuestions: 5
@@ -1162,7 +1171,7 @@ phases:
     label: Screen and design inventory
     defaultTemplate: figma-mobile/design-inventory.md
     artifact: { path: artifacts/design-inventory/design-inventory.md, kind: design-inventory, minimumBytes: 500 }
-    worldModel: { views: [business, architecture], depth: standard }
+    worldModel: {views: [biz.rules, arch.contracts], depth: standard}
     clarification:
       mode: required
       maxQuestions: 5
@@ -1173,7 +1182,7 @@ phases:
     label: Mobile component mapping
     defaultTemplate: figma-mobile/component-mapping.md
     artifact: { path: artifacts/component-mapping/component-mapping.md, kind: component-mapping, minimumBytes: 500 }
-    worldModel: { views: [architecture, development, security], depth: deep }
+    worldModel: {views: [arch.contracts, dev.impact], depth: deep}
     clarification:
       mode: required
       maxQuestions: 5
@@ -1184,7 +1193,7 @@ phases:
     label: Mobile implementation specification
     defaultTemplate: figma-mobile/mobile-spec.md
     artifact: { path: artifacts/mobile-spec/mobile-spec.md, kind: implementation-spec, minimumBytes: 700 }
-    worldModel: { views: [architecture, development, testing, security], depth: deep }
+    worldModel: {views: [arch.contracts, dev.impact], depth: deep}
     clarification:
       mode: required
       maxQuestions: 5
@@ -1195,7 +1204,7 @@ phases:
     label: Implementation
     defaultTemplate: common/implementation.md
     artifact: { path: artifacts/implementation/implementation-summary.md, kind: implementation-summary, minimumBytes: 250 }
-    worldModel: { views: [development, testing], depth: standard }
+    worldModel: {views: [dev.impact], depth: standard}
     clarification: { mode: when-needed, maxQuestions: 3, topics: [approved deviations, implementation blockers] }
     generation: { task: code }
     writeScope: source-and-artifact
@@ -1205,7 +1214,7 @@ phases:
     label: Verification
     defaultTemplate: common/verification.md
     artifact: { path: artifacts/verification/test-evidence.md, kind: test-evidence, minimumBytes: 300 }
-    worldModel: { views: [testing, development, security], depth: standard, evidence: true }
+    worldModel: {views: [dev.impact], depth: standard, evidence: true}
     clarification: { mode: when-needed, maxQuestions: 3, topics: [test gaps, environment, evidence, deviations] }
     writeScope: source-and-artifact
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [implementation, verification] }
@@ -1214,7 +1223,7 @@ phases:
     label: Testing
     defaultTemplate: benchmark/testing.md
     artifact: { path: artifacts/testing/test-evidence.md, kind: test-evidence, minimumBytes: 300 }
-    worldModel: { views: [testing, development, security], depth: standard, evidence: true }
+    worldModel: {views: [dev.impact], depth: standard, evidence: true}
     clarification: { mode: when-needed, maxQuestions: 3, topics: [test gaps, environment, evidence, deviations] }
     writeScope: source-and-artifact
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [implementation, testing] }
@@ -1223,7 +1232,7 @@ phases:
     label: Mobile visual verification
     defaultTemplate: figma-mobile/visual-verification.md
     artifact: { path: artifacts/visual-verification/visual-comparison.md, kind: visual-test-evidence, minimumBytes: 600 }
-    worldModel: { views: [testing, development, security], depth: deep, evidence: true }
+    worldModel: {views: [dev.impact], depth: deep, evidence: true}
     clarification: { mode: when-needed, maxQuestions: 3, topics: [visual tolerance, device evidence, accessibility, deviations] }
     writeScope: source-and-artifact
     approval: { authorities: [design-reviewers, quality-reviewers], minimum: 1, rejectTo: [component-mapping, mobile-spec, implementation, visual-verification] }
@@ -1233,7 +1242,7 @@ phases:
     defaultTemplate: common/conformance.md
     artifact: { path: artifacts/conformance/spec-code-comparison.md, kind: conformance-report, minimumBytes: 400 }
     clarification: { mode: when-needed, maxQuestions: 3, topics: [approved deviations, missing evidence, unplanned work] }
-    worldModel: { views: [architecture, development, testing, security], depth: deep, evidence: true }
+    worldModel: {views: [arch.contracts, dev.impact], depth: deep, evidence: true}
     writeScope: artifact-only
     comparison: { identifiers: [acceptance-criteria, specification], verdicts: [matched, partial, missing, deviated, unplanned] }
     approval: { authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [implementation-spec, fix-spec, implementation, verification, conformance] }
@@ -1444,7 +1453,7 @@ phases:
       kind: poc-intake
       minimumBytes: 500
       validation: { requiredHeadings: [Objective and scope, Repository and branch context, Target environment, Test intent and acceptance criteria, Safety and access] }
-    worldModel: { views: [business, testing, security], depth: standard }
+    worldModel: {views: [biz.rules], depth: standard}
     clarification:
       mode: required
       maxQuestions: 5
@@ -1460,7 +1469,7 @@ phases:
       kind: impact-analysis
       minimumBytes: 600
       validation: { requiredHeadings: [Compared revisions, Changed-code evidence, Regression footprint, Proposed scenarios, Risks and unknowns] }
-    worldModel: { views: [architecture, development, testing, security], depth: deep }
+    worldModel: {views: [arch.contracts, dev.hotspots, dev.impact], depth: deep}
     clarification: { mode: when-needed, maxQuestions: 3, topics: [change boundary, affected routes, test seams, risk, unknowns] }
     writeScope: artifact-only
     generation: { task: analyze }
@@ -1473,7 +1482,7 @@ phases:
       kind: ui-exploration-evidence
       minimumBytes: 700
       validation: { requiredHeadings: [Authorized target, Observed journeys and states, Accessibility and locator evidence, Visual and runtime evidence, Coverage gaps] }
-    worldModel: { views: [testing, development, security], depth: deep, evidence: true }
+    worldModel: {views: [dev.impact], depth: deep, evidence: true}
     clarification: { mode: when-needed, maxQuestions: 3, topics: [environment access, test data, observed behavior, accessibility, evidence gaps] }
     writeScope: artifact-only
     generation: { task: analyze }
@@ -1493,7 +1502,7 @@ phases:
       kind: implementation-summary
       minimumBytes: 600
       validation: { requiredHeadings: [Repository-native design, Files changed, Scenario traceability, Locator and test-data strategy, Deviations and residual risk] }
-    worldModel: { views: [development, testing, architecture, security], depth: deep }
+    worldModel: {views: [arch.contracts, dev.impact], depth: deep}
     clarification: { mode: when-needed, maxQuestions: 3, topics: [framework conventions, fixtures, test data, approved deviations, implementation blockers] }
     writeScope: source-and-artifact
     sourceBoundary: test-automation
@@ -1509,7 +1518,7 @@ phases:
       kind: test-evidence
       minimumBytes: 800
       validation: { requiredHeadings: [Validation scope, Commands and environment, Scenario results, Evidence inventory, Repair attempts, Final verdict] }
-    worldModel: { views: [testing, development, security], depth: deep, evidence: true }
+    worldModel: {views: [dev.impact], depth: deep, evidence: true}
     clarification: { mode: when-needed, maxQuestions: 3, topics: [failure classification, environment, evidence, repair scope, residual risk] }
     writeScope: source-and-artifact
     sourceBoundary: test-automation
@@ -1535,7 +1544,7 @@ phases:
       kind: publication-review
       minimumBytes: 700
       validation: { requiredHeadings: [Publication boundary, Change and coverage summary, Validation evidence, Residual risk and rollback, Human decision] }
-    worldModel: { views: [release, testing, development, security], depth: standard, evidence: true }
+    worldModel: {views: [arch.contracts, dev.impact], depth: standard, evidence: true}
     clarification: { mode: when-needed, maxQuestions: 3, topics: [publication target, evidence gaps, residual risk, rollback, reviewer decision] }
     writeScope: artifact-only
     generation: { task: summarize }
@@ -1610,7 +1619,7 @@ phases:
     defaultTemplate: spec-driven/spec.md
     artifact: { path: artifacts/specification/spec.md, kind: requirements, minimumBytes: 400 }
     artifactSet: spec-driven-specification
-    worldModel: { views: [business], depth: standard }
+    worldModel: {views: [biz.rules], depth: standard}
     clarification:
       mode: required
       maxQuestions: 5
@@ -1633,7 +1642,7 @@ phases:
     defaultTemplate: spec-driven/plan.md
     artifact: { path: artifacts/planning/plan.md, kind: design, minimumBytes: 300 }
     artifactSet: spec-driven-planning
-    worldModel: { views: [architecture], depth: standard }
+    worldModel: {views: [arch.contracts], depth: standard}
     # Planning consumes the approved specification without a second mandatory interview. Material
     # intent changes return through governed amendment/rework rather than an ad-hoc response file.
     clarification: { mode: off }
@@ -1644,7 +1653,7 @@ phases:
     defaultTemplate: spec-driven/release.md
     artifact: { path: artifacts/release/conformance.md, kind: conformance-report, minimumBytes: 300 }
     artifactSet: spec-driven-verification
-    worldModel: { views: [release], depth: quick, evidence: true }
+    worldModel: {views: [arch.contracts, dev.impact], depth: quick, evidence: true}
     writeScope: artifact-only
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [implementation, verification, release] }
   convergence:
@@ -1654,7 +1663,7 @@ phases:
     # engine generates it, and only explicit human advancement and approval pass it [E2G-001].
     artifact: { path: artifacts/convergence/convergence.md, kind: convergence-report, minimumBytes: 200 }
     generation: { requirement: required, producer: deterministic, task: analyze }
-    worldModel: { views: [development], depth: quick }
+    worldModel: {views: [dev.impact], depth: quick}
     writeScope: artifact-only
     # Human advancement out of convergence, and governed rework back to implementation
     # [SPK:REQ-032]. Advancement fails while blocking findings remain [SPK:REQ-183].
@@ -1664,7 +1673,7 @@ phases:
     defaultTemplate: quick-fix/implement.md
     artifact: { path: artifacts/implement/implementation-summary.md, kind: implementation-summary, minimumBytes: 200 }
     generation: { requirement: required, producer: deterministic, task: code }
-    worldModel: { views: [development], depth: quick }
+    worldModel: {views: [dev.impact], depth: quick}
     writeScope: source-and-artifact
     approval: none
     qualityCommands: []
@@ -1673,7 +1682,7 @@ phases:
     defaultTemplate: quick-fix/verify.md
     artifact: { path: artifacts/verify/verification-summary.md, kind: test-evidence, minimumBytes: 200 }
     generation: { requirement: required, producer: deterministic, task: analyze }
-    worldModel: { views: [testing], depth: quick, evidence: true }
+    worldModel: {views: [dev.impact], depth: quick, evidence: true}
     writeScope: source-and-artifact
     approval: { mode: policy, policy: quick-fix-low-risk-v1, maximumChangedPaths: 5, authorities: [quality-reviewers], minimum: 1, rejectTo: [implement, verify] }
     # A policy waiver is impossible without at least one required check. Repositories

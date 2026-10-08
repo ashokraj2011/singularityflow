@@ -33,6 +33,7 @@ export const UPGRADE_CONTRACT = Object.freeze({
   DOCS_MANIFEST_MISMATCH: guided('product-alignment'),
   WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE: guided('reviewed-registry-admission'),
   WMB_MIGRATION_REQUIRED: guided(),
+  WMB_SEED_MIGRATION_REQUIRED: guided(),
   WMB_VIEW_VERSION_UNSUPPORTED: guided(),
   WFA_RUNTIME_INCOMPATIBLE: guided(),
   WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED: guided(),

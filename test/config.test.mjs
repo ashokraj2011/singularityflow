@@ -286,6 +286,8 @@ test('the shipped workflow schema stays in parity with token economy and code-de
       && error.details.invalidEntries[1].code === 'WMB_VIEW_UNKNOWN'
   );
   const legacyProjection = structuredClone(template);
+  legacyProjection.worldModel.format = 'legacy-v3';
+  legacyProjection.worldModel.views = legacyProjection.worldModel.views.map(view => view.split('@')[0]);
   legacyProjection.worldModel.projections['arch.calm'].enabled = true;
   assert.throws(
     () => validateDefinition(legacyProjection),
@@ -643,6 +645,7 @@ test('world-model immutable history root is portable and disjoint from the curre
   // output path even after packaged refresh adds historyDir. Selecting registered-v4 is the
   // explicit transition into the stricter paired-root boundary.
   definition.worldModel.format = 'legacy-v3';
+  definition.worldModel.views = definition.worldModel.views.map(view => view.split('@')[0]);
   definition.worldModel.outputDir = 'singularity';
   definition.worldModel.historyDir = 'singularity/world-model-history';
   assert.doesNotThrow(() => validateDefinition(definition));
@@ -1196,7 +1199,7 @@ test('work-type phase overrides merge world model, quality, comparison, and appr
     worldModel: { depth: 'deep' }, qualityCommands: ['npm test'], comparison: { requireFiles: true }, approval: { minimum: 2 }
   } };
   const design = resolveWorkType(definition, 'feature').phases.find((phase) => phase.id === 'design');
-  assert.equal(design.worldModel.depth, 'deep'); assert.deepEqual(design.worldModel.views, ['architecture', 'security']);
+  assert.equal(design.worldModel.depth, 'deep'); assert.deepEqual(design.worldModel.views, ['arch.contracts']);
   assert.deepEqual(design.qualityCommands, ['npm test']); assert.equal(design.comparison.requireFiles, true);
   assert.equal(design.approval.minimum, 2); assert.deepEqual(design.approval.authorities, ['architecture-reviewers']);
 });

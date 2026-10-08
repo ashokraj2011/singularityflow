@@ -9,6 +9,11 @@ git:
 
 templatesRoot: singularity/templates
 spec: { mode: record, coverage: record, acceptance: presence }
+worldModel:
+  format: registered-v4
+  views: [arch.contracts@4, biz.rules@4, dev.hotspots@4, dev.impact@4]
+  v4: { composer: deterministic, cachePolicy: reuse-valid, legacyAssignments: strict }
+  promptSource: builtin
 
 documents:
   allowedPhases: [intake, design, implementation-spec]
@@ -38,25 +43,25 @@ phases:
     label: Intake
     defaultTemplate: common/intake.md
     artifact: { path: artifacts/intake/intake.md, kind: intake, minimumBytes: 200 }
-    worldModel: { views: [business], depth: quick }
+    worldModel: {views: [biz.rules], depth: quick}
     approval: { authorities: [product-approvers], minimum: 1, rejectTo: [intake] }
   design:
     label: Architecture and design
     defaultTemplate: feature/design.md
     artifact: { path: artifacts/design/design.md, kind: design, minimumBytes: 300 }
-    worldModel: { views: [architecture, security], depth: standard }
+    worldModel: {views: [arch.contracts], depth: standard}
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [intake, design] }
   implementation-spec:
     label: Implementation specification
     defaultTemplate: feature/implementation-spec.md
     artifact: { path: artifacts/implementation-spec/implementation-spec.md, kind: implementation-spec, minimumBytes: 400 }
-    worldModel: { views: [architecture, development, testing], depth: deep }
+    worldModel: {views: [arch.contracts, dev.impact], depth: deep}
     approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [design, implementation-spec] }
   implementation:
     label: Implementation
     defaultTemplate: common/implementation.md
     artifact: { path: artifacts/implementation/implementation-summary.md, kind: implementation-summary, minimumBytes: 250 }
-    worldModel: { views: [development, testing], depth: standard }
+    worldModel: {views: [dev.impact], depth: standard}
     generation: { task: code }
     writeScope: source-and-artifact
     qualityCommands: [npm test, npm run check]
@@ -65,14 +70,14 @@ phases:
     label: Verification
     defaultTemplate: common/verification.md
     artifact: { path: artifacts/verification/test-evidence.md, kind: test-evidence, minimumBytes: 300 }
-    worldModel: { views: [testing, security], depth: standard, evidence: true }
+    worldModel: {views: [dev.impact], depth: standard, evidence: true}
     qualityCommands: [npm test]
     approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [implementation, verification] }
   conformance:
     label: Spec-to-code conformance
     defaultTemplate: common/conformance.md
     artifact: { path: artifacts/conformance/spec-code-comparison.md, kind: conformance-report, minimumBytes: 400 }
-    worldModel: { views: [architecture, development, testing, security], depth: deep, evidence: true }
+    worldModel: {views: [arch.contracts, dev.impact], depth: deep, evidence: true}
     approval: { authorities: [architecture-reviewers, quality-reviewers], minimum: 2, rejectTo: [implementation-spec, implementation, verification, conformance] }
 
 governance:

@@ -288,6 +288,8 @@ test('safe reinitialization preserves one-byte and one-field prior-package custo
   t.after(() => rm(root, { recursive: true, force: true }));
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  // This repository explicitly retains customized legacy phase selectors during its migration.
+  workflow.worldModel.v4.legacyAssignments = 'inherit-configured';
   const priorWorkflow = YAML.parse(await readFile(path.join(
     ROOT, 'test/fixtures/packaged-workflow-prior-v2.yml'
   ), 'utf8'));

@@ -1,3 +1,4 @@
+import { initializeLegacyWorldModelDefinition } from './helpers/legacy-world-model.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -276,7 +277,7 @@ test('wm build --format registered-v4 works against the packaged legacy-v3 catal
   git(root, ['config', 'user.name', 'WMB Test']);
   git(root, ['config', 'user.email', 'wmb@example.invalid']);
   await writeFile(path.join(root, 'application.mjs'), 'export const ready = true;\n');
-  await initializeDefinition(root);
+  await initializeLegacyWorldModelDefinition(root);
   git(root, ['add', '.']);
   git(root, ['commit', '-q', '-m', 'initialize legacy world-model fixture']);
 
@@ -870,7 +871,7 @@ test('registered-v4 configuration refuses legacy view IDs during format transiti
   git(root, ['config', 'user.name', 'WMB Test']);
   git(root, ['config', 'user.email', 'wmb@example.invalid']);
   await writeFile(path.join(root, 'application.mjs'), 'export const ready = true;\n');
-  await initializeDefinition(root);
+  await initializeLegacyWorldModelDefinition(root);
   const workflowPath = path.join(root, 'singularity', 'workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
   workflow.worldModel.format = 'registered-v4';
@@ -888,7 +889,7 @@ test('registered-v4 transition bridge loads packaged legacy assignments and sele
   git(root, ['config', 'user.name', 'WMB Test']);
   git(root, ['config', 'user.email', 'wmb@example.invalid']);
   await writeFile(path.join(root, 'application.mjs'), 'export const ready = true;\n');
-  await initializeDefinition(root);
+  await initializeLegacyWorldModelDefinition(root);
   const workflowPath = path.join(root, 'singularity', 'workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
   workflow.worldModel.format = 'registered-v4';
@@ -1662,9 +1663,12 @@ test('a phase-scoped registered-v4 build remains exact for that phase when the r
 
 test('Initiative start and composition migrate packaged legacy assignments to the exact registered-v4 projection', async (t) => {
   const root = await registeredRepository(t);
+  await initializeLegacyWorldModelDefinition(root);
   const workflowPath = path.join(root, 'singularity', 'workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
-  workflow.worldModel.v4.legacyAssignments = 'inherit-configured';
+  workflow.worldModel.format = 'registered-v4';
+  workflow.worldModel.views = ['dev.impact@4'];
+  workflow.worldModel.v4 = { composer: 'deterministic', legacyAssignments: 'inherit-configured' };
   await writeFile(workflowPath, YAML.stringify(workflow));
   const portfolioPath = path.join(root, 'singularity', 'portfolio.yml');
   const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));

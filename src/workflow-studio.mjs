@@ -43,6 +43,7 @@ import {
 } from './code-delivery-policy.mjs';
 import { AUTHORING_SKILL_ID, authoringSkillCatalog, authoringSkillEntry } from './authoring-skills.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
+import { worldModelViewCatalog, WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
 import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
@@ -88,15 +89,34 @@ const TOOL_LABELS = Object.freeze({
 
 /** Starting points for a new agent: tools, knowledge views and instructions a person then edits. */
 export const AGENT_ROLES = Object.freeze([
-  Object.freeze({ id: 'analyst', label: 'Analyst', hint: 'Compares options and writes analyses', tools: ['read', 'search', 'edit', 'ask_user'], views: ['business'], instructions: 'Read only the approved inputs named in the composed phase prompt. Compare the options against the stated criteria in one table, give the evidence for every judgement, and list open questions instead of guessing. Stop for human review when the analysis is written.' }),
-  Object.freeze({ id: 'product-owner', label: 'Product owner', hint: 'Intake, requirements, outcomes', tools: ['read', 'search', 'edit', 'bash', 'ask_user'], views: ['business'], instructions: 'Restate the request as measurable outcomes and acceptance criteria. Keep scope explicit: what is in, what is out, and what is assumed. Cite the evidence each requirement rests on.' }),
-  Object.freeze({ id: 'architect', label: 'Architect', hint: 'Designs and specifications', tools: ['read', 'search', 'edit', 'bash', 'ask_user'], views: ['architecture', 'security'], instructions: 'Define boundaries, contracts, data flow and risks for the approved requirements. Prefer the smallest design that follows existing repository patterns, and record every decision with its alternatives.' }),
-  Object.freeze({ id: 'developer', label: 'Developer', hint: 'Changes code and tests', tools: ['read', 'search', 'edit', 'bash', 'ask_user'], views: ['development', 'testing'], instructions: 'Implement the approved specification with the smallest coherent change that follows existing conventions, error handling and tests. Record changed files, commands actually run, and residual risk.' }),
-  Object.freeze({ id: 'tester', label: 'Tester', hint: 'Verifies against the spec', tools: ['read', 'search', 'edit', 'bash', 'ask_user'], views: ['testing'], instructions: 'Verify behaviour against the approved specification. Record each check, the command or steps used, the observed result and the evidence, and report gaps rather than passing them.' }),
-  Object.freeze({ id: 'designer', label: 'Designer', hint: 'Works from designs', tools: ['read', 'search', 'edit', 'ask_user'], views: ['business'], instructions: 'Work from the approved design sources. Name each screen and component you rely on, note gaps between the design and the request, and keep visual decisions traceable to the source.' }),
+  Object.freeze({ id: 'analyst', label: 'Analyst', hint: 'Compares options and writes analyses', tools: ['read', 'search', 'edit', 'ask_user'], views: ['biz.rules'], instructions: 'Read only the approved inputs named in the composed phase prompt. Compare the options against the stated criteria in one table, give the evidence for every judgement, and list open questions instead of guessing. Stop for human review when the analysis is written.' }),
+  Object.freeze({ id: 'product-owner', label: 'Product owner', hint: 'Intake, requirements, outcomes', tools: ['read', 'search', 'edit', 'bash', 'ask_user'], views: ['biz.rules'], instructions: 'Restate the request as measurable outcomes and acceptance criteria. Keep scope explicit: what is in, what is out, and what is assumed. Cite the evidence each requirement rests on.' }),
+  Object.freeze({ id: 'architect', label: 'Architect', hint: 'Designs and specifications', tools: ['read', 'search', 'edit', 'bash', 'ask_user'], views: ['arch.contracts'], instructions: 'Define boundaries, contracts, data flow and risks for the approved requirements. Prefer the smallest design that follows existing repository patterns, and record every decision with its alternatives.' }),
+  Object.freeze({ id: 'developer', label: 'Developer', hint: 'Changes code and tests', tools: ['read', 'search', 'edit', 'bash', 'ask_user'], views: ['dev.impact'], instructions: 'Implement the approved specification with the smallest coherent change that follows existing conventions, error handling and tests. Record changed files, commands actually run, and residual risk.' }),
+  Object.freeze({ id: 'tester', label: 'Tester', hint: 'Verifies against the spec', tools: ['read', 'search', 'edit', 'bash', 'ask_user'], views: ['dev.impact'], instructions: 'Verify behaviour against the approved specification. Record each check, the command or steps used, the observed result and the evidence, and report gaps rather than passing them.' }),
+  Object.freeze({ id: 'designer', label: 'Designer', hint: 'Works from designs', tools: ['read', 'search', 'edit', 'ask_user'], views: ['biz.rules'], instructions: 'Work from the approved design sources. Name each screen and component you rely on, note gaps between the design and the request, and keep visual decisions traceable to the source.' }),
   Object.freeze({ id: 'reviewer', label: 'Reviewer', hint: "Checks others' work", tools: ['read', 'search', 'edit', 'ask_user'], views: [], instructions: "Review the approved inputs and the step's draft against the stated criteria. List each finding with its evidence and severity, and separate blocking issues from suggestions." }),
   Object.freeze({ id: 'blank', label: 'Blank', hint: 'Write it yourself', tools: ['read', 'search', 'edit'], views: [], instructions: 'Describe what this agent should do in each step it drafts.' })
 ]);
+
+const LEGACY_AGENT_ROLE_VIEWS = Object.freeze({
+  analyst: ['business'], 'product-owner': ['business'], architect: ['architecture', 'security'],
+  developer: ['development', 'testing'], tester: ['testing'], designer: ['business']
+});
+
+/** Presets are authoring suggestions, never aliases or permission to add undeclared contracts. */
+export function agentRolePresets(definition) {
+  const { format, views } = definition?.worldModel ?? {};
+  // The display catalog also lists referenced-but-undeclared views for diagnostics. Presets must
+  // use only the approved enabled catalog, even while an invalid draft is open in the Studio.
+  const catalog = new Set(worldModelViewCatalog({ worldModel: { format, views } }));
+  return AGENT_ROLES.map((role) => ({
+    ...role,
+    views: (format === 'registered-v4'
+      ? role.views : LEGACY_AGENT_ROLE_VIEWS[role.id] ?? [])
+      .filter((view) => catalog.has(view))
+  }));
+}
 
 // ---------------------------------------------------------------------------------------------
 // Reading
@@ -517,10 +537,10 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       outputs: STEP_OUTPUTS,
       authoringSkills: await authoringSkillChoices(),
       clarification: CLARIFICATION_MODES,
-      views: (raw.worldModel?.views ?? definition?.worldModel?.views ?? []).map((view) => String(view).replace(/@[1-9][0-9]*$/, '')),
+      views: worldModelViewCatalog(definition ?? raw),
       tools: [...new Set([...Object.keys(TOOL_LABELS), ...discovered.flatMap((agent) => agent.tools ?? [])])]
         .map((id) => ({ id, label: TOOL_LABELS[id] ?? id })),
-      roles: AGENT_ROLES,
+      roles: agentRolePresets(definition ?? raw),
       integrationKinds: Object.entries(INTEGRATION_TARGET_KINDS).map(([id, entry]) => ({ id, label: entry.label, available: entry.available, sends: [...entry.sends] })),
       httpLogFormats: [...HTTP_LOG_FORMATS],
       actionTriggers: [...STEP_ACTION_TRIGGERS],
@@ -1215,8 +1235,10 @@ class StudioCandidate {
     return [...new Set(agents.map((agent) => { const agentId = requireId(agent, 'An agent ID'); this.requireAgent(agentId); return agentId; }))];
   }
   epicList(values, name, what) {
-    if (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value))) {
-      throw new SingularityFlowError(`The ${what} of ${name} are a list of lower-case kebab-case names.`, { code: 'STUDIO_EPIC_STEP_INVALID' });
+    const views = what === 'knowledge views';
+    const pattern = views ? WORLD_MODEL_VIEW_ID : /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+    if (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || !pattern.test(value))) {
+      throw new SingularityFlowError(`The ${what} of ${name} are a list of lower-case ${views ? 'logical view IDs (for example dev.impact)' : 'kebab-case names'}.`, { code: 'STUDIO_EPIC_STEP_INVALID' });
     }
     return [...new Set(values)];
   }
@@ -1825,7 +1847,8 @@ class StudioCandidate {
   createAgent({ id, label, description, role = 'blank', tools, views, instructions }) {
     const agentId = requireId(id, 'An agent ID');
     if (this.agents.has(agentId)) throw new SingularityFlowError(`An agent called '${agentId}' already exists.`, { code: 'STUDIO_AGENT_EXISTS' });
-    const preset = AGENT_ROLES.find((entry) => entry.id === role) ?? AGENT_ROLES.at(-1);
+    const presets = agentRolePresets(this.content);
+    const preset = presets.find((entry) => entry.id === role) ?? presets.at(-1);
     const name = requireLabel(label, 'The agent');
     const what = String(description ?? '').replace(/\s+/g, ' ').trim();
     if (!what) throw new SingularityFlowError(`Say what ${name} does in one sentence.`, { code: 'STUDIO_AGENT_INVALID' });

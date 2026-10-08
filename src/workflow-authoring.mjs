@@ -22,7 +22,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import { seededWorkflowCatalogs, seededWorkflowProtection, assertSeededWorkflowsUnchanged } from './seeded-workflow-protection.mjs';
-import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
+import { PORTFOLIO_PATH, validatePortfolio, validatePortfolioWorldModelViews } from './initiative-config.mjs';
 import { assertPlannedClaimsReady, resolveWorkType, WORKFLOW_PATH, validateDefinition } from './config.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
@@ -133,7 +133,7 @@ async function loadIn(root, store) {
  * another command can load while it is invalid, and the failure then surfaces somewhere unrelated
  * to the edit that caused it.
  */
-async function saveIn(file, document, store) {
+async function saveIn(file, document, store, beforeWrite = null) {
   store.validate(document.toJS());
   // The file is maintained by people too: only the edited lines change, the rest keep their formatting.
   const original = existsSync(file) ? await readFile(file, 'utf8') : null;
@@ -143,8 +143,14 @@ async function saveIn(file, document, store) {
     for (const [side, definition] of Object.entries(STORES)) values[side] =
       (await loadIn(root, definition).catch(() => null))?.document.toJS() ?? {};
     const candidate = { ...values, [store.governs]: document.toJS() };
+    // Validate the two files together before either authoring route writes. A structurally valid
+    // portfolio can otherwise install legacy/unknown views which only fail at phase execution.
+    if (candidate.story.worldModel && candidate.initiative.initiativePhases) {
+      validatePortfolioWorldModelViews(candidate.initiative, candidate.story);
+    }
     assertSeededWorkflowsUnchanged(await seededWorkflowProtection(values.story, values.initiative), values, candidate);
   }
+  if (beforeWrite) await beforeWrite();
   await writeFile(file, renderPreservingFormatting(original, document), 'utf8');
 }
 
@@ -463,11 +469,12 @@ export async function addPhase(root, phaseId, {
       throw error;
     }
   }
-  // Written before the phase is saved, because saving validates and the validation requires it.
-  const template = store.governs === 'story'
-    ? await writeStarterTemplate(root, id, label ?? id)
-    : null;
-  await saveIn(file, document, store);
+  // Validate both documents before installing a starter. A refused view assignment must not
+  // leave an orphan template behind while claiming that nothing was written.
+  let template = null;
+  await saveIn(file, document, store, store.governs === 'story' ? async () => {
+    template = await writeStarterTemplate(root, id, label ?? id);
+  } : null);
   return { phaseId: id, governs: store.governs, path: store.file, template, usedBy: [] };
 }
 

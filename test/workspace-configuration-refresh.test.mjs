@@ -1,3 +1,4 @@
+import { initializeLegacyWorldModelDefinition } from './helpers/legacy-world-model.mjs';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
@@ -270,9 +271,10 @@ test('confirmed migration publishes repository and capability settings together 
   run('git', ['clone', '--quiet', '--single-branch', '--branch', 'sflow/config', remote, editor]);
   git(editor, ['config', 'user.name', 'Migration Test']);
   git(editor, ['config', 'user.email', 'migration@example.test']);
+  await initializeLegacyWorldModelDefinition(editor);
   const capsText = '# Preserve authored layout and routing\nversion: 1\ncapabilities:\n  enterprise:\n    kind: collection\n    policy:\n      approvalMinimum: 2\n      requiredWorldModelViews: [security, testing]\n';
   await writeFile(path.join(editor, 'singularity/capabilities.yml'), capsText);
-  git(editor, ['add', 'singularity/capabilities.yml']);
+  git(editor, ['add', 'singularity/workflow.yml', 'singularity/capabilities.yml']);
   git(editor, ['commit', '-m', 'Custom capability policy']);
   git(editor, ['push', 'origin', 'HEAD:sflow/config']);
   const state = path.join(root, 'state');
@@ -351,18 +353,20 @@ test('confirmed migration publishes repository and capability settings together 
   assert.equal(await readFile(path.join(repository, 'uncommitted.txt'), 'utf8'), 'do not touch draft\n');
 });
 
-test('an already registered custom catalog is not widened by packaged legacy defaults', async t => {
+test('a narrow registered catalog refuses incompatible native seed obligations without widening approved policy', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-migration-custom-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  await initializeFixture(root);
+  await initializeLegacyWorldModelDefinition(root);
   const file = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(file, 'utf8'));
   definition.worldModel.format = 'registered-v4';
   definition.worldModel.views = ['dev.impact@4'];
   definition.worldModel.v4 = { legacyAssignments: 'inherit-configured', composer: 'model-optional' };
   await writeFile(file, YAML.stringify(definition));
-  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true, migrateWorldModel: true });
-  assert.deepEqual(result.worldModelMigration.views, ['dev.impact@4']);
+  const before = await readFile(file, 'utf8');
+  await assert.rejects(refreshPackagedConfiguration(root, { restorePackagedSeeds: true, migrateWorldModel: true }),
+    /arch\.contracts.*not declared/);
+  assert.equal(await readFile(file, 'utf8'), before, 'a new seed obligation requires configuration-authority review');
   const after = await loadDefinition(root);
   assert.deepEqual(after.worldModel.views, ['dev.impact@4']);
   assert.equal(after.worldModel.v4.composer, 'model-optional');
@@ -1363,7 +1367,7 @@ Preserve the repository-owned company intake policy and cite governed evidence.
 `;
   await writeFile(companyAgentFile, companyAgentBytes);
 
-  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true, migrateWorldModel: true });
   const refreshed = YAML.parse(await readFile(workflowFile, 'utf8'));
 
   assert.equal(refreshed.version, 2,
@@ -1452,7 +1456,7 @@ test('seeded reinitialization retires an exact registered v1 prompt with histori
     }
   }));
 
-  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  const result = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true, migrateWorldModel: true });
 
   await assert.rejects(readFile(retiredPromptFile), (error) => error?.code === 'ENOENT',
     'an exact registered historical package prompt should be retired');

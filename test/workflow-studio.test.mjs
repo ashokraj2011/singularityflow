@@ -674,7 +674,7 @@ test('a change leaves a null list as it is and refuses a list that is not one', 
     assert.equal(plan.valid, true, JSON.stringify(plan.problems));
   }
   await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes: [
-    { op: 'phase.create', id: 'listed', label: 'Listed', agent: 'architect', approval: 'none', inputs: ['intake'], views: ['business'] },
+    { op: 'phase.create', id: 'listed', label: 'Listed', agent: 'architect', approval: 'none', inputs: ['intake'], views: ['biz.rules'] },
     { op: 'workflow.create', id: 'listed-flow', label: 'Listed flow', phases: ['intake', 'listed'] }
   ] }, { write: true });
   const copy = { schema: 'sflow-studio-change-set@1', changes: [
@@ -684,7 +684,7 @@ test('a change leaves a null list as it is and refuses a list that is not one', 
   assert.equal((await planStudioChangeSet(root, copy)).valid, true);
   await planStudioChangeSet(root, copy, { write: true });
   const saved = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
-  assert.deepEqual([saved.phases['listed-copy'].inputs, saved.phases['listed-copy'].worldModel.views], [['intake'], ['business']]);
+  assert.deepEqual([saved.phases['listed-copy'].inputs, saved.phases['listed-copy'].worldModel.views], [['intake'], ['biz.rules']]);
   // Anything else that is not a list is refused with the Studio's own code, never a TypeError.
   for (const [change, code] of [
     [{ op: 'phase.create', id: 'text-inputs', label: 'Text inputs', agent: 'architect', approval: 'none', inputs: 'intake' }, 'STUDIO_PHASE_UNKNOWN'],
@@ -994,7 +994,7 @@ test('Epic workflows are edited in the Studio: steps with outputs and sign-off, 
   assert.match(model.base.portfolioSha256, /^[a-f0-9]{64}$/);
 
   const file = await changeSet(root, [
-    { op: 'epicStep.create', id: 'vendor-review', label: 'Vendor review', agents: ['product-owner'], lanes: ['business-product'], views: ['business'],
+    { op: 'epicStep.create', id: 'vendor-review', label: 'Vendor review', agents: ['product-owner'], lanes: ['business-product'], views: ['biz.rules'],
       approval: { group: 'product-approvers', minimum: 1 } },
     { op: 'epicOutput.set', step: 'vendor-review', id: 'vendor-brief', label: 'Vendor brief', kind: 'markdown', template: 'initiatives/generic-output.md', consumes: ['define/business-case'] },
     { op: 'epicWorkflow.create', id: 'vendor-epic', label: 'Vendor Epic', description: 'Choose a vendor.', phases: ['define', 'vendor-review'] },

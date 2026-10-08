@@ -25,6 +25,7 @@ import { assertAttachedLibrarySkills } from './skill-library.mjs';
 import { groundingMode } from './grounding.mjs';
 import {
   discoverAgents,
+  parseAgentDependencies,
   isAgentTemplateReference,
   materializeAgentTemplate,
   parseAgentTemplateReference,
@@ -2093,10 +2094,52 @@ async function copyIfMissing(source, destination, repositoryRoot = null) {
   return true;
 }
 
+/** A file-only repair cannot change the approved view policy together with its agents. */
+async function assertSeedAgentViewCompatibility(root) {
+  const workflow = await secureRepositoryPath(root, WORKFLOW_PATH, { label: 'Initialization workflow' });
+  if (!workflow.exists) return;
+  const definition = YAML.parse(await readFile(workflow.absolute, 'utf8'));
+  const registered = definition?.worldModel?.format === 'registered-v4';
+  const catalog = definition?.worldModel?.views ?? BUILTIN_VIEW_IDS;
+  const enabled = new Set(registered && Array.isArray(catalog) ? catalog.flatMap(view => {
+    try { return [normalizeBuiltInViewReference(view).viewId]; } catch { return []; }
+  }) : []);
+  if (BUILTIN_VIEW_IDS.every(view => enabled.has(view))) return;
+  const incompatible = [];
+  const sourceRoot = path.join(PACKAGE_ROOT, 'templates/agents');
+  for (const name of await readdir(sourceRoot)) {
+    if (!name.endsWith('.agent.md')) continue;
+    const relative = `.github/agents/${name}`;
+    const bundled = await readFile(path.join(sourceRoot, name));
+    const missing = parseAgentDependencies(bundled.toString('utf8'), { source: relative })
+      .worldModelViews.filter(view => !enabled.has(view));
+    if (!missing.length) continue;
+    const target = await secureRepositoryPath(root, relative, { label: 'Initialization agent' });
+    if (target.exists) {
+      const current = await readFile(target.absolute);
+      if (current.equals(bundled)) continue;
+      // A customized agent is preserved, not replaced by the new package's view assignments.
+      if (!isRetiredPackagedAsset(relative, current)
+          && !trackedRetiredPackagedAsset(root, relative, current)) continue;
+    }
+    incompatible.push({ path: relative, views: missing });
+  }
+  if (incompatible.length) throw new SingularityFlowError(
+    'File-only initialization would install native v4 agents against an incompatible World Model catalog. '
+    + 'Use Configuration Center → After install → Migrate workspace & capabilities to review the policy and assets together. '
+    + 'CLI preview: singularity-flow workspace reinitialize --migrate-world-model --dry-run. Nothing was changed.',
+    { code: 'WMB_SEED_MIGRATION_REQUIRED', details: {
+      format: definition?.worldModel?.format ?? 'legacy-v3', assignments: incompatible,
+      nextAction: 'singularity-flow workspace reinitialize --migrate-world-model --dry-run'
+    } }
+  );
+}
+
 export async function initializeDefinition(root) {
   if (!existsSync(path.join(root, CONTROL_ROOT)) && existsSync(path.join(root, LEGACY_CONTROL_ROOT))) {
     throw new SingularityFlowError(`This repository contains unsupported ${LEGACY_CONTROL_ROOT}/ state. Run singularity-flow factory-reset to create a clean current configuration.`);
   }
+  await assertSeedAgentViewCompatibility(root);
   const wrote = [];
   for (const [source, destination] of INITIALIZATION_MAPPINGS) {
     if (await copyIfMissing(

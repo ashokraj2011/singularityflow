@@ -88,7 +88,7 @@ test('edits made in the page become one change set the engine accepts', async ()
   assert.deepEqual(logic.changeSetFrom(model, draft).changes, [], 'an untouched draft changes nothing');
 
   // A new agent, a new step it drafts, and a new workflow using an existing step and the new one.
-  draft.agents['vendor-analyst'] = { id: 'vendor-analyst', label: 'Vendor analyst', description: 'Compares vendor options against the approved intake.', tools: ['read', 'search', 'edit', 'ask_user'], views: ['business'], instructions: 'Compare vendors in one table.', scope: 'repository', isNew: true, role: 'analyst' };
+  draft.agents['vendor-analyst'] = { id: 'vendor-analyst', label: 'Vendor analyst', description: 'Compares vendor options against the approved intake.', tools: ['read', 'search', 'edit', 'ask_user'], views: ['biz.rules'], instructions: 'Compare vendors in one table.', scope: 'repository', isNew: true, role: 'analyst' };
   draft.phases['vendor-analysis'] = { id: 'vendor-analysis', label: 'Vendor analysis', output: 'analysis', views: [], clarification: 'off', agent: 'vendor-analyst', usedBy: ['vendor-assessment'], isNew: true, approval: { group: 'product-approvers', minimum: 1 }, inputs: ['intake'] };
   draft.workflows['vendor-assessment'] = { id: 'vendor-assessment', label: 'Vendor assessment', description: '', phases: ['intake', 'vendor-analysis'], reworkLoops: [{ from: 'vendor-analysis', to: 'intake', maxAttempts: 3 }], isNew: true, installFrom: null };
   draft.steps['vendor-assessment'] = {
@@ -553,14 +553,14 @@ test('copied step drafts retain effective workflow policy and save explicit auto
   const apply = (changes) => planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes }, { write: true });
   await apply([
     { op: 'phase.create', id: 'copy-input', label: 'Copy input', agent: 'architect', approval: 'none' },
-    { op: 'phase.create', id: 'copy-source', label: 'Copy source', agent: 'architect', approval: 'none', inputs: ['copy-input'], views: ['business'], authoringSkill: 'sf-design' },
+    { op: 'phase.create', id: 'copy-source', label: 'Copy source', agent: 'architect', approval: 'none', inputs: ['copy-input'], views: ['biz.rules'], authoringSkill: 'sf-design' },
     ...['copy-one', 'copy-two'].map((id) => ({ op: 'workflow.create', id, label: id, phases: ['copy-input', 'copy-source'] }))
   ]);
   const file = path.join(root, 'singularity/workflow.yml');
   const configuration = YAML.parse(await readFile(file, 'utf8'));
   configuration.workTypes['copy-one'].phaseOverrides = { 'copy-source': {
     authoringSkill: null, generation: { task: 'analyze' }, clarification: { mode: 'required' },
-    worldModel: { views: ['security'], depth: 'deep' }, artifact: { minimumBytes: 345 },
+    worldModel: { views: ['arch.contracts'], depth: 'deep' }, artifact: { minimumBytes: 345 },
     approval: { authorities: ['architecture-reviewers', 'product-approvers'], minimum: 1 }
   } };
   configuration.workTypes['copy-one'].templateOverrides = { 'copy-source': 'common/copy-input.md' };
@@ -569,7 +569,7 @@ test('copied step drafts retain effective workflow policy and save explicit auto
   const { logic } = studioLogic();
   const draft = logic.initialDraft(model);
   draft.phases['copy-result'] = logic.copiedPhaseDraft(model, draft, 'copy-one', 'copy-source', 'copy-result');
-  assert.deepEqual([draft.phases['copy-result'].output, draft.phases['copy-result'].views, draft.phases['copy-result'].clarification], ['analysis', ['security'], 'required']);
+  assert.deepEqual([draft.phases['copy-result'].output, draft.phases['copy-result'].views, draft.phases['copy-result'].clarification], ['analysis', ['arch.contracts'], 'required']);
   draft.workflows['copy-one'].phases = ['copy-input', 'copy-result'];
   draft.steps['copy-one']['copy-result'] = { ...structuredClone(draft.steps['copy-one']['copy-source']), inputs: [], authoringSkill: null };
   delete draft.steps['copy-one']['copy-source'];
@@ -1584,7 +1584,7 @@ test('Epic workflows edited in the Studio become portfolio changes the engine ac
   assert.ok(epics.workflows['repo-initiative-lite'] && epics.steps.define, 'the draft carries the Epic workflows and their steps');
   assert.deepEqual(logic.changeSetFrom(model, state.draft).changes, [], 'loading changes nothing');
 
-  epics.steps['vendor-review'] = { id: 'vendor-review', label: 'Vendor review', agents: ['product-owner'], lanes: ['business-product'], views: ['business'],
+  epics.steps['vendor-review'] = { id: 'vendor-review', label: 'Vendor review', agents: ['product-owner'], lanes: ['business-product'], views: ['biz.rules'],
     approval: { on: true, groups: ['product-approvers'], minimum: 1, chain: false }, outputs: [
       { id: 'vendor-brief', label: 'Vendor brief', kind: 'markdown', path: 'vendor-brief.md', template: 'initiatives/generic-output.md', required: true, consumes: ['define/business-case'], generator: null, ownApproval: false }
     ], checklist: 0, isNew: true };

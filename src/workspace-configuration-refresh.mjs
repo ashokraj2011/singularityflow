@@ -1437,12 +1437,16 @@ export async function refreshPackagedConfiguration(root, {
     const text = info ? await readFile(target, 'utf8') : null;
     const before = text == null ? null : YAML.parse(text);
     if (info) validateCapabilities(structuredClone(before));
-    // The generic additive seed merge must not append old package view names to an already
-    // registered custom catalog when the repository has no historical package baseline.
-    const migrationInput = current.worldModel?.format === 'registered-v4'
-      ? { ...merged.value, worldModel: { ...merged.value.worldModel,
-          views: current.worldModel.views ?? merged.value.worldModel.views } }
-      : merged.value;
+    // Migration interprets the approved source catalog, never an additive union with the new
+    // package catalog. Otherwise native v4 defaults turn a genuine legacy authority into a mixed
+    // catalog (or inject strict mode) before its reviewed migration can install the bridge.
+    const migrationInput = { ...merged.value, worldModel: {
+      ...merged.value.worldModel,
+      ...current.worldModel,
+      format: current.worldModel?.format ?? 'legacy-v3',
+      views: current.worldModel?.views,
+      v4: current.worldModel?.v4
+    } };
     const migration = planWorldModelConfigurationMigration(migrationInput, before);
     merged.value = migration.definition;
     worldModelMigration = migration.report;

@@ -252,9 +252,13 @@ test('initiative world-model views must be declared by the repository workflow',
   }, migrating), (error) => error?.code === 'WMB_VIEW_ASSIGNMENT_MIXED');
   assert.throws(() => validatePortfolioWorldModelViews({
     initiativePhases: { define: { worldModelViews: ['unknown-view'] } }
-  }, migrating), /WMB v4 view|installed/i);
+  }, migrating), error => error.code === 'WMB_VIEW_UNKNOWN' && /define:unknown-view/.test(error.message));
 
   const packaged = await loadPortfolio(root);
+  // The bridge regression is explicitly legacy; native seeds no longer contain legacy selectors.
+  for (const phase of Object.values(packaged.initiativePhases)) {
+    if (phase.worldModelViews.length) phase.worldModelViews = ['business'];
+  }
   const configuredIds = ['arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'];
   assert.deepEqual(
     portfolioWorldModelViews(packaged, migrating),
@@ -286,7 +290,7 @@ test('initiative world-model views must be declared by the repository workflow',
   };
   assert.throws(
     () => resolveInitiativeProfile(unknownOverride, 'initiative-lite', { workflowDefinition: migrating }),
-    /WMB v4 view|installed/i
+    error => error.code === 'WMB_VIEW_UNKNOWN' && /dev\.imapct/.test(error.message)
   );
 });
 

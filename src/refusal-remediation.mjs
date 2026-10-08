@@ -272,6 +272,11 @@ const UPGRADE_KNOWN = Object.freeze({
     step('rebuild-registered-world-model', 'Build the registered model; it replaces the legacy projection without trusting it.',
       'singularity-flow wm build --format registered-v4', 'remediation')
   ],
+  WMB_SEED_MIGRATION_REQUIRED: () => [
+    step('preview-workspace-view-migration',
+      'Review the workspace and capability catalog migration before installing native v4 agent assignments; existing bytes stay preserved.',
+      'singularity-flow workspace reinitialize --migrate-world-model --dry-run', 'remediation', '/sf-admin')
+  ],
   WMB_VIEW_VERSION_UNSUPPORTED: () => [
     step('review-registered-views', 'Compare the requested view version with the installed registered views.',
       'singularity-flow wm views')

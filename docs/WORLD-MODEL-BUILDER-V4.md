@@ -25,7 +25,14 @@ does not rebuild an unchanged repository model.
 
 ## Enable v4
 
-`legacy-v3` remains the configuration default for compatibility. In VS Code, open **Singularity
+New repositories and packaged workflows use `registered-v4`, exact `@4` catalog entries, native
+phase/agent selections, deterministic composition, and strict assignment validation by default.
+World Model-off workflows remain off. An existing configuration without an explicit format still
+reads as `legacy-v3`; an install alone does not rewrite approved configuration or Story pins.
+To migrate, use **Configuration Center → After install → Migrate workspace & capabilities** and
+review the exact plan. The compatibility bridge is for retained legacy assignments, not new seeds.
+
+For advanced configuration in VS Code, open **Singularity
 Flow → Configuration Center → World model**, choose **Registered v4 — governed facts**, review the
 composer, consumer, cache, and token controls, then use the normal configuration review/publication
 flow. The same approved setting can be written directly in `singularity/workflow.yml`:

@@ -11,20 +11,28 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 29
+version: 30
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
 ## Registered v4 builder
 
-Set `worldModel.format: registered-v4` to use the governed v4 pipeline: exact scoped source,
+New repositories use `worldModel.format: registered-v4` by default: exact scoped source,
 closed extractors and view contracts, deterministic Evidence/Derivation/Fact catalogs, independently
 validated views, exact cache reuse, and one atomic state-branch publication. Every factual unit is
 bound to a registered Fact ID; model composition cannot create facts, evidence, assurance, or
 provenance. The built-in views are `dev.impact`, `dev.hotspots`, `biz.rules`, and
 `arch.contracts`. Use `sflow world-model plan`, `build`, `facts`, `evidence`, `validate`, and
-`doctor`; see [the complete WMB v4 guide](../WORLD-MODEL-BUILDER-V4.md). Legacy v3 remains the
-compatibility default and requires an explicit rebuild or migration before v4 reads will trust it.
+`doctor`; see [the complete WMB v4 guide](../WORLD-MODEL-BUILDER-V4.md). Existing configurations
+without a format remain legacy v3 and require explicit migration before v4 reads will trust them.
+All packaged Story and Initiative selectors and agent presets now use logical v4 IDs; the repository
+catalog pins exact `@4` contracts. Native defaults use deterministic composition, cache reuse, and
+strict assignments. Empty selections and workflows with World Model disabled stay that way.
+File-only initialization refuses an agent upgrade that would require changing this catalog; use
+**Configuration Center → After install → Migrate workspace & capabilities** to review both together.
+`biz.rules` grounds registered rules, `arch.contracts` grounds interfaces, `dev.impact` describes
+structural/test impact, and `dev.hotspots` describes concentration. They do not replace test execution,
+screenshots, security review, or release evidence, and legacy names are not semantic aliases.
 During explicit migration, current deterministic registration runs before narrative composition.
 Exact legacy claims may bind only to current registered Facts; every unresolved claim becomes a
 typed `unavailable` Fact through the model-free migration producer, using only claim identity

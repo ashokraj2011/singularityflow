@@ -1,3 +1,4 @@
+import { initializeLegacyWorldModelDefinition } from './helpers/legacy-world-model.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -187,7 +188,7 @@ async function mcpClosureFixture(t, { transitive = false } = {}) {
     await writeFile(path.join(source, configuration.templatesRoot, relative), `# ${id}\n\n## Inputs\n\n## Findings\n`);
     await writeFile(path.join(source, `.github/agents/${agent}.agent.md`), `---\n${YAML.stringify({
       name: agent, description: `Reviewed ${id} role`, tools,
-      metadata: { 'sflow-phases': id, 'sflow-default-for': id, 'sflow-world-model-views': 'architecture' }
+      metadata: { 'sflow-phases': id, 'sflow-default-for': id, 'sflow-world-model-views': 'arch.contracts' }
     })}---\nRead the exact approved inputs and produce only the selected artifact.\n`);
   };
   const server = (hostReference, agents, phases) => ({ hostReference, agents, phases,
@@ -261,7 +262,7 @@ test('workflow export captures a deduplicated multi-workflow dependency closure'
     && asset.reference === 'common/implementation.md'));
   assert.ok(bundle.assets.some((asset) => asset.kind === 'template'
     && asset.reference === 'spec-driven/spec.md'));
-  assert.ok(bundle.requirements.worldModelViews.includes('architecture'));
+  assert.ok(bundle.requirements.worldModelViews.includes('arch.contracts'));
 
   await assert.rejects(
     () => exportWorkflowBundle(root, ['feature'], output),
@@ -305,7 +306,7 @@ test('workflow export reaches a fixed point through cyclic MCP agent and phase r
   }
   assert.deepEqual(bundle.objects.story.artifactSets['portable-extra-set'], f.configuration.artifactSets['portable-extra-set']);
   assert.ok(Object.hasOwn(bundle.objects.story.approvalAuthorities, 'engineering-reviewers'));
-  assert.ok(bundle.requirements.worldModelViews.includes('architecture'));
+  assert.ok(bundle.requirements.worldModelViews.includes('arch.contracts'));
   assert.equal(Object.hasOwn(bundle.objects.story.mcpServers, 'unrelated-server'), false);
   assert.equal(Object.hasOwn(bundle.objects.story.phases, 'unrelated-note'), false);
   assert.equal(bundle.assets.some((asset) => asset.kind === 'agent' && asset.id === 'unrelated-owner'), false);
@@ -422,7 +423,7 @@ test('own declarations named constructor remain valid workflow phase MCP artifac
   await writeFile(path.join(f.source, f.configuration.templatesRoot, 'portable-mcp/constructor.md'), '# Own declaration\n\n## Findings\n');
   await writeFile(path.join(f.source, '.github/agents/constructor-producer.agent.md'), `---\n${YAML.stringify({
     name: 'constructor-producer', description: 'Reviewed role for the own constructor phase', tools: ['constructor/inspect'],
-    metadata: { 'sflow-phases': 'constructor', 'sflow-default-for': 'constructor', 'sflow-world-model-views': 'architecture' }
+    metadata: { 'sflow-phases': 'constructor', 'sflow-default-for': 'constructor', 'sflow-world-model-views': 'arch.contracts' }
   })}---\nProduce only the selected artifact without granting approvals or host access.\n`);
   await writeWorkflowConfiguration(f.source, f.configuration);
   await loadDefinition(f.source);
@@ -498,7 +499,7 @@ test('historical v1 and v2 bundles retain their one-pass MCP scope and original 
   await writeFile(path.join(f.source, '.github/agents/unrelated-owner.agent.md'), `---\n${YAML.stringify({
     name: 'unrelated-owner', description: 'Shared historical MCP scope role',
     tools: ['unrelated-server/inspect', 'portable-agent-server/inspect'],
-    metadata: { 'sflow-phases': 'unrelated-note', 'sflow-default-for': 'unrelated-note', 'sflow-world-model-views': 'architecture' }
+    metadata: { 'sflow-phases': 'unrelated-note', 'sflow-default-for': 'unrelated-note', 'sflow-world-model-views': 'arch.contracts' }
   })}---\nRead the approved shared scope without granting access or running tools.\n`);
   await writeWorkflowConfiguration(f.source, f.configuration);
   await loadDefinition(f.source);
@@ -694,7 +695,7 @@ test('Initiative shared-agent MCP scope retains auxiliary Story phases in the St
     size: Buffer.byteLength(defaultAgentContent, 'utf8'), sha256: `sha256:${sha256(defaultAgentContent)}`
   });
   wrongNamespace.requirements.worldModelViews = [...new Set([
-    ...wrongNamespace.requirements.worldModelViews, 'architecture'
+    ...wrongNamespace.requirements.worldModelViews, 'arch.contracts'
   ])].sort();
   wrongNamespace.bundleSha256 = bundleDigest(wrongNamespace);
   await assert.rejects(() => planWorkflowImport(f.source, wrongNamespace),
@@ -738,6 +739,8 @@ test('Initiative shared-agent MCP scope retains auxiliary Story phases in the St
 test('Initiative import refuses view assignments absent from the target Story catalog', async (t) => {
   const source = await initializedRepository(t, 'sflow-workflow-view-source-');
   const target = await initializedRepository(t, 'sflow-workflow-view-target-');
+  await initializeLegacyWorldModelDefinition(source);
+  await initializeLegacyWorldModelDefinition(target);
   const sourceWorkflow = await workflowConfiguration(source);
   sourceWorkflow.worldModel.views = [...sourceWorkflow.worldModel.views, 'source-only'];
   await writeWorkflowConfiguration(source, sourceWorkflow);

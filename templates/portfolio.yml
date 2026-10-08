@@ -290,7 +290,7 @@ initiativePhases:
     label: Define
     agents: [product-owner]
     lanes: [business-product]
-    worldModelViews: [business]
+    worldModelViews: [biz.rules]
     outputs:
       - { id: business-case, label: Business case, kind: markdown, path: business-case.md, template: initiatives/generic-output.md, approval: { mode: individual, authorities: [product-approvers], minimum: 1, allowSelfApproval: true } }
       - { id: scope-and-outcomes, label: Scope and outcomes, kind: markdown, path: scope-and-outcomes.md, template: initiatives/generic-output.md }
@@ -304,7 +304,7 @@ initiativePhases:
     label: Plan
     agents: [architect]
     lanes: [business-product, design-architecture, engineering]
-    worldModelViews: [business, architecture, security]
+    worldModelViews: [biz.rules, arch.contracts]
     outputs:
       - { id: architecture-summary, label: Architecture summary, kind: markdown, path: architecture-summary.md, template: initiatives/generic-output.md, consumes: [define/scope-and-outcomes], approval: { mode: individual, authorities: [architecture-reviewers], minimum: 1, allowSelfApproval: true } }
       - { id: story-plan, label: Story plan, kind: yaml, path: story-plan.yml, template: initiatives/generic-output.yml, consumes: [define/acceptance-criteria] }
@@ -318,7 +318,7 @@ initiativePhases:
     label: Build
     agents: [developer]
     lanes: [engineering]
-    worldModelViews: [architecture, development, testing, security, operations]
+    worldModelViews: [arch.contracts, dev.hotspots, dev.impact]
     outputs:
       - { id: implementation-index, label: Implementation evidence index, kind: markdown, path: implementation-index.md, template: initiatives/generic-output.md, consumes: [plan/story-plan, plan/interface-contracts] }
       - { id: test-and-ci-report, label: Test and CI report, kind: markdown, path: test-and-ci-report.md, template: initiatives/generic-output.md, consumes: [plan/story-plan] }
@@ -331,7 +331,7 @@ initiativePhases:
     label: Release
     agents: [qa]
     lanes: [business-product, engineering]
-    worldModelViews: [release, operations, testing]
+    worldModelViews: [arch.contracts, dev.impact]
     outputs:
       - { id: release-record, label: Release record, kind: markdown, path: release-record.md, template: initiatives/generic-output.md, consumes: [build/implementation-index] }
       - { id: production-validation, label: Production validation, kind: markdown, path: production-validation.md, template: initiatives/generic-output.md, consumes: [build/test-and-ci-report] }
@@ -346,7 +346,7 @@ initiativePhases:
     label: Discover & Define
     agents: [product-owner]
     lanes: [business-product]
-    worldModelViews: [business]
+    worldModelViews: [biz.rules]
     # The requirement document is what every Epic must leave behind: the formalized requirement and
     # the impact analysis in one place. The long-form business artifacts are right for some work and
     # ceremony for the rest, so each Epic chooses them (`initiative outputs`, or the Artifacts pane).
@@ -363,7 +363,7 @@ initiativePhases:
     label: Design & Iterate
     agents: [product-designer]
     lanes: [business-product, design-architecture]
-    worldModelViews: [business, architecture]
+    worldModelViews: [biz.rules, arch.contracts]
     outputs:
       - { id: service-blueprint, label: Service blueprint and journey, kind: markdown, path: service-blueprint.md, template: initiatives/service-blueprint.md, consumes: [discover-define/requirements, discover-define/opportunity-brief] }
       - { id: design-specification, label: Design specification and prototype index, kind: markdown, path: design-specification.md, template: initiatives/design-specification.md, consumes: [discover-define/requirements, discover-define/opportunity-brief] }
@@ -376,7 +376,7 @@ initiativePhases:
     label: Product Gate / Pre-Inception
     agents: [product-owner]
     lanes: [business-product, design-architecture]
-    worldModelViews: [business, architecture, security]
+    worldModelViews: [biz.rules, arch.contracts]
     outputs:
       - { id: initiative-scope, label: High-level initiative scope, kind: markdown, path: initiative-scope.md, template: initiatives/initiative-scope.md, consumes: [discover-define/requirements, design-iterate/solution-validation] }
       - { id: compliance-assessment, label: Legal risk and compliance assessment, kind: markdown, path: compliance-assessment.md, template: initiatives/compliance-assessment.md, consumes: [discover-define/requirements, discover-define/business-case], approval: { mode: individual, authorities: [risk-reviewers], minimum: 1, allowSelfApproval: true } }
@@ -390,7 +390,7 @@ initiativePhases:
     label: Inception
     agents: [product-owner]
     lanes: [business-product, design-architecture, engineering]
-    worldModelViews: [business, architecture, testing, security]
+    worldModelViews: [biz.rules, arch.contracts]
     outputs:
       - { id: stakeholder-raci, label: Stakeholder register and RACI, kind: markdown, path: stakeholder-raci.md, template: initiatives/stakeholder-raci.md, consumes: [pre-inception/initiative-scope] }
       - { id: intake-record, label: Accepted intake record, kind: markdown, path: intake-record.md, template: initiatives/intake-record.md, consumes: [pre-inception/initiative-scope] }
@@ -416,7 +416,7 @@ initiativePhases:
     label: Elaboration
     agents: [architect]
     lanes: [business-product, design-architecture, engineering]
-    worldModelViews: [business, architecture, development, testing, security, operations]
+    worldModelViews: [biz.rules, arch.contracts, dev.hotspots, dev.impact]
     outputs:
       - { id: functional-tests, label: Functional test catalog and acceptance criteria, kind: markdown, path: functional-tests.md, template: initiatives/functional-tests.md, consumes: [inception/prfaq] }
       - { id: nfr-specification, label: Non-functional requirements, kind: markdown, path: nfr-specification.md, template: initiatives/nfr-specification.md, consumes: [inception/feasibility-report] }
@@ -453,7 +453,7 @@ initiativePhases:
     label: Construction
     agents: [developer]
     lanes: [engineering]
-    worldModelViews: [architecture, development, testing, security, operations]
+    worldModelViews: [arch.contracts, dev.hotspots, dev.impact]
     outputs:
       - { id: implementation-index, label: Cross-repository implementation evidence, kind: markdown, path: implementation-index.md, template: initiatives/implementation-index.md, consumes: [elaboration/story-plan, elaboration/interface-contracts] }
       - { id: test-attestation, label: Testing attestation, kind: markdown, path: test-attestation.md, template: initiatives/test-attestation.md, consumes: [elaboration/functional-tests, elaboration/nfr-specification] }
@@ -476,7 +476,7 @@ initiativePhases:
     label: Delivery
     agents: [qa]
     lanes: [business-product, engineering]
-    worldModelViews: [release, operations, testing, security]
+    worldModelViews: [arch.contracts, dev.impact]
     outputs:
       - { id: deployment-record, label: Production deployment record, kind: markdown, path: deployment-record.md, template: initiatives/deployment-record.md, consumes: [construction/implementation-index] }
       - { id: production-validation, label: Production validation, kind: markdown, path: production-validation.md, template: initiatives/production-validation.md, consumes: [construction/test-attestation] }

@@ -1,0 +1,38 @@
+# What a careful reader would say the shop fixture contains. Scored by `wm knowledge eval`.
+name: shop (React, TypeScript, Vitest)
+commands:
+  - command: npm test
+limits:
+  - { name: FREE_SHIPPING_THRESHOLD_CENTS, value: "5000" }
+  - { name: SHIPPING_CENTS, value: "499" }
+  - { name: MAX_QUANTITY_PER_LINE, value: "10" }
+rules:
+  - { path: src/state/cart.ts, line: 24, contains: MAX_QUANTITY_PER_LINE }
+  - { path: src/rules/pricing.ts, line: 13, contains: FREE_SHIPPING_THRESHOLD_CENTS }
+  - { path: src/rules/pricing.ts, line: 20, contains: SAVE10 }
+  - { path: src/rules/pricing.ts, line: 22, contains: members only }
+  - { path: src/components/CheckoutForm.tsx, line: 15, contains: cart is empty }
+entities:
+  - { name: Cart, fields: [lines] }
+  - { name: CartLine, fields: [sku, name, priceCents, quantity] }
+  - { name: OrderReceipt, fields: [orderId, totalCents] }
+entryPoints:
+  - label: route /members
+  - label: route /
+journeys:
+  - { trigger: onSubmit, reaches: POST /orders }
+  - { trigger: onClick, reaches: cartReducer }
+tests:
+  - { title: VIP20 refuses non-members, exercises: couponDiscount }
+  - { title: caps quantity at ten, exercises: cartReducer }
+untested:
+  - symbol: handleSubmit
+drift:
+  - test: SAVE10 needs more than $30
+external:
+  - call: POST /orders
+  - call: GET /products
+# Known gaps, kept so the score stays honest: a careful reader lists these too.
+messages:
+  - text: Products could not be loaded.
+  - text: Your cart is empty.

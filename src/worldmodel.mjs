@@ -128,6 +128,11 @@ import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { tokenReductionShadowFailure } from './token-reduction/shadow-record.mjs';
 
+// Repository knowledge is loaded on use, through non-literal specifiers, so editor bundles that import
+// this module do not carry the analysis engine.
+const KNOWLEDGE_COMMAND_MODULE = './knowledge/command.mjs';
+const KNOWLEDGE_PROMPT_MODULE = './knowledge/prompt.mjs';
+
 let tokenReductionShadowRuntimePromise = null;
 
 function printCommandRoutes(command, { skill = null, indent = '', label = null, stream = console.log } = {}) {
@@ -5072,6 +5077,10 @@ async function compose(root, options, {
       views: phase?.worldModel?.views ?? [], grounding: config.grounding
     })
     : { text: '', files: [], warnings: [] };
+  // Deterministic knowledge of what the code does (rules, journeys, tests, gaps), sliced for this phase's reader.
+  const repositoryKnowledge = workflow && !worldModelDisabledForWorkflow(workflow)
+    ? await (await import(KNOWLEDGE_PROMPT_MODULE)).repositoryKnowledgePrompt(root, { definition, phase: signals.phase, workflow })
+    : { text: '', warnings: [] };
   const structural = workflow
     ? await requiredStructuralPromptContext(root, workflow)
     : { text: '', record: null, warnings: [] };
@@ -5098,6 +5107,7 @@ async function compose(root, options, {
     : '';
   governed.warnings.forEach((warning) => console.error(`Warning: ${warning}`));
   capability.warnings.forEach((warning) => console.error(`Capability warning: ${warning}`));
+  repositoryKnowledge.warnings.forEach((warning) => console.error(`Knowledge warning: ${warning}`));
   structural.warnings.forEach((warning) => console.error(`AST warning: ${warning}`));
   designSources.warnings.forEach((warning) => console.error(`Design-source warning: ${warning}`));
   approvedReferences.warnings.forEach((warning) => console.error(`Reference warning: ${warning}`));
@@ -5199,7 +5209,9 @@ async function compose(root, options, {
     // source boundary or accidentally treat a reference as a delivery repository.
     { id: 'reference-repository-grounding', text: referenceRepositories.text,
       mandatory: Boolean(referenceRepositories.repositories.length), priority: 0 },
-    { id: 'capability-world-model', text: capability.text, priority: 50 },
+    // Registered section: repository knowledge travels with the capability world model so the
+    // token-reduction contract, which names every section, needs no new owner.
+    { id: 'capability-world-model', text: [capability.text, repositoryKnowledge.text].filter(Boolean).join('\n\n'), priority: 50 },
     { id: 'optional-ast-context', text: structural.text, priority: 70 },
     { id: 'agent-skills', text: remote.text, mandatory: true, priority: 5 },
     { id: 'active-story-evidence', text: governed.evidence, mandatory: true, priority: 5 },
@@ -5741,6 +5753,11 @@ export async function worldModelCommand(root, positionals, options) {
     );
   }
   if (command === 'ast') return astCommand(root, positionals.slice(2), options);
+  if (command === 'knowledge') {
+    // Loaded on use, through a non-literal specifier, so editor bundles that import this module do not carry the analysis engine.
+    const { knowledgeCommand } = await import(KNOWLEDGE_COMMAND_MODULE);
+    return knowledgeCommand(root, positionals.slice(2), options);
+  }
   if (command === 'read') {
     const reference = positionals[2];
     if (!reference) {

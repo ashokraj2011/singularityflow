@@ -2250,6 +2250,18 @@ When the rejection means another clone published to the same Story first and the
 
 The world model grounds phase generation in repository facts:
 
+**Repository knowledge** reads what the code does (rules, limits, journeys, data shapes, error paths,
+tests and their gaps) from the committed tree, with every line cited, and adds one slice per phase
+to the prompt. It needs no model and no build step:
+
+```bash
+singularity-flow wm knowledge build
+singularity-flow wm knowledge show rules
+singularity-flow wm knowledge slice --phase testing --focus "coupon discount"
+```
+
+See [the knowledge model guide](docs/KNOWLEDGE-MODEL.md).
+
 Two operational formats coexist. Compatibility `legacy-v3` supports deterministic light and
 optional semantic builds, including its dual state/current-branch publication. Opt-in
 `registered-v4` uses registered dotted view contracts, deterministic or explicitly permitted

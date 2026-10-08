@@ -11,9 +11,19 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 32
+version: 33
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
+
+## Repository knowledge
+
+Beside the v4 evidence layer, `wm knowledge` reads what the code does from the committed tree:
+rules and limits with their exact lines, journeys from an endpoint or UI event to its effects, data
+shapes, error paths to HTTP statuses, test cases and what they exercise, functions with rules no test
+reaches, and test titles that contradict the code. It is deterministic and model-free, cached by
+content on this machine, and added to each phase prompt as one cited slice for the phase's reader,
+focused on the Story (`worldModel.knowledge.prompt: off` turns it off). Use `wm knowledge show`,
+`slice` and `eval`; see [the knowledge model guide](../KNOWLEDGE-MODEL.md).
 
 ## Registered v4 builder
 

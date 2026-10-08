@@ -725,6 +725,12 @@ function symbolKindName(raw: CxRawSymbol, callable: boolean, parentKind: number 
 
 const TEXT_CLASS = /^\s*(?:export\s+)?(?:default\s+)?(?:(?:public|private|protected|internal|abstract|final|sealed|open|data|static)\s+)*(?:class|interface|struct|enum|trait|object)\s+([A-Za-z_$][\w$]*)/;
 const TEXT_METHOD = /^\s*(?:(?:public|private|protected|static|readonly|async|override|get|set)\s+)*\*?\s*([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*\([^;]*$/;
+/**
+ * A typed member in Java or C# with no access modifier: `BigDecimal totalOf(Order order) {`,
+ * `void rejectsEmptyOrders() {`. Statements that start with a keyword (`return foo(`) are not declarations.
+ */
+const TEXT_TYPED_METHOD = /^\s*(?:(?:public|private|protected|internal|static|final|abstract|synchronized|native|default|override|virtual|async|sealed)\s+)*(?:<[^>]+>\s+)?(?!(?:return|new|else|throw|case|await|yield|goto|using|var)\b)[A-Za-z_][\w.]*(?:<[^()]*>)?(?:\[\])*\s+([A-Za-z_]\w*)\s*\([^;]*$/;
+const TYPED_MEMBER_LANGUAGES = new Set(['java', 'csharp']);
 /** Test cases in the common JavaScript runners: `test('…', …)`, `it(…)`, `describe(…)`. */
 const TEXT_TEST = /^\s*((?:test|it|describe|suite|context)(?:\.(?:only|skip|each|concurrent))?)\s*\(\s*(['"`])(.{1,80}?)\2/;
 
@@ -782,7 +788,8 @@ export function textSymbols(lines: string[], language: string): CxRawSymbol[] {
       found.push({ name: label, kind: SYMBOL_KIND.Function, range: { start: line, end: extent(line) }, selection: { line, character: Math.max(0, (lines[index] ?? '').indexOf(testCase[1]!)) } });
       continue;
     }
-    const name = declaredName(text) ?? (insideClass ? text.match(TEXT_METHOD)?.[1] ?? null : null);
+    const name = declaredName(text) ?? (insideClass ? text.match(TEXT_METHOD)?.[1]
+      ?? (TYPED_MEMBER_LANGUAGES.has(language) ? text.match(TEXT_TYPED_METHOD)?.[1] : null) ?? null : null);
     if (!name || NOT_A_NAME.has(name)) continue;
     const end = extent(line);
     found.push({

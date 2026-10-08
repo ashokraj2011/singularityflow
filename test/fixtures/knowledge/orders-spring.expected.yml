@@ -1,0 +1,32 @@
+# What a careful reader would say the Spring orders fixture contains. Scored by `wm knowledge eval`.
+name: orders-spring (Java, Spring Boot, JUnit)
+commands:
+  - command: mvn test
+limits:
+  - { name: MINIMUM_ORDER_TOTAL, value: "10.00" }
+  - { name: MAX_ITEMS, value: "20" }
+  - { name: VIP_DISCOUNT_RATE, value: "0.05" }
+rules:
+  - { path: src/main/java/com/acme/orders/service/OrderService.java, line: 23, contains: at least one line }
+  - { path: src/main/java/com/acme/orders/service/OrderService.java, line: 26, contains: MAX_ITEMS }
+  - { path: src/main/java/com/acme/orders/service/OrderService.java, line: 30, contains: MINIMUM_ORDER_TOTAL }
+  - { path: src/main/java/com/acme/orders/service/OrderService.java, line: 33, contains: VIP_DISCOUNT_RATE }
+  - { path: src/main/java/com/acme/orders/service/OrderService.java, line: 43, contains: Only placed orders }
+entities:
+  - { name: Order, fields: [id, customerId, lines, total, status, vip] }
+  - { name: OrderLine, fields: [sku, quantity, unitPrice] }
+  - { name: OrderStatus, values: [PLACED, PAID, SHIPPED, CANCELLED] }
+entryPoints:
+  - label: POST /orders
+  - label: "POST /orders/{id}/cancel"
+journeys:
+  - { trigger: POST /orders, reaches: database }
+  - { trigger: "POST /orders/{id}/cancel", reaches: OrderService.cancel }
+tests:
+  - { title: rejectsEmptyOrders, exercises: OrderService.place }
+untested:
+  - symbol: OrderService.cancel
+errorPaths:
+  - { message: Only placed orders can be cancelled, status: CONFLICT }
+  - { message: Orders under 10.00 are not accepted, status: BAD_REQUEST }
+  - { status: NOT_FOUND }

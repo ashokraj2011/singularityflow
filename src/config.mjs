@@ -1124,6 +1124,17 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
       throw new SingularityFlowError(`${label} must be a non-empty string.`);
     }
   }
+  if (definition.worldModel?.knowledge != null) {
+    const knowledge = definition.worldModel.knowledge;
+    if (!knowledge || typeof knowledge !== 'object' || Array.isArray(knowledge)) throw new SingularityFlowError('worldModel.knowledge must be a mapping.');
+    for (const key of Object.keys(knowledge)) {
+      if (!['prompt', 'maxBytes'].includes(key)) throw new SingularityFlowError(`worldModel.knowledge.${key} is not supported. Use prompt (slice or off) and maxBytes.`);
+    }
+    if (knowledge.prompt != null && !['slice', 'off'].includes(knowledge.prompt)) throw new SingularityFlowError("worldModel.knowledge.prompt must be 'slice' or 'off'.");
+    if (knowledge.maxBytes != null && (!Number.isInteger(knowledge.maxBytes) || knowledge.maxBytes < 2048 || knowledge.maxBytes > 32768)) {
+      throw new SingularityFlowError('worldModel.knowledge.maxBytes must be an integer from 2048 through 32768.');
+    }
+  }
   if (definition.worldModel?.outputDir) assertRelative(definition.worldModel.outputDir, 'worldModel.outputDir');
   if (definition.worldModel?.historyDir) assertRelative(definition.worldModel.historyDir, 'worldModel.historyDir');
   // Portable, disjoint WMP history roots are a registered-v4 contract. Packaged refresh may add

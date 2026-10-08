@@ -182,6 +182,8 @@ const WM_AST_READ_ACTIONS = new Set(['doctor', 'status', 'context', 'query', 'ga
 const WM_AST_MUTATION_ACTIONS = new Set(['build', 'warm']);
 const WM_AST_ACTIONS = Object.freeze([...WM_AST_READ_ACTIONS, ...WM_AST_MUTATION_ACTIONS, 'cache', 'evidence', 'pack', 'preference']);
 const WM_RECOVERY_ACTIONS = Object.freeze(['list', 'inspect', 'publish']);
+// Repository knowledge reads the committed tree and writes only its machine-local cache; no model, no governed state.
+const WM_KNOWLEDGE_ACTIONS = Object.freeze(['build', 'show', 'slice', 'status', 'items', 'eval']);
 
 /**
  * The subcommands that only read, on commands whose *name* is not read-only.
@@ -1135,6 +1137,11 @@ function resolveWorldModelOperation(definition, positionals, options, context = 
     }
     return unknownSubcommand('wm ast', action, WM_AST_ACTIONS, 'action');
   }
+  if (subcommand === 'knowledge') {
+    const action = positionals[2] ?? 'status';
+    if (!WM_KNOWLEDGE_ACTIONS.includes(action)) return unknownSubcommand('wm knowledge', action, WM_KNOWLEDGE_ACTIONS, 'action');
+    return never(`wm.knowledge.${action}`, definition, 'read');
+  }
   if (subcommand === 'recovery') {
     const action = positionals[2] ?? 'list';
     if (!WM_RECOVERY_ACTIONS.includes(action)) return unknownSubcommand('wm recovery', action, WM_RECOVERY_ACTIONS, 'action');
@@ -1570,6 +1577,7 @@ export function operationCatalog() {
       `wm.ast.pack.${name}`, commandDefinition('wm'), ['list', 'status', 'doctor'].includes(name) ? 'read' : 'mutation'
     )))
     .concat(['show', 'set'].map((name) => never(`wm.ast.preference.${name}`, commandDefinition('wm'), name === 'show' ? 'read' : 'mutation')));
+  wm.push(...WM_KNOWLEDGE_ACTIONS.map((name) => never(`wm.knowledge.${name}`, commandDefinition('wm'), 'read')));
   wm.push(...WM_RECOVERY_ACTIONS.map((name) => never(
     `wm.recovery.${name}`, commandDefinition('wm'), name === 'publish' ? 'mutation' : 'read'
   )));

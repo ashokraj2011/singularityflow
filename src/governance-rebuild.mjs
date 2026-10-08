@@ -141,8 +141,12 @@ export async function governanceStoryInventory(root, definition, { remote = 'ori
   const current = checkedOutBranch(root);
   const head = refCommit(root, 'HEAD');
   const locals = [...new Set([...localBranches(root), ...(current ? [current] : [])])];
+  const tracked = remote == null
+    ? [...refSnapshot(root).keys()].filter(ref => ref.startsWith('refs/remotes/') && !ref.endsWith('/HEAD'))
+      .map(ref => ({ ref, branch: ref.slice('refs/remotes/'.length).split('/').slice(1).join('/') }))
+    : remoteBranches(root, remote).map(branch => ({ branch, ref: `${remote}/${branch}` }));
   const refs = [
-    ...remoteBranches(root, remote).filter(isStoryDiscoveryBranch).map((branch) => ({ branch, ref: `${remote}/${branch}` })),
+    ...tracked.filter(entry => isStoryDiscoveryBranch(entry.branch)),
     ...locals.filter(isStoryDiscoveryBranch).map((branch) => ({ branch, ref: branch }))
   ];
   const indexes = [

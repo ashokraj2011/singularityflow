@@ -76,7 +76,7 @@ function commandAction(argv, { skill = null, cwd = null } = {}) {
   };
 }
 
-function reinitializeArgv({ workspace, repositories, acceptBundledConflicts, resolutions, migrateWorldModel }, tail) {
+function reinitializeArgv({ workspace, repositories, acceptBundledConflicts, resolutions, migrateWorldModel, hardCutover }, tail) {
   const values = ['singularity-flow', 'workspace', 'reinitialize'];
   if (workspace) values.push(commandArgument(workspace, 'WORKSPACE'));
   for (const repository of repositories ?? []) {
@@ -84,6 +84,7 @@ function reinitializeArgv({ workspace, repositories, acceptBundledConflicts, res
   }
   if (acceptBundledConflicts) values.push('--accept-bundled-conflicts');
   if (migrateWorldModel) values.push('--migrate-world-model');
+  if (hardCutover) values.push('--hard-cutover');
   for (const [name, resolution] of Object.entries(resolutions ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
     values.push('--resolve', commandArgument(`${name}=${resolution}`, 'PATH=RESOLUTION'));
   }
@@ -129,13 +130,14 @@ function schemaAuthorityIdentity(censuses) {
     || String(left.repository ?? '').localeCompare(String(right.repository ?? '')));
 }
 
-function reinitializationPlanId(configurationPlanId, topology, schemaCensuses = []) {
+function reinitializationPlanId(configurationPlanId, topology, schemaCensuses = [], hardCutover = false) {
   const match = String(configurationPlanId ?? '').match(CONFIGURATION_PLAN);
   if (!match) return null;
   const identity = {
     configurationPlanId,
     topology: routingTopologyIdentity(topology),
-    schemaAuthorities: schemaAuthorityIdentity(schemaCensuses)
+    schemaAuthorities: schemaAuthorityIdentity(schemaCensuses),
+    ...(hardCutover ? { hardCutover: true } : {})
   };
   return `wrip-${match[1]}-${sha256(identity)}`;
 }
@@ -200,6 +202,7 @@ function migrationSummary(census) {
     outsideReadableRange: census.totals.outsideRange,
     unregistered: census.totals.unregistered,
     unreadable: census.totals.unreadable,
+    findings: (census.unreadable ?? []).slice(0, 20).map(({ path, family, code }) => ({ path, family, code })),
     truncated: census.truncated,
     lifecycleRefs: lifecycleRefSnapshot(census)
   };
@@ -296,11 +299,18 @@ async function selectedTopology(registryFile, results, services) {
   };
 }
 
-function authorityCensusCollector(services, expectedLifecycleRefs = null) {
+function authorityCensusCollector(services, expectedLifecycleRefs = null, hardCutover = false) {
   const observations = new Map();
   return {
     observations,
     async inspect(candidate) {
+      if (hardCutover && (candidate.refresh.storyCutover?.requested !== true
+          || candidate.refresh.storyCutover?.mode !== 'hard'
+          || !Array.isArray(candidate.refresh.storyCutover?.retiredIds))) {
+        throw new SingularityFlowError('The candidate has no verifiable Story retirement registry.', {
+          code: 'STORY_CUTOVER_NOT_STAGED'
+        });
+      }
       const paths = [...new Set(candidate.repository.localPaths
         ?? (candidate.repository.localPath ? [candidate.repository.localPath] : []))];
       const failures = [];
@@ -311,7 +321,8 @@ function authorityCensusCollector(services, expectedLifecycleRefs = null) {
           const census = await services.schemaCensus(key, {
             includeLifecycleRefs: true,
             configurationRoot: candidate.root,
-            stateAuthorityRoot: candidate.root
+            stateAuthorityRoot: candidate.root,
+            ...(hardCutover ? { retiredStoryIds: candidate.refresh.storyCutover?.retiredIds ?? [] } : {})
           });
           const summary = migrationSummary(census);
           observations.set(key, {
@@ -439,6 +450,24 @@ function worldModelMigrationSummary(result, requested) {
   } };
 }
 
+function schemaPolicy(hardCutover) {
+  return hardCutover ? { ...REINITIALIZATION_SCHEMA_POLICY, mode: 'hard-cutover',
+    statement: 'Validate current configuration and active records. Retired Story records are preserved read-only and excluded from compatibility migration; immutable history is never rewritten.'
+  } : REINITIALIZATION_SCHEMA_POLICY;
+}
+
+function cutoverSummary(result, requested) {
+  if (!requested) return {};
+  const repositories = (result.results ?? []).map(entry => ({ repository: entry.repository,
+    status: entry.status, ...(entry.storyCutover ?? {}) }));
+  const verified = repositories.length === result.total && result.total > 0
+    && repositories.every(entry => entry.requested === true && entry.mode === 'hard');
+  return { storyCutover: { requested: true, mode: 'hard', historicalBytes: 'preserved',
+    status: verified && ['preview', 'complete'].includes(result.status)
+      ? (result.dryRun ? 'planned' : 'retired') : 'incomplete', repositories,
+    statement: 'Known existing Stories are discontinued, read-only, and excluded from schema migration. Their branches and history remain intact. Start new Stories with new IDs.' } };
+}
+
 /**
  * Reapply the installed configuration contract without destroying repository or historical state.
  * The optional service seam is for deterministic tests; production uses the authorities above.
@@ -451,6 +480,7 @@ export async function reinitializeWorkspaces({
   acceptBundledConflicts = false,
   resolutions = {},
   migrateWorldModel = false,
+  hardCutover = false,
   confirmPlan = null
 } = {}, serviceOverrides = {}) {
   if (!registryFile) throw new SingularityFlowError('Workspace reinitialization requires the workspace registry path.');
@@ -470,7 +500,7 @@ export async function reinitializeWorkspaces({
     'Workspace reinitialization preview cannot also apply a confirmed plan. Use --dry-run first, then rerun without it using --confirm-plan <PLAN-ID>.',
     { code: 'WORKSPACE_REINITIALIZE_MODE_CONFLICT' }
   );
-  const commandInput = { workspace, repositories, acceptBundledConflicts, resolutions, migrateWorldModel };
+  const commandInput = { workspace, repositories, acceptBundledConflicts, resolutions, migrateWorldModel, hardCutover };
   if (!dryRun && !confirmPlan) throw new SingularityFlowError(
     'Workspace reinitialization is plan-first. Run the dry-run command, review the exact configuration changes, then apply its plan ID.', {
       code: 'WORKSPACE_REINITIALIZE_CONFIRMATION_REQUIRED',
@@ -493,7 +523,7 @@ export async function reinitializeWorkspaces({
     // its conservative three-way behavior, while this plan restores only framework-owned workflow
     // contracts and keeps every repository-only workflow, template and agent intact.
     restorePackagedSeeds: true,
-    migrateWorldModel
+    migrateWorldModel, hardCutover
   };
   let confirmed = null;
   if (!dryRun) confirmed = parseReinitializationPlan(confirmPlan);
@@ -501,7 +531,7 @@ export async function reinitializeWorkspaces({
   // Applying a compound plan begins with the same read-only configuration preview used to create
   // it. This verifies both the embedded cfgp identity and the local workspace/repository topology before
   // `refreshWorkspaceConfigurations` receives any authority to mutate a remote ref.
-  const previewCensusCollector = authorityCensusCollector(services);
+  const previewCensusCollector = authorityCensusCollector(services, null, hardCutover);
   const preview = await services.refreshWorkspaceConfigurations({
     ...refreshInput, dryRun: true, confirmPlan: null,
     inspectCandidate: previewCensusCollector.inspect
@@ -523,7 +553,7 @@ export async function reinitializeWorkspaces({
   const observedPlanId = previewTopology.issues.length || previewSchemaBlockers.length
     || !preview.planId
     ? null : reinitializationPlanId(
-      preview.planId, previewTopology, previewSchemaCensuses
+      preview.planId, previewTopology, previewSchemaCensuses, hardCutover
     );
 
   if (dryRun) {
@@ -548,7 +578,8 @@ export async function reinitializeWorkspaces({
       configurationRefresh: preview,
       ...worldModelMigrationSummary(preview, migrateWorldModel),
       capabilityPortability: unchangedCapabilityPortability(migrateWorldModel),
-      schemaMigrationPolicy: REINITIALIZATION_SCHEMA_POLICY,
+      schemaMigrationPolicy: schemaPolicy(hardCutover),
+      ...cutoverSummary(preview, hardCutover),
       schemaCensuses: previewSchemaCensuses,
       topologyIssues: previewTopology.issues,
       nextAction: planId
@@ -589,7 +620,8 @@ export async function reinitializeWorkspaces({
       configurationRefresh: preview,
       ...worldModelMigrationSummary({ ...preview, status: 'blocked', dryRun: false }, migrateWorldModel),
       capabilityPortability: unchangedCapabilityPortability(migrateWorldModel),
-      schemaMigrationPolicy: REINITIALIZATION_SCHEMA_POLICY,
+      schemaMigrationPolicy: schemaPolicy(hardCutover),
+      ...cutoverSummary({ ...preview, status: 'blocked' }, hardCutover),
       schemaCensuses: previewSchemaCensuses,
       topologyIssues: previewTopology.issues,
       nextAction: reinitializeAction(commandInput, ['--dry-run'])
@@ -597,7 +629,7 @@ export async function reinitializeWorkspaces({
   }
 
   const applyCensusCollector = authorityCensusCollector(
-    services, await lifecycleRefExpectations(previewSchemaCensuses)
+    services, await lifecycleRefExpectations(previewSchemaCensuses), hardCutover
   );
   const refresh = await services.refreshWorkspaceConfigurations({
     ...refreshInput, dryRun: false, confirmPlan: confirmed.configurationPlanId,
@@ -644,7 +676,8 @@ export async function reinitializeWorkspaces({
     configurationRefresh: refresh,
     ...worldModelMigrationSummary({ ...refresh, status }, migrateWorldModel),
     capabilityPortability,
-    schemaMigrationPolicy: REINITIALIZATION_SCHEMA_POLICY,
+    schemaMigrationPolicy: schemaPolicy(hardCutover),
+    ...cutoverSummary({ ...refresh, status }, hardCutover),
     schemaCensuses,
     topologyIssues: topology.issues,
     nextAction

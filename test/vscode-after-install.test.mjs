@@ -137,6 +137,37 @@ test('one-click migration previews, confirms once, applies the exact flag and re
   assert.match(html, /not an older Story checkout/);
 });
 
+test('hard cutover is explicit, lists retiring IDs, confirms once, and keeps its flag', async () => {
+  const f = fixture();
+  const run = f.host.run;
+  f.host.run = async argv => {
+    const result = await run(argv);
+    if (argv[1] === 'reinitialize' && argv.includes('--hard-cutover')) result.storyCutover = {
+      requested: true, mode: 'hard', historicalBytes: 'preserved',
+      status: result.dryRun ? 'planned' : 'retired', statement: 'Old Stories are read-only.',
+      repositories: [{ repository: 'ui', requested: true, mode: 'hard', retiredIds: ['OLD-1'] }]
+    };
+    return result;
+  };
+  await f.journey.load(); await f.journey.select(workspace.path); await f.journey.migrate(true);
+  assert.equal(f.confirmations.length, 1);
+  assert.match(f.confirmations[0].title, /Hard cutover/);
+  assert.match(f.confirmations[0].detail, /OLD-1/);
+  assert.match(f.confirmations[0].detail, /cannot continue/);
+  assert.ok(f.calls.filter(argv => argv[1] === 'reinitialize').every(argv => argv.includes('--hard-cutover')));
+  assert.equal(afterInstallComplete(f.journey.view), true);
+  assert.match(afterInstallHtml(f.journey.view), /Story cutover:/);
+  assert.match(afterInstallHtml(f.journey.view), /data-after-action="cutover"/);
+});
+
+test('hard cutover rejects an older CLI that did not stage Story retirement', async () => {
+  const f = fixture(); await f.journey.load(); await f.journey.select(workspace.path);
+  await f.journey.migrate(true);
+  assert.equal(f.confirmations.length, 0);
+  assert.equal(f.calls.some(argv => argv.includes('--confirm-plan')), false);
+  assert.match(f.journey.view.error, /preview needs attention/);
+});
+
 test('retrying local refresh after migration remains bound to its exact migrated commit', async () => {
   const f = fixture();
   const run = f.host.run;

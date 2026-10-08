@@ -977,6 +977,7 @@ export function storyStatusMarkdown(workflow) {
 
 export async function saveWorkflow(root, config, workflow) {
   validateId(config, workflow?.workItem?.id);
+  assertStoryNotArchived(root, workflow);
   await ensureSecureRepositoryDirectory(
     root,
     workDirRelative(config, workflow.workItem.id),
@@ -1009,6 +1010,7 @@ export async function createWorkflow(root, config, {
   baselineFailures = null
 } = {}) {
   validateId(config, id);
+  assertStoryNotArchived(root, { workItem: { id, baseBranch, baseRemote } });
   intakeBaselineChoice(readinessBaseline);
   normalizeQualityGateMode(qualityGateMode);
   // Prove the configured storage boundary before any capability materialization or generated
@@ -1613,6 +1615,9 @@ async function repairRetainedPublication(root, config, workflow, action) {
 }
 
 export async function assertNoPendingPublication(root, config, workflow, action = 'continue') {
+  // Retirement must precede prompt/artifact writes or retained-publication repair, not merely
+  // the final workflow save. All existing mutation entry points share this preflight boundary.
+  assertStoryNotArchived(root, workflow);
   if (await storyPublicationPending(root, config, workflow.workItem.id)
       && !(await repairRetainedPublication(root, config, workflow, action))) {
     await enforceSequenceGate(root, workflow, 'publicationPending', action, {
@@ -2193,6 +2198,7 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
 
 
 export async function preparePhase(root, config, workflow, requested = undefined) {
+  assertStoryNotArchived(root, workflow);
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   const result = await preparePhaseInputs(root, config, workflow, requested);
   return result.path;
@@ -2350,6 +2356,7 @@ export async function beginPhaseGeneration(root, config, workflow, {
   adoptExisting = false,
   confirm = null
 } = {}) {
+  assertStoryNotArchived(root, workflow);
   const session = await loadSession(root, { required: false });
   assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId], session, 'begin');
   assertIntentAmendmentAcknowledged(workflow);
@@ -2376,6 +2383,7 @@ export async function beginPhaseGeneration(root, config, workflow, {
 export async function preparePhaseInputs(root, config, workflow, requested = undefined, {
   dryRun = false
 } = {}) {
+  if (!dryRun) assertStoryNotArchived(root, workflow);
   const session = await loadSession(root, { required: false });
   if (!dryRun) assertPhaseAgentMayMutate(config, workflow,
     workflow.phases?.[requested ?? workflow.currentPhase],
@@ -2864,6 +2872,7 @@ function repairRequiredArtifactRegistration(workflow, phase, inspection, session
 }
 
 export async function registerArtifact(root, workflow, candidate, { phaseId, kind, config = null } = {}) {
+  assertStoryNotArchived(root, workflow);
   const phase = await assertPhaseSequence(root, workflow, 'register artifacts', { requestedPhase: phaseId });
   const absolute = path.resolve(root, candidate); const relativePath = repoRelative(root, absolute);
   const itemRoot = workDirRelative(config ?? workflow.resolution ?? {}, workflow.workItem.id);
@@ -3515,6 +3524,7 @@ export async function publishGeneration(root, config, workflow, {
   phaseId, usage: rawUsage, authorship = null, persist = true, publicationTransaction = null,
   architectureCandidateSnapshot = null
 } = {}) {
+  assertStoryNotArchived(root, workflow);
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   const selectedSession = await loadSession(root, { required: false });
   assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId ?? workflow.currentPhase],
@@ -4181,6 +4191,7 @@ export async function publishGeneration(root, config, workflow, {
 }
 
 export async function reconcilePhaseTelemetry(root, config, workflow, { phaseId } = {}) {
+  assertStoryNotArchived(root, workflow);
   const phase = phaseId ? workflow.phases[phaseId] : currentPhase(workflow);
   if (!phase) return { updated: false, reason: 'No active phase is available.' };
   const generation = phase.generation;
@@ -5013,6 +5024,7 @@ async function submitPhaseTransition(root, config, workflow, {
   phaseId, runChecks = true, persist = true, submissionContext = null,
   architectureCandidateSnapshot = null, actor = null, agent = undefined, decisionValues = null
 } = {}) {
+  assertStoryNotArchived(root, workflow);
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   let session = actor ? { actor, agent: agent ?? null } : await loadSession(root, { required: false });
   assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId ?? workflow.currentPhase], session, 'submit');
@@ -5721,6 +5733,7 @@ export async function submitConfirmedConvergencePhase(root, config, workflow, {
   confirmation, phaseId = null, runChecks = true, persist = true,
   architectureCandidateSnapshot = null, actor = identity(root), agent = null
 } = {}) {
+  assertStoryNotArchived(root, workflow);
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   const phase = phaseId == null ? convergencePhaseOf(workflow) : workflow.phases?.[phaseId] ?? null;
   if (!isConvergencePhase(phase)) throw convergenceAdvanceRequired(workflow, { phase: phase?.id ?? null });
@@ -5758,6 +5771,7 @@ export async function approvePhase(root, config, workflow, {
   agent: decisionAgent = undefined,
   persist = true
 } = {}) {
+  assertStoryNotArchived(root, workflow);
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   let session = decisionActor ? { actor: decisionActor, agent: decisionAgent ?? null } : await loadSession(root, { required: false });
   assertPhaseAgentMayMutate(config, workflow, workflow.phases?.[phaseId ?? workflow.currentPhase], session, 'approve');
@@ -9617,6 +9631,7 @@ function stepActionLogger(root, config, workflow) {
 }
 
 export async function syncPublication(root, config, workflow, { fault = null } = {}) {
+  assertStoryNotArchived(root, workflow);
   const subject = { kind: 'story', id: workflow.workItem.id };
   const pendingOptions = {
     ...subject,

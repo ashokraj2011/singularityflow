@@ -19,6 +19,7 @@ import { phaseContextAdmission, phaseAdmissionActions } from './phase-entry-admi
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { PHASE_JOURNEY_CONTRACT } from './phase-journey.mjs';
 import { BUILD_INFO, versionLine } from './build-info.mjs';
+import { assertStoryNotArchived } from './governance-archive.mjs';
 
 /** Verified per-invocation binding shared by phase entry, nextsteps and inputs. */
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
@@ -37,6 +38,9 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
       code: 'ACTIVE_SUBJECT_MISMATCH', details: { expectedWorkId: workId ?? selected?.storyId,
         actualWorkId: actualId, repositoryPath: root }
     });
+  // Entry grants authoring guidance; archived Stories remain inspectable through phase show,
+  // but must not hand an agent permission to edit their preserved application or draft files.
+  assertStoryNotArchived(root, workflow);
   const phase = workflow.phases?.[phaseId ?? workflow.currentPhase];
   if ((!phase && !(allowTerminal && !workflow.currentPhase && !phaseId))
       || (phase && phase.id !== workflow.currentPhase)) throw new SingularityFlowError(

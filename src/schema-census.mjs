@@ -433,7 +433,7 @@ function lifecycleRootsAtRef(root, entry, fallbackRoots, maximumFileBytes, fallb
  * once, while every matching ref SHA remains visible for reinitialization-plan binding.
  */
 function lifecycleRefFiles(root, refs, roots, historyDir, {
-  maximumFiles, maximumFileBytes, maximumBytes
+  maximumFiles, maximumFileBytes, maximumBytes, retiredStoryIds = []
 }) {
   const fallbackPathspecs = [...new Set(roots.map((entry) =>
     entry.relative.replaceAll('\\', '/').replace(/^\/+|\/+$/g, '')).filter(Boolean))];
@@ -480,6 +480,10 @@ function lifecycleRefFiles(root, refs, roots, historyDir, {
       maxObjectBytes: maximumFileBytes,
       filter: (relativePath, { oid, size, mode, type }) => {
         if (!/\.jsonl?$/i.test(relativePath)) return false;
+        if (isRetiredStoryPath(relativePath, configuredRoots.familyRoots, retiredStoryIds)) {
+          matched = true; // retired branch tips still bind the exact cutover confirmation
+          return false;
+        }
         if (relativePath.startsWith(STARTER_PACK_TEMPLATES)) return false;
         if (excludedHistoryObjects.some((prefix) => relativePath.startsWith(prefix))) return false;
         if (excludedWorldModelPrefixes.some((prefix) => relativePath.startsWith(prefix))) return false;
@@ -560,6 +564,11 @@ function lifecycleRefFiles(root, refs, roots, historyDir, {
   });
 }
 
+function isRetiredStoryPath(relative, roots, retiredStoryIds) {
+  const prefixes = ['singularity/work-items', roots?.workItemRoot].filter(Boolean);
+  return prefixes.some(prefix => retiredStoryIds.some(id => relative.startsWith(`${prefix}/${id}/`)));
+}
+
 /**
  * Scan only governed and Git-local state roots. Application JSON is intentionally excluded: a
  * product data file that happens to say schemaVersion is not automatically an SFlow durable family.
@@ -571,6 +580,7 @@ export async function schemaCensus(root, {
   maximumLifecycleBytes = MAXIMUM_LIFECYCLE_REF_CENSUS_BYTES,
   maximumRefs = DEFAULT_MAXIMUM_LIFECYCLE_REFS,
   includeLifecycleRefs = false,
+  retiredStoryIds = [],
   configurationRoot = root,
   stateAuthorityRoot = configurationRoot
 } = {}) {
@@ -587,6 +597,12 @@ export async function schemaCensus(root, {
       || !Number.isInteger(maximumFileBytes) || maximumFileBytes < 1024 || maximumFileBytes > 64 * 1024 * 1024) {
     throw new SingularityFlowError('Schema census record, ref, and byte limits are invalid.', {
       code: 'SCHEMA_CENSUS_LIMIT_INVALID'
+    });
+  }
+  if (!Array.isArray(retiredStoryIds) || retiredStoryIds.some(id =>
+    typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || ['.', '..'].includes(id))) {
+    throw new SingularityFlowError('Retired Story IDs must be bounded portable identities.', {
+      code: 'SCHEMA_CENSUS_RETIREMENT_INVALID'
     });
   }
   const files = [];
@@ -637,7 +653,9 @@ export async function schemaCensus(root, {
     // context-free content-addressed object store.
     const excludedDirectories = [
       repositoryHistoryObjectsRoot,
-      path.join(root, STARTER_PACK_TEMPLATES)
+      path.join(root, STARTER_PACK_TEMPLATES),
+      ...retiredStoryIds.flatMap(id => ['singularity/work-items', familyRoots.workItemRoot]
+        .filter(Boolean).map(prefix => path.join(root, prefix, id)))
     ];
     if (authoritativeHistory) {
       // A configured history root may deliberately coincide with an existing governed root such
@@ -690,7 +708,8 @@ export async function schemaCensus(root, {
       root, refSnapshot.refs, selectedRoots, familyRoots.worldModelHistoryDir, {
         maximumFiles: Math.min(remainingRefFiles, maximumRecords),
         maximumFileBytes,
-        maximumBytes: maximumLifecycleBytes
+        maximumBytes: maximumLifecycleBytes,
+        retiredStoryIds
       }
     )
     : Object.freeze({

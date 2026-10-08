@@ -75,6 +75,13 @@ function upgradeStatus(value: WorkspaceConfigurationRefreshResult): WorkspaceCon
   const stringList = (items: unknown): boolean => Array.isArray(items)
     && items.every(item => typeof item === 'string');
   const migration = value?.worldModelMigration;
+  const cutover = value?.storyCutover;
+  const invalidCutover = cutover !== undefined && (!cutover || cutover.requested !== true
+    || cutover.mode !== 'hard' || cutover.historicalBytes !== 'preserved'
+    || !['planned', 'retired', 'incomplete'].includes(cutover.status)
+    || typeof cutover.statement !== 'string' || !Array.isArray(cutover.repositories)
+    || cutover.repositories.some(item => !item || typeof item.repository !== 'string'
+      || (item.retiredIds !== undefined && !stringList(item.retiredIds))));
   const invalidMigration = migration !== undefined && (!migration
     || migration.requested !== true || migration.targetFormat !== 'registered-v4'
     || !['planned', 'configured', 'incomplete'].includes(migration.status)
@@ -91,7 +98,7 @@ function upgradeStatus(value: WorkspaceConfigurationRefreshResult): WorkspaceCon
     || !['preview', 'complete', 'partial', 'blocked'].includes(value.status)
     || !Number.isSafeInteger(value.total) || value.total < 0
     || !Number.isSafeInteger(value.updated) || value.updated < 0
-    || invalidMigration || !Array.isArray(value.results) || value.results.some(repository =>
+    || invalidMigration || invalidCutover || !Array.isArray(value.results) || value.results.some(repository =>
       !repository || typeof repository.repository !== 'string' || typeof repository.status !== 'string'
       || (repository.files !== undefined && (!Array.isArray(repository.files)
         || repository.files.some(file => typeof file !== 'string')))
@@ -118,9 +125,20 @@ export function safeUpgradeComplete(result: WorkspaceConfigurationRefreshResult 
     && Array.isArray(result.results) && result.results.length === result.total && !result.failed
     && result.results.every(repository => ['current', 'updated'].includes(repository.status))
     && (!result.worldModelMigration || verifiedWorldModelMigration(result, 'configured'))
+    && (!result.storyCutover || verifiedStoryCutover(result, 'retired'))
     && !result.topologyIssues?.length
     && !result.schemaCensuses?.some(census => census.healthy === false || census.truncated)
     && result.capabilityPortability?.changed === false);
+}
+
+export function verifiedStoryCutover(result: WorkspaceConfigurationRefreshResult, status: 'planned' | 'retired'): boolean {
+  const cutover = result.storyCutover;
+  return Boolean(cutover?.requested === true && cutover.mode === 'hard' && cutover.status === status
+    && cutover.historicalBytes === 'preserved' && Array.isArray(cutover.repositories)
+    && cutover.repositories.length === result.total && new Set(cutover.repositories.map(item => item.repository)).size === result.total
+    && cutover.repositories.every(item => item.requested === true && item.mode === 'hard'
+      && Array.isArray(item.retiredIds) && item.retiredIds.every(id => typeof id === 'string')
+      && result.results.some(entry => entry.repository === item.repository)));
 }
 
 export function afterInstallComplete(view: AfterInstallView): boolean {
@@ -282,14 +300,17 @@ export class AfterInstallJourney {
     const binding = JSON.stringify(reviewed);
     const argv = this.args([
       ...(reviewed.worldModelMigration?.requested ? ['--migrate-world-model'] : []),
+      ...(reviewed.storyCutover?.requested ? ['--hard-cutover'] : []),
       '--confirm-plan', planId
     ]);
     const revision = this.begin('Review the exact upgrade plan…');
     try {
       const accepted = await this.host.confirm({
-        title: 'Apply the safe after-install upgrade',
+        title: reviewed.storyCutover?.requested ? 'Hard cutover: discontinue existing Stories' : 'Apply the safe after-install upgrade',
         summary: `${reviewed.total} repositories in ${this.view.workspace.workspace.name}.`,
         detail: 'Update framework-owned assets on sflow/config and its state mirror. Preserve custom content, workspace mappings, application code and Story history.\n\n'
+          + (reviewed.storyCutover?.requested ? 'These Stories will become read-only and cannot continue; use new IDs:\n'
+            + reviewed.storyCutover.repositories.map(item => `${item.repository}: ${(item.retiredIds ?? []).join(', ') || 'none'}`).join('\n') + '\n\n' : '')
           + (reviewed.worldModelMigration?.requested ? reviewed.worldModelMigration.statement + '\n\n' : '')
           + reviewed.results.map(repository => `${repository.repository}: ${repository.status}\n`
             + (repository.files ?? []).join('\n')).join('\n\n'),
@@ -315,7 +336,7 @@ export class AfterInstallJourney {
   }
 
   /** One launch, one exact confirmation: migrate approved settings, refresh pins, then verify. */
-  async migrate(): Promise<void> {
+  async migrate(hardCutover = false): Promise<void> {
     if (this.view.busy || !this.view.workspace || this.view.product?.verdict !== 'aligned') return;
     const selected = this.view.selected!;
     const reviewedTopology = topology(this.view.workspace);
@@ -325,29 +346,32 @@ export class AfterInstallJourney {
     this.view.verified = null;
     try {
       const reviewed = upgradeStatus(await this.host.run<WorkspaceConfigurationRefreshResult>(
-        this.args(['--migrate-world-model', '--dry-run'])
+        this.args(['--migrate-world-model', ...(hardCutover ? ['--hard-cutover'] : []), '--dry-run'])
       ));
       if (!this.current(revision)) return;
       this.view.upgrade = reviewed;
       if (!isSafeWorkspaceReinitializationPreview(reviewed) || reviewed.total < 1
-        || reviewed.results.length !== reviewed.total || !verifiedWorldModelMigration(reviewed, 'planned')) {
+        || reviewed.results.length !== reviewed.total || !verifiedWorldModelMigration(reviewed, 'planned')
+        || (hardCutover && !verifiedStoryCutover(reviewed, 'planned'))) {
         throw new Error('Migration preview needs attention. Resolve the reported configuration or schema issue, then run migration again. An older CLI may need the matching installed build.');
       }
       const binding = JSON.stringify(reviewed);
-      const argv = this.args(['--migrate-world-model', '--confirm-plan', reviewed.planId]);
+      const argv = this.args(['--migrate-world-model', ...(hardCutover ? ['--hard-cutover'] : []), '--confirm-plan', reviewed.planId]);
       this.view.busy = 'Review workspace and capability migration…';
       this.render();
       const accepted = await this.host.confirm({
-        title: 'Migrate workspace and capabilities',
+        title: hardCutover ? 'Hard cutover: discontinue existing Stories' : 'Migrate workspace and capabilities',
         summary: `${this.view.workspace!.workspace.name} · ${reviewed.total} repositories · registered-v4`,
-        detail: 'Upgrade framework seeds and approved World Model settings on sflow/config, mirror them to state, and refresh existing checkout authority pins. Known legacy phase/agent/initiative assignments inherit the registered catalog; listed capability assignments change in the same configuration commit. Custom code, capability routing, historical artifacts and existing Story snapshots are preserved. No tests, source pull, clone or model call. Fresh World Model analysis is a separate build.\n\n'
+        detail: (hardCutover ? 'Existing Stories listed below will become read-only and cannot continue. Their files, approvals and branches are preserved. Start new Stories with new IDs.\n\nStories to discontinue:\n'
+          + reviewed.storyCutover!.repositories.map(item => `${item.repository}: ${(item.retiredIds ?? []).join(', ') || 'none'}`).join('\n') + '\n\n' : '')
+          + 'Upgrade framework seeds and approved World Model settings on sflow/config, mirror them to state, and refresh existing checkout authority pins. Known legacy phase/agent/initiative assignments inherit the registered catalog; listed capability assignments change in the same configuration commit. Custom code, capability routing, historical artifacts and existing Story snapshots are preserved. No tests, source pull, clone or model call. Fresh World Model analysis is a separate build.\n\n'
           + reviewed.results.map(repository => `${repository.repository}: ${repository.status}\n`
             + (repository.files ?? []).join('\n')).join('\n\n')
           + '\n\nWorld Model changes:\n' + JSON.stringify(reviewed.worldModelMigration, null, 2)
           + '\n\nLocal references:\n' + this.view.workspace!.repositories.map(repository =>
             `${repository.id}: ${repository.absolutePath ?? repository.path ?? 'path unavailable'}`
           ).join('\n'),
-        confirmLabel: 'Migrate and verify', expected: reviewed.planId
+        confirmLabel: hardCutover ? 'Discontinue Stories and migrate' : 'Migrate and verify', expected: reviewed.planId
       });
       if (!accepted || !this.current(revision) || this.view.selected !== selected
         || this.view.upgrade !== reviewed || JSON.stringify(reviewed) !== binding) return;
@@ -364,7 +388,8 @@ export class AfterInstallJourney {
       this.view.upgrade = result;
       if (result.updated > 0 || safeUpgradeComplete(result)) await this.host.configurationChanged();
       if (!this.current(revision)) return;
-      if (!safeUpgradeComplete(result) || !verifiedWorldModelMigration(result, 'configured')) {
+      if (!safeUpgradeComplete(result) || !verifiedWorldModelMigration(result, 'configured')
+        || (hardCutover && !verifiedStoryCutover(result, 'retired'))) {
         throw new Error('Migration is not fully verified. Completed publications are preserved; resolve the reported issue and run migration again to resume.');
       }
       await this.refreshVerifiedReferences(selected, reviewedTopology, revision, result);

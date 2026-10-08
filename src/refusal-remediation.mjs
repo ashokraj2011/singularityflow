@@ -276,6 +276,14 @@ const UPGRADE_KNOWN = Object.freeze({
     step('review-registered-views', 'Compare the requested view version with the installed registered views.',
       'singularity-flow wm views')
   ],
+  WFA_RUNTIME_INCOMPATIBLE: () => [
+    step('inspect-snapshot-runtime',
+      'This runtime cannot interpret the pinned Story snapshot. Inspect its exact policy; do not rewrite the snapshot or guess an older interpretation.',
+      'singularity-flow doctor --json', 'diagnostic', '/sf-doctor'),
+    step('inspect-compatible-build',
+      'Check the installed build. Install the compatible package, or explicitly retire pilot Stories through After install hard cutover and start new IDs.',
+      'singularity-flow product status --json', 'diagnostic', '/sf-product')
+  ],
   WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED: (argv, error) => {
     const workType = lowerKebab(error?.details?.workType) ?? '<WORK-TYPE>';
     return [
@@ -320,7 +328,7 @@ const UPGRADE_KNOWN = Object.freeze({
   STORY_ARCHIVED_BY_REBUILD: (argv, error) => {
     const plan = /^grb-[0-9a-f]{24}$/u.test(String(error?.details?.plan ?? '')) ? error.details.plan : null;
     return [
-      step('start-new-story', 'A governance rebuild archived this Story, so it stays read-only. Start a new Story under the current governance.',
+      step('start-new-story', 'This Story was explicitly retired and stays read-only. Start a new Story with a new ID under the current governance.',
         'singularity-flow start <WORK-ID> --from-branch <BASE> --title <TITLE>', 'remediation'),
       ...(plan ? [step('preview-governance-restore',
         'Only if the rebuild itself was a mistake: preview restoring the governance it replaced, a reviewed change for the whole repository.',

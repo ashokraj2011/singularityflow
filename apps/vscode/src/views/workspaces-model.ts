@@ -357,6 +357,8 @@ export interface WorkspaceConfigurationRefreshRepository {
     paths: string[];
   } | null;
   error?: string | null;
+  storyCutover?: { requested: true; mode: 'hard'; historicalBytes: 'preserved'; retiredIds: string[];
+    retiring: Array<{ id: string; createdAt: string | null; locations: unknown[] }>; statement: string };
 }
 
 export interface WorkspaceConfigurationRefreshResult {
@@ -369,6 +371,9 @@ export interface WorkspaceConfigurationRefreshResult {
   results: WorkspaceConfigurationRefreshRepository[];
   /** Present for the composed `workspace reinitialize` report. */
   resultType?: 'workspace-reinitialization';
+  storyCutover?: { requested: true; mode: 'hard'; historicalBytes: 'preserved';
+    status: 'planned' | 'retired' | 'incomplete'; statement: string;
+    repositories: Array<{ repository: string; requested?: boolean; mode?: string; retiredIds?: string[] }> };
   worldModelMigration?: {
     requested: true;
     targetFormat: 'registered-v4';

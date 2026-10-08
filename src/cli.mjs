@@ -15985,6 +15985,7 @@ async function workspaceCommand(positionals, options) {
       acceptBundledConflicts: optionBoolean(options, 'accept-bundled-conflicts'),
       resolutions: optionMap(optionStrings(options, 'resolve'), '--resolve'),
       migrateWorldModel: optionBoolean(options, 'migrate-world-model'),
+      hardCutover: optionBoolean(options, 'hard-cutover'),
       confirmPlan: optionString(options, 'confirm-plan')
     });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));

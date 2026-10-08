@@ -133,7 +133,7 @@ export { displayWidth, padDisplay, terminalWidth, truncateDisplay };
 export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'review-only', 'review-ui', 'send-test', 'compose', 'for-agent',
   'commit-reviewed',
-  'attach-if-missing', 'migrate-world-model',
+  'attach-if-missing', 'migrate-world-model', 'hard-cutover',
   'archive-readiness', 'allow-empty-output', 'allow-unavailable-verification', 'authority-local',
   'accept-bundled-conflicts', 'accept-partial', 'accept-test-risk', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'all', 'allow-dirty', 'allow-model', 'apply', 'assigned-to-me', 'ast',
   'assisted', 'auto', 'automatic', 'blocking', 'bootstrap', 'check', 'churn', 'clear-loops', 'cli-only', 'clipboard', 'clone', 'concat',

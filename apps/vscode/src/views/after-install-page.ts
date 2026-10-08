@@ -39,12 +39,16 @@ export function afterInstallHtml(view: AfterInstallView): string {
         <p class="muted">One guided action: preview the exact upgrade, confirm once, migrate approved repository and capability World Model settings to registered-v4, refresh local pins, and verify. No workspace recreation.</p>
         <p class="card-foot"><button data-after-action="migrate"${disabled || !productReady || !view.workspace ? ' disabled' : ''}>Migrate workspace &amp; capabilities…</button></p>
         <p class="muted">Preserves custom configuration, source, legacy World Model artifacts, and existing Story snapshots. Fresh registered World Model analysis is a separate build—not a relabel of old content.</p>
+        <p class="card-foot"><button class="secondary" data-after-action="cutover"${disabled || !productReady || !view.workspace ? ' disabled' : ''}>Hard cutover: discontinue old Stories…</button></p>
+        <p class="muted">Pilot option: review the exact Story list, retire those Stories read-only, and migrate current configuration. Their historical records no longer need upgrading. No Story files or branches are deleted.</p>
       </section>
     </section>
     <section class="plain"><h2>3. Upgrade repository configuration ${upgraded ? '<span class="pill ok">verified</span>' : ''}</h2>
       <p class="muted">Preview framework-owned workflow, agent, skill and template updates to <code>sflow/config</code> and its state mirror. Custom assets, mappings, source code, approvals and Story history are preserved.</p>
       <p class="card-foot"><button data-after-action="preview"${disabled || !productReady || !view.workspace ? ' disabled' : ''}>Preview safe upgrade</button></p>
       ${result ? `<p>Status: <strong>${escape(result.status)}</strong> · ${escape(result.total)} repositories · ${escape(result.updated)} updated</p>
+        ${result.storyCutover ? `<p>Story cutover: <strong>${escape(result.storyCutover.status)}</strong></p><p>${escape(result.storyCutover.statement)}</p>
+          <ul class="plain-list">${result.storyCutover.repositories.map(item => `<li>${escape(item.repository)}: ${escape(item.retiredIds?.join(', ') || 'No known Stories')}</li>`).join('')}</ul>` : ''}
         ${result.worldModelMigration ? `<p>World Model migration: <strong>${escape(result.worldModelMigration.status)}</strong> → registered-v4</p>
           <div class="table-scroll"><table><thead><tr><th>Repository</th><th>Format</th><th>Capabilities</th></tr></thead><tbody>${result.worldModelMigration.repositories.map(repository => `<tr><td>${escape(repository.repository)}</td><td>${escape(repository.fromFormat ?? 'unverified')} → ${escape(repository.targetFormat ?? 'unverified')}</td><td>${escape(repository.capabilities?.join(', ') || 'Implicit repository capability')}</td></tr>`).join('')}</tbody></table></div>
           <p class="muted">${escape(result.worldModelMigration.statement)}</p>` : ''}
@@ -64,7 +68,7 @@ export function afterInstallHtml(view: AfterInstallView): string {
       <p class="card-foot"><button data-after-action="references"${disabled || !productReady || !upgraded ? ' disabled' : ''}>Refresh &amp; verify this workspace…</button></p>
       ${view.references ? `<ul class="plain-list">${view.references.map(reference => `<li><strong>${escape(reference.id)}</strong> · ${escape(reference.status)}${reference.reason ? `<p class="muted">${escape(reference.reason)}</p>` : ''}</li>`).join('')}</ul>` : ''}
       ${complete ? `<p class="notice">${icon('ok')}${migrated ? 'Workspace and capability configuration migration complete. Registered-v4 is configured; select the capability and build fresh views from Configuration → Rebuild capability World Model.' : 'After-install checks complete for this workspace. New Stories can use the upgraded configuration.'}</p>` : view.verified ? '<p class="notice warning">Verification needs attention. Use workspace maintenance for the listed checkout or authority issue, then repeat the affected step.</p>' : ''}
-      <p class="muted">Existing Stories retain their pinned configuration and approvals. Build the migrated capability World Model from the workspace repository checkout, not an older Story checkout that still uses its preserved pin. Repeat this journey on other laptops to refresh their local references.</p>
+      <p class="muted">${result?.storyCutover ? 'Retired Stories are read-only; start new Stories with new IDs.' : 'Existing Stories retain their pinned configuration and approvals.'} Build the migrated capability World Model from the workspace repository checkout, not an older Story checkout that still uses its preserved pin. Repeat this journey on other laptops to refresh their local references.</p>
     </section>`;
 }
 

@@ -1116,7 +1116,9 @@ Usage:
     (--review-only proposes each change on a sflow/config-refresh/* review branch and never pushes
      sflow/config itself)
   singularity-flow workspace reinitialize [WORKSPACE] [--repository ID]
-    [--dry-run | --confirm-plan PLAN-ID] [--json]
+    [--migrate-world-model] [--hard-cutover] [--dry-run | --confirm-plan PLAN-ID] [--json]
+    (--hard-cutover explicitly retires known existing Stories, preserving their bytes read-only;
+     their records no longer block schema compatibility; use new IDs for new Stories)
     (safe, repeatable upgrade path: restores only missing or exact registered framework seeds and
      their framework-owned dependencies; user-created and user-modified workflows, phases,
      artifact sets, templates, prompts, and agents remain repository-owned and unchanged;

@@ -34,6 +34,7 @@ export const UPGRADE_CONTRACT = Object.freeze({
   WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE: guided('reviewed-registry-admission'),
   WMB_MIGRATION_REQUIRED: guided(),
   WMB_VIEW_VERSION_UNSUPPORTED: guided(),
+  WFA_RUNTIME_INCOMPATIBLE: guided(),
   WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED: guided(),
   CONVERGENCE_LEGACY_MIGRATION_REQUIRED: guided(),
   GENERATION_PUBLICATION_MIGRATION_REQUIRED: guided(),
@@ -54,6 +55,9 @@ export const UPGRADE_CONTRACT = Object.freeze({
   SCHEMA_VERSION_INVALID: integrity('A schema census finding for a record whose version is not an integer.'),
   WMB_MIGRATION_RECEIPT_INVALID: integrity('A legacy World-Model migration receipt does not verify.'),
   WMB_MIGRATION_SOURCE_INVALID: integrity('A legacy World-Model migration source does not verify.'),
+  WMB_MIGRATION_CATALOG_INVALID: integrity('The approved view catalog is invalid; an upgrade must not invent or weaken its assignments.'),
+  WMB_MIGRATION_CAPABILITY_VIEW_UNDECLARED: integrity('A required capability view is absent from the approved catalog; migration cannot silently remove the requirement.'),
+  WMB_MIGRATION_CAPABILITIES_UNSAFE: integrity('The capability configuration path is unsafe; migration must not traverse it or replace its bytes.'),
   AUTO_CONTEXT_MANIFEST_MISMATCH: integrity('A model transport receipt differs from the admitted Auto prompt.'),
 
   // Development and release gates: never reached by an installed build at runtime.

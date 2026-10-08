@@ -45,6 +45,7 @@ import { isKnownPackagedWorkflowValue } from './packaged-workflow-history.mjs';
 import { patchYamlDocument, renderPreservingFormatting } from './yaml-formatting.mjs';
 import { CAPABILITIES_PATH, validateCapabilities } from './capabilities.mjs';
 import { planWorldModelConfigurationMigration } from './world-model/migration/configuration.mjs';
+import { stageStoryHardCutover } from './story-hard-cutover.mjs';
 
 export const PACKAGE_BASELINE_PATH = 'singularity/.product/configuration-baseline.yml';
 export const STATE_CONFIGURATION_ROOT = 'configuration';
@@ -1815,7 +1816,8 @@ async function prepareBootstrapInspectionCandidate(observation, options, {
       preserveImportedLedgerPolicy: options.restorePackagedSeeds === true,
       frameworkApprovalAuthoritySeeds
     });
-    const refresh = await refreshPackagedConfiguration(scratch, options);
+    let refresh = await refreshPackagedConfiguration(scratch, options);
+    if (options.hardCutover) refresh = await stageStoryHardCutover(scratch, repository, bootstrapCommit, refresh);
     const desired = await desiredStateProjection(scratch, { env: transport.env });
     assertDedicatedStateAuthority(repository, desired);
     const stateCommit = await fetchStateRefAsync(scratch, desired.stateConfig, {
@@ -2845,7 +2847,8 @@ async function prepareCandidate(repository, options, { env = process.env } = {})
       throw refreshRefError(`refs/heads/${CONFIGURATION_BRANCH}`, sourceRef.status, 'read');
     }
     const sourceCommit = sourceRef.commit;
-    const refresh = await refreshPackagedConfiguration(root, options);
+    let refresh = await refreshPackagedConfiguration(root, options);
+    if (options.hardCutover) refresh = await stageStoryHardCutover(root, repository, sourceCommit, refresh);
     const desired = await desiredStateProjection(root, { env: gitEnv });
     assertDedicatedStateAuthority(repository, desired);
     const stateCommit = await fetchStateRefAsync(root, desired.stateConfig, { env: gitEnv });
@@ -2909,7 +2912,8 @@ async function prepareCachedCandidate(observation, cache, options, { env = isola
     run('git', ['remote', 'set-url', 'origin', transport.remote], {
       cwd: root, env: transport.env
     });
-    const refresh = await refreshPackagedConfiguration(root, options);
+    let refresh = await refreshPackagedConfiguration(root, options);
+    if (options.hardCutover) refresh = await stageStoryHardCutover(root, observation.repository, sourceCommit, refresh);
     const desired = await desiredStateProjection(root, { env: transport.env });
     assertDedicatedStateAuthority(observation.repository, desired);
     if (desired.stateConfig.branch !== entry.stateBranch) {
@@ -2937,7 +2941,7 @@ async function prepareObservedCandidate(observation, options, cache, { env = pro
 }
 
 function refreshPlanId(candidates, {
-  resolutions, acceptBundledConflicts, restorePackagedSeeds = false, migrateWorldModel = false
+  resolutions, acceptBundledConflicts, restorePackagedSeeds = false, migrateWorldModel = false, hardCutover = false
 }) {
   const identity = {
     repositories: candidates.map((candidate) => ({
@@ -2964,6 +2968,7 @@ function refreshPlanId(candidates, {
       acceptBundledConflicts: acceptBundledConflicts === true,
       restorePackagedSeeds: restorePackagedSeeds === true,
       migrateWorldModel: migrateWorldModel === true,
+      hardCutover: hardCutover === true,
       resolutions: canonical(resolutions)
     }
   };
@@ -2997,7 +3002,8 @@ function previewResultForCandidate(candidate, status) {
     packageContentDigest: candidate.refresh.packageContentDigest,
     configurationPaths: candidate.desired.paths,
     configurationAssets: candidate.desired.assets,
-    ...(candidate.refresh.worldModelMigration ? { worldModelMigration: candidate.refresh.worldModelMigration } : {})
+    ...(candidate.refresh.worldModelMigration ? { worldModelMigration: candidate.refresh.worldModelMigration } : {}),
+    ...(candidate.refresh.storyCutover ? { storyCutover: candidate.refresh.storyCutover } : {})
   };
 }
 
@@ -3299,7 +3305,8 @@ async function publishCandidate(candidate) {
     removedStatePaths: state.removed,
     files: refresh.files,
     conflicts: refresh.conflicts,
-    ...(refresh.worldModelMigration ? { worldModelMigration: refresh.worldModelMigration } : {})
+    ...(refresh.worldModelMigration ? { worldModelMigration: refresh.worldModelMigration } : {}),
+    ...(refresh.storyCutover ? { storyCutover: refresh.storyCutover } : {})
   };
   } catch (error) {
     // Configuration and state are two remote publications. If the first succeeded, never report
@@ -3350,6 +3357,7 @@ export async function refreshWorkspaceConfigurations({
   resolutions = {},
   restorePackagedSeeds = false,
   migrateWorldModel = false,
+  hardCutover = false,
   confirmPlan = null,
   inspectCandidate = null,
   cleanupTemporaryTree = removeTemporaryTree,
@@ -3433,7 +3441,7 @@ export async function refreshWorkspaceConfigurations({
           // conflicts, removals, and the desired state projection change behind one plan ID.
           candidate = await prepareBootstrapInspectionCandidate(observation, {
             dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-            restorePackagedSeeds, migrateWorldModel
+            restorePackagedSeeds, migrateWorldModel, hardCutover
           }, { env: gitEnv });
           if (inspectCandidate) await inspectCandidate(candidate);
         } catch (error) {
@@ -3449,7 +3457,7 @@ export async function refreshWorkspaceConfigurations({
       try {
         candidate = await prepareCandidate(observation.repository, {
           dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-          restorePackagedSeeds, migrateWorldModel
+          restorePackagedSeeds, migrateWorldModel, hardCutover
         }, { env: gitEnv });
         if (inspectCandidate) await inspectCandidate(candidate);
       } catch (error) {
@@ -3468,7 +3476,7 @@ export async function refreshWorkspaceConfigurations({
     const results = prepared.map((entry) => entry.result);
     const blocked = results.some((entry) => entry.status === 'blocked');
     const planId = blocked ? null : refreshPlanId(planCandidates, {
-      resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds, migrateWorldModel
+      resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds, migrateWorldModel, hardCutover
     });
     if (planId) {
       await retainRefreshPlanCache(registryFile, planId, planCandidates).catch(() => false);
@@ -3498,7 +3506,7 @@ export async function refreshWorkspaceConfigurations({
         try {
           const candidate = await prepareBootstrapInspectionCandidate(observation, {
             dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-            restorePackagedSeeds, migrateWorldModel
+            restorePackagedSeeds, migrateWorldModel, hardCutover
           }, { env: gitEnv });
           return { observation, candidate, retained: false, bootstrap: true, error: null };
         } catch (error) {
@@ -3509,7 +3517,7 @@ export async function refreshWorkspaceConfigurations({
       }
       try {
         const candidate = await prepareObservedCandidate(observation, {
-          acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel
+          acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel, hardCutover
         }, cachedPlan, { env: gitEnv });
         return { observation, candidate, retained: true, bootstrap: false, error: null };
       } catch (error) {
@@ -3542,7 +3550,7 @@ export async function refreshWorkspaceConfigurations({
       };
     }
     previewBoundPlanId = refreshPlanId(confirmationCandidates, {
-      resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds, migrateWorldModel
+      resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds, migrateWorldModel, hardCutover
     });
     if (previewBoundPlanId !== confirmPlan) {
       await Promise.all(prepared.filter((entry) => entry.candidate?.root)
@@ -3570,7 +3578,7 @@ export async function refreshWorkspaceConfigurations({
       try {
         const candidate = await prepareBootstrapInspectionCandidate(observation, {
           dryRun: false, acceptBundledConflicts, resolutions: normalizedResolutions,
-          restorePackagedSeeds, migrateWorldModel
+          restorePackagedSeeds, migrateWorldModel, hardCutover
         }, { env: gitEnv });
         return { observation, candidate, error: null };
       } catch (error) {
@@ -3746,7 +3754,7 @@ export async function refreshWorkspaceConfigurations({
   const prepared = await mapLimit(toPrepare, workers, async (observation) => {
     try {
       const candidate = await prepareObservedCandidate(observation, {
-        acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel
+        acceptBundledConflicts, resolutions: normalizedResolutions, restorePackagedSeeds, migrateWorldModel, hardCutover
       }, cachedPlan, { env: gitEnv });
       return { observation, candidate, error: null };
     } catch (error) {
@@ -3796,7 +3804,7 @@ export async function refreshWorkspaceConfigurations({
   }
 
   const planId = previewBoundPlanId ?? refreshPlanId(candidates, {
-    resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds, migrateWorldModel
+    resolutions: normalizedResolutions, acceptBundledConflicts, restorePackagedSeeds, migrateWorldModel, hardCutover
   });
   if (!previewBoundPlanId && confirmPlan && confirmPlan !== planId) {
     await Promise.all(candidates.map((candidate) => removeTemporaryTree(candidate.root)));

@@ -17,6 +17,9 @@ import { gitEmptyConfigPath } from '../src/git-isolation-paths.mjs';
 import { rememberWorkspace } from '../src/workspace.mjs';
 import { installWorkflow } from '../src/workflow-catalog.mjs';
 import { loadDefinition } from '../src/config.mjs';
+import { reinitializeWorkspaces } from '../src/workspace-reinitialize.mjs';
+import { schemaCensus } from '../src/schema-census.mjs';
+import { assertStoryNotArchived, GOVERNANCE_ARCHIVE_PATH, GOVERNANCE_ARCHIVE_VERSION } from '../src/governance-archive.mjs';
 import { refreshFosAuthority } from '../src/onboard.mjs';
 import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
 import { loadWorldModelConfig } from '../src/worldmodel.mjs';
@@ -154,6 +157,110 @@ async function registeredRepositoryFixture(root, id) {
   await rememberWorkspace(registry, manifest);
   return { ...fixture, registry };
 }
+
+test('hard cutover retires old Story records without migrating or changing their branches', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-pilot-cutover-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, repository, registry } = await registeredRepositoryFixture(root, 'cutover');
+  const story = { schemaVersion: 13, workItem: { id: 'OLD-1', branch: 'OLD-1', baseBranch: 'main',
+    createdAt: '2026-09-01T00:00:00.000Z' }, phaseOrder: [], phases: {}, status: 'in_progress' };
+  const oldPath = 'singularity/work-items/OLD-1/context/planning-clarification-gen1.json';
+  git(repository, ['switch', '-c', 'OLD-1']);
+  await mkdir(path.join(repository, path.dirname(oldPath)), { recursive: true });
+  await writeFile(path.join(repository, 'singularity/work-items/OLD-1/workflow.json'), JSON.stringify(story));
+  await writeFile(path.join(repository, oldPath), '{"phase":"planning","responses":[]}\n');
+  git(repository, ['add', 'singularity']); git(repository, ['commit', '-m', 'Retain old Story and response draft']);
+  git(repository, ['push', 'origin', 'OLD-1']);
+  let oldHead = git(repository, ['rev-parse', 'HEAD']);
+  const oldBytes = git(repository, ['show', `HEAD:${oldPath}`]);
+  git(repository, ['switch', 'main']);
+  // Historical custom roots and non-origin tracking refs must retire without parsing the old
+  // workflow. A corrupt Initiative, by contrast, cannot be relabelled as a discontinued Story.
+  git(repository, ['switch', '-c', 'OLD-2']);
+  const historical = YAML.parse(await readFile(path.join(ROOT, 'templates/workflow.yml'), 'utf8'));
+  historical.workItemRoot = '.legacy/story-records';
+  await mkdir(path.join(repository, 'singularity'), { recursive: true });
+  await writeFile(path.join(repository, 'singularity/workflow.yml'), YAML.stringify(historical));
+  const opaquePath = '.legacy/story-records/OLD-2/workflow.json';
+  await mkdir(path.join(repository, path.dirname(opaquePath)), { recursive: true });
+  await writeFile(path.join(repository, opaquePath), '{unreadable retired workflow\n');
+  git(repository, ['add', 'singularity/workflow.yml', opaquePath]); git(repository, ['commit', '-m', 'Opaque legacy Story']);
+  git(repository, ['remote', 'add', 'upstream', remote]); git(repository, ['push', 'upstream', 'OLD-2']);
+  const opaqueHead = git(repository, ['rev-parse', 'HEAD']);
+  git(repository, ['switch', 'main']); git(repository, ['branch', '-D', 'OLD-2']);
+  const state = path.join(root, 'state');
+  await initializeStatePublisher(state);
+  git(state, ['remote', 'add', 'origin', remote]); git(state, ['push', 'origin', 'state']);
+  const sourceHead = git(repository, ['rev-parse', 'HEAD']);
+  const authority = path.join(root, 'authority');
+  run('git', ['clone', '--quiet', '--single-branch', '--branch', 'sflow/config', remote, authority]);
+  git(authority, ['config', 'user.name', 'Cutover Test']); git(authority, ['config', 'user.email', 'cutover@example.test']);
+  await mkdir(path.join(authority, path.dirname(GOVERNANCE_ARCHIVE_PATH)), { recursive: true });
+  await writeFile(path.join(authority, GOVERNANCE_ARCHIVE_PATH), JSON.stringify({
+    schema: GOVERNANCE_ARCHIVE_VERSION, rebuilds: [], stories: [{
+      id: 'PAST-1', createdAt: '2026-01-01', statuses: ['completed'], locations: [],
+      archivedBy: 'grb-0123456789abcdef01234567', archivedAt: '2026-09-01'
+    }]
+  }));
+  git(authority, ['add', GOVERNANCE_ARCHIVE_PATH]); git(authority, ['commit', '-m', 'Retain earlier rebuild archive']);
+  git(authority, ['push', 'origin', 'HEAD:sflow/config']);
+  const ordinary = await reinitializeWorkspaces({ registryFile: registry, dryRun: true, migrateWorldModel: true });
+  assert.equal(ordinary.status, 'blocked');
+  assert.ok(ordinary.schemaCensuses[0].findings.some(finding => finding.code === 'SCHEMA_VERSION_MISSING'));
+  const options = { registryFile: registry, hardCutover: true, migrateWorldModel: true };
+  let preview = await reinitializeWorkspaces({ ...options, dryRun: true });
+  assert.equal(preview.status, 'preview', JSON.stringify(preview));
+  assert.equal(preview.storyCutover.status, 'planned');
+  assert.deepEqual(preview.storyCutover.repositories[0].retiredIds, ['OLD-1', 'OLD-2', 'PAST-1']);
+  assert.deepEqual(preview.storyCutover.repositories[0].opaqueIds, ['OLD-2']);
+  assert.ok(preview.nextAction.argv.includes('--hard-cutover'));
+  assert.equal(git(repository, ['rev-parse', 'HEAD']), sourceHead);
+  assert.equal(git(repository, ['status', '--porcelain']), '');
+  // Both byte projection and policy bind the flag. A normal migration cannot consume its plan.
+  const wrongMode = await reinitializeWorkspaces({ registryFile: registry, migrateWorldModel: true, confirmPlan: preview.planId });
+  assert.equal(wrongMode.status, 'blocked');
+  const configBefore = git(remote, ['rev-parse', 'sflow/config']);
+  git(repository, ['switch', 'OLD-1']);
+  await writeFile(path.join(repository, 'retained-notes.md'), 'Retain this new private Story commit too.\n');
+  git(repository, ['add', 'retained-notes.md']); git(repository, ['commit', '-m', 'Story changed after cutover preview']);
+  git(repository, ['push', 'origin', 'OLD-1']);
+  oldHead = git(repository, ['rev-parse', 'HEAD']);
+  git(repository, ['switch', 'main']);
+  const stale = await reinitializeWorkspaces({ ...options, confirmPlan: preview.planId });
+  assert.equal(stale.status, 'blocked', 'even an excluded Story branch tip invalidates confirmation');
+  assert.equal(git(remote, ['rev-parse', 'sflow/config']), configBefore, 'stale retirement never publishes');
+  const priorPlan = preview.planId;
+  preview = await reinitializeWorkspaces({ ...options, dryRun: true });
+  assert.equal(preview.status, 'preview', JSON.stringify(preview));
+  assert.notEqual(preview.planId, priorPlan);
+  const applied = await reinitializeWorkspaces({ ...options, confirmPlan: preview.planId });
+  assert.equal(applied.status, 'complete', JSON.stringify(applied));
+  assert.equal(applied.storyCutover.status, 'retired');
+  assert.equal(git(repository, ['rev-parse', 'OLD-1']), oldHead);
+  assert.equal(git(repository, ['show', `OLD-1:${oldPath}`]), oldBytes);
+  assert.equal(git(repository, ['rev-parse', 'refs/remotes/upstream/OLD-2']), opaqueHead);
+  assert.equal(git(repository, ['show', `upstream/OLD-2:${opaquePath}`]), '{unreadable retired workflow');
+  git(repository, ['fetch', 'origin', 'sflow/config:refs/remotes/origin/sflow/config']);
+  assert.throws(() => assertStoryNotArchived(repository, story), error => error.code === 'STORY_ARCHIVED_BY_REBUILD');
+  assert.throws(() => assertStoryNotArchived(repository, { ...story, workItem: { ...story.workItem, createdAt: '2030-01-01' } }),
+    error => error.code === 'STORY_ARCHIVED_BY_REBUILD', 'cutover IDs cannot be revived with a changed creation date');
+  assert.throws(() => assertStoryNotArchived(repository, { workItem: { id: 'PAST-1', createdAt: '2030-01-01' } }),
+    error => error.code === 'STORY_ARCHIVED_BY_REBUILD', 'one-incarnation archives become identity-wide retirement');
+  assert.doesNotThrow(() => assertStoryNotArchived(repository, { workItem: { id: 'NEW-1' } }));
+  const again = await reinitializeWorkspaces({ ...options, dryRun: true });
+  assert.equal(again.status, 'preview', JSON.stringify(again));
+  assert.deepEqual(again.results[0].storyCutover.retiring, [], 'resume is idempotent');
+  // Retirement is narrow: a non-retired Story with the same malformed shape still blocks.
+  git(repository, ['switch', '-c', 'NEW-1']);
+  const newPath = oldPath.replaceAll('OLD-1', 'NEW-1');
+  await mkdir(path.join(repository, path.dirname(newPath)), { recursive: true });
+  await writeFile(path.join(repository, newPath), '{"phase":"planning","responses":[]}\n');
+  git(repository, ['add', newPath]); git(repository, ['commit', '-m', 'New record must remain governed']);
+  const census = await schemaCensus(repository, { includeLifecycleRefs: true, retiredStoryIds: ['OLD-1'] });
+  assert.equal(census.healthy, false);
+  assert.ok(census.unreadable.some(finding => finding.path.includes('/NEW-1/')));
+  assert.ok(!census.unreadable.some(finding => finding.path.includes('/OLD-1/')));
+});
 
 test('confirmed migration publishes repository and capability settings together and preserves history', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-config-migration-'));

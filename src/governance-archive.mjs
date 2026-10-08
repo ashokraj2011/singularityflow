@@ -4,7 +4,8 @@
  * A rebuild never rewrites a Story branch. It records every Story it archives in one committed
  * registry, beside the configuration it rebuilt, and the engine refuses to change any Story the
  * registry names. A Story is identified by its ID and the moment it was created, so a later Story
- * that reuses an archived ID is a different Story.
+ * that reuses an archived ID is a different Story. An explicit pilot hard cutover instead retires
+ * all incarnations of the listed IDs: new work must use a new ID.
  *
  * A Story branch cut before the rebuild does not contain the registry, so the check reads it from
  * the branch the Story was cut from, its remote-tracking copy and the configuration authority, as
@@ -12,6 +13,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 
 import { committedFileText } from './git.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -63,9 +65,15 @@ function sources(root, workflow) {
     refs.add(`refs/remotes/${remote}/${item.baseBranch}`);
   }
   refs.add(`refs/remotes/${remote}/sflow/config`);
+  refs.add('refs/heads/sflow/config');
+  const stateBranch = workflow?.resolution?.ledger?.branch ?? 'state';
+  const stateRemote = workflow?.resolution?.ledger?.remote ?? remote;
+  refs.add(`refs/remotes/${stateRemote}/${stateBranch}`);
   const texts = [];
-  const local = path.join(root, GOVERNANCE_ARCHIVE_PATH);
-  if (existsSync(local)) texts.push(readFileSync(local, 'utf8'));
+  for (const directory of new Set([root, configurationReadRootForPath(root, GOVERNANCE_ARCHIVE_PATH)])) {
+    const local = path.join(directory, GOVERNANCE_ARCHIVE_PATH);
+    if (existsSync(local)) texts.push(readFileSync(local, 'utf8'));
+  }
   for (const ref of refs) {
     try {
       texts.push(committedFileText(root, ref, GOVERNANCE_ARCHIVE_PATH));
@@ -82,7 +90,8 @@ export function governanceArchiveEntry(root, workflow) {
   if (!id) return null;
   const createdAt = workflow.workItem.createdAt ?? null;
   for (const registry of sources(root, workflow)) {
-    const entry = registry.stories.find((story) => story.id === id && (story.createdAt ?? null) === createdAt);
+    const entry = registry.stories.find((story) => story.id === id
+      && (story.allIncarnations === true || (story.createdAt ?? null) === createdAt));
     if (entry) return entry;
   }
   return null;
@@ -92,9 +101,13 @@ export function governanceArchiveEntry(root, workflow) {
 export function assertStoryNotArchived(root, workflow) {
   const entry = governanceArchiveEntry(root, workflow);
   if (!entry) return;
+  const hard = entry.allIncarnations === true;
+  const plan = entry.hardCutoverBy ?? entry.archivedBy;
+  const archivedAt = hard ? null : entry.archivedAt;
   throw new SingularityFlowError(
-    `Story '${entry.id}' was archived by governance rebuild ${entry.archivedBy} on ${entry.archivedAt}; it is read-only. `
-    + 'Start a new Story under the current governance.',
-    { code: 'STORY_ARCHIVED_BY_REBUILD', exitCode: 2, details: { workId: entry.id, plan: entry.archivedBy, archivedAt: entry.archivedAt } }
+    `Story '${entry.id}' was ${hard ? 'discontinued by pilot hard cutover' : 'archived by governance rebuild'} ${plan}${archivedAt ? ` on ${archivedAt}` : ''}; it is read-only. `
+    + 'Start a new Story with a new ID under the current governance.',
+    { code: 'STORY_ARCHIVED_BY_REBUILD', exitCode: 2, details: { workId: entry.id, plan, archivedAt,
+      mode: hard ? 'hard-cutover' : 'governance-rebuild' } }
   );
 }

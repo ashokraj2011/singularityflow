@@ -15,6 +15,37 @@ const runner = (status, report, extra = {}) => async () => ({ status,
   stdout: typeof report === 'string' ? report : JSON.stringify(report), stderr: '',
   timedOut: false, aborted: false, error: null, ...extra });
 
+test('the validator forces Electron Node mode without forwarding ambient options or secrets', async () => {
+  const keys = ['ELECTRON_RUN_AS_NODE', 'NODE_OPTIONS', 'GITHUB_TOKEN'];
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  try {
+    process.env.ELECTRON_RUN_AS_NODE = '0';
+    process.env.NODE_OPTIONS = '--require untrusted-host-code.cjs';
+    process.env.GITHUB_TOKEN = 'must-not-cross';
+    let invocation;
+    const result = await validateCalmWithOfficialToolchain(projection, {
+      runCommand: async (command, args, options) => {
+        invocation = { command, args, options };
+        return runner(0, clean)();
+      }
+    });
+    assert.equal(result.status, 'passed');
+    assert.equal(invocation.command, process.execPath);
+    assert.equal(invocation.options.env.ELECTRON_RUN_AS_NODE, '1');
+    assert.equal(invocation.options.env.NODE_OPTIONS, undefined);
+    assert.equal(invocation.options.env.GITHUB_TOKEN, undefined);
+    assert.equal(invocation.args[0], '--require');
+    assert.match(invocation.args[1], /offline-network-deny\.cjs$/);
+    assert.equal(invocation.options.timeoutMs, 30_000);
+    assert.equal(invocation.options.killTree, true);
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test('validator fails closed for missing, malformed, contradictory or unexplained results', async () => {
   const cases = [
     [0, ''], [0, 'not json'], [0, { hasErrors: false }], [0, []],

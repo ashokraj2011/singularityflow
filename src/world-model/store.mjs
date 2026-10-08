@@ -33,6 +33,10 @@ import {
 import { assertInstalledViewRegistry, resolveViewContract } from './registry/views.mjs';
 import { validateProjectionRegistry } from './registry/projections.mjs';
 import { buildCalmProjection, calmProjectionOptions, enforceProjectionBudgets } from './projections/calm/projection.mjs';
+import {
+  assertProjectionRefusalInputBindings, requestedProjectionInputRecords,
+  verifyProjectionInputRecords
+} from './projections/inputs.mjs';
 import { createWorldModelViewOutputBudget } from './plan.mjs';
 import { validateScopeManifest } from './scope/manifest.mjs';
 import {
@@ -309,11 +313,10 @@ function exactProjectionAllowlist(root, ref, outputDir, manifest, viewRegistry) 
   }
   if (manifest.projections?.length) {
     expected.add('registries/projections.json');
-    if (manifest.projections.some((entry) => entry.status === 'available')) {
-      expected.add('inputs/capability-snapshot.json');
-      expected.add('inputs/configuration-snapshot.json');
-      expected.add('toolchains/calm.json');
-    }
+    const request = jsonAt(root, ref, path.posix.join(outputDir, 'requests/build-request.json'));
+    for (const input of requestedProjectionInputRecords(request, {
+      requireComplete: manifest.projections.some((entry) => entry.status === 'available')
+    })) expected.add(input.path);
     for (const entry of manifest.projections) {
       if (entry.status === 'available') {
         expected.add(entry.path);
@@ -520,8 +523,14 @@ function loadProjectionRecords(root, ref, outputDir, viewEntries, viewRegistry, 
   const unavailable = viewEntries.filter((entry) => entry.status === 'unavailable');
   const projectionAvailable = projectionEntries.filter((entry) => entry.status === 'available');
   const projectionUnavailable = projectionEntries.filter((entry) => entry.status === 'unavailable');
+  const buildRequest = required('requests/build-request.json');
+  const inputs = projectionEntries.length
+    ? Object.fromEntries(requestedProjectionInputRecords(buildRequest, {
+        requireComplete: projectionAvailable.length > 0
+      }).map((input) => [input.field, required(input.path)]))
+    : {};
   return {
-    buildRequest: required('requests/build-request.json'),
+    buildRequest,
     buildPlan: required('plans/build-plan.json'),
     consumerProfile: required('profiles/consumer.json'),
     outputBudget: required('profiles/output-budget.json'),
@@ -532,9 +541,9 @@ function loadProjectionRecords(root, ref, outputDir, viewEntries, viewRegistry, 
     refusals: unavailable.map((entry) => required(`refusals/${entry.viewId}.json`)),
     migrations: migrationPaths.map((relative) => ({ relative, record: required(relative) })),
     projectionRegistry: projectionEntries.length ? required('registries/projections.json') : null,
-    capabilitySnapshot: projectionAvailable.length ? required('inputs/capability-snapshot.json') : null,
-    configurationSnapshot: projectionAvailable.length ? required('inputs/configuration-snapshot.json') : null,
-    toolchainLock: projectionAvailable.length ? required('toolchains/calm.json') : null,
+    capabilitySnapshot: inputs.capabilitySnapshot ?? null,
+    configurationSnapshot: inputs.configurationSnapshot ?? null,
+    toolchainLock: inputs.toolchainLock ?? null,
     projections: projectionAvailable.map((entry) => ({
       ...structuredClone(entry),
       projection: required(entry.path),
@@ -818,24 +827,13 @@ function verifiedPublishedProjections(manifest, records, {
     recordFailure('Published projection registry does not match the World-Model manifest.',
       'WMB_MANIFEST_DEPENDENCY_MISMATCH');
   }
-  const available = manifest.projections.some((entry) => entry.status === 'available');
-  let capabilitySnapshot = null;
-  let configurationSnapshot = null;
-  let toolchainLock = null;
-  if (available) {
-    capabilitySnapshot = readRecord('architecture-fact-set', records.capabilitySnapshot).record;
-    configurationSnapshot = readRecord('architecture-fact-set', records.configurationSnapshot).record;
-    toolchainLock = readRecord('calm-toolchain-lock', records.toolchainLock).record;
-    assertSelfHash(capabilitySnapshot, 'snapshotSha256', 'Architecture capability snapshot');
-    assertSelfHash(configurationSnapshot, 'snapshotSha256', 'Architecture configuration snapshot');
-    assertSelfHash(toolchainLock, 'lockSha256', 'CALM toolchain lock');
-    if (capabilitySnapshot.kind !== 'architecture-capability-snapshot'
-        || configurationSnapshot.kind !== 'architecture-configuration-snapshot'
-        || toolchainLock.kind !== 'calm-toolchain-lock') {
-      recordFailure('Published projection inputs have unexpected record kinds.', 'WMB_PUBLICATION_PARTIAL');
-    }
-  }
   const request = records.buildRequest;
+  const { capabilitySnapshot, configurationSnapshot, toolchainLock } = verifyProjectionInputRecords(
+    request, records, {
+      requireComplete: manifest.projections.some((entry) => entry.status === 'available'),
+      code: 'WMB_MANIFEST_DEPENDENCY_MISMATCH'
+    }
+  );
   if (request.projectionRegistrySha256 !== registry.registrySha256
       || request.capabilitySnapshotSha256 !== (capabilitySnapshot?.snapshotSha256 ?? null)
       || request.configurationSnapshotSha256 !== (configurationSnapshot?.snapshotSha256 ?? null)
@@ -851,6 +849,10 @@ function verifiedPublishedProjections(manifest, records, {
     if (value.status === 'unavailable') {
       const refusal = readRecord('world-model-projection-refusal', value.refusal).record;
       assertSelfHash(refusal, 'refusalSha256', `Projection '${value.projectionId}' refusal`);
+      assertProjectionRefusalInputBindings(refusal, {
+        request, sourceSnapshot, scopeManifest, factLedger,
+        code: 'WMB_MANIFEST_DEPENDENCY_MISMATCH'
+      });
       value.refusal = refusal;
       continue;
     }

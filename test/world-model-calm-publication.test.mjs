@@ -26,8 +26,13 @@ import {
 } from '../src/world-model/projections/calm/projection.mjs';
 import { canonicalJson, sealRecord } from '../src/world-model/canonicalize.mjs';
 import { resolvePublishedWorldModelV4 } from '../src/world-model/store.mjs';
+import {
+  prepareWorldModelPublicationRecovery, resumeWorldModelPublication
+} from '../src/world-model/recovery.mjs';
 import { readPendingPublication, writePendingPublication } from '../src/publication-pending.mjs';
-import { validateStagedProjectionAuthorityAgainstSource } from '../src/world-model/publish/transaction.mjs';
+import {
+  validateStagedProjectionAuthorityAgainstSource, validateStagedWorldModelPublication
+} from '../src/world-model/publish/transaction.mjs';
 import {
   assertArchitectureProjectionAuthoritySnapshots, resolveCurrentArchitectureProjectionInputs
 } from '../src/world-model/projections/calm/authority.mjs';
@@ -474,6 +479,126 @@ test('one WMB v4 transaction publishes and reuses the exact CALM product on stat
   ]));
   assert.equal(projection.$schema, 'https://calm.finos.org/release/1.2/meta/calm.json');
   assert.ok(projection.nodes.some((node) => node['unique-id'] === 'platform'));
+});
+
+test('optional CALM runtime failure retains exact inputs, publishes healthy views and remains readable', async (t) => {
+  const root = await repository(t);
+  const available = await worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact'
+  });
+  assert.equal(available.projections[0].status, 'available');
+  // A post-setup failure: all authority snapshots and the validator lock exist before mapping.
+  const target = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(target, 'utf8'));
+  workflow.worldModel.projections['arch.calm'].required = false;
+  workflow.worldModel.projections['arch.calm'].budgets = { maximumNodes: 1 };
+  await writeFile(target, YAML.stringify(workflow));
+  git(root, ['add', '.']);
+  git(root, ['commit', '-qm', 'exercise optional CALM runtime failure']);
+  git(root, ['push', '-q', 'origin', 'main']);
+  const built = await worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact'
+  });
+  assert.equal(built.status, 'completed');
+  assert.equal(built.publication.branch, 'state');
+  assert.equal(built.views[0].status, 'available');
+  assert.equal(built.projections[0].status, 'unavailable');
+  assert.equal(built.refusals[0].code, 'WMC_PROJECTION_BUDGET_EXCEEDED');
+  assert.equal(git(root, ['ls-tree', '-r', '--name-only', 'state', '--',
+    'singularity/world-model/projections/arch.calm.json']), '');
+  const store = resolvePublishedWorldModelV4(root, { stateBranch: 'state' });
+  const refusal = store.projections[0].refusal;
+  assert.equal(refusal.code, built.refusals[0].code);
+  for (const [field, digest] of [
+    ['capabilitySnapshot', 'capabilitySnapshotSha256'],
+    ['configurationSnapshot', 'configurationSnapshotSha256'],
+    ['toolchainLock', 'toolchainLockSha256']
+  ]) {
+    assert.equal(store.records[field][field === 'toolchainLock' ? 'lockSha256' : 'snapshotSha256'],
+      store.records.buildRequest[digest]);
+    assert.equal(refusal.preserved[digest], store.records.buildRequest[digest]);
+  }
+  assert.equal(git(root, ['status', '--short']), '');
+
+  const publishedCommit = git(root, ['rev-parse', 'refs/remotes/origin/state']);
+  workflow.worldModel.projections['arch.calm'].required = true;
+  await writeFile(target, YAML.stringify(workflow));
+  git(root, ['add', '.']);
+  git(root, ['commit', '-qm', 'require the failing CALM projection']);
+  await assert.rejects(worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact'
+  }), (error) => error.code === 'WMC_PROJECTION_BUDGET_EXCEEDED');
+  assert.equal(git(root, ['rev-parse', 'refs/remotes/origin/state']), publishedCommit);
+
+  const inputPath = 'singularity/world-model/inputs/capability-snapshot.json';
+  await publishCorruptStatePath(root, inputPath, '{}');
+  assert.throws(() => resolvePublishedWorldModelV4(root, { stateBranch: 'state' }));
+});
+
+test('optional CALM refusal inputs and preserved bindings cannot be removed, swapped or resealed', async (t) => {
+  const root = await repository(t);
+  const target = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(target, 'utf8'));
+  workflow.worldModel.projections['arch.calm'].budgets = { maximumNodes: 1 };
+  await writeFile(target, YAML.stringify(workflow));
+  git(root, ['add', '.']);
+  git(root, ['commit', '-qm', 'exercise refused projection integrity']);
+  const built = await worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact', local: true
+  });
+  assert.equal(built.projections[0].status, 'unavailable');
+  const original = built.staged;
+  for (const relative of [
+    'inputs/capability-snapshot.json', 'inputs/configuration-snapshot.json', 'toolchains/calm.json'
+  ]) {
+    const pathInMap = `${original.outputDir}/${relative}`;
+    const missing = structuredClone(original);
+    delete missing.files[pathInMap];
+    assert.throws(() => validateStagedWorldModelPublication(missing),
+      (error) => error.code === 'WMB_PUBLICATION_PARTIAL');
+    const swapped = structuredClone(original);
+    const record = JSON.parse(swapped.files[pathInMap]);
+    const hash = relative === 'toolchains/calm.json' ? 'lockSha256' : 'snapshotSha256';
+    if (relative === 'inputs/capability-snapshot.json') record.capabilities[0].label = 'Different build';
+    else if (relative === 'inputs/configuration-snapshot.json') record.policyMode = 'different';
+    else record.validator.version = '0.0.0';
+    delete record[hash];
+    swapped.files[pathInMap] = canonicalJson(sealRecord(record, hash));
+    assert.throws(() => validateStagedWorldModelPublication(swapped),
+      (error) => error.code === 'WMB_PUBLICATION_PARTIAL' && /sealed Build Request/.test(error.message));
+  }
+  const rebound = structuredClone(original);
+  const refusalPath = `${original.outputDir}/refusals/projections/arch.calm.json`;
+  const refusal = JSON.parse(rebound.files[refusalPath]);
+  refusal.preserved.configurationSnapshotSha256 = refusal.preserved.capabilitySnapshotSha256;
+  delete refusal.refusalSha256;
+  const sealed = sealRecord(refusal, 'refusalSha256');
+  rebound.files[refusalPath] = canonicalJson(sealed);
+  const manifest = { ...rebound.manifest, projections: rebound.manifest.projections.map(
+    (entry) => ({ ...entry, refusalSha256: sealed.refusalSha256 })
+  ) };
+  delete manifest.manifestSha256;
+  rebound.manifest = sealRecord(manifest, 'manifestSha256');
+  rebound.files[rebound.manifestPath] = canonicalJson(rebound.manifest);
+  assert.throws(() => validateStagedWorldModelPublication(rebound),
+    (error) => error.code === 'WMB_PUBLICATION_PARTIAL'
+      && error.details.field === 'configurationSnapshotSha256');
+
+  // A transport retry replays the retained failed projection and exact inputs, not a new build.
+  const recovery = await prepareWorldModelPublicationRecovery(
+    root, (await loadDefinition(root)).ledger, original
+  );
+  const resumed = await resumeWorldModelPublication(root, recovery.id, { confirm: recovery.id });
+  assert.equal(resumed.publication.branch, 'state');
+  const retained = resolvePublishedWorldModelV4(root, { stateBranch: 'state' });
+  assert.equal(retained.manifest.manifestSha256, original.manifest.manifestSha256);
+  assert.equal(retained.projections[0].refusal.refusalSha256, built.refusals[0].refusalSha256);
+
+  // Failure records also bind mutable authority until publication, not just successful outputs.
+  workflow.approvalAuthorities['architecture-reviewers'].label = 'Changed after plan';
+  await writeFile(target, YAML.stringify(workflow));
+  await assert.rejects(validateStagedProjectionAuthorityAgainstSource(root, original),
+    (error) => error.code === 'WMC_PROJECTION_INPUT_CHANGED');
 });
 
 test('stored replay and publication preserve disabled CALM profiles and non-strict validation', async (t) => {

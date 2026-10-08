@@ -34,6 +34,13 @@ Optional means a projection-toolchain failure creates a durable refusal receipt 
 the ordinary World Model or Story work. Set `required: true` only after the repository has reviewed
 its classifications and the packaged validator works on every supported machine.
 
+Optional failures retain every capability snapshot, configuration snapshot and toolchain lock
+already bound by the sealed build request. The refusal binds those same inputs plus the source,
+scope and Fact Ledger. Inputs unavailable during setup remain explicitly null; they are not
+confused with missing or changed records. Publication and stored reads verify the exact input
+file set and hashes even when CALM is unavailable. Required projection failures still prevent
+publication, and an optional failure never constitutes a validated architecture.
+
 The build review lists the exact projection reference, optional/required policy, strict-validation
 setting, profile, external-dependency policy, and cache decision. The completion message reports
 the projection status and any typed refusal receipt; a successful World Model publication can no
@@ -56,6 +63,10 @@ literal projection.
 
 The build remains model-free when the WMB v4 composer is deterministic. CALM validation runs with
 the packaged `@finos/calm-cli` and packaged CALM 1.2 schemas; no schema download is required.
+In VS Code the subprocess explicitly runs Electron in Node mode, with a bounded deadline,
+offline network guard and isolated environment; ambient credentials and `NODE_OPTIONS` are not
+forwarded. After installing an updated build, reload VS Code and review a fresh build plan before
+retrying a refused build. No Story restart or edits to generated projection records are needed.
 
 ## What the projection can prove
 

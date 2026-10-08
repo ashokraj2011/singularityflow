@@ -25,29 +25,41 @@ async function exactConfigurationDigest(root, relative, label) {
   return sha256({ utf8: await readFile(located.absolute, 'utf8') });
 }
 
-/** Resolve the exact approved inputs which make a reusable architecture projection current. */
-export async function resolveCurrentArchitectureProjectionInputs(root, definition, {
-  configurationSourceSha256 = null
+/** Authority snapshots can be rechecked even when an optional validator is unavailable. */
+export async function resolveCurrentArchitectureProjectionSnapshots(root, definition, {
+  configurationSourceSha256 = null, capability = true, configuration = true
 } = {}) {
   const pinnedConfigurationSha256 = configurationSourceSha256 == null
     ? null
     : String(configurationSourceSha256).startsWith('sha256:')
       ? String(configurationSourceSha256)
       : `sha256:${configurationSourceSha256}`;
-  const [capabilities, capabilitySourceSha256, effectiveConfigurationSha256, toolchain] = await Promise.all([
-    loadCapabilities(root, { required: true }),
-    exactConfigurationDigest(root, CAPABILITIES_PATH, 'Capability map'),
-    pinnedConfigurationSha256
-      ?? exactConfigurationDigest(root, WORKFLOW_PATH, 'Workflow configuration'),
+  const [capabilities, capabilitySourceSha256, effectiveConfigurationSha256] = await Promise.all([
+    capability ? loadCapabilities(root, { required: true }) : null,
+    capability ? exactConfigurationDigest(root, CAPABILITIES_PATH, 'Capability map') : null,
+    configuration ? pinnedConfigurationSha256
+      ?? exactConfigurationDigest(root, WORKFLOW_PATH, 'Workflow configuration') : null
+  ]);
+  return Object.freeze({
+    capabilitySnapshot: capability ? createArchitectureCapabilitySnapshot(capabilities, {
+      sourcePath: CAPABILITIES_PATH, sourceSha256: capabilitySourceSha256
+    }) : null,
+    configurationSnapshot: configuration ? createArchitectureConfigurationSnapshot(definition, {
+      sourcePath: WORKFLOW_PATH, sourceSha256: effectiveConfigurationSha256
+    }) : null
+  });
+}
+
+/** Resolve the exact approved inputs which make a reusable architecture projection current. */
+export async function resolveCurrentArchitectureProjectionInputs(root, definition, options = {}) {
+  const [snapshots, toolchain] = await Promise.all([
+    resolveCurrentArchitectureProjectionSnapshots(root, definition, {
+      configurationSourceSha256: options.configurationSourceSha256 ?? null
+    }),
     createCalmToolchainLock()
   ]);
   return Object.freeze({
-    capabilitySnapshot: createArchitectureCapabilitySnapshot(capabilities, {
-      sourcePath: CAPABILITIES_PATH, sourceSha256: capabilitySourceSha256
-    }),
-    configurationSnapshot: createArchitectureConfigurationSnapshot(definition, {
-      sourcePath: WORKFLOW_PATH, sourceSha256: effectiveConfigurationSha256
-    }),
+    ...snapshots,
     toolchainLock: toolchain.lock
   });
 }

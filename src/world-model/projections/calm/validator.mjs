@@ -190,6 +190,9 @@ function validatorEnvironment(temporary, source = process.env) {
     LC_ALL: 'C',
     NO_COLOR: '1',
     FORCE_COLOR: '0',
+    // VS Code's process.execPath is Electron. Force its Node mode without inheriting ambient
+    // NODE_OPTIONS, credentials or other host variables; plain Node safely ignores this switch.
+    ELECTRON_RUN_AS_NODE: '1',
     HTTP_PROXY: '',
     HTTPS_PROXY: '',
     ALL_PROXY: '',

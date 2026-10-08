@@ -26,11 +26,15 @@ import {
 } from '../registry/views.mjs';
 import { validateProjectionRegistry } from '../registry/projections.mjs';
 import {
+  assertProjectionRefusalInputBindings, requestedProjectionInputRecords,
+  verifyProjectionInputRecords
+} from '../projections/inputs.mjs';
+import {
   buildCalmProjection, calmProjectionOptions, enforceProjectionBudgets, validateCalmProjectionCandidate
 } from '../projections/calm/projection.mjs';
 import { validateCalmWithOfficialToolchain } from '../projections/calm/validator.mjs';
 import {
-  assertArchitectureProjectionAuthoritySnapshots, resolveCurrentArchitectureProjectionInputs
+  assertArchitectureProjectionAuthoritySnapshots, resolveCurrentArchitectureProjectionSnapshots
 } from '../projections/calm/authority.mjs';
 import {
   validateWorldModelContextManifest, validateWorldModelUsageObservation
@@ -181,7 +185,7 @@ function sealedRecord(files, outputDir, relative, family, kind, hashField) {
   return record;
 }
 
-function exactProjectionPaths(manifest, viewRegistry, migrationPaths = []) {
+function exactProjectionPaths(manifest, viewRegistry, migrationPaths = [], buildRequest = null) {
   const expected = new Set([...REQUIRED_PROJECTION_FILES, ...migrationPaths]);
   for (const contract of viewRegistry.contracts.filter((entry) => entry.validity.status === 'active')) {
     expected.add(`catalogs/views/${contract.id}.facts.json`);
@@ -198,11 +202,9 @@ function exactProjectionPaths(manifest, viewRegistry, migrationPaths = []) {
   }
   if (manifest.projections?.length) {
     expected.add('registries/projections.json');
-    if (manifest.projections.some((entry) => entry.status === 'available')) {
-      expected.add('inputs/capability-snapshot.json');
-      expected.add('inputs/configuration-snapshot.json');
-      expected.add('toolchains/calm.json');
-    }
+    for (const input of requestedProjectionInputRecords(buildRequest, {
+      requireComplete: manifest.projections.some((entry) => entry.status === 'available')
+    })) expected.add(input.path);
     for (const projection of manifest.projections) {
       if (projection.status === 'available') {
         expected.add(projection.path);
@@ -308,24 +310,16 @@ function validateStagedProjections(files, outputDir, manifest, records) {
   records.projectionRegistry = validateProjectionRegistry(canonicalRecord(
     files, outputDir, 'registries/projections.json'
   ));
-  if (manifest.projections.some((entry) => entry.status === 'available')) {
-    records.capabilitySnapshot = sealedRecord(
-      files, outputDir, 'inputs/capability-snapshot.json',
-      'architecture-fact-set', 'architecture-capability-snapshot', 'snapshotSha256'
-    );
-    records.configurationSnapshot = sealedRecord(
-      files, outputDir, 'inputs/configuration-snapshot.json',
-      'architecture-fact-set', 'architecture-configuration-snapshot', 'snapshotSha256'
-    );
-    records.toolchainLock = sealedRecord(
-      files, outputDir, 'toolchains/calm.json',
-      'calm-toolchain-lock', 'calm-toolchain-lock', 'lockSha256'
-    );
-  }
+  const buildRequest = canonicalRecord(files, outputDir, 'requests/build-request.json');
+  const inputOptions = {
+    requireComplete: manifest.projections.some((entry) => entry.status === 'available')
+  };
+  const inputs = Object.fromEntries(requestedProjectionInputRecords(buildRequest, inputOptions)
+    .map((input) => [input.field, canonicalRecord(files, outputDir, input.path)]));
+  Object.assign(records, verifyProjectionInputRecords(buildRequest, inputs, inputOptions));
   if (records.projectionRegistry.registrySha256 !== manifest.projectionRegistrySha256) {
     incomplete('World-model projection registry does not match the manifest.');
   }
-  const buildRequest = canonicalRecord(files, outputDir, 'requests/build-request.json');
   return manifest.projections.map((entry) => {
     if (entry.status === 'unavailable') {
       const refusal = sealedRecord(
@@ -335,6 +329,7 @@ function validateStagedProjections(files, outputDir, manifest, records) {
       if (refusal.refusalSha256 !== entry.refusalSha256 || refusal.projectionId !== entry.projectionId) {
         incomplete(`Projection refusal '${entry.projectionId}' does not match the manifest.`);
       }
+      assertProjectionRefusalInputBindings(refusal, { request: buildRequest, ...records });
       return { ...structuredClone(entry), refusal };
     }
     const raw = files[path.posix.join(outputDir, entry.path)];
@@ -516,7 +511,8 @@ function validateStagedWorldModelPublicationWithLimit(publication, maximumRecove
   const viewRegistry = assertInstalledViewRegistry(records.viewRegistry);
   assertInstalledExtractorRegistry(records.extractorRegistry);
   const migrationPaths = migrationProjectionPaths(files, outputDir);
-  const expectedPaths = exactProjectionPaths(manifest, viewRegistry, migrationPaths);
+  const expectedPaths = exactProjectionPaths(manifest, viewRegistry, migrationPaths,
+    canonicalRecord(files, outputDir, 'requests/build-request.json'));
   assertExactProjectionPaths(files, outputDir, expectedPaths);
   const build = validateBuildRecords(files, outputDir, manifest, records);
 
@@ -649,13 +645,15 @@ async function validateStagedProjectionAuthorityAgainstSourceWith(
   root, publication, validatePublication
 ) {
   const verified = validatePublication(publication);
-  if (!(verified.projections ?? []).some((projection) => projection.status === 'available')) {
-    return verified;
-  }
+  if (!(verified.projections ?? []).length) return verified;
+  const request = canonicalRecord(verified.files, verified.outputDir, 'requests/build-request.json');
+  const inputs = requestedProjectionInputRecords(request);
+  if (!inputs.length) return verified;
   for (const [relative, label] of [
     ['inputs/capability-snapshot.json', 'Capability'],
     ['inputs/configuration-snapshot.json', 'Configuration']
   ]) {
+    if (!inputs.some((input) => input.path === relative)) continue;
     const snapshot = canonicalRecord(verified.files, verified.outputDir, relative);
     const located = await secureRepositoryPath(root, snapshot.source?.path, {
       label: `${label} projection authority`, mustExist: true, type: 'file'
@@ -686,12 +684,18 @@ async function validateStagedProjectionAuthorityAgainstSourceWith(
       incomplete(`Projection '${projection.projectionId}' validation cannot be reproduced at publication.`);
     }
   }
-  const current = await resolveCurrentArchitectureProjectionInputs(root, await loadDefinition(root));
+  // An unavailable optional output has no passing validator claim to replay. Recheck its bound
+  // authority bytes without requiring that failed toolchain to become available a second time.
+  const current = await resolveCurrentArchitectureProjectionSnapshots(root,
+    request.configurationSnapshotSha256 == null ? null : await loadDefinition(root), {
+      capability: request.capabilitySnapshotSha256 != null,
+      configuration: request.configurationSnapshotSha256 != null
+    });
   assertArchitectureProjectionAuthoritySnapshots({
-    capabilitySnapshot: canonicalRecord(
+    capabilitySnapshot: request.capabilitySnapshotSha256 == null ? null : canonicalRecord(
       verified.files, verified.outputDir, 'inputs/capability-snapshot.json'
     ),
-    configurationSnapshot: canonicalRecord(
+    configurationSnapshot: request.configurationSnapshotSha256 == null ? null : canonicalRecord(
       verified.files, verified.outputDir, 'inputs/configuration-snapshot.json'
     )
   }, current);
@@ -839,10 +843,11 @@ export function stageWorldModelPublication({
   recordFile(files, target, 'profiles/output-budget.json', records.outputBudget);
   if (verified.projections.length) {
     recordFile(files, target, 'registries/projections.json', records.projectionRegistry);
-    if (verified.projections.some((entry) => entry.status === 'available')) {
-      recordFile(files, target, 'inputs/capability-snapshot.json', records.capabilitySnapshot);
-      recordFile(files, target, 'inputs/configuration-snapshot.json', records.configurationSnapshot);
-      recordFile(files, target, 'toolchains/calm.json', records.toolchainLock);
+    const inputs = verifyProjectionInputRecords(records.buildRequest, records, {
+      requireComplete: verified.projections.some((entry) => entry.status === 'available')
+    });
+    for (const input of requestedProjectionInputRecords(records.buildRequest)) {
+      recordFile(files, target, input.path, inputs[input.field]);
     }
     for (const projection of verified.projections) {
       if (projection.status === 'unavailable') {

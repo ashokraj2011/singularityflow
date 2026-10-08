@@ -32,7 +32,7 @@ import {
 } from '../world-model-reviewed-registries.mjs';
 import { assertInstalledViewRegistry, resolveViewContract } from './registry/views.mjs';
 import { validateProjectionRegistry } from './registry/projections.mjs';
-import { buildCalmProjection, enforceProjectionBudgets } from './projections/calm/projection.mjs';
+import { buildCalmProjection, calmProjectionOptions, enforceProjectionBudgets } from './projections/calm/projection.mjs';
 import { createWorldModelViewOutputBudget } from './plan.mjs';
 import { validateScopeManifest } from './scope/manifest.mjs';
 import {
@@ -810,7 +810,7 @@ function publishedViewStamp(markdown, viewId) {
 }
 
 function verifiedPublishedProjections(manifest, records, {
-  sourceSnapshot, scopeManifest, factLedger
+  sourceSnapshot, scopeManifest, factLedger, evidenceCatalog, derivationCatalog
 }) {
   if (!manifest.projections?.length) return Object.freeze([]);
   const registry = validateProjectionRegistry(records.projectionRegistry);
@@ -872,16 +872,17 @@ function verifiedPublishedProjections(manifest, records, {
       sourceManifestSha256: sourceSnapshot.sourceManifestSha256,
       scopeSha256: scopeManifest.scopeSha256,
       factLedger,
+      evidenceCatalog, derivationCatalog, sourceSnapshot, scopeManifest,
       capabilitySnapshot,
       configurationSnapshot,
-      includeGovernanceActors: policy?.profile?.includeGovernanceActors !== false,
-      includeControls: policy?.profile?.includeControls !== false
+      ...calmProjectionOptions(policy)
     });
     enforceProjectionBudgets(rebuilt.projection, policy?.budgets ?? {});
     if (canonicalJson(rebuilt.factSet) !== canonicalJson(factSet)
         || rebuilt.projectionBytes !== value.projectionBytes
         || canonicalJson(rebuilt.sourceMap) !== canonicalJson(sourceMap)
-        || receipt.validation?.toolchainLockSha256 !== toolchainLock.lockSha256) {
+        || receipt.validation?.toolchainLockSha256 !== toolchainLock.lockSha256
+        || receipt.validation?.strict !== calmProjectionOptions(policy).strict) {
       recordFailure(`Projection '${value.projectionId}' cannot be reproduced from its governed inputs.`,
         'WMB_MANIFEST_DEPENDENCY_MISMATCH');
     }
@@ -987,7 +988,7 @@ export function readPublishedWorldModelV4(root, {
       manifest.projections ?? []
     );
     const projections = verifiedPublishedProjections(manifest, records, {
-      sourceSnapshot, scopeManifest, factLedger
+      sourceSnapshot, scopeManifest, factLedger, evidenceCatalog, derivationCatalog
     });
     const verified = verifyWorldModelManifest(manifest, {
       dependencies,

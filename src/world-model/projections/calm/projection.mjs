@@ -3,6 +3,8 @@ import { SingularityFlowError } from '../../../util.mjs';
 import { canonicalJson, compareText, sealRecord, sha256 } from '../../canonicalize.mjs';
 import { BUILTIN_ARCH_CALM_CONTRACT, CALM_SCHEMA_URI } from '../../registry/projections.mjs';
 import { validateCalmWithOfficialToolchain } from './validator.mjs';
+import { createCalmFactBridge } from './fact-bridge.mjs';
+import { normalizeScopePattern } from '../../scope/manifest.mjs';
 
 const ALLOWED_ASSURANCE = new Set(BUILTIN_ARCH_CALM_CONTRACT.assurance.allowed);
 const NODE_TYPES = new Set(['actor', 'database', 'ecosystem', 'network', 'service', 'system', 'webclient']);
@@ -91,7 +93,13 @@ export function createArchitectureCapabilitySnapshot(definition, {
         typeof dependency === 'string' ? dependency : dependency.capability ?? dependency.id,
         `Capability '${id}' dependency`
       ),
-      contract: text(typeof dependency === 'object' ? dependency.contract ?? '' : '') || null,
+      contract: typeof dependency?.contract === 'object' && dependency.contract !== null
+        ? { id: safeId(dependency.contract.id, 'Dependency contract id'),
+            version: dependency.contract.version,
+            sha256: exactHash(dependency.contract.sha256, 'Dependency contract digest'),
+            publicationSha256: exactHash(dependency.contract.publicationSha256, 'Dependency publication digest'),
+            publisherAuthority: safeId(dependency.contract.publisherAuthority, 'Dependency publisher authority') }
+        : text(typeof dependency === 'object' ? dependency.contract ?? '' : '') || null,
       revision: typeof dependency === 'object' && SHA256.test(dependency.revision ?? '')
         ? dependency.revision : null
     })), (item) => `${item.capabilityId}/${item.contract ?? ''}/${item.revision ?? ''}`);
@@ -107,6 +115,12 @@ export function createArchitectureCapabilitySnapshot(definition, {
       nodeType: declaredType,
       parent: value.parent == null ? null : safeId(value.parent, `Capability '${id}' parent`),
       repositories,
+      sourceRoots: ordered([...new Set((value.sourceRoots ?? []).map((root) => {
+        const normalized = normalizeScopePattern(root, `Capability '${id}' source root`)
+          .replace(/\/\*\*$/u, '');
+        if (/[*?]/u.test(normalized)) fail('Architecture source roots must be prefixes.', 'WMC_FACT_SET_INVALID');
+        return normalized;
+      }))]),
       teams: ordered((value.teams ?? []).map((team) => safeId(team, `Capability '${id}' team`))),
       dependencies,
       source: { path: source, recordId: id }
@@ -178,8 +192,21 @@ function parseClaim(claim) {
   } catch { return null; }
 }
 
+/** One policy resolver for initial build, publication revalidation and stored replay. */
+export function calmProjectionOptions(selection = {}) {
+  return {
+    includeGovernanceActors: selection.profile?.includeGovernanceActors !== false,
+    includeControls: selection.profile?.includeControls !== false,
+    includeFlows: selection.profile?.includeFlows !== false,
+    includeExternalDependencies: selection.profile?.includeExternalDependencies ?? 'direct-architecture-only',
+    projectionContract: selection.contract ?? BUILTIN_ARCH_CALM_CONTRACT,
+    strict: selection.validation?.strict !== false
+  };
+}
+
 export function createArchitectureFactSet({
   subject, sourceManifestSha256, scopeSha256, factLedger, capabilitySnapshot,
+  evidenceCatalog = null, derivationCatalog = null, sourceSnapshot = null, scopeManifest = null,
   configurationSnapshot, includeGovernanceActors = true, includeControls = true,
   includeFlows = true, includeExternalDependencies = 'direct-architecture-only'
 }) {
@@ -199,6 +226,8 @@ export function createArchitectureFactSet({
   const interfaceById = new Map();
   const contradictedInterfaceIds = new Set();
   const pendingFlows = [];
+  const bridge = createCalmFactBridge({ factLedger, evidenceCatalog, derivationCatalog,
+    sourceSnapshot, scopeManifest, capabilitySnapshot, sourceManifestSha256, scopeSha256 });
   const capabilityById = new Map(capabilitySnapshot.capabilities.map((item) => [item.id, item]));
   const addNode = (record) => {
     if (nodeIds.has(record.id)) fail(`Architecture element id '${record.id}' collides.`, 'WMC_ELEMENT_ID_COLLISION');
@@ -248,11 +277,12 @@ export function createArchitectureFactSet({
     }
     const tuple = {
       kind: 'connects', source: capability.id, destination: dependency.capabilityId,
-      sourceInterface: null, destinationInterface: null, protocol: dependency.contract
+      sourceInterface: null, destinationInterface: null,
+      protocol: typeof dependency.contract === 'string' ? dependency.contract : null
     };
     relationships.push({
       id: relationId(tuple), kind: 'connects', source: capability.id,
-      destination: dependency.capabilityId, protocol: dependency.contract,
+      destination: dependency.capabilityId, protocol: tuple.protocol, contract: dependency.contract,
       description: `${capability.label} connects to ${capabilityById.get(dependency.capabilityId).label}.`,
       status: 'declared-only', declared: true, observed: false,
       sources: [sourceRef('dependency-pin', capabilitySnapshot.source.sha256, {
@@ -270,7 +300,19 @@ export function createArchitectureFactSet({
       contradictions.push({ subject: `${fact.subject?.kind}:${fact.subject?.id}`, factId: fact.id, conflictsWith: clone(fact.conflictsWith ?? []) });
       continue;
     }
-    const claim = parseClaim(fact.claim);
+    if (fact.status !== 'available') {
+      unavailable.push({ subject: `${fact.subject?.kind}:${fact.subject?.id}`,
+        factId: fact.id, reason: 'fact-not-available' });
+      continue;
+    }
+    const mapped = bridge(fact);
+    if (mapped?.gap) {
+      unavailable.push({ subject: `${fact.subject?.kind}:${fact.subject?.id}`,
+        factId: fact.id, reason: mapped.gap });
+      continue;
+    }
+    if (mapped?.internal) continue;
+    const claim = mapped?.claim ?? parseClaim(fact.claim);
     if (includeExternalDependencies !== 'off'
         && ['import-dependency', 'consumer-dependency'].includes(fact.factType)
         && claim?.external === true && claim?.source && claim?.destination
@@ -335,7 +377,7 @@ export function createArchitectureFactSet({
         id, kind: 'connects', source: claim.source, destination: claim.destination,
         sourceInterface: claim.sourceInterface ?? null, destinationInterface: claim.destinationInterface ?? null,
         protocol: claim.protocol ?? null,
-        description: `${claim.source} connects to ${claim.destination}.`, status: 'observed-only',
+        description: text(claim.description, `${claim.source} connects to ${claim.destination}.`), status: 'observed-only',
         declared: false, observed: true, sources: [observedSource]
       });
     }
@@ -399,7 +441,9 @@ export function createArchitectureFactSet({
     inputs: {
       sourceManifestSha256: sourceHash, scopeSha256: scopeHash, factLedgerSha256: ledgerHash,
       capabilitySnapshotSha256: capabilitySnapshot.snapshotSha256,
-      configurationSnapshotSha256: configurationSnapshot.snapshotSha256
+      configurationSnapshotSha256: configurationSnapshot.snapshotSha256,
+      ...(evidenceCatalog ? { evidenceCatalogSha256: evidenceCatalog.catalogSha256,
+        derivationCatalogSha256: derivationCatalog.catalogSha256 } : {})
     },
     nodes: ordered(nodes, (entry) => entry.id).map((entry) => ({
       ...entry, sources: orderedSources(entry.sources)
@@ -431,7 +475,7 @@ function calmNode(node, interfaces) {
       metadata: { sflow: { sourceFactIds: item.sources.map((source) => source.factId).filter(Boolean) } }
     })),
     metadata: { sflow: {
-      origin: 'declared', status: node.status, layer: node.layer,
+      origin: node.layer === 'external' ? 'source-observed' : 'declared', status: node.status, layer: node.layer,
       ...(['collection', 'delivery'].includes(node.layer) ? { capabilityKind: node.layer } : {}),
       repositories: clone(node.repositories)
     } }
@@ -449,7 +493,8 @@ function calmRelationship(relationship) {
     description: relationship.description,
     metadata: { sflow: {
       status: relationship.status, declared: relationship.declared, observed: relationship.observed,
-      ...(relationship.protocol ? { protocol: relationship.protocol } : {})
+      ...(relationship.protocol ? { protocol: relationship.protocol } : {}),
+      ...(relationship.contract ? { contract: clone(relationship.contract) } : {})
     } }
   };
 }

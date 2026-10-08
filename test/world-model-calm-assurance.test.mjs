@@ -96,7 +96,9 @@ test('the CALM validator subprocess receives no ambient credentials and strips t
         execution = options;
         invocation = args;
         return {
-          status: 0, stdout: JSON.stringify({ hasErrors: false, diagnostic: '\u001b[31mwarning\u001b[0m' }),
+          status: 0, stdout: JSON.stringify({ hasErrors: false, hasWarnings: false,
+            jsonSchemaValidationOutputs: [], spectralSchemaValidationOutputs: [],
+            diagnostic: '\u001b[31mwarning\u001b[0m' }),
           stderr: '', timedOut: false, aborted: false, error: null
         };
       }
@@ -113,7 +115,8 @@ test('the CALM validator subprocess receives no ambient credentials and strips t
       runCommand: async (_command, args, options) => {
         invocation = args;
         return {
-          status: 0, stdout: JSON.stringify({ hasErrors: false }), stderr: '',
+          status: 0, stdout: JSON.stringify({ hasErrors: false, hasWarnings: false,
+            jsonSchemaValidationOutputs: [], spectralSchemaValidationOutputs: [] }), stderr: '',
           timedOut: false, aborted: false, error: null
         };
       }

@@ -1,5 +1,5 @@
 import { createRequire } from 'node:module';
-import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -8,6 +8,7 @@ import { runQualityCommand } from '../../../quality-command-runner.mjs';
 import { currentSchemaVersion, readRecord } from '../../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../../util.mjs';
 import { canonicalJson, compareText, sealRecord, sha256, sha256Bytes } from '../../canonicalize.mjs';
+import { BUILTIN_ARCH_CALM_CONTRACT } from '../../registry/projections.mjs';
 
 // Resolve both executable dependencies and packaged schemas through the shared package boundary.
 // The VS Code host replaces that boundary with its staged `cli/` directory while Node ESM resolves
@@ -19,6 +20,9 @@ const PACKAGE_INTEGRITY = 'sha512-G3oAb4dJNnOAulKz6kgJ1fX8/ZutV+gLSMsej5eClFwAEa
 const ENTRY_SHA256 = 'sha256:19ed46688fc7b797841a1543002c2cf7a0a1b845cfb2f74b8dfb096d7ceb4041';
 const CALM_SCHEMA_URI = 'https://calm.finos.org/release/1.2/meta/calm.json';
 const DEFAULT_SCHEMA_ROOT = path.join(PACKAGE_ROOT, 'schemas', 'calm');
+const SCHEMA_BUNDLE_SHA256 = 'sha256:1903d7b318601869c15340e5765a37cbc785b6084298a3e889120b986918995d';
+const URL_MAPPING_SHA256 = 'sha256:7e53d8035a5e1640e2dab416570e6843799a63e6672dd32e52349f589963e066';
+const MAXIMUM_REPORT_BYTES = 1024 * 1024;
 
 function fail(message, code, details = null) {
   throw new SingularityFlowError(message, { code, details });
@@ -30,6 +34,9 @@ async function filesBelow(root, relative = '') {
   const files = [];
   for (const entry of entries.sort((left, right) => compareText(left.name, right.name))) {
     const child = path.posix.join(relative.replaceAll('\\', '/'), entry.name);
+    if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) {
+      fail('The reviewed CALM schema bundle cannot contain links or special files.', 'WMC_CALM_VALIDATOR_UNAVAILABLE');
+    }
     if (entry.isDirectory()) files.push(...await filesBelow(root, child));
     else if (entry.isFile()) files.push(child);
   }
@@ -43,6 +50,10 @@ async function sha256File(target) {
 export async function createCalmToolchainLock({ schemaRoot = DEFAULT_SCHEMA_ROOT } = {}) {
   const absoluteSchemaRoot = path.resolve(schemaRoot);
   const mappingPath = path.join(absoluteSchemaRoot, 'url-map.json');
+  const rootInfo = await lstat(absoluteSchemaRoot).catch(() => null);
+  if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink()) {
+    fail('The reviewed CALM schema root must be a regular directory.', 'WMC_CALM_VALIDATOR_UNAVAILABLE');
+  }
   let packagePath;
   try { packagePath = require.resolve('@finos/calm-cli/package.json'); }
   catch (error) {
@@ -63,7 +74,7 @@ export async function createCalmToolchainLock({ schemaRoot = DEFAULT_SCHEMA_ROOT
   }
   const schemaPaths = (await filesBelow(absoluteSchemaRoot))
     .filter((value) => value.endsWith('.json') && value !== 'url-map.json');
-  if (!schemaPaths.length || !(await stat(mappingPath).catch(() => null))?.isFile()) {
+  if (!schemaPaths.length || !(await lstat(mappingPath).catch(() => null))?.isFile()) {
     fail('The packaged offline CALM 1.2 schema bundle is incomplete.', 'WMC_CALM_VALIDATOR_UNAVAILABLE');
   }
   const schemaFiles = [];
@@ -75,26 +86,37 @@ export async function createCalmToolchainLock({ schemaRoot = DEFAULT_SCHEMA_ROOT
   let mapping;
   try { mapping = JSON.parse(mappingBytes); }
   catch (error) { fail(`The CALM URL mapping is invalid: ${error.message}`, 'WMC_CALM_VALIDATOR_UNAVAILABLE'); }
+  if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) {
+    fail('The CALM URL mapping must be an object.', 'WMC_CALM_VALIDATOR_UNAVAILABLE');
+  }
   for (const [url, relative] of Object.entries(mapping)) {
     if (!(url.startsWith('https://calm.finos.org/release/1.2/')
           || url === 'https://singularity-flow.dev/schemas/calm/enforcement-control-v1.json')
-        || typeof relative !== 'string' || relative.startsWith('/') || relative.includes('..')) {
+        || typeof relative !== 'string' || relative.startsWith('/') || relative.includes('..')
+        || relative.includes('\\') || !schemaPaths.includes(relative)) {
       fail('The packaged CALM URL mapping contains an unsafe entry.', 'WMC_CALM_VALIDATOR_UNAVAILABLE');
     }
   }
   const schemaBundleSha256 = sha256(schemaFiles);
+  const urlMappingSha256 = sha256({ utf8: canonicalJson(mapping) });
+  const rootSchemaSha256 = schemaFiles.find((entry) => entry.path === 'release/1.2/meta/calm.json')?.sha256;
+  if (schemaBundleSha256 !== SCHEMA_BUNDLE_SHA256 || urlMappingSha256 !== URL_MAPPING_SHA256
+      || rootSchemaSha256 !== BUILTIN_ARCH_CALM_CONTRACT.output.schemaSha256) {
+    fail('The offline CALM schemas or URL mapping do not match the reviewed bundle.',
+      'WMC_CALM_VALIDATOR_UNAVAILABLE');
+  }
   const lock = sealRecord({
     schemaVersion: currentSchemaVersion('calm-toolchain-lock'), kind: 'calm-toolchain-lock',
     schema: {
       release: '1.2', uri: CALM_SCHEMA_URI, bundleSha256: schemaBundleSha256,
-      rootSchemaSha256: schemaFiles.find((entry) => entry.path.endsWith('/calm.json'))?.sha256,
+      rootSchemaSha256,
       files: schemaFiles
     },
     validator: {
       package: '@finos/calm-cli', version: PACKAGE_VERSION, integrity: PACKAGE_INTEGRITY,
       entrySha256
     },
-    urlMappingSha256: sha256({ utf8: canonicalJson(mapping) })
+    urlMappingSha256
   }, 'lockSha256');
   return Object.freeze({
     lock: Object.freeze(readRecord('calm-toolchain-lock', lock).record),
@@ -126,6 +148,31 @@ function stableDiagnosticText(value) {
 function diagnosticText(result) {
   const joined = [result.stderr, result.stdout].filter(Boolean).join('\n').trim();
   return stableDiagnosticText(joined).slice(0, 8_192);
+}
+
+function assertValidatorReport(report, result, strict) {
+  const outputs = report && typeof report === 'object' && !Array.isArray(report)
+    && Array.isArray(report.jsonSchemaValidationOutputs) && Array.isArray(report.spectralSchemaValidationOutputs)
+    ? [...report.jsonSchemaValidationOutputs, ...report.spectralSchemaValidationOutputs] : null;
+  if (!outputs || typeof report.hasErrors !== 'boolean' || typeof report.hasWarnings !== 'boolean'
+      || outputs.some((item) => !item || typeof item !== 'object' || Array.isArray(item)
+        || !['error', 'warning', 'info', 'hint'].includes(item.severity)
+        || typeof item.message !== 'string' || typeof item.path !== 'string')
+      || report.hasErrors !== outputs.some((item) => item.severity === 'error')
+      || report.hasWarnings !== outputs.some((item) => item.severity === 'warning')) {
+    fail('CALM validator returned a missing, malformed or inconsistent report.',
+      'WMC_CALM_VALIDATOR_UNAVAILABLE', { diagnostic: diagnosticText(result) });
+  }
+  if (report.hasErrors) {
+    fail('The generated architecture does not pass the reviewed CALM 1.2 validator.',
+      'WMC_CALM_SCHEMA_INVALID', { validation: normalizedDiagnostic(report) });
+  }
+  // The pinned CLI exits 1 for genuine strict-mode style warnings. No other failed exit
+  // (including a signal, an empty report or an unexplained exit 1) can attest a projection.
+  if (result.signal || !(result.status === 0 || (result.status === 1 && strict && report.hasWarnings))) {
+    fail('CALM validator failed without an admissible validation outcome.',
+      'WMC_CALM_VALIDATOR_UNAVAILABLE', { diagnostic: diagnosticText(result) });
+  }
 }
 
 function validatorEnvironment(temporary, source = process.env) {
@@ -214,21 +261,20 @@ export async function validateCalmWithOfficialToolchain(projection, {
       'WMC_CALM_VALIDATOR_UNAVAILABLE', { diagnostic: diagnosticText(result) });
     }
     let parsed = null;
-    try { parsed = JSON.parse(await readFile(outputPath, 'utf8')); }
-    catch {
-      const candidate = String(result.stdout ?? '').trim();
-      try { parsed = candidate ? JSON.parse(candidate) : null; } catch { /* handled below */ }
-    }
-    const normalizedResult = normalizedDiagnostic(parsed ?? {
-      status: result.status === 0 ? 'passed' : 'failed', diagnostic: diagnosticText(result)
+    const reportInfo = await lstat(outputPath).catch((error) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
     });
-    // CALM strict mode deliberately exits non-zero for style warnings. Preserve those warnings in
-    // the normalized receipt, but only reject a document when the structured validator result
-    // reports schema/rule errors. An unexplained non-zero exit is still a validator failure.
-    if (result.status !== 0 && parsed?.hasErrors !== false) {
-      fail('The generated architecture does not pass the reviewed CALM 1.2 validator.',
-        'WMC_CALM_SCHEMA_INVALID', { validation: normalizedResult, diagnostic: diagnosticText(result) });
+    if (reportInfo && (!reportInfo.isFile() || reportInfo.size > MAXIMUM_REPORT_BYTES)) {
+      fail('CALM validator report is unsafe or exceeds its byte budget.', 'WMC_CALM_VALIDATOR_UNAVAILABLE');
     }
+    const candidate = reportInfo ? await readFile(outputPath, 'utf8') : String(result.stdout ?? '').trim();
+    if (Buffer.byteLength(candidate, 'utf8') > MAXIMUM_REPORT_BYTES) {
+      fail('CALM validator report exceeds its byte budget.', 'WMC_CALM_VALIDATOR_UNAVAILABLE');
+    }
+    try { parsed = JSON.parse(candidate); } catch { /* rejected by the closed report contract */ }
+    assertValidatorReport(parsed, result, strict);
+    const normalizedResult = normalizedDiagnostic(parsed);
     return Object.freeze({
       status: 'passed', strict, toolchainLock: toolchain.lock,
       normalizedResult, normalizedResultSha256: sha256(normalizedResult)

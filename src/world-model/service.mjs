@@ -37,7 +37,7 @@ import {
   resolvePublishedWorldModelV4, resolvePublishedWorldModelV4Authority
 } from './store.mjs';
 import {
-  buildCalmProjection, createCalmProjectionRefusal, enforceProjectionBudgets,
+  buildCalmProjection, calmProjectionOptions, createCalmProjectionRefusal, enforceProjectionBudgets,
   validateCalmProjectionCandidate
 } from './projections/calm/projection.mjs';
 import { compareText, isPlainRecord } from './canonicalize.mjs';
@@ -427,20 +427,19 @@ async function buildRequestedProjections(runtime) {
         sourceManifestSha256: runtime.planned.sourceSnapshot.sourceManifestSha256,
         scopeSha256: runtime.planned.scopeManifest.scopeSha256,
         factLedger: runtime.registration.factLedger,
+        evidenceCatalog: runtime.registration.evidenceCatalog,
+        derivationCatalog: runtime.registration.derivationCatalog,
+        sourceSnapshot: runtime.planned.sourceSnapshot,
+        scopeManifest: runtime.planned.scopeManifest,
         capabilitySnapshot: runtime.planned.capabilitySnapshot,
         configurationSnapshot: runtime.planned.configurationSnapshot,
-        includeGovernanceActors: selection.profile?.includeGovernanceActors !== false,
-        includeControls: selection.profile?.includeControls !== false,
-        includeFlows: selection.profile?.includeFlows !== false,
-        includeExternalDependencies: selection.profile?.includeExternalDependencies
-          ?? 'direct-architecture-only',
-        projectionContract: selection.contract
+        ...calmProjectionOptions(selection)
       });
       enforceProjectionBudgets(candidate.projection, {
         ...selection.contract.budgets, ...selection.budgets
       });
       const validated = await validateCalmProjectionCandidate(candidate, {
-        strict: selection.validation?.strict !== false
+        strict: calmProjectionOptions(selection).strict
       });
       if (validated.validationResult.toolchainLock.lockSha256 !== runtime.planned.toolchainLock.lockSha256) {
         throw new SingularityFlowError('CALM toolchain changed after the build plan was sealed.', {

@@ -57,6 +57,30 @@ literal projection.
 The build remains model-free when the WMB v4 composer is deterministic. CALM validation runs with
 the packaged `@finos/calm-cli` and packaged CALM 1.2 schemas; no schema download is required.
 
+## What the projection can prove
+
+Registered import, interface, protocol-field and schema facts are mapped using their typed
+evidence locators and exact extractor provenance, not by interpreting prose claims. The source
+and scope snapshots and both extraction catalogs bind the mapping. Delivery capability
+`sourceRoots` determine file ownership using the longest explicit prefix. Ambiguous ownership,
+unresolved imports, shared files without an owner, partial facts and ambiguous interface targets
+remain visible evidence gaps; they do not create guessed connections.
+
+A source-observed import proves a module dependency, not deployed topology, network traffic or a
+transport protocol. Source interfaces and schema fields are identified as such, not as invented
+HTTP endpoints. External JS package declarations can appear as external modules when enabled;
+unresolved relative or polyglot imports are not promoted to external services. Published
+capability contract pins remain structured pins rather than being converted to protocol strings.
+
+Initial builds, publication revalidation and stored reads use the same profile switches and
+validator strictness. Validation checks the reviewed schema bundle and URL-map digests, requires
+a complete consistent structured report, and rejects schema errors even on exit zero. Genuine
+strict-mode style warnings remain recorded; an unexplained failed exit cannot count as a pass.
+
+Install the updated build and rebuild CALM from the workspace repository to obtain the new
+mapping. Old projections do not gain new evidence by being reinterpreted, and existing Story
+artifacts or approval records are not rewritten.
+
 ## Inspect it
 
 In VS Code, open **Configuration Center → World model → System architecture**. The Explorer provides

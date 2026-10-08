@@ -26,7 +26,7 @@ import {
 } from '../registry/views.mjs';
 import { validateProjectionRegistry } from '../registry/projections.mjs';
 import {
-  buildCalmProjection, enforceProjectionBudgets, validateCalmProjectionCandidate
+  buildCalmProjection, calmProjectionOptions, enforceProjectionBudgets, validateCalmProjectionCandidate
 } from '../projections/calm/projection.mjs';
 import { validateCalmWithOfficialToolchain } from '../projections/calm/validator.mjs';
 import {
@@ -358,30 +358,23 @@ function validateStagedProjections(files, outputDir, manifest, records) {
         || receipt.validation?.toolchainLockSha256 !== records.toolchainLock.lockSha256) {
       incomplete(`Projection '${entry.projectionId}' artifacts do not bind the manifest.`);
     }
+    const requested = buildRequest.requestedProjections?.find(
+      (value) => value.projectionId === entry.projectionId
+    );
     const rebuilt = buildCalmProjection({
       subject: manifest.subject,
       subjectLabel: manifest.subject.id,
       sourceManifestSha256: records.sourceSnapshot.sourceManifestSha256,
       scopeSha256: records.scopeManifest.scopeSha256,
       factLedger: records.factLedger,
+      evidenceCatalog: records.evidenceCatalog,
+      derivationCatalog: records.derivationCatalog,
+      sourceSnapshot: records.sourceSnapshot,
+      scopeManifest: records.scopeManifest,
       capabilitySnapshot: records.capabilitySnapshot,
       configurationSnapshot: records.configurationSnapshot,
-      includeGovernanceActors: buildRequest.requestedProjections?.find(
-        (value) => value.projectionId === entry.projectionId
-      )?.profile?.includeGovernanceActors !== false,
-      includeControls: buildRequest.requestedProjections?.find(
-        (value) => value.projectionId === entry.projectionId
-      )?.profile?.includeControls !== false,
-      includeFlows: buildRequest.requestedProjections?.find(
-        (value) => value.projectionId === entry.projectionId
-      )?.profile?.includeFlows !== false,
-      includeExternalDependencies: buildRequest.requestedProjections?.find(
-        (value) => value.projectionId === entry.projectionId
-      )?.profile?.includeExternalDependencies ?? 'direct-architecture-only'
+      ...calmProjectionOptions(requested)
     });
-    const requested = buildRequest.requestedProjections?.find(
-      (value) => value.projectionId === entry.projectionId
-    );
     if (requested?.validation
         && receipt.validation?.strict !== requested.validation.strict) {
       incomplete(`Projection '${entry.projectionId}' validation receipt does not bind its strictness policy.`);
@@ -924,7 +917,7 @@ async function publishWorldModelTransactionWith(
       projectionBytes: projection.projectionBytes,
       projectionSha256: projection.projectionSha256,
       sourceMap: projection.sourceMap
-    });
+    }, { strict: projection.receipt.validation.strict });
     if (canonicalJson(validated.receipt) !== canonicalJson(projection.receipt)) {
       incomplete(`Projection '${projection.projectionId}' did not reproduce its official validator receipt at publication.`);
     }

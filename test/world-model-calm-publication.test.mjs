@@ -323,7 +323,10 @@ async function approvedIntentFixture(root, {
       '--from', path.basename(candidatePath), '--expect-intent', initialIntent.intentSha256, '--json'
     ]);
     assert.equal(JSON.parse(revised.stdout).status, 'revised');
-    await writeFile(drift.target, drift.original);
+    // init may already have normalized the live policy before the simulated drift. Restore
+    // exact committed bytes, not that earlier dirty serialization, before protected publication.
+    await writeFile(drift.target, run('git', ['show', 'HEAD:singularity/workflow.yml'], { cwd: root }).stdout);
+    assert.equal(git(root, ['status', '--short', '--', 'singularity/workflow.yml']), '');
   }
   await rm(candidatePath);
 
@@ -471,6 +474,33 @@ test('one WMB v4 transaction publishes and reuses the exact CALM product on stat
   ]));
   assert.equal(projection.$schema, 'https://calm.finos.org/release/1.2/meta/calm.json');
   assert.ok(projection.nodes.some((node) => node['unique-id'] === 'platform'));
+});
+
+test('stored replay and publication preserve disabled CALM profiles and non-strict validation', async (t) => {
+  const root = await repository(t);
+  const target = path.join(root, 'singularity', 'workflow.yml');
+  const workflow = YAML.parse(await readFile(target, 'utf8'));
+  workflow.worldModel.projections['arch.calm'].profile = {
+    includeGovernanceActors: false, includeControls: false,
+    includeFlows: false, includeExternalDependencies: 'off'
+  };
+  workflow.worldModel.projections['arch.calm'].calm.strict = false;
+  await writeFile(target, YAML.stringify(workflow));
+  await writeFile(path.join(root, 'app.mjs'), "import thing from 'external-package';\nexport const ready = true;\n");
+  git(root, ['add', '.']);
+  git(root, ['commit', '-qm', 'exercise non-default CALM policies']);
+  git(root, ['push', '-q', 'origin', 'main']);
+  const built = await worldModelCommand(root, ['wm', 'build'], {
+    format: 'registered-v4', views: 'dev.impact'
+  });
+  assert.equal(built.projections[0].status, 'available');
+  const store = resolvePublishedWorldModelV4(root, { stateBranch: 'state' });
+  const product = store.projections.find((entry) => entry.projectionId === 'arch.calm');
+  assert.equal(product.receipt.validation.strict, false);
+  assert.equal(product.factSet.nodes.some((item) => item.layer === 'external' || item.layer === 'governance'), false);
+  assert.deepEqual(product.factSet.flows, []);
+  assert.deepEqual(product.factSet.controls, []);
+  assert.equal(git(root, ['status', '--short']), '');
 });
 
 test('owning publication binds exact next-generation architecture intent bytes', async (t) => {
@@ -856,6 +886,11 @@ test('public init, publish, submit, approve, render and verify bind exact archit
     `${git(root, ['show', 'HEAD:singularity/workflow.yml'])}\n`
   );
   flow(root, ['prepare', 'verification']);
+  // prepare refreshes installed policy serialization. That fixture-only refresh is not a
+  // Story change either; preserve the protected-path gate and restore exact approved bytes.
+  await writeFile(path.join(root, 'singularity', 'workflow.yml'),
+    run('git', ['show', 'HEAD:singularity/workflow.yml'], { cwd: root }).stdout);
+  assert.equal(git(root, ['status', '--short', '--', 'singularity/workflow.yml']), '');
   await writePhaseArtifact(
     root, workflow.workItem.id, 'verification',
     'The exact approved architecture intent is fulfilled by the independently verified current CALM authority.'

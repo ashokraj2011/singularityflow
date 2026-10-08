@@ -4,6 +4,7 @@
   "phase-appeal": [{ "schemaVersion": 1 }],
   "phase-appeal-decision": [{ "schemaVersion": 1 }],
   "copilot-mode-preference": [{ "schemaVersion": 1, "paused": true, "changedAt": "2026-10-06T00:00:00.000Z" }],
+  "copilot-repository-boundary": [{ "schemaVersion": 1, "sessionId": "chat-1", "skill": "sf-phase", "recordedAt": 1791450000000, "modeChangedAt": null }],
   "presentation-profile": [{ "schemaVersion": 1, "displayName": "Ada Lovelace" }],
   "smart-init-proposal": [{ "schemaVersion": 1 }],
   "smart-init-policy": [{ "schemaVersion": 1 }],

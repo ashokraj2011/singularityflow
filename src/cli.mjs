@@ -11468,7 +11468,7 @@ export function isWorldModelBuildContext(root, payload) {
   return paths.some(isBuilderWorktree);
 }
 
-const HOOK_EVENTS = ['turn-intent', 'turn-end', 'agent-start', 'session-start', 'agent-guard'];
+const HOOK_EVENTS = ['turn-intent', 'turn-end', 'agent-start', 'session-start', 'agent-guard', 'boundary-turn', 'boundary-guard', 'boundary-end'];
 
 async function hookCommand(positionals) {
   const event = requirePositional(positionals, 1, 'hook event');
@@ -11482,8 +11482,18 @@ async function hookCommand(positionals) {
   let payload = {};
   try { payload = JSON.parse(await stdinText() || '{}'); } catch { payload = {}; }
   try {
+    if (event.startsWith('boundary-')) {
+      const boundary = await import('./copilot-repository-boundary.mjs');
+      const handler = { 'boundary-turn': boundary.recordRepositoryBoundaryTurn,
+        'boundary-guard': boundary.repositoryDiscoveryGuard, 'boundary-end': boundary.endRepositoryBoundaryTurn }[event];
+      return console.log(JSON.stringify(await handler(payload)));
+    }
+    if (readCopilotMode().paused) return console.log('{}');
     const candidate = typeof payload.cwd === 'string' && existsSync(payload.cwd) ? payload.cwd : process.cwd();
-    const root = repoRoot(candidate);
+    const root = event === 'agent-start'
+      ? await (await import('./copilot-repository-boundary.mjs')).resolveCopilotHookRoot({ ...payload, cwd: candidate })
+      : repoRoot(candidate);
+    if (!root) return console.log('{}');
     if (isWorldModelBuildContext(root, payload)) return console.log('{}');
     const authority = await sessionRepositoryAuthority(root);
     if (!authority) return console.log('{}');

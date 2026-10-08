@@ -634,6 +634,19 @@ async function runMain(argv) {
       argvHash: `sha256:${argvSha256}`, command: 'pause', startedAt: new Date().toISOString() },
     async () => (await import('./commands/pause.mjs')).run(effectiveArgv, { positionals, options, operation }));
   }
+  // Host hooks are machine-local dispatch: SDK chats commonly have a non-Git cwd. Discovery
+  // guards must not perform routing, telemetry or product migrations just to return no decision.
+  if (definition.name === 'hook') {
+    const operation = resolveOperation({ requestedCommand: 'hook', positionals, options });
+    return withOperationContext({ operation, modelMode, root: null, argvSha256,
+      argvHash: `sha256:${argvSha256}`, command: 'hook', startedAt: new Date().toISOString() }, async () => {
+      if (['boundary-turn', 'boundary-guard', 'boundary-end'].includes(positionals[1])) {
+        return (await import('./copilot-repository-boundary.mjs')).runRepositoryBoundaryHook(positionals[1]);
+      }
+      if (readCopilotMode().paused) return console.log('{}');
+      return (await import('./commands/legacy.mjs')).run(effectiveArgv, { positionals, options });
+    });
+  }
   const phaseEntry = definition.name === 'phase' && positionals[1] === 'enter';
   if (phaseEntry) (await import('./commands/phase.mjs')).validatePhaseEntryRequest({ positionals, options });
   const agentEntry = ['inputs', 'nextsteps', 'review-source'].includes(definition.name) && options['for-agent'] !== undefined;

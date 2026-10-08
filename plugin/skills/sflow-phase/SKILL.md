@@ -8,7 +8,7 @@ argument-hint: "[generation focus]"
 # Generate the active phase
 
 <!-- sflow-copilot-pause -->
-First run `singularity-flow phase enter --for-agent --json` once. It checks pause before Git or Story discovery. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Otherwise reuse this entry packet for binding, recovery, clarification and references; use `personalization.replyName` literally once per reply/suggestion group, never in artifacts or approval identity.
+First run `singularity-flow phase enter --for-agent --json` once. Run the lookup from the current cwd, even a non-Git chat folder; it resolves selection. Never locate a repository by searching `/Users`, `$HOME` or parents. Use only the returned `ready`/`workId`/`repositoryPath`; unavailable selection: `/sf-session` or `/sf-workspaces`, stop. It checks pause before Git or Story discovery. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Otherwise reuse this entry packet for binding, recovery, clarification and references; use `personalization.replyName` literally once per reply/suggestion group, never in artifacts or approval identity.
 
 <!-- sflow-output-contract: clarification-and-artifact -->
 **Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.

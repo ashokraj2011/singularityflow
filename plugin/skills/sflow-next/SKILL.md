@@ -7,7 +7,7 @@ disable-model-invocation: true
 # Execute the next workflow action
 
 <!-- sflow-copilot-pause -->
-First run `singularity-flow nextsteps --for-agent --json` once. It checks pause before Git or Story discovery and returns the verified binding and actions. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Use `personalization.replyName` literally once per reply/suggestion group, never in artifacts or approval identity.
+First run `singularity-flow nextsteps --for-agent --json` once. It checks pause before Git or Story discovery and returns the verified binding and actions. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Use `personalization.replyName` literally once per reply/suggestion group, never in artifacts or approval identity. Run the lookup from the current cwd, even a non-Git chat folder; it resolves selection. Never locate a repository by searching `/Users`, `$HOME` or parents. Use only the returned `ready`/`workId`/`repositoryPath`; unavailable selection: `/sf-session` or `/sf-workspaces`, stop.
 
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.

@@ -112,8 +112,9 @@ test('portable Windows drive and UNC authorities reach the bounded Git observati
     'relative paths are refused before creating a Git observation');
 });
 
-test('repository commands can route through the explicitly selected workspace', async () => {
+test('repository commands can route through the explicitly selected workspace', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-selected-command-root-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
   const repository = path.join(root, 'repository');
   const workspace = path.join(root, 'workspace');
   const selection = path.join(root, 'active-workspace.json');
@@ -215,14 +216,13 @@ test('repository commands can route through the explicitly selected workspace', 
     env,
     encoding: 'utf8'
   });
-  assert.equal(routed.status, 0, routed.stderr);
+  assert.equal(routed.status, 1, routed.stderr || routed.stdout);
   const worldModelStatus = JSON.parse(routed.stdout);
-  assert.equal(worldModelStatus.status, 'conflict',
-    'a configured remote without a state branch remains an explicit authority conflict');
-  assert.equal(worldModelStatus.conflicts[0].code, 'world_model.state_branch_absent');
-  assert.equal(worldModelStatus.candidates[0].directory,
-    path.join(await realpath(repository), 'singularity/world-model'),
-    'the repository-scoped command ran against the selected workspace repository');
+  assert.equal(worldModelStatus.resultType, 'sflow-refusal-plan');
+  assert.equal(worldModelStatus.error.code, 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED',
+    'native v4 reports missing state authority, not the legacy-v3 conflict projection');
+  assert.match(worldModelStatus.error.message, /origin\/state.*singularity\/world-model\/manifest.json/,
+    'the rootless command reached the selected repository policy, not repository discovery');
 });
 
 test('workspace checkout mutations lease their explicit repositories rather than unrelated cwd', async (t) => {

@@ -36,6 +36,27 @@ native Copilot Chat. The equivalent `/sf-*` and `/sflow-*` skills work in Copilo
 The Node.js CLI remains authoritative. It validates ordering, inputs, templates, approvals, and
 Git publication. A Copilot response alone never advances the workflow.
 
+## Repository lookup after compaction
+
+An explicit `/sf-code` or `/sf-phase` invocation starts with
+`singularity-flow phase enter --for-agent --json`, even when Copilot's cwd is a non-Git chat
+folder. `/sf-next`, `/sf-inputs`, and `/sf-review-source` have equivalent single-entry lookups.
+The CLI resolves the selected workspace/Story and returns the absolute `repositoryPath`;
+the agent must not find the checkout by scanning `/Users`, `$HOME`, or parent directories.
+Unavailable selection routes to `/sf-session` or `/sf-workspaces`, not wider discovery.
+
+The installed plugin's hooks add a narrow directory-discovery guard during explicit `/sf-*`
+or `/sflow-*` turns. A machine-local session marker retains only skill, session ID and timestamps,
+never prompts or attachments. It clears on the next ordinary prompt or session end, expires
+after 30 minutes, and is invalidated by a pause change. Native Copilot and paused guidance receive
+no repository restriction. In an opted-in turn, bound repository searches and exact external
+tool-output file reads remain allowed; edit, test and lifecycle commands are not gated by this
+guard. It is not a filesystem sandbox, an approval, or a lifecycle-policy bypass.
+
+Install the updated package/plugin and reload the Copilot host to activate changed hooks and
+skill instructions. Direct skills alone carry the bootstrap instruction; hook enforcement
+requires the plugin to be loaded by the host.
+
 ## Evidence and world model
 
 Use `/sf-upload` or `/sflow-upload` to register files, directories, screenshots, exported designs,

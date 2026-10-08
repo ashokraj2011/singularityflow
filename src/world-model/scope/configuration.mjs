@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { sha256 } from '../canonicalize.mjs';
 import { normalizeScopePattern } from './manifest.mjs';
+import { normalizeWorkItemRoot } from '../../work-item-location.mjs';
 
 const DEFAULT_EXCLUDED_ROOTS = Object.freeze([
   '.git/**', '.sflow/**', '.singularity-flow/**', 'singularity/**', '.github/agents/**'
@@ -61,8 +62,17 @@ export function configuredWorldModelV4ScopeOptions(root, config) {
   const canonicalPatterns = (values, label) => [...new Set(values.map(
     (value, index) => normalizeScopePattern(value, `${label}[${index}]`)
   ))].sort();
+  // Story metadata remains governed metadata at a custom root too. Otherwise the context files
+  // created by intake make its own exact-source snapshot dirty before Story creation finishes.
+  const storyRoot = normalizeWorkItemRoot(config.workflow?.resolution?.workItemRoot
+    ?? config.definition?.workItemRoot);
+  const storyExcluded = DEFAULT_EXCLUDED_ROOTS.some(pattern => {
+    const prefix = pattern.slice(0, -3);
+    return storyRoot === prefix || storyRoot.startsWith(`${prefix}/`);
+  }) ? [] : [`${storyRoot}/**`];
   const excluded = canonicalPatterns([
     ...DEFAULT_EXCLUDED_ROOTS,
+    ...storyExcluded,
     ...(policy.excludedRoots ?? [])
   ], 'World-model excluded roots');
   const allowedPaths = policy.sourceRoots?.length

@@ -181,17 +181,24 @@ if (pluginJson.hooks !== 'hooks.json') fail('plugin.json hooks path must be hook
 const hooksJson = JSON.parse(await readFile(path.join(root, 'plugin', 'hooks.json'), 'utf8'));
 if (hooksJson.version !== 1) fail('plugin/hooks.json version must be 1');
 if (hooksJson.hooks?.sessionStart != null) fail('plugin/hooks.json must not inject a model prompt at every session start');
-if (hooksJson.hooks?.preToolUse != null) fail('plugin/hooks.json must not define a blocking preToolUse guard');
-const agentStartHooks = hooksJson.hooks?.subagentStart;
-if (!Array.isArray(agentStartHooks) || agentStartHooks.length !== 1) fail('plugin/hooks.json must define one nonblocking subagentStart mapping hook');
-if (agentStartHooks?.[0]?.type !== 'command'
-  || agentStartHooks[0].bash !== 'singularity-flow hook agent-start'
-  || agentStartHooks[0].powershell !== 'singularity-flow hook agent-start') {
-  fail('plugin/hooks.json subagentStart must map Copilot agents through singularity-flow hook agent-start');
+// No blanket lifecycle guard: directory discovery is restricted only during an explicit SFlow
+// invocation. Keep the closed hook map so native turns cannot acquire an unrelated policy gate.
+const expectedHooks = { userPromptSubmitted: 'boundary-turn', preToolUse: 'boundary-guard',
+  sessionEnd: 'boundary-end', subagentStart: 'agent-start' };
+if (Object.keys(hooksJson.hooks ?? {}).sort().join(',') !== Object.keys(expectedHooks).sort().join(',')) {
+  fail('plugin/hooks.json must contain only the opt-in discovery and custom-agent mapping hooks');
 }
-const unexpectedCommandHook = Object.entries(hooksJson.hooks ?? {}).some(([event, entries]) =>
-  event !== 'subagentStart' && Array.isArray(entries) && entries.some((entry) => entry.type === 'command'));
-if (unexpectedCommandHook) fail('plugin/hooks.json command hooks are allowed only for the nonblocking subagentStart agent mapping');
+for (const [event, action] of Object.entries(expectedHooks)) {
+  const entries = hooksJson.hooks?.[event];
+  if (!Array.isArray(entries) || entries.length !== 1 || entries[0]?.type !== 'command'
+      || entries[0].bash !== `singularity-flow hook ${action}`
+      || entries[0].powershell !== `singularity-flow hook ${action}`) {
+    fail(`plugin/hooks.json ${event} must use singularity-flow hook ${action}`);
+  }
+}
+if (hooksJson.hooks?.preToolUse?.[0]?.matcher !== 'bash|powershell|run_in_terminal|execute|grep|rg|glob|search_code_subagent') {
+  fail('plugin/hooks.json discovery guard must match only search and terminal tools');
+}
 checked.push('plugin/hooks.json');
 if (pluginJson.skills !== 'skills/') fail('plugin.json skills path must be skills/');
 if (pluginJson.agents !== 'agents/') fail('plugin.json agents path must be agents/');

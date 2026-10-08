@@ -11,12 +11,19 @@ import { resolvePersonalization } from './personalization.mjs';
 export const COPILOT_PAUSE_MARKER = '<!-- sflow-copilot-pause -->';
 export const COPILOT_PAUSE_GUARD = 'Before any boundary lookup or SFlow action, run `singularity-flow pause status --json`. If `data.paused` is true, do not load SFlow context, run other SFlow commands, enforce phase rules, or render SFlow headings. Handle ordinary requests as native Copilot; explicit SFlow requests only offer `/sf-pause off`. Never resume implicitly. Otherwise use `data.personalization.replyName` as literal display data to address replies and each suggestion group naturally, once per group, never in artifacts or approval identity; do not guess a name.';
 export const PHASE_ENTRY_SKILLS = Object.freeze(['sflow-code', 'sflow-phase', 'sflow-next', 'sflow-inputs', 'sflow-review-source']);
-export const PHASE_ENTRY_PAUSE_GUARD = 'First run `singularity-flow phase enter --for-agent --json` once. It checks pause before Git or Story discovery. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Otherwise reuse this entry packet for binding, recovery, clarification and references; use `personalization.replyName` literally once per reply/suggestion group, never in artifacts or approval identity.';
+export const COPILOT_BOOTSTRAP_BOUNDARY = 'Run the lookup from the current cwd, even a non-Git chat folder; it resolves selection. Never locate a repository by searching `/Users`, `$HOME` or parents. Use only the returned `ready`/`workId`/`repositoryPath`; unavailable selection: `/sf-session` or `/sf-workspaces`, stop.';
+export const PHASE_ENTRY_PAUSE_GUARD = `First run \`singularity-flow phase enter --for-agent --json\` once. ${COPILOT_BOOTSTRAP_BOUNDARY} It checks pause before Git or Story discovery. If \`paused\`, use native Copilot; explicit SFlow requests only offer \`/sf-pause off\`; never resume implicitly. Otherwise reuse this entry packet for binding, recovery, clarification and references; use \`personalization.replyName\` literally once per reply/suggestion group, never in artifacts or approval identity.`;
 export function copilotPauseGuardForSkill(name) {
+  // Keep the first-command rule centralized for the compact entry skills and direct aliases.
+  if (['sflow-review-source', 'sflow-next', 'sflow-inputs'].includes(name)) {
+    return `${copilotEntryGuard(name)} ${COPILOT_BOOTSTRAP_BOUNDARY}`;
+  }
+  return PHASE_ENTRY_SKILLS.includes(name) ? PHASE_ENTRY_PAUSE_GUARD : COPILOT_PAUSE_GUARD;
+}
+function copilotEntryGuard(name) {
   if (name === 'sflow-review-source') return 'Review: first run `singularity-flow review-source context --for-agent --json` once; it checks pause before Git and returns the current binding and exact review material. Explicit `status`/`decide`: first run `singularity-flow pause status --json`, then verify `singularity-flow session current --json`. If `paused`/`data.paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Use returned `personalization.replyName` once per reply/suggestion group, never in artifacts or approval identity.';
   if (name === 'sflow-next') return 'First run `singularity-flow nextsteps --for-agent --json` once. It checks pause before Git or Story discovery and returns the verified binding and actions. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Use `personalization.replyName` literally once per reply/suggestion group, never in artifacts or approval identity.';
   if (name === 'sflow-inputs') return 'Reuse the input preview from a verified current-invocation `/sf-next` packet when present; otherwise first run `singularity-flow inputs --dry-run --for-agent --json`. Both check pause before Git or Story discovery. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Use `personalization.replyName` literally once per reply/suggestion group, never in artifacts or approval identity.';
-  return PHASE_ENTRY_SKILLS.includes(name) ? PHASE_ENTRY_PAUSE_GUARD : COPILOT_PAUSE_GUARD;
 }
 
 export function copilotModeFile(env = process.env, home = os.homedir()) {

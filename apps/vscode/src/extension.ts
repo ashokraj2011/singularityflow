@@ -919,7 +919,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.approve', 'singularityFlow.openJourney', 'singularityFlow.openCommandCenter',
     'singularityFlow.openComprehensionCenter', 'singularityFlow.openChangeExplorer',
     'singularityFlow.openCodeExplanation', 'singularityFlow.explainFileChanges', 'singularityFlow.explainChangeAtCursor',
-    'singularityFlow.openCodeExplainer', 'singularityFlow.explainCodeAtCursor',
+    'singularityFlow.openCodeExplainer', 'singularityFlow.explainCodeAtCursor', 'singularityFlow.openRepositoryKnowledge',
     'singularityFlow.createSgosWorkflow', 'singularityFlow.reviewSgosMetaTool',
     'singularityFlow.reviewLocalRunner',
     'singularityFlow.openReconciliation',
@@ -8221,6 +8221,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.explainFileChanges': ((argument?: unknown) => showChangeExplorerFocused(argument, false)) as never,
     'singularityFlow.explainChangeAtCursor': () => showChangeExplorerFocused(undefined, true),
     'singularityFlow.openCodeExplainer': () => showCodeExplainer(false),
+    // What the code does (rules, journeys, tests and their gaps), read from the committed source by the CLI.
+    'singularityFlow.openRepositoryKnowledge': async () => {
+      try {
+        const result = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: 'Reading repository knowledge', cancellable: false },
+          () => client.run<{ markdown: string }>(['wm', 'knowledge', 'show', 'overview', '--json'])
+        );
+        // A file in the extension's own storage, rewritten each time: the preview opens without leaving an unsaved document behind.
+        const file = vscode.Uri.joinPath(context.globalStorageUri, 'repository-knowledge.md');
+        await vscode.workspace.fs.createDirectory(context.globalStorageUri);
+        await vscode.workspace.fs.writeFile(file, Buffer.from(result.markdown, 'utf8'));
+        await vscode.commands.executeCommand('markdown.showPreview', file);
+      } catch (error) {
+        showRefusal(error, { headline: 'Could not read repository knowledge' });
+      }
+    },
     'singularityFlow.explainCodeAtCursor': () => showCodeExplainer(true),
     'singularityFlow.createSgosWorkflow': async () => {
       await reconcileActiveWorkspaceSelection();

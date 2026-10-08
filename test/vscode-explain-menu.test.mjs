@@ -101,8 +101,8 @@ test('the explanation opens from the editor, Explorer, Source Control and the si
   };
   assert.ok(tools('work-tools').ids.includes('understand-changes'), 'Work tools offer Understand changes');
   assert.deepEqual(tools('understand-changes'), {
-    title: 'Understand changes', ids: ['change-explorer', 'code-explainer', 'code-explanation', 'comprehension-center']
-  }, 'Explain changes comes first, then the Code Explainer, and the deeper explanations follow it');
+    title: 'Understand changes', ids: ['change-explorer', 'code-explainer', 'repository-knowledge', 'code-explanation', 'comprehension-center']
+  }, 'Explain changes comes first, then the Code Explainer and repository knowledge, and the deeper explanations follow');
   assert.match(sidebar, /if \(chosen\.id === 'understand-changes'\) return this\.openTools\(chosen\.id\)/,
     'choosing Understand changes opens its own list');
   assert.doesNotMatch(tools('help-tools').ids.join(' '), /understand-changes|change-explorer|code-explainer|code-explanation|comprehension-center/);

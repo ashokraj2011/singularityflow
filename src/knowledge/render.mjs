@@ -111,7 +111,7 @@ function sections(knowledge, items, explanations = []) {
   const routes = of('entry-point');
   out.journeys = { title: 'Entry points and journeys', lines: [
     ...routes.map((item) => `${item.statement.label} — ${at(item)}`),
-    ...of('journey').map((item) => `${item.statement.trigger} → ${item.statement.steps.join(' → ') || '(no calls found)'}${item.statement.effects.length ? ` ⇒ ${item.statement.effects.join('; ')}` : ''} ${at(item)}`)
+    ...of('journey').map((item) => `${item.statement.trigger.replace(/<(\w+)>/gu, '`<$1>`')} → ${item.statement.steps.join(' → ') || '(no calls found)'}${item.statement.effects.length ? ` ⇒ ${item.statement.effects.join('; ')}` : ''} ${at(item)}`)
   ] };
   const byFunction = new Map();
   for (const item of of('rule')) {
@@ -164,8 +164,10 @@ function header(knowledge, label) {
     `# ${repository.name ?? 'Repository'} — ${label}`,
     '',
     `Commit \`${String(repository.commit).slice(0, 12)}\`${repository.area ? ` · area \`${repository.area}\`` : ''} · ${repository.files} code files · ${repository.frameworks.join(', ') || 'no framework detected'}`,
+    '',
     `Levels: ${levels}`,
-    ...weak.map((line) => `> ${line}`),
+    '',
+    ...weak.flatMap((line) => [`> ${line}`, '']),
     'Everything below was read from the committed source; each line ends with where it was read.',
     ''
   ];

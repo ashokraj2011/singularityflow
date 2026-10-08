@@ -771,6 +771,12 @@
         "icon": "$(type-hierarchy)"
       },
       {
+        "command": "singularityFlow.openRepositoryKnowledge",
+        "category": "Singularity Flow",
+        "title": "Repository Knowledge",
+        "icon": "$(book)"
+      },
+      {
         "command": "singularityFlow.openCodeExplanation",
         "category": "Singularity Flow",
         "title": "Code Explanation",

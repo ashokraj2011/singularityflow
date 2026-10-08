@@ -2139,6 +2139,27 @@ test('Auto card controls only prefill the exact selected command and never execu
     'button dispatch prepared the command but did not mutate the flight');
 });
 
+test('World Model visual explorer uses the read-only slice in the shipped extension without mutation', async (t) => {
+  if (!requireBundle(t)) return;
+  const { root, registered } = await activated({ registeredWorldModel: true, approvedWorldModelAuthority: true });
+  const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout;
+  const beforeStatus = run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout;
+  const beforeRefs = run('git', ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads/state', 'refs/remotes/origin/state'], { cwd: root }).stdout;
+  await registered.commands.get('singularityFlow.configureWorldModel')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
+  assert.ok(panel);
+  assert.match(panel.webview.html, /data-wm-graphs=/);
+  assert.match(panel.webview.html, /World Model &amp; CALM/);
+  assert.match(panel.webview.html, /id="wm-visual-svg"/);
+  assert.match(panel.webview.html, /\.wm-visual-node:focus-visible/);
+  assert.match(panel.webview.html, /CALM provenance, controls, flows &amp; evidence gaps/);
+  for (const [, script] of panel.webview.html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) new Function(script);
+  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout, beforeHead);
+  assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout, beforeStatus);
+  assert.equal(run('git', ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads/state', 'refs/remotes/origin/state'], { cwd: root }).stdout, beforeRefs);
+  assert.equal(registered.executedCommands.some((entry) => entry.id === 'workbench.action.chat.open'), false);
+});
+
 test('Configuration Center prepares world-model generation for review and never executes it', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated({

@@ -125,6 +125,8 @@ export interface ConfigurationCenterView {
     readiness: NonNullable<RepositorySnapshot['worldModel']>['readiness'];
     format: string | null;
     summary: NonNullable<RepositorySnapshot['worldModel']>['summary'] | null;
+    authority?: NonNullable<RepositorySnapshot['worldModel']>['authority'];
+    source?: NonNullable<RepositorySnapshot['worldModel']>['source'];
     /** Content-addressed, inert drill-downs into the verified state-backed WMB store. */
     expansion: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;
     views: Array<{
@@ -377,6 +379,8 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
       readiness: snapshot.worldModel?.readiness ?? null,
       format: snapshot.worldModel?.format ?? null,
       summary: snapshot.worldModel?.summary ?? null,
+      authority: snapshot.worldModel?.authority,
+      source: snapshot.worldModel?.source,
       expansion: [...(snapshot.worldModel?.expansion ?? [])],
       views: catalog.map(({ id, reference }) => {
         const snapshotView = snapshotViews.get(id);

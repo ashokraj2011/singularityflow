@@ -6,6 +6,7 @@ import type { AuthorityView, ConfigurationCenterView, ConfigurationTab, McpServe
 import { PROFILE_PERSONAS } from './profile-personas.ts';
 import { testSetupHtml, TEST_SETUP_SCRIPT } from './test-setup-page.ts';
 import type { TestSetupView } from './test-setup-model.ts';
+import { worldModelVisualization, WORLD_MODEL_VISUAL_SCRIPT } from './world-model-visual-page.ts';
 import {
   BUILTIN_VIEW_IDS, BUILTIN_VIEW_REFERENCES
 } from '../../../../src/world-model/registry/views.mjs';
@@ -29,7 +30,7 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
     { label: 'Test setup', glyph: 'phase', tab: 'tests' },
     { label: 'Workflow Studio', glyph: 'workflow', action: 'workflow-studio' },
     { label: 'Shared workflow drafts', glyph: 'workflow', action: 'shared-workflow-drafts' },
-    { label: 'World model', glyph: 'worldModel', tab: 'world-model' },
+    { label: 'World Model & CALM', glyph: 'worldModel', tab: 'world-model' },
     { label: 'Rebuild capability World Model', glyph: 'worldModel', action: 'rebuild-world-model' },
     { label: 'AST intelligence', glyph: 'worldModel', action: 'ast-intelligence' }
   ] },
@@ -358,14 +359,16 @@ function worldModel(view: ConfigurationCenterView): string {
     ? 'validated local candidate'
     : 'approved effective configuration';
   return `<section class="plain world-model-settings">
-    ${worldModelExplorer(view)}
+    <details class="wm-data-details"><summary>World Model facts, views &amp; workflow coverage</summary>
+    ${worldModelExplorer(view)}</details>
     <p class="muted">Rebuild chooses an approved capability in this repository, then Quick, Standard, or Deep complexity. It regenerates selected registered views even when cached and publishes the reviewed result to the configured Git state branch; it does not commit to the application or Story branch.</p>
     <p class="notice">Build / refresh uses the approved repository configuration, or the accepted Story's pinned execution configuration when a Story is active. ${proposed
     ? 'Saving creates a review proposal from the exact approved authority; it never rewrites the application checkout. Merge the proposal into <code>sflow/config</code>, then refresh workspace configuration before expecting a repository-level build to use it.'
     : 'This repository uses local configuration authority. Saving writes a validated local draft; review and publish it before expecting a repository-level build to use it.'} An existing Story retains its pin.
       <span class="muted"> Editor source: ${escape(editorLabel)} · Editor format: <code>${escape(model.format)}</code> · Approved format: <code>${escape(source.effective?.worldModelFormat ?? model.format)}</code> · Current built-model format: <code>${escape(view.worldModelStatus.format ?? 'not built')}</code>.</span>
       ${view.publish.changes.length ? `<strong>${view.publish.changes.length} local configuration change${view.publish.changes.length === 1 ? '' : 's'} awaiting publication.</strong>` : ''}</p>
-    ${architectureProjectionExplorer(view)}
+    <details class="wm-data-details"><summary>CALM provenance, controls, flows &amp; evidence gaps</summary>
+    ${architectureProjectionExplorer(view)}</details>
     ${view.worldModelStatus.rebuildReason
     ? `<p class="notice warning">${escape(view.worldModelStatus.rebuildReason)}<span class="grow"></span><button class="secondary" data-action="build-world-model">Review explicit refresh</button></p>`
     : view.worldModelStatus.built
@@ -564,6 +567,7 @@ export function configurationCenterHtml(
   return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Governed repository setup</p><h1>${icon('configuration', { size: 24 })}Configuration Center</h1><p class="meta">Configure the product through guided screens. Use YAML only for advanced settings that do not yet have a form.</p></header>
     <div id="configuration-runtime-message" class="notice warning" role="status" aria-live="polite" hidden><span id="configuration-runtime-text"></span><span class="grow"></span><button class="secondary" id="configuration-reload" type="button">Reload newer configuration</button><button class="secondary" id="configuration-keep" type="button">Keep editing</button><button class="secondary" id="configuration-runtime-resume-approved" type="button" hidden>Resume approved baseline</button></div>
     <div class="configuration-shell">${navigation(tab)}<main class="configuration-content">
+      ${tab === 'world-model' ? worldModelVisualization(view) : ''}
       ${guardedContent}
     </main></div>`;
 }
@@ -687,4 +691,5 @@ export const CONFIGURATION_CENTER_SCRIPT = `
       }
     }
   });
-  ${TEST_SETUP_SCRIPT}`;
+  ${TEST_SETUP_SCRIPT}
+  ${WORLD_MODEL_VISUAL_SCRIPT}`;

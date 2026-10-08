@@ -423,7 +423,7 @@
       },
       {
         "command": "singularityFlow.configureWorldModel",
-        "title": "Singularity Flow: World Model Settings",
+        "title": "Singularity Flow: World Model & CALM Explorer",
         "icon": "$(globe)"
       },
       {

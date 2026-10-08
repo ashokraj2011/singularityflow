@@ -1056,7 +1056,7 @@ export function page(
   csp: string,
   token: string,
   script = '',
-  { nav = null }: { nav?: NavDestination | null | false } = {}
+  { nav = null, styles = '' }: { nav?: NavDestination | null | false; styles?: string } = {}
 ): string {
   const footer = nav === false ? '' : footerNav(nav);
   const scripts = (script || nav !== false)
@@ -1070,7 +1070,7 @@ export function page(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <title>${escape(title)}</title>
-<style nonce="${token}">${STYLE}${WORKFLOW_GRAPH_STYLES}${SGOS_GRAPH_STYLES}${THEME_STYLE}</style>
+<style nonce="${token}">${STYLE}${WORKFLOW_GRAPH_STYLES}${SGOS_GRAPH_STYLES}${THEME_STYLE}${styles}</style>
 </head><body>
 ${body}
 ${footer}

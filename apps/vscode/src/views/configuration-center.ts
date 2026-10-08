@@ -20,6 +20,7 @@ import {
   configurationSavePlan, type ConfigurationSaveDisposition, type ConfigurationSavePlan
 } from './configuration-save.ts';
 import { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } from './configuration-center-page.ts';
+import { WORLD_MODEL_VISUAL_STYLES } from './world-model-visual-page.ts';
 import { RetainedPanelRenderGate } from '../single-flight.ts';
 import { testSetupTargetsFromYaml, updateTestSetupYaml, type TestSetupInspection } from './test-setup-model.ts';
 
@@ -705,7 +706,7 @@ export class ConfigurationCenterPanel {
           inspection: this.testInspection?.repositoryPath === this.store.current.snapshot?.repository?.root ? this.testInspection : null }
       ),
       contentSecurityPolicy(this.panel.webview, token), token, CONFIGURATION_CENTER_SCRIPT,
-      { nav: 'configuration' }
+      { nav: 'configuration', styles: this.tab === 'world-model' ? WORLD_MODEL_VISUAL_STYLES : '' }
     );
   }
 

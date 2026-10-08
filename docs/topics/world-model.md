@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 31
+version: 32
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -239,6 +239,17 @@ Use this topic when the current goal matches **world model**. Start in a governe
 - **VS Code:** open Singularity Flow **Configuration Center → World model** for grounding scope and the registered-v4 format, composer, consumer, cache, and total-token controls. Dotted registered view IDs such as `dev.impact` are accepted. **Build / refresh** follows the effective approved or Story-pinned format: registered-v4 selects an approved capability (when needed), exact installed views, and a reviewed state-branch Plan; legacy-v3 offers a separately confirmed, deterministic light refresh of all configured views to the shared state branch with zero model calls. The legacy state-only path does not commit or push the application or Story branch. Cancelling either review performs no mutation. If v4 authority refresh is required, **Refresh state & retry** preserves the capability selection. With external authority, a settings Save creates a review proposal against the exact approved `sflow/config` revision and leaves the application checkout unchanged; merge it and refresh workspace configuration before building. A true local/FOS authority retains the validated local-draft path. Saving controls does not itself build or rewrite World-Model history, and an existing Story retains its pinned format. The Explorer exposes separate bounded exact reads for unavailable analysis, contradictions, staleness receipts, and cache economics; those datasets never inflate the ordinary workspace snapshot. Use **Configuration → AST intelligence** for optional structural diagnostics, adapter availability, coverage, and guarded cache maintenance. The AST scope banner identifies the active workspace repository and, for multi-repository workspaces, switches the shared repository used by VS Code, Copilot, and the CLI.
 
 ## Guided workflow
+
+### Visual explorer in VS Code
+
+Open **Configuration Center → World Model & CALM**, or run **Singularity Flow: World Model & CALM Explorer** from the Command Palette.
+
+- **World Model** maps registered views to their configured workflow phases. Inspect fact states, exact view/ledger records, depth and shared versus overridden routing. Disabled assignments stay visible without active injection edges.
+- **CALM architecture** draws only the published projection's components and directed relationships. Select a node or connection for its identity, evidence state, sources and exact content-addressed projection. Visual layer groups are layout aids, not inferred dependencies or flow order.
+- Search, filter by group/state/workflow, focus a node's neighborhood, pan, zoom or **Expand map**. Keyboard selection and an accessible item list are available; Escape exits the expanded map.
+- The authority commit and freshness status identify the displayed snapshot. Stale/historical state, missing projections, evidence gaps and bounded previews are explicit. Counts are recorded fact/component counts, not claims of complete acceptance coverage.
+
+The explorer reuses the leased read-only IDE slice. Navigation and filtering never call a model, rebuild, approve, commit or push. Full catalogs, controls, ordered flows and gaps remain under the two expandable data sections; configuration and explicit reviewed builds remain below the map.
 
 1. For a normal repository, leave `worldModel.sourceRoots` and `sharedRoots` absent to describe the whole application tree.
 2. For a monorepo, set `sourceRoots` to the owned application directories and `sharedRoots` to required contracts/libraries. Capability scopes override application roots at the nearest child and inherit shared roots additively.

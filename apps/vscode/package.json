@@ -777,6 +777,11 @@
         "icon": "$(book)"
       },
       {
+        "command": "singularityFlow.reviewRepositoryKnowledge",
+        "category": "Singularity Flow",
+        "title": "Review Repository Knowledge"
+      },
+      {
         "command": "singularityFlow.openCodeExplanation",
         "category": "Singularity Flow",
         "title": "Code Explanation",

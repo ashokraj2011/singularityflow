@@ -920,6 +920,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openComprehensionCenter', 'singularityFlow.openChangeExplorer',
     'singularityFlow.openCodeExplanation', 'singularityFlow.explainFileChanges', 'singularityFlow.explainChangeAtCursor',
     'singularityFlow.openCodeExplainer', 'singularityFlow.explainCodeAtCursor', 'singularityFlow.openRepositoryKnowledge',
+    'singularityFlow.reviewRepositoryKnowledge',
     'singularityFlow.createSgosWorkflow', 'singularityFlow.reviewSgosMetaTool',
     'singularityFlow.reviewLocalRunner',
     'singularityFlow.openReconciliation',
@@ -8221,6 +8222,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.explainFileChanges': ((argument?: unknown) => showChangeExplorerFocused(argument, false)) as never,
     'singularityFlow.explainChangeAtCursor': () => showChangeExplorerFocused(undefined, true),
     'singularityFlow.openCodeExplainer': () => showCodeExplainer(false),
+    // A person's review of what was read: confirm it, correct it with a note, or reject it.
+    'singularityFlow.reviewRepositoryKnowledge': async () => {
+      type Item = { id: string; kind: string; subject?: { symbol?: string; path?: string }; statement?: Record<string, unknown>;
+        citations: Array<{ path: string; lines: number[] }>; review?: { status: string; current: boolean } };
+      try {
+        const listed = await client.run<{ items: Item[] }>(['wm', 'knowledge', 'items', '--json']);
+        const reviewable = listed.items.filter((item) => ['rule', 'drift', 'untested-rule', 'limit', 'journey', 'error-path'].includes(item.kind));
+        const describe = (item: Item): string => {
+          const statement = item.statement ?? {};
+          if (item.kind === 'rule') return `when ${(statement.when as string[] | undefined)?.join(' and ') ?? ''} → ${(statement.then as { text?: string } | null)?.text ?? ''}`;
+          if (item.kind === 'drift') return String(statement.detail ?? 'test and code disagree');
+          if (item.kind === 'limit') return `${String(statement.name)} = ${String(statement.value)}`;
+          if (item.kind === 'journey') return String(statement.trigger ?? 'journey');
+          if (item.kind === 'error-path') return `${String(statement.exception ?? 'error')} ${statement.message ? `"${String(statement.message)}"` : ''}`;
+          return 'no test exercises it';
+        };
+        const picked = await vscode.window.showQuickPick(reviewable.map((item) => ({
+          label: `${item.subject?.symbol ?? item.subject?.path ?? item.kind}: ${describe(item)}`.slice(0, 160),
+          description: `${item.kind}${item.review?.current ? ` · ${item.review.status}` : ''}`,
+          detail: item.citations[0] ? `${item.citations[0].path}:${item.citations[0].lines[0]}` : undefined,
+          item
+        })), { title: 'Review repository knowledge', placeHolder: 'Choose what to confirm, correct or reject', matchOnDescription: true, matchOnDetail: true });
+        if (!picked) return;
+        const action = await vscode.window.showQuickPick([
+          { label: 'Confirm', description: 'it is right', value: 'confirm' },
+          { label: 'Correct', description: 'it is wrong in a way you will describe', value: 'correct' },
+          { label: 'Reject', description: 'it is wrong; leave it out of prompts', value: 'reject' }
+        ], { title: picked.label });
+        if (!action) return;
+        const note = await vscode.window.showInputBox({
+          title: `${action.label}: ${picked.label}`,
+          prompt: action.value === 'confirm' ? 'Optional note' : 'What is wrong?',
+          validateInput: (value) => (action.value !== 'confirm' && !value.trim() ? 'Say what is wrong.' : undefined)
+        });
+        if (note === undefined) return;
+        await client.run(['wm', 'knowledge', action.value, picked.item.id, ...(note.trim() ? ['--note', note.trim()] : []), '--json']);
+        void vscode.window.showInformationMessage(`Recorded in docs/knowledge/confirmations.yml. Commit it with your change.`);
+      } catch (error) {
+        showRefusal(error, { headline: 'Could not record the review' });
+      }
+    },
     // What the code does (rules, journeys, tests and their gaps), read from the committed source by the CLI.
     'singularityFlow.openRepositoryKnowledge': async () => {
       try {

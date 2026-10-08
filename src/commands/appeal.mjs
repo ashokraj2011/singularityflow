@@ -1,26 +1,19 @@
 import { repoRoot } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
-import { assertPhaseAppealsResolved, attestPhaseAppeal, decidePhaseAppeal, phaseAppealDecisionHash, phaseAppealStatus, preparePhaseAppeal, submitPhaseAppeal } from '../phase-appeals.mjs';
-import { phasePrepublish } from '../phase-prepublish.mjs';
-import { phaseResolutionProjection } from '../phase-resolution.mjs';
-import { phaseDraftCheck } from '../phase-draft-check.mjs';
-import { recoveryPlan } from '../collaboration.mjs';
+import { attestPhaseAppeal, decidePhaseAppeal, phaseAppealDecisionHash, phaseAppealStatus, preparePhaseAppeal, submitPhaseAppeal } from '../phase-appeals.mjs';
+import { inspectPhaseJourney } from '../phase-journey-inspection.mjs';
+import { coordinatePhaseContinuation } from '../phase-continuation-runtime.mjs';
 import { coordinatePhaseRepair } from '../phase-repair-runtime.mjs';
-import { phaseRepairLoopSummary } from '../phase-repair-journal.mjs';
-import { acceptQualityRisk, attestQualityRisk, inspectPhaseQualityGate, prepareQualityRisk, revokeQualityRisk } from '../phase-quality-risk.mjs';
-import { loadSession } from '../session.mjs';
+import { acceptQualityRisk, attestQualityRisk, prepareQualityRisk, revokeQualityRisk } from '../phase-quality-risk.mjs';
 import { operationContext } from '../operation-context.mjs';
-import { requiresProspectivePhaseInspection } from '../code-submission-evidence.mjs';
 import { commandResult, effects, noEffects, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { optionBoolean, optionString, optionStrings, SingularityFlowError } from '../util.mjs';
 import { createPhaseCheckpoint, inspectPhaseCheckpoint } from '../phase-checkpoint.mjs';
-import { inspectPhaseAuthoredReviewContent } from '../publication-preflight.mjs';
-import { artifactQualityStatus } from '../phase-artifact-risk.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { prepareEvidenceContractCorrection, acceptEvidenceContractCorrection } from '../phase-evidence-amendment.mjs';
 
-const actions = ['preflight', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'risk-prepare', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume', 'checkpoint', 'checkpoint-show', 'evidence-prepare', 'evidence-accept'];
+const actions = ['preflight', 'resolve', 'resolve-run', 'resolve-resume', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'risk-prepare', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume', 'checkpoint', 'checkpoint-show', 'evidence-prepare', 'evidence-accept'];
 function riskRequest(options) {
   return { phaseId: optionString(options, 'phase') ?? undefined, gateMode: optionString(options, 'gate-mode') ?? undefined,
     clauses: optionStrings(options, 'clause'), transitions: optionStrings(options, 'transition').length
@@ -50,6 +43,7 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
       + 'prepare/submit: --phase ID --add-location CLAUSE=PATH or --add-supporting PATH=CLASS --supporting-reason TEXT --reason TEXT\n'
       + 'submit: --confirm PACKET_SHA256\ndecide: --decision account-scope|request-changes --reason TEXT --confirm PACKET_SHA256 (live terminal review required)\n'
       + 'repair-plan/repair-status: --phase ID; repair-run: --phase ID --confirm PLAN_SHA256; repair-resume: --phase ID\n'
+      + 'resolve: --phase ID previews the shared journey; resolve-run: --confirm SHA256 runs at most publish then submit through normal gates (tests may run); resolve-resume inspects an interrupted operation without replay. Never approves or answers human reviews.\n'
       + 'checkpoint: --phase ID saves private dirty-file/index recovery copies; checkpoint-show PCP-ID verifies them without restoring files\n'
       + 'risk-prepare/risk-accept: --phase ID [--gate-mode soft] [--clause EXACT-ID | --finding EXACT-CODE] [--transition publish|submit|approve|consume|terminal] --expires YYYY-MM-DD --reason TEXT; risk-accept also --confirm PACKET_SHA256 (live human review)\n'
       + 'risk-attest/risk-revoke PQR-ID: --confirm DECISION_SHA256; revoke also --reason TEXT\n'
@@ -65,6 +59,7 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
   if (['evidence-prepare', 'evidence-accept'].includes(action)) ['clause', 'path', 'method', 'reason',
     ...(action === 'evidence-accept' ? ['confirm', 'review-ui'] : [])].forEach(key => allowed.add(key));
   if (action === 'repair-run') allowed.add('confirm');
+  if (action === 'resolve-run') allowed.add('confirm');
   if (['risk-prepare', 'risk-accept'].includes(action)) ['gate-mode', 'clause', 'finding', 'transition', 'expires', 'reason', ...(action === 'risk-accept' ? ['confirm'] : [])].forEach(key => allowed.add(key));
   if (['risk-attest', 'risk-revoke'].includes(action)) ['confirm', ...(action === 'risk-revoke' ? ['reason'] : [])].forEach(key => allowed.add(key));
   for (const key of Object.keys(options)) if (!allowed.has(key)) throw new SingularityFlowError(`Unsupported appeal option --${key}. No blanket waiver, automatic approval or source rewrite is available.`, { code: 'PHASE_APPEAL_OPTIONS_INVALID' });
@@ -74,6 +69,13 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
   if ((action !== 'list' || optionString(options, 'phase')) && !phase) throw new SingularityFlowError('Choose an existing phase with --phase.');
   let data;
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
+  if (action.startsWith('resolve')) {
+    for (const key of ['work-id', 'phase', 'confirm']) if (optionStrings(options, key).length > 1) {
+      throw new SingularityFlowError(`Choose one exact --${key}.`, { code: 'PHASE_APPEAL_OPTIONS_INVALID' });
+    }
+    data = await coordinatePhaseContinuation({ root, workId: workflow.workItem.id, phaseId: phase.id,
+      action: action === 'resolve' ? 'preview' : action.slice(8), confirmation: optionString(options, 'confirm'), modelEnabled });
+  }
   if (action.startsWith('evidence-')) {
     for (const key of ['work-id', 'phase', 'clause', 'path', 'method', 'reason', 'confirm']) {
       if (optionStrings(options, key).length > 1) throw new SingularityFlowError(`Choose one exact --${key} for this evidence correction.`, { code: 'PHASE_APPEAL_OPTIONS_INVALID' });
@@ -107,37 +109,26 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
   if (action.startsWith('repair-')) data = await coordinatePhaseRepair({ root, workId: workflow.workItem.id,
     phaseId: phase.id, action: action.slice(7), confirmation: optionString(options, 'confirm'), modelEnabled });
   if (action === 'preflight') {
-    const session = await loadSession(root, { required: false });
-    const drafting = requiresProspectivePhaseInspection(workflow, phase);
-    const inspection = drafting ? await phasePrepublish(root, config, workflow, phase, { session, modelEnabled })
-      : await phaseDraftCheck(root, config, workflow, phase, { session, modelEnabled });
-    const recovery = await recoveryPlan(root, config, workflow, { phaseId: phase.id, inspectActivePhase: true, modelEnabled });
-    const quality = await inspectPhaseQualityGate(root, config, workflow, phase,
-      { transition: phase.status === 'awaiting_approval' ? 'approve' : 'submit' });
-    const artifactQuality = await artifactQualityStatus(root, config, workflow, phase,
-      await inspectPhaseAuthoredReviewContent(root, config, workflow, phase, { resolveRisks: false }),
-      { transition: drafting ? 'publish' : phase.status === 'awaiting_approval' ? 'approve' : 'submit' });
-    // Prefer the exact owning gate over wrappers of that same refusal, so a coverage gap does
-    // not simultaneously suggest an unrelated test-risk route.
-    const findings = [...quality.findings, ...inspection.findings, ...recovery.blockers];
-    const seen = new Set();
-    const unique = findings.filter(entry => { const key = `${entry.details?.sourceCode ?? entry.code}:${entry.path ?? ''}`; if (seen.has(key)) return false; seen.add(key); return true; });
-    let appeals;
-    try { appeals = await phaseAppealStatus(root, config, workflow, phase); await assertPhaseAppealsResolved(root, config, workflow, phase); }
-    catch (error) { unique.push({ code: error.code, category: 'appeal', path: null, message: error.message }); }
-    data = { status: unique.length ? 'resolution-required' : 'ready-for-next-check', workId: workflow.workItem.id, phaseId: phase.id,
-      resolution: phaseResolutionProjection(workflow, phase, unique), inspection, recovery, appeals, quality, artifactQuality,
-      repairLoop: inspection.repairLoop ?? await phaseRepairLoopSummary(root, workflow, phase),
-      mutates: false, modelInvocations: 0, testsRun: false, phaseAdvanced: false };
+    data = await inspectPhaseJourney(root, config, workflow, phase, { modelEnabled });
+    const inspection = data;
+    // Reuse this invocation's inspection. A persisted refusal must stay visible when the
+    // screen reopens, rather than claiming static readiness erased a failed operation.
+    const continuation = await coordinatePhaseContinuation({ root, workId: workflow.workItem.id,
+      phaseId: phase.id, modelEnabled }, { inspect: async () => inspection });
+    data = { ...inspection, journey: continuation.journey, continuation: {
+      status: continuation.status, next: continuation.next, continuationAllowed: continuation.continuationAllowed,
+      consumed: continuation.consumed, attemptsRemaining: continuation.attemptsRemaining } };
   }
   const changed = data.stateChanged === true;
+  const postState = action.startsWith('resolve') && action !== 'resolve'
+    ? (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow : workflow;
   if (!optionBoolean(options, 'json')) console.log(JSON.stringify(data, null, 2));
   return emitCommandResult(commandResult({
-    operation: { id: `appeal.${action}`, classification: ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'checkpoint', 'evidence-accept'].includes(action) ? 'mutation' : 'read' },
+    operation: { id: `appeal.${action}`, classification: ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'resolve-run', 'resolve-resume', 'checkpoint', 'evidence-accept'].includes(action) ? 'mutation' : 'read' },
     subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded(['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'evidence-accept'].includes(action) ? 'appeal.review-result' : 'appeal.inspected', { action, status: data.status ?? 'informational' }),
     effects: changed ? effects({ stateChanged: true, filesChanged: true, publicationCreated: true,
       externalSystemsChanged: Boolean(data.publication?.pushed) }) : data.journalChanged ? effects({ filesChanged: true,
       externalSystemsChanged: data.registeredOperationExecuted === true }) : data.localFilesChanged ? effects({ filesChanged: true }) : noEffects(), data
-  }), { json: optionBoolean(options, 'json'), postState: workflow });
+  }), { json: optionBoolean(options, 'json'), postState });
 }

@@ -32,10 +32,21 @@ export function phaseIssuesBody(result: unknown): string {
   const quality = object(data.quality);
   const risks = object(quality.risks);
   const artifactQuality = object(data.artifactQuality);
+  const journey = object(data.journey);
+  const witnesses = (Array.isArray(journey.witnesses) ? journey.witnesses.map(object) : []).filter(w => w.status !== 'met');
   const riskItems = Array.isArray(risks.items) ? risks.items.map(object) : [];
   const documentRisks = Array.isArray(artifactQuality.items) ? artifactQuality.items.map(object) : [];
   return `<header><h1>Resolve phase issues</h1><p>${escape(String(data.workId ?? 'Story'))} · ${escape(String(data.phaseId ?? ''))}</p></header>
     <p>Opening this screen runs no tests and makes no changes. Scope accounting, intent changes, risk decisions and phase approval are separate.</p>
+    <section><h2>Continuation</h2><p>${escape(String(journey.state ?? 'Recheck required'))} · ${escape(String(object(journey.build).description ?? 'Build identity unavailable'))}</p>
+      ${journey.lastRefusal ? `<p>Last refusal: ${escape(String(journey.lastRefusal))}</p>` : ''}
+      ${journey.diagnostic ? `<details><summary>Bounded failure diagnostic</summary><pre>${escape(String(journey.diagnostic))}</pre></details>` : ''}
+      <p>Draft repairs may continue while a human evidence decision is pending. Classification does not establish a visual pass. Guarded continuation can publish and submit, but never approve or accept risk.</p>
+      <button data-action="continue">Review guarded continuation…</button></section>
+    <section><h2>Visual and inspection witnesses</h2>${witnesses.length ? witnesses.map(w => `<article class="card"><b>${escape(String(w.clauseId))} · ${escape(String(w.slot))}</b>
+      <p>${escape(String(w.status))} · ${escape(Array.isArray(w.files) ? w.files.map(String).join(', ') : '')}</p>
+      <p>After submission pins fresh candidate/test evidence, an authorized human must inspect the exact candidate and file, then answer each checklist item. Contract correction is not this decision.</p></article>`).join('')
+      + '<button class="secondary" data-action="witness">Prepare human witness review…</button>' : '<p>No outstanding explicit witness contract was found.</p>'}</section>
     <section><h2>Issues and owners</h2>${issues.length ? issues.map(issue => `<article class="card"><h3>${escape(String(issue.code ?? 'Unknown finding'))}</h3>
       <p>${escape(String(issue.path ?? ''))} · ${escape(String(issue.status ?? 'needs-owner'))}</p>
       ${Array.isArray(issue.choices) ? issue.choices.map(object).map(choice => `<p><b>${escape(String(choice.owner ?? 'Owner'))}</b>: ${escape(String(choice.detail ?? 'Inspect recovery'))}</p>`).join('') : ''}</article>`).join('')

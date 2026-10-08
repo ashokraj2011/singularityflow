@@ -12,6 +12,12 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "src/phase-continuation-runtime.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "cbcb52cc99ae2121a49793540bd681ad7654c0fa1daccc7ece724a40a9845cfd"
+    },
     "apps/vscode/src/actions.ts": {
       "counts": {
         "command-run": 6

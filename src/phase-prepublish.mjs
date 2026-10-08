@@ -391,6 +391,27 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     : await specificationPublicationBlockers(root, config, workflow, phase, draft);
   const blockers = [...staticChecks.blockers, ...specificationChecks.blockers];
   const actions = [...staticChecks.actions, ...specificationChecks.actions];
+  // The transaction preserves an existing index instead of replacing staged governed bytes.
+  // Expose that same prerequisite before offering publication, without unstaging anything.
+  let worktreeAction = null;
+  let worktreeInspection = null;
+  if (!retained) {
+    worktreeInspection = inspectLifecycleWorktree(root, config, workflow);
+    const staged = worktreeInspection.entries.filter(entry => entry.xy && entry.xy.index !== '.');
+    if (staged.length) {
+      worktreeAction = await workingTreeAction(root, config, workflow, phase, changes(root), recovery, worktreeInspection);
+      const owned = new Set(worktreeAction?.expectedPaths ?? []);
+      const overlap = [...new Set(staged.flatMap(entry => [entry.path, entry.originalPath])
+        .filter(value => value?.kind === 'utf8' && owned.has(value.value)).map(value => value.value))];
+      if (overlap.length) {
+        blockers.push({ code: 'LIFECYCLE_STAGED_GOVERNED_REVIEW_REQUIRED', category: 'worktree',
+          path: overlap[0], message: 'Review the already staged current-phase paths before publication. Commit them through reviewed recovery or deliberately unstage them; no index changes were made.',
+          details: { paths: overlap, indexPreserved: true } });
+        actions.push({ command: draft.commands.recover, skill: '/sf-recover',
+          detail: 'Review the exact staged diff and use the returned scoped commit if eligible. Preserve unrelated staged bytes; publication does not replace your index.' });
+      }
+    }
+  }
   let retainedReadiness = null;
   if (retained) {
     try {
@@ -423,8 +444,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
   // never mark the pending decision repairable or remove it from readiness/findings.
   const evidenceOnlyDependencies = dependencies.blockers.length > 0 && dependencies.blockers.every(evidenceReview);
   const heldDraft = !retained && lifecycleReady && agentOwnsRepair && evidenceOnlyDependencies
-    ? (await workingTreeAction(root, config, workflow, phase, changes(root), recovery,
-      inspectLifecycleWorktree(root, config, workflow)))?.authoringContinuation : null;
+    ? (worktreeAction ?? await workingTreeAction(root, config, workflow, phase, changes(root), recovery,
+      worktreeInspection ?? inspectLifecycleWorktree(root, config, workflow)))?.authoringContinuation : null;
   const draftRepairAllowed = heldDraft?.allowed === true;
   const repairDependencies = draftRepairAllowed ? dependencies.blockers.filter(entry => !evidenceReview(entry)) : dependencies.blockers;
   const repairRecoveryBlockers = draftRepairAllowed ? recovery.blockers.filter(entry => !evidenceReview(entry)) : recovery.blockers;
@@ -458,7 +479,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
   // Recovery can detect source/test coverage that the Markdown draft checker does not own.
   // Apply the same installed finding policy to both sets; an unclaimed/invalid evidence path
   // remains an owner decision, never a producer repair merely because the summary is ready.
-  const repairBlockers = [...blockers, ...repairRecoveryBlockers];
+  const repairBlockers = [...blockers, ...repairRecoveryBlockers]
+    .filter(entry => entry.code !== 'LIFECYCLE_STAGED_GOVERNED_REVIEW_REQUIRED');
   const authoringRepairOnly = repairBlockers.length > 0
     && repairBlockers.every((entry) => phaseFindingPolicy(entry).repairableByProducer);
   const ownedRecoveryRepair = !retained && lifecycleReady && !hardBlocker
@@ -483,7 +505,8 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
       : retained && recovery.requiresLifecycleRecovery
         ? { command: draft.commands.recover, skill: '/sf-recover',
             detail: 'Inspect the reported lifecycle recovery and its exact successor/return plan before submitting this retained generation.' }
-      : actions[0] ?? producerRoute ?? recovery.actions[0] ?? null;
+      : (ownedRecoveryRepair && blockers.some(entry => entry.code === 'LIFECYCLE_STAGED_GOVERNED_REVIEW_REQUIRED') ? producerRoute : null)
+        ?? actions[0] ?? producerRoute ?? recovery.actions[0] ?? null;
   const needsHumanClarification = [...blockers, ...recovery.blockers].some((entry) => entry.category === 'clarification');
   // A supporting evidence collection is not a prose draft, but its exact bundle hash must still
   // move the bounded same-turn repair fingerprint when an agent adds a file beneath it.

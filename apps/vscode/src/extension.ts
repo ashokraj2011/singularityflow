@@ -7896,6 +7896,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showPhaseIssues(result, action => { void (async () => {
           if (!stillCurrent()) { void showCompactWarningMessage('Story context changed. Reopen phase issues in the selected Story.'); return; }
           if (action === 'refresh') return vscode.commands.executeCommand('singularityFlow.resolvePhaseIssues');
+          if (action === 'continue') {
+            const preview = await client.run<{ data?: { confirmation?: string; continuationAllowed?: boolean; status?: string;
+              binding?: { workId?: string; phaseId?: string }; journey?: { state?: string } } }>(
+              ['appeal', 'resolve', '--work-id', workId, '--phase', phaseId, '--json']);
+            const plan = preview.data;
+            if (!stillCurrent() || plan?.binding?.workId !== workId || plan.binding.phaseId !== phaseId) return;
+            if (plan.status === 'resume-required') {
+              await client.run(['appeal', 'resolve-resume', '--work-id', workId, '--phase', phaseId, '--json']);
+              if (stillCurrent()) return vscode.commands.executeCommand('singularityFlow.resolvePhaseIssues');
+              return;
+            }
+            if (!plan.continuationAllowed || !/^sha256:[a-f0-9]{64}$/u.test(plan.confirmation ?? '')) {
+              void showCompactInformationMessage(`Continuation needs ${plan.journey?.state ?? 'its named owner'}. Preserve the draft and use the displayed review/repair route.`); return;
+            }
+            const choice = await showCompactWarningMessage('Run guarded publish/submission checks for this exact phase? Tests may run; publication may commit and push. Human reviews and approval are never automatic.', 'Run guarded checks');
+            if (choice !== 'Run guarded checks' || !stillCurrent()) return;
+            await client.run(['appeal', 'resolve-run', '--work-id', workId, '--phase', phaseId, '--confirm', plan.confirmation!, '--json']);
+            if (stillCurrent()) return vscode.commands.executeCommand('singularityFlow.resolvePhaseIssues');
+            return;
+          }
+          if (action === 'witness') {
+            const fresh = await client.run<{ data?: { journey?: { state?: string; witnesses?: { clauseId: string; slot: string; files: string[]; status: string }[] } } }>(
+              ['appeal', 'preflight', '--work-id', workId, '--phase', phaseId, '--json']);
+            if (!stillCurrent()) return;
+            if (fresh.data?.journey?.state !== 'witness-review') {
+              void showCompactInformationMessage('Witness review follows submission, which pins fresh candidate/test evidence. Follow the displayed continuation or owning repair route first.'); return;
+            }
+            const witnesses = (fresh.data?.journey?.witnesses ?? []).filter(w => w.status !== 'met'
+              && /^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u.test(w.clauseId) && /^[A-Za-z0-9._-]+$/u.test(w.slot)
+              && Array.isArray(w.files) && w.files.length === 1 && typeof w.files[0] === 'string' && w.files[0].length > 0
+              && !/^[\\/]|[:\\\x00-\x1f]/u.test(w.files[0]) && !w.files[0].split('/').some(part => part === '..' || part === '.'));
+            const selected = await vscode.window.showQuickPick(witnesses.map(w => ({ label: `${w.clauseId} · ${w.slot}`, description: w.files[0], witness: w })),
+              { title: 'Human witness — inspect published evidence, not its classification', ignoreFocusOut: true });
+            if (!selected || !stillCurrent()) return;
+            const terminal = vscode.window.createTerminal({ name: 'Singularity Flow · Human Witness Review', cwd: checkedRepository });
+            terminal.show(true);
+            // No checklist answers are preselected. The real command enforces authority/binding.
+            terminal.sendText(terminalCommand(checkedRepository, ['decision', 'witness', '--work-id', workId,
+              '--criterion', selected.witness.clauseId, '--slot', selected.witness.slot, '--file', selected.witness.files[0]!,
+              '--reason', '<what-you-inspected>', '--json'], process.platform, client.location), false);
+            void showCompactInformationMessage('Inspect the published file, replace the reason, and answer each item with --confirm or --deny: states-the-outcome, matches-the-criterion, current-for-this-change. No witness is recorded yet.');
+            return;
+          }
           if (action === 'appeal') return vscode.commands.executeCommand('workbench.action.chat.open', { query: `/sf-appeal --phase ${phaseId}` });
           if (action === 'tests') return vscode.commands.executeCommand('singularityFlow.reviewStoryTestRecovery');
           if (action === 'evidence') {

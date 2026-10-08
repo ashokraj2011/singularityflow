@@ -7,12 +7,26 @@ test('phase issue screen escapes repository text and provides only fixed host ac
   const attack = '<img src=x onerror="execute()"><script>execute()</script>';
   const html = phaseIssuesBody({ data: { workId: attack, phaseId: 'custom-code',
     resolution: { issues: [{ code: attack, path: attack, status: 'needs-human', choices: [{ owner: attack, detail: attack, command: attack }] }] },
+    journey: { state: attack, diagnostic: attack, build: { description: attack } },
     appeals: { items: [{ id: attack, phaseId: attack, status: attack }] } } });
   assert.doesNotMatch(html, /<img|<script|data-action="execute|onclick=/);
   assert.match(html, /&lt;img/);
-  assert.deepEqual([...html.matchAll(/data-action="([^"]+)"/gu)].map(value => value[1]), ['appeal', 'review', 'evidence', 'tests', 'repair', 'resume', 'checkpoint', 'refresh']);
+  assert.deepEqual([...html.matchAll(/data-action="([^"]+)"/gu)].map(value => value[1]), ['continue', 'appeal', 'review', 'evidence', 'tests', 'repair', 'resume', 'checkpoint', 'refresh']);
   assert.match(html, /No automatic risk acceptance or phase advance/);
   for (const input of [null, [], { data: [] }, { data: { resolution: { issues: 'invalid' } } }]) assert.doesNotThrow(() => phaseIssuesBody(input));
+});
+
+test('witness preparation never pre-answers or executes a human checklist', async () => {
+  const html = phaseIssuesBody({ data: { journey: { witnesses: [{ clauseId: 'US:AC-001', slot: 'visual', status: 'pending', files: ['screen.png'] }] } } });
+  assert.match(html, /data-action="witness"/);
+  assert.match(html, /Contract correction is not this decision/);
+  const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
+  const block = extension.slice(extension.indexOf("if (action === 'witness')"), extension.indexOf("if (action === 'appeal')", extension.indexOf("if (action === 'witness')")));
+  assert.match(block, /'appeal', 'preflight'/);
+  assert.match(block, /'decision', 'witness'/);
+  assert.match(block, /client\.location\), false/);
+  assert.doesNotMatch(block, /'--confirm'|'--deny'|client\.run[^\n]*\['decision'/);
+  assert.match(block, /stillCurrent\(\)/);
 });
 
 test('evidence review uses pinned selectors and an independently presented UI, never a webview answer', async () => {

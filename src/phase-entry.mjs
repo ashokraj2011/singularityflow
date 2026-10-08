@@ -16,6 +16,9 @@ import { SingularityFlowError } from './util.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
 import { phaseContextAdmission, phaseAdmissionActions } from './phase-entry-admission.mjs';
+import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { PHASE_JOURNEY_CONTRACT } from './phase-journey.mjs';
+import { BUILD_INFO, versionLine } from './build-info.mjs';
 
 /** Verified per-invocation binding shared by phase entry, nextsteps and inputs. */
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
@@ -48,6 +51,11 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
     selectionSource: selected?.selectionSource ?? 'cwd', branch: branch(root), head: head(root) };
   const packet = { schemaVersion: 1, resultType: 'sflow-phase-entry', paused: false,
     personalization: resolvePersonalization({ root }), ...binding,
+    build: { description: versionLine(), ...BUILD_INFO },
+    continuationReview: phase ? { contractRevision: PHASE_JOURNEY_CONTRACT, readOnly: true,
+      commandGuidance: safeCommandGuidance({ executable: 'singularity-flow', argv: ['appeal', 'resolve',
+        '--work-id', actualId, '--phase', phase.id, '--json'] }),
+      detail: 'Inspect one preserved-work journey when blocked. This route does not repair, run tests, accept evidence or approve.' } : null,
     generationPolicy: phase?.generationPolicy ?? null, generatesCode: phase ? phaseRequiresCodeDelivery(phase) : false,
     intent: phase?.generationIntent ?? null };
   return { packet, root, ...accepted, phase, session };
@@ -103,12 +111,18 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     detail: contextAdmission.pendingEvidence.detail,
     scope: 'draft-only', evidenceAccepted: false, publicationReviewRequired: true
   }, ...next];
+  const nextActions = phaseAdmissionActions(next, contextAdmission, { authoring, recovery }).map(recoveryActionGuidance);
+  if (!canCompose && authoring.entry?.status === 'authoring-entry' && base.continuationReview?.commandGuidance) nextActions.unshift(recoveryActionGuidance({
+    id: `inspect-continuation:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
+    scope: 'read-only', command: base.continuationReview.commandGuidance.command, skill: '/sf-appeal',
+    detail: 'Inspect one preserved-work journey and its exact repair/human/owner route. This inspection changes nothing and cannot grant authoring or publication permission.'
+  }));
   return { ...base, status, authoringAllowed, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, references, clarification, context,
     contextComposition: !compose ? 'not-requested' : context ? 'delivered' : 'not-admitted',
-    next: phaseAdmissionActions(next, contextAdmission, { authoring, recovery }).map(recoveryActionGuidance),
+    next: nextActions,
     inspectionCommands: { recovery: `singularity-flow recover ${actualId} --phase ${phase.id} --json`,
       documents: `singularity-flow phase show ${phase.id} --json` } };
 }

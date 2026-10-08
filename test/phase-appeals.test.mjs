@@ -109,7 +109,9 @@ test('malformed and orphan appeal state cannot escape the shared gate', async ()
 
 function run(command, args, cwd, allowFailure = false) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 60000,
-    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester', SINGULARITY_FLOW_NO_MODEL: '1' } });
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester', SINGULARITY_FLOW_NO_MODEL: '1',
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(cwd, '.git', 'test-active-workspace.json'),
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(cwd, '.git', 'test-workspaces.json') } });
   if (!allowFailure && result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);
   return result;
 }
@@ -128,7 +130,7 @@ async function acceptDocumentRisk(root, cli, phase, { transitions = [] } = {}) {
   assert.equal(ceremony.status, 0, ceremony.stdout + ceremony.stderr); assert.match(ceremony.stdout, /risk-accepted/u);
   return packet;
 }
-async function fixture(t, { pilotCoverage = false, directCoverage = false, missingPlannedSource = false, intakeDocumentRisk = false } = {}) {
+async function fixture(t, { pilotCoverage = false, directCoverage = false, missingPlannedSource = false, intakeDocumentRisk = false, completionWorkflow = false, sourceRequirement = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-appeals-')); const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
   const git = (...args) => run('git', args, root);
@@ -143,12 +145,21 @@ async function fixture(t, { pilotCoverage = false, directCoverage = false, missi
   config.worldModel.grounding = 'off'; config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   config.workTypes['classic-delivery'].spec = { ...(config.workTypes['classic-delivery'].spec ?? {}), mode: 'enforce', coverage: 'enforce' };
+  if (completionWorkflow) {
+    config.workTypes['journey-proof'] = structuredClone(config.workTypes['classic-delivery']);
+    config.workTypes['journey-proof'].phases = ['intake', 'implementation'];
+    config.workTypes['journey-proof'].label = 'Team evidence delivery';
+    delete config.workTypes['journey-proof'].phaseOverrides.testing;
+    delete config.workTypes['journey-proof'].phaseOverrides.conformance;
+    delete config.workTypes['journey-proof'].templateOverrides.testing;
+    delete config.workTypes['journey-proof'].templateOverrides.conformance;
+  }
   await writeFile(configPath, YAML.stringify(config));
   git('add', '.'); git('commit', '-m', 'Initialize appeal fixture');
   run('git', ['init', '--bare', '-b', 'main', remote], root); git('remote', 'add', 'origin', remote); git('push', '-u', 'origin', 'main');
   const ready = JSON.parse(cli('precheck', '--run', '--scope', 'dependency-test', '--json').stdout).data.plan;
   cli('precheck', '--run', '--scope', 'dependency-test', '--confirm-plan', ready.planId, '--json');
-  cli('start', WORK, '--from-branch', 'main', '--work-type', 'classic-delivery', '--title', 'Use a helper', '--description', 'Return 2.',
+  cli('start', WORK, '--from-branch', 'main', '--work-type', completionWorkflow ? 'journey-proof' : 'classic-delivery', '--title', 'Use a helper', '--description', 'Return 2.',
     ...(pilotCoverage ? ['--gate-mode', 'soft'] : []));
   const item = `singularity/work-items/${WORK}`;
   cli('prepare', 'intake');
@@ -156,8 +167,10 @@ async function fixture(t, { pilotCoverage = false, directCoverage = false, missi
     `# ${WORK} — intake`, '', '## Request and outcome', '', 'Return the approved value 2 to every caller.', '',
     '## Scope and constraints', '', 'Change only the value module and its test.', '',
     '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', `| [${WORK}:AC-001] | The exported value equals 2. |`, '',
+    ...(sourceRequirement ? ['## Requirements', '', `- [${WORK}:REQ-001] The product module exports exactly 2, verified by \`${WORK}:AC-001\`.`, ''] : []),
     '## Planned implementation evidence', '', '| Clause | Expected paths | Planned tests | Fulfillment |', '|---|---|---|---|',
-    `| \`${WORK}:AC-001\` | \`src/value.mjs\`${pilotCoverage || missingPlannedSource ? ', `src/missing.mjs`' : ''} | \`test/value.test.mjs\` | modified |`, '',
+    `| \`${WORK}:AC-001\` | \`src/value.mjs\`${pilotCoverage || missingPlannedSource ? ', `src/missing.mjs`' : ''} | \`test/value.test.mjs\` | modified |`,
+    ...(sourceRequirement ? [`| \`${WORK}:REQ-001\` | \`src/value.mjs\` | \`test/value.test.mjs\` | modified |`] : []), '',
     '## Initial evidence', '', 'The baseline module and test at the pinned main revision.', ''
   ].join('\n'));
   cli('wm', 'compose', '--phase', 'intake'); cli('clarification', 'record', 'intake', '--question', 'Is 2 the approved value?', '--answer', 'Yes.');
@@ -168,7 +181,7 @@ async function fixture(t, { pilotCoverage = false, directCoverage = false, missi
   }
   cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place'); cli('submit', 'intake'); cli('approve', 'intake', '--yes');
   cli('prepare', 'implementation');
-  await write('src/value.mjs', `// @clause:${WORK}:AC-001 returns the approved value\n${pilotCoverage || directCoverage ? 'export const value = 2;' : "import {approved} from './helper.mjs';\nexport const value = approved;"}\n`);
+  await write('src/value.mjs', `${sourceRequirement ? `// @clause:${WORK}:REQ-001 the product module exports the approved value\n` : ''}// @clause:${WORK}:AC-001 returns the approved value\n${pilotCoverage || directCoverage ? 'export const value = 2;' : "import {approved} from './helper.mjs';\nexport const value = approved;"}\n`);
   if (!pilotCoverage && !directCoverage) await write('src/helper.mjs', 'export const approved = 2;\n');
   await write('test/value.test.mjs', `import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {value} from '../src/value.mjs';\n// @ac:${WORK}:AC-001\ntest('value', () => assert.equal(value,2));\n`);
   if (!pilotCoverage && !directCoverage) await write('NOTES.md', 'Keep this unrelated note out of every appeal commit.\n');
@@ -186,7 +199,9 @@ async function browserEvidenceAcceptance(t, root, argv, label, { cancel = false 
   const code = `Object.defineProperty(process,'platform',{value:'linux'});process.argv=[process.execPath,${JSON.stringify(CLI)},...${JSON.stringify(argv)}];await import(${JSON.stringify(new URL('../bin/singularity-flow.mjs', import.meta.url).href)});`;
   const child = spawn(process.execPath, ['--input-type=module', '-e', code], { cwd: root,
     env: { ...process.env, PATH: `${driver}${path.delimiter}${process.env.PATH}`, SF_TEST_BROWSER_URL: urlPath,
-      NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester', SINGULARITY_FLOW_NO_MODEL: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester', SINGULARITY_FLOW_NO_MODEL: '1',
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.git', 'test-active-workspace.json'),
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.git', 'test-workspaces.json') }, stdio: ['ignore', 'pipe', 'pipe'] });
   t.after(() => child.kill());
   let output = ''; let errors = ''; let exited = false; child.stdout.on('data', value => { output += value; }); child.stderr.on('data', value => { errors += value; });
   const closed = new Promise((resolve, reject) => { child.on('error', reject); child.on('close', status => { exited = true; resolve({ status, stdout: output, stderr: errors }); }); });
@@ -203,7 +218,7 @@ async function browserEvidenceAcceptance(t, root, argv, label, { cancel = false 
 }
 
 for (const surface of ['terminal', 'browser']) test(`reviewed evidence typing via ${surface} preserves the draft/index and clears only exact screenshot ownership`, { timeout: 180000 }, async t => {
-  const f = await fixture(t, { directCoverage: true, missingPlannedSource: true });
+  const f = await fixture(t, { directCoverage: true, missingPlannedSource: true, completionWorkflow: surface === 'browser', sourceRequirement: true });
   const evidencePath = `${f.item}/evidence/value.png`;
   await f.write(evidencePath, Buffer.from('retained visual proof, not a passing adjudication'));
   const options = ['--phase', 'implementation', '--clause', `${WORK}:AC-001`, '--path', evidencePath,
@@ -230,8 +245,10 @@ for (const surface of ['terminal', 'browser']) test(`reviewed evidence typing vi
   const entry = JSON.parse(composed.stdout);
   assert.equal(entry.contextAdmission.allowed, true, composed.stdout);
   assert.equal(entry.contextComposition, 'delivered');
-  assert.equal(entry.contextAdmission.pendingEvidence.evidenceAccepted, false);
-  assert.equal(entry.next[0].scope, 'draft-only');
+  if (surface === 'terminal') {
+    assert.equal(entry.contextAdmission.pendingEvidence.evidenceAccepted, false);
+    assert.equal(entry.next[0].scope, 'draft-only');
+  }
   assert.deepEqual(await readFile(path.join(f.root, evidencePath)), imageBytes);
   assert.equal(f.git('ls-files', '--stage').stdout, indexBefore, 'composition never stages held evidence or source');
   const summaryBefore = await readFile(path.join(f.root, f.summary), 'utf8');
@@ -313,6 +330,37 @@ for (const surface of ['terminal', 'browser']) test(`reviewed evidence typing vi
   assert.equal(f.git('ls-files', '--stage').stdout.split('\n').find(line => line.endsWith('\tsrc/value.mjs')),
     indexBefore.split('\n').find(line => line.endsWith('\tsrc/value.mjs')), 'unrelated staged source survives the exact decision commit');
   assert.match(f.git('status', '--porcelain=v1', '--untracked-files=all').stdout, /value\.png/u, 'screenshot stays private until normal publication');
+  // Regression: ownership correction was previously the end of the test. Prove the actual
+  // lifecycle: publish, fresh submission tests, explicit visual witness and human approval.
+  const staged = JSON.parse(f.cli('appeal', 'resolve', '--phase', 'implementation', '--json').stdout).data;
+  assert.equal(staged.continuationAllowed, false, JSON.stringify(staged));
+  assert.ok(staged.journey.resolution.issues.some(issue => issue.code === 'LIFECYCLE_STAGED_GOVERNED_REVIEW_REQUIRED'));
+  assert.equal(f.git('ls-files', '--stage').stdout.split('\n').find(line => line.endsWith('\tsrc/value.mjs')),
+    indexBefore.split('\n').find(line => line.endsWith('\tsrc/value.mjs')), 'preflight preserves the exact staged source');
+  // Explicit fixture-owner review only, never an automatic product operation.
+  f.git('restore', '--staged', '--', 'src/value.mjs');
+  const preview = JSON.parse(f.cli('appeal', 'resolve', '--phase', 'implementation', '--json').stdout).data;
+  assert.equal(preview.journey.witnesses.length, 1, JSON.stringify(preview));
+  assert.equal(preview.continuationAllowed, true, JSON.stringify(preview));
+  const continued = JSON.parse(f.cli('appeal', 'resolve-run', '--phase', 'implementation', '--confirm', preview.confirmation, '--json').stdout).data;
+  assert.equal(continued.executed[0].outcome, 'verified', JSON.stringify(continued));
+  assert.equal(continued.executed[1].outcome, 'verified', JSON.stringify(continued));
+  assert.equal(continued.journey.state, 'witness-review', JSON.stringify(continued));
+  assert.equal((await f.load()).workflow.witnessRecords?.length ?? 0, 0, 'classification never fabricates a visual pass');
+  const witness = continued.journey.witnesses[0];
+  f.cli('decision', 'witness', '--work-id', WORK, '--criterion', `${WORK}:AC-001`, '--slot', witness.slot,
+    '--file', evidencePath, '--reason', 'The exact retained value screenshot was inspected for this synthetic candidate.',
+    '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change', '--json');
+  const approval = JSON.parse(f.cli('appeal', 'resolve', '--phase', 'implementation', '--json').stdout).data;
+  assert.equal(approval.journey.state, 'human-approval', JSON.stringify(approval));
+  assert.equal(approval.continuationAllowed, false, 'the coordinator never grants human approval');
+  ({ workflow } = await f.load());
+  assert.ok(workflow.phases.implementation.deliveryEvidence.testExecutions.some(result => result.status === 'passed'));
+  assert.deepEqual(await readFile(path.join(f.root, evidencePath)), imageBytes);
+  f.cli('approve', 'implementation', '--yes', '--json');
+  ({ workflow } = await f.load());
+  assert.equal(workflow.phases.implementation.status, 'approved');
+  if (surface === 'browser') assert.equal(workflow.status, 'closed', 'custom workflow closes only after tests, witness and human approval');
 });
 
 test('publication stage follows policy and generation rather than a built-in phase name', () => {

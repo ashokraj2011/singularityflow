@@ -67,6 +67,16 @@ test('exact relay skills retain their command families, subcommands, and argumen
   );
 });
 
+test('continuation handoffs retain the exact operation, phase, Story and confirmation', () => {
+  for (const action of ['resolve', 'resolve-run', 'resolve-resume']) {
+    const suffix = action === 'resolve-run' ? ` --confirm sha256:${'a'.repeat(64)}` : '';
+    const command = `singularity-flow appeal ${action} --work-id TEAM-1 --phase team-build${suffix} --json`;
+    const guidance = safeCommandGuidance({ command });
+    assert.equal(guidance.copilotCommand, command.replace('singularity-flow appeal', '/sf-appeal'));
+    assert.equal(guidance.argv[1], action);
+  }
+});
+
 test('approval guidance preserves exact phase and Story selectors without execution authority', () => {
   for (const command of [
     'singularity-flow approve poc-review-v2 --work-id CUSTOM-STORY-17 --fetch',

@@ -147,6 +147,9 @@ test('entry bundles a custom-root Story without changing files, HEAD, index or l
   assert.equal(entry.modelInvocations, 0);
   assert.equal(entry.effects.testsRun, false);
   assert.equal(entry.effects.storyAdvanced, false);
+  assert.equal(entry.continuationReview.readOnly, true);
+  assert.match(entry.continuationReview.commandGuidance.copilotCommand, /^\/sf-appeal resolve --work-id ENTRY-1/u);
+  assert.match(entry.build.description, /^0\.9\.0/u);
   assert.ok(entry.recovery.planId);
   assert.ok(entry.authoring.policyVerified);
   assert.equal(entry.references.status, 'not-configured');
@@ -307,7 +310,9 @@ test('manual worktree review prevents composition while preserving changes and e
   assert.equal(entry.contextAdmission.allowed, false);
   assert.deepEqual(entry.contextAdmission.blockers.map(item => item.code), ['PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED']);
   assert.deepEqual(entry.contextAdmission.blockers[0].paths, ['README.md']);
-  assert.equal(entry.next[0].id, 'working-tree');
+  assert.equal(entry.next[0].scope, 'read-only');
+  assert.equal(entry.next[0].copilotCommand, `/sf-appeal resolve --work-id ENTRY-1 --phase ${item.workflow.currentPhase} --json`);
+  assert.equal(entry.next[1].id, 'working-tree');
   assert.ok(entry.recovery.actions.some(action => action.id === 'working-tree' && action.confirmation === 'human-authority'));
   assert.equal(await readFile(path.join(item.root, 'README.md'), 'utf8'), '# Unrelated native work\n');
 });

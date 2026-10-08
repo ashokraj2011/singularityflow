@@ -97,6 +97,30 @@ test('prepublish never presents a publish command for a non-current or non-in-pr
   assert.ok(red.findings.some((finding) => finding.code === 'phase.lifecycle.not-publishable'));
 });
 
+test('staged owned draft paths need review before publish, while unrelated index bytes stay untouched', async t => {
+  const item = await fixture(t);
+  const git = (...args) => execFileSync('git', args, { cwd: item.root, encoding: 'utf8' });
+  git('checkout', '-qb', 'PRE-1');
+  git('add', '.');
+  git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'baseline');
+  item.workflow.workItem.branch = 'PRE-1'; item.workflow.status = 'in_progress';
+  await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');
+  await writeFile(path.join(item.root, 'unrelated.txt'), 'Keep this independently staged change.\n');
+  git('add', 'unrelated.txt');
+  const unrelatedIndex = git('ls-files', '--stage');
+  const call = () => phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  assert.equal((await call()).status, 'ready');
+  assert.equal(git('ls-files', '--stage'), unrelatedIndex);
+  git('add', item.absolute);
+  const stagedIndex = git('ls-files', '--stage');
+  const blocked = await call();
+  assert.equal(blocked.status, 'correction-required');
+  assert.equal(blocked.commands.publish, null);
+  assert.equal(blocked.correction.skill, '/sf-recover');
+  assert.ok(blocked.findings.some(f => f.code === 'LIFECYCLE_STAGED_GOVERNED_REVIEW_REQUIRED'));
+  assert.equal(git('ls-files', '--stage'), stagedIndex);
+});
+
 test('real prepublish reserves and resumes owned corrections without treating its own journal hold as a blocker', async t => {
   const item = await fixture(t);
   execFileSync('git', ['checkout', '-qb', 'repair-story'], { cwd: item.root });

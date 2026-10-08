@@ -4,12 +4,11 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "27298580e6149fd008d23298ee6770e88fae9a5f",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-05-SKILL-MASTER.md",
+    "reviewedAtCommit": "94ed35919ef19805c50b2973260a0ba7e04ea08a",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-09-HOOK-PUBLICATION-AND-RECORD-FAMILIES.md",
     "companionIds": [
       "migration-registry",
-      "smart-initialization-v1",
-      "workflow-configuration"
+      "publication-unit-of-work"
     ]
   },
   "companions": [
@@ -91,7 +90,7 @@
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:e9f00207cf5a2422787e709d17e0f34fd389a2362cdead1419644e91d148888c"
+      "sha256": "sha256:91ce95ee66f799798de11264c023a39e05f7c05927bf55b8efa1d235e0c748b4"
     },
     {
       "id": "action-authorization",
@@ -101,7 +100,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:c54dcba9a46bc6386b4abfe7e8d32647354eccd96f8f659675e4f87dd0fcb8e7"
+      "sha256": "sha256:0e6df671b05046e9c08e57ce958e4dc57935318546bec3a0e013e02b16bb206b"
     },
     {
       "id": "smart-initialization-v1",

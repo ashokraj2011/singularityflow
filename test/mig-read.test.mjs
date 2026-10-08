@@ -150,12 +150,18 @@ test('historical workflow bundle projections keep stored identities without inve
     const before = Buffer.from(rawBytes);
     const opened = readRecord('workflow-bundle', rawBytes);
     assert.equal(opened.storedVersion, storedVersion);
-    assert.equal(opened.record.schemaVersion, 5);
-    assert.deepEqual(opened.migratedThrough, storedVersion === 1
-      ? [{ from: 1, to: 2 }, { from: 2, to: 3 }, { from: 3, to: 4 }, { from: 4, to: 5 }]
-      : [{ from: 2, to: 3 }, { from: 3, to: 4 }, { from: 4, to: 5 }]);
-    // Nor does it invent imported copies or skills: a historical bundle carried none.
-    assert.deepEqual(opened.record, { ...stored, schemaVersion: 5, skillPackages: [], imports: {} });
+    assert.equal(opened.record.schemaVersion, 7);
+    assert.deepEqual(opened.migratedThrough, [
+      ...(storedVersion === 1 ? [{ from: 1, to: 2 }] : []),
+      { from: 2, to: 3 }, { from: 3, to: 4 }, { from: 4, to: 5 }, { from: 5, to: 6 }, { from: 6, to: 7 }
+    ]);
+    // Nor does it invent imported copies, skills, integration targets or attachments: a historical
+    // bundle carried none. The empty attachment list is a read-side default, never a claim; the
+    // transfer reader compares attachments only when the stored bytes carry them.
+    assert.deepEqual(opened.record, {
+      ...stored, schemaVersion: 7, skillPackages: [], imports: {}, workflowSkillAttachments: []
+    });
+    assert.equal(Object.hasOwn(opened.record.objects.story, 'integrations'), false);
     assert.equal(opened.record.bundleSha256, stored.bundleSha256);
     assert.deepEqual(opened.record.objects, stored.objects);
     assert.equal(Object.hasOwn(opened.record.objects.story.phases, 'design-intake'), false);

@@ -9,6 +9,8 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { createHash, createHmac } from 'node:crypto';
 
+import { publishCapabilityRepositoriesDurably } from '../src/capability-publication-recovery.mjs';
+import { capabilityPublicationPlan, publishCapabilityRepositories } from '../src/capability-start.mjs';
 import { commitIsolated, governedCommitIdentity } from '../src/git.mjs';
 import { configuredRemoteFingerprint } from '../src/git-remote-diagnostics.mjs';
 import { resolveOperation } from '../src/command-registry.mjs';
@@ -1059,20 +1061,117 @@ test('world-model transport recovery cannot overwrite lifecycle pending-publicat
     'world-model failure has no dedicated exact recovery surface');
 });
 
-test('capability sibling transport verifies the exact Candidate before its push', async () => {
-  const capabilitySource = await readFile(
-    path.join(packageRoot, 'src/capability-start.mjs'), 'utf8'
-  );
-  const capabilityStart = capabilitySource.indexOf(
-    'export async function publishCapabilityRepositories'
-  );
-  const capabilityBody = capabilitySource.slice(
-    capabilityStart, capabilitySource.indexOf('\n/**', capabilityStart)
-  );
-  assert.match(capabilityBody, /publishVerifiedSgosLifecycleCandidate\(/,
+/** Every call of `name` in `source`, arguments included, skipping its own declaration. */
+function sourceCalls(source, name) {
+  const calls = [];
+  for (const match of source.matchAll(new RegExp(`(?<![\\w$])${name}\\(`, 'g'))) {
+    if (/function\s*$/.test(source.slice(Math.max(0, match.index - 20), match.index))) continue;
+    let depth = 0;
+    let end = match.index + match[0].length - 1;
+    for (; end < source.length; end += 1) {
+      if (source[end] === '(') depth += 1;
+      else if (source[end] === ')' && (depth -= 1) === 0) break;
+    }
+    calls.push(source.slice(match.index, end + 1));
+  }
+  return calls;
+}
+
+test('capability sibling transport verifies the exact Candidate before its push', async (t) => {
+  // Behaviour first: with no transport injected, a sibling push reaches the remote only for the
+  // exact verified Candidate. A pre-receive hook records every receive-pack the remote sees.
+  const lead = await repository(t);
+  const sibling = await repository(t, { remote: true });
+  const branch = 'S-CAPABILITY-SIBLING';
+  const baseCommit = git(sibling.root, ['rev-parse', 'refs/heads/main']).stdout.trim();
+  // Story preparation leaves each sibling on its Story branch at the selected base.
+  git(sibling.root, ['branch', branch, baseCommit]);
+  const received = path.join(path.dirname(sibling.remote), 'received-refs.log');
+  const hook = path.join(sibling.remote, 'hooks', 'pre-receive');
+  await writeFile(hook, `#!/bin/sh\ncat >> ${JSON.stringify(received)}\n`);
+  await chmod(hook, 0o755);
+  const [entry, ...extra] = await capabilityPublicationPlan([{
+    publishRequired: true, repository: 'sibling', root: sibling.root, remote: 'origin', branch,
+    baseCommit, destinationRef: `refs/heads/${branch}`,
+    remoteFingerprint: configuredRemoteFingerprint(sibling.root, 'origin')
+  }], lead.root);
+  assert.deepEqual(extra, []);
+  assert.equal(entry.candidate.candidateCommit, baseCommit);
+
+  const flip = (value) => `${value.slice(0, -1)}${value.endsWith('0') ? '1' : '0'}`;
+  const unbound = git(sibling.root, [
+    'commit-tree', `${baseCommit}^{tree}`, '-p', baseCommit, '-m', 'not the verified Candidate'
+  ]).stdout.trim();
+  const forged = [
+    ['missing binding', { ...entry, candidate: null },
+      /requires a verified Candidate binding/],
+    ['another Candidate identity',
+      { ...entry, candidate: { ...entry.candidate, candidateSha256: flip(entry.candidate.candidateSha256) } },
+      /binding has a different candidateSha256/],
+    ['forged verification receipt',
+      { ...entry, candidate: { ...entry.candidate,
+        verificationReceiptSha256: flip(entry.candidate.verificationReceiptSha256) } },
+      /verification receipt is unavailable/],
+    ['commit outside the Candidate', { ...entry, commit: unbound },
+      /does not bind the exact verified Candidate/]
+  ];
+  for (const [label, forgedEntry, refusal] of forged) {
+    const result = await publishCapabilityRepositories([forgedEntry]);
+    assert.deepEqual(result.published, [], `${label} was published`);
+    assert.equal(result.pending.length, 1, label);
+    assert.equal(result.pending[0].pushOutcome, 'not-attempted', `${label} reached the transport`);
+    assert.match(result.error, refusal, label);
+  }
+  await assert.rejects(access(received), { code: 'ENOENT' },
+    'an unverified capability sibling push reached receive-pack');
+  assert.equal(git(sibling.root, ['rev-parse', `refs/heads/${branch}`]).stdout.trim(), baseCommit,
+    'an unverified capability sibling publication moved the local Story branch');
+
+  // The production entry point (the durable wave wrapper every Story surface calls) publishes the
+  // exact Candidate through the same verified transport.
+  const publication = await publishCapabilityRepositoriesDurably(lead.root, branch, {
+    remote: 'origin', branch, commit: git(lead.root, ['rev-parse', 'HEAD']).stdout.trim(), event: null
+  }, [entry], { rootPublished: true });
+  assert.equal(publication.error, null);
+  assert.deepEqual(publication.pending, []);
+  assert.equal(publication.published.length, 1);
+  assert.equal(publication.published[0].candidateVerified, true,
     'capability sibling publication bypasses the shared verified-Candidate transport');
-  assert.doesNotMatch(capabilityBody, /pushCommitToBranch(?:Async)?\(/,
-    'capability sibling publication retains a direct push path beside the Candidate adapter');
+  assert.equal(publication.published[0].legacyUnverified, false);
+  assert.equal(
+    git(sibling.root, ['--git-dir', sibling.remote, 'rev-parse', `refs/heads/${branch}`]).stdout.trim(),
+    baseCommit
+  );
+  assert.deepEqual((await readFile(received, 'utf8')).trim().split('\n'),
+    [`${'0'.repeat(baseCommit.length)} ${baseCommit} refs/heads/${branch}`]);
+
+  // Production callers never replace that transport, and the capability modules hold no push of
+  // their own beside it. Tests may inject `publishCandidate`/`publishRepositories`; src may not.
+  const sources = [];
+  for (const relative of await readdir(path.join(packageRoot, 'src'), { recursive: true })) {
+    if (!relative.endsWith('.mjs')) continue;
+    sources.push([
+      `src/${relative.split(path.sep).join('/')}`,
+      await readFile(path.join(packageRoot, 'src', relative), 'utf8')
+    ]);
+  }
+  const callers = [];
+  for (const [relative, source] of sources) {
+    for (const name of ['publishCapabilityRepositories', 'publishCapabilityRepositoriesDurably']) {
+      for (const call of sourceCalls(source, name)) {
+        callers.push(relative);
+        assert.doesNotMatch(call, /\bpublish(?:Candidate|Repositories)\b/,
+          `${relative} replaces the verified capability sibling transport:\n${call}`);
+      }
+    }
+  }
+  assert.ok(callers.length >= 3, `capability publication call sites disappeared: ${callers.join(', ')}`);
+  for (const relative of ['src/capability-start.mjs', 'src/capability-publication-recovery.mjs']) {
+    const source = sources.find(([candidate]) => candidate === relative)?.[1];
+    assert.ok(source, `${relative} is missing`);
+    assert.doesNotMatch(source, /pushCommitToBranch(?:Async)?\(|\[\s*'push'/,
+      `${relative} retains a direct push path beside the Candidate adapter`);
+  }
 
   const candidateSource = await readFile(
     path.join(packageRoot, 'src/sgos/candidate-lifecycle.mjs'), 'utf8'

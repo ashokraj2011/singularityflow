@@ -21,7 +21,7 @@ import { validateNarrationMigrationStatus } from '../src/narration/migration-sta
 import { currentSchemaVersion, migrationRegistrySnapshot } from '../src/schema-migrations.mjs';
 import { MCP_SCAFFOLD_VERSIONS } from '../src/mcp-host.mjs';
 import { releaseDependencyLockProblems } from '../src/release-dependency-lock.mjs';
-import { isModelRoutingSource, portableCheckPath } from './check-path-policy.mjs';
+import { isModelRoutingSource, portableCheckPath, sourceReferenceGrepArgs } from './check-path-policy.mjs';
 import {
   CURRENT_PACKAGED_ASSET_SHA256,
   isCurrentPackagedAssetHash, isKnownPackagedAssetHash, packagedAssetSha256
@@ -265,7 +265,7 @@ for (let index = 0; index < externalAudits.length; index += 1) {
 }
 checked.push('.github/CODEOWNERS');
 const legacyModelReferences = [['clau', 'de'].join(''), ['anthro', 'pic'].join(''), ['calu', 'de'].join('')].join('|');
-const legacyReferenceCheck = spawnSync('git', ['grep', '-n', '-i', '-E', legacyModelReferences, '--', '.'], {
+const legacyReferenceCheck = spawnSync('git', sourceReferenceGrepArgs(legacyModelReferences), {
   cwd: root,
   encoding: 'utf8'
 });
@@ -281,7 +281,7 @@ const personalSourceReferences = [
 const personalSourcePattern = personalSourceReferences
   .map((reference) => reference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
   .join('|');
-const personalSourceCheck = spawnSync('git', ['grep', '-n', '-i', '-E', personalSourcePattern, '--', '.'], {
+const personalSourceCheck = spawnSync('git', sourceReferenceGrepArgs(personalSourcePattern), {
   cwd: root,
   encoding: 'utf8'
 });
@@ -291,7 +291,7 @@ const publicSourceReferences = [
   ['github', 'com'].join('\\.'),
   ['singularity', 'flow', 'contributors'].join('[[:space:]]+')
 ];
-const publicSourceCheck = spawnSync('git', ['grep', '-n', '-i', '-E', publicSourceReferences.join('|'), '--', '.'], {
+const publicSourceCheck = spawnSync('git', sourceReferenceGrepArgs(publicSourceReferences.join('|')), {
   cwd: root,
   encoding: 'utf8'
 });

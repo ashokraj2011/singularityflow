@@ -3,6 +3,11 @@ export function portableCheckPath(value) {
   return String(value).replaceAll('\\', '/');
 }
 
+/** Audit new files before Git staging too, without scanning ignored build/dependency files. */
+export function sourceReferenceGrepArgs(pattern) {
+  return ['grep', '--untracked', '--exclude-standard', '-n', '-i', '-E', pattern, '--', '.'];
+}
+
 /** Select every source surface covered by the model-name routing lint. */
 export function isModelRoutingSource(value) {
   const relative = portableCheckPath(value);

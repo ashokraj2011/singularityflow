@@ -47,7 +47,7 @@ test('explicit SFlow blocks the actual compacted-chat discovery commands and sup
   await recordRepositoryBoundaryTurn({ ...item.payload, prompt: '/sf-phase' });
   for (const command of ['find /Users -maxdepth 6',
     "pwd && ls -la && find /Users -path '*/singularity/work-items/*' | head -100",
-    'find /Users/ashokraj -name .git', 'find $HOME', 'find ${HOME}', 'find ~', 'find ..',
+    'find /Users/fixture-user -name .git', 'find $HOME', 'find ${HOME}', 'find ~', 'find ..',
     'find /', `find '${item.root}' /Users -name singularity`, 'rg --files /Users', 'rg --files', 'ls -la']) {
     const decision = await item.guard(command);
     assert.equal(decision.permissionDecision, 'deny', command);

@@ -1,12 +1,41 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isModelRoutingSource, portableCheckPath } from '../scripts/check-path-policy.mjs';
+import { isModelRoutingSource, portableCheckPath, sourceReferenceGrepArgs } from '../scripts/check-path-policy.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+test('reference lint catches new source before staging while excluding ignored output', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-check-references-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const git = args => spawnSync('git', args, { cwd: directory, encoding: 'utf8', timeout: 10_000 });
+  assert.equal(git(['init', '--quiet']).status, 0);
+  const marker = 'forbidden-fixture-reference';
+  await writeFile(path.join(directory, '.gitignore'), 'generated/\n');
+  await writeFile(path.join(directory, 'tracked.mjs'), '// clean source\n');
+  assert.equal(git(['add', '.gitignore', 'tracked.mjs']).status, 0);
+  await mkdir(path.join(directory, 'generated'));
+  await writeFile(path.join(directory, 'generated', 'ignored.mjs'), marker);
+  const scan = () => git(sourceReferenceGrepArgs(marker));
+  assert.equal(scan().status, 1, 'ignored build/dependency output stays excluded');
+  await writeFile(path.join(directory, 'new-test.mjs'), `// ${marker}\n`);
+  const untracked = scan();
+  assert.equal(untracked.status, 0, untracked.stderr);
+  assert.match(untracked.stdout, /new-test\.mjs:1:/, 'a new untracked file must not bypass the reference lint');
+  assert.equal(git(['add', 'new-test.mjs']).status, 0);
+  assert.equal(scan().status, 0, 'staged source remains covered');
+  await writeFile(path.join(directory, 'new-test.mjs'), '// clean source\n');
+  assert.equal(scan().status, 1, 'the lint evaluates current working-tree source');
+  await writeFile(path.join(directory, 'tracked.mjs'), `// ${marker}\n`);
+  assert.match(scan().stdout, /tracked\.mjs:1:/, 'modified tracked source remains covered');
+  await writeFile(path.join(directory, 'tracked.mjs'), '// clean source\n');
+  await writeFile(path.join(directory, 'binary.dat'), Buffer.from(`\0${marker}`));
+  assert.match(scan().stdout, /binary\.dat/, 'binary files cannot bypass the existing reference policy');
+});
 
 test('model-name routing source selection is identical for POSIX and Windows paths', () => {
   const cases = [

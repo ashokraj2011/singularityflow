@@ -55,6 +55,7 @@ const MODEL_OPERATION_PATTERNS = Object.freeze({
   'wm.ensure': /\bwm\s+ensure\b/,
   'wm.migrate': /\bwm\s+migrate\b/,
   'wm.regenerate': /\bwm\s+regenerate\b/,
+  'wm.knowledge.explain': /\bwm\s+knowledge\s+explain\b(?![^\n]*--dry-run)/,
   'workspace.copilot': /\bsingularity-flow\s+workspace\s+copilot\b/,
   'workspace.impact.analyze': /\bsingularity-flow\s+workspace\s+impact\s+analyze\b/
 });

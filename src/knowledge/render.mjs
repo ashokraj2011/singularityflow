@@ -12,13 +12,13 @@ export const KNOWLEDGE_ROLES = Object.freeze(['developer', 'tester', 'architect'
 
 /** Which sections each role reads, most important first. */
 const ROLE_SECTIONS = Object.freeze({
-  developer: ['pitfalls', 'rules', 'journeys', 'entities', 'tests', 'impact', 'system', 'areas'],
-  tester: ['pitfalls', 'rules', 'tests', 'errors', 'journeys', 'messages'],
-  architect: ['areas', 'journeys', 'system', 'entities', 'hotspots', 'errors', 'pitfalls'],
-  product: ['journeys', 'rules', 'messages', 'entities', 'pitfalls']
+  developer: ['pitfalls', 'summary', 'rules', 'journeys', 'entities', 'tests', 'impact', 'system', 'areas'],
+  tester: ['pitfalls', 'summary', 'rules', 'tests', 'errors', 'journeys', 'messages'],
+  architect: ['summary', 'areas', 'journeys', 'system', 'entities', 'hotspots', 'errors', 'pitfalls'],
+  product: ['summary', 'journeys', 'rules', 'messages', 'entities', 'pitfalls']
 });
 const VIEW_SECTIONS = Object.freeze({
-  overview: ['pitfalls', 'areas', 'journeys', 'rules', 'entities', 'tests', 'system', 'hotspots'],
+  overview: ['summary', 'pitfalls', 'areas', 'journeys', 'rules', 'entities', 'tests', 'system', 'hotspots'],
   rules: ['rules', 'messages', 'errors'],
   journeys: ['journeys', 'system'],
   entities: ['entities'],
@@ -85,11 +85,16 @@ export function focusItems(knowledge, focus) {
   return hit.size ? { items, matched: hit.size } : { items: knowledge.items, matched: 0 };
 }
 
-function sections(knowledge, items) {
+function sections(knowledge, items, explanations = []) {
   const of = (kind) => items.filter((item) => item.kind === kind);
+  const present = new Set(items.map((item) => item.id));
   const limits = new Map(of('limit').map((item) => [item.statement.name, item.statement.value]));
   const out = {};
   // What a newcomer would get wrong: drift, refusals, limits, untested rules.
+  // Model-written sentences that passed the citation check; kept only where they cite what this slice shows.
+  out.summary = { title: 'In plain words (inferred: model-written, checked against the cited code)', lines: explanations
+    .filter((sentence) => sentence.cites.some((id) => present.has(id)))
+    .map((sentence) => `${sentence.text}${sentence.citations[0] ? ` — \`${sentence.citations[0].path}:${sentence.citations[0].lines[0]}\`` : ''}`) };
   out.pitfalls = { title: 'Things a newcomer would get wrong', lines: [
     ...of('drift').map((item) => `Test and code disagree: "${item.statement.testTitle}" — ${item.statement.detail} — ${code(item.statement.condition)} ${at(knowledge.items.find((rule) => rule.id === item.statement.rule) ?? item)}`),
     ...of('limit').map((item) => {
@@ -165,8 +170,8 @@ function header(knowledge, label) {
 }
 
 /** Render named sections into Markdown under a byte budget, saying what was left out. */
-function renderSections(knowledge, items, order, label, maximumBytes) {
-  const built = sections(knowledge, items);
+function renderSections(knowledge, items, order, label, maximumBytes, explanations = []) {
+  const built = sections(knowledge, items, explanations);
   const lines = header(knowledge, label);
   const encoder = (value) => Buffer.byteLength(value, 'utf8');
   let used = encoder(lines.join('\n'));
@@ -192,16 +197,16 @@ function renderSections(knowledge, items, order, label, maximumBytes) {
   return lines.join('\n');
 }
 
-export function renderKnowledgeView(knowledge, view = 'overview', { maximumBytes = null, focus = null } = {}) {
+export function renderKnowledgeView(knowledge, view = 'overview', { maximumBytes = null, focus = null, explanations = [] } = {}) {
   if (!VIEW_SECTIONS[view]) throw new TypeError(`Unknown knowledge view '${view}'. Use one of: ${KNOWLEDGE_VIEWS.join(', ')}.`);
   const { items } = focusItems(knowledge, focus);
-  return renderSections(knowledge, items, VIEW_SECTIONS[view], view === 'overview' ? 'how the code works' : view, maximumBytes);
+  return renderSections(knowledge, items, VIEW_SECTIONS[view], view === 'overview' ? 'how the code works' : view, maximumBytes, explanations);
 }
 
 /** The slice a phase prompt receives: one role, an optional Story focus, a byte budget. */
-export function renderKnowledgeSlice(knowledge, { role = 'developer', focus = null, maximumBytes = 8192 } = {}) {
+export function renderKnowledgeSlice(knowledge, { role = 'developer', focus = null, maximumBytes = 8192, explanations = [] } = {}) {
   if (!ROLE_SECTIONS[role]) throw new TypeError(`Unknown knowledge role '${role}'. Use one of: ${KNOWLEDGE_ROLES.join(', ')}.`);
   const { items, matched } = focusItems(knowledge, focus);
   const label = `knowledge for the ${role}${matched ? ' (focused on this Story)' : ''}`;
-  return renderSections(knowledge, items, ROLE_SECTIONS[role], label, maximumBytes);
+  return renderSections(knowledge, items, ROLE_SECTIONS[role], label, maximumBytes, explanations);
 }

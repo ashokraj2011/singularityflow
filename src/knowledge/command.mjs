@@ -7,19 +7,25 @@
  *   status  [--area PATH] [--json]                                    levels and counts
  *   items   [--kind KIND] [--area PATH] [--json]                      the typed items, for tools
  *   eval    --expected FILE [--area PATH] [--json]                    score against expectations
+ *   explain [--area PATH] [--dry-run] [--json]                        plain-language explanations, citation-checked (needs a model; --dry-run shows the prompt)
  *
  * Read-only for the repository: it reads the committed tree and writes only its machine-local cache.
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { loadDefinition } from '../config.mjs';
+import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
+import { operationContext } from '../operation-context.mjs';
 import { optionBoolean, optionNumber, optionString, SingularityFlowError } from '../util.mjs';
+import { buildExplanationPrompt, explanationSubjects, readExplanations, validateExplanations, writeExplanations } from './explain.mjs';
 import { parseKnowledgeExpectations, scoreKnowledge } from './benchmark.mjs';
 import { KNOWLEDGE_KINDS } from './items.mjs';
 import { KNOWLEDGE_ROLES, KNOWLEDGE_VIEWS, renderKnowledgeSlice, renderKnowledgeView, roleForPhase } from './render.mjs';
+import { readKnowledgeSource } from './source.mjs';
 import { buildKnowledge } from './store.mjs';
 
-const USAGE = 'Usage: singularity-flow wm knowledge <build|show|slice|status|items|eval> [--area PATH] [--json]';
+const USAGE = 'Usage: singularity-flow wm knowledge <build|show|slice|status|items|eval|explain> [--area PATH] [--json]';
 
 async function built(root, options) {
   const result = await buildKnowledge(root, { area: optionString(options, 'area') ?? null, refresh: optionBoolean(options, 'refresh') });
@@ -40,11 +46,13 @@ function levelLine(levels) {
 export async function knowledgeCommand(root, positionals, options) {
   const subcommand = positionals[0];
   const json = optionBoolean(options, 'json');
-  if (!subcommand || !['build', 'show', 'slice', 'status', 'items', 'eval'].includes(subcommand)) throw new SingularityFlowError(USAGE);
+  if (!subcommand || !['build', 'show', 'slice', 'status', 'items', 'eval', 'explain'].includes(subcommand)) throw new SingularityFlowError(USAGE);
   const result = await built(root, options);
   const { knowledge } = result;
   const maximumBytes = optionNumber(options, 'max-bytes') ?? null;
   const focus = optionString(options, 'focus') ?? null;
+  const explanations = (await readExplanations(root, result.key))?.accepted ?? [];
+  if (subcommand === 'explain') return explainCommand(root, result, options);
 
   if (subcommand === 'build' || subcommand === 'status') {
     const summary = {
@@ -65,7 +73,7 @@ export async function knowledgeCommand(root, positionals, options) {
   if (subcommand === 'show') {
     const view = positionals[1] ?? 'overview';
     if (!KNOWLEDGE_VIEWS.includes(view)) throw new SingularityFlowError(`Unknown knowledge view '${view}'. Use one of: ${KNOWLEDGE_VIEWS.join(', ')}.`);
-    const text = renderKnowledgeView(knowledge, view, { maximumBytes, focus });
+    const text = renderKnowledgeView(knowledge, view, { maximumBytes, focus, explanations });
     if (json) console.log(JSON.stringify({ view, bytes: Buffer.byteLength(text), markdown: text }, null, 2));
     else console.log(text);
     return { view, markdown: text };
@@ -74,7 +82,7 @@ export async function knowledgeCommand(root, positionals, options) {
     const phase = optionString(options, 'phase') ?? null;
     const role = optionString(options, 'role') ?? (phase ? roleForPhase(phase) : 'developer');
     if (!KNOWLEDGE_ROLES.includes(role)) throw new SingularityFlowError(`Unknown role '${role}'. Use one of: ${KNOWLEDGE_ROLES.join(', ')}.`);
-    const text = renderKnowledgeSlice(knowledge, { role, focus, maximumBytes: maximumBytes ?? 8192 });
+    const text = renderKnowledgeSlice(knowledge, { role, focus, maximumBytes: maximumBytes ?? 8192, explanations });
     if (json) console.log(JSON.stringify({ role, phase, bytes: Buffer.byteLength(text), markdown: text }, null, 2));
     else console.log(text);
     return { role, markdown: text };
@@ -100,4 +108,56 @@ export async function knowledgeCommand(root, positionals, options) {
     for (const missed of value.missed) console.log(`    missed: ${JSON.stringify(missed)}`);
   }
   return score;
+}
+
+/**
+ * Ask the configured model to explain the knowledge in plain words, then keep only the sentences
+ * whose code names, numbers and quoted texts are found in what they cite. Without a model (the
+ * operation's never-model fallback) it says so; --dry-run prints the exact prompt instead.
+ */
+async function explainCommand(root, result, options) {
+  const json = optionBoolean(options, 'json');
+  const { knowledge } = result;
+  const source = await readKnowledgeSource(root, { area: optionString(options, 'area') ?? null });
+  const filesByPath = new Map([...source.files, ...source.manifests].map((file) => [file.path, file]));
+  const subjects = explanationSubjects(knowledge);
+  const prompt = buildExplanationPrompt(knowledge, subjects, filesByPath);
+  if (optionBoolean(options, 'dry-run')) {
+    if (json) console.log(JSON.stringify({ status: 'dry-run', subjects: subjects.map((subject) => ({ id: subject.id, title: subject.title, items: subject.items.length })), promptSha256: prompt.sha256, prompt: prompt.text }, null, 2));
+    else console.log(prompt.text);
+    return { status: 'dry-run' };
+  }
+  if (operationContext()?.operation?.id !== 'wm.knowledge.explain') {
+    const message = 'Explanations need a model, and model execution is off for this command. The deterministic knowledge is unchanged; run with --dry-run to see what would be sent.';
+    if (json) console.log(JSON.stringify({ status: 'unavailable', reason: 'model-disabled', message }, null, 2));
+    else console.log(message);
+    return { status: 'unavailable' };
+  }
+  const definition = await loadDefinition(root);
+  const provider = resolveModelProvider(definition);
+  const invocation = await invokeModel({
+    provider: provider.provider,
+    providerConfig: provider.providerConfig,
+    model: provider.model,
+    task: 'summarize',
+    cwd: root,
+    allowedRoots: [root],
+    prompt: { text: prompt.text },
+    channel: 'repository-knowledge-explanation',
+    subject: { kind: 'repository-knowledge', id: knowledge.repository.name ?? 'repository' },
+    tools: { mode: 'none', names: [] },
+    limits: { timeoutMs: 4 * 60 * 1000, outputBytes: 256 * 1024 }
+  });
+  const checked = validateExplanations(invocation.output, subjects, prompt.evidence);
+  const record = {
+    knowledgeKey: result.key, promptSha256: prompt.sha256, model: provider.model ?? null, createdAt: new Date().toISOString(),
+    accepted: checked.accepted, rejected: checked.rejected
+  };
+  await writeExplanations(root, result.key, record);
+  const summary = { status: 'ok', accepted: checked.accepted.length, rejected: checked.rejected.length, rejections: checked.rejected };
+  if (json) { console.log(JSON.stringify(summary, null, 2)); return summary; }
+  console.log(`Kept ${checked.accepted.length} sentence${checked.accepted.length === 1 ? '' : 's'} that match their cited code; rejected ${checked.rejected.length}.`);
+  for (const entry of checked.rejected.slice(0, 10)) console.log(`  rejected: "${entry.text}" (${entry.reason})`);
+  console.log('Read them: singularity-flow wm knowledge show overview');
+  return summary;
 }

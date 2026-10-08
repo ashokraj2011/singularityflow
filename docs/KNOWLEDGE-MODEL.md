@@ -39,6 +39,7 @@ singularity-flow wm knowledge show [overview|rules|journeys|entities|tests|syste
 singularity-flow wm knowledge slice [--role developer|tester|architect|product | --phase PHASE] [--focus TEXT] [--max-bytes N]
 singularity-flow wm knowledge items [--kind KIND] [--json]
 singularity-flow wm knowledge eval --expected FILE [--json]
+singularity-flow wm knowledge explain [--dry-run] [--json]
 ```
 
 A build reads the committed tree only (never working files, Singularity Flow's records, Git
@@ -46,6 +47,19 @@ metadata or build output) and keeps its result in a machine-local cache under th
 directory, keyed by the exact content and the analyzer's own code, so every Story worktree reuses
 it and a new commit or a new analyzer rebuilds it. Repositories above 4,000 code files are built
 one area at a time with `--area`; the refusal names the areas.
+
+## Plain-language explanations
+
+`wm knowledge explain` asks the configured model to explain the repository, its journeys and its
+rules in plain words. The model receives knowledge items and short excerpts of the lines they cite
+(single statements, secret-scanned, quoted as data). Every sentence must list the items it relies
+on, and a sentence is kept only if every code name, number and quoted text in it appears in those
+items or their excerpts; sentences that cite nothing, cite outside their subject, judge the code
+("correct", "secure") or exceed six per subject are rejected and listed. Kept sentences are
+`inferred`: they appear under "In plain words" in views and phase slices with that label, are cached
+on this machine with the exact knowledge they were checked against, and are never counted as
+verified grounding. Composing a prompt never calls a model for them. Without a model the command
+says so and changes nothing; `--dry-run` prints the exact prompt.
 
 ## In phase prompts
 
@@ -83,5 +97,7 @@ suite:
 - Drift is reported only when a test that exercises a rule uses comparative words ("more than",
   "at least") that contradict the rule's operator and shares a value with it.
 - Coverage means a test names the function or reaches it through calls, not that a line ran.
-- Not built yet: model-written explanations with citation checks, IDE review and confirmation,
-  co-change history, and per-area incremental rebuilds for very large repositories.
+- An explanation's check is lexical: a sentence that uses only plain words can still misread what it
+  cites, which is why kept sentences stay labelled `inferred`.
+- Not built yet: IDE review and confirmation of items, co-change history, and per-area incremental
+  rebuilds for very large repositories.

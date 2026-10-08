@@ -242,6 +242,15 @@ evidence/facts; it cannot corrupt an already valid independent view.
 Source bodies are denied by the built-in contracts. Evidence descriptors are reference-first and
 bounded. Exact expansion is a separate, scoped read and must match the pinned source hash.
 
+Model composition uses exactly one sorted, unique Fact-reference group at the end of each factual
+unit. If a model instead emits separate per-sentence groups, the runtime can perform one local
+layout repair without invoking the provider again. Repair requires exact canonical prose for the
+cited, admitted facts, then reruns the complete validator; it never repairs invented claims,
+unknown identities, missing obligations, assurance, source scope, or integrity. A content-free
+activity event records the original and validated candidate hashes and repaired-unit count.
+Unrepairable composition refusals show the exact view-contract inspection and a fresh reviewed
+Model build route in VS Code and CLI instead of only generic repository diagnostics.
+
 ## Cache, staleness, and reuse
 
 The machine-local cache is content-addressed beneath the repository Git common directory. A hit

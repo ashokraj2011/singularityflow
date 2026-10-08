@@ -2194,6 +2194,51 @@ for await (const line of lines) {
   assert.equal(invocations[0].tokenAdmission.logicalPromptTokens.assurance, 'estimated');
   assert.equal(invocations[0].tokenAdmission.systemAndToolReserveTokens.value, null);
 
+  await t.test('model citation-only repair runs locally and the validated result replays from cache', async () => {
+    const malformed = JSON.parse(candidate);
+    const facts = new Map(deterministic.availableViews[0].viewFactLedger.facts.map(
+      (fact) => [fact.id, fact]
+    ));
+    const ids = malformed.tldrMarkdown.match(/\[F:([^\]]+)\]$/)[1].split(',');
+    assert.ok(ids.length >= 2);
+    malformed.tldrMarkdown = ids.map((id) => {
+      const fact = facts.get(id);
+      const text = fact.status === 'unavailable' ? fact.reason.detail : fact.claim;
+      return `${text.trim().replace(/[.\s]+$/, '')}. [F:${id}]`;
+    }).join(' ');
+    const beforeCalls = (await listModelInvocations(root)).length;
+    const repaired = await compose(passingUsage, JSON.stringify(malformed));
+    assert.equal(repaired.status, 'ready-to-publish', JSON.stringify(repaired.refusals));
+    assert.deepEqual(repaired.availableViews[0].candidate, JSON.parse(candidate));
+    assert.equal(repaired.availableViews[0].route, 'model');
+    assert.equal((await listModelInvocations(root)).length, beforeCalls + 1,
+      'citation repair must not trigger a second provider call');
+    const activity = await readFile(path.join(root, '.git', 'singularity-flow', 'logs', 'activity.log'), 'utf8');
+    const event = activity.trim().split('\n').map((line) => JSON.parse(line)).find(
+      (entry) => entry.event === 'worldmodel.composition.references.repaired'
+    );
+    assert.equal(event.viewId, 'dev.impact');
+    assert.equal(event.repairedUnits, 1);
+    assert.notEqual(event.originalCandidateSha256, event.candidateSha256);
+    assert.equal(event.candidateSha256, repaired.availableViews[0].validationReceipt.candidateSha256);
+    assert.doesNotMatch(JSON.stringify(event), /service\.mjs|tax\.mjs|tldrMarkdown/);
+    const replay = await withOperationContext({
+      operation: { id: 'world-model.build', modelPolicy: 'required' },
+      modelMode: { enabled: true }, root, command: 'wm build'
+    }, () => buildWorldModelV4(root, buildOptions({
+      composer: 'model', provider: 'copilot-cli', model: 'fixture-model', executionContext,
+      providerConfig: {
+        type: 'copilot-cli', executable: process.execPath,
+        arguments: [fixture, responseFile], promptTransport: 'acp-stdio'
+      },
+      generatedAt: '2026-09-01T03:32:00.000Z'
+    })));
+    assert.equal(replay.status, 'ready-to-publish');
+    assert.equal(replay.availableViews[0].cache, 'hit');
+    assert.equal(replay.availableViews[0].markdown, repaired.availableViews[0].markdown);
+    assert.equal((await listModelInvocations(root)).length, beforeCalls + 1);
+  });
+
   await t.test('the independent provider ceiling still refuses excessive aggregate usage', async () => {
     const overBudget = await compose({ inputTokens: 63000, outputTokens: 1001, totalTokens: 64001 });
     assert.equal(overBudget.status, 'refused');

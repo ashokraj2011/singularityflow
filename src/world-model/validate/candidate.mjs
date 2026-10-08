@@ -2,7 +2,8 @@ import { canonicalJson, recordSha256 } from '../../records.mjs';
 import { currentSchemaVersion, readRecord } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import {
-  candidateFactReferences, parseCompositionCandidate, renderDeterministicCandidate
+  candidateFactReferences, canonicalFactSentence, factualUnits, parseCompositionCandidate,
+  renderDeterministicCandidate, repairModelFactReferenceFormatting
 } from '../compose/candidate.mjs';
 import {
   VIEW_ID_PATTERN, assertExactKeys, assertInteger, assertPlainRecord, assertSchemaKind,
@@ -38,34 +39,9 @@ function sha(value) { return `sha256:${recordSha256(value)}`; }
 function words(value) { return String(value ?? '').trim().split(/\s+/).filter(Boolean).length; }
 function bytes(value) { return Buffer.byteLength(String(value ?? ''), 'utf8'); }
 
-function factualUnits(markdown) {
-  const units = [];
-  let paragraph = [];
-  const flush = () => {
-    if (paragraph.length) units.push(paragraph.join(' ').trim());
-    paragraph = [];
-  };
-  for (const raw of String(markdown ?? '').replaceAll('\r\n', '\n').split('\n')) {
-    const line = raw.trim();
-    if (!line) { flush(); continue; }
-    if (/^#{1,6}\s/.test(line)) { flush(); continue; }
-    if (/^(?:[-*+]\s|\d+[.)]\s|\|)/.test(line)) { flush(); units.push(line); continue; }
-    paragraph.push(line);
-  }
-  flush();
-  return units.filter(Boolean);
-}
-
 function referencesForUnit(unit) {
   const match = unit.match(/\[F:(FACT-[a-f0-9]{16,64}(?:,FACT-[a-f0-9]{16,64})*)\]\s*$/);
   return match ? match[1].split(',') : [];
-}
-
-function canonicalFactSentence(fact) {
-  const value = fact.status === 'unavailable'
-    ? fact.reason?.detail ?? 'The requested analysis is unavailable.'
-    : fact.claim ?? 'Registered fact';
-  return `${String(value).trim().replace(/[.\s]+$/, '')}.`;
 }
 
 function narrativeBody(unit) {
@@ -105,6 +81,29 @@ function assertApprovedNarrativeTemplate(unit, references, factsById) {
 
 function fail(code, message, details = {}) {
   throw new SingularityFlowError(message, { code, details });
+}
+
+/** A single model-output layout repair, followed by the unchanged full validation boundary. */
+export function validateModelCompositionCandidate(rawCandidate, options) {
+  try { return validateCompositionCandidate(rawCandidate, options); }
+  catch (error) {
+    if (options.executionRoute !== 'model'
+        || !['WMB_FACT_REFERENCE_UNKNOWN', 'WMB_FACT_ASSURANCE_UPGRADED'].includes(error?.code)) {
+      throw error;
+    }
+    const repaired = repairModelFactReferenceFormatting(rawCandidate, options);
+    if (!repaired) throw error;
+    const validated = validateCompositionCandidate(repaired.candidate, options);
+    return {
+      ...validated,
+      formattingRepair: Object.freeze({
+        kind: 'fact-reference-layout',
+        repairedUnits: repaired.repairedUnits,
+        originalCandidateSha256: sha(parseCompositionCandidate(rawCandidate)),
+        candidateSha256: validated.receipt.candidateSha256
+      })
+    };
+  }
 }
 
 /** Validate the complete durable receipt produced by the installed WMB v4 validator. */

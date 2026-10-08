@@ -8,7 +8,9 @@ import test from 'node:test';
 import {
   assembleWmbV4Prompt, assertWmbV4PromptInputBudget, WMB_V4_REQUEST_BOUNDARY
 } from '../src/world-model/compose/pinned-core.mjs';
-import { renderDeterministicCandidate } from '../src/world-model/compose/candidate.mjs';
+import {
+  canonicalFactSentence, renderDeterministicCandidate
+} from '../src/world-model/compose/candidate.mjs';
 import {
   createFactLedger, factIdentityFromRecord
 } from '../src/world-model/extract/fact-ledger.mjs';
@@ -21,7 +23,9 @@ import {
 import { resolveBuiltInViewContract } from '../src/world-model/registry/views.mjs';
 import { BUILTIN_EXTRACTOR_REGISTRY } from '../src/world-model/registry/extractors.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
-import { validateCompositionCandidate } from '../src/world-model/validate/candidate.mjs';
+import {
+  validateCompositionCandidate, validateModelCompositionCandidate
+} from '../src/world-model/validate/candidate.mjs';
 import {
   createWorldModelExecutionStamp, verifiedWorldModelExecutionRoute,
   WMB_V4_DETERMINISTIC_EXECUTION_SHA256, worldModelExecutionUnitManifestSha256
@@ -121,6 +125,83 @@ test('scope validation accepts a registered source-file basename as a path, not 
     evidenceCatalog: registration.evidenceCatalog,
     scopeManifest: base.scopeManifest
   }).receipt.status, 'passed');
+});
+
+test('model citation layout is repaired once and independently revalidated without changing facts', async (t) => {
+  const context = await fixture(t);
+  const canonical = renderDeterministicCandidate(context.contract, context.viewFactLedger);
+  const options = {
+    ...context, executionRoute: 'model',
+    admittedFactIds: context.viewFactLedger.facts.map((fact) => fact.id)
+  };
+  const ids = canonical.tldrMarkdown.match(/\[F:([^\]]+)\]$/)[1].split(',');
+  assert.ok(ids.length >= 2);
+  const facts = new Map(context.viewFactLedger.facts.map((fact) => [fact.id, fact]));
+  for (const [name, text] of [
+    ['per-sentence', ids.map((id) => `${canonicalFactSentence(facts.get(id))} [F:${id}]`).join(' ')],
+    ['unsorted', [...ids].reverse().map((id) => canonicalFactSentence(facts.get(id))).join(' ') + ` [F:${[...ids].reverse().join(',')}]`],
+    ['unsorted IDs only', canonical.tldrMarkdown.replace(`[F:${ids.join(',')}]`, `[F:${[...ids].reverse().join(',')}]`)],
+    ['sentence order only', [...ids].reverse().map((id) => canonicalFactSentence(facts.get(id))).join(' ') + ` [F:${ids.join(',')}]`],
+    ['duplicate IDs', canonical.tldrMarkdown.replace(`[F:${ids.join(',')}]`, `[F:${[...ids, ids[0]].join(',')}]`)],
+    ['duplicate group', canonical.tldrMarkdown + ` [F:${ids.join(',')}]`],
+    ['prefix', `[F:${ids.join(',')}] ` + canonical.tldrMarkdown.replace(/\s*\[F:[^\]]+\]$/, '')],
+    ['wrapped paragraph', ids.map((id) => `${canonicalFactSentence(facts.get(id))} [F:${id}]`).join('\r\n')]
+  ]) await t.test(name, () => {
+    const malformed = { ...structuredClone(canonical), tldrMarkdown: text };
+    const before = structuredClone(malformed);
+    assert.throws(() => validateCompositionCandidate(malformed, options),
+      (error) => ['WMB_FACT_REFERENCE_UNKNOWN', 'WMB_FACT_ASSURANCE_UPGRADED'].includes(error.code));
+    const repaired = validateModelCompositionCandidate(JSON.stringify(malformed), options);
+    assert.deepEqual(repaired.candidate, canonical);
+    assert.deepEqual(malformed, before, 'the original provider output must be preserved');
+    assert.equal(repaired.receipt.status, 'passed');
+    assert.equal(repaired.formattingRepair.repairedUnits, 1);
+    assert.notEqual(repaired.formattingRepair.originalCandidateSha256,
+      repaired.formattingRepair.candidateSha256);
+    assert.equal(validateCompositionCandidate(repaired.candidate, options).receipt.status, 'passed');
+    assert.equal(validateModelCompositionCandidate(repaired.candidate, options).formattingRepair, undefined);
+  });
+  assert.equal(validateModelCompositionCandidate(canonical, options).formattingRepair, undefined);
+});
+
+test('citation repair never launders model claims, unknown identities, or missing obligations', async (t) => {
+  const context = await fixture(t);
+  const canonical = renderDeterministicCandidate(context.contract, context.viewFactLedger);
+  const options = {
+    ...context, executionRoute: 'model',
+    admittedFactIds: context.viewFactLedger.facts.map((fact) => fact.id)
+  };
+  const ids = canonical.tldrMarkdown.match(/\[F:([^\]]+)\]$/)[1].split(',');
+  const facts = new Map(context.viewFactLedger.facts.map((fact) => [fact.id, fact]));
+  const malformed = {
+    ...structuredClone(canonical),
+    tldrMarkdown: ids.map((id) => `${canonicalFactSentence(facts.get(id))} [F:${id}]`).join(' ')
+  };
+  const cases = [
+    ['invented claim', (candidate) => { candidate.tldrMarkdown = `All runtime guarantees are proven. ${candidate.tldrMarkdown}`; }],
+    ['unknown reference', (candidate) => { candidate.tldrMarkdown += ' [F:FACT-ffffffffffffffff]'; }],
+    ['usedFactIds mismatch', (candidate) => { candidate.usedFactIds.pop(); }],
+    ['missing reference', (candidate) => { candidate.sections[0].markdown = 'Invented uncited statement.'; }],
+    ['schema mismatch', (candidate) => { candidate.unregisteredField = true; }],
+    ['missing section', (candidate) => { candidate.sections.pop(); }],
+    ['body access', (candidate) => { candidate.sections[0].markdown = '```js\nconst leaked = true;\n```'; }],
+    ['minted metadata', (candidate) => { candidate.title = 'generated-at: 2026-01-01T00:00:00Z'; }]
+  ];
+  for (const [name, alter] of cases) await t.test(name, () => {
+    const candidate = structuredClone(malformed);
+    alter(candidate);
+    assert.throws(() => validateModelCompositionCandidate(candidate, options));
+  });
+  assert.throws(() => validateModelCompositionCandidate(malformed, context),
+    (error) => error.code === 'WMB_FACT_REFERENCE_UNKNOWN',
+    'the deterministic path never repairs model formatting');
+  assert.throws(() => validateModelCompositionCandidate(malformed, {
+    ...options, admittedFactIds: options.admittedFactIds.filter((id) => id !== ids[0])
+  }), (error) => error.code === 'WMB_FACT_REFERENCE_UNKNOWN');
+  assert.throws(() => validateModelCompositionCandidate(malformed, {
+    ...options, admittedFactIds: { invalid: true }
+  }), (error) => error.code === 'WMB_FACT_REFERENCE_UNKNOWN',
+  'an invalid admission boundary must retain its typed refusal, not crash during repair');
 });
 
 test('deny-by-default body and kernel metadata guards cover alternate Markdown forms', async (t) => {

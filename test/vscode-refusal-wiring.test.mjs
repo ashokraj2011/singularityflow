@@ -254,6 +254,29 @@ test('a registered-view model-boundary refusal retains registered-v4 diagnosis',
   ]);
 });
 
+test('native model composition refusal supplies exact contract review and keeps the Model route', () => {
+  assert.throws(() => assertWorldModelV4BuildCompleted({
+    status: 'refused', refusals: [{
+      code: 'WMB_VIEW_VALIDATION_FAILED', view: 'arch.contracts',
+      failures: [{ code: 'WMB_FACT_REFERENCE_UNKNOWN',
+        reason: 'Fact references are permitted only once at the end of a factual unit.',
+        details: { providerTranscript: 'office-secret', unit: 'private source prose' } }]
+    }]
+  }), (error) => {
+    const { view: card, fidelity } = refusalFor(error, { repositoryRoot: '/Users/example/calc' });
+    assert.equal(fidelity, 'refusal-plan-v1');
+    assert.match(card.actions[0].command, /'wm' 'view-contract' 'arch.contracts'/);
+    assert.equal(card.actions[0].copilotCommand,
+      '/sf-worldmodel view-contract arch.contracts --format registered-v4 --json');
+    assert.match(card.warnings[0].label, /keep the Model composer.*fresh exact Plan/);
+    assert.ok(card.actions.every((action) => action.executable === false));
+    assert.doesNotMatch(JSON.stringify(card), /office-secret|private source prose/);
+    assert.deepEqual(card.preserved, []);
+    assert.doesNotMatch(JSON.stringify(card.actions), /recommend|doctor/);
+    return true;
+  });
+});
+
 function worldModelBudgetRefusal(modes = ['optional']) {
   return {
     status: 'refused',

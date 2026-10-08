@@ -3,6 +3,7 @@ import { types as utilTypes } from 'node:util';
 
 import { gitCommonDir } from '../git.mjs';
 import { invokeModel } from '../model-runner.mjs';
+import { repositoryLogger } from '../logging.mjs';
 import { writeImmutablePrivateSidecar } from '../private-sidecar.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
@@ -47,7 +48,7 @@ import {
 } from './shared-cache.mjs';
 import { verifyExactSourceSnapshot } from './source/snapshot.mjs';
 import {
-  validateCompositionCandidate, WMB_V4_CANDIDATE_SCHEMA_SHA256,
+  validateCompositionCandidate, validateModelCompositionCandidate, WMB_V4_CANDIDATE_SCHEMA_SHA256,
   WMB_V4_VALIDATOR_SHA256
 } from './validate/candidate.mjs';
 
@@ -674,7 +675,7 @@ async function executeOneView(root, context, requested, options) {
     });
   }
 
-  const { candidate, receipt } = validateCompositionCandidate(rawCandidate, {
+  const { candidate, receipt, formattingRepair } = validateModelCompositionCandidate(rawCandidate, {
     contract,
     viewFactLedger,
     evidenceCatalog: context.registration.evidenceCatalog,
@@ -684,6 +685,9 @@ async function executeOneView(root, context, requested, options) {
     admittedFactIds: route === 'model' ? assembled.admittedFactIds : null,
     candidateSchemaSha256: WMB_V4_CANDIDATE_SCHEMA_SHA256,
     validatorSha256: WMB_V4_VALIDATOR_SHA256
+  });
+  if (formattingRepair) repositoryLogger(root).info('worldmodel.composition.references.repaired', null, {
+    viewId: contract.id, ...formattingRepair
   });
   const executionStamp = createWorldModelExecutionStamp({
     route,

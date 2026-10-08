@@ -4,6 +4,90 @@ import { canonicalJson, compareText } from '../canonicalize.mjs';
 
 export const FACT_REFERENCE = /\[F:(FACT-[a-f0-9]{16,64}(?:,FACT-[a-f0-9]{16,64})*)\]/g;
 
+/** One grammar for the renderer, layout repair, and independent validator. */
+export function canonicalFactSentence(fact) {
+  const value = fact.status === 'unavailable'
+    ? fact.reason?.detail ?? 'The requested analysis is unavailable.'
+    : fact.claim ?? 'Registered fact';
+  return `${String(value).trim().replace(/[.\s]+$/, '')}.`;
+}
+
+export function mapFactualUnits(markdown, transform = (unit) => unit) {
+  const lines = [];
+  let paragraph = [];
+  const flush = () => {
+    if (paragraph.length) lines.push(transform(paragraph.join(' ').trim()));
+    paragraph = [];
+  };
+  for (const raw of String(markdown ?? '').replaceAll('\r\n', '\n').split('\n')) {
+    const line = raw.trim();
+    if (!line || /^#{1,6}\s/.test(line)) {
+      flush();
+      lines.push(raw);
+    } else if (/^(?:[-*+]\s|\d+[.)]\s|\|)/.test(line)) {
+      flush();
+      lines.push(transform(line));
+    } else paragraph.push(line);
+  }
+  flush();
+  return lines.join('\n');
+}
+
+export function factualUnits(markdown) {
+  const units = [];
+  mapFactualUnits(markdown, (unit) => { units.push(unit); return unit; });
+  return units.filter(Boolean);
+}
+
+/**
+ * Repair presentation only, never entailment. A unit is eligible only when every reference is
+ * admitted and removing its citation groups leaves exactly those canonical fact sentences, once
+ * each. The caller must independently validate the complete candidate afterwards.
+ * Unknown facts, paraphrase, omissions, scope, assurance, and usedFactIds are never repaired.
+ */
+export function repairModelFactReferenceFormatting(rawCandidate, {
+  viewFactLedger, admittedFactIds
+}) {
+  if (!Array.isArray(admittedFactIds)) return null;
+  const candidate = structuredClone(parseCompositionCandidate(rawCandidate));
+  const admitted = new Set(admittedFactIds);
+  const facts = new Map(viewFactLedger.facts.map((fact) => [fact.id, fact]));
+  let repairedUnits = 0;
+  const rewrite = (unit) => {
+    const groups = [...unit.matchAll(FACT_REFERENCE)];
+    if (!groups.length) return unit;
+    const ids = groups.flatMap((group) => group[1].split(','));
+    if (ids.some((id) => !admitted.has(id) || !facts.has(id))) return unit;
+    const uniqueIds = [...new Set(ids)];
+    const sortedIds = [...uniqueIds].sort();
+    const prefix = unit.match(/^(?:[-*+]\s+|\d+[.)]\s+)/)?.[0] ?? '';
+    const prose = unit.slice(prefix.length).replace(FACT_REFERENCE, '').trim();
+    const whitespace = (text) => text.replace(/\s+/g, ' ').trim();
+    let remainingProse = whitespace(prose);
+    const remaining = uniqueIds.map((id) => whitespace(canonicalFactSentence(facts.get(id))))
+      .sort((left, right) => right.length - left.length || compareText(left, right));
+    // Longest exact sentence first avoids treating a prefix of a registered multi-sentence
+    // claim as a complete claim. Any ambiguity that cannot consume the exact multiset is refused.
+    while (remaining.length) {
+      const index = remaining.findIndex((sentence) => remainingProse === sentence
+        || remainingProse.startsWith(`${sentence} `));
+      if (index < 0) return unit;
+      remainingProse = remainingProse.slice(remaining[index].length).trim();
+      remaining.splice(index, 1);
+    }
+    if (remainingProse) return unit;
+    const canonical = `${prefix}${sortedIds.map((id) => canonicalFactSentence(facts.get(id))).join(' ')} [F:${sortedIds.join(',')}]`;
+    if (canonical === unit) return unit;
+    repairedUnits += 1;
+    return canonical;
+  };
+  candidate.tldrMarkdown = mapFactualUnits(candidate.tldrMarkdown, rewrite);
+  candidate.sections = candidate.sections.map((section) => ({
+    ...section, markdown: mapFactualUnits(section.markdown, rewrite)
+  }));
+  return repairedUnits ? { candidate, repairedUnits } : null;
+}
+
 export function candidateFactReferences(candidate) {
   const texts = [candidate?.tldrMarkdown, ...(candidate?.sections ?? []).map((section) => section?.markdown)]
     .filter((value) => typeof value === 'string');
@@ -44,14 +128,7 @@ export function parseCompositionCandidate(value) {
 
 function factualLine(fact) {
   const reference = `[F:${fact.id}]`;
-  if (fact.status === 'unavailable') {
-    const detail = fact.reason?.detail ?? 'The requested analysis is unavailable.';
-    return `${detail.replace(/[.\s]+$/, '')}. ${reference}`;
-  }
-  if (fact.status === 'contradicted') {
-    return `${String(fact.claim ?? 'Registered observations contradict one another').replace(/[.\s]+$/, '')}. ${reference}`;
-  }
-  return `${String(fact.claim ?? 'Registered fact').replace(/[.\s]+$/, '')}. ${reference}`;
+  return `${canonicalFactSentence(fact)} ${reference}`;
 }
 
 function factualUnit(facts, { list = false } = {}) {

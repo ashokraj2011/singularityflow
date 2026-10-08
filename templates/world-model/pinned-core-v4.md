@@ -33,7 +33,11 @@ availability result.
 3. Structure precedes source bodies; bodies are unavailable unless the View
    Contract explicitly permits a bounded expansion.
 4. Begin with a TL;DR within the registered budget.
-5. Every factual prose unit ends with one or more `[F:<fact-id>]` references.
+5. Every factual prose unit ends with exactly one reference group:
+   `[F:FACT-<id>,FACT-<id>]`. IDs within that group are unique and lexically
+   sorted. Never put separate reference groups between sentences or after
+   each sentence in the same paragraph. Use separate list items or paragraphs
+   for separate factual units.
 6. Every referenced fact exists in the supplied Composition Fact Packet.
 7. Never alter fact status, assurance, evidence, derivation, contradiction, or
    canonical claim.

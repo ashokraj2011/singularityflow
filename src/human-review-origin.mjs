@@ -68,9 +68,12 @@ async function retain(root, record) {
   const proof = createHmac('sha256', Buffer.from(key, 'hex')).update(await proofBinding(root, record)).digest('hex');
   if (await privateFile(parent, proofName(record, key), proof) !== proof) fail();
 }
-/** The live terminal witness is consumed here, not inferred from the record supplied by callers. */
+/** Consume the live presentation witness; caller-supplied assurance alone grants nothing. */
 export async function consumeAndRetainHumanReview(root, record, card, token) {
-  const grant = await consumeActionAuthorization(root, token, card.plan, card.action, { requireTerminalPresentation: true });
+  const localEvidence = record.kind === 'evidence-contract-correction'
+    && record.reviewAssurance === 'live-local-ui-exact-evidence-review';
+  const grant = await consumeActionAuthorization(root, token, card.plan, card.action,
+    localEvidence ? { requireEvidencePresentation: true } : { requireTerminalPresentation: true });
   const reviewer = card.plan.reviewer ?? record.actor;
   if (String(reviewer).toLowerCase() !== String(grant.actor.login ?? grant.actor.email ?? grant.actor.name ?? '').trim().toLowerCase()) fail();
   await retain(root, record);

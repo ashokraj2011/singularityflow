@@ -17,7 +17,7 @@ export const EvidenceAmendmentSchema = z.strictObject({
   path: portablePath, method: z.enum(['visual', 'inspection']),
   reason: z.string().trim().min(20).max(1000),
   actor: z.string().min(1), authorityGroup: z.string().min(1), authorizationId: z.string().min(1),
-  reviewAssurance: z.literal('live-terminal-exact-evidence-review'),
+  reviewAssurance: z.enum(['live-terminal-exact-evidence-review', 'live-local-ui-exact-evidence-review']),
   at: z.string().datetime(), recordPath: portablePath,
   reviewedFile: z.strictObject({ sha256: sha, size: z.number().int().nonnegative().max(16 * 1024 * 1024) }),
   testsWaived: z.literal(false), phaseApproved: z.literal(false)

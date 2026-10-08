@@ -2,6 +2,24 @@ import { escape } from './webview.ts';
 type RecordValue = Record<string, unknown>;
 const object = (value: unknown): RecordValue => value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
 
+/** Display suggestions only; the correction command revalidates every path and clause. */
+export function pendingEvidenceSuggestions(result: unknown): { path: string; clauses: string[] }[] {
+  const envelope = object(result); const data = object(envelope.data ?? envelope);
+  const recovery = object(data.recovery); const inspection = object(data.inspection);
+  const byPath = new Map<string, string[]>();
+  for (const action of Array.isArray(recovery.actions) ? recovery.actions.map(object) : []) {
+    const evidence = object(action.evidence);
+    if (typeof evidence.path === 'string' && evidence.path.includes('/evidence/')) byPath.set(evidence.path,
+      Array.isArray(evidence.eligibleClauseIds) ? evidence.eligibleClauseIds.filter((id): id is string =>
+        typeof id === 'string' && /^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u.test(id)) : []);
+  }
+  for (const finding of Array.isArray(inspection.findings) ? inspection.findings.map(object) : []) {
+    if (finding.code === 'phase.evidence-contract.not-ready' && typeof finding.path === 'string'
+        && finding.path.includes('/evidence/') && !byPath.has(finding.path)) byPath.set(finding.path, []);
+  }
+  return [...byPath].map(([path, clauses]) => ({ path, clauses }));
+}
+
 /** Repository text is display-only: it never supplies command IDs, paths to open or executable HTML. */
 export function phaseIssuesBody(result: unknown): string {
   const envelope = object(result);
@@ -37,6 +55,7 @@ export function phaseIssuesBody(result: unknown): string {
     </section>
     <button data-action="appeal">Explain extra work in Copilot</button>
     <button class="secondary" data-action="review">Review an exact appeal…</button>
+    <button class="secondary" data-action="evidence">Review evidence correction…</button>
     <button class="secondary" data-action="tests">Tests, documents and eligible risks…</button>
     <button class="secondary" data-action="repair">Review a bounded repair plan…</button>
     <button class="secondary" data-action="resume">Resume a recorded repair…</button>

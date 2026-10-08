@@ -7898,6 +7898,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           if (action === 'refresh') return vscode.commands.executeCommand('singularityFlow.resolvePhaseIssues');
           if (action === 'appeal') return vscode.commands.executeCommand('workbench.action.chat.open', { query: `/sf-appeal --phase ${phaseId}` });
           if (action === 'tests') return vscode.commands.executeCommand('singularityFlow.reviewStoryTestRecovery');
+          if (action === 'evidence') {
+            const { reviewEvidenceContract } = await import('./views/evidence-contract-review.ts');
+            return reviewEvidenceContract(client, workId, phaseId, stillCurrent, result);
+          }
           if (action === 'checkpoint') {
             const saved = await client.run<unknown>(['appeal', 'checkpoint', '--work-id', workId, '--phase', phaseId, '--json']);
             if (!stillCurrent()) return;

@@ -11,7 +11,7 @@ import { verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { readRepositoryManifest, resolveRepositoryManifest } from './repository-manifest.mjs';
 import { worktreeFingerprint, assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
-import { captureTerminalActionAuthorization } from './action-authorization.mjs';
+import { captureTerminalActionAuthorization, captureEvidenceReviewAuthorization } from './action-authorization.mjs';
 import { consumeAndRetainHumanReview } from './human-review-origin.mjs';
 import { assertNoPendingPublication, actorKey, transactStory } from './state-stores.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
@@ -117,8 +117,10 @@ export async function prepareEvidenceContractCorrection(root, config, workflow, 
   const guidance = safeCommandGuidance({ executable: 'singularity-flow', argv: ['appeal', 'evidence-accept',
     '--phase', phase.id, '--clause', clauseId, '--path', evidencePath, '--method', method,
     '--reason', core.reason, '--confirm', packetSha256, '--json'] });
-  return { ...preview, acceptance: guidance, copilotCommand: guidance?.copilotCommand ?? null,
-    humanReview: { required: true, surface: 'human-terminal', execution: 'human-relay-only',
+  const guidedReview = safeCommandGuidance({ executable: 'singularity-flow', argv: [...guidance.argv, '--review-ui'] });
+  return { ...preview, acceptance: guidance, copilotCommand: guidedReview?.copilotCommand ?? null,
+    guidedReview,
+    humanReview: { required: true, surface: 'local-browser', execution: 'human-mediated-review', terminalFallback: true,
       confirmationText: `Correct evidence PEA-${packetSha256.slice(7, 31)}` },
     reviewRequired: 'An authorized human must inspect the exact file and the before/after contract. This classifies delivery; it does not attest that the screen satisfies the criterion.' };
 }
@@ -132,9 +134,19 @@ export async function acceptEvidenceContractCorrection(root, config, workflow, o
     { mode: 'required', authorities: preview.authorityGroups, requiredAuthorities: [], minimum: 1 }, actor);
   const id = `PEA-${preview.packetSha256.slice(7, 31)}`;
   const card = { plan: { planId: id, planHash: digest({ preview, actor, authority }),
+    reviewer: actorKey(actor),
     subject: { workId: workflow.workItem.id, phaseId: preview.phaseId }, revision: preview.head, preview,
     testsWaived: false, phaseApproved: false }, action: { actionId: id, confirmation: { required: true } } };
-  const grant = await captureTerminalActionAuthorization(root, card.plan, card.action, { label: `Correct evidence ${id}` });
+  let grant;
+  if (options.reviewUi === true) {
+    const captured = await readRepositoryManifest(root, preview.path, { maxBytes: 16 * 1024 * 1024 });
+    const resolved = await resolveRepositoryManifest(root, preview.path);
+    if (resolved.links.length || captured.bytes.length !== preview.reviewedFile.size
+        || createHash('sha256').update(captured.bytes).digest('hex') !== preview.reviewedFile.sha256) {
+      fail('Evidence changed before review. Nothing was adopted.', 'PLAN_EVIDENCE_CORRECTION_STALE');
+    }
+    grant = await captureEvidenceReviewAuthorization(root, card.plan, card.action, captured.bytes);
+  } else grant = await captureTerminalActionAuthorization(root, card.plan, card.action, { label: `Correct evidence ${id}` });
   if (!grant) return { status: 'cancelled', stateChanged: false };
   const recordPath = `${itemRoot(config, workflow)}/appeals/evidence/${id}.json`;
   const { value: decision, publication } = await transactStory(root, config, workflow, {
@@ -149,7 +161,7 @@ export async function acceptEvidenceContractCorrection(root, config, workflow, o
       clauseId: preview.clauseId, previousClaimSha256: preview.previousClaimSha256, path: preview.path,
       method: preview.method, reason: preview.reason, reviewedFile: preview.reviewedFile,
       actor: actorKey(actor), authorityGroup: authority.authorityGroup, authorizationId: grant.authorizationId,
-      reviewAssurance: 'live-terminal-exact-evidence-review',
+      reviewAssurance: options.reviewUi === true ? 'live-local-ui-exact-evidence-review' : 'live-terminal-exact-evidence-review',
       at: nowIso(), recordPath, testsWaived: false, phaseApproved: false });
     const secured = await secureRepositoryPath(root, recordPath, { type: 'file', label: 'Evidence correction decision' });
     if (secured.exists) fail('This exact decision already exists. Inspect it; never overwrite it.');
@@ -160,7 +172,8 @@ export async function acceptEvidenceContractCorrection(root, config, workflow, o
       event: 'evidence_contract_corrected', phase: preview.phaseId, detail: `${id}: ${preview.clauseId}` });
     return record;
   }, { exactWorkItemPaths: [recordPath] });
-  const commandGuidance = safeCommandGuidance({ command: `singularity-flow recover ${workflow.workItem.id} --phase ${preview.phaseId} --json` });
+  const commandGuidance = safeCommandGuidance({ executable: 'singularity-flow',
+    argv: ['phase', 'prepublish', preview.phaseId, '--json'] });
   return { status: 'evidence-contract-corrected', stateChanged: true, decision, publication,
     next: { command: commandGuidance.command, commandGuidance, copilotCommand: commandGuidance.copilotCommand },
     testsWaived: false, phaseApproved: false };

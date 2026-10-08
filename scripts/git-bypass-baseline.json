@@ -903,6 +903,13 @@
       },
       "digest": "b7589ec74ba57bf3f1c9212feff0d8648506fc42783580c8d895d1a992604219"
     },
+    "src/local-evidence-review.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "0fae40afc7e3ccbc9e9f04dfdd8e9e5914696c2a6c530a7d2a8f70c4aae58fe9"
+    },
     "src/local-identity.mjs": {
       "counts": {
         "command-run": 7

@@ -101,6 +101,8 @@ test('preview works with future phase names/custom roots, is read-only, exact-by
   assert.deepEqual(preview.proposedClaim.expectedPaths, [file]);
   assert.equal(preview.proposedContract.slots[0].method, 'visual');
   assert.match(preview.acceptance.copilotCommand, /^\/sf-appeal evidence-accept --phase future-render/u);
+  assert.match(preview.guidedReview.copilotCommand, /^\/sf-appeal evidence-accept --phase future-render.*--review-ui/u);
+  assert.equal(preview.guidedReview.argv.includes('--review-ui'), true);
   assert.equal(f.git('status', '--porcelain=v1', '--untracked-files=all'), before);
   const actions = await evidenceContractRecoveryActions(f.root, f.config, f.workflow, f.workflow.phases['future-render'], { unexpectedPaths: [file, 'other-story/screen.png'] });
   assert.equal(actions.length, 1); assert.equal(actions[0].automatic, false);

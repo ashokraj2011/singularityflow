@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals]
-version: 7
+version: 8
 ---
 # Compact phase entry for Copilot
 
@@ -39,10 +39,20 @@ edits, unsafe Git operations and lifecycle/authority failures cannot use this co
 
 Prepublish and publication independently re-read pending evidence contracts and refuse with
 `PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED` until ownership is reviewed. An evidence-correction
-preview returns `humanReview.surface: human-terminal` and the exact confirmation text. Relay it
-to an interactive human terminal; an automated Copilot shell is not that review surface
-(`ACTION_TERMINAL_PRESENTATION_REQUIRED`). No phase approval, passing screenshot or test waiver
-is implied by preserving an image or correcting its contract.
+preview retains the interactive terminal route and also returns `guidedReview`: the exact
+`/sf-appeal evidence-accept ... --review-ui` command. Copilot may open this review once, but must
+never answer the form or infer confirmation from chat. In VS Code use **Resolve phase issues →
+Review evidence correction**. The engine opens a scrollable local browser page displaying the
+captured screenshot, file hash, original/proposed contract, authority and exact confirmation.
+CLI flags, stdin answers or fabricated receipts cannot substitute for this review. Cancel, browser failure or
+15-minute expiry leaves Story state unchanged. After confirmation, the engine independently
+rechecks the file, worktree, owner map, policy and identity before recording an append-only decision.
+No phase approval, passing screenshot or test waiver is implied.
+
+This is configured-local human review, not cryptographically authenticated Copilot identity or
+protection against another process already controlling the user's desktop. Its private one-shot
+loopback page serves only the captured raster, rejects cross-origin requests, embeds no external
+resources, and closes after the ceremony. The terminal route remains available on headless hosts.
 
 Prepublish can return `draftRepair.scope: draft-only` and same-turn owned corrections while that
 decision is pending. It freshly rechecks the same worktree hold; unknown/protected edits cannot

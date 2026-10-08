@@ -178,7 +178,31 @@ async function fixture(t, { pilotCoverage = false, directCoverage = false, missi
 }
 const request = { phaseId: 'implementation', changes: [{ kind: 'add-location', clauseId: `${WORK}:AC-001`, path: 'src/helper.mjs' }], reason: 'The small helper implements the already approved return value.' };
 
-test('reviewed evidence typing preserves the draft/index and clears only exact screenshot ownership', { timeout: 180000 }, async t => {
+async function browserEvidenceAcceptance(t, root, argv, label, { cancel = false } = {}) {
+  const driver = await mkdtemp(path.join(os.tmpdir(), 'sflow-evidence-browser-driver-'));
+  t.after(() => rm(driver, { recursive: true, force: true }));
+  const urlPath = path.join(driver, 'browser-url');
+  await writeFile(path.join(driver, 'xdg-open'), `#!${process.execPath}\nimport {writeFileSync} from 'node:fs';writeFileSync(process.env.SF_TEST_BROWSER_URL,process.argv[2]);\n`, { mode: 0o700 });
+  const code = `Object.defineProperty(process,'platform',{value:'linux'});process.argv=[process.execPath,${JSON.stringify(CLI)},...${JSON.stringify(argv)}];await import(${JSON.stringify(new URL('../bin/singularity-flow.mjs', import.meta.url).href)});`;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', code], { cwd: root,
+    env: { ...process.env, PATH: `${driver}${path.delimiter}${process.env.PATH}`, SF_TEST_BROWSER_URL: urlPath,
+      NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester', SINGULARITY_FLOW_NO_MODEL: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  t.after(() => child.kill());
+  let output = ''; let errors = ''; let exited = false; child.stdout.on('data', value => { output += value; }); child.stderr.on('data', value => { errors += value; });
+  const closed = new Promise((resolve, reject) => { child.on('error', reject); child.on('close', status => { exited = true; resolve({ status, stdout: output, stderr: errors }); }); });
+  let url;
+  for (let attempt = 0; attempt < 1000 && !url && !exited; attempt += 1) {
+    try { url = await readFile(urlPath, 'utf8'); } catch { await new Promise(resolve => setTimeout(resolve, 20)); }
+  }
+  assert.ok(url, output + errors);
+  const html = await (await fetch(url)).text(); const nonce = html.match(/name="nonce" value="([a-f0-9]{64})"/u)?.[1];
+  assert.ok(nonce); assert.match(html, /Before/); assert.match(html, /After/);
+  await fetch(`${url}decision`, { method: 'POST', headers: { origin: new URL(url).origin, 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ nonce, confirmation: label, decision: cancel ? 'cancel' : 'confirm' }).toString() });
+  return closed;
+}
+
+for (const surface of ['terminal', 'browser']) test(`reviewed evidence typing via ${surface} preserves the draft/index and clears only exact screenshot ownership`, { timeout: 180000 }, async t => {
   const f = await fixture(t, { directCoverage: true, missingPlannedSource: true });
   const evidencePath = `${f.item}/evidence/value.png`;
   await f.write(evidencePath, Buffer.from('retained visual proof, not a passing adjudication'));
@@ -246,19 +270,30 @@ test('reviewed evidence typing preserves the draft/index and clears only exact s
   assert.equal(unrelatedRepair.commands.publish, null);
   await rm(path.join(f.root, foreignPath));
   const packet = JSON.parse(f.cli('appeal', 'evidence-prepare', ...options, '--json').stdout).data.packet;
-  assert.equal(packet.humanReview.surface, 'human-terminal');
-  assert.equal(packet.humanReview.execution, 'human-relay-only');
+  assert.equal(packet.humanReview.surface, 'local-browser');
+  assert.equal(packet.humanReview.execution, 'human-mediated-review');
+  assert.equal(packet.humanReview.terminalFallback, true);
   const id = `PEA-${packet.packetSha256.slice(7, 31)}`;
   assert.equal(packet.humanReview.confirmationText, `Correct evidence ${id}`);
   const stale = run(process.execPath, [CLI, '--no-model', 'appeal', 'evidence-accept', ...options, '--confirm', 'sha256:' + '0'.repeat(64), '--json'], f.root, true);
   assert.equal(JSON.parse(stale.stdout).error.code, 'PLAN_EVIDENCE_CORRECTION_STALE');
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
-  const ceremony = spawnSync('/usr/bin/expect', ['-c', `set timeout 45\nspawn -noecho $env(PEA_NODE) $env(PEA_CLI) --no-model appeal evidence-accept --phase implementation --clause $env(PEA_CLAUSE) --path $env(PEA_PATH) --method visual --reason $env(PEA_REASON) --confirm $env(PEA_CONFIRM) --json\nexpect "Type Correct evidence ${id} to confirm this exact action, or Enter to cancel:"\nsend -- "Correct evidence ${id}\\r"\nexpect eof\ncatch wait result\nexit [lindex $result 3]`],
+  const browserArgv = ['--no-model', 'appeal', 'evidence-accept', ...options, '--confirm', packet.packetSha256, '--review-ui', '--json'];
+  if (surface === 'browser') {
+    const cancelled = await browserEvidenceAcceptance(t, f.root, browserArgv, `Correct evidence ${id}`, { cancel: true });
+    assert.equal(cancelled.status, 0, cancelled.stdout + cancelled.stderr);
+    assert.equal(JSON.parse(cancelled.stdout).data.stateChanged, false);
+    assert.equal((await f.load()).workflow.planAmendments?.length ?? 0, 0);
+  }
+  const ceremony = surface === 'browser' ? await browserEvidenceAcceptance(t, f.root, browserArgv, `Correct evidence ${id}`)
+    : spawnSync('/usr/bin/expect', ['-c', `set timeout 45\nspawn -noecho $env(PEA_NODE) $env(PEA_CLI) --no-model appeal evidence-accept --phase implementation --clause $env(PEA_CLAUSE) --path $env(PEA_PATH) --method visual --reason $env(PEA_REASON) --confirm $env(PEA_CONFIRM) --json\nexpect "Type Correct evidence ${id} to confirm this exact action, or Enter to cancel:"\nsend -- "Correct evidence ${id}\\r"\nexpect eof\ncatch wait result\nexit [lindex $result 3]`],
     { cwd: f.root, encoding: 'utf8', timeout: 60000, env: { ...environment, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Appeal Tester',
       PEA_NODE: process.execPath, PEA_CLI: CLI, PEA_CLAUSE: `${WORK}:AC-001`, PEA_PATH: evidencePath, PEA_REASON: options.at(-1), PEA_CONFIRM: packet.packetSha256 } });
   assert.equal(ceremony.status, 0, ceremony.stdout + ceremony.stderr);
   assert.match(ceremony.stdout, /evidence-contract-corrected/u);
   ({ workflow, definition } = await f.load());
+  assert.equal(workflow.planAmendments[0].reviewAssurance, surface === 'browser'
+    ? 'live-local-ui-exact-evidence-review' : 'live-terminal-exact-evidence-review');
   const plan = await readBoundSpecificationClaimMap(f.root, path.join(f.root, f.item), workflow, workflow.phases[owner.id], 'planned', { requireCommitted: true });
   assert.equal(plan.claims[`${WORK}:AC-001`].fulfillment, 'evidence');
   assert.deepEqual(plan.claims[`${WORK}:AC-001`].expectedPaths, [evidencePath]);

@@ -790,6 +790,8 @@ export class SingularityFlowClient {
   }
 
   private timeoutFor(args: string[], cancellable = false): number | null {
+    // Engine bounds human browser review at 15 minutes; leave time for its guarded transaction.
+    if (args[0] === 'appeal' && args[1] === 'evidence-accept' && enabledBooleanOption(args, 'review-ui')) return 20 * 60_000;
     // The dry-run only inventories bytes and stays under the ordinary bounded read deadline. Once
     // the exact reset is confirmed, however, the engine may have moved old roots into rollback
     // staging. A host timeout at that point is less safe than waiting for the engine's guarded

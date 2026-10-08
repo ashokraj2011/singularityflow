@@ -37,7 +37,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     resolution = route('human-review', 'plan-approval-authority',
       ['appeal', 'evidence-prepare', '--phase', phase.id, '--path', finding.path ?? '<EVIDENCE-PATH>',
         '--clause', '<CLAUSE-ID>', '--method', 'visual', '--reason', '<reason>', '--json'],
-      'Preserve the exact pending evidence. Continue only admitted draft repairs; the plan authority must review its contract in a live human terminal before publication. No visual pass or test waiver is implied.', '/sf-appeal');
+      'Preserve the exact pending evidence. Continue only admitted draft repairs; the plan authority must review its contract before publication. The preview offers a guided local browser review or human terminal. No visual pass or test waiver is implied.', '/sf-appeal');
   } else if (code.startsWith('generation_publication')) {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
       'Inspect the exact retained publication and its authored bytes. Restore authenticated evidence or use a reviewed successor/return; configuration refresh and risk acceptance cannot authenticate a changed publication.', '/sf-doctor');

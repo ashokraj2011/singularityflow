@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 import readline from 'node:readline/promises';
@@ -135,6 +135,7 @@ export async function captureTerminalActionAuthorization(root, plan, action, { l
   const record = await issueActionAuthorization(root, reviewedPlan, reviewedAction,
     { confirmation: reviewedAction.actionId, channel: 'terminal' });
   terminalPresentations.set(record.token, {
+    channel: 'terminal',
     root: path.resolve(root), planHash: record.planHash, actionId: record.actionId,
     subject: canonicalJson(reviewedPlan.subject), revision: reviewedPlan.revision,
     cardSha256: recordSha256({ plan: reviewedPlan, action: reviewedAction }),
@@ -143,15 +144,45 @@ export async function captureTerminalActionAuthorization(root, plan, action, { l
   return record;
 }
 
+/** Browser review is restricted to evidence correction, not a general agent approval channel. */
+export async function captureEvidenceReviewAuthorization(root, plan, action, bytes) {
+  const reviewedPlan = structuredClone(plan);
+  const reviewedAction = structuredClone(action);
+  const preview = reviewedPlan.preview;
+  const label = `Correct evidence ${reviewedAction.actionId}`;
+  if (!reviewedAction.confirmation?.required || !/^PEA-[a-f0-9]{24}$/u.test(reviewedAction.actionId)
+      || preview?.kind !== 'evidence-contract-correction-preview'
+      || !Buffer.isBuffer(bytes) || bytes.length !== preview.reviewedFile?.size
+      || createHash('sha256').update(bytes).digest('hex') !== preview.reviewedFile?.sha256) {
+    throw new SingularityFlowError('Invalid evidence review card.', { code: 'ACTION_LOCAL_REVIEW_UNAVAILABLE' });
+  }
+  const beforeActor = actorKey(identity(root));
+  const { presentLocalEvidenceReview } = await import('./local-evidence-review.mjs');
+  if (!await presentLocalEvidenceReview({ plan: reviewedPlan, action: reviewedAction }, label, bytes)) return null;
+  if (!beforeActor || beforeActor !== actorKey(identity(root))) {
+    throw new SingularityFlowError('Local identity changed during review. Nothing was accepted.', { code: 'ACTION_LOCAL_REVIEW_UNAVAILABLE' });
+  }
+  const record = await issueActionAuthorization(root, reviewedPlan, reviewedAction,
+    { confirmation: reviewedAction.actionId, channel: 'local-evidence-review' });
+  terminalPresentations.set(record.token, { channel: 'local-evidence-review', root: path.resolve(root),
+    planHash: record.planHash, actionId: record.actionId, subject: canonicalJson(reviewedPlan.subject),
+    revision: reviewedPlan.revision, cardSha256: recordSha256({ plan: reviewedPlan, action: reviewedAction }),
+    actor: beforeActor, expiresAt: Date.parse(record.expiresAt) });
+  return record;
+}
+
 export async function consumeActionAuthorization(root, token, plan, action, {
-  requireTerminalPresentation = false
+  requireTerminalPresentation = false, requireEvidencePresentation = false
 } = {}) {
   if (!action.confirmation?.required) return null;
-  if (requireTerminalPresentation) {
+  if (requireTerminalPresentation || requireEvidencePresentation) {
     const presented = terminalPresentations.get(token);
     // Every attempted use consumes the live witness, including stale/changed-plan attempts.
     terminalPresentations.delete(token);
-    if (!presented || presented.root !== path.resolve(root)
+    const validSurface = requireTerminalPresentation ? presented?.channel === 'terminal'
+      : presented?.channel === 'local-evidence-review' && /^PEA-[a-f0-9]{24}$/u.test(action.actionId)
+        && plan.preview?.kind === 'evidence-contract-correction-preview';
+    if (!validSurface || !presented || presented.root !== path.resolve(root)
         || presented.planHash !== plan.planHash || presented.actionId !== action.actionId
         || presented.subject !== canonicalJson(plan.subject) || presented.revision !== plan.revision
         || presented.cardSha256 !== recordSha256({ plan, action })

@@ -62,7 +62,7 @@
     },
     "reviewAssurance": {
       "type": "string",
-      "const": "live-terminal-exact-evidence-review"
+      "enum": ["live-terminal-exact-evidence-review", "live-local-ui-exact-evidence-review"]
     },
     "at": {
       "type": "string",

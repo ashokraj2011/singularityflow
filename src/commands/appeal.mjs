@@ -53,7 +53,7 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
       + 'checkpoint: --phase ID saves private dirty-file/index recovery copies; checkpoint-show PCP-ID verifies them without restoring files\n'
       + 'risk-prepare/risk-accept: --phase ID [--gate-mode soft] [--clause EXACT-ID | --finding EXACT-CODE] [--transition publish|submit|approve|consume|terminal] --expires YYYY-MM-DD --reason TEXT; risk-accept also --confirm PACKET_SHA256 (live human review)\n'
       + 'risk-attest/risk-revoke PQR-ID: --confirm DECISION_SHA256; revoke also --reason TEXT\n'
-      + 'evidence-prepare/evidence-accept: --phase ID --clause EXACT-AC --path STORY/evidence/FILE --method visual|inspection --reason TEXT; accept also --confirm PACKET_SHA256 (live plan-authority review). No tests or visual checks are waived.\n'
+      + 'evidence-prepare/evidence-accept: --phase ID --clause EXACT-AC --path STORY/evidence/FILE --method visual|inspection --reason TEXT; accept also --confirm PACKET_SHA256 [--review-ui] (local browser or terminal human review). No tests or visual checks are waived.\n'
       + 'Extra behaviour: story intent-amendment; eligible failed checks: story test-policy risks. Neither is waived by accounting for scope.');
     return;
   }
@@ -63,7 +63,7 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
   if (action === 'decide') ['decision', 'reason', 'confirm'].forEach(key => allowed.add(key));
   if (action === 'attest') allowed.add('confirm');
   if (['evidence-prepare', 'evidence-accept'].includes(action)) ['clause', 'path', 'method', 'reason',
-    ...(action === 'evidence-accept' ? ['confirm'] : [])].forEach(key => allowed.add(key));
+    ...(action === 'evidence-accept' ? ['confirm', 'review-ui'] : [])].forEach(key => allowed.add(key));
   if (action === 'repair-run') allowed.add('confirm');
   if (['risk-prepare', 'risk-accept'].includes(action)) ['gate-mode', 'clause', 'finding', 'transition', 'expires', 'reason', ...(action === 'risk-accept' ? ['confirm'] : [])].forEach(key => allowed.add(key));
   if (['risk-attest', 'risk-revoke'].includes(action)) ['confirm', ...(action === 'risk-revoke' ? ['reason'] : [])].forEach(key => allowed.add(key));
@@ -80,7 +80,7 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
     }
     const request = { phaseId: phase.id, clauseId: optionString(options, 'clause'),
       evidencePath: optionString(options, 'path'), method: optionString(options, 'method') ?? 'visual',
-      reason: optionString(options, 'reason'), confirm: optionString(options, 'confirm') };
+      reason: optionString(options, 'reason'), confirm: optionString(options, 'confirm'), reviewUi: optionBoolean(options, 'review-ui') };
     data = action === 'evidence-prepare'
       ? { status: 'review-required', stateChanged: false, packet: await prepareEvidenceContractCorrection(root, config, workflow, request) }
       : await acceptEvidenceContractCorrection(root, config, workflow, request);

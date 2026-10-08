@@ -128,7 +128,7 @@ export interface ConfigurationCenterView {
     /** Content-addressed, inert drill-downs into the verified state-backed WMB store. */
     expansion: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;
     views: Array<{
-      id: string; reference: string; path: string; references: string[]; generated: boolean;
+      id: string; reference: string; path: string; references: string[]; generated: boolean; canOpenPath: boolean;
       workflowCount: number; phaseCount: number;
       status: string | null; required: boolean; cache: string | null;
       counts: { total: number; available: number; partial: number; unavailable: number; contradicted: number; stale: number } | null;
@@ -345,6 +345,15 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
   }));
   const fileInventory = snapshot.worldModel?.files;
   const generatedPaths = new Set((fileInventory ?? []).map((file) => file.path));
+  const capturedPaths = new Set((fileInventory ?? []).filter((file) => typeof file.content === 'string').map((file) => file.path));
+  const registered = worldModel.format === 'registered-v4';
+  const selectedFormat = snapshot.worldModel?.format;
+  const registeredContent = registered || ['registered-v4', 'wmb-v4'].includes(selectedFormat ?? '');
+  const formatMismatch = selectedFormat != null && registered
+    && !['registered-v4', 'wmb-v4'].includes(selectedFormat);
+  const mismatchReason = formatMismatch
+    ? `The selected ${selectedFormat} model does not contain the configured registered-v4 views. Select the workspace repository checkout and build its effective model.`
+    : null;
   return {
     profile,
     gitIdentity: gitEmail || gitLogin ? {
@@ -364,14 +373,24 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
       built,
       root: modelRoot,
       generatedAt: snapshot.worldModel?.generatedAt ?? null,
-      rebuildReason: snapshot.worldModel?.rebuildReason ?? null,
+      rebuildReason: mismatchReason ?? snapshot.worldModel?.rebuildReason ?? null,
       readiness: snapshot.worldModel?.readiness ?? null,
       format: snapshot.worldModel?.format ?? null,
       summary: snapshot.worldModel?.summary ?? null,
       expansion: [...(snapshot.worldModel?.expansion ?? [])],
       views: catalog.map(({ id, reference }) => {
         const snapshotView = snapshotViews.get(id);
-        const path = snapshotView?.path ?? `${modelRoot}/views/${id}.md`;
+        const selectedPath = snapshotView?.path;
+        const path = selectedPath
+          ? selectedPath.startsWith(`${modelRoot}/`) ? selectedPath : `${modelRoot}/${selectedPath}`
+          : `${modelRoot}/views/${id}.md`;
+        // A model's existence says nothing about an unbuilt catalog entry. In particular, a
+        // pinned legacy model cannot materialize the approved repository's v4 contract files.
+        const generated = !formatMismatch && (snapshotView?.status
+          ? snapshotView.status === 'available'
+          : built && (fileInventory === undefined ? Boolean(snapshotView) : generatedPaths.has(path)));
+        const canOpenPath = generated && (capturedPaths.has(path)
+          || (!registeredContent && Boolean(snapshotView)));
         const workflowMatches = workflowUsage.filter((workflow) =>
           workflow.phases.some((phase) => phase.views.includes(id)));
         const phaseCount = workflowMatches.reduce((count, workflow) =>
@@ -379,9 +398,7 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
         return {
           id, reference, path,
           references: [...(snapshotView?.references ?? [])],
-          generated: snapshotView?.status
-            ? snapshotView.status === 'available'
-            : built && (fileInventory === undefined || generatedPaths.has(path)),
+          generated, canOpenPath,
           workflowCount: workflowMatches.length,
           phaseCount,
           status: snapshotView?.status ?? null,
@@ -486,6 +503,39 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
       }
     }
   };
+}
+
+export type ConfigurationPathTarget =
+  | { kind: 'captured'; path: string; content: string }
+  | { kind: 'world-model-file'; path: string }
+  | { kind: 'artifact'; path: string }
+  | { kind: 'unavailable'; message: string };
+
+/** Use the same exact inventory as the Explorer, including state-backed brief/custom paths. */
+export function configurationPathTarget(snapshot: RepositorySnapshot | null, requestedPath: string): ConfigurationPathTarget {
+  const captured = snapshot?.worldModel?.files?.find((file) => file.path === requestedPath);
+  if (typeof captured?.content === 'string') {
+    return { kind: 'captured', path: requestedPath, content: captured.content };
+  }
+  const listed = new Set([
+    ...(snapshot?.templates ?? []).map((entry) => entry.path),
+    ...(snapshot?.prompts ?? snapshot?.agentPrompts ?? snapshot?.personaPrompts ?? []).map((entry) => entry.path),
+    ...(snapshot?.repositorySkills ?? []).map((entry) => entry.path),
+    ...(snapshot?.flowSkills ?? []).map((entry) => entry.packagePath ?? entry.path)
+  ]);
+  if (listed.has(requestedPath)) return { kind: 'artifact', path: requestedPath };
+  if (snapshot) {
+    const view = configurationCenterView(snapshot, { name: '', role: '' }).worldModelStatus.views.find((entry) =>
+      entry.path === requestedPath && entry.canOpenPath);
+    if (view) {
+      // Legacy dedicated slices deliberately retain metadata only. Fetch their verified file
+      // inventory on an explicit click instead of reading a different checkout projection.
+      return snapshot.worldModel?.readiness?.source === 'state-branch'
+        ? { kind: 'world-model-file', path: requestedPath }
+        : { kind: 'artifact', path: requestedPath };
+    }
+  }
+  return { kind: 'unavailable', message: `This repository no longer lists ${requestedPath}. Refresh and try again.` };
 }
 
 export function validateAutoDraft(draft: AutoDraft, knownWorkTypeIds?: Iterable<string>): string[] {

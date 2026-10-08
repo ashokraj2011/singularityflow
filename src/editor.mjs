@@ -1565,6 +1565,22 @@ async function sgosSlice(root) {
  * while full Facts/Evidence/Derivations remain behind explicit reads.
  */
 async function worldModelSlice(root, requestedWorkId = null) {
+  let accepted = null;
+  try {
+    accepted = await loadAcceptedStoryExecution(root, requestedWorkId ?? branch(root));
+  } catch (error) {
+    if (requestedWorkId || error?.code !== 'STORY_NOT_FOUND') throw error;
+  }
+  if (accepted) return worldModelSliceInConfigurationScope(root, requestedWorkId);
+  // Match the repository-level native build's authority. A materialized checkout may still carry
+  // pre-migration YAML; it must not make a successfully upgraded v4 build appear to be legacy.
+  // This diagnostic read uses only locally retained approved refs and never fetches or publishes.
+  return withApprovedConfigurationRead(root, () => withDefinitionCache(
+    () => worldModelSliceInConfigurationScope(root, requestedWorkId)
+  ), { preferAuthority: true, refreshAuthority: false });
+}
+
+async function worldModelSliceInConfigurationScope(root, requestedWorkId = null) {
   const [
     { loadWorldModelConfig },
     { worldModelV4StoreOptions },

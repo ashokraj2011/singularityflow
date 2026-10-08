@@ -10,6 +10,7 @@ const source = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name)
 const {
   authorityWithMember,
   configurationCenterView,
+  configurationPathTarget,
   configurationPendingProposalStatus,
   pendingConfigurationProposal,
   configurationRefreshDecision,
@@ -944,6 +945,84 @@ test('the world model shows its current state, not only its policy', () => {
   assert.match(html, /no references/);
   assert.match(html, /data-action="build-world-model">Build \/ refresh/,
     'an already-built model keeps an explicit, reviewed refresh path');
+});
+
+test('a pinned legacy model cannot make the approved v4 catalog appear materialized', () => {
+  const mixed = {
+    ...snapshot,
+    definition: {
+      ...snapshot.definition,
+      worldModel: { format: 'registered-v4', views: ['arch.contracts@4', 'dev.impact@4'] }
+    },
+    worldModel: {
+      kind: 'world-model-ide-slice', format: 'legacy-v3', status: 'ready',
+      root: 'singularity/world-model', generatedAt: '2026-10-08T04:46:11.663Z',
+      readiness: { ready: true, source: 'state-branch' },
+      views: [{ id: 'architecture', status: 'available', path: 'singularity/world-model/views/architecture.brief.md' }]
+    }
+  };
+  const view = configurationCenterView(mixed);
+  assert.equal(view.worldModelStatus.built, true);
+  assert.ok(view.worldModelStatus.views.every((entry) => !entry.generated && !entry.canOpenPath));
+  const html = centerHtml(mixed, 'world-model');
+  assert.doesNotMatch(html, /data-open-path="singularity\/world-model\/views\/arch\.contracts\.md"/);
+  assert.match(html, /does not contain the configured registered-v4 views/);
+  assert.match(html, /Select the workspace repository checkout/);
+  assert.equal(configurationPathTarget(mixed, 'singularity/world-model/views/arch.contracts.md').kind, 'unavailable');
+});
+
+test('a built model with no matching view records never offers invented file links', () => {
+  const missing = {
+    ...snapshot,
+    worldModel: {
+      kind: 'world-model-ide-slice', root: 'singularity/world-model', status: 'ready',
+      generatedAt: '2026-10-08T04:46:11.663Z', views: []
+    }
+  };
+  assert.ok(configurationCenterView(missing).worldModelStatus.views.every((entry) => !entry.generated));
+  assert.doesNotMatch(centerHtml(missing, 'world-model'), /data-open-path=/);
+});
+
+test('Explorer and click validation use the selected brief path and read state content on demand', () => {
+  const selectedPath = 'knowledge/world-model/views/business.brief.md';
+  const legacy = {
+    ...snapshot,
+    worldModel: {
+      kind: 'world-model-ide-slice', format: 'legacy-v3', status: 'ready',
+      root: 'knowledge/world-model', generatedAt: '2026-10-08T04:46:11.663Z',
+      readiness: { ready: true, source: 'state-branch' },
+      views: [{ id: 'business', status: 'available', path: selectedPath }]
+    }
+  };
+  const html = centerHtml(legacy, 'world-model');
+  assert.match(html, /data-open-path="knowledge\/world-model\/views\/business\.brief\.md"/);
+  assert.deepEqual(configurationPathTarget(legacy, selectedPath), { kind: 'world-model-file', path: selectedPath });
+  assert.equal(configurationPathTarget(legacy, 'knowledge/world-model/views/business.md').kind, 'unavailable');
+  const content = '# Exact state-backed brief\n';
+  const refreshed = { ...legacy, worldModel: { ...legacy.worldModel, files: [{ path: selectedPath, content }] } };
+  assert.deepEqual(configurationPathTarget(refreshed, selectedPath), { kind: 'captured', path: selectedPath, content });
+  assert.equal(configurationPathTarget(refreshed, '../../secret.txt').kind, 'unavailable');
+});
+
+test('available registered views without exact content never fall back to a checkout file', () => {
+  const declared = {
+    ...snapshot,
+    definition: { ...snapshot.definition, worldModel: { format: 'registered-v4', views: ['arch.contracts@4'] } },
+    worldModel: {
+      kind: 'world-model-ide-slice', format: 'wmb-v4', status: 'ready', root: 'knowledge',
+      views: [{ id: 'arch.contracts', status: 'available', path: 'views/arch.contracts.md', expansion: [] }]
+    }
+  };
+  const view = configurationCenterView(declared).worldModelStatus.views[0];
+  assert.equal(view.path, 'knowledge/views/arch.contracts.md');
+  assert.equal(view.generated, true);
+  assert.equal(view.canOpenPath, false);
+  assert.doesNotMatch(centerHtml(declared, 'world-model'), /data-open-path=/);
+  assert.equal(configurationPathTarget(declared, view.path).kind, 'unavailable');
+  const content = '# Registered contracts\n';
+  const captured = { ...declared, worldModel: { ...declared.worldModel, files: [{ path: view.path, content }] } };
+  assert.deepEqual(configurationPathTarget(captured, view.path), { kind: 'captured', path: view.path, content });
+  assert.match(centerHtml(captured, 'world-model'), /data-open-path="knowledge\/views\/arch\.contracts\.md"/);
 });
 
 test('a verified model with unavailable source comparison is not rendered as never built', () => {

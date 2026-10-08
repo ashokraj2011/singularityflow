@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cp, mkdir, mkdtemp, readFile, rename, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -253,6 +253,57 @@ test('configuration snapshot reports an exact state-branch world model without a
   assert.equal(stale.worldModel.readiness.ready, false,
     'a source change cannot leave the state-backed legacy slice marked Ready');
   assert.notEqual(stale.worldModel.status, 'ready');
+});
+
+test('repository World Model slices follow upgraded authority while accepted Stories retain their pins', async (t) => {
+  const root = await repository();
+  t.after(async () => {
+    await rm(root, { recursive: true, force: true });
+    await rm(`${root}.git`, { recursive: true, force: true });
+  });
+  run(process.execPath, [bin, 'wm', 'light', '--views', 'business'], root);
+  run(process.execPath, [bin, 'start', 'WM-PIN-1', '--from-branch', 'main',
+    '--ref', 'story/WM-PIN-1', '--title', 'Pinned legacy model'], root);
+  const storyBranch = run('git', ['branch', '--show-current'], root).stdout.trim();
+  run('git', ['switch', 'main'], root);
+
+  const workflowPath = path.join(root, 'singularity/workflow.yml');
+  const legacyText = await readFile(workflowPath, 'utf8');
+  const approved = YAML.parse(legacyText);
+  approved.worldModel.format = 'registered-v4';
+  approved.worldModel.views = [
+    'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
+  ];
+  approved.worldModel.v4 = {
+    ...(approved.worldModel.v4 ?? {}), legacyAssignments: 'inherit-configured'
+  };
+  run('git', ['switch', '-c', 'sflow/config'], root);
+  await writeFile(workflowPath, YAML.stringify(approved));
+  run('git', ['add', 'singularity/workflow.yml'], root);
+  run('git', ['commit', '-m', 'upgrade approved World Model configuration'], root);
+  run('git', ['push', 'origin', 'sflow/config'], root);
+  run('git', ['switch', 'main'], root);
+  assert.equal(await readFile(workflowPath, 'utf8'), legacyText,
+    'the application projection deliberately remains older than approved authority');
+
+  const before = run('git', ['status', '--porcelain=v1'], root).stdout;
+  const repositoryView = await repositorySnapshot(root, null, null, {
+    included: ['configuration', 'worldModel']
+  });
+  assert.equal(repositoryView.configuration.definition.worldModel.format, 'registered-v4');
+  assert.equal(repositoryView.worldModel.format, 'wmb-v4',
+    'the dedicated Explorer slice must select the same authority as the native rebuild');
+  assert.equal(repositoryView.worldModel.status, 'unavailable',
+    'an old v3 build cannot be advertised as materialized v4 views');
+  assert.deepEqual(repositoryView.worldModel.views, []);
+  assert.equal(run('git', ['status', '--porcelain=v1'], root).stdout, before,
+    'selecting approved World Model policy is read-only');
+
+  run('git', ['switch', storyBranch], root);
+  const pinned = await repositorySnapshot(root, null, null, { included: ['worldModel'] });
+  assert.equal(pinned.worldModel.format, 'legacy-v3',
+    'repository upgrades must not silently replace an accepted Story execution contract');
+  assert.ok(pinned.worldModel.views.some((view) => view.id === 'business'));
 });
 
 test('SGOS Command Center is a lazy isolated snapshot slice', async () => {

@@ -58,7 +58,7 @@ import {
   workflowImportResolveArgs, type WorkflowImportChoice, type WorkflowMutationPreview
 } from './views/workflow-transfer-presentation.ts';
 import type { ConfigurationCenterMessage, ConfigurationCenterReply } from './views/configuration-center.ts';
-import type { ConfigurationTab } from './views/configuration-center-model.ts';
+import { configurationPathTarget, type ConfigurationTab } from './views/configuration-center-model.ts';
 import { configurationSaveDisposition, configurationSavePlanCliArgs } from './views/configuration-save.ts';
 import type { HelpDocument } from './views/help-page.ts';
 import type { WorkspacesMessage } from './views/workspaces-panel.ts';
@@ -7144,17 +7144,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
      * and `openArtifact` would otherwise open any path the message named.
      */
     if (message.type === 'open-path') {
-      const snapshot = store.current.snapshot;
-      const listed = new Set<string>([
-        ...(snapshot?.templates ?? []).map((entry) => entry.path),
-        ...(snapshot?.prompts ?? snapshot?.agentPrompts ?? snapshot?.personaPrompts ?? []).map((entry) => entry.path),
-        ...(snapshot?.repositorySkills ?? []).map((entry) => entry.path),
-        ...(snapshot?.flowSkills ?? []).map((entry) => entry.packagePath ?? entry.path),
-        ...(snapshot?.worldModel?.views ?? []).map((view) => `${snapshot?.worldModel?.root ?? 'singularity/world-model'}/views/${view.id}.md`)
-      ]);
-      if (!listed.has(message.path)) return `This repository no longer lists ${message.path}. Refresh and try again.`;
-      const capturedWorldModelFile = snapshot?.worldModel?.files?.find((entry) => entry.path === message.path);
-      if (typeof capturedWorldModelFile?.content === 'string') {
+      const active = activeRepositoryContext();
+      if (!active || active.root !== client.repository) {
+        return 'The selected repository changed. Refresh the Explorer before opening repository content.';
+      }
+      let target = configurationPathTarget(store.current.snapshot, message.path);
+      if (target.kind === 'world-model-file') {
+        const repository = client.repository;
+        const refreshed = await client.snapshot(undefined, ['configuration']);
+        if (client.repository !== repository || activeRepositoryContext()?.root !== repository) {
+          return 'The selected repository changed. Refresh the Explorer before opening repository content.';
+        }
+        // The metadata slice is intentionally small; only a user-requested read retains prose.
+        target = configurationPathTarget(refreshed, message.path);
+        if (target.kind !== 'captured') {
+          return 'This World Model file is no longer available in the verified state snapshot. Refresh the Explorer and review the effective model build.';
+        }
+      }
+      if (target.kind === 'unavailable') return target.message;
+      if (target.kind === 'captured') {
         // A governed model normally lives only on the state branch. Open the exact content already
         // captured by the read-only snapshot instead of pretending the file exists in the
         // application checkout or projecting state bytes into it.
@@ -7165,7 +7173,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             ? 'yaml'
             : 'markdown';
         const document = await vscode.workspace.openTextDocument({
-          content: capturedWorldModelFile.content,
+          content: target.content,
           language
         });
         await vscode.window.showTextDocument(document, { preview: true });

@@ -691,6 +691,42 @@ test('the built extension activates against a real repository and populates the 
   assert.deepEqual(registered.errors, [], 'activation raised no error dialogs');
 });
 
+test('Configuration Center opens state-backed brief files from the exact listed path', async (t) => {
+  if (!requireBundle(t)) return;
+  const publisher = await demoRepository();
+  const base = path.dirname(publisher);
+  t.after(() => removeFixture(base));
+  run(process.execPath, [path.join(packageRoot, 'bin/singularity-flow.mjs'), 'wm', 'light', '--views', 'business'], { cwd: publisher });
+  const consumer = path.join(base, 'consumer');
+  run('git', ['clone', '-q', '--branch', 'INIT-CHECKOUT', path.join(base, 'lead.git'), consumer]);
+  // initializeDefinition seeds a checkout projection; remove it in this disposable consumer so
+  // opening must use the authoritative state branch rather than silently reading those copies.
+  await rm(path.join(consumer, 'singularity/world-model'), { recursive: true, force: true });
+  const relative = 'singularity/world-model/views/business.brief.md';
+  assert.equal(existsSync(path.join(consumer, relative)), false, 'the model exists only on state');
+  const expected = run('git', ['show', `origin/state:${relative}`], { cwd: consumer }).stdout;
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: consumer } }];
+  const extension = loadExtension(api);
+  const hostContext = context();
+  await extension.activate(hostContext);
+  t.after(() => { for (const disposable of hostContext.subscriptions) disposable.dispose?.(); });
+  await registered.commands.get('singularityFlow.openConfigurationCenter')();
+  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
+  t.after(() => panel.dispose());
+  await panel.post({ type: 'action', action: 'world-model' });
+  await until(() => panel.webview.html.includes(`data-open-path="${relative}"`));
+  await panel.post({ type: 'open-path', path: relative });
+  const opened = registered.openedDocuments.at(-1);
+  assert.equal(opened.content, expected);
+  assert.equal(opened.language, 'markdown');
+  assert.doesNotMatch(panel.webview.html, /This repository no longer lists/);
+  assert.equal(existsSync(path.join(consumer, relative)), false, 'opening leaves the application checkout untouched');
+  await panel.post({ type: 'open-path', path: 'singularity/world-model/views/arch.contracts.md' });
+  assert.match(panel.webview.html, /This repository no longer lists/);
+  assert.equal(registered.openedDocuments.at(-1), opened, 'a nonexistent registered view is never opened');
+});
+
 test('a legacy workflow blocks Lifecycle but leaves all repairable configuration visible', async (t) => {
   if (!requireBundle(t)) return;
   const root = await demoRepository();

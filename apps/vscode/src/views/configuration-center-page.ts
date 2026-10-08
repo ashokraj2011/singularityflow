@@ -308,7 +308,9 @@ function worldModelExplorer(view: ConfigurationCenterView): string {
       const reference = entry.expansion.find((candidate) => candidate.kind === 'view');
       return reference
         ? `<button class="link" data-open-world-model-ref="${escape(reference.ref)}">Open exact view</button>${entry.expansion.length ? `<details class="wm-references"><summary>${entry.expansion.length} exact reference${entry.expansion.length === 1 ? '' : 's'}</summary><ul>${entry.expansion.map((item) => `<li><code>${escape(item.ref)}</code></li>`).join('')}</ul></details>` : ''}`
-        : `<button class="link" data-open-path="${escape(entry.path)}">Open view</button>`;
+        : entry.canOpenPath
+          ? `<button class="link" data-open-path="${escape(entry.path)}">Open view</button>`
+          : '<small class="muted">Exact content is not available</small>';
     })() : `<code>${escape(entry.path)}</code>`}</td>
   </tr>`).join('');
 

@@ -253,6 +253,12 @@ export async function assertAttachedLibrarySkills(configRoot, agents, definition
   }
   for (const agent of agents) {
     for (const attachment of effectiveLibrarySkills(agent)) {
+      // New packaged agents are dormant on repositories predating their optional phases.
+      // Do not require their uninstalled library until a supported phase exists. Repository
+      // agents and explicit attachments.yml declarations remain strict, even if dormant.
+      if (['plugin', 'bundled'].includes(agent.scope) && attachment.phases.length
+          && attachment.phases.every((id) => !definition.phases?.[id])
+          && !(agent.attachedSkills ?? []).some((entry) => entry.id === attachment.id)) continue;
       if (!problems.has(attachment.id)) {
         problems.set(attachment.id, await readLibrarySkill(configRoot, attachment.id)
           .then((skill) => (skill ? null : `it is not in the skill master (${librarySkillPath(attachment.id)})`), (error) => error.message));

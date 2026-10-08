@@ -234,18 +234,20 @@ export async function installWorkflow(root, id, { replace = false, dryRun = fals
   // Copy the default packaged agent modules that make the new phases immediately selectable.
   // Existing repository agents always win discovery and are never overwritten by workflow install.
   const agentIds = new Set();
+  const agentSkills = [];
   for (const entry of await readdir(path.join(PACKAGE_ROOT, 'templates', 'agents'), { withFileTypes: true })) {
     if (!entry.isFile() || !/(?:\.agent)?\.md$/i.test(entry.name)) continue;
     const source = path.join(PACKAGE_ROOT, 'templates', 'agents', entry.name);
     const agent = parseAgentDependencies(await readFile(source, 'utf8'), { source });
     if (agent.defaultFor.some((phase) => phaseIds.has(phase))) {
       agentIds.add(agent.id);
+      agentSkills.push(...agent.librarySkills);
       files.push({ source, target: path.join(root, '.github', 'agents', entry.name), overwrite: false });
     }
   }
   const copied = [];
   for (const file of files) if (file.overwrite || !(await exists(file.target))) copied.push(path.relative(root, file.target).replaceAll(path.sep, '/'));
-  const skills = await packagedWorkflowSkills(root, id, agentIds);
+  const skills = await packagedWorkflowSkills(root, id, agentIds, agentSkills);
   const changedFiles = [WORKFLOW_PATH, ...copied, ...skills.map((file) => file.path)];
   if (!dryRun) {
     const file = path.join(root, WORKFLOW_PATH);

@@ -104,6 +104,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'classic-delivery': '98cc169510f82d9e046df5471975cf354b7afb7d1acacd0ef0c91b5c51d4f039',
     'document-test-repair': 'f2d5aa4742def2f0a771660d229089ede1ed3a0bb913404c362b703dc703feca',
     'demo-web-e2e-testing': '6161336401af54bd15e26c17cee6e45f43cadff36a424e051d0fbf285fb4af9a',
+    'demo-check-repair-close': '8b7a856aa801154f306e6a42375fe65d00f6977bac9129d98f202b6ba01ce8f9',
     feature: 'f69c7d96643df7084e58aa5eb6692a703be004d21d31d06942dbb9a6962a25d3',
     'figma-mobile': '145c68b32584aea0b8b6332db9558c5f06b3cb85e346d737a57c8b7e5f07c6ee',
     'poc-lite': '5f9265d011c6427724608ef3d9ac1dc615f0b78d40bc12f06ae362a1a70719b2',
@@ -114,6 +115,10 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'spec-driven-standard': '6528062cd8e1ce663f60ebf361720562f778a03bc808e52158de07bb6cabeacf'
   }),
   phases: Object.freeze({
+    'demo-intake': 'a24da19a6e9e6d971d52e775405edd09e024aaf98b574a52a42f68ffa6054f69',
+    'demo-check': 'd44f395f4379773a4a496a74d547f45ddd27b707aa2f9a5a9acd04bf369068a0',
+    'demo-repair': 'b632bf59de3c8757b8561caf88f880a8a9021ad94663ab3cae7743742baa78d1',
+    'demo-close': '59c928a6eaea1817132e3a7a8fe8ec5fd44613a9d9632bef9d170d1391899eb9',
     'demo-web-intake': 'd9abac5eacdd842b6361b17facd4beed73633608e251ba6b0f45b9fb8174dd47',
     'demo-web-check': '6cab0053c02979c59a906963125d3e9e1c55b39bcb4ae8742c95e9892eeedab4',
     'demo-web-repair': '8cee05f255b622fad5795ecdcb2b1bc1e1c4d48eabcb8afa83aa7f98defc144e',
@@ -162,6 +167,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
   }),
   mcpServers: Object.freeze({
     figma: '30ef371d29021a7f50a1c5bda73f022c727998a6ae99fd57a3e51335ccaad9fb',
+    'demo-playwright': '9d5031346fe312ef3cd237623aa53a69d6f87178bdf33a15e206a0a5882ddcf7',
     playwright: 'f5021e802e3a858f38ed9d966cc0f074d0ec7635b1c15d8288331900b4f0b508'
   })
 });

@@ -315,6 +315,18 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
 
 /** Current release digests, kept separate so a known current file is never offered as repairable. */
 export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
+  '.github/agents/demo-intake-analyst.agent.md': 'f2fb5a528c8cc3966901868436afd640489e82fc4c5703787e1d010ef9c2b36e',
+  '.github/agents/demo-code-checker.agent.md': '05ac1874b8e0b6a48efde26fd1a77e0c9ce2ecab27de28761a51460fa82deb03',
+  '.github/agents/demo-code-repairer.agent.md': 'c79919043b5c93cd43cdd6b297949d948796e8e56c7548d89ebb457472c02bff',
+  '.github/agents/demo-story-closer.agent.md': '098d10ddb1af9624cdd93f9fe53909e1fef79d666cd197a2b330c6076f12a5b0',
+  'singularity/templates/demo-check-repair-close/intake.md': 'b711a8f37bebf0dda05a99d4bf3efdcbb1bfc424d70d8f69d5c9289c2a6e2b2f',
+  'singularity/templates/demo-check-repair-close/check.md': 'cbde6d2812b782f32589db7f95f33c44586ce6e552ce636541326e912c3a1663',
+  'singularity/templates/demo-check-repair-close/repair.md': '66af2bad38c83317e4ccd2d96c7713234f64149e7d7015235b98047770f7df30',
+  'singularity/templates/demo-check-repair-close/close.md': '9070bc1135edfa168c5c63b43df230dd5997f527e7b7a2931311eb8cca78a2d6',
+  'singularity/skill-library/demo-acceptance-intake/SKILL.md': '0ca1d2e0fec9b529070e7ec7128e632e2efc9c6e8089b05443ea928190304896',
+  'singularity/skill-library/demo-code-acceptance-check/SKILL.md': '57cd19310b68568853ac9339b4d4d73cece27ff2df57b2fc1110a4e26e7c8870',
+  'singularity/skill-library/demo-scoped-code-repair/SKILL.md': '8b5dad40926ef0f95a9d1c9295b2cdcbe9a43f1182636b1d82ff3fa69c2c9871',
+  'singularity/skill-library/demo-evidence-bound-close/SKILL.md': 'e18a418b84f1371fa7b86dbf30e9a9015d1ab348bddbb034ff12004f771f7926',
   '.github/agents/demo-web-analyst.agent.md': 'a06f1b514eec22d8e75b2d8b609348f3d43b118f00e456de5b1c3e25ca72e2b1',
   '.github/agents/demo-web-developer.agent.md': '30572f81d47c0c9274872153f93d9313884713c6b25411967468307da703cdfa',
   '.github/agents/demo-web-tester.agent.md': 'effdbb363713e11ebcf06df83c7258dada6ef5b28e7ba012dd3e2f9e74611af3',

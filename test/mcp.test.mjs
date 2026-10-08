@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  lstat, mkdtemp, mkdir, readFile, readdir, rename, symlink, writeFile
+  lstat, mkdtemp, mkdir, readFile, readdir, rename, rm, symlink, writeFile
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -53,8 +53,8 @@ async function repository(prefix) {
   return root;
 }
 
-async function warmPlaywrightFixture(root, definition, { offlineStart = null } = {}) {
-  return warmMcpHost(root, definition, 'playwright', {
+async function warmPlaywrightFixture(root, definition, { offlineStart = null, serverId = 'playwright' } = {}) {
+  return warmMcpHost(root, definition, serverId, {
     network: true,
     execFileCommand: async (_command, args) => {
       const prefix = args[args.indexOf('--prefix') + 1];
@@ -954,6 +954,56 @@ test('Playwright scaffold is explicit and never replaces host configuration sile
   const merged = await scaffoldPlaywrightMcp(root);
   assert.equal(merged.changed, false);
   assert.ok(JSON.parse(await readFile(path.join(root, result.path))).servers.corporate);
+});
+
+test('workflow-scoped Playwright policies retain containment and independent warm, readiness and smoke bindings', async (t) => {
+  const root = await repository('sflow-mcp-scoped-playwright-');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const serverId = 'demo-playwright';
+  const definition = { mcpServers: { ...configured(), [serverId]: {
+    ...configured().playwright, id: serverId, agents: ['demo-code-checker'], phases: ['demo-check']
+  } } };
+  await scaffoldPlaywrightMcp(root);
+  await attestMcpHost(root, definition, serverId, { confirmation: serverId });
+  await warmPlaywrightFixture(root, definition);
+  const before = (await mcpDoctor(root, definition)).servers.find((entry) => entry.id === serverId);
+  assert.equal(before.readiness, 'needs-host-setup');
+  assert.equal(before.warm.status, 'not-warmed', 'another policy warm receipt cannot satisfy this policy');
+  assert.ok(before.reasons.some((reason) => reason.includes(`mcp verify-offline ${serverId}`)));
+  const warm = await warmPlaywrightFixture(root, definition, { serverId });
+  assert.equal(warm.serverId, serverId);
+  assert.equal(warm.hostReference, 'playwright');
+  await verifyMcpHostOffline(root, definition, serverId, { offlineStart: async () => ({
+    status: 'passed', transport: 'stdio', packageResolution: 'local-install', npmOffline: true,
+    protocolVersion: '2024-11-05', tools: ['browser_navigate', 'browser_snapshot', 'browser_close']
+  }) });
+  const phase = { id: 'demo-check', mcp: { requiredServers: [serverId], requireSmoke: true, evidence: [] } };
+  const workflow = { resolution: definition, mcpAuthorizations: {
+    [serverId]: { schemaVersion: 1, origins: ['https://example.test'], source: 'story-intake', pinnedAt: new Date().toISOString() }
+  } };
+  await assert.rejects(() => assertMcpPhaseReadiness(root, workflow, phase), /no successful live smoke receipt/);
+  const launches = [];
+  const receipt = await smokeMcpHost(root, definition, serverId, {
+    targetUrl: 'https://example.test/health',
+    spawnCommand(command, args, options) {
+      launches.push({ command, args, options });
+      return successfulMcpProcess('https://example.test/health');
+    }
+  });
+  assert.equal(receipt.serverId, serverId);
+  assert.equal(receipt.hostReference, 'playwright');
+  assert.equal(launches[0].command, process.execPath, 'the alias uses the managed local runtime, not npx or a shell');
+  assert.equal(launches[0].options.env.NPM_CONFIG_OFFLINE, 'true');
+  await assert.doesNotReject(() => assertMcpPhaseReadiness(root, workflow, phase));
+  const wrongOrigin = structuredClone(workflow);
+  wrongOrigin.mcpAuthorizations[serverId].origins = ['https://other.example.test'];
+  await assert.rejects(() => assertMcpPhaseReadiness(root, wrongOrigin, phase), /not authorized for this Story/);
+  const hostPath = path.join(root, '.vscode/mcp.json');
+  const host = JSON.parse(await readFile(hostPath, 'utf8'));
+  host.servers.playwright = { command: 'npx', args: ['-y', '@playwright/mcp@latest'] };
+  await writeFile(hostPath, JSON.stringify(host));
+  const changed = (await mcpDoctor(root, definition)).servers.find((entry) => entry.id === serverId);
+  assert.equal(changed.readiness, 'misconfigured', 'renaming the policy cannot bypass pinned Playwright host validation');
 });
 
 test('phase readiness requires a hash-bound live smoke receipt when configured', async () => {

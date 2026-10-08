@@ -6,19 +6,22 @@ import { librarySkillPath, parseLibrarySkill, parseSkillAttachments, SKILL_ATTAC
 import { secureRepositoryPath } from './util.mjs';
 
 /** Plan only the library dependencies of the selected starter; preserve repository overrides. */
-export async function packagedWorkflowSkills(root, workflowId, agentIds) {
+export async function packagedWorkflowSkills(root, workflowId, agentIds, agentSkills = []) {
   const sourceRoot = path.join(PACKAGE_ROOT, 'templates/skill-library');
   const packaged = parseSkillAttachments(await readFile(path.join(sourceRoot, 'attachments.yml'), 'utf8'));
   const selected = packaged.filter((entry) => entry.workflow === workflowId || agentIds.has(entry.agent));
-  if (!selected.length) return [];
+  if (!selected.length && !agentSkills.length) return [];
   const files = [];
-  for (const id of new Set(selected.map((entry) => entry.id))) {
+  // Agent-owned tables are the attachment authority. Adopt their library files without
+  // duplicating those bindings in attachments.yml or losing them on starter installation.
+  for (const id of new Set([...selected, ...agentSkills].map((entry) => entry.id))) {
     const relative = librarySkillPath(id);
     const target = await secureRepositoryPath(root, relative, { label: 'Starter skill', type: 'file' });
     const text = await readFile(path.join(sourceRoot, id, 'SKILL.md'), 'utf8');
     parseLibrarySkill(target.exists ? await readFile(target.absolute, 'utf8') : text, { id });
     if (!target.exists) files.push({ path: relative, text });
   }
+  if (!selected.length) return files;
   const target = await secureRepositoryPath(root, SKILL_ATTACHMENTS_PATH, { label: 'Starter skill attachments', type: 'file' });
   const original = target.exists ? await readFile(target.absolute, 'utf8') : 'attachments: []\n';
   const current = parseSkillAttachments(original);

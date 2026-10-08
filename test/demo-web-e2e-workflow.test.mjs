@@ -122,7 +122,8 @@ test('install into an earlier repository adopts all dependencies, is dry-run saf
   config.mcpServers.playwright.phases = config.mcpServers.playwright.phases.filter((id) => !PHASES.includes(id));
   config.mcpServers.playwright.agents = config.mcpServers.playwright.agents.filter((id) => !AGENTS.includes(id));
   await writeFile(configPath, YAML.stringify(config));
-  await rm(path.join(root, 'singularity/skill-library'), { recursive: true });
+  for (const id of SKILLS) await rm(path.join(root, path.dirname(librarySkillPath(id))), { recursive: true });
+  await rm(path.join(root, SKILL_ATTACHMENTS_PATH));
   for (const id of AGENTS) await rm(path.join(root, `.github/agents/${id}.agent.md`));
   await rm(path.join(root, 'singularity/templates/demo-web-e2e-testing'), { recursive: true });
   const preview = await installWorkflow(root, ID, { dryRun: true });

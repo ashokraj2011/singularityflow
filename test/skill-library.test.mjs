@@ -58,11 +58,26 @@ async function temporary(t, prefix) {
   return root;
 }
 
+async function isolateSkillMaster(root) {
+  // Remove the self-contained starter that owns agent-table library dependencies before
+  // replacing the library. Keep missing-skill validation strict for repository agents.
+  const file = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(file, 'utf8'));
+  delete definition.workTypes['demo-check-repair-close'];
+  for (const id of ['demo-intake', 'demo-check', 'demo-repair', 'demo-close']) delete definition.phases[id];
+  delete definition.mcpServers['demo-playwright'];
+  await writeFile(file, YAML.stringify(definition));
+  for (const id of ['demo-intake-analyst', 'demo-code-checker', 'demo-code-repairer', 'demo-story-closer']) {
+    await rm(path.join(root, `.github/agents/${id}.agent.md`));
+  }
+  await rm(path.join(root, 'singularity/skill-library'), { recursive: true });
+}
+
 async function repository(t, prefix = 'sflow-skill-master-') {
   const root = await temporary(t, prefix);
   await initializeDefinition(root);
   // These tests author an isolated skill master; starter dependencies have their own suite.
-  await rm(path.join(root, 'singularity/skill-library'), { recursive: true });
+  await isolateSkillMaster(root);
   await repositoryOwnedWorkflows(root);
   return root;
 }
@@ -621,7 +636,7 @@ async function cliRepository(t) {
   git(root, 'config', 'user.email', 'skills@example.invalid');
   await writeFile(path.join(root, 'README.md'), '# Skills\n');
   flow(root, ['init']);
-  await rm(path.join(root, 'singularity/skill-library'), { recursive: true });
+  await isolateSkillMaster(root);
   await repositoryOwnedWorkflows(root);
   git(root, 'add', '-A');
   git(root, 'commit', '-q', '-m', 'initialize');
@@ -861,7 +876,7 @@ async function seededRepository(t, prefix) {
   // A repository as init leaves it: its workflows are seeded, so they and their agents are read-only.
   const root = await temporary(t, prefix);
   await initializeDefinition(root);
-  await rm(path.join(root, 'singularity/skill-library'), { recursive: true });
+  await isolateSkillMaster(root);
   return root;
 }
 

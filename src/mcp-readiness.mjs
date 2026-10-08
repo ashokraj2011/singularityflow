@@ -51,6 +51,10 @@ const MCP_PACKAGE_CLOSURE_MAX_BYTES = 512 * 1024 * 1024;
 const MCP_PACKAGE_CLOSURE_FILE_MAX_BYTES = 64 * 1024 * 1024;
 const execFileAsync = promisify(execFile);
 
+// Workflow-scoped policy IDs may share the Playwright host. Host-specific containment and
+// authentication checks must follow that host, while receipts remain bound to the policy ID.
+const isPlaywrightServer = (server) => (server?.hostReference ?? server?.id) === 'playwright';
+
 function sources(root, home = os.homedir()) {
   return [
     { surface: 'vscode-workspace', file: path.join(root, MCP_WORKSPACE_PATH) },
@@ -1048,7 +1052,7 @@ export async function warmMcpHost(root, definition, serverId, {
   if (!server) throw new SingularityFlowError(`Unknown governed MCP server '${serverId}'.`);
   const entry = (await hostEntryMap(root)).get(server.hostReference);
   if (!entry) throw new SingularityFlowError(`Host entry '${server.hostReference}' is absent.`);
-  if (serverId === 'playwright') {
+  if (isPlaywrightServer(server)) {
     const runtime = await resolvePlaywrightAuthRuntime(root, entry, { platform, windowsAcl });
     const acquisition = await acquire(root, entry, {
       platform, environment, execFileCommand, platformLookupCommand, windowsAcl
@@ -1099,7 +1103,7 @@ export async function verifyMcpHostOffline(root, definition, serverId, {
 } = {}) {
   const server = definition.mcpServers?.[serverId];
   if (!server) throw new SingularityFlowError(`Unknown governed MCP server '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
-  if (serverId !== 'playwright') {
+  if (!isPlaywrightServer(server)) {
     throw new SingularityFlowError(
       `MCP offline verification is not available for '${serverId}'.`,
       { code: 'MCP_OFFLINE_VERIFY_UNSUPPORTED' }
@@ -1326,7 +1330,7 @@ export async function serveMcpHost(root, definition, serverId, {
 } = {}) {
   const server = definition.mcpServers?.[serverId];
   if (!server) throw new SingularityFlowError(`Unknown governed MCP server '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
-  if (serverId !== 'playwright') {
+  if (!isPlaywrightServer(server)) {
     throw new SingularityFlowError(`No managed stdio launcher is available for '${serverId}'.`, {
       code: 'MCP_SERVE_UNSUPPORTED'
     });
@@ -1681,14 +1685,14 @@ export async function smokeMcpHost(root, definition, serverId, {
   if (!entry) throw new SingularityFlowError(`Host entry '${server.hostReference}' is absent.`, { code: 'MCP_HOST_CONFIG_MISSING' });
   let runtime;
   let probeInput;
-  if (serverId === 'playwright' && probe === rpcSmoke) {
+  if (isPlaywrightServer(server) && probe === rpcSmoke) {
     runtime = await managedPlaywrightSmokeRuntime(root, server, entry, {
       platform, architecture, runtimeExecutable, runtimeVersion, windowsAcl,
       beforeLaunchValidation
     });
     probeInput = runtime.launch;
   } else {
-    runtime = serverId === 'playwright'
+    runtime = isPlaywrightServer(server)
       ? await resolvePlaywrightAuthRuntime(root, entry, { platform, windowsAcl })
       : { entry, authProfile: null };
     probeInput = runtime.entry;
@@ -1795,7 +1799,7 @@ export async function assertMcpPhaseReadiness(root, workflow, phase) {
     const status = report.servers.find((entry) => entry.id === serverId);
     if (!configured || !status) errors.push(`Required MCP server '${serverId}' is not pinned in this Story.`);
     else if (status.readiness !== 'ready') errors.push(`MCP server '${serverId}' is ${status.readiness}: ${status.reasons.join(' ')}`);
-    if (configured && serverId === 'playwright' && status?.warm?.status !== 'valid') {
+    if (isPlaywrightServer(configured) && status?.warm?.status !== 'valid') {
       errors.push(
         `MCP server '${serverId}' has no valid exact-package warm proof (${status?.warm?.status ?? 'unavailable'}${status?.warm?.reason ? `: ${status.warm.reason}` : ''}). Run singularity-flow mcp verify-offline ${serverId} if its package is already acquired, or singularity-flow mcp warm ${serverId} --network.`
       );
@@ -1837,7 +1841,7 @@ export async function attestMcpHost(root, definition, serverId, {
   const hashes = new Set(rows.map((row) => row.entrySha256));
   if (hashes.size !== 1) throw new SingularityFlowError(`Host entry '${server.hostReference}' differs across host configuration sources.`, { code: 'MCP_HOST_ENTRY_CONFLICT' });
   const actor = identity(root);
-  const authProfile = serverId === 'playwright'
+  const authProfile = isPlaywrightServer(server)
     ? await currentPlaywrightAuthBinding(root, { platform, windowsAcl })
     : null;
   const receipt = {
@@ -1866,7 +1870,7 @@ export async function mcpDoctor(root, definition, options = {}) {
   for (const server of Object.values(definition.mcpServers ?? {})) {
     const reasons = [];
     let readiness = 'ready';
-    const auth = server.id === 'playwright'
+    const auth = isPlaywrightServer(server)
       ? await playwrightAuthProfileStatus(root, {
         platform: options.platform ?? process.platform, windowsAcl: options.windowsAcl
       })
@@ -1884,16 +1888,16 @@ export async function mcpDoctor(root, definition, options = {}) {
     } else if (new Set(rows.map((row) => row.entrySha256)).size > 1) {
       readiness = 'misconfigured';
       reasons.push(`Host entry '${server.hostReference}' conflicts across host sources.`);
-    } else if (server.id === 'playwright' && rows.some((row) => !row.exactPackagePin)) {
+    } else if (isPlaywrightServer(server) && rows.some((row) => !row.exactPackagePin)) {
       readiness = 'misconfigured';
       reasons.push(`Playwright scaffold must use @playwright/mcp@${MCP_SCAFFOLD_VERSIONS.playwright}.`);
-    } else if (server.id === 'playwright' && !deterministicPlaywrightProfile(entries.get(server.hostReference))) {
+    } else if (isPlaywrightServer(server) && !deterministicPlaywrightProfile(entries.get(server.hostReference))) {
       readiness = 'misconfigured';
       reasons.push('Playwright host entry must use the deterministic isolated/headless output, viewport, and timeout profile produced by mcp scaffold.');
     } else if (auth.status === 'invalid') {
       readiness = 'misconfigured';
       reasons.push(`Managed Playwright authentication profile is invalid (${auth.reason}).`);
-    } else if (server.id === 'playwright' && auth.status === 'configured'
+    } else if (isPlaywrightServer(server) && auth.status === 'configured'
         && !managedPlaywrightHostEntry(entries.get(server.hostReference))) {
       readiness = 'misconfigured';
       reasons.push('Managed Playwright authentication requires the SFlow host wrapper. Run singularity-flow mcp scaffold playwright --replace-server and review the change.');
@@ -1913,16 +1917,16 @@ export async function mcpDoctor(root, definition, options = {}) {
         reasons.push('Host readiness attestation is stale because host, policy, or authentication profile configuration changed.');
       }
     }
-    const warm = server.id === 'playwright' && entries.get(server.hostReference)
+    const warm = isPlaywrightServer(server) && entries.get(server.hostReference)
       ? await playwrightWarmReadiness(root, server, entries.get(server.hostReference), options)
       : { status: 'not-applicable', reason: null };
-    if (server.id === 'playwright' && entries.get(server.hostReference)
+    if (isPlaywrightServer(server) && entries.get(server.hostReference)
         && warm.status !== 'valid' && readiness !== 'misconfigured') {
       readiness = 'needs-host-setup';
       reasons.push(
         `Exact Playwright package warm proof is ${warm.status}: ${warm.reason} `
-        + 'Run singularity-flow mcp verify-offline playwright if the package is already present, '
-        + 'or singularity-flow mcp warm playwright --network.'
+        + `Run singularity-flow mcp verify-offline ${server.id} if the package is already present, `
+        + `or singularity-flow mcp warm ${server.id} --network.`
       );
     }
     let network = { status: 'not-checked' };

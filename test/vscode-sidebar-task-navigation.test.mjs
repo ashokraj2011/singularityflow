@@ -11,7 +11,7 @@ const view = overrides => ({ navigation: { workspace: null, next: null }, freshn
   loading: false, pending: null, active: null, favorites: [], ...overrides });
 
 test('main task destinations have a fixed order and contributed commands', async () => {
-  assert.deepEqual(PRIMARY_NAVIGATION.map(item => item.label), ['My Work', 'Stories', 'Artifacts', 'Story Analytics', 'Reviews', 'Configuration approvals', 'Workspaces', 'Configuration', 'After install']);
+  assert.deepEqual(PRIMARY_NAVIGATION.map(item => item.label), ['My Work', 'Stories', 'Artifacts', 'Story Analytics', 'Code Explainer', 'Reviews', 'Configuration approvals', 'Workspaces', 'Configuration', 'After install']);
   const manifest = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
   for (const item of PRIMARY_NAVIGATION) assert.ok(manifest.contributes.commands.some(command => command.command === item.command));
   const html = sidebarBody(view());
@@ -70,6 +70,7 @@ test('selection follows real editor destinations, including clearing a previous 
   assert.equal(sidebarDestination('singularityFlow.artifacts'), 'artifacts');
   assert.equal(sidebarDestination('singularityFlow.dashboard'), 'story-analytics');
   assert.equal(sidebarDestination('mainThreadWebview-singularityFlow.dashboard'), 'story-analytics');
+  assert.equal(sidebarDestination('singularityFlow.codeExplainer'), 'code-explainer');
   assert.equal(sidebarDestination('mainThreadWebview-singularityFlow.reviews'), 'reviews');
   assert.equal(sidebarDestination('singularityFlow.result', true), 'my-work');
   assert.equal(sidebarDestination('singularityFlow.result', false), null);

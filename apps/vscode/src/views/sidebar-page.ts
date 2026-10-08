@@ -8,6 +8,7 @@ export const PRIMARY_NAVIGATION = [
   { id: 'stories', label: 'Stories', icon: 'story', command: 'singularityFlow.openWorkspaceStories' },
   { id: 'artifacts', label: 'Artifacts', icon: 'document', command: 'singularityFlow.openPhaseArtifacts' },
   { id: 'story-analytics', label: 'Story Analytics', icon: 'impact', command: 'singularityFlow.openDashboard' },
+  { id: 'code-explainer', label: 'Code Explainer', icon: 'code', command: 'singularityFlow.openCodeExplainer' },
   { id: 'reviews', label: 'Reviews', icon: 'approval', command: 'singularityFlow.openReviews' },
   { id: 'configuration-approvals', label: 'Configuration approvals', icon: 'merge', command: 'singularityFlow.openConfigurationApprovals' },
   { id: 'workspace-manage', label: 'Workspaces', icon: 'workspace', command: 'singularityFlow.openWorkspaces' },

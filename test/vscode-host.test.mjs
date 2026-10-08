@@ -1225,7 +1225,7 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
   assert.match(navigation.webview.html, /<span>Singularity Flow<\/span>/);
   const primary = navigation.webview.html.match(/<nav aria-label="Singularity Flow">([\s\S]*?)<\/nav>/)?.[1] ?? '';
   assert.deepEqual([...primary.matchAll(/data-action="([^"]+)"/g)].map(match => match[1]),
-      ['my-work', 'stories', 'artifacts', 'story-analytics', 'reviews', 'configuration-approvals', 'workspace-manage', 'configuration-center']);
+      ['my-work', 'stories', 'artifacts', 'story-analytics', 'code-explainer', 'reviews', 'configuration-approvals', 'workspace-manage', 'configuration-center']);
   assert.match(navigation.webview.html, /data-state-key="pinned-shortcuts"/);
   assert.match(navigation.webview.html, /data-action="setup-wizard"/);
   assert.doesNotMatch(navigation.webview.html, /sf-help|help-popover|title=|mouseover|last-opened/);

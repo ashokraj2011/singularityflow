@@ -64,6 +64,13 @@ export const CX_STYLE = `
   .cx-depth > span { padding: 0 .55rem; color: var(--cx-dim); }
   #cx-root .cx-depth button { width: 26px; height: 26px; justify-content: center; border-left: 1px solid var(--cx-line); }
   #cx-root .cx-view-mode button { width: auto; padding: 0 .6rem; }
+  .cx-scope-pick { display: inline-flex; align-items: center; gap: .4rem; font-family: var(--cx-mono); font-size: 11.5px; color: var(--cx-dim); }
+  .cx-scope-pick[hidden] { display: none; }
+  .cx-scope-pick .cx-select { max-width: 280px; }
+  .cx-lang { display: inline-grid; place-items: center; width: 16px; height: 16px; flex: none; vertical-align: -3px; }
+  .cx-lang svg { width: 16px; height: 16px; display: block; }
+  .cx-repo-entry strong .cx-lang, .cx-repo-file .head .cx-lang { margin-right: .35rem; }
+  .cx-lang-list { display: inline-flex; gap: .3rem; align-items: center; margin-right: .35rem; vertical-align: -3px; }
   #cx-root .cx-depth button[aria-pressed="true"] { background: color-mix(in srgb, var(--cx-changed) 22%, transparent); color: var(--cx-changed); font-weight: 700; }
 
   .cx-tabs { display: flex; align-items: stretch; gap: .25rem; padding: 0 1rem; border-bottom: 1px solid var(--cx-line); min-width: 0; overflow-x: auto; }
@@ -271,9 +278,14 @@ export const CX_STYLE = `
   #cx-root .cx-tcard:hover:not(:disabled) { border-color: var(--cx-changed); }
   #cx-root .cx-tcard.lit { border-color: var(--cx-changed); box-shadow: 0 0 0 1px color-mix(in srgb, var(--cx-changed) 45%, transparent); }
   #cx-root .cx-tcard.dim { opacity: .3; }
-  .cx-tcard .id { font-family: var(--cx-mono); font-size: 11px; font-weight: 700; display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
+  .cx-trace-col { min-width: 0; }
+  #cx-root .cx-tcard > * { min-width: 0; }
+  .cx-tcard .id { font-family: var(--cx-mono); font-size: 11px; font-weight: 700; display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; overflow-wrap: anywhere; }
+  .cx-tcard .id .nm { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+  .cx-tcard .id:has(.nm) { flex-wrap: nowrap; align-items: flex-start; }
+  .cx-tcard .dir { font-family: var(--cx-mono); font-size: 10px; color: var(--cx-faint); overflow-wrap: anywhere; }
   .cx-tcard .tx { color: var(--cx-dim); }
-  .cx-tcard .sym { font-family: var(--cx-mono); font-size: 11px; color: var(--cx-text); }
+  .cx-tcard .sym { font-family: var(--cx-mono); font-size: 11px; color: var(--cx-text); overflow-wrap: anywhere; }
   .cx-trace-links { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
   .cx-trace-links path { fill: none; stroke: var(--cx-edge); stroke-width: 1.4; }
   .cx-trace-links path.tag { stroke: var(--cx-test); }
@@ -451,6 +463,7 @@ export function codeExplainerBody(token: string): string {
           <button type="button" data-view="delta" aria-pressed="true" title="What this Story changed, and the code it calls or is called by">Delta</button>
           <button type="button" data-view="full" aria-pressed="false" title="Every function in the current worktree's code, and how they call each other">Full</button>
         </div>
+        <label class="cx-scope-pick" id="cx-scope-pick" hidden><span>Folder</span><select id="cx-scope" class="cx-select" aria-label="Folder the full view maps"></select></label>
         <button class="cx-btn" type="button" data-action="reindex" title="Read the change and ask the language services again">${icon('refresh', { size: 14 })}<span>Re-index</span></button>
       </div>
     </header>
@@ -1062,6 +1075,63 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     for (const key in attributes) node.setAttribute(key, String(attributes[key]));
     return node;
   }
+  // One icon per language family. Editor language ids and the repository listing's names both map here.
+  const LANGUAGE_FAMILY = {
+    java: 'java', python: 'python', py: 'python',
+    typescript: 'typescript', typescriptreact: 'typescript', ts: 'typescript', tsx: 'typescript',
+    javascript: 'javascript', javascriptreact: 'javascript', js: 'javascript', jsx: 'javascript', mjs: 'javascript', cjs: 'javascript',
+    csharp: 'csharp', cs: 'csharp', fsharp: 'fsharp', fs: 'fsharp', vb: 'vb', dotnet: 'csharp',
+    shellscript: 'shell', shell: 'shell', sh: 'shell', bash: 'shell', zsh: 'shell', powershell: 'powershell', ps1: 'powershell',
+    kotlin: 'kotlin', kt: 'kotlin', go: 'go', rust: 'rust', rs: 'rust', ruby: 'ruby', rb: 'ruby', php: 'php', swift: 'swift',
+    scala: 'scala', groovy: 'groovy', c: 'c', cpp: 'cpp', 'objective-c': 'c', 'objective-cpp': 'cpp', dart: 'dart', r: 'r', lua: 'lua'
+  };
+  const LANGUAGE_BADGE = {
+    typescript: ['TS', '#3178c6', '#fff'], javascript: ['JS', '#f0db4f', '#222'], csharp: ['C#', '#68217a', '#fff'],
+    fsharp: ['F#', '#378bba', '#fff'], vb: ['VB', '#5a2a82', '#fff'], kotlin: ['Kt', '#7f52ff', '#fff'], go: ['Go', '#00add8', '#fff'],
+    rust: ['Rs', '#b7410e', '#fff'], ruby: ['Rb', '#cc342d', '#fff'], php: ['php', '#777bb4', '#fff'], swift: ['Sw', '#f05138', '#fff'],
+    scala: ['Sc', '#dc322f', '#fff'], groovy: ['Gy', '#4298b8', '#fff'], c: ['C', '#5c6bc0', '#fff'], cpp: ['C++', '#00599c', '#fff'],
+    dart: ['Dt', '#0175c2', '#fff'], r: ['R', '#276dc3', '#fff'], lua: ['Lua', '#000080', '#fff'], powershell: ['PS', '#2671be', '#fff']
+  };
+  const LANGUAGE_NAME = { java: 'Java', python: 'Python', typescript: 'TypeScript', javascript: 'JavaScript', csharp: 'C# (.NET)', fsharp: 'F# (.NET)', vb: 'Visual Basic (.NET)', shell: 'Shell script', powershell: 'PowerShell' };
+  function languageFamily(language) { return LANGUAGE_FAMILY[String(language || '').toLowerCase()] || null; }
+  function langIcon(language) {
+    const family = languageFamily(language);
+    const holder = el('span', 'cx-lang' + (family ? ' l-' + family : ''));
+    holder.title = LANGUAGE_NAME[family] || (family ? family.charAt(0).toUpperCase() + family.slice(1) : String(language || 'file'));
+    holder.setAttribute('aria-hidden', 'true');
+    const icon = svg('svg', { viewBox: '0 0 16 16' });
+    if (family === 'java') {
+      // A cup with steam.
+      icon.appendChild(svg('path', { d: 'M3 7h8v3.5A3.5 3.5 0 0 1 7.5 14h-1A3.5 3.5 0 0 1 3 10.5z', fill: '#e76f00' }));
+      icon.appendChild(svg('path', { d: 'M11 8h1.2a1.8 1.8 0 0 1 0 3.6H10.6', fill: 'none', stroke: '#e76f00', 'stroke-width': '1.3' }));
+      icon.appendChild(svg('path', { d: 'M6 1.5c-1 1 1 1.6 0 2.8M8.5 1.5c-1 1 1 1.6 0 2.8', fill: 'none', stroke: '#5382a1', 'stroke-width': '1.1', 'stroke-linecap': 'round' }));
+    } else if (family === 'python') {
+      // Two interlocking halves.
+      icon.appendChild(svg('path', { d: 'M8 1.5c-2.6 0-3 1-3 2.2V5h3.2v.7H3.6C2.3 5.7 1.5 6.7 1.5 8.4c0 1.8.8 2.8 2 2.8H5V9.4c0-1.2 1-2.2 2.2-2.2h3.1c1 0 1.7-.8 1.7-1.8V3.7c0-1.2-1.3-2.2-4-2.2z', fill: '#3776ab' }));
+      icon.appendChild(svg('path', { d: 'M8 14.5c2.6 0 3-1 3-2.2V11H7.8v-.7h4.6c1.3 0 2.1-1 2.1-2.7 0-1.8-.8-2.8-2-2.8H11v1.8c0 1.2-1 2.2-2.2 2.2H5.7c-1 0-1.7.8-1.7 1.8v1.7c0 1.2 1.3 2.2 4 2.2z', fill: '#ffd43b' }));
+      icon.appendChild(svg('circle', { cx: '6.3', cy: '3.2', r: '.7', fill: '#fff' }));
+      icon.appendChild(svg('circle', { cx: '9.7', cy: '12.8', r: '.7', fill: '#fff' }));
+    } else if (family === 'shell') {
+      // A terminal prompt.
+      icon.appendChild(svg('rect', { x: '1', y: '2.5', width: '14', height: '11', rx: '2', fill: '#2b2b2b', stroke: '#4eaa25', 'stroke-width': '1' }));
+      icon.appendChild(svg('path', { d: 'm4 6 2.2 2L4 10M8 10.5h4', fill: 'none', stroke: '#4eaa25', 'stroke-width': '1.4', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+    } else if (LANGUAGE_BADGE[family]) {
+      const badge = LANGUAGE_BADGE[family];
+      const dotnet = family === 'csharp' || family === 'fsharp' || family === 'vb';
+      icon.appendChild(dotnet
+        ? svg('path', { d: 'M8 .8 14.3 4.4v7.2L8 15.2 1.7 11.6V4.4z', fill: badge[1] })
+        : svg('rect', { x: '1', y: '1', width: '14', height: '14', rx: '2.5', fill: badge[1] }));
+      const text = svg('text', { x: '8', y: '11', 'text-anchor': 'middle', fill: badge[2], 'font-size': badge[0].length > 2 ? '5.6' : '7', 'font-weight': '700', 'font-family': 'system-ui, sans-serif' });
+      text.textContent = badge[0];
+      icon.appendChild(text);
+    } else {
+      // Any other file.
+      icon.appendChild(svg('path', { d: 'M4 1.5h5.5L13 5v9.5H4z', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.1', opacity: '.6' }));
+      icon.appendChild(svg('path', { d: 'M9.5 1.5V5H13', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.1', opacity: '.6' }));
+    }
+    holder.appendChild(icon);
+    return holder;
+  }
   function button(className, text, onClick, title) {
     const node = el('button', className, text);
     node.type = 'button';
@@ -1157,9 +1227,30 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     $('cx-ask').hidden = !model.modelEnabled;
     root.querySelectorAll('[data-depth]').forEach(function (node) { node.setAttribute('aria-pressed', String(Number(node.dataset.depth) === model.intelligence.depth)); });
     root.querySelectorAll('[data-view]').forEach(function (node) { node.setAttribute('aria-pressed', String(node.dataset.view === model.view)); });
+    renderScope();
     $('cx-count-graph').textContent = String(model.modules.filter(function (module) { return module.role !== 'context' || module.symbolIds.length; }).length);
     $('cx-count-trace').textContent = String(model.trace.counts.requirements || model.trace.code.length);
     $('cx-count-walk').textContent = String(model.walkthrough.length);
+  }
+
+  // The folders the full view can map. Options carry indexes into the host's own list, never paths.
+  function renderScope() {
+    const pick = $('cx-scope-pick');
+    const select = $('cx-scope');
+    const areas = model.areas ? model.areas.list : [];
+    pick.hidden = model.view !== 'full' || areas.length < 2;
+    if (pick.hidden) return;
+    const total = areas.reduce(function (sum, area) { return sum + area.files; }, 0);
+    select.replaceChildren();
+    const whole = el('option', '', 'Whole worktree (' + total + ' files)');
+    whole.value = '-1';
+    select.appendChild(whole);
+    areas.forEach(function (area, index) {
+      const option = el('option', '', (area.path ? area.path + '/' : 'top level') + (area.own ? ' (its own files)' : '') + ' (' + area.files + ')');
+      option.value = String(index);
+      select.appendChild(option);
+    });
+    select.value = model.areas.selected === null ? '-1' : String(model.areas.selected);
   }
 
   function renderStatus() {
@@ -1269,6 +1360,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       const head = button('cx-tree-module', '', function () { selectModule(module.id, true); });
       head.setAttribute('role', 'treeitem');
       head.appendChild(el('i', 'cx-dot ' + module.role));
+      if (!module.group && !module.external) head.appendChild(langIcon(module.language));
       head.appendChild(el('span', 'nm', module.external ? (module.label || module.name) : module.path));
       if (module.added || module.removed) head.appendChild(delta(module.added, module.removed));
       group.appendChild(head);
@@ -1434,7 +1526,9 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       head.dataset.drag = module.id;
       head.appendChild(el('span', 'cx-dot ' + module.role));
       const file = el('div', 'file');
-      file.appendChild(el('b', '', module.external ? (module.label || module.name) : module.name));
+      const fileName = el('b', '', module.external ? (module.label || module.name) : module.name);
+      if (!module.group && !module.external) fileName.insertBefore(langIcon(module.language), fileName.firstChild);
+      file.appendChild(fileName);
       file.appendChild(el('small', '', module.external ? 'outside this repository' : module.group ? module.symbolIds.length + ' file' + (module.symbolIds.length === 1 ? '' : 's') + ' · no symbols' : (module.dir || '.') + '/'));
       head.appendChild(file);
       const right = el('span', 'cx-delta');
@@ -1929,6 +2023,18 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
 
   // ---- Trace -------------------------------------------------------------------------------
   let traceLit = null;
+  // A file in a trace card: its icon and name, then its folder on a line of its own that wraps.
+  function fileTitle(file, language) {
+    const holder = el('span', 'id');
+    const slash = file.lastIndexOf('/');
+    holder.appendChild(langIcon(language || file.slice(file.lastIndexOf('.') + 1)));
+    holder.appendChild(el('span', 'nm', slash >= 0 ? file.slice(slash + 1) : file));
+    const wrap = document.createDocumentFragment();
+    wrap.appendChild(holder);
+    if (slash > 0) wrap.appendChild(el('span', 'dir', file.slice(0, slash) + '/'));
+    return wrap;
+  }
+
   function renderTrace() {
     const holder = $('cx-trace');
     holder.replaceChildren();
@@ -2013,12 +2119,12 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       const module = model.moduleById[entry.moduleId];
       if (!module) return;
       card(codeCol, 'c:' + entry.moduleId, function (node) {
-        const id = el('span', 'id', module.path);
-        node.appendChild(id);
+        node.title = module.path;
+        node.appendChild(fileTitle(module.path, module.language));
         node.appendChild(delta(module.added, module.removed));
         entry.symbols.slice(0, 6).forEach(function (symbolId) {
           const symbol = model.byId[symbolId];
-          if (symbol) node.appendChild(el('span', 'sym', '· ' + symbol.qualifiedName + (symbol.added || symbol.removed ? '  +' + symbol.added + ' −' + symbol.removed : '')));
+          if (symbol) node.appendChild(el('span', 'sym', '·\u00a0' + symbol.qualifiedName + (symbol.added || symbol.removed ? '  +' + symbol.added + ' −' + symbol.removed : '')));
         });
         if (entry.symbols.length > 6) node.appendChild(el('span', 'tx', '… ' + (entry.symbols.length - 6) + ' more'));
       });
@@ -2027,10 +2133,11 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     const testCol = column('Tests', tests.length);
     tests.forEach(function (test) {
       card(testCol, 't:' + test.id, function (node) {
-        node.appendChild(el('span', 'id', test.path));
+        node.title = test.path;
+        node.appendChild(fileTitle(test.path, null));
         node.appendChild(el('span', 'tx', test.source === 'reference' ? 'refers to changed code' : test.source === 'both' ? 'declared tag + refers to changed code' : 'declared requirement tag'));
         test.requirements.forEach(function (r) { node.appendChild(el('span', 'sym', '⟵ ' + r)); });
-        test.symbols.slice(0, 4).forEach(function (id) { if (model.byId[id]) node.appendChild(el('span', 'sym', '→ ' + model.byId[id].qualifiedName)); });
+        test.symbols.slice(0, 4).forEach(function (id) { if (model.byId[id]) node.appendChild(el('span', 'sym', '→\u00a0' + model.byId[id].qualifiedName)); });
       });
       test.requirements.forEach(function (r) { links.push({ from: 'r:' + r, to: 't:' + test.id, kind: 'tag' }); });
       test.symbols.forEach(function (id) { const symbol = model.byId[id]; if (symbol) links.push({ from: 'c:' + symbol.moduleId, to: 't:' + test.id, kind: 'reference' }); });
@@ -2124,7 +2231,15 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
         button.type = 'button';
         button.dataset.action = 'repo-scope';
         button.dataset.index = String(entryIndex);
-        button.appendChild(el('strong', '', entry.path + (entry.kind === 'folder' ? '/' : '')));
+        const name = el('strong', '', entry.path + (entry.kind === 'folder' ? '/' : ''));
+        if (entry.kind === 'folder') {
+          // A folder shows the icon of each language it holds, most files first.
+          const icons = el('span', 'cx-lang-list');
+          entry.languages.filter(function (item) { return languageFamily(item.language); }).slice(0, 4)
+            .forEach(function (item) { icons.appendChild(langIcon(item.language)); });
+          if (icons.childNodes.length) name.insertBefore(icons, name.firstChild);
+        } else name.insertBefore(langIcon(entry.languages[0] ? entry.languages[0].language : null), name.firstChild);
+        button.appendChild(name);
         button.appendChild(el('small', '', (entry.kind === 'folder' ? entry.files + ' file' + (entry.files === 1 ? '' : 's') + ' · ' : '')
           + entry.languages.map(function (item) { return item.language + ' ' + item.files; }).join(' · ') + (entry.tests ? ' · ' + entry.tests + ' test' : '')));
         button.title = 'Explain ' + entry.path;
@@ -2143,7 +2258,9 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
         const file = item.file;
         const row = el('div', 'cx-repo-file');
         const head = el('div', 'head');
-        head.appendChild(el('span', '', file.path));
+        const filePath = el('span', '', file.path);
+        filePath.insertBefore(langIcon(file.language), filePath.firstChild);
+        head.appendChild(filePath);
         head.appendChild(el('small', '', file.language + ' · ' + sizeLabel(file.bytes) + (file.test ? ' · test' : '')));
         row.appendChild(head);
         if (file.symbols.length) {
@@ -3324,6 +3441,13 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     }
   });
 
+  $('cx-scope').addEventListener('change', function (event) {
+    const index = Number(event.target.value);
+    if (!model || !Number.isInteger(index)) return;
+    viewChosen = true;
+    post('cx.scope', { index: index });
+    if (view.tab !== 'graph') setTab('graph');
+  });
   $('cx-flow-entry').addEventListener('change', function (event) { view.flowEntry = event.target.value; view.lensItem = null; save(); renderFlow(); renderInspector(); });
   $('cx-logic-fn').addEventListener('change', function (event) { view.logicSymbol = event.target.value; view.lensItem = null; save(); renderLogic(); renderInspector(); });
 

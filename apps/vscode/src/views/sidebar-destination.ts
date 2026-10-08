@@ -9,6 +9,7 @@ export function sidebarDestination(viewType: string | null, home = false): strin
     'singularityFlow.stories': 'stories',
     'singularityFlow.artifacts': 'artifacts',
     'singularityFlow.dashboard': 'story-analytics',
+    'singularityFlow.codeExplainer': 'code-explainer',
     'singularityFlow.reviews': 'reviews',
     'singularityFlow.approvals': 'reviews',
     'singularityFlow.capabilityProposals': 'reviews',

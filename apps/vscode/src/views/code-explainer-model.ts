@@ -31,6 +31,10 @@ export const CX_LIMITS = Object.freeze({
   // The full view maps the worktree's own code, so it reads more files and asks more questions;
   // still bounded, and every bound that is reached is named on the canvas.
   fullFiles: 60,
+  // A folder the reader chose is mapped more deeply than the whole worktree at once.
+  scopedFiles: 150,
+  // The worktree listing used when the repository is too large for the CLI to list every file.
+  listedFiles: 5000,
   fullSeeds: 100,
   fullCallRequests: 360
 });
@@ -156,6 +160,9 @@ export interface CxBuildInput {
   depth: number;
   /** Absent means delta, the view this explainer always drew. */
   view?: CxView;
+  /** The folders the full view can be limited to, and the one chosen (an index), if any. */
+  areas?: CxArea[];
+  scope?: number | null;
   modelEnabled: boolean;
   notes?: string[];
   truncated?: string[];
@@ -269,6 +276,8 @@ export interface CxModel {
   id: string;
   mode: 'change' | 'source';
   view: CxView;
+  /** The folders the full view can be limited to; `selected` is an index into `list`, or null for the whole worktree. */
+  areas: { list: CxArea[]; selected: number | null };
   repository: { name: string; branch: string | null; head: string | null; base: string | null };
   story: null | {
     workId: string; title: string | null; phase: string | null; phaseLabel: string | null; phaseStatus: string | null;
@@ -350,6 +359,122 @@ export function isTestPath(file: string): boolean {
     || /\.(test|spec|e2e)\.[cm]?[jt]sx?$/i.test(base)
     || /^test_.+\.py$/i.test(base) || /_test\.(py|go|rb|exs?)$/i.test(base)
     || /(Test|Tests|Spec|IT)\.(java|kt|kts|scala|groovy|cs|swift)$/.test(base);
+}
+
+/** Folders that hold Git metadata, Singularity Flow's own records or tool output, never code to explain. */
+const HIDDEN_ROOTS = new Set(['.git', 'singularity', '.singularity-flow']);
+const HIDDEN_SEGMENTS = new Set(['.git', '.singularity-flow', 'node_modules', '.gradle', '.idea', '.vscode', '__pycache__', '.venv', '.mvn']);
+/** Build output a worktree listing (not Git's) can contain. */
+export const CX_OUTPUT_FOLDERS = Object.freeze(['target', 'build', 'bin', 'obj', 'out', 'dist']);
+
+/** A repository path in one spelling: forward slashes, no leading `./` or `/`. */
+export function repositoryPath(file: string): string {
+  return String(file).replace(/\\/g, '/').replace(/^(?:\.\/)+/, '').replace(/^\/+/, '');
+}
+
+/**
+ * Whether a repository-relative path is code this explainer may show. The CLI already leaves
+ * Singularity Flow's files out; this holds for every path the panel itself lists too, whichever
+ * separator the platform writes.
+ */
+export function isExplainableRepositoryPath(file: string): boolean {
+  const parts = repositoryPath(file).split('/').filter(Boolean);
+  if (!parts.length) return false;
+  if (HIDDEN_ROOTS.has(parts[0]!.toLowerCase())) return false;
+  if (parts[0] === '.github' && parts[1] === 'agents') return false;
+  return !parts.slice(0, -1).some((part) => HIDDEN_SEGMENTS.has(part.toLowerCase()));
+}
+
+/** One folder of code the full view can be limited to. `own` holds only the files directly inside it. */
+export interface CxArea { path: string; files: number; own?: boolean }
+
+interface AreaNode { path: string; files: number; direct: number; children: Map<string, AreaNode> }
+
+/**
+ * The folders a reader can choose between, sized so none is much larger than `target` files where
+ * the tree allows it. Single-child chains (`src/main/java/com/acme`) collapse into the folder that
+ * actually branches, so a Maven or Gradle service is one choice, not seven.
+ */
+export function codeAreas(paths: readonly string[], { target = CX_LIMITS.fullFiles, maxAreas = 40 } = {}): CxArea[] {
+  const root: AreaNode = { path: '', files: 0, direct: 0, children: new Map() };
+  for (const file of paths) {
+    const parts = repositoryPath(file).split('/').filter(Boolean);
+    let node = root;
+    node.files += 1;
+    for (const part of parts.slice(0, -1)) {
+      const next = node.children.get(part) ?? { path: node.path ? `${node.path}/${part}` : part, files: 0, direct: 0, children: new Map() };
+      node.children.set(part, next);
+      node = next;
+      node.files += 1;
+    }
+    node.direct += 1;
+  }
+  const collapse = (node: AreaNode): AreaNode => {
+    let current = node;
+    while (current.direct === 0 && current.children.size === 1) current = [...current.children.values()][0]!;
+    return current;
+  };
+  type Entry = { node: AreaNode; own: boolean };
+  let areas: Entry[] = [...root.children.values()].map((node) => ({ node: collapse(node), own: false }));
+  if (root.direct) areas.push({ node: { ...root, files: root.direct, children: new Map() }, own: true });
+  for (;;) {
+    const splittable = areas.filter((entry) => !entry.own && entry.node.files > target && entry.node.children.size >= 2
+      && areas.length - 1 + entry.node.children.size + (entry.node.direct ? 1 : 0) <= maxAreas)
+      .sort((left, right) => right.node.files - left.node.files)[0];
+    if (!splittable) break;
+    const node = splittable.node;
+    areas = areas.filter((entry) => entry !== splittable);
+    areas.push(...[...node.children.values()].map((child) => ({ node: collapse(child), own: false })));
+    if (node.direct) areas.push({ node: { ...node, files: node.direct, children: new Map() }, own: true });
+  }
+  return areas.map(({ node, own }) => (own ? { path: node.path, files: node.files, own: true } : { path: node.path, files: node.files }))
+    .sort((left, right) => left.path.localeCompare(right.path, 'en'));
+}
+
+/** Whether a file belongs to an area: anywhere below it, or directly inside it for an `own` area. */
+export function inArea(file: string, area: CxArea): boolean {
+  const normal = repositoryPath(file);
+  const folder = normal.includes('/') ? normal.slice(0, normal.lastIndexOf('/')) : '';
+  if (area.own) return folder === area.path;
+  return area.path === '' || normal.startsWith(`${area.path}/`);
+}
+
+/** The most specific area a file belongs to, or -1. */
+export function areaIndex(file: string, areas: readonly CxArea[]): number {
+  let best = -1;
+  areas.forEach((area, index) => {
+    if (inArea(file, area) && (best < 0 || area.path.length > areas[best]!.path.length)) best = index;
+  });
+  return best;
+}
+
+/**
+ * Up to `limit` items, taken in turn from each area, so a bound leaves every folder represented
+ * instead of keeping the alphabetically first ones and dropping the rest.
+ */
+export function fairSample<T>(items: readonly T[], keyOf: (item: T) => string, areas: readonly CxArea[], limit: number): T[] {
+  if (items.length <= limit) return [...items];
+  const queues = new Map<number, T[]>();
+  for (const item of items) {
+    const index = areaIndex(keyOf(item), areas);
+    const queue = queues.get(index) ?? [];
+    queue.push(item);
+    queues.set(index, queue);
+  }
+  const order = [...queues.keys()].sort((left, right) => left - right);
+  const picked: T[] = [];
+  for (let round = 0; picked.length < limit; round += 1) {
+    let any = false;
+    for (const index of order) {
+      const item = queues.get(index)![round];
+      if (item === undefined) continue;
+      any = true;
+      picked.push(item);
+      if (picked.length >= limit) break;
+    }
+    if (!any) break;
+  }
+  return picked;
 }
 
 /**
@@ -932,7 +1057,8 @@ interface FileChange {
  * capture from drawing them.
  */
 export function isSingularityOwnedPath(path: string): boolean {
-  return ['singularity', '.github/agents', '.singularity-flow'].some((root) => path === root || path.startsWith(`${root}/`));
+  // Git metadata and tool folders are held to the same rule, in either path separator.
+  return Boolean(path) && !isExplainableRepositoryPath(path);
 }
 
 /** A `clause-tag` statement's file and tag; null for any other statement or a malformed one. */
@@ -1127,7 +1253,7 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
   // 1. Every harvested file with an outline: its callables and containers become symbols. A code
   // file no language service answered for gets an outline read from its own text.
   for (const file of input.files) {
-    if (file.external) continue;
+    if (file.external || isSingularityOwnedPath(file.path)) continue;
     const fromService = Boolean(file.symbols && file.symbols.length);
     const outline = fromService ? file.symbols! : file.lines && isCodeLanguage(file.language) ? textSymbols(file.lines, file.language) : null;
     if (!outline) continue;
@@ -1638,6 +1764,10 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
     id,
     mode: view || input.change.patch ? 'change' : 'source',
     view: input.view === 'full' ? 'full' : 'delta',
+    areas: {
+      list: input.areas ?? [],
+      selected: input.scope != null && input.scope >= 0 && input.scope < (input.areas?.length ?? 0) ? input.scope : null
+    },
     repository: { name: input.repository.name, branch: input.repository.branch, head: input.repository.head, base: input.change.base },
     story: story ? {
       workId: story.workId,

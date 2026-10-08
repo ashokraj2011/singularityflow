@@ -105,7 +105,7 @@ test('the host accepts a closed set of messages, each naming ids, never a path, 
   const source = codeOnly(await readFile(path.join(root, 'apps/vscode/src/views/code-explainer.ts'), 'utf8'));
   const router = source.slice(source.indexOf("registerMessageRouter('singularityFlow.codeExplainer'"), source.indexOf('private accept('));
   const accepted = [...router.matchAll(/'(cx\.[A-Za-z]+)':/g)].map((match) => match[1]);
-  assert.deepEqual(accepted, ['cx.ready', 'cx.reindex', 'cx.depth', 'cx.view', 'cx.open', 'cx.openModule', 'cx.openTest', 'cx.openSite',
+  assert.deepEqual(accepted, ['cx.ready', 'cx.reindex', 'cx.depth', 'cx.view', 'cx.scope', 'cx.open', 'cx.openModule', 'cx.openTest', 'cx.openSite',
     'cx.openLine', 'cx.diff', 'cx.ask', 'cx.copy', 'cx.export', 'cx.changeExplorer', 'cx.repository', 'cx.repoOpen', 'cx.story']);
   const fields = [...router.matchAll(/(?:string|integer|enum)Field\(message, '([a-z]+)'/g)].map((match) => match[1]);
   assert.deepEqual([...new Set(fields)].sort(), ['depth', 'edge', 'index', 'line', 'module', 'symbol', 'to', 'view']);
@@ -185,4 +185,36 @@ test('lens layouts: stacked top-down and wrapped to the panel; flowcharts never 
   assert.equal(chart.nodes[0].kind, 'start');
   assert.ok(chart.edges.some((edge) => edge.back), 'a loop draws its way back');
   assert.ok(chart.edges.some((edge) => edge.label === 'on error: IOError' && edge.dashed), 'a catch is a dashed branch');
+});
+
+test('the full view offers the folders it can map, and the page asks for one by its index', async () => {
+  const body = codeExplainerBody('nonce');
+  assert.match(body, /<label class="cx-scope-pick" id="cx-scope-pick" hidden><span>Folder<\/span><select id="cx-scope"/);
+  assert.match(CODE_EXPLAINER_SCRIPT, /pick\.hidden = model\.view !== 'full' \|\| areas\.length < 2;/, 'only the full view of more than one folder shows it');
+  assert.match(CODE_EXPLAINER_SCRIPT, /post\('cx\.scope', \{ index: index \}\);/, 'the page names an index, never a path');
+  assert.match(CODE_EXPLAINER_SCRIPT, /whole\.value = '-1';/, 'the whole worktree stays one choice');
+  const host = codeOnly(await readFile(path.join(root, 'apps/vscode/src/views/code-explainer.ts'), 'utf8'));
+  assert.match(host, /const area = index >= 0 \? this\.areas\[index\] \?\? null : null;/, 'the host resolves the index against its own list');
+  assert.match(host, /fairSample\(inScope, \(relative\) => relative, codeAreas\(inScope\), limit\)/, 'a bound keeps every folder represented');
+  assert.match(host, /repository\?\.budget\?\.status === 'over-budget'\) return await this\.listedCodeFiles\(notes\)/,
+    'a repository over the AST budget is listed from the worktree, not mapped as empty');
+  assert.match(host, /vscode\.workspace\.findFiles\(new vscode\.RelativePattern\(root, CODE_FILE_GLOB\), LISTING_EXCLUDE, CX_LIMITS\.listedFiles\)/);
+  const raw = await readFile(path.join(root, 'apps/vscode/src/views/code-explainer.ts'), 'utf8');
+  assert.match(raw, /LISTING_EXCLUDE = `\*\*\/\{\.git,singularity,\.singularity-flow,node_modules/, 'the listing never walks Git metadata or Singularity Flow records');
+  assert.match(host, /explainableView\(commandData/, 'the Repository tab drops anything this panel may not show before indexes are given out');
+});
+
+test('each file and folder carries an icon for its language', () => {
+  const families = runInNewContext(`(${CODE_EXPLAINER_SCRIPT.match(/const LANGUAGE_FAMILY = (\{[\s\S]*?\});/)[1]})`);
+  for (const [language, family] of [['java', 'java'], ['python', 'python'], ['typescriptreact', 'typescript'], ['typescript', 'typescript'],
+    ['javascript', 'javascript'], ['csharp', 'csharp'], ['cs', 'csharp'], ['fsharp', 'fsharp'], ['shellscript', 'shell'], ['sh', 'shell'],
+    ['bash', 'shell'], ['powershell', 'powershell']]) {
+    assert.equal(families[language], family, language);
+  }
+  assert.match(CODE_EXPLAINER_SCRIPT, /csharp: \['C#', '#68217a', '#fff'\]/);
+  assert.match(CODE_EXPLAINER_SCRIPT, /if \(!module\.group && !module\.external\) fileName\.insertBefore\(langIcon\(module\.language\), fileName\.firstChild\);/, 'graph cards');
+  assert.match(CODE_EXPLAINER_SCRIPT, /if \(!module\.group && !module\.external\) head\.appendChild\(langIcon\(module\.language\)\);/, 'the outline');
+  assert.match(CODE_EXPLAINER_SCRIPT, /filePath\.insertBefore\(langIcon\(file\.language\), filePath\.firstChild\);/, 'repository files');
+  assert.match(CODE_EXPLAINER_SCRIPT, /icons\.appendChild\(langIcon\(item\.language\)\)/, 'repository folders show each language they hold');
+  assert.match(CX_STYLE, /\.cx-lang \{ display: inline-grid;/);
 });

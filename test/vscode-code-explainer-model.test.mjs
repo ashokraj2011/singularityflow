@@ -12,7 +12,8 @@ import test from 'node:test';
 
 import {
   buildCodeExplainerModel, changePrompt, convertSymbols, copilotPrompt, countParameters, declaredName, diffLines,
-  estimateComplexity, explanationText, exportDocument, externalLabel, flattenSymbols, hoverParts, isSingularityOwnedPath, isTestPath,
+  codeAreas, CX_LIMITS, estimateComplexity, explanationText, exportDocument, externalLabel, fairSample, flattenSymbols, hoverParts, inArea,
+  isExplainableRepositoryPath, isSingularityOwnedPath, isTestPath,
   leadingStart, maskSource, parseFilePatch, SYMBOL_KIND, symbolKey, textSymbols, visibleCode, workingDiff
 } from '../apps/vscode/src/views/code-explainer-model.ts';
 import { explainXpl2Subject } from '../src/comprehension/xpl2/subjects.mjs';
@@ -351,8 +352,9 @@ test('Singularity Flow\'s own files are never drawn; other files without code sh
   assert.deepEqual(model.walkthrough, [], 'documents are not steps of the code walkthrough');
 });
 
-test('isSingularityOwnedPath names the governed roots and machine-local state only', () => {
-  for (const path of ['singularity', 'singularity/workflow.yml', '.github/agents/qa.agent.md', '.singularity-flow/x']) {
+test('isSingularityOwnedPath names the governed roots, machine-local state and Git metadata only', () => {
+  for (const path of ['singularity', 'singularity/workflow.yml', '.github/agents/qa.agent.md', '.singularity-flow/x', '.git/HEAD',
+    'singularity\\work-items\\PAY-1\\workflow.json', '.git\\config', 'services/api/.git/HEAD']) {
     assert.equal(isSingularityOwnedPath(path), true, path);
   }
   for (const path of ['singularity.md', 'src/singularity/x.ts', '.github/workflows/ci.yml', '.github/agents.md']) {
@@ -464,4 +466,64 @@ test('the full view maps every function of the worktree, and delta stays as it w
   assert.equal(delta.view, 'delta');
   assert.ok(delta.symbols.every((entry) => entry.role !== 'repository'), 'delta never uses the full-map role');
   assert.equal(delta.symbols.find((entry) => entry.qualifiedName === 'evaluate').role, 'context');
+});
+
+test('the panel never lists Git metadata, Singularity Flow records or tool folders, whichever separator a path uses', () => {
+  for (const path of ['.git/config', '.git\\objects\\ab', 'singularity/work-items/PAY-1/workflow.json', 'singularity\\workflow.yml',
+    '.singularity-flow/worktrees/PAY-1/src/A.java', '.github/agents/dev.agent.md', 'web/node_modules/x/index.js',
+    'services/orders/.gradle/caches/A.java', 'tools/__pycache__/report.py', './singularity/x.yml', '']) {
+    assert.equal(isExplainableRepositoryPath(path), false, path);
+  }
+  for (const path of ['services/orders/src/main/java/com/acme/Order.java', 'services\\payments\\Pay.java', 'singularity.md',
+    'src/singularity/Engine.java', '.github/workflows/ci.yml', 'scripts/deploy.sh', 'billing/Invoice.cs']) {
+    assert.equal(isExplainableRepositoryPath(path), true, path);
+  }
+});
+
+test('code areas collapse single-folder chains and split a large folder into its services', () => {
+  const files = [];
+  for (const service of ['orders', 'payments', 'inventory']) {
+    for (let index = 0; index < 30; index += 1) files.push(`services/${service}-service/src/main/java/com/acme/${service}/C${index}.java`);
+  }
+  files.push('common/src/main/java/com/acme/common/Money.java', 'scripts/deploy.sh', 'README.py');
+  const areas = codeAreas(files, { target: 60 });
+  assert.deepEqual(areas.map((area) => area.path), [
+    '', 'common/src/main/java/com/acme/common', 'scripts',
+    'services/inventory-service/src/main/java/com/acme/inventory', 'services/orders-service/src/main/java/com/acme/orders',
+    'services/payments-service/src/main/java/com/acme/payments'
+  ]);
+  assert.equal(areas[0].own, true, 'top-level files are their own area');
+  assert.equal(areas.reduce((sum, area) => sum + area.files, 0), files.length, 'every file is in exactly one area');
+  for (const file of files) assert.equal(areas.filter((area) => inArea(file, area)).length, 1, file);
+  // A small repository stays one choice per top-level folder.
+  assert.deepEqual(codeAreas(['src/a/A.java', 'src/b/B.java']).map((area) => area.path), ['src']);
+});
+
+test('a bounded full view takes files from every folder in turn instead of the alphabetically first', () => {
+  const files = [];
+  for (const folder of ['a-service', 'b-service', 'z-service']) for (let index = 0; index < 50; index += 1) files.push(`services/${folder}/F${index}.java`);
+  files.push('tools/report.py', 'web/src/api.ts');
+  const picked = fairSample(files, (file) => file, codeAreas(files, { target: CX_LIMITS.fullFiles }), CX_LIMITS.fullFiles);
+  assert.equal(picked.length, CX_LIMITS.fullFiles);
+  for (const prefix of ['services/a-service/', 'services/b-service/', 'services/z-service/', 'tools/', 'web/']) {
+    assert.ok(picked.some((file) => file.startsWith(prefix)), `${prefix} keeps a share of the bound`);
+  }
+  assert.deepEqual(fairSample(files.slice(0, 3), (file) => file, [], 10), files.slice(0, 3), 'under the bound nothing is dropped');
+});
+
+test('the model lists the folders the full view can map and the one chosen', () => {
+  const areas = [{ path: 'services/orders', files: 30 }, { path: 'web', files: 4 }];
+  const chosen = buildCodeExplainerModel(baseInput({ view: 'full', areas, scope: 1 }), 'cx-scope');
+  assert.deepEqual(chosen.areas, { list: areas, selected: 1 });
+  assert.equal(buildCodeExplainerModel(baseInput({ view: 'full', areas, scope: 7 }), 'cx-out').areas.selected, null, 'an index outside the list is the whole worktree');
+  assert.deepEqual(buildCodeExplainerModel(baseInput({}), 'cx-none').areas, { list: [], selected: null });
+});
+
+test('files under Git metadata or Singularity Flow roots never become cards, even if a harvest passes them', () => {
+  const lines = ['export function leaked() {', '  return 1;', '}'];
+  const model = buildCodeExplainerModel(baseInput({ files: [
+    { path: 'singularity\\scripts\\tool.ts', language: 'typescript', lines, symbols: null, symbolReason: null },
+    { path: '.git/hooks/pre-commit.ts', language: 'typescript', lines, symbols: null, symbolReason: null }
+  ] }), 'cx-hidden');
+  assert.deepEqual(model.modules.map((module) => module.path), []);
 });

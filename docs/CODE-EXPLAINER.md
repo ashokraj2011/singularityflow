@@ -7,8 +7,8 @@ prompt the person reviews before sending. Nothing here approves, verifies, publi
 
 Open it with **Singularity Flow: Code Explainer**, from the Navigator title bar or Source Control
 title bar, or from **Explain This Code** in the editor's *Singularity Flow* submenu, which focuses the
-function at the cursor (and works on code the change did not touch). The sidebar lists it under
-*Work tools → Understand changes*.
+function at the cursor (and works on code the change did not touch). **Code Explainer** is one of the
+Navigator's main destinations, and *Work tools → Understand changes* lists it too.
 
 ## What it shows
 
@@ -17,13 +17,22 @@ function at the cursor (and works on code the change did not touch). The sidebar
   colour bar (new, modified, removed); unchanged rows appear only when they call changed code or are
   called by it. Calls between rows of one file loop around the card's edge. Changed files without
   code (documents, configuration) share one *Other changed files* card. Singularity Flow's own files
-  (its governed roots, agent definitions and `.singularity-flow/` state) are never drawn, and
-  **Explain This Code** refuses them: they are not application code.
+  (its governed roots, agent definitions and `.singularity-flow/` state), Git metadata (`.git/`) and
+  tool folders such as `node_modules/` are never drawn or listed, whichever path separator the
+  platform uses, and **Explain This Code** refuses them: they are not application code. Each file and
+  folder carries an icon for its language (Java, Python, TypeScript, JavaScript, C#/F#/VB on .NET,
+  shell and PowerShell, and a badge for other languages).
 
   **View** chooses what the graph covers:
   - **Delta** draws what the Story changed and the code it calls or is called by.
   - **Full** maps every function in the current worktree's code and how they call each other, with
-    anything the Story changed still marked as changed.
+    anything the Story changed still marked as changed. **Folder** limits it to one part of the
+    repository: each service or top-level folder, with Maven/Gradle chains such as
+    `src/main/java/com/acme` folded into the folder that branches. When the whole worktree is more
+    than the full view maps at once, files are taken from every folder in turn, so no folder is left
+    out; choose a folder to map it in depth. A repository over the AST budget is listed from the
+    worktree by the editor (Git metadata, Singularity Flow records and build output excluded), so its
+    folders can still be chosen.
 
   The explainer opens on Delta when the Story has changed code and on Full when it has not. **Re-index**
   rebuilds the chosen view from the worktree as it is now, files not yet committed included.
@@ -149,8 +158,9 @@ language-service requests were answered, empty or failed.
 - **Bounded.** Anything cut is named in the view.
   - Per build: at most 40 changed code files, 120 call-hierarchy requests, 240 functions, and 40
     reference and hover lookups.
-  - The full view maps up to 60 code files and traces calls from up to 100 functions within 360
-    requests.
+  - The full view maps up to 60 code files of the whole worktree, or 150 of one chosen folder, taken
+    from each folder in turn, and traces calls from up to 100 functions within 360 requests. A
+    repository over the AST budget lists at most 5,000 code files from the worktree.
   - The lenses show 14 concepts and 80 entities. A data-flow path has at most 70 nodes, 6 steps deep.
     Logic is drawn for 240 functions of up to 600 lines, 160 statements each.
 - **Live but pinned.** A build describes one moment. Saving a file shown, or a newer capture, raises

@@ -23,9 +23,9 @@ import { DEFAULT_COMPREHENSION_SLICE_LEASE_MS, type SliceLease, type WorkspaceSt
 import { changeExplorerDiffHost } from './change-explorer-diff.ts';
 import { containedWorkingPath, readExactSource } from './change-explorer-source.ts';
 import {
-  buildCodeExplainerModel, changePrompt, convertSymbols, copilotPrompt, CX_LIMITS, explanationText, exportDocument, externalLabel, hoverParts,
-  isCodeLanguage, isTestPath, languageOf, symbolKey, workingDiff,
-  type CxBuildInput, type CxDiffHunk, type CxCallEnd, type CxCallInput, type CxChangeView, type CxFileInput, type CxModel, type CxRawSymbol,
+  buildCodeExplainerModel, changePrompt, codeAreas, convertSymbols, copilotPrompt, CX_LIMITS, CX_OUTPUT_FOLDERS, explanationText, exportDocument,
+  externalLabel, fairSample, hoverParts, inArea, isCodeLanguage, isExplainableRepositoryPath, isTestPath, languageOf, repositoryPath, symbolKey, workingDiff,
+  type CxArea, type CxBuildInput, type CxDiffHunk, type CxCallEnd, type CxCallInput, type CxChangeView, type CxFileInput, type CxModel, type CxRawSymbol,
   type CxView
 } from './code-explainer-model.ts';
 import { buildLenses } from './code-explainer-lenses.ts';
@@ -42,7 +42,22 @@ export interface CodeExplainerFocus { path: string; line: number | null }
 interface RepositoryExplanationView {
   entries?: Array<{ path: string }>;
   files?: Array<{ path: string; test?: boolean; symbols?: Array<{ line: number }> }>;
+  budget?: { status?: string };
 }
+
+/** An explanation with every entry and file this panel may not show taken out, so page indexes refer to what is drawn. */
+function explainableView(view: RepositoryExplanationView | null): RepositoryExplanationView | null {
+  if (!view) return view;
+  return {
+    ...view,
+    ...(Array.isArray(view.entries) ? { entries: view.entries.filter((entry) => isExplainableRepositoryPath(entry.path)) } : {}),
+    ...(Array.isArray(view.files) ? { files: view.files.filter((file) => isExplainableRepositoryPath(file.path)) } : {})
+  };
+}
+
+/** Every code extension the explainer knows, for the editor's file search. */
+const CODE_FILE_GLOB = '**/*.{java,kt,kts,scala,groovy,py,ts,tsx,js,jsx,mjs,cjs,cs,fs,vb,go,rb,rs,php,swift,c,h,cpp,cc,hpp,m,mm,dart,lua,vue,svelte,sh,bash,zsh,ps1,psm1,r}';
+const LISTING_EXCLUDE = `**/{.git,singularity,.singularity-flow,node_modules,.gradle,.idea,.vscode,__pycache__,.venv,.mvn,${CX_OUTPUT_FOLDERS.join(',')}}/**`;
 
 const SCRIPT_LANGUAGES = new Set(['javascript', 'javascriptreact', 'typescript', 'typescriptreact']);
 
@@ -153,6 +168,9 @@ export class CodeExplainerPanel {
   private depth = 1;
   /** Chosen on the page; until then a Story that changed code opens on delta, one that has not on full. */
   private view: CxView | null = null;
+  /** The folder the full view is limited to, chosen on the page from `areas`; null maps the whole worktree. */
+  private scope: CxArea | null = null;
+  private areas: CxArea[] = [];
   private request = 0;
   private repositoryRequest = 0;
   /** The repository explanation the page is showing; page requests resolve against it. */
@@ -243,6 +261,17 @@ export class CodeExplainerPanel {
       this.view = view;
       void this.build();
     },
+    'cx.scope': (message) => {
+      if (!this.accept(message, { allowStale: true })) return;
+      // An area of the list this host built, never a path the page names; -1 is the whole worktree.
+      const index = integerField(message, 'index');
+      if (index === null) return;
+      const area = index >= 0 ? this.areas[index] ?? null : null;
+      if (index >= 0 && !area) return;
+      this.scope = area;
+      this.view = 'full';
+      void this.build();
+    },
     'cx.open': (message) => { if (this.accept(message)) void this.openSymbol(stringField(message, 'symbol')); },
     'cx.openModule': (message) => { if (this.accept(message)) void this.openModule(stringField(message, 'module')); },
     'cx.openTest': (message) => { if (this.accept(message)) void this.openTest(stringField(message, 'symbol'), integerField(message, 'index')); },
@@ -331,7 +360,7 @@ export class CodeExplainerPanel {
     try {
       const result = await this.client.run<unknown>(['explain', 'code', '--repository', '--json', ...(scope ? ['--path', scope] : [])]);
       if (request !== this.repositoryRequest) return;
-      const explanation = commandData<{ repository?: RepositoryExplanationView }>(result)?.repository ?? null;
+      const explanation = explainableView(commandData<{ repository?: RepositoryExplanationView }>(result)?.repository ?? null);
       this.repositoryView = { scope, explanation };
       this.post({ type: 'cx.repository', path: scope, explanation });
     } catch (error) {
@@ -344,13 +373,32 @@ export class CodeExplainerPanel {
   private async repositoryCodeFiles(notes: string[]): Promise<Array<{ path: string; test: boolean }>> {
     try {
       const result = await this.client.run<unknown>(['explain', 'code', '--repository', '--json']);
-      const files = commandData<{ repository?: RepositoryExplanationView }>(result)?.repository?.files;
-      if (!Array.isArray(files)) {
-        notes.push('The worktree is larger than the budget for listing every code file, so the full view maps only the code already in this graph; open a folder under Repository to read it in parts.');
-        return [];
-      }
-      return files.filter((entry) => typeof entry?.path === 'string' && isCodeLanguage(languageOf(entry.path)))
+      const repository = commandData<{ repository?: RepositoryExplanationView }>(result)?.repository;
+      const files = repository?.files;
+      // Over the AST budget the CLI counts the files but lists none; the editor lists them instead.
+      if (!Array.isArray(files) || repository?.budget?.status === 'over-budget') return await this.listedCodeFiles(notes);
+      return files.filter((entry) => typeof entry?.path === 'string' && isExplainableRepositoryPath(entry.path) && isCodeLanguage(languageOf(entry.path)))
         .map((entry) => ({ path: entry.path, test: entry.test === true || isTestPath(entry.path) }));
+    } catch (error) {
+      notes.push(`The worktree's code files could not be listed: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    }
+  }
+
+  /**
+   * A repository too large for the CLI to list every file (over the AST budget) is listed by the
+   * editor's own file search instead, so its folders can still be chosen and mapped.
+   */
+  private async listedCodeFiles(notes: string[]): Promise<Array<{ path: string; test: boolean }>> {
+    const root = this.store.current.snapshot?.repository?.root ?? this.client.repository;
+    if (!root) return [];
+    try {
+      const found = await vscode.workspace.findFiles(new vscode.RelativePattern(root, CODE_FILE_GLOB), LISTING_EXCLUDE, CX_LIMITS.listedFiles);
+      const files = found.map((uri) => repositoryPath(path.relative(root, uri.fsPath)))
+        .filter((relative) => relative && !relative.startsWith('../') && isExplainableRepositoryPath(relative) && isCodeLanguage(languageOf(relative)))
+        .sort((left, right) => left.localeCompare(right, 'en'));
+      notes.push(`The repository is larger than the AST budget, so its ${files.length}${found.length >= CX_LIMITS.listedFiles ? '+' : ''} code files were listed from the worktree; choose a folder to map it in depth.`);
+      return files.map((relative) => ({ path: relative, test: isTestPath(relative) }));
     } catch (error) {
       notes.push(`The worktree's code files could not be listed: ${error instanceof Error ? error.message : String(error)}`);
       return [];
@@ -424,9 +472,10 @@ export class CodeExplainerPanel {
     const notes: string[] = sliceNote ? [sliceNote] : [];
     const truncated: string[] = [];
     const files = new Map<string, CxFileInput>();
-    const changed = view
+    const changed = (view
       ? view.inventory.files.map((file) => ({ path: file.pathAfter ?? file.pathBefore ?? file.path, after: file.pathAfter }))
-      : patchFiles.map((file) => ({ path: file.pathAfter ?? file.pathBefore ?? '', after: file.pathAfter }));
+      : patchFiles.map((file) => ({ path: file.pathAfter ?? file.pathBefore ?? '', after: file.pathAfter }))
+    ).filter((file) => isExplainableRepositoryPath(file.path));
     let targets = changed.filter((file) => file.after && isCodeLanguage(languageOf(file.after))).map((file) => file.after!);
     if (targets.length > CX_LIMITS.changedFiles) {
       truncated.push(`${targets.length - CX_LIMITS.changedFiles} more changed code files were not analysed`);
@@ -440,12 +489,30 @@ export class CodeExplainerPanel {
     const repositoryFiles = graphView === 'full' || (!scriptProject && targets.some(isScriptPath))
       ? (this.progress('Listing the worktree\'s code files…'), await this.repositoryCodeFiles(notes)) : [];
     if (!current()) return;
+    let areas: CxArea[] = [];
+    let scopeIndex: number | null = null;
     if (graphView === 'full') {
       const code = repositoryFiles.filter((file) => !file.test).map((file) => file.path);
-      const mapped = code.slice(0, CX_LIMITS.fullFiles);
-      if (code.length > mapped.length) truncated.push(`the full view mapped the first ${mapped.length} of ${code.length} code files`);
+      areas = codeAreas(code);
+      // A folder chosen before a rebuild is kept when it still exists, by path.
+      const chosen = this.scope;
+      scopeIndex = chosen ? areas.findIndex((area) => area.path === chosen.path && Boolean(area.own) === Boolean(chosen.own)) : -1;
+      if (scopeIndex < 0) scopeIndex = null;
+      if (chosen && scopeIndex === null) notes.push(`The folder ${chosen.path || '(top level)'} no longer holds code, so the whole worktree is mapped.`);
+      const selectedArea = scopeIndex === null ? null : areas[scopeIndex]!;
+      this.scope = selectedArea;
+      const inScope = selectedArea ? code.filter((relative) => inArea(relative, selectedArea)) : code;
+      const limit = selectedArea ? CX_LIMITS.scopedFiles : CX_LIMITS.fullFiles;
+      // Every folder keeps a share of a bound, rather than the alphabetically first files keeping all of it.
+      const mapped = fairSample(inScope, (relative) => relative, codeAreas(inScope), limit);
+      if (inScope.length > mapped.length) {
+        truncated.push(selectedArea
+          ? `the full view mapped ${mapped.length} of the ${inScope.length} code files in ${selectedArea.path || 'the top level'}, from each of its folders in turn`
+          : `the full view mapped ${mapped.length} of ${inScope.length} code files, taken from each folder in turn; choose a folder to map it in depth`);
+      }
       for (const relative of mapped) if (!targets.includes(relative)) targets.push(relative);
     }
+    this.areas = areas;
 
     // Stage 1: symbols of every changed code file (and the focused one).
     let firstRequest = true;
@@ -552,6 +619,8 @@ export class CodeExplainerPanel {
       focus,
       depth: this.depth,
       view: graphView,
+      areas,
+      scope: scopeIndex,
       modelEnabled: vscode.workspace.getConfiguration('singularityFlow').get<string>('modelMode', 'auto') !== 'disabled',
       notes,
       truncated,
@@ -593,8 +662,9 @@ export class CodeExplainerPanel {
       && symbol.start !== null && ['function', 'method', 'constructor', 'class'].includes(symbol.kind)
       && (symbol.kind !== 'class' || symbol.role === 'focus'));
     if (graphView === 'full' && seeds.length > CX_LIMITS.fullSeeds) {
-      truncated.push(`calls were traced from the first ${CX_LIMITS.fullSeeds} of ${seeds.length} functions`);
-      seeds = seeds.slice(0, CX_LIMITS.fullSeeds);
+      truncated.push(`calls were traced from ${CX_LIMITS.fullSeeds} of ${seeds.length} functions, taken from each folder in turn`);
+      const all = seeds;
+      seeds = fairSample(all, (symbol) => symbol.file ?? '', codeAreas(all.map((symbol) => symbol.file ?? '')), CX_LIMITS.fullSeeds);
     }
     const rawByKey = new Map<string, { relative: string; raw: CxRawSymbol }>();
     const visitRaw = (relative: string, entries: CxRawSymbol[]) => {

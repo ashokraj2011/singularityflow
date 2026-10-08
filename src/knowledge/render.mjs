@@ -146,10 +146,12 @@ function sections(knowledge, items, explanations = []) {
     ...commands.filter((item) => item.statement.purpose !== 'test').map((item) => `${item.statement.purpose}: ${code(item.statement.command)}`)
   ] };
   out.hotspots = { title: 'Where change concentrates', lines: of('hotspot').map((item) => `\`${item.subject.path}\` — ${item.statement.changes != null ? `${item.statement.changes} change${item.statement.changes === 1 ? '' : 's'}, ` : ''}complexity ${item.statement.complexity}, imported by ${item.statement.importedBy}`) };
+  out.hotspots.lines.push(...of('co-change').map((item) => `\`${item.statement.files[0]}\` and \`${item.statement.files[1]}\` changed together in ${item.statement.together} commits${item.statement.importLinked ? '' : ' with no import between them'}`));
   out.impact = { title: 'What a change touches', lines: of('impact').map((item) => `Changing ${item.subject.symbol} affects ${[
     item.statement.callers.length ? `callers ${item.statement.callers.join(', ')}` : null,
     item.statement.importedBy.length ? `importers ${item.statement.importedBy.map((value) => `\`${value}\``).join(', ')}` : null,
-    item.statement.tests.length ? `tests ${item.statement.tests.map((value) => `\`${value}\``).join(', ')}` : 'no tests'
+    item.statement.changesWith?.length ? `usually changes with ${item.statement.changesWith.map((value) => `\`${value}\``).join(', ')}` : null,
+    item.statement.tests.length ? `tests ${item.statement.tests.map((value) => `\`${value}\``).join(', ')}${item.statement.testedThrough ? ` (through ${item.statement.testedThrough})` : ''}` : 'no tests'
   ].filter(Boolean).join('; ')}`) };
   return out;
 }

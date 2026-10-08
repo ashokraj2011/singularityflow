@@ -24,7 +24,7 @@ same build finds every one of those rules with the line it is on.
 | L2 behaviour | What does the code do? | decision trees per function, calls, data reaching the network, database, storage or screen, error paths from a throw to the HTTP status its handler returns |
 | L3 domain | What does it mean? | rules (thresholds, matches, refusals, caps, calculations), named limits and where they are applied, what users are told, journeys from an endpoint or UI event to its effects, test cases and what they exercise, functions with rules no test reaches, test titles that contradict the code, `@clause` links |
 | L4 system | How does it fit together? | outbound calls, configuration keys (secrets withheld) |
-| L5 change | What does a change touch? | hotspots (change count × complexity × importers), impact sets for every function with rules |
+| L5 change | What does a change touch? | hotspots (change count × complexity × importers), files that change together (from commits of at most 20 files, root commits excluded, noting pairs with no import between them), impact sets for every function with rules (callers, importers, tests, files it usually changes with) |
 
 Every observed item cites the exact lines it was read from and a hash of those lines; derived
 items (journeys, coverage, drift, hotspots) are computed only from observed items. Each level
@@ -99,5 +99,6 @@ suite:
 - Coverage means a test names the function or reaches it through calls, not that a line ran.
 - An explanation's check is lexical: a sentence that uses only plain words can still misread what it
   cites, which is why kept sentences stay labelled `inferred`.
-- Not built yet: IDE review and confirmation of items, co-change history, and per-area incremental
-  rebuilds for very large repositories.
+- History covers the last 12 months (at most 2,000 commits, merges skipped).
+- Not built yet: IDE review and confirmation of items, and per-area incremental rebuilds for very
+  large repositories.

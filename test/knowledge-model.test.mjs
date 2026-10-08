@@ -304,3 +304,30 @@ test('without a model, explain says so and changes nothing; the dry run shows th
   assert.ok(plan.subjects.some((subject) => subject.title === 'The rules in couponDiscount'));
   assert.equal(git(repository, 'status', '--porcelain'), '');
 });
+
+test('history: how often files change and which change together, from small commits only', async (t) => {
+  const repository = await fixtureRepository(t, 'shop');
+  const commit = async (message, edits) => {
+    for (const [relative, line] of edits) {
+      const file = path.join(repository, relative);
+      await writeFile(file, `${await readFile(file, 'utf8')}${line}\n`);
+    }
+    git(repository, 'add', '-A');
+    git(repository, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', 'commit', '-qm', message);
+  };
+  for (let index = 0; index < 3; index += 1) {
+    await commit(`Pricing and cart ${index}`, [['src/rules/pricing.ts', `// pricing ${index}`], ['src/hooks/useCart.ts', `// cart ${index}`]]);
+  }
+  await commit('Client only', [['src/api/client.ts', '// client']]);
+  const { knowledge } = await buildKnowledge(repository);
+  assert.equal(knowledge.levels.L5.status, 'ready', knowledge.levels.L5.reason);
+  const pair = knowledge.items.find((item) => item.kind === 'co-change');
+  assert.deepEqual(pair.statement.files, ['src/hooks/useCart.ts', 'src/rules/pricing.ts']);
+  assert.equal(pair.statement.together, 3);
+  assert.equal(pair.statement.importLinked, false, 'a pair with no import between them is coupling the import graph cannot show');
+  const hotspot = knowledge.items.find((item) => item.kind === 'hotspot' && item.subject.path === 'src/rules/pricing.ts');
+  assert.equal(hotspot.statement.changes, 4);
+  const impact = knowledge.items.find((item) => item.kind === 'impact' && item.subject.symbol === 'couponDiscount');
+  assert.deepEqual(impact.statement.changesWith, ['src/hooks/useCart.ts']);
+  assert.match(renderKnowledgeView(knowledge, 'change'), /changed together in 3 commits with no import between them/u);
+});

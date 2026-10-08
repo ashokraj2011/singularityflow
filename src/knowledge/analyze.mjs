@@ -674,6 +674,43 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
     });
   }
 
+  // ---- L5 files that change together --------------------------------------------------------
+  // Pairs of application files changed in the same commits, from commits small enough to be one
+  // change (bulk renames and formatting sweeps would pair everything with everything).
+  const coChanged = new Map();
+  if (commits?.length) {
+    const pairs = new Map();
+    for (const entry of commits) {
+      // A root commit adds everything at once; it says nothing about what changes together.
+      if (Array.isArray(entry.parents) && !entry.parents.length) continue;
+      const touched = [...new Set(entry.files.filter((file) => knownPaths.has(file) && !isTestPath(file)))].sort();
+      if (touched.length < 2 || touched.length > 20) continue;
+      for (let left = 0; left < touched.length; left += 1) {
+        for (let right = left + 1; right < touched.length; right += 1) {
+          const key = `${touched[left]}\0${touched[right]}`;
+          pairs.set(key, (pairs.get(key) ?? 0) + 1);
+        }
+      }
+    }
+    const ranked = [...pairs].map(([key, together]) => {
+      const [left, right] = key.split('\0');
+      const fewer = Math.min(churn?.get(left) ?? together, churn?.get(right) ?? together);
+      return { left, right, together, share: fewer ? together / fewer : 0 };
+    }).filter((entry) => entry.together >= 2 && entry.share >= 0.5)
+      .sort((a, b) => b.together - a.together || b.share - a.share || a.left.localeCompare(b.left, 'en')).slice(0, 25);
+    for (const entry of ranked) {
+      for (const [from, to] of [[entry.left, entry.right], [entry.right, entry.left]]) {
+        if (!coChanged.has(from)) coChanged.set(from, []);
+        coChanged.get(from).push(to);
+      }
+      add({ kind: 'co-change', key: `${entry.left}\0${entry.right}`, grain: 'component', assurance: 'derived',
+        subject: { path: entry.left, with: entry.right },
+        statement: { files: [entry.left, entry.right], together: entry.together, share: Math.round(entry.share * 100) / 100,
+          importLinked: imports.some((edge) => (edge.from === entry.left && edge.to === entry.right) || (edge.from === entry.right && edge.to === entry.left)) },
+        area: areaOf(entry.left) });
+    }
+  }
+
   // ---- L5 hotspots and impact ---------------------------------------------------------------
   const complexityByFile = new Map();
   for (const symbol of symbolsById.values()) {
@@ -703,7 +740,8 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
     }
     add({ kind: 'impact', key: id, grain: 'unit', assurance: 'derived', subject: { symbol: symbol.qualifiedName, path: symbol.file },
       statement: { callers: [...callers].map((caller) => symbolsById.get(caller)?.qualifiedName).filter(Boolean).sort(),
-        importedBy: [...(importers.get(symbol.file) ?? [])].sort(), tests: (testsByFunction.get(id) ?? []).map((test) => test.path).filter((value, index, list) => list.indexOf(value) === index),
+        importedBy: [...(importers.get(symbol.file) ?? [])].sort(), changesWith: [...new Set(coChanged.get(symbol.file) ?? [])].sort(), tests: (testsByFunction.get(id) ?? testedThrough.get(id)?.tests ?? []).map((test) => test.path).filter((value, index, list) => list.indexOf(value) === index),
+        testedThrough: testsByFunction.has(id) ? null : symbolsById.get(testedThrough.get(id)?.via)?.qualifiedName ?? null,
         rules: rules.length },
       relations: rules.map((rule) => ({ type: 'about', to: rule.id })) });
   }
@@ -734,7 +772,7 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
     format: KNOWLEDGE_FORMAT,
     analyzerVersion: KNOWLEDGE_ANALYZER_VERSION,
     repository: { name: source.name ?? null, commit: source.commit, area: source.area, roots: source.roots, frameworks,
-      files: files.length, manifests: source.manifests.length, skipped: source.skipped, commits: commits ?? null },
+      files: files.length, manifests: source.manifests.length, skipped: source.skipped, commits: commits?.length ?? null },
     areas: areas.map((area) => ({ path: area.path || '.', files: area.files, own: Boolean(area.own) })),
     levels,
     metrics: {

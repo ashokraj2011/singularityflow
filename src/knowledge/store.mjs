@@ -12,7 +12,7 @@ import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/p
 import path from 'node:path';
 
 import { repositoryGitPath } from '../git-directory.mjs';
-import { fileChurn } from '../repository-facts.mjs';
+import { recentCommitFileSets } from '../git.mjs';
 import { analyzeKnowledge, KNOWLEDGE_ANALYZER_VERSION } from './analyze.mjs';
 import { sha256 } from './items.mjs';
 import { readKnowledgeSource } from './source.mjs';
@@ -70,12 +70,17 @@ export async function buildKnowledge(root, { area = null, history = true, refres
       return { status: 'ok', reason: null, commit: source.commit, area, knowledge: cached.knowledge, cache: 'hit', key, durationMs: Math.round(performance.now() - started) };
     }
   }
+  // One history read gives both how often each file changed and which files change together.
   let churn = null;
+  let commits = null;
   if (history) {
-    const counts = fileChurn(root, { paths: source.roots });
+    commits = recentCommitFileSets(root, { paths: source.roots });
+    const counts = new Map();
+    for (const entry of commits) for (const file of entry.files) counts.set(file, (counts.get(file) ?? 0) + 1);
     churn = counts.size ? counts : null;
+    if (!commits.length) commits = null;
   }
-  const knowledge = analyzeKnowledge(source, { churn });
+  const knowledge = analyzeKnowledge(source, { churn, commits });
   await mkdir(directory, { recursive: true });
   const temporary = `${file}.${process.pid}.tmp`;
   await writeFile(temporary, JSON.stringify({ key, builtAt: new Date().toISOString(), knowledge }));

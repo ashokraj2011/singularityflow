@@ -166,6 +166,36 @@ function typeBalancedFacts(facts) {
   }
 }
 
+/**
+ * The fact types each built-in section is about. Deterministic placement used to deal facts across
+ * sections in ID order, so a signature could land under "Consumers" and an import under "Test
+ * impact". A fact now goes to the first section that names its type; a type no section names keeps
+ * the old rotation, so no admitted fact is dropped.
+ */
+const SECTION_FACT_TYPES = Object.freeze({
+  'arch.contracts': {
+    'public-contracts': ['interface', 'signature', 'schema-contract', 'protocol-field'],
+    implementations: ['implementation'],
+    consumers: ['consumer-dependency']
+  },
+  'biz.rules': {
+    'registered-rules': ['rule-definition'],
+    'conditions-and-outcomes': ['condition-expression'],
+    'rule-locations': ['clause-binding', 'business-glossary']
+  },
+  'dev.hotspots': {
+    'structural-concentration': ['complexity-metric'],
+    'change-concentration': ['change-frequency', 'ownership-concentration', 'incident-mapping'],
+    'dependency-concentration': ['dependency-degree']
+  },
+  'dev.impact': {
+    'changed-structure': ['changed-symbol', 'structural-impact'],
+    'dependency-impact': ['dependency-edge'],
+    'affected-contracts': ['contract-change'],
+    'test-impact': ['test-impact']
+  }
+});
+
 function buildDeterministicCandidate(contract, admittedFacts) {
   const selected = [...admittedFacts].sort((left, right) => compareText(left.id, right.id));
   const bySection = new Map(contract.sections.map((section) => [section.id, []]));
@@ -178,14 +208,18 @@ function buildDeterministicCandidate(contract, admittedFacts) {
   const ordinarySections = contract.sections.filter(
     (section) => !['contradiction', 'unavailable'].includes(section.sectionKind)
   );
+  const typed = SECTION_FACT_TYPES[contract.id] ?? {};
   let ordinaryIndex = 0;
   for (const fact of selected) {
     let section;
     if (fact.status === 'contradicted' && contradictionSection) section = contradictionSection;
     else if (fact.status === 'unavailable' && unavailableSection) section = unavailableSection;
     else {
-      section = ordinarySections[ordinaryIndex % ordinarySections.length] ?? contract.sections[0];
-      ordinaryIndex += 1;
+      section = ordinarySections.find((entry) => typed[entry.id]?.includes(fact.factType));
+      if (!section) {
+        section = ordinarySections[ordinaryIndex % ordinarySections.length] ?? contract.sections[0];
+        ordinaryIndex += 1;
+      }
     }
     bySection.get(section.id).push(factualUnit([fact], { list: true }));
   }
@@ -196,8 +230,9 @@ function buildDeterministicCandidate(contract, admittedFacts) {
   }
   const contradictions = selected.filter((fact) => fact.status === 'contradicted');
   const summaryFacts = [...contradictions];
+  // The summary leads with what was found; unavailable analysis follows (it has its own section).
   for (const fact of [
-    ...selected.filter((entry) => entry.status === 'unavailable'),
+    ...selected.filter((entry) => !['unavailable', 'contradicted'].includes(entry.status)),
     ...selected
   ]) {
     if (summaryFacts.some((entry) => entry.id === fact.id)) continue;

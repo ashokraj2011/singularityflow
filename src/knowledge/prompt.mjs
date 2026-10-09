@@ -12,17 +12,10 @@
  */
 import { applyReviews, readConfirmations } from './confirm.mjs';
 import { readExplanations } from './explain.mjs';
-import { renderKnowledgeSlice, roleForPhase } from './render.mjs';
+import { knowledgePromptPolicy, renderKnowledgeSlice, roleForPhase } from './render.mjs';
 import { buildKnowledge, buildKnowledgeForAreas, selectKnowledgeAreas } from './store.mjs';
 
-export const KNOWLEDGE_PROMPT_DEFAULT_BYTES = 8192;
-
-export function knowledgePromptPolicy(definition) {
-  const policy = definition?.worldModel?.knowledge ?? {};
-  const prompt = policy.prompt ?? 'slice';
-  const maxBytes = Number.isInteger(policy.maxBytes) ? Math.min(32768, Math.max(2048, policy.maxBytes)) : KNOWLEDGE_PROMPT_DEFAULT_BYTES;
-  return { prompt, maxBytes };
-}
+export { KNOWLEDGE_PROMPT_DEFAULT_BYTES, knowledgePromptPolicy } from './render.mjs';
 
 export async function repositoryKnowledgePrompt(root, { definition, phase, workflow, changedPaths = [], limits = undefined }) {
   const policy = knowledgePromptPolicy(definition);

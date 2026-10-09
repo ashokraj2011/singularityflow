@@ -29,13 +29,30 @@ const VIEW_SECTIONS = Object.freeze({
   change: ['hotspots', 'impact', 'pitfalls']
 });
 
+/**
+ * Which reader a phase's knowledge is written for, by the words in its ID, first match wins; any
+ * other phase gets the developer's. Data, so the Workflow Studio shows the same reader for a new step.
+ */
+export const KNOWLEDGE_READER_RULES = Object.freeze([
+  Object.freeze({ reader: 'product', pattern: '(intake|requirement|specif|discover|product|business|story)' }),
+  Object.freeze({ reader: 'architect', pattern: '(design|architect|plan)' }),
+  Object.freeze({ reader: 'tester', pattern: '(test|verif|conform|qa|accept)' })
+]);
+
+export const KNOWLEDGE_PROMPT_DEFAULT_BYTES = 8192;
+
+/** Whether phase prompts get repository knowledge, and how many bytes of it. */
+export function knowledgePromptPolicy(definition) {
+  const policy = definition?.worldModel?.knowledge ?? {};
+  const prompt = policy.prompt ?? 'slice';
+  const maxBytes = Number.isInteger(policy.maxBytes) ? Math.min(32768, Math.max(2048, policy.maxBytes)) : KNOWLEDGE_PROMPT_DEFAULT_BYTES;
+  return { prompt, maxBytes };
+}
+
 /** Lifecycle phases mapped to the reader they need. */
 export function roleForPhase(phase) {
   const id = String(phase ?? '').toLowerCase();
-  if (/(intake|requirement|specif|discover|product|business|story)/u.test(id)) return 'product';
-  if (/(design|architect|plan)/u.test(id)) return 'architect';
-  if (/(test|verif|conform|qa|accept)/u.test(id)) return 'tester';
-  return 'developer';
+  return KNOWLEDGE_READER_RULES.find((rule) => new RegExp(rule.pattern, 'u').test(id))?.reader ?? 'developer';
 }
 
 /** Where an item was read, and what a person said about it when the review still applies. */

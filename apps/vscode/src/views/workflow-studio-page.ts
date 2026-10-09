@@ -788,6 +788,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   window.__workflowStudio = { initialDraft: initialDraft, changeSetFrom: changeSetFrom, copiedPhaseDraft: copiedPhaseDraft, describe: describe, kebab: kebab,
+    worldModelSection: function () { return worldModelSection.apply(null, arguments); }, knowledgeReader: function () { return knowledgeReader.apply(null, arguments); },
+    newStepWorldModelHint: function () { return newStepWorldModelHint.apply(null, arguments); },
     newDecision: function () { return newDecision.apply(null, arguments); }, convertDecision: function () { return convertDecision.apply(null, arguments); },
     decisionLines: function () { return decisionLines.apply(null, arguments); }, reachOf: function () { return reachOf.apply(null, arguments); },
     targetOptions: function () { return targetOptions.apply(null, arguments); }, pruneDecisions: function () { return pruneDecisions.apply(null, arguments); },
@@ -960,6 +962,22 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     changed();
   }
 
+  /** What the World Model gives a step about to be created, said before it exists. */
+  function newStepWorldModelHint(agent, label) {
+    var views = newStepViews(agent);
+    var knowledge = state.model.choices.knowledge || {};
+    var start = !agent ? 'World Model: the step starts with the views its agent reads'
+      : views.length ? 'World Model: starts with ' + views.join(', ') + ' (what this agent reads)' : 'World Model: this agent reads no views; tick some once the step exists';
+    var reader = knowledge.prompt === 'off' ? '' : ', plus repository knowledge for the ' + knowledgeReader(kebab(label || '')) + ' reader';
+    return start + reader + '. Change the views after creating it.';
+  }
+  /** The World Model views a new step starts with: those its agent reads that this repository offers. */
+  function newStepViews(agent) {
+    var catalog = state.model.choices.views || [];
+    var agentViews = agent && state.draft.agents[agent] ? state.draft.agents[agent].views || [] : [];
+    return agentViews.map(function (view) { return String(view).replace(/@[0-9]+$/, ''); })
+      .filter(function (view, index, list) { return catalog.indexOf(view) >= 0 && list.indexOf(view) === index; });
+  }
   function createStep(workflowId, label, output, agent, afterId) {
     var id = kebab(label);
     if (!id) { setStatus('Give the new step a name.'); return null; }
@@ -967,7 +985,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var firstGroup = Object.keys(state.draft.groups)[0] || null;
     var phases = workflowSteps(workflowId);
     var previous = afterId && phases.indexOf(afterId) >= 0 ? [afterId] : phases.slice(-1);
-    state.draft.phases[id] = { id: id, label: label, output: output, views: [], clarification: 'off', agent: agent, usedBy: [workflowId], isNew: true, fromBlueprint: null, approval: { group: firstGroup, minimum: 1 }, inputs: previous, afterStep: [], artifactFile: id + '.md' };
+    state.draft.phases[id] = { id: id, label: label, output: output, views: newStepViews(agent), clarification: 'off', agent: agent, usedBy: [workflowId], isNew: true, fromBlueprint: null, approval: { group: firstGroup, minimum: 1 }, inputs: previous, afterStep: [], artifactFile: id + '.md' };
     insertStep(workflowId, id, afterId);
     state.draft.steps[workflowId][id] = { approval: { group: firstGroup, groups: firstGroup ? [firstGroup] : [], minimum: 1, required: [] }, inputs: previous, afterStep: [] };
     state.step = id;
@@ -2474,6 +2492,38 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   /** A collapsible inspector section, with an optional switch in its header and a summary shown when closed. */
+  /** The reader a step's repository knowledge is written for: the engine's rules, applied to its ID. */
+  function knowledgeReader(phaseId) {
+    var id = String(phaseId || '').toLowerCase();
+    var rules = ((state.model.choices.knowledge || {}).readers) || [];
+    for (var i = 0; i < rules.length; i++) if (new RegExp(rules[i].pattern).test(id)) return rules[i].reader;
+    return 'developer';
+  }
+  /** A step's World Model: the views ticked here, and the repository knowledge every step gets. */
+  function worldModelSection(workflowId, phaseId, phase) {
+    var choices = state.model.choices;
+    var views = choices.views || [];
+    var knowledge = choices.knowledge || { prompt: 'slice', maxBytes: 8192 };
+    var workflow = (state.model.workflows || []).find(function (entry) { return entry.id === workflowId; });
+    var off = Boolean(workflow && workflow.worldModel === 'off');
+    var retired = choices.retiredViews || [];
+    var body = [];
+    if (off) body.push(el('p', { class: 'hint', text: 'This workflow turns the World Model off: its steps get no views and no repository knowledge.' }));
+    body.push(views.length
+      ? el('div', { class: 'checks' }, views.map(function (view) {
+        return el('label', null, el('input', { type: 'checkbox', 'data-key': 'view-' + view, checked: phase.views.indexOf(view) >= 0, onchange: function (event) {
+          phase.views = event.target.checked ? phase.views.concat([view]) : phase.views.filter(function (entry) { return entry !== view; }); changed();
+        } }), view);
+      }))
+      : el('p', { class: 'hint', text: 'This repository has no World Model views to choose from.' }));
+    body.push(el('p', { class: 'hint', 'data-key': 'world-model-knowledge', text: knowledge.prompt === 'off'
+      ? 'Repository knowledge is off for this repository (worldModel.knowledge.prompt: off).'
+      : 'Repository knowledge (rules, flows, tests and risks read from the committed code) is added to this step\'s prompt for the ' + knowledgeReader(phaseId) + ' reader, up to ' + Math.round(knowledge.maxBytes / 1024) + ' KB. Nothing to set here.' }));
+    if (retired.length) body.push(el('p', { class: 'hint', 'data-key': 'world-model-retired', text: 'workflow.yml still names retired views (' + retired.join(', ') + '). They are ignored; run singularity-flow wm migrate-views to replace them.' }));
+    var summary = off ? 'off in this workflow'
+      : (phase.views.length ? phase.views.length + ' view' + (phase.views.length === 1 ? '' : 's') : 'no views') + (knowledge.prompt === 'off' ? '' : ' + repository knowledge');
+    return section('views', 'World Model', body, null, summary, !phase.isNew);
+  }
   function section(key, title, body, control, summary, closed) {
     var open = state.sections[key] === undefined ? !closed : state.sections[key];
     return el('section', { class: 'prop-section' },
@@ -2596,7 +2646,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     aside.appendChild(section('add-new', 'A new step', [
       field('add-new-name', 'Name', textInput('add-new-name', adding.label, function (value) { adding.label = value; }, { placeholder: 'Vendor analysis' })),
       field('add-new-output', 'Produces', select('add-new-output', (state.model.choices.outputs || []).map(function (output) { return { value: output.id, label: output.label }; }), adding.output, function (value) { adding.output = value; })),
-      field('add-new-agent', 'Drafted by', select('add-new-agent', agentOptions(adding.agent), adding.agent, function (value) { if (value === '__new__') { openAgentForm({ returnTo: 'board-add' }); return; } adding.agent = value; })),
+      field('add-new-agent', 'Drafted by', select('add-new-agent', agentOptions(adding.agent), adding.agent, function (value) { if (value === '__new__') { openAgentForm({ returnTo: 'board-add' }); return; } adding.agent = value; requestRender(); })),
+      el('p', { class: 'hint', 'data-key': 'add-new-world-model', text: newStepWorldModelHint(adding.agent, adding.label) }),
       el('div', { class: 'studio-row' }, button('Create step', function () {
         if (!adding.agent) { setStatus('Choose the agent that drafts the new step.'); return; }
         if (createStep(workflowId, adding.label.trim(), adding.output, adding.agent, adding.after)) { adding.label = ''; state.panel = null; }
@@ -2994,14 +3045,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       : el('span', { class: 'hint', text: 'This is the first step; it reads the Story itself.' }), null, earlier.length ? settings.inputs.length + ' of ' + earlier.length + (optionalReads.length ? ', ' + optionalReads.length + ' optional' : '') : 'the Story', true));
     aside.appendChild(artifactsSection(workflowId, phaseId));
 
-    var views = state.model.choices.views || [];
-    if (views.length) {
-      aside.appendChild(section('views', 'Knowledge views', el('div', { class: 'checks' }, views.map(function (view) {
-        return el('label', null, el('input', { type: 'checkbox', 'data-key': 'view-' + view, checked: phase.views.indexOf(view) >= 0, onchange: function (event) {
-          phase.views = event.target.checked ? phase.views.concat([view]) : phase.views.filter(function (entry) { return entry !== view; }); changed();
-        } }), view);
-      })), null, phase.views.length ? phase.views.length + ' chosen' : 'none', true));
-    }
+    aside.appendChild(worldModelSection(workflowId, phaseId, phase));
 
     var modes = (state.model.choices.clarification || []).filter(function (mode) { return mode.id !== 'off'; });
     var asking = Boolean(phase.clarification && phase.clarification !== 'off');

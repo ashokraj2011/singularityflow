@@ -1788,3 +1788,41 @@ test('a skill from a link for a seeded agent is added to the skill master and at
   assert.equal(scoped.state().view, 'board');
   assert.equal(check(root, scopedChanges).valid, true);
 });
+
+test('a new step shows its World Model: its agent\'s views ticked, the repository knowledge it gets, and retired view names to migrate', async () => {
+  const { buildStudioModel } = await import('../src/workflow-studio.mjs');
+  const { roleForPhase } = await import('../src/knowledge/render.mjs');
+  const retired = ['business', 'architecture', 'development', 'testing', 'release', 'operations', 'security'];
+  const root = await repository({ edit: (document) => document.setIn(['worldModel', 'views'], retired) });
+  const model = await buildStudioModel(root);
+  assert.deepEqual(model.choices.views, ['arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'], 'only retired names leaves the registered defaults');
+  assert.deepEqual(model.choices.retiredViews, retired);
+  assert.deepEqual({ prompt: model.choices.knowledge.prompt, maxBytes: model.choices.knowledge.maxBytes }, { prompt: 'slice', maxBytes: 8192 });
+
+  const element = (tag) => ({ tag, attributes: {}, children: [], style: {}, textContent: '', setAttribute(name, value) { this.attributes[name] = value; }, appendChild(child) { this.children.push(child); return child; }, addEventListener() {} });
+  const page = loadedStudio(model, { getElementById: () => null, createElement: element, createTextNode: (text) => ({ text }) });
+  const text = (node) => [node.textContent ?? node.text ?? '', ...(node.children ?? []).map(text)].join(' ');
+  const state = page.state();
+  const architect = (state.draft.agents.architect?.views ?? []).map((view) => view.replace(/@\d+$/u, '')).filter((view) => model.choices.views.includes(view));
+  assert.equal(page.newStepWorldModelHint('architect', 'Security review'), 'World Model: starts with arch.contracts (what this agent reads), plus repository knowledge for the developer reader. Change the views after creating it.');
+  assert.equal(page.newStepWorldModelHint('product-owner', 'Requirements check'), 'World Model: starts with biz.rules (what this agent reads), plus repository knowledge for the product reader. Change the views after creating it.');
+  assert.match(page.newStepWorldModelHint('', ''), /^World Model: the step starts with the views its agent reads/u);
+  const id = page.createStep('repo-feature', 'Security review', 'document', 'architect', 'intake');
+  assert.deepEqual(architect, ['arch.contracts']);
+  assert.deepEqual(state.draft.phases[id].views, architect, "a new step starts with its agent's views");
+
+  const fresh = page.worldModelSection('repo-feature', id, state.draft.phases[id]);
+  assert.equal(fresh.children[0].children[0].attributes['aria-expanded'], 'true', "a new step's World Model is open");
+  const shown = text(fresh);
+  assert.match(shown, /World Model/u);
+  assert.match(shown, /Repository knowledge \(rules, flows, tests and risks read from the committed code\) is added to this step's prompt for the developer reader, up to 8 KB\./u);
+  assert.match(shown, /workflow\.yml still names retired views \(business, architecture, development, testing, release, operations, security\)\. They are ignored; run singularity-flow wm migrate-views/u);
+  for (const view of model.choices.views) assert.match(shown, new RegExp(view.replace('.', '\\.'), 'u'));
+
+  const existing = page.worldModelSection('repo-feature', 'design', state.draft.phases.design);
+  assert.equal(existing.children[0].children[0].attributes['aria-expanded'], 'false', "an existing step's World Model starts closed");
+  assert.match(text(existing), /repository knowledge/u, 'the closed summary still says it gets knowledge');
+  for (const phase of ['intake', 'requirements', 'design', 'implementation', 'security-review', 'acceptance-testing', 'release']) {
+    assert.equal(page.knowledgeReader(phase), roleForPhase(phase), `the page and the engine agree on ${phase}`);
+  }
+});

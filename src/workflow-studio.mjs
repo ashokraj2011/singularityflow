@@ -43,7 +43,8 @@ import {
 } from './code-delivery-policy.mjs';
 import { AUTHORING_SKILL_ID, authoringSkillCatalog, authoringSkillEntry } from './authoring-skills.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
-import { worldModelViewCatalog, WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
+import { dropRetiredWorldModelReferences, worldModelViewCatalog, WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
+import { KNOWLEDGE_READER_RULES, knowledgePromptPolicy } from './knowledge/render.mjs';
 import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError, posix } from './util.mjs';
@@ -382,6 +383,10 @@ export async function buildStudioModel(root, { authority = null } = {}) {
   let definition = null;
   try { definition = await loadDefinition(root); }
   catch (error) { problems.push({ code: error?.code ?? 'CONFIGURATION_INVALID', message: error.message }); }
+  // The World Model choices read the configuration as the engine does: retired legacy-v3 view names
+  // are dropped (all of them dropped means the registered defaults), and the Studio names them.
+  const current = structuredClone(raw);
+  const retiredViews = [...new Set(dropRetiredWorldModelReferences(current).filter((entry) => !entry.source.startsWith('worldModel.format') && !entry.source.startsWith('worldModel.v4')).map((entry) => entry.value))];
   const discovered = (await discoverAgents(root)).filter((agent) => agent.scope !== 'plugin');
   const library = await loadSkillLibrary(configRoot);
   const attachmentsText = await readFile(path.join(configRoot, SKILL_ATTACHMENTS_PATH), 'utf8').catch(() => null);
@@ -403,6 +408,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     return {
       skills: workflowAttachments.filter((entry) => entry.workflow === id).map(({ id: skillId, phases, use }) => ({ id: skillId, phases: [...phases], use })),
       id, label: type.label ?? id, description: type.description ?? '', phases: [...(type.phases ?? [])], readOnly: protection.workflows.includes(id),
+      worldModel: type.intelligence?.worldModel ?? 'inherit',
       status: !packaged ? 'local' : JSON.stringify(packaged) === JSON.stringify(definition?.workTypes?.[id] ?? type) ? 'packaged' : 'customized',
       generatesCode: resolved ? Boolean(workflowCodeGeneration(resolved).generatesCode) : (type.phases ?? []).some((phase) => outputOf(phases[phase]) === 'code'),
       // Kept whole: a send-back rule's reset phase is part of its repair budget, and a decision is
@@ -527,10 +533,12 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       outputs: STEP_OUTPUTS,
       authoringSkills: await authoringSkillChoices(),
       clarification: CLARIFICATION_MODES,
-      views: worldModelViewCatalog(definition ?? raw),
+      views: worldModelViewCatalog(definition ?? current),
+      retiredViews,
+      knowledge: { ...knowledgePromptPolicy(definition ?? current), readers: KNOWLEDGE_READER_RULES.map((rule) => ({ ...rule })) },
       tools: [...new Set([...Object.keys(TOOL_LABELS), ...discovered.flatMap((agent) => agent.tools ?? [])])]
         .map((id) => ({ id, label: TOOL_LABELS[id] ?? id })),
-      roles: agentRolePresets(definition ?? raw),
+      roles: agentRolePresets(definition ?? current),
       integrationKinds: Object.entries(INTEGRATION_TARGET_KINDS).map(([id, entry]) => ({ id, label: entry.label, available: entry.available, sends: [...entry.sends] })),
       httpLogFormats: [...HTTP_LOG_FORMATS],
       actionTriggers: [...STEP_ACTION_TRIGGERS],

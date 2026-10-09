@@ -1,4 +1,5 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
+import { retainedSkillExpansion } from './retained-skill-instructions.mjs';
 import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -680,9 +681,13 @@ export async function renderAgentSkills(root, workflow, phase, session, {
     } else unique.set(entry.id, { ...entry, scopes: entry.scopes ?? [`agent ${session.agent}`] });
   }
   library.skills = [...unique.values()];
+  const expansions = new Map(library.skills.flatMap(entry => {
+    const command = retainedSkillExpansion(workflow, phase, executionContext, entry);
+    return command ? [[entry.id, command]] : [];
+  }));
   const text = [
     selected.map((entry) => `<!-- agent skill: ${session.agent}/${entry.id} sha256=${entry.sha256} -->\n\n## Agent skill: ${entry.id}\n\n${entry.content.trim()}`).join('\n\n'),
-    renderLibrarySkills(session.agent, library.skills)
+    renderLibrarySkills(session.agent, library.skills, { expansions })
   ].filter(Boolean).join('\n\n');
   const warnings = [...synced.warnings, ...library.warnings];
   let audit = null;
@@ -712,7 +717,12 @@ export async function renderAgentSkills(root, workflow, phase, session, {
     audit = { schemaVersion: currentSchemaVersion('agent-context-audit'), workId: workflow.workItem.id, phase: phase.id, generation, agent: session.agent, nativeCopilotAgent: session.nativeCopilotAgent ?? null, agentSourceSha256: synced.agent.sha256, files, recordedAt: nowIso() };
     await writeJson(path.join(itemDirectory, 'context', `agents-${phase.id}-gen${generation}.json`), audit);
   }
-  return { text, skills: [...selected, ...library.skills], warnings, audit };
+  return { text, skills: [...selected, ...library.skills], warnings, audit,
+    loading: [...selected, ...library.skills].map(entry => ({
+      id: entry.id, sha256: entry.sha256,
+      representation: expansions.has(entry.id) ? 'retained-catalog' : 'full-instructions',
+      loading: entry.loading ?? 'eager', instructionBytes: Buffer.byteLength(entry.instructions ?? entry.content ?? '')
+    })) };
 }
 
 /**

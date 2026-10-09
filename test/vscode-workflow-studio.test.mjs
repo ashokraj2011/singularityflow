@@ -1713,6 +1713,21 @@ test('a step\'s skills are added from its properties, a seeded workflow\'s steps
   assert.deepEqual(page.stepSkillEntries('developer', 'implementation', 'spec-driven-standard'), [], 'same phase in another workflow is unaffected');
 });
 
+test('the skill editor opts into retained catalog loading and preserves it on unrelated edits', () => {
+  const model = { workflows: [], phases: [], agents: [], groups: [], skills: [{ id: 'migration-guide', label: 'Migration guide',
+    description: 'Optional migrations', instructions: 'Inspect schema changes.', loading: 'on-demand', usedBy: [] }] };
+  const page = loadedStudio(model);
+  page.openSkillForm('migration-guide');
+  assert.equal(page.skillsView().form.loading, 'on-demand');
+  page.skillsView().form.label = 'Migration procedure'; page.saveSkillForm();
+  assert.deepEqual(page.changeSetFrom(model, page.state().draft).changes,
+    [{ op: 'skill.update', id: 'migration-guide', label: 'Migration procedure' }]);
+  page.openSkillForm('migration-guide'); page.skillsView().form.loading = 'eager'; page.saveSkillForm();
+  assert.ok(page.changeSetFrom(model, page.state().draft).changes.some(change => change.loading === 'eager'));
+  assert.match(WORKFLOW_STUDIO_SCRIPT, /Prompt loading/);
+  assert.match(WORKFLOW_STUDIO_SCRIPT, /Keep safety, correctness and policy skills eager/);
+});
+
 test('workflow skill properties follow agent selection and retain local bindings when a step is copied', async () => {
   const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
   const root = await repository();

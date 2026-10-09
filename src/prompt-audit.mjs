@@ -687,6 +687,8 @@ export function renderPromptAudit(record) {
     '',
     '## Context efficiency',
     '',
+    `- Retained optional-skill catalogs: ${(record.composition?.skillLoading ?? []).filter(entry => entry.representation === 'retained-catalog').length} (not provider savings; retrieval adds input if used)`,
+    `- Stakeholder request bodies referenced from capsule: ${record.composition?.stakeholderProjection?.referencedRequestIds?.length ?? 0}`,
     `- Source bytes: ${record.composition?.economics?.source?.sourceBytes == null ? 'unavailable' : record.composition.economics.source.sourceBytes.toLocaleString('en-US')}`,
     `- Managed source bytes excluded before prompt composition: ${(record.composition?.economics?.source?.managedSourceBytesExcluded ?? record.composition?.inputLinearization?.managedBytesExcluded ?? 0).toLocaleString('en-US')} (source linearization; not a token-savings claim)`,
     `- Managed governed-reference bytes excluded before prompt composition: ${(record.composition?.economics?.source?.managedReferenceBytesExcluded ?? 0).toLocaleString('en-US')} (reference projection; not a token-savings claim)`,

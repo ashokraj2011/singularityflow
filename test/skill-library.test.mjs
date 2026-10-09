@@ -21,7 +21,7 @@ import YAML from 'yaml';
 import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { parseAgentDependencies, renderAgentSkills } from '../src/agents.mjs';
 import {
-  defaultSkillLabel, librarySkillText, loadSkillLibrary, normalizeSkillUse, parseLibrarySkill, parseSkillAttachments,
+  defaultSkillLabel, librarySkillText, loadSkillLibrary, normalizeSkillUse, parseLibrarySkill, parseSkillAttachments, renderLibrarySkills,
   skillAttachmentsText, withoutAttachedSkills
 } from '../src/skill-library.mjs';
 import { importsStatus, readStagedImport, stageImport } from '../src/asset-import.mjs';
@@ -29,6 +29,8 @@ import { buildStudioModel, planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA } from 
 import { operationCatalog, resolveOperation } from '../src/command-registry.mjs';
 import { captureWorkflowSnapshot } from '../src/workflow-snapshots.mjs';
 import { resolveStoryExecutionContext } from '../src/story-execution-context.mjs';
+import { retainedSkillExpansion, selectRetainedSkillInstructions } from '../src/retained-skill-instructions.mjs';
+import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs';
 import { applyWorkflowImport, copyWorkflow, exportWorkflowBundle, planWorkflowCopy, planWorkflowImport } from '../src/workflow-transfer.mjs';
 import { addReleaseWorkflow, LIBRARY_SKILL_PATH, librarySkillText as releaseSkill } from './helpers/release-workflow-fixture.mjs';
 
@@ -153,7 +155,8 @@ test('pinned workflow skills retain their exact bytes, separately from agent ski
 test('workflow skill import, export and duplication preserve scope and follow identity renames', async (t) => {
   const source = await repository(t, 'sflow-workflow-skills-export-');
   await addReleaseWorkflow(source, 'source');
-  const stagedSkill = await staged(source, librarySkillText(SECURITY_REVIEW));
+  const optionalSkill = { ...SECURITY_REVIEW, loading: 'on-demand' };
+  const stagedSkill = await staged(source, librarySkillText(optionalSkill));
   const attached = await planStudioChangeSet(source, changeSet([
     { op: 'import.librarySkill', id: 'security-review', sha256: stagedSkill.sha },
     { op: 'skill.attach', skill: 'security-review', workflow: 'mobile-release', phases: ['store-submission'], use: 'Before release' },
@@ -163,7 +166,7 @@ test('workflow skill import, export and duplication preserve scope and follow id
   const bundle = await exportWorkflowBundle(source, ['mobile-release']);
   assert.equal(bundle.schemaVersion, 7);
   assert.deepEqual(bundle.workflowSkillAttachments, [{ workflow: 'mobile-release', id: 'security-review', phases: ['store-submission'], use: 'Before release' }]);
-  assert.equal(bundle.assets.find((asset) => asset.kind === 'skill').content, librarySkillText(SECURITY_REVIEW));
+  assert.equal(bundle.assets.find((asset) => asset.kind === 'skill').content, librarySkillText(optionalSkill));
   const target = await repository(t, 'sflow-workflow-skills-import-');
   const plan = await planWorkflowImport(target, bundle, { resolutions: {
     'workflow:mobile-release': { action: 'rename', to: 'my-release' },
@@ -185,9 +188,11 @@ test('workflow skill import, export and duplication preserve scope and follow id
   assert.equal(provenance.sha256, stagedSkill.sha, 'the original URL bytes remain independently pinned');
   const importedFile = path.join(target, provenance.target.path);
   assert.equal(provenance.fileSha256, sha256(await readFile(importedFile)));
+  assert.equal(parseLibrarySkill(await readFile(importedFile, 'utf8'), { id: 'my-review' }).loading, 'on-demand');
   assert.ok(provenance.transforms.includes('renamed-on-import'));
   assert.equal((await importsStatus(target)).find((entry) => entry.key === 'library-skill:my-review').status, 'current');
   const reexported = await exportWorkflowBundle(target, ['my-release']);
+  assert.equal(parseLibrarySkill(reexported.assets.find((asset) => asset.kind === 'skill').content, { id: 'my-review' }).loading, 'on-demand');
   const third = await repository(t, 'sflow-workflow-skills-round-trip-');
   const again = await planWorkflowImport(third, reexported);
   assert.equal(again.status, 'ready', JSON.stringify(again.unresolved));
@@ -201,6 +206,8 @@ test('workflow skill import, export and duplication preserve scope and follow id
     await copyWorkflow(target, { sourceId: 'my-release', targetId: id, label: id, independent, expectedPlanSha256: copy.planSha256, resolutions: copy.resolutions });
     const model = await buildStudioModel(target);
     assert.equal(model.workflows.find((entry) => entry.id === id).skills.length, 1);
+    const copiedSkillId = model.workflows.find((entry) => entry.id === id).skills[0].id;
+    assert.equal(model.skills.find((entry) => entry.id === copiedSkillId).loading, 'on-demand');
     assert.equal(model.workflows.find((entry) => entry.id === 'my-release').skills[0].id, 'my-review', 'original remains unchanged');
   }
   await writeFile(importedFile, `${await readFile(importedFile, 'utf8')}\nUnreviewed local change.\n`);
@@ -434,6 +441,62 @@ async function accept({ root, config, workflow }) {
   git(root, 'commit', '-q', '-m', 'start the Story');
 }
 
+test('on-demand skills are explicit, scoped, retained offline and retrieved by exact identities', async t => {
+  const story = await storyFixture(t);
+  const optional = { ...SECURITY_REVIEW, loading: 'on-demand', instructions: 'OPTIONAL-PROCEDURE. '.repeat(300) };
+  await writeSkill(story.root, optional);
+  story.workflow.currentPhase = 'implementation';
+  story.workflow.phases = { implementation: { id: 'implementation', generation: 0, defaultAgent: 'developer' } };
+  story.workflow.workflowSnapshot = await captureWorkflowSnapshot(story.root, story.config, story.workflow);
+  await accept(story);
+  const context = await resolveStoryExecutionContext(story.root, story.config, story.workflow, { agentId: 'developer', phaseId: 'implementation' });
+  const phase = story.workflow.phases.implementation;
+  const rendered = await renderAgentSkills(story.root, story.workflow, phase, { agent: 'developer' }, {
+    executionContext: context, fetchImpl: () => { throw new Error('No network'); }
+  });
+  assert.doesNotMatch(rendered.text, /OPTIONAL-PROCEDURE/);
+  assert.match(rendered.text, /load one only when its use condition applies/);
+  assert.match(rendered.text, /Never defer mandatory safety, correctness or policy instructions/);
+  assert.match(rendered.text, /A retrieval refusal means unavailable/);
+  assert.match(rendered.text, /--snapshot-sha256/);
+  assert.equal(rendered.skills[0].instructions, optional.instructions.trim());
+  assert.ok(Buffer.byteLength(rendered.text) < Buffer.byteLength(optional.instructions) / 2);
+  const request = { skillId: 'security-review', workId: 'SEC-1', phaseId: 'implementation', agentId: 'developer',
+    generation: 1, snapshotSha256: context.identity.snapshotHash, expectedSha256: rendered.skills[0].sha256 };
+  await rm(path.join(story.root, 'singularity/skill-library'), { recursive: true });
+  const verifiedAgain = await resolveStoryExecutionContext(story.root, story.config, story.workflow, { agentId: 'developer', phaseId: 'implementation' });
+  const result = selectRetainedSkillInstructions(story.workflow, phase, verifiedAgain, request);
+  assert.equal(result.skill.instructions, optional.instructions.trim());
+  assert.equal(result.authority, 'verified-story-snapshot');
+  assert.equal(result.effects.filesChanged, false);
+  for (const change of [{ workId: 'OTHER' }, { phaseId: 'verification' }, { agentId: 'qa' }, { generation: 2 },
+    { snapshotSha256: 'a'.repeat(64) }, { expectedSha256: 'b'.repeat(64) }, { skillId: 'not-attached' }]) {
+    assert.throws(() => selectRetainedSkillInstructions(story.workflow, phase, verifiedAgain, { ...request, ...change }),
+      { code: 'SKILL_RETAINED_BINDING_STALE' });
+  }
+  const incompatible = { ...verifiedAgain, dependencies: verifiedAgain.dependencies.map(entry => ({ ...entry, phases: ['verification'] })) };
+  assert.throws(() => selectRetainedSkillInstructions(story.workflow, phase, incompatible, request), { code: 'SKILL_RETAINED_BINDING_STALE' });
+  assert.equal(retainedSkillExpansion(story.workflow, phase, { identity: { mode: 'legacy-live' } }, rendered.skills[0]), null,
+    'no retained retrieval owner means conservative eager loading');
+  const eager = parseLibrarySkill(librarySkillText({ ...SECURITY_REVIEW, id: 'mandatory-policy', instructions: 'MANDATORY POLICY MUST REMAIN.' }));
+  const mixed = renderLibrarySkills('developer', [eager, rendered.skills[0]], { expansions: new Map([
+    [rendered.skills[0].id, retainedSkillExpansion(story.workflow, phase, context, rendered.skills[0])]
+  ]) });
+  assert.match(mixed, /MANDATORY POLICY MUST REMAIN\./);
+  assert.doesNotMatch(mixed, /OPTIONAL-PROCEDURE/);
+});
+
+test('Studio edits preserve explicit skill loading and ordinary descriptions never defer instructions', async t => {
+  const root = await repository(t);
+  const created = await planStudioChangeSet(root, changeSet([{ op: 'skill.create', ...SECURITY_REVIEW, loading: 'on-demand' }]), { write: true });
+  assert.equal(created.valid, true, JSON.stringify(created.problems));
+  const updated = await planStudioChangeSet(root, changeSet([{ op: 'skill.update', id: SECURITY_REVIEW.id, label: 'Renamed' }]), { write: true });
+  assert.equal(updated.valid, true, JSON.stringify(updated.problems));
+  assert.equal(parseLibrarySkill(await readFile(path.join(root, SKILL_PATH), 'utf8')).loading, 'on-demand');
+  assert.equal(parseLibrarySkill(librarySkillText(SECURITY_REVIEW)).loading, 'eager');
+  assert.throws(() => parseLibrarySkill(librarySkillText({ ...SECURITY_REVIEW, loading: 'sometimes' })), /sflow-loading/);
+});
+
 test('a Story keeps the skill text it started with, offline, whatever the skill master says later', async (t) => {
   const story = await storyFixture(t);
   const original = await readFile(path.join(story.root, SKILL_PATH), 'utf8');
@@ -650,6 +713,41 @@ function flow(root, args, { allowFailure = false } = {}) {
   if (!allowFailure && result.status !== 0) throw new Error(`sflow ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
   return result;
 }
+
+test('the CLI retrieves an optional skill from a real started Story and refuses stale catalog links without writes', async t => {
+  const root = await temporary(t, 'sflow-retained-skill-cli-');
+  git(root, 'init', '-q', '-b', 'main');
+  git(root, 'config', 'user.name', 'Skill Master Test');
+  git(root, 'config', 'user.email', 'skills@example.invalid');
+  flow(root, ['init']);
+  flow(root, ['skill', 'create', 'security-review', '--description', SECURITY_REVIEW.description,
+    '--instructions', SECURITY_REVIEW.instructions, '--loading', 'on-demand']);
+  flow(root, ['skill', 'attach', 'security-review', '--agent', 'product-owner', '--phases', 'intake']);
+  git(root, 'add', '-A'); git(root, 'commit', '-qm', 'Reviewed optional procedure');
+  const remote = `${root}.git`; t.after(() => rm(remote, { recursive: true, force: true }));
+  git(root, 'init', '--bare', '-q', '-b', 'main', remote);
+  git(root, 'remote', 'add', 'origin', remote); git(root, 'push', '-qu', 'origin', 'main');
+  flow(root, ['start', 'RETSKILL-1', '--from-branch', 'main', '--work-type', 'feature',
+    '--title', 'Optional skill retrieval', '--description', 'Retain optional procedures without changing authority.']);
+  const accepted = await loadAcceptedStoryExecution(root, 'RETSKILL-1');
+  const context = await resolveStoryExecutionContext(root, accepted.definition, accepted.workflow, {
+    agentId: 'product-owner', phaseId: 'intake', executionCatalog: accepted.executionCatalog
+  });
+  const skill = parseLibrarySkill(context.dependencies.find(entry => entry.source === 'library').text);
+  await rm(path.join(root, 'singularity/skill-library'), { recursive: true });
+  const args = ['skill', 'show', 'security-review', '--work-id', 'RETSKILL-1', '--phase', 'intake',
+    '--agent', 'product-owner', '--generation', '1', '--snapshot-sha256', context.identity.snapshotHash,
+    '--expected-sha256', skill.sha256, '--json'];
+  const before = git(root, 'status', '--porcelain'); const head = git(root, 'rev-parse', 'HEAD');
+  const result = JSON.parse(flow(root, args).stdout);
+  assert.equal(result.skill.instructions, SECURITY_REVIEW.instructions);
+  assert.equal(result.authority, 'verified-story-snapshot');
+  const stale = [...args]; stale[stale.indexOf('--expected-sha256') + 1] = 'a'.repeat(64);
+  assert.equal(JSON.parse(flow(root, stale, { allowFailure: true }).stdout).error.code, 'SKILL_RETAINED_BINDING_STALE');
+  assert.equal(git(root, 'status', '--porcelain'), before); assert.equal(git(root, 'rev-parse', 'HEAD'), head);
+  const missingScope = flow(root, ['skill', 'show', 'security-review', '--phase', 'intake', '--json'], { allowFailure: true });
+  assert.equal(JSON.parse(missingScope.stdout).error.code, 'SKILL_MASTER_OPTION_INVALID');
+});
 
 test('the command line lists, shows, creates, attaches, detaches and removes skills, and a dry run writes nothing', async (t) => {
   const root = await cliRepository(t);

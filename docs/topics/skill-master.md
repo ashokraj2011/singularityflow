@@ -16,9 +16,9 @@ related:
   - agents-and-routing
   - importing-assets
   - workflow-authoring
-version: 4
+version: 5
 ---
-The skill master is the repository's collection of named skills. Attach a skill to a **workflow** to apply it only within that workflow, or to an **agent** to apply it wherever that agent is selected. Each attachment can restrict its steps and say when to use it. Both scopes inject the exact skill instructions into the phase prompt.
+The skill master is the repository's collection of named skills. Attach a skill to a **workflow** to apply it only within that workflow, or to an **agent** to apply it wherever that agent is selected. Each attachment can restrict its steps and say when to use it. Both scopes eagerly inject exact instructions by default; explicitly optional procedures can instead use a retained catalog.
 
 ## Scope and prompt injection
 
@@ -56,6 +56,44 @@ metadata:
 - `description` says what the skill does and when to use it, in at most 1024 characters.
 - `metadata.sflow-label` is an optional display name. Without it, the ID is shown as words.
 - The instructions follow the front matter. A skill is at most 256 KiB.
+
+## Optional procedures and prompt size
+
+Narrow the attachment's steps first. A description such as "only for migrations" is not a loading
+condition: by default the full instructions still enter every matching prompt. Never narrow or
+defer a globally required security, correctness or policy obligation.
+
+For an optional, self-contained procedure, set `metadata.sflow-loading: on-demand`, select
+**On demand** in Workflow Studio's skill editor, or use the reviewed configuration command:
+
+```bash
+singularity-flow skill edit migration-guide --loading on-demand --propose
+```
+
+Applicable optional skills retain their complete bytes in the Story snapshot, but the prompt shows
+their ID, digest, description, scopes, use condition and exact `skill show` retrieval command.
+Before using one, run that returned command; it binds the Story, current phase, prospective
+generation, selected agent, accepted snapshot and skill digest. A stale or missing binding refuses
+with `SKILL_RETAINED_BINDING_STALE`; reload the current prompt catalog. Never substitute a live
+library file, fetch a URL again or invent missing instructions. Retrieval does not admit authoring,
+run tests, publish or approve. Without a verified Story snapshot, rendering stays eager.
+
+Omitted metadata means `eager`; existing skills and retained prompt snapshots are unchanged.
+Skills with undeclared external prerequisites are not candidates for on-demand loading: keep
+them and their required dependencies eager. This is not automatic applicability classification or
+a new dependency resolver. Imported SKILL.md metadata and workflow/agent attachment scopes travel
+unchanged through export, import and duplication. Mandatory remote dependencies remain eager.
+
+Smaller initial prompts are not necessarily lower total cost: expansion adds input and a tool call.
+Review retained `skillLoading` and `stakeholderProjection` sizes with the content-free disk audit:
+
+```bash
+npm run audit:prompt-sizes -- --story-dir /absolute/path/returned/by/sflow
+```
+
+The audit reads only the selected Story's retained prompts and matching receipts, refuses symlinks
+and oversized inputs, and reports section sizes, duplicate files and adjacent common-byte prefixes.
+It does not expose prompt bodies, invoke a model, measure provider usage or establish cache savings.
 
 ## Where an attachment is kept
 

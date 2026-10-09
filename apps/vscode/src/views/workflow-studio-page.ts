@@ -349,7 +349,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     });
     // The skill master: named instructions attached at workflow or agent scope.
     (model.skills || []).forEach(function (skill) {
-      draft.skills[skill.id] = { id: skill.id, label: skill.label, description: skill.description, instructions: skill.instructions, isNew: false };
+      draft.skills[skill.id] = { id: skill.id, label: skill.label, description: skill.description, instructions: skill.instructions, loading: skill.loading || 'eager', isNew: false };
     });
     (model.groups || []).forEach(function (group) {
       draft.groups[group.id] = { id: group.id, label: group.label, members: clone(group.members || []), status: group.status, isNew: false };
@@ -526,9 +526,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var skillsNow = draft.skills || {};
     Object.keys(skillsNow).sort().forEach(function (id) {
       var skill = skillsNow[id]; var prior = base.skills[id];
-      if (!prior) { changes.push({ op: 'skill.create', id: id, label: skill.label, description: skill.description, instructions: skill.instructions }); return; }
+      if (!prior) {
+        var createdSkill = { op: 'skill.create', id: id, label: skill.label, description: skill.description, instructions: skill.instructions };
+        if (skill.loading === 'on-demand') createdSkill.loading = skill.loading;
+        changes.push(createdSkill); return;
+      }
       var edit = { op: 'skill.update', id: id };
       ['label', 'description', 'instructions'].forEach(function (key) { if (prior[key] !== skill[key]) edit[key] = skill[key]; });
+      if ((prior.loading || 'eager') !== (skill.loading || 'eager')) edit.loading = skill.loading || 'eager';
       if (Object.keys(edit).length > 2) changes.push(edit);
     });
     Object.keys(base.skills).sort().forEach(function (id) { if (!skillsNow[id]) changes.push({ op: 'skill.remove', id: id }); });
@@ -4653,7 +4658,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (id && protectedObject('skills', id)) { setStatus('Seeded skill: duplicate the workflow before editing its copy.'); return; }
     var skill = id ? state.draft.skills[id] : null;
     var view = skillsView();
-    view.form = { mode: id ? 'edit' : 'create', id: id, label: skill ? skill.label : '', description: skill ? skill.description : '', instructions: skill ? skill.instructions : '', attachTo: attachTo || null };
+    view.form = { mode: id ? 'edit' : 'create', id: id, label: skill ? skill.label : '', description: skill ? skill.description : '', instructions: skill ? skill.instructions : '', loading: skill ? skill.loading || 'eager' : 'eager', attachTo: attachTo || null };
     if (attachTo) state.returnTo = boardReturn();
     view.attach = null; state.view = 'skills'; render();
   }
@@ -4677,6 +4682,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       field('skill-description', 'What it does and when to use it', textInput('skill-description', form.description, function (value) { form.description = value; }, { placeholder: 'Checks a change for common security mistakes before it is published.' }))));
     card.appendChild(field('skill-instructions', 'Instructions', el('textarea', { id: 'skill-instructions', 'data-key': 'skill-instructions', rows: 12, onchange: function (event) { form.instructions = event.target.value; } }, form.instructions || ''),
       'What the agent does when it uses this skill, step by step. Markdown.'));
+    card.appendChild(field('skill-loading', 'Prompt loading', select('skill-loading', [
+      { value: 'eager', label: 'Eager — instructions in every applicable prompt' },
+      { value: 'on-demand', label: 'On demand — optional self-contained procedure' }
+    ], form.loading || 'eager', function (value) { form.loading = value; }),
+    'Keep safety, correctness and policy skills eager. On-demand skills retain exact bytes and use a verified Story retrieval command before application; a use description alone never defers loading.'));
     card.appendChild(el('div', { class: 'studio-row' },
       button(form.mode === 'create' ? 'Add skill to changes' : 'Keep changes', function () { saveSkillForm(); }, { class: 'primary' }),
       button('Cancel', function () { closeSkillForm(); }, { class: 'secondary' })));
@@ -4694,7 +4704,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (!description) { setStatus('Say what the skill does and when to use it.'); return; }
     if (!instructions) { setStatus('Write the instructions the agent follows.'); return; }
     var existing = state.draft.skills[id];
-    state.draft.skills[id] = { id: id, label: label, description: description, instructions: instructions, isNew: existing ? existing.isNew : true };
+    state.draft.skills[id] = { id: id, label: label, description: description, instructions: instructions, loading: form.loading || 'eager', isNew: existing ? existing.isNew : true };
     var attachTo = form.attachTo && state.draft.workflows[form.attachTo.workflow] ? form.attachTo : null;
     if (attachTo) {
       var back = state.returnTo;

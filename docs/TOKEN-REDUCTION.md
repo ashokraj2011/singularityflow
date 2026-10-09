@@ -124,6 +124,44 @@ Until that evidence exists, `legacy-v1` remains the only production composer and
 a candidate API only. A smaller initial packet that causes later retrieval or repair is not a
 proven net saving.
 
+## October prompt-efficiency review: implemented production slices
+
+The 8 October token-savings review was rechecked against a fresh clone of main. Its
+near-term changes use the existing `legacy-v1` delivery path; they do not activate
+`tkr-v1` or replace its pending qualification:
+
+- Open stakeholder requests have one model-visible body with full requester, status,
+  source generation, target and clause provenance. The capsule's delivery projection
+  references the exact request digest only after validating its identity and content.
+  Durable capsules and prior prompt records stay intact. Missing, stale or ambiguous
+  matches retain the original body rather than dropping a request.
+- Library skills remain eager by default. A reviewed `sflow-loading: on-demand`
+  declaration may catalog a self-contained optional procedure instead of injecting
+  its whole body. The expansion reads exact retained Story bytes, bound to the Story,
+  phase, prospective generation, agent, snapshot and skill digest; it never substitutes
+  a current URL or live library. Workflow/agent scope filtering, shared-skill
+  deduplication, import/export and workflow copying retain their existing semantics.
+  Mandatory policy, safety and correctness procedures must remain eager. Existing
+  descriptions and conditional `use` prose are not loading conditions.
+- `npm run audit:prompt-sizes -- --story-dir <SELECTED-STORY-DIRECTORY>` inventories
+  bounded stored prompt/receipt files without emitting their bodies, making model
+  calls or modifying records. It reports section sizes only for a matching prompt
+  digest. File sizes, duplicate hashes and common byte prefixes are observations,
+  not proof of provider delivery, authority, cache hits or savings.
+
+The skill-master documentation describes reviewed authoring and retrieval. The
+regressions cover a real started Story's offline CLI retrieval, stale-binding refusal,
+scope and identity renames, Unicode request preservation, identical prose under
+different request IDs, and bounded inventory handling.
+
+Existing approved-input/structural projections and consolidated phase-entry skills
+were already present; they are retained rather than replaced or weakened. This
+change does not rewrite customer attachments or silently alter their policies.
+Interactive compaction, cross-invocation ACP session reuse, provider cache boundaries
+and native pre-spend caps remain host/provider qualification work. Representative
+paired task measurements, including retrievals and repairs, are still needed before
+claiming a billed-token or end-to-end saving.
+
 ## Maintainer validation
 
 Run the implemented TKR slice exactly with:

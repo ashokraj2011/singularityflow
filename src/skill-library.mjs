@@ -93,23 +93,26 @@ export function parseLibrarySkill(text, { id, source = librarySkillPath(id) } = 
   const metadata = frontMatter.metadata ?? {};
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) fail(`Skill '${name}' metadata must be a map.`);
   const rawLabel = metadata['sflow-label'];
+  const loading = metadata['sflow-loading'] ?? 'eager';
+  if (!['eager', 'on-demand'].includes(loading)) fail(`Skill '${name}' sflow-loading must be eager or on-demand.`);
   if (rawLabel != null && (typeof rawLabel !== 'string' || !rawLabel.trim() || rawLabel.length > MAX_LABEL)) {
     fail(`Skill '${name}' has an invalid sflow-label.`);
   }
   const instructions = body.trim();
   if (!instructions) fail(`Skill '${name}' has no instructions.`);
   return Object.freeze({
-    id: name, label: rawLabel?.trim() ?? defaultSkillLabel(name), description, instructions,
+    id: name, label: rawLabel?.trim() ?? defaultSkillLabel(name), description, instructions, loading,
     path: librarySkillPath(name), sha256: sha256(text), bytes: Buffer.byteLength(text, 'utf8'), text
   });
 }
 
 /** The SKILL.md text for a skill written in Workflow Studio or by `skill create`. */
-export function librarySkillText({ id, label = null, description, instructions }) {
+export function librarySkillText({ id, label = null, description, instructions, loading = 'eager' }) {
   if (!ID.test(String(id ?? ''))) fail('A skill ID must be lower-case kebab-case.');
   const front = { name: id, description: String(description ?? '').replace(/\s+/g, ' ').trim() };
   const name = String(label ?? '').trim();
   if (name && name !== defaultSkillLabel(id)) front.metadata = { 'sflow-label': name };
+  if (loading !== 'eager') front.metadata = { ...front.metadata, 'sflow-loading': loading };
   const text = `---\n${YAML.stringify(front, { lineWidth: 0 })}---\n\n${String(instructions ?? '').trim()}\n`;
   parseLibrarySkill(text, { id });
   return text;
@@ -302,8 +305,13 @@ export function normalizeSkillUse(value) {
  * The prompt text for the library skills attached to an agent in a step: a short instruction to
  * read and apply them, then each skill with when to use it and its instructions.
  */
-export function renderLibrarySkills(agentId, entries) {
+export function renderLibrarySkills(agentId, entries, { expansions = new Map() } = {}) {
   if (!entries.length) return '';
+  const guidance = expansions.size
+    ? 'Apply eager instructions below. Optional procedures are catalogued with exact read-only retrieval commands; load one only when its use condition applies. Never defer mandatory safety, correctness or policy instructions. A retrieval refusal means unavailable: do not use live library bytes or invent the procedure.'
+    : entries.some((entry) => entry.scopes?.some((scope) => scope.startsWith('workflow ')))
+      ? 'These skills apply to this workflow step. Read each one before you start this step.'
+      : `These skills from the skill master are attached to ${agentId}. Read each one before you start this step.`;
   const blocks = entries.map((entry) => [
     `<!-- skill: ${entry.id} sha256=${String(entry.sha256).replace(/^sha256:/, '')} -->`,
     '',
@@ -313,14 +321,14 @@ export function renderLibrarySkills(agentId, entries) {
     entry.scopes?.length ? `\nApplies through: ${entry.scopes.join('; ')}.` : null,
     entry.use ? `\nWhen to use it: ${entry.use}` : null,
     '',
-    entry.instructions.trim()
+    expansions.has(entry.id)
+      ? `Optional procedure; instructions retained, not loaded. Retrieve before applying:\n\n${expansions.get(entry.id)}`
+      : entry.instructions.trim()
   ].filter((line) => line != null).join('\n'));
   return [
     '## Attached skill instructions',
     '',
-    (entries.some((entry) => entry.scopes?.some((scope) => scope.startsWith('workflow ')))
-      ? 'These skills apply to this workflow step. Read each one before you start this step.'
-      : `These skills from the skill master are attached to ${agentId}. Read each one before you start this step.`)
+    guidance
       + ' When your instructions or a skill\'s "When to use it" call for it, carry the skill out as written,'
       + ' in that order, and say in your work which skills you applied.',
     '',

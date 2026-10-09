@@ -506,7 +506,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     marketplaces: Object.values(safeMarketplaces(raw.marketplaces, problems)).map((marketplace) => ({ ...marketplace, allowedOrigins: [...marketplace.allowedOrigins] })),
     imports: await importsStatus(root).catch((error) => { problems.push({ code: error?.code ?? 'IMPORTS_LOCK_INVALID', message: error.message }); return []; }),
     skills: [...library.skills.values()].map((skill) => ({
-      id: skill.id, label: skill.label, description: skill.description, instructions: skill.instructions, path: skill.path,
+      id: skill.id, label: skill.label, description: skill.description, instructions: skill.instructions, loading: skill.loading, path: skill.path,
       usedBy: discovered.flatMap((agent) => skillUses(agent).filter((entry) => entry.id === skill.id)
         .map((entry) => ({ agent: agent.id, phases: entry.phases, use: entry.use, origin: entry.origin })))
         .concat(workflowAttachments.filter((entry) => entry.id === skill.id)
@@ -941,26 +941,26 @@ class StudioCandidate {
     this.attachmentsChanged = true;
   }
 
-  writeSkill(skillId, { label, description, instructions }) {
-    const text = librarySkillText({ id: skillId, label, description, instructions });
+  writeSkill(skillId, { label, description, instructions, loading }) {
+    const text = librarySkillText({ id: skillId, label, description, instructions, loading });
     const skill = parseLibrarySkill(text, { id: skillId });
     this.skills.set(skillId, skill);
     this.skillFiles.set(librarySkillPath(skillId), text);
     return skill;
   }
 
-  createSkill({ id, label, description, instructions }) {
+  createSkill({ id, label, description, instructions, loading }) {
     const skillId = requireId(id, 'A skill ID');
     if (this.skills.has(skillId)) throw new SingularityFlowError(`The skill master already has a skill called '${skillId}'.`, { code: 'STUDIO_SKILL_EXISTS' });
-    const skill = this.writeSkill(skillId, { label, description, instructions });
+    const skill = this.writeSkill(skillId, { label, description, instructions, loading });
     this.summary.push(`New skill ${skill.label} in the skill master.`);
   }
 
-  updateSkill({ id, label, description, instructions }) {
+  updateSkill({ id, label, description, instructions, loading }) {
     const current = this.requireSkill(id);
     const skill = this.writeSkill(current.id, {
       label: label ?? current.label, description: description ?? current.description,
-      instructions: instructions ?? current.instructions
+      instructions: instructions ?? current.instructions, loading: loading ?? current.loading
     });
     // The agents that use the new text are known once every change is applied.
     this.updatedSkills.set(skill.id, this.summary.push(`Skill ${skill.label} updated.`) - 1);
@@ -1074,7 +1074,7 @@ class StudioCandidate {
       const current = replace ? this.skills.get(skillId) : null;
       const what = String(description ?? current?.description ?? '').replace(/\s+/g, ' ').trim();
       if (!what) throw new SingularityFlowError('This file is plain Markdown, so the skill needs a description of what it does and when to use it (--description on the command line).', { code: 'STUDIO_SKILL_INVALID' });
-      text = librarySkillText({ id: skillId, label: current?.label ?? null, description: what, instructions: staged.text });
+      text = librarySkillText({ id: skillId, label: current?.label ?? null, description: what, instructions: staged.text, loading: current?.loading });
       skill = parseLibrarySkill(text, { id: skillId });
       extra = { transforms: ['wrapped-as-skill'], fileSha256: sha256Of(Buffer.from(text, 'utf8')) };
     }

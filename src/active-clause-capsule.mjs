@@ -17,10 +17,10 @@ function textSha256(value) {
   return createHash('sha256').update(String(value ?? '')).digest('hex');
 }
 
-export const CLAUSE_CAPSULE_RENDERER = 'clause-capsule-v2';
+export const CLAUSE_CAPSULE_RENDERER = 'clause-capsule-v3';
 
 /** Compact model projection only. The verified capsule and its integrity hash stay unchanged. */
-export function renderActiveClauseCapsule(capsule) {
+export function renderActiveClauseCapsule(capsule, { clarificationReferences = new Map() } = {}) {
   if (!capsule || (!capsule.clauses.length && !capsule.openRisks.length && !capsule.clarifications.length)) return '';
   const sources = [];
   const sourceIds = new Map();
@@ -47,7 +47,8 @@ export function renderActiveClauseCapsule(capsule) {
     ...(sources.length ? { sources } : {}),
     ...(clauses.length ? { clauses } : {}),
     ...(capsule.openRisks.length ? { openRisks: capsule.openRisks } : {}),
-    ...(capsule.clarifications.length ? { clarifications: capsule.clarifications } : {})
+    ...(capsule.clarifications.length ? { clarifications: capsule.clarifications.map(entry =>
+      clarificationReferences.get(entry.id) ?? entry) } : {})
   };
   return [
     '# Active Clause Capsule', '',

@@ -10,10 +10,11 @@ import { SingularityFlowError } from '../util.mjs';
 import { SKILL_MASTER_READS } from './skill.mjs';
 const AUTHORING = ['json', 'dry-run', 'propose', 'expected-authority-kind', 'expected-authority-commit',
   'expected-authority-remote-fingerprint', 'expected-authority-source-commit'];
+const RETAINED = ['work-id', 'phase', 'agent', 'generation', 'snapshot-sha256', 'expected-sha256'];
 const OPTIONS = Object.freeze({
-  list: ['json'], show: ['json'],
-  create: [...AUTHORING, 'label', 'description', 'instructions', 'from'],
-  edit: [...AUTHORING, 'label', 'description', 'instructions', 'from'],
+  list: ['json'], show: ['json', ...RETAINED],
+  create: [...AUTHORING, 'label', 'description', 'instructions', 'from', 'loading'],
+  edit: [...AUTHORING, 'label', 'description', 'instructions', 'from', 'loading'],
   attach: [...AUTHORING, 'agent', 'workflow', 'phases', 'use'],
   detach: [...AUTHORING, 'agent', 'workflow'],
   remove: AUTHORING
@@ -43,6 +44,14 @@ export function validateSkillMasterRequest({ positionals, options }) {
     if (options[key] !== undefined && options[key] !== true) fail(`--${key} does not take a value.`, 'SKILL_MASTER_OPTION_UNSUPPORTED');
   }
   if (['attach', 'detach'].includes(action) && Boolean(text(options, 'agent')) === Boolean(text(options, 'workflow'))) fail(`skill ${action} needs exactly one --agent <AGENT> or --workflow <WORKFLOW>.`, 'SKILL_MASTER_AGENT_REQUIRED');
+  if (options.loading !== undefined && !['eager', 'on-demand'].includes(text(options, 'loading'))) fail('--loading must be eager or on-demand.', 'SKILL_MASTER_OPTION_INVALID');
+  if (action === 'show' && RETAINED.some(key => options[key] !== undefined)) {
+    for (const key of RETAINED) if (!text(options, key)?.trim()) fail(`Retained skill retrieval requires --${key}.`, 'SKILL_MASTER_OPTION_INVALID');
+    if (!/^[1-9]\d*$/u.test(options.generation) || !Number.isSafeInteger(Number(options.generation))
+        || !ID.test(options.phase) || !ID.test(options.agent)
+        || !/^(?:sha256:)?[a-f0-9]{64}$/u.test(options['snapshot-sha256'])
+        || !/^(?:sha256:)?[a-f0-9]{64}$/u.test(options['expected-sha256'])) fail('Retained skill retrieval requires exact phase, agent, positive generation and SHA-256 identities.', 'SKILL_MASTER_OPTION_INVALID');
+  }
   return action;
 }
 
@@ -58,14 +67,14 @@ async function changeFor(action, id, options) {
     const instructions = await instructionsFrom(options);
     if (!text(options, 'description')) fail('skill create needs --description "<what it does and when to use it>".', 'SKILL_MASTER_OPTION_INVALID');
     if (!instructions?.trim()) fail('skill create needs its instructions: --from <FILE> or --instructions "<TEXT>".', 'SKILL_MASTER_OPTION_INVALID');
-    return { op: 'skill.create', id, label: text(options, 'label'), description: text(options, 'description'), instructions };
+    return { op: 'skill.create', id, label: text(options, 'label'), description: text(options, 'description'), instructions, loading: text(options, 'loading') };
   }
   if (action === 'edit') {
     const change = { op: 'skill.update', id };
-    for (const key of ['label', 'description']) if (text(options, key) != null) change[key] = text(options, key);
+    for (const key of ['label', 'description', 'loading']) if (text(options, key) != null) change[key] = text(options, key);
     const instructions = await instructionsFrom(options);
     if (instructions != null) change.instructions = instructions;
-    if (Object.keys(change).length === 2) fail('Say what to change: --label, --description, --instructions or --from.', 'SKILL_MASTER_OPTION_INVALID');
+    if (Object.keys(change).length === 2) fail('Say what to change: --label, --description, --instructions, --from or --loading.', 'SKILL_MASTER_OPTION_INVALID');
     return change;
   }
   if (action === 'attach') {
@@ -114,6 +123,24 @@ export async function runSkillMaster({ positionals, options, applyChangeSet, pri
   ]);
   const root = repoRoot();
   const json = options.json === true;
+  if (action === 'show' && options['work-id'] !== undefined) {
+    const [{ loadAcceptedStoryExecution }, { resolveStoryExecutionContext },
+      { selectRetainedSkillInstructions }] = await Promise.all([
+      import('../accepted-story-execution.mjs'), import('../story-execution-context.mjs'),
+      import('../retained-skill-instructions.mjs')
+    ]);
+    const accepted = await loadAcceptedStoryExecution(root, options['work-id']);
+    const context = await resolveStoryExecutionContext(root, accepted.definition, accepted.workflow, {
+      agentId: options.agent, phaseId: options.phase, executionCatalog: accepted.executionCatalog
+    });
+    const result = selectRetainedSkillInstructions(accepted.workflow,
+      accepted.workflow.phases?.[options.phase], context, {
+        skillId: positionals[2], workId: options['work-id'], phaseId: options.phase, agentId: options.agent,
+        generation: Number(options.generation), snapshotSha256: options['snapshot-sha256'],
+        expectedSha256: options['expected-sha256']
+      });
+    return console.log(json ? JSON.stringify(result, null, 2) : result.skill.instructions);
+  }
   if (SKILL_MASTER_READS.includes(action)) {
     const model = await withApprovedConfigurationRead(root, () => buildStudioModel(root), { preferAuthority: true });
     if (action === 'list') {

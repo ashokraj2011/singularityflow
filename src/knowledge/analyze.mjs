@@ -305,7 +305,10 @@ export function analyzeKnowledge(source, { churn = null, commits = null, resolve
       const from = nodeById.get(edge.from);
       const to = nodeById.get(edge.to);
       if (!from?.symbol) continue;
-      if (to?.symbol && edge.kind === 'call') callEdges.push({ from: from.symbol, to: to.symbol, inferred: edge.inferred === true, line: edge.line });
+      // An entry point (a route, a listener) leads into its handler; that is not a call between functions.
+      if (to?.symbol && edge.kind === 'call' && from.kind !== 'entry' && from.symbol !== to.symbol) {
+        callEdges.push({ from: from.symbol, to: to.symbol, inferred: edge.inferred === true, line: edge.line });
+      }
       if (to && (to.kind === 'sink' || to.kind === 'source') && to.category) {
         const list = sinksBySymbol.get(from.symbol) ?? [];
         list.push({ category: to.category, label: to.label, kind: to.kind, line: edge.line });

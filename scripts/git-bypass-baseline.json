@@ -398,6 +398,13 @@
       },
       "digest": "4426aede19f2e45b109ce8b0cf1895577c728434de050b1e6479a56fa8f2a15e"
     },
+    "src/ast-packs/java-semantic-adapter.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "3b8d34cb3f13b98bc91e723964bed4babfd513eea8f140e64d7a1f981b8e4cae"
+    },
     "src/ast-replay.mjs": {
       "counts": {
         "command-run": 5

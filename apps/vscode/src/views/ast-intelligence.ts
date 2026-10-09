@@ -326,6 +326,7 @@ function semanticWarmSection(doctor: AstDoctorResult | null, preview: AstWarmPre
     <form id="ast-warm-form" class="form-grid">
       <label>Provider<select name="provider" required>
         <option value="">Choose a semantic provider</option>
+        <option value="sflow-java">Java · this machine's JDK (bundled)</option><option value="sflow-typescript">JavaScript/TypeScript · bundled compiler</option>
         <option value="sflow-java-jdt">Java · JDT</option><option value="sflow-python-pyright">Python · Pyright</option>
         <option value="sflow-kotlin-analysis">Kotlin · Analysis API</option><option value="sflow-swift-sourcekit">Swift · SourceKit</option>
       </select></label>
@@ -640,7 +641,7 @@ export class AstIntelligencePanel {
   }
   private async previewWarm(message: InboundMessage): Promise<void> {
     if (!this.acceptsRepositoryScope(message)) return;
-    const provider = enumField(message, 'provider', ['sflow-java-jdt', 'sflow-python-pyright', 'sflow-kotlin-analysis', 'sflow-swift-sourcekit'] as const);
+    const provider = enumField(message, 'provider', ['sflow-java', 'sflow-typescript', 'sflow-java-jdt', 'sflow-python-pyright', 'sflow-kotlin-analysis', 'sflow-swift-sourcekit'] as const);
     const profile = stringField(message, 'profile'); const project = stringField(message, 'project');
     if (!provider || !profile || !project) return;
     try {

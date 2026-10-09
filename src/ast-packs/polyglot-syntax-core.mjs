@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto';
 
 export const POLYGLOT_SYNTAX_PACK = Object.freeze({
   id: 'sflow-polyglot-syntax',
-  packVersion: '1.1.0',
-  extractorVersion: '1.1.0',
+  packVersion: '1.2.0',
+  extractorVersion: '1.2.0',
   parserEngine: 'sflow-structural-preview',
-  parserVersion: '1.1.0',
+  parserVersion: '1.2.0',
   languages: Object.freeze({
     java: Object.freeze({ grammarId: null, grammarVersion: null }),
     python: Object.freeze({ grammarId: null, grammarVersion: null }),
@@ -171,7 +171,7 @@ function javaFacts(lines, parsedLines) {
     const type = /^(?<prefix>(?:(?:public|protected|private|abstract|final|static|sealed|non-sealed|strictfp)\s+)*)?(?<kind>class|interface|enum|record|@interface)\s+(?<name>[\p{L}_$][\p{L}\p{N}_$]*)(?<tail>[^\{;]*)/u.exec(declarationLine);
     if (type?.groups) {
       const parent = containers.at(-1) ?? null;
-      const qualified = [packageName, ...containers.map((item) => item.name), type.groups.name].filter(Boolean).join('.');
+      const qualified = [packageName, ...containers.filter((item) => !item.anonymous).map((item) => item.name), type.groups.name].filter(Boolean).join('.');
       const symbol = createSymbol({ language: 'java', name: type.groups.name, qualifiedName: qualified,
         declarationKind: type.groups.kind === '@interface' ? 'annotation' : type.groups.kind,
         signature: line, containerId: parent?.id ?? null, prefix: type.groups.prefix,
@@ -184,15 +184,40 @@ function javaFacts(lines, parsedLines) {
       for (const target of implementation?.[1]?.split(',').map((item) => item.trim().split(/\s/)[0]).filter(Boolean) ?? []) {
         facts.push(relationship(symbol.id, 'implements', target, lineNumber, raw));
       }
-      containers.push({ id: symbol.id, name: type.groups.name, depth: (line.match(/\{/g) ?? []).length - (line.match(/\}/g) ?? []).length });
+      // A header may end before its body's `{` (`extends Base` on the next line): the type stays
+      // open, unopened, until then. A body opened and closed on one line holds no further members.
+      const depth = (line.match(/\{/g) ?? []).length - (line.match(/\}/g) ?? []).length;
+      if (!line.includes('{') || depth > 0) containers.push({ id: symbol.id, name: type.groups.name, kind: type.groups.kind, depth, opened: depth > 0 });
       pendingAnnotations = [];
       continue;
     }
-    const method = /^(?<prefix>(?:(?:public|protected|private|abstract|final|static|synchronized|native|default|strictfp)\s+)*)(?:<[^>]+>\s*)?(?<return>[\p{L}\p{N}_.$<>?,\[\]\s]+?)\s+(?<name>[\p{L}_$][\p{L}\p{N}_$]*)\s*\((?<params>[^)]*)\)/u.exec(declarationLine);
-    if (method && containers.length && !/^(if|for|while|switch|catch)$/.test(method.groups.name)) {
-      const container = containers.at(-1); const qualified = `${packageName ? `${packageName}.` : ''}${containers.map((item) => item.name).join('.')}.${method.groups.name}`;
+    // An anonymous class body (`new Callback() {`) or an enum constant's body (`PLUS("+") {`) holds
+    // members of its own. Its methods are named through the enclosing class.
+    const top = containers.at(-1);
+    if (top?.opened && (/\bnew\s+[\p{L}_$][\p{L}\p{N}_$.]*\s*(?:<[^>]*>)?\s*\((?:[^()]|\([^()]*\))*\)\s*\{\s*$/u.test(declarationLine)
+        || (top.kind === 'enum' && top.depth === 1 && /^[\p{L}_$][\p{L}\p{N}_$]*\s*(?:\((?:[^()]|\([^()]*\))*\))?\s*\{\s*$/u.test(declarationLine)))) {
+      // Braces before the body's own `{` (`}, new Next() {`) close what came before.
+      top.depth += (line.match(/\{/g) ?? []).length - 1 - (line.match(/\}/g) ?? []).length;
+      while (containers.length && containers.at(-1).opened && containers.at(-1).depth <= 0) containers.pop();
+      const enclosing = containers.at(-1);
+      if (enclosing) containers.push({ id: enclosing.id, name: enclosing.name, kind: 'anonymous', anonymous: true, depth: 1, opened: true });
+      pendingAnnotations = [];
+      continue;
+    }
+    // Members are declared directly in a class body (one brace deep); anything deeper is a
+    // statement, such as `throw new IllegalStateException(…)`. A parameter list may continue on
+    // the following lines, as annotated parameters often do.
+    const memberLevel = containers.length > 0 && containers.at(-1).depth === 1;
+    const method = !memberLevel ? null
+      : /^(?<prefix>(?:(?:public|protected|private|abstract|final|static|synchronized|native|default|strictfp)\s+)*)(?:<[^>]+>\s*)?(?<return>[\p{L}\p{N}_.$<>?,\[\]\s]+?)\s+(?<name>[\p{L}_$][\p{L}\p{N}_$]*)\s*\((?<params>[^)]*)(?:\)|$)/u.exec(declarationLine)
+        // A constructor without modifiers has no return type: `Cart(Store store) {`.
+        ?? (!containers.at(-1).anonymous && /^(?:<[^>]+>\s*)?(?<name>[\p{L}_$][\p{L}\p{N}_$]*)\s*\((?<params>[^)]*)(?:\)|$)/u.exec(declarationLine)?.groups?.name === containers.at(-1).name
+          ? { groups: { prefix: '', name: containers.at(-1).name } } : null);
+    if (method && !/^(if|for|while|switch|catch|return|throw|new|else|yield|case|assert)$/.test(method.groups.name)
+        && !/(?:^|\s)(?:return|throw|new|else|yield|case|assert)(?:\s|$)/.test(method.groups.return ?? '')) {
+      const container = containers.at(-1); const qualified = `${packageName ? `${packageName}.` : ''}${containers.filter((item) => !item.anonymous).map((item) => item.name).join('.')}.${method.groups.name}`;
       const symbol = createSymbol({ language: 'java', name: method.groups.name, qualifiedName: qualified,
-        declarationKind: method.groups.name === container.name ? 'constructor' : 'method', signature: line,
+        declarationKind: method.groups.name === container.name && !container.anonymous ? 'constructor' : 'method', signature: line,
         containerId: container.id, prefix: method.groups.prefix, annotations: [...pendingAnnotations, ...annotations],
         lineNumber, raw, matchIndex: raw.indexOf(method.groups.name), occurrence: nextOccurrence(qualified) });
       facts.push(symbol, relationship(container.id, 'contains', symbol.id, lineNumber, raw)); pendingAnnotations = [];
@@ -200,7 +225,8 @@ function javaFacts(lines, parsedLines) {
     const delta = (line.match(/\{/g) ?? []).length - (line.match(/\}/g) ?? []).length;
     if (containers.length) {
       containers[containers.length - 1].depth += delta;
-      while (containers.length && containers.at(-1).depth <= 0) containers.pop();
+      if (containers.at(-1).depth > 0) containers.at(-1).opened = true;
+      while (containers.length && containers.at(-1).opened && containers.at(-1).depth <= 0) containers.pop();
     }
   }
   return facts.filter(Boolean);

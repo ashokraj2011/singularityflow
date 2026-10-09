@@ -827,7 +827,12 @@ function adapterExtractor(adapter, language, project = null) {
   };
 }
 
-function providerFor(entry, stage, adapters, policy, diagnostics) {
+/**
+ * The adapter for a file and stage: the configured provider when one is pinned; otherwise, for the
+ * semantic stage, the provider the file's project was warmed with (`preferred`); otherwise a
+ * deterministic choice, reported as a conflict when several are installed.
+ */
+function providerFor(entry, stage, adapters, policy, diagnostics, preferred = null) {
   const compatible = adapters
     .filter((adapter) => adapter.stage === stage && adapter.languages.includes(entry.language)
       && (adapter.capabilities.length === 0 || adapter.capabilities.includes('skeleton'))
@@ -844,6 +849,8 @@ function providerFor(entry, stage, adapters, policy, diagnostics) {
     });
     return selected ?? null;
   }
+  const warmed = preferred ? compatible.find((adapter) => adapter.id === preferred) : null;
+  if (warmed) return warmed;
   if (compatible.length > 1) diagnostics.push({
     code: 'AST_PROVIDER_CONFLICT', language: entry.language, stage,
     providers: compatible.map((adapter) => adapter.id),
@@ -903,7 +910,8 @@ async function applyConfiguredAdapters(root, runtime, selection, processed, { pe
       const policy = runtime.policy.languages[entry.language] ?? {
         mode: 'auto', minimumAssurance: 'text', syntaxProvider: null, semanticProvider: null, semanticProfile: null
       };
-      const adapter = providerFor(entry, stage, discovery.adapters, policy, diagnostics);
+      const adapter = providerFor(entry, stage, discovery.adapters, policy, diagnostics,
+        stage === 'semantic' ? bindingForFile(projectDiscovery.bindings, entry.path)?.semanticProvider ?? null : null);
       if (!adapter) continue;
       const definition = adapter.languageDefinitions[entry.language];
       const project = stage === 'semantic'

@@ -88,6 +88,7 @@ other C-like languages as text. On top of it:
 |---|---|
 | React | routes (`<Route path element>`), UI event handlers to the calls they make, `useReducer` actions, messages set with `setError`/`toast` |
 | Spring | `@RequestMapping` endpoints, `@ExceptionHandler` statuses (annotations or `ResponseEntity.status`), `application.properties`/`.yml` keys |
+| Micronaut | `@Controller("/path")` with `@Get`/`@Post`/`@Put`/`@Delete`/`@Patch` endpoints; declarative `@Client` interfaces as outbound calls, never as endpoints; `io.micronaut` builds named as the framework |
 | Android | `AndroidManifest.xml` activities, services, receivers and providers (launcher, exported) and permissions; `settings.gradle` modules; Compose `onClick = { … }` handlers; Room `data class` entities; Retrofit and Feign interfaces as outbound calls, never as endpoints |
 | Python | FastAPI and Flask routes, pydantic models, dataclasses and TypedDicts, `except X: raise HTTPException(status_code=…)` statuses, pytest functions |
 | Builds | npm scripts, Maven, Gradle (from the folder holding `settings.gradle`), pytest, `go test`, `dotnet test`; build scripts such as `build.gradle.kts` are read as manifests, not code |
@@ -154,11 +155,16 @@ suite:
 
 - Calls are resolved by a compiler only where a semantic AST pack has been warmed: the bundled
   `sflow-typescript` pack for JavaScript/TypeScript (`wm ast warm --semantic --provider
-  sflow-typescript --project node:. --profile default`, once per `package.json` project), or an
+  sflow-typescript --project node:. --profile default`, once per `package.json` project), the
+  bundled `sflow-java` pack for Java on the machine's JDK (`wm ast warm --semantic --provider
+  sflow-java --project maven:. --profile default`; a parent build covers its modules), or an
   installed semantic pack that reports `calls`. Those edges are reported as `callsResolved` (with
   `callResolution` naming the providers), and a file's name-matched edges are dropped once it has
-  resolved ones. Elsewhere calls are matched by name (`callsMatchedByName`, marked `inferred`), and
-  a dynamic dispatch can be missed. Until a project is warmed, a build reads nothing from the AST
+  resolved ones. A call through an interface or base class also reaches every repository method the
+  pack reports as overriding or implementing it, so a Spring or Micronaut controller's call to an
+  injected `OrderService` leads to `OrderServiceImpl`. Elsewhere calls are matched by name
+  (`callsMatchedByName`, marked `inferred`), and a dynamic dispatch can be missed. An entry point
+  leading into its handler is not counted as a call. Until a project is warmed, a build reads nothing from the AST
   layer (`callResolution.status: not-warmed`). A file whose checkout differs from the commit
   contributes no resolved calls. On Singularity Flow's own repository a warmed build resolves 47,475
   of 49,413 calls; the rest are in projects that were not warmed.

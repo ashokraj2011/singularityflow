@@ -195,10 +195,17 @@ export async function discoverProjectBindings(root, { paths = null, maxFiles = M
   };
 }
 
+/**
+ * The project a file is analyzed in: the innermost warmed project containing it, otherwise the
+ * innermost project. A multi-module build (a parent pom.xml with modules) warmed once at its root
+ * therefore covers its modules; a module warmed on its own takes precedence for its files. Replay
+ * reads only warmed bindings and picks the innermost, so both choose the same project.
+ */
 export function bindingForFile(bindings, relative, projectKinds = []) {
   const compatible = bindings.filter((binding) => (!projectKinds.length || projectKinds.includes(binding.projectKind))
     && (binding.root === '.' || relative === binding.root || relative.startsWith(`${binding.root}/`)))
-    .sort((left, right) => right.root.length - left.root.length || left.projectKind.localeCompare(right.projectKind));
+    .sort((left, right) => Number(right.complete === true) - Number(left.complete === true)
+      || right.root.length - left.root.length || left.projectKind.localeCompare(right.projectKind));
   return compatible[0] ?? null;
 }
 

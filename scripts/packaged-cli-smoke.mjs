@@ -98,6 +98,7 @@ export async function runPackagedCliSmoke({
       'src/wel-junit5.mjs',
       'src/wel-corpus-review-receipt.mjs',
       'src/wel/WelJunitCatalog.java',
+      'src/ast-packs/JavaCallResolver.java',
       'src/revision/producer-lock.json',
       'scripts/cmp-corpus-measurement.mjs',
       'scripts/wel-corpus-measurement.mjs',

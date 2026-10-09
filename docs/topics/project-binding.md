@@ -21,7 +21,7 @@ related:
   - ast-intelligence
   - world-model
   - diagnostics-and-regression
-version: 2
+version: 3
 ---
 A project binding is the immutable description an optional semantic AST provider needs to interpret
 source in the correct build context. It binds the project kind and root, build files and lockfiles,
@@ -59,6 +59,11 @@ project-model and toolchain commands and then save their content-bound identity.
 plan first, for example:
 
 `sflow wm ast warm --semantic --provider sflow-java-jdt --project maven:. --profile default --dry-run`
+
+The bundled Java pack needs no project command: `sflow wm ast warm --semantic --provider sflow-java
+--project maven:. --profile default --dry-run` runs only `java --version`. A file is analyzed in the
+innermost warmed project that contains it, so a multi-module Maven build warmed at its root covers
+its modules, and a module warmed on its own takes precedence for its files.
 
 Review the structured commands, repository changes, provider, project, profile, and digest-bound
 confirmation emitted by that preview. Use only an installed, reviewed provider and the exact

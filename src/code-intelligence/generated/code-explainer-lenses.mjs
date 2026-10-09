@@ -1115,6 +1115,13 @@ function routeOf(block) {
     const jaxrs = block.match(/@(GET|POST|PUT|DELETE|PATCH)\b/);
     if (jaxrs)
         return { method: jaxrs[1], path: block.match(/@Path\s*\(\s*"([^"]*)"/)?.[1] ?? '' };
+    // Micronaut: `@Get("/{id}")`, `@Post(uri = "/")`, or a bare `@Delete`.
+    const micronaut = block.match(/@(Get|Post|Put|Delete|Patch|Head|Options)\b(?:\s*\(([^)]*)\))?/);
+    if (micronaut) {
+        const args = micronaut[2] ?? '';
+        const path = args.match(/(?:uri|value)\s*=\s*"([^"]*)"/)?.[1] ?? args.match(/^\s*"([^"]*)"/)?.[1] ?? '';
+        return { method: micronaut[1].toUpperCase(), path };
+    }
     const dotnet = block.match(/\[Http(Get|Post|Put|Delete|Patch)(?:\s*\(\s*"([^"]*)"\s*\))?\]/);
     if (dotnet)
         return { method: dotnet[1].toUpperCase(), path: dotnet[2] ?? '' };
@@ -1129,7 +1136,7 @@ function joinPath(prefix, path) {
     const joined = `/${[prefix, path].map((part) => part.replace(/^\/+|\/+$/g, '')).filter(Boolean).join('/')}`;
     return joined === '/' && !prefix && !path ? '/' : joined;
 }
-/** The class-level route prefix of a handler: the `@RequestMapping` (or `@Path`, `[Route]`) on its class. */
+/** The class-level route prefix of a handler: the `@RequestMapping` (or `@Path`, Micronaut `@Controller`, `[Route]`) on its class. */
 function routePrefix(harvest, source, symbol) {
     let holder = null;
     for (const candidate of harvest.model.symbols) {
@@ -1143,6 +1150,8 @@ function routePrefix(harvest, source, symbol) {
     const block = annotationBlock(source, holder.line);
     return block.match(/@RequestMapping\s*\(\s*(?:(?:path|value)\s*=\s*)?\{?\s*"([^"]*)"/)?.[1]
         ?? block.match(/@Path\s*\(\s*"([^"]*)"/)?.[1]
+        // Micronaut's `@Controller("/orders")` names a path; Spring's `@Controller("name")` names a bean.
+        ?? block.match(/@Controller\s*\(\s*(?:(?:value|uri)\s*=\s*)?"(\/[^"]*)"/)?.[1]
         ?? block.match(/\[Route\s*\(\s*"([^"]*)"\s*\)\]/)?.[1] ?? '';
 }
 /** Whether a module file imports a name (`import { name }`, `from x import name`, `require(…)`). */

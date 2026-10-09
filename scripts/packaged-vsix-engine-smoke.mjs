@@ -330,6 +330,7 @@ export async function runVsixContainedEngineSmoke({
       'src/wel-javascript.mjs',
       'src/wel-junit5.mjs',
       'src/wel/WelJunitCatalog.java',
+      'src/ast-packs/JavaCallResolver.java',
       'docs/CMP-ROADMAP.md',
       'docs/WEL-PENDING-WORK.md',
       'docs/adr/0014-cmp-observe-authority-boundary.md',

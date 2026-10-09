@@ -16,7 +16,9 @@ const PROVIDERS = Object.freeze({
   'sflow-kotlin-analysis': { projectKinds: ['gradle', 'gradle-android'], tool: ['kotlinc'], modelTool: { gradle: ['gradle'], 'gradle-android': ['gradle'] }, kind: 'jdk+kotlin' },
   'sflow-swift-sourcekit': { projectKinds: ['swiftpm', 'xcode'], tool: ['sourcekit-lsp'], modelTool: { swiftpm: ['swift'], xcode: ['xcodebuild'] }, kind: 'swift+sourcekit' },
   // The bundled TypeScript compiler runs on the Node that runs Singularity Flow; no project tool is executed.
-  'sflow-typescript': { projectKinds: ['node'], tool: ['node'], kind: 'node+typescript', defaultToolchain: () => process.execPath }
+  'sflow-typescript': { projectKinds: ['node'], tool: ['node'], kind: 'node+typescript', defaultToolchain: () => process.execPath },
+  // The JDK's own compiler reads the sources; no build tool or repository configuration is run.
+  'sflow-java': { projectKinds: ['maven', 'gradle', 'java-standalone'], tool: ['java'], kind: 'jdk+javac', projectCommand: false }
 });
 
 function sha256(bytes) {
@@ -107,7 +109,7 @@ export async function planAstSemanticWarm(root, options = {}) {
   const modelExecutable = await findExecutable(modelNames, optionString(options, 'project-tool') ?? (provider.modelTool ? null : toolchainExecutable));
   const commands = [];
   if (toolchainExecutable) commands.push({ kind: 'toolchain-version', cwd: '.', argv: [toolchainExecutable, ...versionArguments(providerId, toolchainExecutable)] });
-  if (modelExecutable) {
+  if (modelExecutable && provider.projectCommand !== false) {
     const project = projectArguments(binding, modelExecutable);
     if (project.argv.length) commands.push({ kind: 'project-model', ...project });
   }
@@ -136,8 +138,9 @@ export async function planAstSemanticWarm(root, options = {}) {
     unavailable,
     effects: {
       repositoryWrites: false,
-      network: 'blocked-by-offline-command',
-      executesRepositoryConfiguration: ['maven', 'gradle', 'gradle-android', 'swiftpm', 'xcode'].includes(binding.projectKind),
+      // Only a project-model command (Maven, Gradle, SwiftPM, Xcode) could reach a network; it runs offline.
+      network: commands.some((command) => command.kind === 'project-model') ? 'blocked-by-offline-command' : 'none',
+      executesRepositoryConfiguration: provider.projectCommand !== false && ['maven', 'gradle', 'gradle-android', 'swiftpm', 'xcode'].includes(binding.projectKind),
       writes: [path.relative(gitCommonDir(root), warmPath(root, binding)).replaceAll(path.sep, '/')]
     },
     commands: commands.map(redactedCommand),

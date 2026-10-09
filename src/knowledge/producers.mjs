@@ -110,6 +110,7 @@ export function manifestCommands(manifests, codeFiles) {
       const wrapper = byName.has(dir === '.' ? 'mvnw' : `${dir}/mvnw`);
       commands.push({ purpose: 'test', command: `${prefix}${wrapper ? './mvnw' : 'mvn'} test`, runs: 'Maven Surefire', path: file.path, line: 1 });
       if (/spring-boot/u.test(text)) frameworks.add('Spring Boot');
+      if (/<groupId>io\.micronaut/u.test(text)) frameworks.add('Micronaut');
       if (/spring-boot-starter-data-jpa|hibernate/u.test(text)) frameworks.add('JPA');
     } else if (/^build\.gradle(?:\.kts)?$/u.test(base)) {
       const text = file.lines.join('\n');
@@ -121,6 +122,7 @@ export function manifestCommands(manifests, codeFiles) {
       }
       if (/com\.android\.(?:application|library)/u.test(text)) frameworks.add('Android');
       if (/org\.springframework\.boot/u.test(text)) frameworks.add('Spring Boot');
+      if (/io\.micronaut/u.test(text)) frameworks.add('Micronaut');
       if (/kotlin/u.test(text)) frameworks.add('Kotlin');
     } else if (base === 'pyproject.toml' || /^requirements/u.test(base)) {
       const text = file.lines.join('\n').toLowerCase();
@@ -423,16 +425,17 @@ export function dataClasses(file) {
   return found;
 }
 
-/** Retrofit and Feign interfaces declare calls this code makes to another service, not endpoints it serves. */
+/** Retrofit, Feign and Micronaut `@Client` interfaces declare calls this code makes to another service, not endpoints it serves. */
 export function declaredHttpClients(file) {
   if (!['java', 'kotlin'].includes(file.language)) return { client: false, calls: [] };
   const text = file.lines.join('\n');
-  const client = /import\s+retrofit2\.http\.|@FeignClient\b|import\s+org\.springframework\.cloud\.openfeign/u.test(text);
+  const client = /import\s+retrofit2\.http\.|@FeignClient\b|import\s+org\.springframework\.cloud\.openfeign|import\s+io\.micronaut\.http\.client\.annotation\.Client\b/u.test(text);
   if (!client) return { client: false, calls: [] };
   const calls = [];
   file.lines.forEach((line, index) => {
     const match = line.match(/@(GET|POST|PUT|PATCH|DELETE)\(\s*(?:value\s*=\s*)?"([^"]*)"/u)
-      ?? line.match(/@(Get|Post|Put|Patch|Delete)Mapping\(\s*(?:value\s*=\s*|path\s*=\s*)?"([^"]*)"/u);
+      ?? line.match(/@(Get|Post|Put|Patch|Delete)Mapping\(\s*(?:value\s*=\s*|path\s*=\s*)?"([^"]*)"/u)
+      ?? line.match(/@(Get|Post|Put|Patch|Delete)\(\s*(?:value\s*=\s*|uri\s*=\s*)?"([^"]*)"/u);
     if (match) calls.push({ method: match[1].toUpperCase(), target: match[2].startsWith('/') || /^https?:/u.test(match[2]) ? match[2] : `/${match[2]}`, line: index + 1 });
   });
   return { client: true, calls };

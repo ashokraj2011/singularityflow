@@ -29,8 +29,12 @@ const POLYGLOT_LICENSE = path.join(PACKAGE_ROOT, 'LICENSE');
 const TYPESCRIPT_SYNTAX_ADAPTER = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'typescript-syntax-adapter.mjs');
 const TYPESCRIPT_SEMANTIC_ADAPTER = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'typescript-semantic-adapter.mjs');
 const TYPESCRIPT_CORE = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'typescript-core.mjs');
+const JAVA_SEMANTIC_ADAPTER = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'java-semantic-adapter.mjs');
+const JAVA_CORE = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'java-core.mjs');
+const JAVA_RESOLVER = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'JavaCallResolver.java');
 let bundledManifestPromise = null;
 let bundledTypeScriptPromise = null;
+let bundledJavaPromise = null;
 
 function hashBytes(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
@@ -248,12 +252,12 @@ async function bundledPolyglotManifest() {
       extensions: language === 'java' ? ['.java'] : language === 'python' ? ['.py', '.pyi']
         : language === 'kotlin' ? ['.kt', '.kts'] : ['.swift'],
       canonicalFilenames: [], aliases: [], priority: 200,
-      parserEngine: 'sflow-structural-preview', parserVersion: '1.1.0',
+      parserEngine: 'sflow-structural-preview', parserVersion: '1.2.0',
       grammarId: null, grammarVersion: null, maximumAssurance: 'text'
     }]));
     const manifest = {
       protocolVersion: AST_ADAPTER_PROTOCOL_VERSION,
-      id: 'sflow-polyglot-syntax', packVersion: '1.1.0', extractorVersion: '1.1.0',
+      id: 'sflow-polyglot-syntax', packVersion: '1.2.0', extractorVersion: '1.2.0',
       stage: 'syntax', assurance: 'text', argv: [process.execPath, POLYGLOT_ADAPTER],
       capabilities: ['skeleton', 'query'], languages,
       licenses: [{ id: 'singularity-flow-polyglot-structural-preview', spdx: 'MIT', sourceSha256: hashBytes(licenseBytes) }],
@@ -342,11 +346,59 @@ async function bundledTypeScriptManifests() {
   return bundledTypeScriptPromise;
 }
 
+/**
+ * The Java semantic pack: Java calls resolved by the JDK's own compiler on the machine, joined to
+ * the structural preview's declaration IDs. No JDK ships with Singularity Flow; the pack does
+ * nothing until `wm ast warm --semantic --provider sflow-java` binds a project to the JDK found
+ * on PATH, and the JDK identity is part of that binding and of every derivation.
+ */
+async function bundledJavaManifest() {
+  if (!bundledJavaPromise) bundledJavaPromise = (async () => {
+    const [adapterBytes, coreBytes, resolverBytes, polyglotBytes, licenseBytes] = await Promise.all([
+      readFile(JAVA_SEMANTIC_ADAPTER), readFile(JAVA_CORE), readFile(JAVA_RESOLVER), readFile(POLYGLOT_CORE), readFile(POLYGLOT_LICENSE)
+    ]);
+    const artifactSha256 = hashBytes(adapterBytes);
+    const shared = [
+      { path: JAVA_CORE, sha256: hashBytes(coreBytes) },
+      { path: JAVA_RESOLVER, sha256: hashBytes(resolverBytes) },
+      { path: POLYGLOT_CORE, sha256: hashBytes(polyglotBytes) },
+      { path: POLYGLOT_LICENSE, sha256: hashBytes(licenseBytes) }
+    ];
+    const manifest = {
+      protocolVersion: AST_ADAPTER_PROTOCOL_VERSION,
+      id: 'sflow-java', packVersion: '1.0.0', extractorVersion: '1.0.0',
+      stage: 'semantic', assurance: 'semantic', argv: [process.execPath, JAVA_SEMANTIC_ADAPTER],
+      capabilities: ['skeleton', 'query'],
+      languages: {
+        java: {
+          extensions: ['.java'], canonicalFilenames: [], aliases: [], priority: 300,
+          // The exact JDK is the bound toolchain, which every derivation key already carries.
+          parserEngine: 'javac', parserVersion: 'bound-jdk', grammarId: null, grammarVersion: null,
+          maximumAssurance: 'semantic',
+          projectKinds: ['maven', 'gradle', 'java-standalone'], toolchainRanges: ['jdk>=11'], platforms: ['any']
+        }
+      },
+      licenses: [{ id: 'singularity-flow-java-semantic', spdx: 'MIT', sourceSha256: hashBytes(licenseBytes) }],
+      conformance: { fixtureVersion: '1', status: 'preview', languages: ['java'] },
+      implementation: {
+        artifactSha256, manifestSha256: '0'.repeat(64),
+        runtime: { id: 'node', version: process.versions.node, platform: 'any' },
+        grammars: [],
+        dependencies: { lockSha256: null, bundleSha256: recordSha256({ adapterSha256: artifactSha256, files: shared }) },
+        files: [{ path: JAVA_SEMANTIC_ADAPTER, sha256: artifactSha256 }, ...shared]
+      }
+    };
+    manifest.implementation.manifestSha256 = astAdapterManifestSha256(manifest);
+    return validateAstAdapterManifest(manifest, 'bundled sflow-java');
+  })();
+  return bundledJavaPromise;
+}
+
 /** Packs that ship inside Singularity Flow rather than being installed into the machine registry. */
-export const BUNDLED_AST_ADAPTER_IDS = Object.freeze(['sflow-polyglot-syntax', 'sflow-typescript-syntax', 'sflow-typescript']);
+export const BUNDLED_AST_ADAPTER_IDS = Object.freeze(['sflow-polyglot-syntax', 'sflow-typescript-syntax', 'sflow-typescript', 'sflow-java']);
 
 export async function bundledAstAdapters() {
-  return [await bundledPolyglotManifest(), ...await bundledTypeScriptManifests()];
+  return [await bundledPolyglotManifest(), ...await bundledTypeScriptManifests(), await bundledJavaManifest()];
 }
 
 /** Verify installed/bundled artifact bytes without launching adapter code. */

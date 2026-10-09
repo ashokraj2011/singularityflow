@@ -191,7 +191,7 @@ test('a checked-out branch with no code is briefed from the newest branch with c
   git(repository, 'checkout', '-q', 'main');
 
   const brief = JSON.parse(await quiet(() => knowledgeCommand(repository, ['brief'], { json: true, cached: true })));
-  assert.deepEqual(brief.source, { ref: 'feature', commit: git(repository, 'rev-parse', 'feature'), checkedOut: 'main', chosen: 'has-code' });
+  assert.deepEqual(brief.source, { ref: 'feature', commit: git(repository, 'rev-parse', 'feature'), checkedOut: 'main', chosen: 'has-code', fetched: 0, remote: null });
   assert.equal(brief.branch, 'feature');
   assert.ok(brief.evidence.codeFiles > 0);
   assert.ok(brief.views.contracts.some((statement) => statement.text.startsWith('POST /orders')), 'the feature branch code');
@@ -206,6 +206,39 @@ test('a checked-out branch with no code is briefed from the newest branch with c
   assert.equal(named.mode, 'template');
   assert.match(named.reason, /^There is nothing to brief at branch main \([0-9a-f]{12}\): .*Name a branch that has code\.$/u);
   await assert.rejects(() => knowledgeCommand(repository, ['brief'], { json: true, ref: 'missing' }), { code: 'KNOWLEDGE_REF_UNKNOWN' });
+});
+
+test('in a blobless clone, the files of a branch never checked out are fetched into .git before the brief reads them', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-brief-partial-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const source = path.join(base, 'source');
+  const commit = (cwd, message) => git(cwd, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', 'commit', '-qm', message);
+  git(base, 'init', '-q', '-b', 'main', source);
+  await writeFile(path.join(source, 'README.md'), '# Orders\n\nNothing here yet.\n');
+  git(source, 'add', '-A');
+  commit(source, 'Start');
+  git(source, 'checkout', '-q', '-b', 'feature');
+  await cp(path.join(root, 'test', 'fixtures', 'knowledge', 'orders-spring'), source, { recursive: true });
+  await writeFile(path.join(source, 'README.md'), README);
+  git(source, 'add', '-A');
+  commit(source, 'Orders service');
+  git(source, 'checkout', '-q', 'main');
+  git(source, 'config', 'uploadpack.allowFilter', 'true');
+  git(source, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
+  const clone = path.join(base, 'clone');
+  git(base, 'clone', '-q', '--filter=blob:none', `file://${source}`, clone);
+  const feature = git(clone, 'rev-parse', 'origin/feature');
+  const missing = () => spawnSync('git', ['rev-list', '--objects', '--missing=print', '--no-walk', feature], { cwd: clone, encoding: 'utf8', env: { ...process.env, GIT_NO_LAZY_FETCH: '1' } })
+    .stdout.split('\n').filter((line) => line.startsWith('?')).length;
+  assert.ok(missing() > 0, 'the feature files start out missing');
+
+  const brief = JSON.parse(await quiet(() => knowledgeCommand(clone, ['brief'], { json: true, cached: true })));
+  assert.equal(brief.source.ref, 'origin/feature');
+  assert.equal(brief.source.remote, 'origin');
+  assert.ok(brief.source.fetched > 0, 'the missing files were fetched');
+  assert.ok(brief.views.contracts.some((statement) => statement.text.startsWith('POST /orders')));
+  assert.equal(git(clone, 'branch', '--show-current'), 'main', 'nothing was checked out');
+  assert.equal(git(clone, 'status', '--porcelain'), '');
 });
 
 test('wm knowledge brief shows the model brief written earlier, and the template brief otherwise', async (t) => {

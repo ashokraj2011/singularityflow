@@ -20,7 +20,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { loadDefinition } from '../config.mjs';
-import { checkedOutBranch, commitOfRef, recentBranches } from '../git.mjs';
+import { checkedOutBranch, commitOfRef, defaultBranchName, fetchMissingBlobs, recentBranches } from '../git.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { loadModelTiers } from '../model-tiers.mjs';
 import { operationContext } from '../operation-context.mjs';
@@ -28,7 +28,7 @@ import { optionBoolean, optionNumber, optionString, SingularityFlowError } from 
 import { applyReviews, readConfirmations, recordReview } from './confirm.mjs';
 import { buildExplanationPrompt, explanationSubjects, readExplanations, validateExplanations, writeExplanations } from './explain.mjs';
 import {
-  BRIEF_VIEWS, briefEvidence, briefKey, briefNotKnown, briefOrder, buildBriefPrompt, readCachedBrief, readDocumentation,
+  BRIEF_VIEWS, briefEvidence, briefKey, briefNotKnown, briefOrder, buildBriefPrompt, isDocumentationPath, readCachedBrief, readDocumentation,
   renderBriefMarkdown, templateBrief, validateBrief, writeCachedBrief
 } from './brief.mjs';
 import { parseKnowledgeExpectations, scoreKnowledge } from './benchmark.mjs';
@@ -213,22 +213,51 @@ async function explainCommand(root, result, options) {
  * otherwise the most recently committed local or remote branch that has code. Every one is read
  * from Git's objects, so nothing is checked out or cloned and the working tree is never touched.
  */
+/**
+ * The branches a person would brief. Singularity Flow's own branches (everything under sflow/ and
+ * its state ledger) are left out, and a remote branch is left out when a local one has its name.
+ * The default branch comes first, then local branches, then remote ones, newest first.
+ */
+function briefBranches(root, definition) {
+  const internal = new Set(['state', definition?.ledger?.branch, definition?.worldModel?.stateBranch].filter(Boolean));
+  const all = recentBranches(root).filter((entry) => !entry.branch.startsWith('sflow/') && !internal.has(entry.branch));
+  const local = all.filter((entry) => !entry.remote);
+  const localNames = new Set(local.map((entry) => entry.branch));
+  const ordered = [...local, ...all.filter((entry) => entry.remote && !localNames.has(entry.branch))];
+  let main = null;
+  try { main = defaultBranchName(root, definition ?? {}); } catch { main = null; }
+  return [...ordered.filter((entry) => entry.branch === main), ...ordered.filter((entry) => entry.branch !== main)].slice(0, 40);
+}
+
+/**
+ * A partial clone may not have the files of a branch that was never checked out. Download the code,
+ * manifests and docs the brief reads, into .git only, before it reads them.
+ */
+function withFiles(root, target, paths = []) {
+  const wanted = new Set(paths);
+  const { fetched, remote } = fetchMissingBlobs(root, target.commit, (relative) => wanted.has(relative) || isDocumentationPath(relative));
+  return { ...target, fetched, remote };
+}
+
 async function briefTarget(root, options) {
   let checkedOut = null;
   try { checkedOut = checkedOutBranch(root); } catch { checkedOut = null; }
   const area = optionString(options, 'area') ?? null;
-  const branches = recentBranches(root);
+  let definition = null;
+  try { definition = await loadDefinition(root); } catch { definition = null; }
+  const branches = briefBranches(root, definition);
   const requested = optionString(options, 'ref') ?? null;
   if (requested) {
     const commit = commitOfRef(root, requested);
     if (!commit) throw new SingularityFlowError(`There is no branch, tag or commit named '${requested}' in this repository.`, { code: 'KNOWLEDGE_REF_UNKNOWN' });
-    return { ref: requested, commit, checkedOut, chosen: 'requested', branches };
+    const listed = await readKnowledgeSource(root, { area, listOnly: true, ref: commit });
+    return withFiles(root, { ref: requested, commit, checkedOut, chosen: 'requested', branches }, listed.paths);
   }
   const here = await readKnowledgeSource(root, { area, listOnly: true });
   if (here.codePaths > 0) return { ref: checkedOut ?? 'HEAD', commit: 'HEAD', checkedOut, chosen: 'checked-out', branches };
-  for (const candidate of branches.filter((entry) => entry.commit !== here.commit).slice(0, 20)) {
+  for (const candidate of branches.filter((entry) => entry.commit !== here.commit)) {
     const listed = await readKnowledgeSource(root, { area, listOnly: true, ref: candidate.commit });
-    if (listed.codePaths > 0) return { ref: candidate.name, commit: candidate.commit, checkedOut, chosen: 'has-code', branches };
+    if (listed.codePaths > 0) return withFiles(root, { ref: candidate.name, commit: candidate.commit, checkedOut, chosen: 'has-code', branches }, listed.paths);
   }
   return { ref: checkedOut ?? 'HEAD', commit: 'HEAD', checkedOut, chosen: 'checked-out', branches };
 }
@@ -297,7 +326,7 @@ async function briefCommand(root, result, knowledge, options, target) {
     repository: knowledge.repository.name ?? 'repository',
     commit: knowledge.repository.commit,
     branch,
-    source: { ref: target.ref, commit: knowledge.repository.commit, checkedOut: target.checkedOut, chosen: target.chosen },
+    source: { ref: target.ref, commit: knowledge.repository.commit, checkedOut: target.checkedOut, chosen: target.chosen, fetched: target.fetched ?? 0, remote: target.remote ?? null },
     branches: target.branches.map((entry) => entry.name),
     phase,
     order: briefOrder(phase),

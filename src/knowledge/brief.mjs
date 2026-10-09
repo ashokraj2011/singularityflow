@@ -59,6 +59,11 @@ export const BRIEF_LIMITS = Object.freeze({
 
 const DOCUMENT_PATH = /(?:^|\/)(?:readme[^/]*\.(?:md|markdown|mdx)|docs?\/.+\.(?:md|markdown|mdx)|(?:adrs?|decisions|architecture)\/.+\.(?:md|markdown|mdx))$/iu;
 const SKIPPED_PATH = /(?:^|\/)(?:node_modules|vendor|dist|build|target|out|\.git|\.github|singularity|third[_-]?party)\/|(?:^|\/)(?:changelog|history|license|licence|code_of_conduct|contributing|security)[^/]*$/iu;
+
+/** A README, docs page or decision record the brief reads. */
+export function isDocumentationPath(relative) {
+  return DOCUMENT_PATH.test(relative) && !SKIPPED_PATH.test(relative);
+}
 const NORMATIVE = /\b(?:must(?: not)?|shall|should|required|requires?|only|never|always|at (?:least|most)|cannot|can't|not allowed|not permitted|maximum|minimum|max|min|limit(?:ed|s)?|defaults? to|when|if|unless|otherwise|returns?|rejects?|refuses?|fails?|errors?|invalid|valid(?:ates?|ation)?|allowed|accepts?|supports?)\b/iu;
 const RULE_HEADING = /\b(?:rules?|validation|constraints?|limits?|errors?|requirements?|polic(?:y|ies)|business|behaviou?r|notes?|responses?|requests?|api|endpoints?|usage|formats?|schemas?|operators?|status|codes?|eligib\w*|pricing|fees?|rates?|workflow)\b/iu;
 const ANCHOR = /`[^`]+`|"[^"]{2,}"|\b[1-5]\d\d\b|\d/u;
@@ -153,7 +158,7 @@ export function readDocumentation(root, { limits = BRIEF_LIMITS, focus = null, r
   const wanted = [];
   const listing = readRefTreeResult(root, ref, [], {
     pathFilter: (relative, entry) => {
-      if (entry.type === 'blob' && DOCUMENT_PATH.test(relative) && !SKIPPED_PATH.test(relative)) wanted.push(relative);
+      if (entry.type === 'blob' && isDocumentationPath(relative)) wanted.push(relative);
       return false;
     }
   });

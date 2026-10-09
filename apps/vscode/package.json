@@ -472,6 +472,10 @@
         "icon": "$(cloud-upload)"
       },
       {
+        "command": "singularityFlow.migrateWorldModelViews",
+        "title": "Singularity Flow: Replace Retired World Model Views"
+      },
+      {
         "command": "singularityFlow.openPromptAudit",
         "title": "Singularity Flow: Prompt Audit",
         "icon": "$(comment-discussion)"

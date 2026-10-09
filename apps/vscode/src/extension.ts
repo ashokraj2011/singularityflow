@@ -141,6 +141,7 @@ import { configuredGitRemoteUrls, configuredGitRemotes, gitVersion } from './cli
 import {
   alignProductSurfaces, codeLauncher, LoadedBundle, openConfigurationReviews, type ProductAlignmentHost
 } from './product-alignment.ts';
+import { offerViewMigration, type ViewMigrationHost } from './view-migration.ts';
 
 let extensionLifetime = new AbortController();
 
@@ -927,7 +928,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openEvidenceMatrix',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.decideStory',
-    'singularityFlow.publishConfiguration',
+    'singularityFlow.publishConfiguration', 'singularityFlow.migrateWorldModelViews',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openActivityLog',
     'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment',
@@ -3939,6 +3940,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (onExtensionsChanged) {
     context.subscriptions.push(onExtensionsChanged(() => { void loadedBundle.offerReload(productHost); }));
   }
+  // The after-install checks, as one promise, so the World Model view offer below runs after them.
+  let productChecks: Promise<unknown> = Promise.resolve();
   if (vscode.env?.appHost) {
     // Both checks are optional, so neither competes with somebody filling in the intake form, nor
     // with the first reads of a window just opened for a new Story: that window waits until idle.
@@ -3949,7 +3952,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       timer.unref?.();
       activationSignal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
     });
-    void initialWorkspaceRefresh
+    productChecks = initialWorkspaceRefresh
       .then(newStoryIdle)
       .then(() => backgroundWork.waitUntilIdle({ signal: activationSignal }))
       .then(() => alignProductSurfaces(productHost, { loadedBuild, bundle: loadedBundle }))
@@ -4657,6 +4660,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     ? intakeCatalogScope.commonDirectory : repository;
 
   const store = new WorkspaceStore(client, snapshotCache);
+
+  // After a new build: offer once per repository to replace retired World Model view names. The
+  // preview is a read-only document, so closing it never asks to save.
+  let viewMigrationPreview = '';
+  context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('sflow-view-migration', {
+    provideTextDocumentContent: () => viewMigrationPreview
+  }));
+  const viewMigrationHost: ViewMigrationHost = {
+    run: (args) => client.run(args),
+    log: (line) => output.appendLine(line),
+    inform: (message, ...actions) => showCompactInformationMessage(message, ...actions),
+    warn: (message, ...actions) => showCompactWarningMessage(message, ...actions),
+    showDocument: async (markdown) => {
+      viewMigrationPreview = markdown;
+      const uri = vscode.Uri.from({ scheme: 'sflow-view-migration', path: '/Replace retired World Model views.md', query: String(Date.now()) });
+      return vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), { preview: true, viewColumn: vscode.ViewColumn.Beside });
+    },
+    // The publish flow reads the snapshot's configuration changes, so it is refreshed first.
+    publish: async () => {
+      await refreshAfterKnownMutation();
+      return vscode.commands.executeCommand('singularityFlow.publishConfiguration');
+    },
+    remembered: (key) => context.globalState.get(key),
+    remember: (key, value) => context.globalState.update(key, value)
+  };
+  if (vscode.env?.appHost) {
+    void productChecks
+      .then(() => backgroundWork.waitUntilIdle({ signal: activationSignal }))
+      .then(() => offerViewMigration(viewMigrationHost, { repository: store.current.snapshot?.repository?.root ?? client.repository ?? null, build: loadedBuild }))
+      .then((outcome) => output.appendLine(`World Model view check: ${outcome}`))
+      .catch((error) => output.appendLine(`World Model view check could not run: ${(error as Error).message}`));
+  }
   if (hostBenchmarkEnabled) {
     persistHostBenchmarkCache = async () => {
       if (!store.current.snapshot || store.current.stale || store.current.error) return false;
@@ -8532,6 +8567,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     },
     'singularityFlow.openConfigurationCenter': () => openConfigurationCenter('overview'),
+    'singularityFlow.migrateWorldModelViews': async () => {
+      const outcome = await offerViewMigration(viewMigrationHost, { repository: store.current.snapshot?.repository?.root ?? client.repository ?? null, build: loadedBuild, force: true });
+      if (outcome === 'no-repository') void showCompactWarningMessage('Open a Singularity Flow repository to check its World Model views.');
+    },
     'singularityFlow.configureTests': () => openConfigurationCenter('tests'),
     'singularityFlow.configureAuto': () => openConfigurationCenter('auto'),
     'singularityFlow.configureWorldModel': () => openConfigurationCenter('world-model'),

@@ -416,21 +416,9 @@ async function initiativePlanningParts(root, definition, { id, phaseId, agent, t
   };
 }
 
-/** Keep required grounding unless the agent already carries the same complete representation. */
-export function renderPlanningWorldModelContext(files, injection = null) {
-  const delivered = injection?.applied === true ? injection.sections ?? [] : [];
-  const remaining = files.filter((file) => !delivered.some((section) => (
-    section.path === file.path
-      && section.sha256 === file.sha256
-      && section.bytes === file.bytes
-      && section.truncated === false
-      && section.injectedBytes === file.bytes
-      && typeof section.body === 'string'
-      && section.body === file.content
-      && Buffer.byteLength(section.body, 'utf8') === file.bytes
-      && sha256(section.body) === file.sha256
-  )));
-  return remaining.map((file) => (
+/** The grounding files, each once: agent prompts carry no World Model text of their own. */
+export function renderPlanningWorldModelContext(files) {
+  return files.map((file) => (
     `## Repository world model: ${file.path}\n\n<!-- sha256=${file.sha256} reason=${file.reason} -->\n\n${file.content.trim()}`
   )).join('\n\n');
 }
@@ -607,7 +595,7 @@ async function workItemPlanningParts(root, definition, {
   const governed = [
     `# Governed story context — ${id}/${selectedPhase}`,
     `## Selected governed agent\n\n${agentResult.text.trim()}`,
-    renderPlanningWorldModelContext(world.sections, agentResult.injection),
+    renderPlanningWorldModelContext(world.sections),
     capability.text,
     structural.text,
     remote.text,

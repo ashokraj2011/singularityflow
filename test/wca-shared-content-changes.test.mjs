@@ -13,7 +13,7 @@ function fixture() {
   const phase = (id, template = 'template:shared') => ({ label: id,
     artifact: { path: `artifacts/${id}/${id}.md`, minimumBytes: 20, maximumBytes: 16384 },
     inputs: [], defaultTemplate: template, approval: { mode: 'none' }, writeScope: 'artifact-only', generation: { task: 'analyze' } });
-  const approvedDefinition = { version: 2, templatesRoot: 'singularity/templates', worldModel: { views: ['security'] },
+  const approvedDefinition = { version: 2, templatesRoot: 'singularity/templates', worldModel: { views: ['arch.contracts@4'] },
     templates: { shared: { path: 'common/shared.md', label: 'Shared', kind: 'note', description: 'Exact source' },
       alias: 'common/shared.md', alternate: { path: 'common/alternate.md' } },
     phases: { intake: phase('intake'), review: phase('review', 'template:alias'), auxiliary: phase('auxiliary', 'common/shared.md'),
@@ -96,7 +96,7 @@ test('agent frontmatter, native unknown fields and remote resource identities ca
 test('metadata applicability edits cannot expand existing tools, view context, remote resources or unknown native extensions', () => {
   for (const specialize of [
     (text) => text.replace('tools: []', 'tools: [read]'),
-    (text) => text.replace('sflow-phases: intake', 'sflow-world-model-views: security\n  sflow-phases: intake'),
+    (text) => text.replace('sflow-phases: intake', 'sflow-world-model-views: arch.contracts\n  sflow-phases: intake'),
     (text) => text + '\n## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n| --- | --- | --- | --- | --- |\n| guide | https://example.test/guide.md | intake | true | 1024 |\n',
     (text) => text.replace('tools: []', 'tools: []\ncustom-native-effect: preserved')
   ]) {

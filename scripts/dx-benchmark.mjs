@@ -121,7 +121,7 @@ async function createFixture(topology = fixtureManifest.topology) {
     'workItemRoot: singularity/work-items',
     'templatesRoot: singularity/templates',
     'worldModel:',
-    '  views: [business, architecture, development, testing, release, operations, security]',
+    '  views: [arch.contracts@4, biz.rules@4, dev.hotspots@4, dev.impact@4]',
     '  outputDir: singularity/world-model',
     'phases:',
     '  intake:',

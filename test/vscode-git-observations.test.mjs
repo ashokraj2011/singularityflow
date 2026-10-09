@@ -22,7 +22,7 @@ test('VS Code early and World Model Git probes do not bypass the async Git adapt
   const worldModel = await readFile(path.join(root, 'apps/vscode/src/world-model-build.ts'), 'utf8');
   assert.doesNotMatch(extension, /promisify\(execFile\)\(\s*['"]git['"]/u);
   assert.doesNotMatch(worldModel, /\b(?:execFileSync|spawnSync|execFile|spawn)\s*\(/u);
-  assert.match(worldModel, /await currentGitSource\(active\.root\)/u);
+  assert.match(worldModel, /await hasConfiguredGitRemote\(active\.root, /u);
 });
 
 test('VS Code early Git observations use the bounded async runner with closed argv', async () => {

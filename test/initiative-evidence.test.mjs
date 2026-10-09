@@ -426,7 +426,7 @@ test('publication records its own machine evidence, so every surface can approve
   for (const authority of Object.values(portfolio.approvalAuthorities)) authority.members = [{ name: 'Initiative Owner', email: 'owner@example.com' }];
   portfolio.initiativePhases['impact-phase'] = {
     label: 'Impact',
-    worldModelViews: ['business'],
+    worldModelViews: ['biz.rules'],
     outputs: [{ id: 'repository-map', label: 'Impact map', kind: 'yaml', path: 'repository-map.yml', template: 'initiatives/epic/repository-map.yml' }],
     checklist: [{ id: 'impact-grounded', label: 'Impact map is grounded', requirement: 'must', acceptedAssurance: ['machine-verified'], gate: 'block' }]
   };
@@ -456,7 +456,7 @@ test('publication records its own machine evidence, so every surface can approve
   );
   await writeFile(mapPath, YAML.stringify({
     version: 1,
-    repositories: { app: { worldModelViews: ['architecture'] } }
+    repositories: { app: { worldModelViews: ['arch.contracts'] } }
   }));
 
   // Enforce still protects exact context integrity. A present but malformed model is not treated

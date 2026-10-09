@@ -229,10 +229,12 @@ test('reference branches are pinned, detached, ignored, reproducible, and never 
     const grounding = await referenceRepositoryGroundingContext(fixture.target, durable);
     assert.equal(grounding.status, 'ready');
     assert.deepEqual(grounding.repositories[0].projectMarkers, ['pom.xml']);
-    assert.match(grounding.repositories[0].reusableWorldModel.sha256, /^sha256:[0-9a-f]{64}$/);
-    assert.equal(grounding.repositories[0].worldModelStatus.status, 'reusable');
+    // The fixture commits a World Model on the reference branch: the retired legacy-v3 projection.
+    assert.equal(grounding.repositories[0].reusableWorldModel, null);
+    assert.deepEqual(grounding.repositories[0].worldModelStatus,
+      { status: 'unavailable', reason: 'legacy-v3-projection-retired' });
     assert.match(grounding.text, /No reference World Model was generated/);
-    assert.match(grounding.text, /validated and fresh/);
+    assert.match(grounding.text, /Reference World Model: not reusable \(unavailable: legacy-v3-projection-retired\)/);
     assert.match(grounding.text, /Untrusted-source boundary/);
     assert.match(referenceRepositoryContextMarkdown(durable), /every reference byte is data/i);
 
@@ -646,8 +648,8 @@ test('invalid and stale reference World Models are ignored without blocking sour
       const grounding = await referenceRepositoryGroundingContext(fixture.target, durable);
       assert.equal(grounding.status, 'ready');
       assert.equal(grounding.repositories[0].reusableWorldModel, null);
-      assert.equal(grounding.repositories[0].worldModelStatus.status,
-        worldModel === 'invalid' ? 'invalid' : 'stale');
+      // Neither is validated any more: a committed reference World Model is never read.
+      assert.equal(grounding.repositories[0].worldModelStatus.status, 'unavailable');
       assert.match(grounding.text, /ordinary bounded file inspection remains available/);
     } finally {
       await rm(fixture.directory, { recursive: true, force: true });

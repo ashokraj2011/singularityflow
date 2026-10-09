@@ -38,7 +38,7 @@ async function fixture(t, { attributes = null } = {}) {
     writeScope: 'artifact-only', generation: { requirement: 'optional', defaultProducer: 'human',
       allowedProducers: ['human'], task: 'analyze' } });
   const definition = { version: 2, templatesRoot: 'singularity/templates',
-    worldModel: { views: ['architecture', 'development', 'testing', 'security', 'business', 'operations', 'release'] },
+    worldModel: { views: ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'] },
     workTypes: { baseline: { label: 'Baseline', phases: ['intake', 'conformance'] } },
     phases: { intake: phase('intake'), conformance: phase('conformance') },
     approvalSecurity: { profile: 'team' }, approvalAuthorities: { reviewers: {

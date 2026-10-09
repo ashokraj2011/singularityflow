@@ -78,8 +78,9 @@ test('source code cannot hard-code a direct push to an application branch', asyn
 });
 
 test('unscoped publishers guard before they stage or commit', async () => {
+  // The World Model publishes only to its state branch (registered-v4); its application-branch
+  // publisher went with legacy-v3.
   const publishers = [
-    ['src/worldmodel.mjs', 'async function publishWorldModel'],
     ['src/editor.mjs', 'export async function publishEditorConfiguration'],
     ['src/story-lineage.mjs', 'export async function attachStoryBranch']
   ];

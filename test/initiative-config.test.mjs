@@ -237,59 +237,37 @@ test('initiative world-model views must be declared by the repository workflow',
   }, {
     worldModel: { format: 'registered-v4', views: ['dev.impact@4'] }
   }), 'portfolio logical IDs join exact registered repository contracts');
-  const migrating = {
-    worldModel: {
-      format: 'registered-v4',
-      views: ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'],
-      v4: { legacyAssignments: 'inherit-configured' }
-    }
+  const registered = {
+    worldModel: { format: 'registered-v4', views: ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'] }
   };
-  assert.doesNotThrow(() => validatePortfolioWorldModelViews({
-    initiativePhases: { define: { worldModelViews: ['business', 'architecture'] } }
-  }, migrating), 'known legacy Initiative assignments inherit the configured exact v4 catalog');
+  // legacy-v3 view names are refused by name, never translated into registered views.
   assert.throws(() => validatePortfolioWorldModelViews({
-    initiativePhases: { define: { worldModelViews: ['business', 'dev.impact'] } }
-  }, migrating), (error) => error?.code === 'WMB_VIEW_ASSIGNMENT_MIXED');
+    initiativePhases: { define: { worldModelViews: ['business', 'architecture'] } }
+  }, registered), (error) => error?.code === 'WMB_FORMAT_RETIRED'
+    && /define:business, define:architecture/.test(error.message));
   assert.throws(() => validatePortfolioWorldModelViews({
     initiativePhases: { define: { worldModelViews: ['unknown-view'] } }
-  }, migrating), error => error.code === 'WMB_VIEW_UNKNOWN' && /define:unknown-view/.test(error.message));
+  }, registered), error => error.code === 'WMB_VIEW_UNKNOWN' && /define:unknown-view/.test(error.message));
 
   const packaged = await loadPortfolio(root);
-  // The bridge regression is explicitly legacy; native seeds no longer contain legacy selectors.
-  for (const phase of Object.values(packaged.initiativePhases)) {
-    if (phase.worldModelViews.length) phase.worldModelViews = ['business'];
-  }
-  const configuredIds = ['arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'];
-  assert.deepEqual(
-    portfolioWorldModelViews(packaged, migrating),
-    configuredIds,
-    'the packaged legacy portfolio declares the effective registered-v4 catalog during bootstrap'
-  );
-  const resolved = resolveInitiativeProfile(packaged, 'initiative-lite', {
-    workflowDefinition: migrating
-  });
-  for (const phase of resolved.phases) {
-    assert.deepEqual(
-      phase.worldModelViews,
-      configuredIds,
-      `resolved phase ${phase.id} pins the effective registered-v4 IDs`
-    );
-  }
+  const packagedViews = portfolioWorldModelViews(packaged);
+  assert.ok(packagedViews.length > 0);
+  assert.ok(packagedViews.every((view) => /^[a-z]+\.[a-z-]+$/.test(view)), 'the packaged portfolio names registered views only');
+  const resolved = resolveInitiativeProfile(packaged, 'initiative-lite', { workflowDefinition: registered });
+  assert.ok(resolved.phases.some((phase) => phase.worldModelViews.length));
 
-  const mixedOverride = structuredClone(packaged);
-  mixedOverride.initiativeProfiles['initiative-lite'].phaseOverrides.define = {
-    worldModelViews: ['business', 'dev.impact']
-  };
+  const retiredOverride = structuredClone(packaged);
+  retiredOverride.initiativeProfiles['initiative-lite'].phaseOverrides.define = { worldModelViews: ['business'] };
   assert.throws(
-    () => resolveInitiativeProfile(mixedOverride, 'initiative-lite', { workflowDefinition: migrating }),
-    (error) => error?.code === 'WMB_VIEW_ASSIGNMENT_MIXED'
+    () => resolveInitiativeProfile(retiredOverride, 'initiative-lite', { workflowDefinition: registered }),
+    (error) => error?.code === 'WMB_FORMAT_RETIRED'
   );
   const unknownOverride = structuredClone(packaged);
   unknownOverride.initiativeProfiles['initiative-lite'].phaseOverrides.define = {
     worldModelViews: ['dev.imapct']
   };
   assert.throws(
-    () => resolveInitiativeProfile(unknownOverride, 'initiative-lite', { workflowDefinition: migrating }),
+    () => resolveInitiativeProfile(unknownOverride, 'initiative-lite', { workflowDefinition: registered }),
     error => error.code === 'WMB_VIEW_UNKNOWN' && /dev\.imapct/.test(error.message)
   );
 });

@@ -94,7 +94,7 @@ function replacementFixture() {
   const ordinary = (id) => ({ label: id, artifact: { path: `artifacts/${id}/${id}.md`, minimumBytes: 20, maximumBytes: 16384 },
     inputs: [], defaultTemplate: 'common/empty.md', approval: { mode: 'none' }, writeScope: 'artifact-only',
     generation: { requirement: 'optional', defaultProducer: 'human', allowedProducers: ['human'], task: 'analyze' } });
-  const raw = { version: 3, templatesRoot: 'singularity/templates', worldModel: { views: ['security'] },
+  const raw = { version: 3, templatesRoot: 'singularity/templates', worldModel: { views: ['arch.contracts@4'] },
     approvalAuthorities: entry.catalog.approvalAuthorities, approvalSecurity: entry.catalog.approvalSecurity,
     phases: { intake: ordinary('intake'), requirements: ordinary('requirements'), 'threat-model': before, conformance: ordinary('conformance') },
     workTypes: { 'threat-notes': { label: 'Threat notes', phases: entry.phaseOrder }, indirect: { label: 'Indirect', phases: ['conformance'] } } };
@@ -211,7 +211,7 @@ test('fully resealed replacement impact cannot substitute metadata arrays behind
     replacement: input.retainedInputs.request.definitions.phases[0] }];
   const agentId = input.phases[0].agent.id;
   for (const [field, replacement] of [['phases', ['threat-model']], ['defaultFor', []], ['tools', ['shell']],
-    ['worldModelViews', ['security']], ['dependencies', [{ id: 'unreviewed', type: 'skill', phases: ['conformance'] }]]]) {
+    ['worldModelViews', ['arch.contracts']], ['dependencies', [{ id: 'unreviewed', type: 'skill', phases: ['conformance'] }]]]) {
     const agents = structuredClone(review.agentImpactCatalog); agents.find((agent) => agent.id === agentId)[field] = replacement;
     const result = planSharedSkillContractChanges({ approvedDefinition, agents, catalog: review.catalog, changes });
     assert.equal(result.status, 'blocked'); assert.equal(result.findings[0].code, 'WCA_SHARED_CONTENT_SOURCE_INVALID', field);

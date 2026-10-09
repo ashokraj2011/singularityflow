@@ -13,7 +13,7 @@ function definition() {
   const phase = (id) => ({ label: id, artifact: { path: `artifacts/${id}.md` }, inputs: [], defaultTemplate: 'template:shared', approval: { mode: 'none' }, generation: { task: 'analyze' } });
   const value = { version: 2, templatesRoot: 'singularity/templates', templates: { shared: 'common/shared.md' },
     phases: { intake: phase('intake'), review: phase('review') }, workTypes: { main: { label: 'Main', phases: ['intake', 'review'] } },
-    approvalSecurity: { profile: 'team' }, harnessImports: { mode: 'record' }, worldModel: { views: ['security'] } };
+    approvalSecurity: { profile: 'team' }, harnessImports: { mode: 'record' }, worldModel: { views: ['arch.contracts@4'] } };
   value.phases.review.inputs = [{ phase: 'intake', projection: 'approved-summary', preserve: ['Findings'] }];
   return validateDefinition(value);
 }
@@ -60,7 +60,7 @@ test('pure token admission preserves renderer compatibility and refuses unsuppor
 });
 
 test('captured prompt references obey the same declared view owner without creating permission', () => {
-  const config = definition(); const references = new Map([['security', ['exact-template.md']]]);
+  const config = definition(); const references = new Map([['arch.contracts', ['exact-template.md']]]);
   assert.equal(validateWorldModelPromptReferences(config, references), references);
   assert.throws(() => validateWorldModelPromptReferences(config, new Map([['unapproved', ['exact-template.md']]])), /not declared/);
 });

@@ -137,47 +137,27 @@ test('planning projects a prepared draft before budgeting without changing raw s
   assert.equal(git(root, ['status', '--short']), '');
 });
 
-test('planning legacy grounding only deduplicates an applied complete rule representation', async (t) => {
+test('planning grounding carries each World Model file once, since agent prompts inject none', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-planning-grounding-dedup-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const relative = 'singularity/world-model/views/architecture.md';
   const content = '# Architecture\n\nPREFIX-ARCHITECTURE-EVIDENCE\n\nTAIL-REQUIRED-FULL-EVIDENCE\n';
-  await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
-  await writeFile(path.join(root, relative), content);
   const file = {
     path: relative, sha256: digest(content), bytes: Buffer.byteLength(content),
     reason: 'primary phase view', content
   };
-  const baseDefinition = {
-    agents: { architect: { prompt: '# Architect\n\nInspect the approved design.' } },
+  // A legacy rule set in an old configuration no longer injects anything into the agent.
+  const definition = {
+    agents: { architect: { prompt: '# Architect\n\nInspect the approved design.\n\n{{WORLD_MODEL}}' } },
     worldModel: { outputDir: 'singularity/world-model', injection: {
       mode: 'append', maxBytes: 32768,
       rules: [{ when: { agent: 'architect' }, include: ['views/architecture.md'] }]
     } }
   };
-  for (const [label, overrides, remaining] of [
-    ['complete', {}, false],
-    ['truncated', { maxBytes: 32 }, true],
-    ['not applied without a replace placeholder', { mode: 'replace' }, true]
-  ]) await t.test(label, async () => {
-    const definition = structuredClone(baseDefinition);
-    Object.assign(definition.worldModel.injection, overrides);
-    const agent = await injectAgentPrompt(root, definition, 'architect');
-    const grounding = renderPlanningWorldModelContext([file], agent.injection);
-    assert.equal(Boolean(grounding), remaining);
-    assert.equal(occurrences(`${agent.text}\n${grounding}`, 'TAIL-REQUIRED-FULL-EVIDENCE'), 1);
-  });
-
-  const complete = (await injectAgentPrompt(root, baseDefinition, 'architect')).injection;
-  for (const [label, override] of [
-    ['different source hash', { sha256: 'b'.repeat(64) }],
-    ['different source path', { path: 'singularity/world-model/views/another.md' }],
-    ['different raw size', { bytes: file.bytes + 1 }],
-    ['incomplete delivered size', { injectedBytes: file.bytes - 1 }],
-    ['inconsistent complete body', { body: content.replace('TAIL-', 'FAIL-') }],
-    ['missing completeness flag', { truncated: undefined }]
-  ]) await t.test(label, () => {
-    const injection = { ...complete, sections: [{ ...complete.sections[0], ...override }] };
-    assert.match(renderPlanningWorldModelContext([file], injection), /TAIL-REQUIRED-FULL-EVIDENCE/);
-  });
+  const agent = await injectAgentPrompt(root, definition, 'architect');
+  assert.equal(agent.injection.applied, false);
+  assert.doesNotMatch(agent.text, /\{\{WORLD_MODEL\}\}/);
+  const grounding = renderPlanningWorldModelContext([file]);
+  assert.equal(occurrences(`${agent.text}\n${grounding}`, 'TAIL-REQUIRED-FULL-EVIDENCE'), 1);
+  assert.match(grounding, new RegExp(`sha256=${file.sha256} reason=primary phase view`));
 });

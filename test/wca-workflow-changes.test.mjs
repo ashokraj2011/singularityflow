@@ -10,14 +10,14 @@ function fixture() {
   const phase = (id) => ({ label: id, inputs: [], defaultTemplate: 'template:common',
     approval: { mode: 'none' }, generation: { task: 'analyze', defaultProducer: 'human' } });
   const approvedDefinition = { version: 2, templatesRoot: 'singularity/templates',
-    worldModel: { views: ['architecture', 'development'] },
+    worldModel: { views: ['arch.contracts@4', 'dev.impact@4'] },
     phases: { intake: phase('intake'), analyze: phase('analyze'), conformance: phase('conformance') },
     templates: { common: { path: 'common/empty.md', label: 'Common template' } },
     approvalAuthorities: { reviewers: { label: 'Reviewers', members: [{ name: 'Reviewer', email: 'reviewer@example.test' }] } },
     workTypes: {
       baseline: { label: 'Baseline', description: 'Original', phases: ['intake', 'analyze', 'conformance'],
         plannedClaims: { mode: 'off' }, reworkLoops: [],
-        intelligence: { profile: 'strict', views: ['architecture'] },
+        intelligence: { profile: 'strict', views: ['arch.contracts'] },
         templateOverrides: { analyze: 'template:common' },
         phaseOverrides: { analyze: { approval: { mode: 'required', authorities: ['reviewers'], minimum: 1 } } },
         retainedExtra: { exact: ['keep', { future: true }] } },
@@ -26,7 +26,7 @@ function fixture() {
   approvedDefinition.phases.analyze.inputs = ['intake'];
   approvedDefinition.phases.conformance.inputs = ['analyze'];
   const agents = [{ id: 'writer', scope: 'repository', source: '.github/agents/writer.agent.md', file: '/temporary/authority/writer.agent.md',
-    text: '# Exact author role\n', phases: ['analyze'], defaultFor: ['analyze'], tools: [], worldModelViews: ['development'], dependencies: [] }];
+    text: '# Exact author role\n', phases: ['analyze'], defaultFor: ['analyze'], tools: [], worldModelViews: ['dev.impact'], dependencies: [] }];
   const request = { schema: 'sflow-workflow-request@2', intent: 'edit', id: 'change-package', label: 'Change package',
     target: { governs: 'story', authority: 'selected-repository' },
     changes: [{ kind: 'workflow', id: 'baseline', operation: 'edit', expectedDefinitionSha256: workflowDefinitionSha256(approvedDefinition.workTypes.baseline) }],
@@ -143,7 +143,7 @@ test('unchanged SKP phase order is linked but any SKP membership/order change re
 test('the full declared closure includes auxiliary MCP scope, outputs, sets, views, agents and inert checks', () => {
   const input = fixture(); const definition = input.approvedDefinition;
   definition.phases.auxiliary = { label: 'Auxiliary', inputs: ['intake'], defaultTemplate: 'common/auxiliary.md',
-    artifactSet: 'deliverables', worldModelViews: ['architecture'], qualityCommands: [{ id: 'quality', command: 'node', args: ['check.mjs'] }] };
+    artifactSet: 'deliverables', worldModelViews: ['arch.contracts'], qualityCommands: [{ id: 'quality', command: 'node', args: ['check.mjs'] }] };
   definition.artifactSets = { deliverables: { outputs: [{ id: 'report', template: 'common/report.md', consumes: ['analyze/note'] }] } };
   definition.phases.analyze.mcp = { requiredServers: ['knowledge'] };
   definition.mcpServers = { knowledge: { agents: ['writer', 'aux-writer'], phases: ['analyze', 'auxiliary'], tools: ['read'] } };
@@ -152,7 +152,7 @@ test('the full declared closure includes auxiliary MCP scope, outputs, sets, vie
   const result = planWorkflowOnlyChanges(input); assert.equal(result.status, 'ready', JSON.stringify(result.findings));
   for (const [kind, id] of [['phase', 'auxiliary'], ['agent', 'aux-writer'], ['artifact-set', 'deliverables'],
     ['template-path', 'common/report.md'], ['quality-command', 'auxiliary/quality'], ['mcp-server', 'knowledge'],
-    ['world-model-view', 'architecture'], ['world-model-view', 'development'], ['execution-task', 'analyze']]) assert.ok(node(result, kind, id), `${kind}:${id}`);
+    ['world-model-view', 'arch.contracts'], ['world-model-view', 'dev.impact'], ['execution-task', 'analyze']]) assert.ok(node(result, kind, id), `${kind}:${id}`);
   const dependency = node(result, 'agent-dependency', 'writer/remote-note');
   assert.equal(dependency.availability, 'declared-not-fetched'); assert.equal(dependency.packageBinding, 'unbound');
   assert.equal(JSON.stringify(result).includes('https://example.test'), false);

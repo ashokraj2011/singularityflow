@@ -79,15 +79,16 @@ test('testing overview preserves the frozen coverage extractor and keeps test-im
     `${REQUIRED_FACT_COVERAGE_ID}@${REQUIRED_FACT_COVERAGE_VERSION}`
   );
   assert.equal(REQUIRED_FACT_COVERAGE_VERSION, '1.0.1');
-  // The JSX comment provenance acceptance in the bounded lock review changes the clause grammar,
-  // not required-fact-coverage's version, algorithm, fact types, or governing View Contract.
-  // Every implementation identity still binds the complete packaged WMB kernel and shared lexer.
+  // The main drift reconciliation in the bounded lock review changes the clause tag grammar,
+  // composition and validation, not required-fact-coverage's version, algorithm, fact types, or
+  // governing View Contract. Every implementation identity still binds the complete packaged WMB
+  // kernel and shared lexer.
   assert.equal(
     REQUIRED_FACT_COVERAGE_IMPLEMENTATION_SHA256,
-    'sha256:7dec03387c61681dc2adcefc042d07823b0865a640e462cc1c5612ee0aa96caa'
+    'sha256:536a852cdeb032dde85ee65e83859bf2547fa0ce69e2cb59689a233223152eec'
   );
-  assert.equal(coverage.manifestSha256, 'sha256:d5249513a9b31a2350265fb1564eca75fae33521ec04732d801e508d7aac5fca');
-  assert.equal(BUILTIN_EXTRACTOR_REGISTRY.registrySha256, 'sha256:64f104caf153ef69fabd7c62406fa584b1bc34b5efc410d57c1e5154c62f8550');
+  assert.equal(coverage.manifestSha256, 'sha256:06bb00d231154d27c2e19dc0cd29fb75feb2be3b1837ef02bcaa35090f214bc1');
+  assert.equal(BUILTIN_EXTRACTOR_REGISTRY.registrySha256, 'sha256:a737579c710b1a7048632c9a4c8cf1402631bffb8b90cfe6251bc625774b26c8');
   assert.equal(coverage.factTypes.includes('test-impact'), false);
 
   const testing = resolveWmpOverviewViewContract('testing');

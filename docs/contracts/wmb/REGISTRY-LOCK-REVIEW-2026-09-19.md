@@ -694,6 +694,64 @@ are explicit negative cases.
 | Coverage manifest | `sha256:47463e38790ee1f715e7674fd5b61b869683ff2c2f6649412d2ca8109a603be3` | `sha256:d5249513a9b31a2350265fb1564eca75fae33521ec04732d801e508d7aac5fca` |
 | Built-in Extractor Registry | `sha256:8a2c0ce3432cf480ca3e0d1a1fb8eb2c48e43b61036cb3abb4a2b439a9945115` | `sha256:64f104caf153ef69fabd7c62406fa584b1bc34b5efc410d57c1e5154c62f8550` |
 
+## Main drift reconciliation 2026-10-09
+
+Review boundary: `main@ad3fe2cc29e5ab96e26ece20f2be1df646f2c6c3`, the commit that recorded the JSX comment
+provenance acceptance, through `main@d206b553b742bb73b549cdee5add2870e0c7f0a5`. Nine commits changed
+eighteen kernel paths in that range without a lock review, so `main` failed this lock. The product
+owner sanctioned this reconciliation on 2026-10-09. It is a **source-admission** transition. Because the
+validator gained a check (below), this build cannot act as an earlier build's 21-check validator, so
+every model published by an earlier build is reported as an earlier-build model
+(`WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE`, `validation-contract-changed`): it is not used, nothing is
+blocked, and `world-model build` replaces it.
+
+The previously accepted identities were reproduced from the code at the boundary before anything was
+changed: kernel `sha256:6e3f8f9e…`, registry `sha256:64f104ca…`, and the three coverage identities
+below all match the JSX review. The accepted identities were calculated from the packaged modules at
+the boundary head, not copied from a failing test.
+
+Reviewed changes, by commit:
+
+- `83d65c1c` (`src/traceability-ids.mjs`): `scanSourceClauseTags` reads every `@ac`/`@clause` marker in a
+  real comment, several per line, through the new shared `clauseTagsInComment`; non-JavaScript comment
+  lines are read up to their closing delimiter; markers after code on the same line are still ignored.
+  It feeds `clause-code-binding`, so a rebuild can add clause-binding facts where comments carry several
+  or mid-comment tags. **This forces source-admission.** The extractor stays at version `1.2.0`; its
+  implementation identity still moves with the kernel, so no fact from an earlier build is reused.
+- `b2329a4b` (`scope/configuration.mjs`): excludes the configured work-item root from source scope when
+  it is not already under a default exclusion. For repositories with a custom work-item root this
+  changes which files are read and the scope hash (source-admission); the default root is unaffected.
+- `8045016b` (`compose/candidate.mjs`, `validate/candidate.mjs`, `runtime.mjs`, `service.mjs`,
+  `compose/composition-recovery.mjs`): a model unit whose prose is exactly its cited facts' canonical
+  sentences is repaired into canonical form once, then fully re-validated; the canonical-sentence helper
+  moves from the validator to the composer. No check is added or removed (composition).
+- `60f29d27` (`compose/pinned-core.mjs`, `compose/candidate.mjs`, `validate/candidate.mjs`, `retry.mjs`,
+  `runtime.mjs`, `service.mjs`, `compose/composition-recovery.mjs`): model input admits optional facts
+  only within the output budget and refuses when required facts alone exceed it; the validator adds the
+  `admitted-fact-coverage` check (`WMB_ADMITTED_FACT_OMITTED`, model route only, retryable). The
+  validation contract therefore has 22 checks from this registry on.
+- `5cea46e2` (`compose/pinned-core.mjs`): the composition packet names `expectedUsedFactIds` (composition).
+- `c4801c9b` (`runtime.mjs`, `service.mjs`, `compose/model-budget-diagnostics.mjs`): the model runner's own
+  total-token limit applies, and budget refusals carry logical prompt estimates and recovery guidance.
+- `10dc6f5d` and `ad3fa176` (`projections/**`, `publish/transaction.mjs`, `store.mjs`, `service.mjs`): the CALM
+  projection maps import and interface-contract facts through capability source roots, records gaps,
+  pins its validator bundle, and keeps its exact inputs whenever the build request binds them. The fact
+  ledger and views are unchanged; earlier CALM projections need a rebuild to reproduce.
+- `35e901e9` (`migration/configuration.mjs`, new): a read-only plan for moving legacy-v3 configuration to
+  registered views. It produces configuration only.
+
+The fact vocabulary, extractor versions, View Registry, permissions and candidate schema are
+unchanged. `src/world-model-reviewed-registries.mjs` records the 22-check contract for this registry; the
+earlier registries keep their 21-check contract, which this build no longer runs.
+
+| Identity | Previously accepted | Accepted at this review |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:6e3f8f9e8474bb464aa0140f07cb64ee92a6d5d6a4a4423ea5f2eda3baf36f46` | `sha256:8dbd09ba86d750aa7a8fe46937a51d421f89fb280db346d6b90bfb43cc43047e` |
+| Coverage implementation | `sha256:7dec03387c61681dc2adcefc042d07823b0865a640e462cc1c5612ee0aa96caa` | `sha256:536a852cdeb032dde85ee65e83859bf2547fa0ce69e2cb59689a233223152eec` |
+| Coverage conformance receipt | `sha256:1b3a63b4a39b61a7c0cad3049f3ad4ae34b442f196144d4ba0a548a3143e1ddc` | `sha256:197fbb8397104c4637e26f12cb6d2f569b744ed94cecdd16beee0a8d275edc83` |
+| Coverage manifest | `sha256:d5249513a9b31a2350265fb1564eca75fae33521ec04732d801e508d7aac5fca` | `sha256:06bb00d231154d27c2e19dc0cd29fb75feb2be3b1837ef02bcaa35090f214bc1` |
+| Built-in Extractor Registry | `sha256:64f104caf153ef69fabd7c62406fa584b1bc34b5efc410d57c1e5154c62f8550` | `sha256:a737579c710b1a7048632c9a4c8cf1402631bffb8b90cfe6251bc625774b26c8` |
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.

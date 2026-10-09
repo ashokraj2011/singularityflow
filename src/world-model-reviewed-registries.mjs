@@ -154,6 +154,14 @@ export const REVIEWED_EXTRACTOR_REGISTRY_TRANSITIONS = Object.freeze([
     to: 'sha256:64f104caf153ef69fabd7c62406fa584b1bc34b5efc410d57c1e5154c62f8550',
     kernelFrom: 'sha256:f4ec77a2e660afcf350e139c60969bf8571850d4b5d0609b44703955421109b0',
     kernelTo: 'sha256:6e3f8f9e8474bb464aa0140f07cb64ee92a6d5d6a4a4423ea5f2eda3baf36f46'
+  }),
+  Object.freeze({
+    review: 'Main drift reconciliation 2026-10-09',
+    effect: 'source-admission',
+    from: 'sha256:64f104caf153ef69fabd7c62406fa584b1bc34b5efc410d57c1e5154c62f8550',
+    to: 'sha256:a737579c710b1a7048632c9a4c8cf1402631bffb8b90cfe6251bc625774b26c8',
+    kernelFrom: 'sha256:6e3f8f9e8474bb464aa0140f07cb64ee92a6d5d6a4a4423ea5f2eda3baf36f46',
+    kernelTo: 'sha256:8dbd09ba86d750aa7a8fe46937a51d421f89fb280db346d6b90bfb43cc43047e'
   })
 ]);
 
@@ -229,7 +237,8 @@ export function admitPublishedExtractorRegistry(value) {
 
 // The validation contract each reviewed build's own validator satisfied, as that build's code computes
 // it. The candidate schema never changed across the chain. The execution-route check arrived with
-// the composition-input acceptance, so every registry up to that transition used the shorter list.
+// the composition-input acceptance, so every registry up to that transition used the shorter list;
+// the admitted-fact-coverage check arrived with the main drift reconciliation.
 const REVIEWED_CANDIDATE_SCHEMA_SHA256 = 'sha256:1673dbd2acd154d9d6283e5bcbe3943aac0de71d3a6472ab037c31251799afa1';
 const CHECKS_BEFORE_EXECUTION_ROUTE = Object.freeze([
   'candidate-json',
@@ -277,6 +286,13 @@ const CHECKS_WITH_EXECUTION_ROUTE = Object.freeze([
   'total-output'
 ]);
 const FIRST_REGISTRY_WITH_EXECUTION_ROUTE_CHECK = 'sha256:83aaacb514ad8af54819d2aa16b7fd9f3d3b79ddc744c1ab6ae53333ebda0531';
+// The admitted-fact-coverage check arrived with the main drift reconciliation.
+const CHECKS_WITH_ADMITTED_FACT_COVERAGE = Object.freeze([
+  ...CHECKS_WITH_EXECUTION_ROUTE.slice(0, CHECKS_WITH_EXECUTION_ROUTE.indexOf('required-unavailable') + 1),
+  'admitted-fact-coverage',
+  ...CHECKS_WITH_EXECUTION_ROUTE.slice(CHECKS_WITH_EXECUTION_ROUTE.indexOf('required-unavailable') + 1)
+]);
+const FIRST_REGISTRY_WITH_ADMITTED_FACT_COVERAGE_CHECK = 'sha256:a737579c710b1a7048632c9a4c8cf1402631bffb8b90cfe6251bc625774b26c8';
 
 function reviewedKernelOf(registrySha256) {
   const entry = REVIEWED_EXTRACTOR_REGISTRY_TRANSITIONS.find((candidate) => candidate.to === registrySha256)
@@ -295,10 +311,13 @@ export function reviewedValidationContract(registrySha256) {
   const order = REVIEWED_EXTRACTOR_REGISTRY_TRANSITIONS.flatMap((entry, index) => (
     index === 0 ? [entry.from, entry.to] : [entry.to]
   ));
-  const withExecutionRoute = order.indexOf(registrySha256)
-    >= order.indexOf(FIRST_REGISTRY_WITH_EXECUTION_ROUTE_CHECK);
+  const position = order.indexOf(registrySha256);
+  const checkIds = position >= order.indexOf(FIRST_REGISTRY_WITH_ADMITTED_FACT_COVERAGE_CHECK)
+    ? CHECKS_WITH_ADMITTED_FACT_COVERAGE
+    : position >= order.indexOf(FIRST_REGISTRY_WITH_EXECUTION_ROUTE_CHECK)
+      ? CHECKS_WITH_EXECUTION_ROUTE : CHECKS_BEFORE_EXECUTION_ROUTE;
   return Object.freeze({
-    checkIds: withExecutionRoute ? CHECKS_WITH_EXECUTION_ROUTE : CHECKS_BEFORE_EXECUTION_ROUTE,
+    checkIds,
     candidateSchemaSha256: REVIEWED_CANDIDATE_SCHEMA_SHA256,
     validatorSha256: `sha256:${recordSha256({
       kind: 'wmb-v4-validator-implementation', sourceSha256: kernelSha256

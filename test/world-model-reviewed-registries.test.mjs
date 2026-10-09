@@ -148,21 +148,22 @@ test('a reviewed path is current only when every transition on it was mechanical
     CURRENT_WORLD_MODEL_VALIDATION_CONTRACT.checkIds);
 });
 
-test('a model published by an earlier reviewed build stays readable but becomes stale after clause admission changes', async (t) => {
+test('a model published by an earlier reviewed build is unavailable once the validator gained a check', async (t) => {
+  // The main drift reconciliation added admitted-fact-coverage, so this build cannot act as the
+  // earlier build's validator: the model is left out (never used, never blocking) and rebuilt.
+  assert.notEqual(reviewedValidationContract(EARLIER_REGISTRY).checkIds.length,
+    CURRENT_WORLD_MODEL_VALIDATION_CONTRACT.checkIds.length);
+  assert.ok(reviewedExtractorRegistryPath(EARLIER_REGISTRY), 'the chain still connects the earlier registry');
   for (const model of EARLIER_MODELS) {
     const { root } = await earlierBuildRepository(t, model);
-    const store = groundingRead(root, model);
-    const built = store.freshness.reusableIdentity.built.extractorRegistrySha256;
-    assert.equal(built, EARLIER_REGISTRY, model.bundle);
-    assert.notEqual(built, BUILTIN_EXTRACTOR_REGISTRY.registrySha256, model.bundle);
-    assert.equal(store.freshness.fresh,
-      reviewedPathPreservesModel(reviewedExtractorRegistryPath(built)), model.bundle);
-    assert.deepEqual(store.freshness.changes.map((change) => change.field),
-      ['extractorRegistrySha256'], model.bundle);
-    const [view] = store.views.filter((entry) => entry.status === 'available');
-    assert.equal(view.viewId, 'dev.impact');
-    assert.equal(/execution-unit: governed-model-composer@1:/u.test(view.markdown),
-      model.route === 'model', model.bundle);
+    assert.throws(() => groundingRead(root, model), (error) => {
+      assert.equal(error.code, 'WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE', model.bundle);
+      assert.equal(error.details.reason, 'validation-contract-changed', model.bundle);
+      assert.equal(error.details.publishedRegistrySha256, EARLIER_REGISTRY, model.bundle);
+      assert.equal(isWorldModelAvailabilityError(error), true,
+        'grounding continues without the model instead of failing the phase');
+      return true;
+    });
   }
 });
 
@@ -230,8 +231,8 @@ test('an earlier model this build cannot reproduce is refused, while a current m
   await replaceOnState(earlier.root, earlier.parent, `${OUTPUT_DIR}/views/dev.impact.md`, tamper);
   assert.throws(() => groundingRead(earlier.root, model), (error) => {
     assert.equal(error.code, 'WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE');
-    assert.equal(error.details.reason, 'not-reproducible');
-    assert.match(String(error.details.causeCode), /^WMB_/u);
+    // Refused before its views are re-derived: this build no longer runs the earlier validator.
+    assert.equal(error.details.reason, 'validation-contract-changed');
     return true;
   });
 

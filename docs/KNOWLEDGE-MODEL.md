@@ -40,6 +40,7 @@ singularity-flow wm knowledge slice [--role developer|tester|architect|product |
 singularity-flow wm knowledge items [--kind KIND] [--json]
 singularity-flow wm knowledge eval --expected FILE [--json]
 singularity-flow wm knowledge explain [--dry-run] [--json]
+singularity-flow wm knowledge brief [--phase PHASE] [--focus TEXT] [--refresh] [--cached] [--dry-run] [--json]
 singularity-flow wm knowledge areas [--json]
 singularity-flow wm knowledge confirm ITEM [--note TEXT]
 singularity-flow wm knowledge correct ITEM --note TEXT
@@ -106,6 +107,34 @@ review whose item no longer exists is listed as a pitfall, never dropped quietly
 numbered within their function, so editing a condition keeps the rule's id and its review.
 In VS Code, **Repository Knowledge** opens the current build as a preview and **Review Repository
 Knowledge** picks an item and records the same confirm, correct or reject review.
+
+## Repository brief
+
+`wm knowledge brief` gives every view a person or a phase needs, each statement with its source:
+**Business rules** (`biz.rules`), **Contracts** (`arch.contracts`), **Flows**, **Change impact**
+(`dev.impact`), **Risks** (`dev.hotspots`) and **Questions for the product owner**.
+
+- **Evidence:** this knowledge (code rules with their messages and HTTP statuses, endpoints, data
+  shapes, flows, tests, history, approved requirements) plus rule-like statements from README files,
+  `docs/` and architecture decision records at the same commit, each with its heading. Each piece of
+  evidence gets a short ID.
+- **With the model on**, the model writes every view from that evidence in plain business language.
+  Each statement must cite evidence IDs, and it is kept only if every code name, number and quoted
+  text in it appears in what it cites; statements that cite nothing, cite unknown evidence or judge
+  the code are dropped and listed. A view the model leaves empty shows its evidence instead. The
+  result is cached on this machine for the same evidence, prompt and model; `--refresh` writes it
+  again.
+- **Without a model** (or with `--cached`), a brief the model wrote earlier for the same
+  evidence is shown; otherwise the evidence itself, with fixed sentences. Questions then come from
+  rules no test reaches, documented HTTP statuses no code rule returns, and documented names the
+  code never uses.
+- `--phase` orders the views for that phase's reader (product, architect, developer or tester).
+  `--dry-run` prints the exact prompt.
+- It works in any Git repository. Without `singularity/workflow.yml` the model is Copilot CLI
+  (`copilot` on PATH) choosing its own model; a configured provider and model are used when present.
+  Nothing is written to the working tree: the cache and the model audit live under `.git`.
+- In VS Code, **Singularity Flow: Repository Brief** shows every view as a tab, with a phase picker,
+  **Write with model**, and buttons that open each source at its line.
 
 ## Plain-language explanations
 

@@ -136,7 +136,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'attach-if-missing', 'migrate-world-model', 'hard-cutover',
   'archive-readiness', 'allow-empty-output', 'allow-unavailable-verification', 'authority-local',
   'accept-bundled-conflicts', 'accept-partial', 'accept-test-risk', 'acknowledge-self-approval', 'acknowledge-unprotected', 'active', 'adopt-current-interval', 'adopt-existing', 'all', 'allow-dirty', 'allow-model', 'apply', 'assigned-to-me', 'ast',
-  'assisted', 'auto', 'automatic', 'blocking', 'bootstrap', 'check', 'churn', 'clear-loops', 'cli-only', 'clipboard', 'clone', 'concat',
+  'assisted', 'auto', 'automatic', 'blocking', 'bootstrap', 'cached', 'check', 'churn', 'clear-loops', 'cli-only', 'clipboard', 'clone', 'concat',
   'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'derived', 'dry-run', 'evidence', 'no-index',
   'diagnose-only', 'diagnostics', 'disclose-provider-results', 'draft-stdin', 'drop-local', 'experimental', 'feedback-stdin', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'include-proposals', 'initialize', 'intake', 'json',
   'include-existing', 'include-local-documents', 'independent', 'isolated-worktree',

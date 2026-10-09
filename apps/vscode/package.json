@@ -773,7 +773,7 @@
       {
         "command": "singularityFlow.openRepositoryKnowledge",
         "category": "Singularity Flow",
-        "title": "Repository Knowledge",
+        "title": "Repository Brief",
         "icon": "$(book)"
       },
       {

@@ -745,6 +745,8 @@ Every public operation is classified before its implementation module is importe
 | wm.history.show | read | never | — | — |
 | wm.inject | mutation | never | — | — |
 | wm.knowledge.areas | read | never | — | — |
+| wm.knowledge.brief | read | optional | wm.knowledge.brief.deterministic | copilot-cli |
+| wm.knowledge.brief.deterministic | read | never | — | — |
 | wm.knowledge.build | read | never | — | — |
 | wm.knowledge.confirm | mutation | never | — | — |
 | wm.knowledge.correct | mutation | never | — | — |

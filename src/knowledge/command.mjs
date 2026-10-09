@@ -10,6 +10,9 @@
  *   confirm|correct|reject ID [--note TEXT]                           review an item (writes docs/knowledge/confirmations.yml)
  *   areas   [--json]                                                  the areas a large repository is built in
  *   explain [--area PATH] [--dry-run] [--json]                        plain-language explanations, citation-checked (needs a model; --dry-run shows the prompt)
+ *   brief   [--phase PHASE] [--focus TEXT] [--refresh] [--cached] [--dry-run] [--json]
+ *                                                                     business rules, contracts, flows, impact, risks and questions;
+ *                                                                     written by the model when one is on, checked against its evidence
  *
  * Read-only for the repository: it reads the committed tree and writes only its machine-local cache.
  */
@@ -18,10 +21,15 @@ import path from 'node:path';
 
 import { loadDefinition } from '../config.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
+import { loadModelTiers } from '../model-tiers.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { optionBoolean, optionNumber, optionString, SingularityFlowError } from '../util.mjs';
 import { applyReviews, readConfirmations, recordReview } from './confirm.mjs';
 import { buildExplanationPrompt, explanationSubjects, readExplanations, validateExplanations, writeExplanations } from './explain.mjs';
+import {
+  BRIEF_VIEWS, briefEvidence, briefKey, briefNotKnown, briefOrder, buildBriefPrompt, readCachedBrief, readDocumentation,
+  renderBriefMarkdown, templateBrief, validateBrief, writeCachedBrief
+} from './brief.mjs';
 import { parseKnowledgeExpectations, scoreKnowledge } from './benchmark.mjs';
 import { KNOWLEDGE_KINDS } from './items.mjs';
 import { KNOWLEDGE_ROLES, KNOWLEDGE_VIEWS, renderKnowledgeSlice, renderKnowledgeView, roleForPhase } from './render.mjs';
@@ -29,7 +37,7 @@ import { readKnowledgeSource } from './source.mjs';
 import { buildKnowledge } from './store.mjs';
 import { KNOWLEDGE_SOURCE_LIMITS } from './source.mjs';
 
-const USAGE = 'Usage: singularity-flow wm knowledge <build|show|slice|status|items|eval|explain|areas|confirm|correct|reject> [--area PATH] [--json]';
+const USAGE = 'Usage: singularity-flow wm knowledge <build|show|slice|status|items|eval|explain|brief|areas|confirm|correct|reject> [--area PATH] [--json]';
 
 async function built(root, options) {
   const result = await buildKnowledge(root, { area: optionString(options, 'area') ?? null, refresh: optionBoolean(options, 'refresh') });
@@ -50,7 +58,7 @@ function levelLine(levels) {
 export async function knowledgeCommand(root, positionals, options) {
   const subcommand = positionals[0];
   const json = optionBoolean(options, 'json');
-  if (!subcommand || !['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'areas', 'confirm', 'correct', 'reject'].includes(subcommand)) throw new SingularityFlowError(USAGE);
+  if (!subcommand || !['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'brief', 'areas', 'confirm', 'correct', 'reject'].includes(subcommand)) throw new SingularityFlowError(USAGE);
   if (subcommand === 'areas') return areasCommand(root, options);
   const result = await built(root, options);
   if (['confirm', 'correct', 'reject'].includes(subcommand)) return reviewCommand(root, result, subcommand, positionals[1], options);
@@ -60,6 +68,7 @@ export async function knowledgeCommand(root, positionals, options) {
   const focus = optionString(options, 'focus') ?? null;
   const explanations = (await readExplanations(root, result.key))?.accepted ?? [];
   if (subcommand === 'explain') return explainCommand(root, result, options);
+  if (subcommand === 'brief') return briefCommand(root, result, knowledge, options);
 
   if (subcommand === 'build' || subcommand === 'status') {
     const summary = {
@@ -126,6 +135,28 @@ export async function knowledgeCommand(root, positionals, options) {
  * whose code names, numbers and quoted texts are found in what they cite. Without a model (the
  * operation's never-model fallback) it says so; --dry-run prints the exact prompt instead.
  */
+/**
+ * The provider for a knowledge model call, in any repository. Without singularity/workflow.yml the
+ * default provider is used. A configured model is named directly; otherwise the request routes by
+ * task when singularity/modelTiers.yml exists, and leaves the choice to the provider when it does not.
+ */
+async function knowledgeModel(root) {
+  let definition = null;
+  try { definition = await loadDefinition(root); } catch { definition = null; }
+  const provider = resolveModelProvider(definition);
+  const tiers = provider.model ? null : await loadModelTiers(root);
+  return {
+    model: provider.model,
+    label: provider.model ?? provider.provider ?? null,
+    request: {
+      provider: provider.provider,
+      // The transport reads the executable and transport from this; an empty one means `copilot`, auto.
+      providerConfig: provider.providerConfig ?? {},
+      ...(tiers ? { task: 'summarize' } : { model: provider.model })
+    }
+  };
+}
+
 async function explainCommand(root, result, options) {
   const json = optionBoolean(options, 'json');
   const { knowledge } = result;
@@ -144,13 +175,9 @@ async function explainCommand(root, result, options) {
     else console.log(message);
     return { status: 'unavailable' };
   }
-  const definition = await loadDefinition(root);
-  const provider = resolveModelProvider(definition);
+  const provider = await knowledgeModel(root);
   const invocation = await invokeModel({
-    provider: provider.provider,
-    providerConfig: provider.providerConfig,
-    model: provider.model,
-    task: 'summarize',
+    ...provider.request,
     cwd: root,
     allowedRoots: [root],
     prompt: { text: prompt.text },
@@ -171,6 +198,87 @@ async function explainCommand(root, result, options) {
   for (const entry of checked.rejected.slice(0, 10)) console.log(`  rejected: "${entry.text}" (${entry.reason})`);
   console.log('Read them: singularity-flow wm knowledge show overview');
   return summary;
+}
+
+/**
+ * The repository brief. With the model on, the model writes every view from the evidence and each
+ * statement is checked against what it cites; a view the model left empty shows its template
+ * statements. With the model off (or --cached), a brief the model wrote earlier for the same
+ * evidence is shown, otherwise the template brief. Nothing here writes to the repository.
+ */
+async function briefCommand(root, result, knowledge, options) {
+  const json = optionBoolean(options, 'json');
+  const phase = optionString(options, 'phase') ?? null;
+  const focus = optionString(options, 'focus') ?? null;
+  const documentation = readDocumentation(root, { focus });
+  const evidence = briefEvidence(knowledge, documentation, { focus });
+  const prompt = buildBriefPrompt(knowledge, evidence, { focus });
+  if (optionBoolean(options, 'dry-run')) {
+    if (json) console.log(JSON.stringify({ status: 'dry-run', evidence: evidence.length, documents: documentation.files.length, promptSha256: prompt.sha256, prompt: prompt.text }, null, 2));
+    else console.log(prompt.text);
+    return { status: 'dry-run' };
+  }
+  const provider = await knowledgeModel(root);
+  const key = briefKey(result.key, documentation, prompt, provider.model ?? null);
+  const template = templateBrief(evidence);
+  const modelOn = operationContext()?.operation?.id === 'wm.knowledge.brief' && !optionBoolean(options, 'cached');
+  let written = optionBoolean(options, 'refresh') ? null : await readCachedBrief(root, key);
+  const fromCache = Boolean(written);
+  let reason = null;
+  if (!written && modelOn) {
+    try {
+      const invocation = await invokeModel({
+        ...provider.request,
+        cwd: root,
+        allowedRoots: [root],
+        prompt: { text: prompt.text },
+        channel: 'repository-brief',
+        subject: { kind: 'repository-knowledge', id: knowledge.repository.name ?? 'repository' },
+        tools: { mode: 'none', names: [] },
+        limits: { timeoutMs: 6 * 60 * 1000, outputBytes: 256 * 1024 }
+      });
+      const checked = validateBrief(invocation.output, evidence);
+      written = { key, model: provider.label, createdAt: new Date().toISOString(), promptSha256: prompt.sha256, views: checked.views, rejected: checked.rejected };
+      await writeCachedBrief(root, key, written);
+    } catch (error) {
+      reason = `The model brief could not be written: ${error.message}`;
+    }
+  } else if (!written) {
+    reason = optionBoolean(options, 'cached')
+      ? 'The model has not written a brief for this evidence yet.'
+      : 'The model is off for this command, so the brief was built from the evidence without one.';
+  }
+  const views = {};
+  for (const { id } of BRIEF_VIEWS) {
+    const fromModel = written?.views?.[id] ?? [];
+    views[id] = fromModel.length
+      ? fromModel.map((statement) => ({ ...statement, origin: 'model' }))
+      : (template.views[id] ?? []).map((statement) => ({ ...statement, origin: 'template' }));
+  }
+  const brief = {
+    schemaVersion: 1,
+    repository: knowledge.repository.name ?? 'repository',
+    commit: knowledge.repository.commit,
+    phase,
+    order: briefOrder(phase),
+    mode: written ? 'model' : 'template',
+    model: written?.model ?? null,
+    createdAt: written?.createdAt ?? null,
+    cached: fromCache,
+    reason,
+    views,
+    rejected: written?.rejected?.length ?? 0,
+    rejections: (written?.rejected ?? []).slice(0, 12),
+    evidence: { count: evidence.length, documents: documentation.files.map((file) => file.path), documentStatements: documentation.statements.length },
+    documented: evidence.filter((entry) => entry.view === 'docs').map((entry) => ({ text: entry.text, path: entry.source.path, line: entry.source.line, heading: entry.heading })),
+    notKnown: briefNotKnown(knowledge, documentation)
+  };
+  if (json) console.log(JSON.stringify(brief, null, 2));
+  else {
+    console.log(renderBriefMarkdown(brief));
+    if (reason) console.log(reason);
+  }
+  return brief;
 }
 
 /** The areas this repository is built in: one whole build when it fits, otherwise one per area. */

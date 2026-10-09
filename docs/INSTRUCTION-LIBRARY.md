@@ -51,6 +51,8 @@ singularity-flow skill edit web-review --instruction-refs web-conventions --dry-
 
 `@sflow /instructions` lists the catalog in VS Code without calling a model. It is read-only; authoring and approval remain separate reviewed actions.
 
+Catalog listing returns names, purposes, references and hashes, not every definition's body. Use `instruction show <ID>` to read one definition when needed.
+
 ## Transfer and validation
 
 Workflow v8 export carries only the exact instruction definitions referenced by included catalog skills. Import and independent duplication show instruction identities alongside agents and skills, validate collisions and rewrite skill references when definitions are renamed. Linked copies intentionally share definitions. Missing, extra, malformed, conflicting or tampered definitions are refused with a named finding; repair configuration or references, never generated snapshots. Historical bundles without references remain readable.

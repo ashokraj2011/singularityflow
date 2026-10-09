@@ -38,7 +38,7 @@ export async function run(argv, { positionals, options, applyChangeSet }) {
     const item = action === 'show' ? model.instructions.find(item => item.id === positionals[2]) : null;
     if (action === 'show' && !item) throw new SingularityFlowError(`Instruction '${positionals[2]}' does not exist. Run instruction list.`, { code: 'INSTRUCTION_UNKNOWN' });
     const result = action === 'show' ? { schemaVersion: 1, resultType: 'instruction', instruction: item }
-      : { schemaVersion: 1, resultType: 'instruction-library', instructions: model.instructions, problems: model.instructionProblems };
+      : { schemaVersion: 1, resultType: 'instruction-library', instructions: model.instructions.map(({ instructions: body, ...summary }) => summary), problems: model.instructionProblems };
     const text = item ? `${item.label} (${item.id})\n${item.path}\nUsed by skills: ${item.usedBy.join(', ') || 'none'}\n\n${item.instructions}`
       : model.instructions.map(item => `${item.label} (${item.id}) — ${item.description}`).join('\n') || 'No reusable instructions yet.';
     return emitCommandResult(commandResult({ operation: { id: `instruction.${action}`, classification: 'read' },

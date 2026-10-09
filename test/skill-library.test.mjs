@@ -1074,6 +1074,7 @@ test('instruction commands preview, create, inspect, update and clear exact skil
   assert.equal(applied.effects.filesChanged, true);
   const list = JSON.parse(flow(root, ['instruction', 'list', '--json']).stdout);
   assert.deepEqual(list.data.instructions.map(item => item.id), ['web-guide']);
+  assert.equal(Object.hasOwn(list.data.instructions[0], 'instructions'), false, 'catalog discovery does not dump instruction bodies');
   const shown = JSON.parse(flow(root, ['instruction', 'show', 'web-guide', '--json']).stdout);
   assert.equal(shown.data.instruction.instructions, WEB_INSTRUCTION.instructions);
   flow(root, ['skill', 'create', 'security-review', '--description', SECURITY_REVIEW.description, '--instructions', SECURITY_REVIEW.instructions, '--instruction-refs', 'web-guide', '--json']);

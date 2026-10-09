@@ -32,9 +32,13 @@ const TYPESCRIPT_CORE = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'typescript-
 const JAVA_SEMANTIC_ADAPTER = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'java-semantic-adapter.mjs');
 const JAVA_CORE = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'java-core.mjs');
 const JAVA_RESOLVER = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'JavaCallResolver.java');
+const SEMANTIC_JOIN = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'semantic-join.mjs');
+const PYTHON_SEMANTIC_ADAPTER = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'python-semantic-adapter.mjs');
+const PYTHON_CORE = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'python-core.mjs');
 let bundledManifestPromise = null;
 let bundledTypeScriptPromise = null;
 let bundledJavaPromise = null;
+let bundledPythonPromise = null;
 
 function hashBytes(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
@@ -354,13 +358,14 @@ async function bundledTypeScriptManifests() {
  */
 async function bundledJavaManifest() {
   if (!bundledJavaPromise) bundledJavaPromise = (async () => {
-    const [adapterBytes, coreBytes, resolverBytes, polyglotBytes, licenseBytes] = await Promise.all([
-      readFile(JAVA_SEMANTIC_ADAPTER), readFile(JAVA_CORE), readFile(JAVA_RESOLVER), readFile(POLYGLOT_CORE), readFile(POLYGLOT_LICENSE)
+    const [adapterBytes, coreBytes, resolverBytes, joinBytes, polyglotBytes, licenseBytes] = await Promise.all([
+      readFile(JAVA_SEMANTIC_ADAPTER), readFile(JAVA_CORE), readFile(JAVA_RESOLVER), readFile(SEMANTIC_JOIN), readFile(POLYGLOT_CORE), readFile(POLYGLOT_LICENSE)
     ]);
     const artifactSha256 = hashBytes(adapterBytes);
     const shared = [
       { path: JAVA_CORE, sha256: hashBytes(coreBytes) },
       { path: JAVA_RESOLVER, sha256: hashBytes(resolverBytes) },
+      { path: SEMANTIC_JOIN, sha256: hashBytes(joinBytes) },
       { path: POLYGLOT_CORE, sha256: hashBytes(polyglotBytes) },
       { path: POLYGLOT_LICENSE, sha256: hashBytes(licenseBytes) }
     ];
@@ -394,11 +399,79 @@ async function bundledJavaManifest() {
   return bundledJavaPromise;
 }
 
+/** Singularity Flow's own Pyright runtime files (never the analyzed repository's), or null. */
+function bundledPyright() {
+  try {
+    const packageJson = createRequire(path.join(PACKAGE_ROOT, 'package.json')).resolve('pyright/package.json');
+    const directory = path.dirname(packageJson);
+    return {
+      packageJson, license: path.join(directory, 'LICENSE.txt'),
+      runtime: ['langserver.index.js', 'dist/pyright-langserver.js', 'dist/pyright-internal.js', 'dist/vendor.js'].map((relative) => path.join(directory, relative))
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The Python semantic pack: calls and overrides resolved by the Pyright language server that ships
+ * with Singularity Flow, joined to the structural preview's declaration IDs. It is absent (not
+ * failing) when Pyright is not installed, and still needs an explicit `wm ast warm --semantic`.
+ * The manifest binds the server's code by digest; its bundled standard-library stubs, like the
+ * TypeScript compiler's library declarations, are part of that pinned release.
+ */
+async function bundledPythonManifest() {
+  if (!bundledPythonPromise) bundledPythonPromise = (async () => {
+    const pyright = bundledPyright();
+    if (!pyright) return [];
+    const [adapterBytes, coreBytes, joinBytes, polyglotBytes, packageBytes, licenseBytes, ...runtimeBytes] = await Promise.all([
+      readFile(PYTHON_SEMANTIC_ADAPTER), readFile(PYTHON_CORE), readFile(SEMANTIC_JOIN), readFile(POLYGLOT_CORE),
+      readFile(pyright.packageJson), readFile(pyright.license), ...pyright.runtime.map((file) => readFile(file))
+    ]);
+    const version = String(JSON.parse(packageBytes.toString('utf8')).version ?? 'unknown');
+    const artifactSha256 = hashBytes(adapterBytes);
+    const shared = [
+      { path: PYTHON_CORE, sha256: hashBytes(coreBytes) },
+      { path: SEMANTIC_JOIN, sha256: hashBytes(joinBytes) },
+      { path: POLYGLOT_CORE, sha256: hashBytes(polyglotBytes) },
+      { path: pyright.packageJson, sha256: hashBytes(packageBytes) },
+      { path: pyright.license, sha256: hashBytes(licenseBytes) },
+      ...pyright.runtime.map((file, index) => ({ path: file, sha256: hashBytes(runtimeBytes[index]) }))
+    ];
+    const manifest = {
+      protocolVersion: AST_ADAPTER_PROTOCOL_VERSION,
+      id: 'sflow-python-pyright', packVersion: '1.0.0', extractorVersion: '1.0.0',
+      stage: 'semantic', assurance: 'semantic', argv: [process.execPath, PYTHON_SEMANTIC_ADAPTER],
+      capabilities: ['skeleton', 'query'],
+      languages: {
+        python: {
+          extensions: ['.py', '.pyi'], canonicalFilenames: [], aliases: [], priority: 300,
+          parserEngine: 'pyright', parserVersion: version, grammarId: null, grammarVersion: null,
+          maximumAssurance: 'semantic',
+          projectKinds: ['python', 'python-standalone'], toolchainRanges: ['node>=20'], platforms: ['any']
+        }
+      },
+      licenses: [{ id: 'pyright', spdx: 'MIT', sourceSha256: hashBytes(licenseBytes) }],
+      conformance: { fixtureVersion: '1', status: 'preview', languages: ['python'] },
+      implementation: {
+        artifactSha256, manifestSha256: '0'.repeat(64),
+        runtime: { id: 'node', version: process.versions.node, platform: 'any' },
+        grammars: [],
+        dependencies: { lockSha256: null, bundleSha256: recordSha256({ adapterSha256: artifactSha256, files: shared }) },
+        files: [{ path: PYTHON_SEMANTIC_ADAPTER, sha256: artifactSha256 }, ...shared]
+      }
+    };
+    manifest.implementation.manifestSha256 = astAdapterManifestSha256(manifest);
+    return [validateAstAdapterManifest(manifest, 'bundled sflow-python-pyright')];
+  })();
+  return bundledPythonPromise;
+}
+
 /** Packs that ship inside Singularity Flow rather than being installed into the machine registry. */
-export const BUNDLED_AST_ADAPTER_IDS = Object.freeze(['sflow-polyglot-syntax', 'sflow-typescript-syntax', 'sflow-typescript', 'sflow-java']);
+export const BUNDLED_AST_ADAPTER_IDS = Object.freeze(['sflow-polyglot-syntax', 'sflow-typescript-syntax', 'sflow-typescript', 'sflow-java', 'sflow-python-pyright']);
 
 export async function bundledAstAdapters() {
-  return [await bundledPolyglotManifest(), ...await bundledTypeScriptManifests(), await bundledJavaManifest()];
+  return [await bundledPolyglotManifest(), ...await bundledTypeScriptManifests(), await bundledJavaManifest(), ...await bundledPythonManifest()];
 }
 
 /** Verify installed/bundled artifact bytes without launching adapter code. */

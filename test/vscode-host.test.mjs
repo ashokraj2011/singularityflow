@@ -1364,7 +1364,7 @@ test('@sflow and Help Center share model-free cited resolution and only prefill 
   const answer = await participant.handler(request, {}, stream, { isCancellationRequested: false });
   assert.equal(modelRead, false, 'deterministic help never accessed the chat model');
   assert.match(response.markdown.join(''), /AST project binding/);
-  assert.match(response.markdown.join(''), /topic project-binding v3/);
+  assert.match(response.markdown.join(''), /topic project-binding v4/);
   assert.equal(response.references.length, 1, 'the packaged source is attached as a reference');
   assert.ok(response.buttons.some((button) => button.title === 'Open in Help Center'));
   assert.ok(response.buttons.some((button) => button.title === 'Copy Shell'));
@@ -1433,7 +1433,7 @@ test('@sflow and Help Center share model-free cited resolution and only prefill 
   await panel.post({ type: 'ask-question', question: 'What is project binding?', origin: 'typed' });
   await until(() => panel.webview.html.includes('matched by authored-question') ? panel.webview.html : null);
   assert.match(panel.webview.html, /AST project binding/);
-  assert.match(panel.webview.html, /topic project-binding v3/);
+  assert.match(panel.webview.html, /topic project-binding v4/);
   assert.match(panel.webview.html, /Filter text in the complete manual/,
     'literal manual filtering remains a separate secondary control');
   await panel.post({ type: 'prefill-action', skill: '/sf-worldmodel', topic: 'project-binding' });

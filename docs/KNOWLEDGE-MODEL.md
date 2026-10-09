@@ -157,12 +157,14 @@ suite:
   `sflow-typescript` pack for JavaScript/TypeScript (`wm ast warm --semantic --provider
   sflow-typescript --project node:. --profile default`, once per `package.json` project), the
   bundled `sflow-java` pack for Java on the machine's JDK (`wm ast warm --semantic --provider
-  sflow-java --project maven:. --profile default`; a parent build covers its modules), or an
-  installed semantic pack that reports `calls`. Those edges are reported as `callsResolved` (with
+  sflow-java --project maven:. --profile default`; a parent build covers its modules), the bundled
+  `sflow-python-pyright` pack for Python (`--provider sflow-python-pyright --project python:.`), or
+  an installed semantic pack that reports `calls`. Those edges are reported as `callsResolved` (with
   `callResolution` naming the providers), and a file's name-matched edges are dropped once it has
   resolved ones. A call through an interface or base class also reaches every repository method the
   pack reports as overriding or implementing it, so a Spring or Micronaut controller's call to an
-  injected `OrderService` leads to `OrderServiceImpl`. Elsewhere calls are matched by name
+  injected `OrderService` leads to `OrderServiceImpl`, and a FastAPI route's call to an abstract service
+  leads to each subclass that implements it. Elsewhere calls are matched by name
   (`callsMatchedByName`, marked `inferred`), and a dynamic dispatch can be missed. An entry point
   leading into its handler is not counted as a call. Until a project is warmed, a build reads nothing from the AST
   layer (`callResolution.status: not-warmed`). A file whose checkout differs from the commit

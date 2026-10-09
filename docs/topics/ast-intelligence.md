@@ -22,7 +22,7 @@ related:
   - project-binding
   - world-model
   - model-independence
-version: 7
+version: 8
 ---
 AST intelligence is an optional, bounded source of structural code facts for the world model. It
 can identify symbols, imports, declarations, and relationships with an explicit `text`, `syntax`,
@@ -79,7 +79,9 @@ sflow-typescript --project node:. --profile default` their calls are resolved by
 (`semantic`). Java, Python, Kotlin, and Swift can use the bundled text-assured preview. Java calls
 and overrides are resolved by the machine's own JDK after `sflow wm ast warm --semantic --provider
 sflow-java --project maven:. --profile default` (a JDK 11 or later on `PATH`; Maven and Gradle are
-never run). Other reviewed parser or semantic packs are optional.
+never run). Python calls and overrides are resolved by the bundled Pyright after `sflow wm ast warm
+--semantic --provider sflow-python-pyright --project python:. --profile default` (no Python
+interpreter is run). Other reviewed parser or semantic packs are optional.
 
 Missing packs, unsupported languages, adapter failures, incomplete project bindings, and evidence
 store failures produce disabled or partial diagnostics. Even a predicate marked `required` is

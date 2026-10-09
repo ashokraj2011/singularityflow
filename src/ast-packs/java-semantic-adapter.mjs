@@ -14,7 +14,8 @@ function sibling(name) {
   const found = entries.includes(name) ? name : entries.find((entry) => entry.endsWith(`-${name}`));
   return found ? path.join(here, found) : null;
 }
-const { conventionalJavaRoots, javaSourceRoot, joinJavaCalls, parseResolverOutput, JAVA_SEMANTIC_PACK } = await import(pathToFileURL(sibling('java-core.mjs')).href);
+const { conventionalJavaRoots, javaSourceRoot, parseResolverOutput, JAVA_SEMANTIC_PACK } = await import(pathToFileURL(sibling('java-core.mjs')).href);
+const { joinSemanticEdges } = await import(pathToFileURL(sibling('semantic-join.mjs')).href);
 const { extractPolyglotSyntax } = await import(pathToFileURL(sibling('polyglot-syntax-core.mjs')).href);
 
 const MAX_RESOLVER_OUTPUT = 64 * 1024 * 1024;
@@ -83,7 +84,7 @@ try {
     ].join('\n') + '\n'))
     : [];
   // A callee outside this request joins the skeleton of its file as it is in the checkout.
-  const { byPath } = await joinJavaCalls(edges, verified.map((file) => file.path), async (relative) => {
+  const { byPath } = await joinSemanticEdges(edges, verified.map((file) => file.path), async (relative) => {
     if (skeletons.has(relative)) return skeletons.get(relative);
     const bytes = await readFile(relative).catch(() => null);
     const facts = bytes ? extractPolyglotSyntax(bytes, 'java').facts : null;

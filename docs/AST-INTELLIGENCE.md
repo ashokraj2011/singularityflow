@@ -20,6 +20,8 @@ not run a daemon, and never participates in lifecycle authorization.
 - a bundled Java semantic pack, `sflow-java`, that asks the machine's own JDK compiler which
   declaration each call resolves to and which methods each method overrides, at `semantic`
   assurance once the project is warmed;
+- a bundled Python semantic pack, `sflow-python-pyright`, that asks the Pyright type checker shipped
+  with Singularity Flow the same questions, without running any Python interpreter;
 - a data-driven `LanguageCatalogV1`, rich protocol-v2 fact boundary, and deterministic syntax-first,
   optional-semantic provider pipeline;
 - bounded, existing-only Maven, Gradle/Android, Python, SwiftPM, Xcode, and Node project discovery that
@@ -96,6 +98,26 @@ seconds and records 37,003 calls and 6,687 overrides, 99.9% of the compiler's an
 preview. When several semantic packs serve a language, a file uses the one its project was warmed
 with.
 
+Python calls come from the semantic `sflow-python-pyright` pack, built on the Pyright language server
+pinned in Singularity Flow's `package-lock.json` (MIT). Warm a Python project (`pyproject.toml`,
+`setup.cfg`, or `requirements*.txt`; a repository with Python files and none of those is one
+`python-standalone` project at its root):
+
+```bash
+singularity-flow wm ast warm --semantic --provider sflow-python-pyright --project python:. --profile default --dry-run
+```
+
+The plan runs only `node --version`. Each AST build then starts Pyright over stdio with no `PATH`, so it
+never runs a Python interpreter or pip and resolves only the repository and its own bundled
+standard-library stubs. For every function and method the structural preview recorded, Pyright's
+call hierarchy names the declarations its calls resolve to (methods through `self`, imported
+functions, `super()`, and `Order(...)` naming the class), and each class's base classes are resolved
+with go-to-definition: a method whose name a repository base class also defines, at any depth,
+`overrides` it (dunder methods are left out). Calls into third-party packages and the standard library
+are left out. On a copy of Python 3.13's standard library (571 files) the first build after the
+warm-up takes about 36 seconds and records 11,374 calls and 979 overrides; later builds reuse the
+cache in about 4 seconds.
+
 Adapters receive bounded requests: at most 200 files and 1 MiB of source for a syntax pack, 500
 files and 2 MiB for a semantic pack, each with a 2 MiB response budget and a 30-second timeout. A
 response over its budget is split in half and retried, so only a single file too large for the
@@ -109,9 +131,8 @@ satisfy a required syntax gate. For Java it records only members declared direct
 (so `return total(cart);` or `throw new IllegalStateException(…)` inside a method is not a
 declaration), accepts parameter lists that continue on the next lines, keeps a type open when its
 `{` comes on a later line, and reads anonymous class and enum constant bodies as member scopes.
-Parser-backed Java/JDT, Python/Pyright, Kotlin Analysis, and Swift/SourceKit providers remain
-optional packs: their absence retains text previews and reports the exact parser/project/toolchain
-boundary.
+Parser-backed Java/JDT, Kotlin Analysis, and Swift/SourceKit providers remain optional packs: their
+absence retains text previews and reports the exact parser/project/toolchain boundary.
 
 ## Configure
 
@@ -230,6 +251,7 @@ singularity-flow wm ast evidence reproduce --receipt singularity/work-items/WRK-
 singularity-flow wm ast warm --semantic --provider sflow-java-jdt --project maven:. --profile default --dry-run
 singularity-flow wm ast warm --semantic --provider sflow-typescript --project node:. --profile default --dry-run
 singularity-flow wm ast warm --semantic --provider sflow-java --project maven:. --profile default --dry-run
+singularity-flow wm ast warm --semantic --provider sflow-python-pyright --project python:. --profile default --dry-run
 singularity-flow wm ast cache status
 singularity-flow wm ast cache prune --dry-run
 singularity-flow wm ast cache prune --confirm "PRUNE AST CACHE"
@@ -322,6 +344,13 @@ The bundled Java semantic pack runs `src/ast-packs/java-semantic-adapter.mjs`, `
 answers. No JDK ships with Singularity Flow or is retained with evidence: the JDK's identity is part
 of the warmed project binding and of every derivation, and reproducing a retained Java derivation
 needs a JDK on `PATH`.
+
+The bundled Python semantic pack runs `src/ast-packs/python-semantic-adapter.mjs` and
+`python-core.mjs` with the Pyright release pinned in `package-lock.json`; its manifest binds the
+adapter, the shared join and preview cores, and Pyright's server code, package file, and license by
+digest. Pyright's bundled standard-library stubs are part of that pinned release and are not
+retained with evidence, so a retained Python derivation reproduces only on a Singularity Flow
+install that carries the same Pyright; elsewhere its replay is reported unavailable.
 
 ## Lifecycle independence
 

@@ -123,7 +123,7 @@ test('natural questions resolve only with strong authored metadata', async () =>
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.data.topic.id, 'project-binding');
   assert.equal(payload.data.helpIntent, 'concept');
-  assert.match(payload.data.citation, /^— topic project-binding v3, docs /);
+  assert.match(payload.data.citation, /^— topic project-binding v4, docs /);
 });
 
 test('grounded-checker-flags-uncited-reply: memory answers do not pass as retrieval', async () => {

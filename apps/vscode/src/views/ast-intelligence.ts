@@ -327,7 +327,7 @@ function semanticWarmSection(doctor: AstDoctorResult | null, preview: AstWarmPre
       <label>Provider<select name="provider" required>
         <option value="">Choose a semantic provider</option>
         <option value="sflow-java">Java · this machine's JDK (bundled)</option><option value="sflow-typescript">JavaScript/TypeScript · bundled compiler</option>
-        <option value="sflow-java-jdt">Java · JDT</option><option value="sflow-python-pyright">Python · Pyright</option>
+        <option value="sflow-python-pyright">Python · bundled Pyright</option><option value="sflow-java-jdt">Java · JDT</option>
         <option value="sflow-kotlin-analysis">Kotlin · Analysis API</option><option value="sflow-swift-sourcekit">Swift · SourceKit</option>
       </select></label>
       <label>Project binding<select name="project" required>

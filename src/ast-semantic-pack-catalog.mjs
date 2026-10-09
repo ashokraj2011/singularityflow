@@ -6,11 +6,6 @@ export const OPTIONAL_AST_SEMANTIC_PACKS = Object.freeze([
     requiredToolchains: ['JDK', 'Eclipse JDT/JDT LS'], maturity: 'optional'
   }),
   Object.freeze({
-    id: 'sflow-python-pyright', stage: 'semantic', languages: ['python'],
-    projectKinds: ['python'], platforms: ['win32', 'darwin', 'linux'],
-    requiredToolchains: ['Python interpreter/environment', 'Pyright'], maturity: 'optional'
-  }),
-  Object.freeze({
     id: 'sflow-kotlin-analysis', stage: 'semantic', languages: ['kotlin'],
     projectKinds: ['gradle', 'gradle-android'], platforms: ['win32', 'darwin', 'linux'],
     requiredToolchains: ['JDK', 'Kotlin Analysis API or approved IntelliJ host'], maturity: 'preview'
@@ -36,6 +31,11 @@ export const BUNDLED_AST_SEMANTIC_PACKS = Object.freeze([
     id: 'sflow-java', stage: 'semantic', languages: ['java'],
     projectKinds: ['maven', 'gradle', 'java-standalone'], platforms: ['win32', 'darwin', 'linux'],
     requiredToolchains: ['JDK 11 or later on PATH (its own compiler resolves the calls)'], maturity: 'preview'
+  }),
+  Object.freeze({
+    id: 'sflow-python-pyright', stage: 'semantic', languages: ['python'],
+    projectKinds: ['python', 'python-standalone'], platforms: ['win32', 'darwin', 'linux'],
+    requiredToolchains: ['Node.js (the bundled Pyright; no Python interpreter is run)'], maturity: 'preview'
   })
 ]);
 

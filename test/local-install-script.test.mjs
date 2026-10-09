@@ -76,6 +76,9 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   assert.match(packageJson.dependencies?.typescript ?? '', /^5\.\d+\.\d+$/,
     'CLI-only installs need TypeScript because the mandatory schema migration check imports it');
   assert.ok(packageJson.bundleDependencies.includes('typescript'), 'TypeScript is bundled into the package');
+  // The Python semantic AST pack runs this exact Pyright, so a fresh install needs no Python tooling.
+  assert.match(packageJson.dependencies?.pyright ?? '', /^1\.\d+\.\d+$/, 'Pyright is pinned exactly');
+  assert.ok(packageJson.bundleDependencies.includes('pyright'), 'Pyright is bundled into the package');
   assert.ok((await stat(scriptPath)).mode & 0o100, 'install.sh must be executable');
   assert.match(script, /git status --porcelain/);
   assert.match(script, /git pull --ff-only/);

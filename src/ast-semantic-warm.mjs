@@ -12,13 +12,17 @@ import { optionBoolean, optionString, SingularityFlowError, writeJson } from './
 
 const PROVIDERS = Object.freeze({
   'sflow-java-jdt': { projectKinds: ['maven', 'gradle', 'java-standalone'], tool: ['java'], modelTool: { maven: ['mvn'], gradle: ['gradle'] }, kind: 'jdk+jdt' },
-  'sflow-python-pyright': { projectKinds: ['python'], tool: ['python3', 'python'], kind: 'python+pyright' },
   'sflow-kotlin-analysis': { projectKinds: ['gradle', 'gradle-android'], tool: ['kotlinc'], modelTool: { gradle: ['gradle'], 'gradle-android': ['gradle'] }, kind: 'jdk+kotlin' },
   'sflow-swift-sourcekit': { projectKinds: ['swiftpm', 'xcode'], tool: ['sourcekit-lsp'], modelTool: { swiftpm: ['swift'], xcode: ['xcodebuild'] }, kind: 'swift+sourcekit' },
   // The bundled TypeScript compiler runs on the Node that runs Singularity Flow; no project tool is executed.
   'sflow-typescript': { projectKinds: ['node'], tool: ['node'], kind: 'node+typescript', defaultToolchain: () => process.execPath },
   // The JDK's own compiler reads the sources; no build tool or repository configuration is run.
-  'sflow-java': { projectKinds: ['maven', 'gradle', 'java-standalone'], tool: ['java'], kind: 'jdk+javac', projectCommand: false }
+  'sflow-java': { projectKinds: ['maven', 'gradle', 'java-standalone'], tool: ['java'], kind: 'jdk+javac', projectCommand: false },
+  // The bundled Pyright runs on the Node that runs Singularity Flow; no Python interpreter or pip is run.
+  'sflow-python-pyright': {
+    projectKinds: ['python', 'python-standalone'], tool: ['node'], kind: 'node+pyright',
+    defaultToolchain: () => process.execPath, projectCommand: false
+  }
 });
 
 function sha256(bytes) {
@@ -58,7 +62,7 @@ async function findExecutable(names, explicit = null) {
 function versionArguments(provider, executable) {
   const name = path.basename(executable).toLowerCase();
   if (provider === 'sflow-java-jdt' || name.startsWith('java')) return ['--version'];
-  if (provider === 'sflow-python-pyright' || name.startsWith('python')) return ['--version'];
+  if (name.startsWith('python')) return ['--version'];
   if (provider === 'sflow-typescript' || name.startsWith('node')) return ['--version'];
   if (name.startsWith('xcodebuild')) return ['-version'];
   return ['-version'];

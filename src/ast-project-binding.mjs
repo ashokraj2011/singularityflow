@@ -157,6 +157,11 @@ export async function discoverProjectBindings(root, { paths = null, maxFiles = M
   const selectedJava = repositoryPaths.some((relative) => relative.endsWith('.java') && (!paths?.length
     || paths.some((prefix) => prefix === relative || relative.startsWith(`${prefix}/`) || prefix.startsWith(`${path.posix.dirname(relative)}/`))));
   if (selectedJava && !coveredJava) groups.set('java-standalone\0.', { kind: 'java-standalone', root: '.', files: [] });
+  // Python files without pyproject.toml, setup.cfg or requirements: the repository root is the project.
+  const coveredPython = [...groups.values()].some((group) => group.kind === 'python');
+  const selectedPython = repositoryPaths.some((relative) => /\.pyi?$/u.test(relative) && (!paths?.length
+    || paths.some((prefix) => prefix === relative || relative.startsWith(`${prefix}/`) || prefix.startsWith(`${path.posix.dirname(relative)}/`))));
+  if (selectedPython && !coveredPython) groups.set('python-standalone\0.', { kind: 'python-standalone', root: '.', files: [] });
   const bindings = [];
   for (const group of [...groups.values()].sort((left, right) => `${left.root}\0${left.kind}`.localeCompare(`${right.root}\0${right.kind}`))) {
     const files = group.files.map(({ path: filePath, sha256: digest }) => ({ path: filePath, sha256: digest })).sort((a, b) => a.path.localeCompare(b.path));

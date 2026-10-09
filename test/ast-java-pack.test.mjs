@@ -15,7 +15,8 @@ import { bundledAstAdapters } from '../src/ast-adapter-contract.mjs';
 import { astCommand, buildAstCache } from '../src/ast-intelligence.mjs';
 import { bindingForFile } from '../src/ast-project-binding.mjs';
 import { astSemanticWarmCommand } from '../src/ast-semantic-warm.mjs';
-import { javaSourceRoot, joinJavaCalls, parseResolverOutput } from '../src/ast-packs/java-core.mjs';
+import { javaSourceRoot, parseResolverOutput } from '../src/ast-packs/java-core.mjs';
+import { joinSemanticEdges } from '../src/ast-packs/semantic-join.mjs';
 import { extractPolyglotSyntax } from '../src/ast-packs/polyglot-syntax-core.mjs';
 import { buildKnowledge } from '../src/knowledge/store.mjs';
 
@@ -218,7 +219,7 @@ test('resolver answers join the preview by name and line, and ends the preview l
     'src/p/Store.java': extractPolyglotSyntax(Buffer.from('package p;\ninterface Store {\n  void save();\n}\n'), 'java').facts
   };
   // The interface method is on line 3 of Store.java, not 2: an end the preview does not have.
-  const { byPath, unjoined } = await joinJavaCalls(edges, ['src/p/Cart.java'], async (relative) => skeletons[relative] ?? null);
+  const { byPath, unjoined } = await joinSemanticEdges(edges, ['src/p/Cart.java'], async (relative) => skeletons[relative] ?? null);
   const facts = byPath.get('src/p/Cart.java');
   assert.equal(unjoined, 2);
   assert.equal(facts.length, 1, 'one edge per caller and callee');

@@ -405,6 +405,13 @@
       },
       "digest": "3b8d34cb3f13b98bc91e723964bed4babfd513eea8f140e64d7a1f981b8e4cae"
     },
+    "src/ast-packs/python-semantic-adapter.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "65fcc6e23cf88812076ed62e9044af6e67bc228dac88910d363f55a63173387a"
+    },
     "src/ast-replay.mjs": {
       "counts": {
         "command-run": 5

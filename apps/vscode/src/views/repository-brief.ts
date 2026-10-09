@@ -53,6 +53,12 @@ export class RepositoryBriefPanel {
         const phase = enumField(message, 'phase', BRIEF_PHASES);
         if (phase && phase !== this.state.phase) { this.state = { ...this.state, phase }; void this.load(false); }
       },
+      ref: (message) => {
+        // Empty means "let the engine choose"; any other value must be a branch the brief listed.
+        const ref = stringField(message, 'ref');
+        if (ref && !(this.brief?.branches ?? []).includes(ref)) return;
+        if (ref !== (this.state.ref ?? null)) { this.state = { ...this.state, ref }; void this.load(false); }
+      },
       generate: () => void this.load(true),
       refresh: () => void this.load(false),
       'open-file': (message) => {
@@ -74,6 +80,7 @@ export class RepositoryBriefPanel {
     this.render();
     const args = ['wm', 'knowledge', 'brief', '--json'];
     if (this.state.phase !== 'all') args.push('--phase', this.state.phase);
+    if (this.state.ref) args.push('--ref', this.state.ref);
     args.push(generate ? '--refresh' : '--cached');
     try {
       const brief = await this.client.run<RepositoryBrief>(args);
@@ -110,7 +117,13 @@ export class RepositoryBriefPanel {
       return;
     }
     const options = line > 0 ? { selection: new vscode.Range(line - 1, 0, line - 1, 0) } : undefined;
-    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(target), options);
+    // A brief read from another branch names files at that commit, which the working tree may not
+    // have: VS Code's Git view shows them read-only at the commit the brief read.
+    const commit = this.brief?.source && this.brief.source.chosen !== 'checked-out' ? this.brief.commit : null;
+    const uri = commit
+      ? vscode.Uri.file(target).with({ scheme: 'git', query: JSON.stringify({ path: target, ref: commit }) })
+      : vscode.Uri.file(target);
+    await vscode.commands.executeCommand('vscode.open', uri, options);
   }
 
   private render(): void {

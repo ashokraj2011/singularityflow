@@ -47,7 +47,7 @@ function isCandidateSource(relative, pathContext) {
  * Over the file limit nothing is read: the result names the areas a reader can build one at a
  * time instead, because a partial repository presented as the whole one would mislead.
  */
-export async function readKnowledgeSource(root, { area = null, ownOnly = false, limits = KNOWLEDGE_SOURCE_LIMITS, listOnly = false } = {}) {
+export async function readKnowledgeSource(root, { area = null, ownOnly = false, limits = KNOWLEDGE_SOURCE_LIMITS, listOnly = false, ref = 'HEAD' } = {}) {
   const definition = await comprehensionDefinition(root);
   const pathContext = await comprehensionPathContext(root);
   let roots;
@@ -59,9 +59,10 @@ export async function readKnowledgeSource(root, { area = null, ownOnly = false, 
   } catch (error) {
     throw new SingularityFlowError(error.message, { code: 'KNOWLEDGE_SCOPE_INVALID' });
   }
-  const commit = head(root);
+  // Another branch or commit is read from Git's objects, never checked out.
+  const commit = ref === 'HEAD' ? head(root) : ref;
   const listed = [];
-  const listing = readRefTreeResult(root, 'HEAD', roots, {
+  const listing = readRefTreeResult(root, ref === 'HEAD' ? 'HEAD' : commit, roots, {
     pathFilter: (relative, entry) => {
       // An area's own files are those directly in its folder; its subfolders are areas of their own.
       if (ownOnly && area && path.posix.dirname(relative) !== roots[0]) return false;
@@ -86,7 +87,7 @@ export async function readKnowledgeSource(root, { area = null, ownOnly = false, 
   const wanted = new Set(listed);
   const skipped = [];
   let total = 0;
-  const read = readRefTreeResult(root, 'HEAD', roots, {
+  const read = readRefTreeResult(root, ref === 'HEAD' ? 'HEAD' : commit, roots, {
     pathFilter: (relative) => wanted.has(relative),
     filter: (relative, entry) => {
       if (entry.size > limits.maximumFileBytes) { skipped.push({ path: relative, reason: 'too-large', bytes: entry.size }); return false; }
@@ -115,7 +116,7 @@ export async function readKnowledgeSource(root, { area = null, ownOnly = false, 
     else manifests.push(entry);
   }
   // What the code was asked to do: clauses of approved Story specifications, read at the same commit.
-  const requirements = readApprovedRequirements(root, definition);
+  const requirements = readApprovedRequirements(root, definition, { ref: ref === 'HEAD' ? 'HEAD' : commit });
   const key = digest(JSON.stringify([commit, roots, ownOnly, files.map((file) => [file.path, file.sha256]),
     manifests.map((file) => [file.path, file.sha256]), requirements.documents.map((document) => [document.path, document.sha256])]));
   return { ...base, status: 'ok', reason: null, key, files, manifests, skipped, bytes: total, name: path.basename(root),

@@ -175,6 +175,39 @@ test('the model writes the brief in a repository with no Singularity Flow config
   assert.equal(git(repository, 'status', '--porcelain'), '', 'nothing is written to the working tree');
 });
 
+test('a checked-out branch with no code is briefed from the newest branch with code, read from Git without a checkout', async (t) => {
+  const repository = await mkdtemp(path.join(os.tmpdir(), 'sflow-brief-ref-'));
+  t.after(() => rm(repository, { recursive: true, force: true }));
+  const commit = (message) => git(repository, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', 'commit', '-qm', message);
+  git(repository, 'init', '-q', '-b', 'main');
+  await writeFile(path.join(repository, 'README.md'), '# Orders\n\nNothing here yet.\n');
+  git(repository, 'add', '-A');
+  commit('Start');
+  git(repository, 'checkout', '-q', '-b', 'feature');
+  await cp(path.join(root, 'test', 'fixtures', 'knowledge', 'orders-spring'), repository, { recursive: true });
+  await writeFile(path.join(repository, 'README.md'), README);
+  git(repository, 'add', '-A');
+  commit('Orders service');
+  git(repository, 'checkout', '-q', 'main');
+
+  const brief = JSON.parse(await quiet(() => knowledgeCommand(repository, ['brief'], { json: true, cached: true })));
+  assert.deepEqual(brief.source, { ref: 'feature', commit: git(repository, 'rev-parse', 'feature'), checkedOut: 'main', chosen: 'has-code' });
+  assert.equal(brief.branch, 'feature');
+  assert.ok(brief.evidence.codeFiles > 0);
+  assert.ok(brief.views.contracts.some((statement) => statement.text.startsWith('POST /orders')), 'the feature branch code');
+  assert.ok(brief.documented.some((entry) => entry.text === 'An order needs at least one line.'), "the feature branch's README");
+  assert.deepEqual(brief.branches.sort(), ['feature', 'main']);
+  assert.equal(git(repository, 'branch', '--show-current'), 'main', 'nothing was checked out');
+  assert.equal(git(repository, 'status', '--porcelain'), '', 'nothing was written to the working tree');
+
+  const named = JSON.parse(await quiet(() => knowledgeCommand(repository, ['brief'], { json: true, ref: 'main' })));
+  assert.equal(named.source.chosen, 'requested');
+  assert.equal(named.evidence.codeFiles, 0);
+  assert.equal(named.mode, 'template');
+  assert.match(named.reason, /^There is nothing to brief at branch main \([0-9a-f]{12}\): .*Name a branch that has code\.$/u);
+  await assert.rejects(() => knowledgeCommand(repository, ['brief'], { json: true, ref: 'missing' }), { code: 'KNOWLEDGE_REF_UNKNOWN' });
+});
+
 test('wm knowledge brief shows the model brief written earlier, and the template brief otherwise', async (t) => {
   const repository = await ordersRepository(t);
   const template = JSON.parse(await quiet(() => knowledgeCommand(repository, ['brief'], { json: true, cached: true })));

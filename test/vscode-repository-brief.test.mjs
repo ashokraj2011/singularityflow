@@ -65,6 +65,23 @@ test('the sources tab lists documents, docs statements and what the checks dropp
   assert.match(busy, /data-message="generate" disabled/u);
 });
 
+test('a brief read from another branch says so, and the branch picker lists the branches', () => {
+  const other = {
+    ...brief, branch: 'origin/migration', branches: ['origin/migration', 'test'],
+    source: { ref: 'origin/migration', commit: '0123456789abcdef', checkedOut: 'test', chosen: 'has-code' },
+    evidence: { ...brief.evidence, codeFiles: 13 }
+  };
+  const html = repositoryBriefBody(other, { tab: 'overview', phase: 'all', ref: null, loading: null, error: null });
+  assert.match(html, /The checked-out branch <strong>test<\/strong> has no code, so this brief reads <strong>origin\/migration<\/strong> at <code>0123456789ab<\/code> straight from Git\./u);
+  assert.match(html, /orders · origin\/migration at/u);
+  assert.match(html, /<select id="brief-ref" data-message="ref"><option value="" selected>Checked out \(test\)<\/option><option value="origin\/migration">origin\/migration<\/option><option value="test">test<\/option><\/select>/u);
+  const picked = repositoryBriefBody(other, { tab: 'overview', phase: 'all', ref: 'test', loading: null, error: null });
+  assert.match(picked, /<option value="test" selected>/u);
+  const empty = repositoryBriefBody({ ...other, source: { ...other.source, ref: 'test', chosen: 'requested' }, branch: 'test', evidence: { ...brief.evidence, codeFiles: 0 } },
+    { tab: 'overview', phase: 'all', ref: 'test', loading: null, error: null });
+  assert.match(empty, /No code at <strong>test<\/strong> <code>0123456789ab<\/code>\. Pick a branch that has code above\./u);
+});
+
 test('the Repository Knowledge command opens the brief panel through the lazy bundle', async () => {
   const extension = await readFile(path.join(root, 'apps', 'vscode', 'src', 'extension.ts'), 'utf8');
   assert.match(extension, /'singularityFlow\.openRepositoryKnowledge': async \(\) => \{\s*await reconcileActiveWorkspaceSelection\(\);\s*const \{ RepositoryBriefPanel \} = lazyPanels\(\);/u);

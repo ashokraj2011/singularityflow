@@ -40,7 +40,7 @@ singularity-flow wm knowledge slice [--role developer|tester|architect|product |
 singularity-flow wm knowledge items [--kind KIND] [--json]
 singularity-flow wm knowledge eval --expected FILE [--json]
 singularity-flow wm knowledge explain [--dry-run] [--json]
-singularity-flow wm knowledge brief [--phase PHASE] [--focus TEXT] [--refresh] [--cached] [--dry-run] [--json]
+singularity-flow wm knowledge brief [--ref BRANCH] [--phase PHASE] [--focus TEXT] [--refresh] [--cached] [--dry-run] [--json]
 singularity-flow wm knowledge areas [--json]
 singularity-flow wm knowledge confirm ITEM [--note TEXT]
 singularity-flow wm knowledge correct ITEM --note TEXT
@@ -130,10 +130,14 @@ Knowledge** picks an item and records the same confirm, correct or reject review
   code never uses.
 - `--phase` orders the views for that phase's reader (product, architect, developer or tester).
   `--dry-run` prints the exact prompt.
+- It reads the checked-out commit. When that commit has no code, it reads the most recently
+  committed local or remote branch that has code instead, and says which; `--ref BRANCH` names one.
+  Another branch is read from Git's objects: nothing is checked out or cloned. A commit with no
+  code and no rule-like docs is not sent to the model.
 - It works in any Git repository. Without `singularity/workflow.yml` the model is Copilot CLI
   (`copilot` on PATH) choosing its own model; a configured provider and model are used when present.
   Nothing is written to the working tree: the cache and the model audit live under `.git`.
-- In VS Code, **Singularity Flow: Repository Brief** shows every view as a tab, with a phase picker,
+- In VS Code, **Singularity Flow: Repository Brief** shows every view as a tab, with branch and phase pickers,
   **Write with model**, and buttons that open each source at its line.
 
 ## Plain-language explanations

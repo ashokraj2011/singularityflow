@@ -55,9 +55,10 @@ async function prune(directory) {
  * The knowledge for HEAD (or one area of it). Reads the committed source, reuses an exact cache
  * entry when there is one, and otherwise analyses and stores the result.
  */
-export async function buildKnowledge(root, { area = null, ownOnly = false, history = true, refresh = false, limits = undefined, resolveCalls = true } = {}) {
+export async function buildKnowledge(root, { area = null, ownOnly = false, history = true, refresh = false, limits = undefined, resolveCalls = true, ref = 'HEAD' } = {}) {
   const started = performance.now();
-  const source = await readKnowledgeSource(root, { area, ownOnly, ...(limits ? { limits } : {}) });
+  // `ref` is a commit to read instead of HEAD (from Git's objects; nothing is checked out).
+  const source = await readKnowledgeSource(root, { area, ownOnly, ref, ...(limits ? { limits } : {}) });
   if (source.status !== 'ok') {
     return {
       status: source.status, reason: source.reason, commit: source.commit, area, areas: source.areas ?? [],
@@ -66,7 +67,8 @@ export async function buildKnowledge(root, { area = null, ownOnly = false, histo
   }
   // Calls a compiler resolved (a warmed semantic AST pack); their digest is part of the key, so
   // warming a pack later rebuilds the knowledge instead of reusing a name-matched build.
-  const resolvedCalls = resolveCalls ? await readResolvedCalls(root, source) : { status: 'not-requested', calls: [], digest: null, providers: [] };
+  // Semantic packs are warmed for the checkout, so another commit's calls are matched by name.
+  const resolvedCalls = resolveCalls && ref === 'HEAD' ? await readResolvedCalls(root, source) : { status: 'not-requested', calls: [], digest: null, providers: [] };
   const key = sha256(JSON.stringify([source.key, KNOWLEDGE_ANALYZER_VERSION, analyzerSourceIdentity(), history, resolvedCalls.digest]));
   const directory = cacheDirectory(root);
   const file = path.join(directory, `${key}.json`);
@@ -80,7 +82,7 @@ export async function buildKnowledge(root, { area = null, ownOnly = false, histo
   let churn = null;
   let commits = null;
   if (history) {
-    commits = recentCommitFileSets(root, { paths: source.roots });
+    commits = recentCommitFileSets(root, { paths: source.roots, ref: ref === 'HEAD' ? null : source.commit });
     const counts = new Map();
     for (const entry of commits) for (const file of entry.files) counts.set(file, (counts.get(file) ?? 0) + 1);
     churn = counts.size ? counts : null;

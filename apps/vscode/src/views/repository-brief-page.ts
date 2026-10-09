@@ -6,9 +6,13 @@ import { escape } from './webview.ts';
 
 export type BriefSource = { path: string; line: number | null; label: string };
 export type BriefStatement = { text: string; cites: string[]; sources: BriefSource[]; origin?: 'model' | 'template' };
+export type BriefRead = { ref: string; commit: string; checkedOut: string | null; chosen: 'checked-out' | 'requested' | 'has-code' };
 export type RepositoryBrief = {
   repository: string;
   commit: string;
+  branch?: string | null;
+  source?: BriefRead;
+  branches?: string[];
   phase: string | null;
   order: string[];
   mode: 'model' | 'template';
@@ -19,7 +23,7 @@ export type RepositoryBrief = {
   views: Record<string, BriefStatement[]>;
   rejected: number;
   rejections: Array<{ view: string; text: string; reason: string }>;
-  evidence: { count: number; documents: string[]; documentStatements: number };
+  evidence: { count: number; codeFiles?: number; documents: string[]; documentStatements: number };
   documented: Array<{ text: string; path: string; line: number | null; heading: string | null }>;
   notKnown: string[];
 };
@@ -89,9 +93,35 @@ function sourcesTab(brief: RepositoryBrief): string {
 export type BriefPageState = {
   tab: BriefTab;
   phase: BriefPhase;
+  /** A branch to read instead of the checked-out one; null lets the engine choose. */
+  ref?: string | null;
   loading: 'read' | 'generate' | null;
   error: string | null;
 };
+
+/** A select of the repository's branches; the first option lets the engine choose. */
+function branchPicker(brief: RepositoryBrief | null, state: BriefPageState): string {
+  const branches = brief?.branches ?? [];
+  if (!branches.length) return '';
+  const chosen = state.ref ?? '';
+  const automatic = brief?.source?.checkedOut ? `Checked out (${brief.source.checkedOut})` : 'Checked out';
+  const options = [`<option value=""${chosen ? '' : ' selected'}>${escape(automatic)}</option>`,
+    ...branches.map((name) => `<option value="${escape(name)}"${name === chosen ? ' selected' : ''}>${escape(name)}</option>`)].join('');
+  return `<label class="meta" for="brief-ref">Branch</label><select id="brief-ref" data-message="ref">${options}</select>`;
+}
+
+/** Says when the brief read another branch than the checked-out one, or found no code at all. */
+function readNotice(brief: RepositoryBrief): string {
+  const read = brief.source;
+  const at = `<code>${escape(String(brief.commit).slice(0, 12))}</code>`;
+  if (read?.chosen === 'has-code') {
+    return `<p class="callout" role="status">The checked-out branch${read.checkedOut ? ` <strong>${escape(read.checkedOut)}</strong>` : ''} has no code, so this brief reads <strong>${escape(read.ref)}</strong> at ${at} straight from Git. Nothing was checked out or cloned. Pick another branch above to read that one.</p>`;
+  }
+  if (brief.evidence.codeFiles === 0) {
+    return `<p class="warning" role="status">No code at ${brief.branch ? `<strong>${escape(brief.branch)}</strong> ` : ''}${at}${read?.chosen === 'requested' ? '. Pick a branch that has code above.' : ', and no other branch here has code. Fetch the branch that holds the code, then press Refresh.'}</p>`;
+  }
+  return '';
+}
 
 /** The page body for one brief and the panel's state. Pure, so it can be tested without VS Code. */
 export function repositoryBriefBody(brief: RepositoryBrief | null, state: BriefPageState): string {
@@ -102,9 +132,10 @@ export function repositoryBriefBody(brief: RepositoryBrief | null, state: BriefP
   const error = state.error ? `<p class="warning" role="alert">${escape(state.error)}</p>` : '';
   const header = `<header class="brief-header">
     <div><h1>Repository Brief</h1>
-      ${brief ? `<p class="meta">${escape(brief.repository)} at <code>${escape(String(brief.commit).slice(0, 12))}</code> · ${brief.evidence.count} pieces of evidence · ${brief.evidence.documents.length} document${brief.evidence.documents.length === 1 ? '' : 's'}</p>` : ''}
+      ${brief ? `<p class="meta">${escape(brief.repository)}${brief.branch ? ` · ${escape(brief.branch)}` : ''} at <code>${escape(String(brief.commit).slice(0, 12))}</code> · ${brief.evidence.count} pieces of evidence · ${brief.evidence.documents.length} document${brief.evidence.documents.length === 1 ? '' : 's'}</p>` : ''}
     </div>
     <div class="brief-actions">
+      ${branchPicker(brief, state)}
       <label class="meta" for="brief-phase">Phase</label>
       <select id="brief-phase" data-message="phase">${phaseOptions}</select>
       <button type="button" data-message="generate"${state.loading ? ' disabled' : ''}>Write with model</button>
@@ -124,7 +155,7 @@ export function repositoryBriefBody(brief: RepositoryBrief | null, state: BriefP
   const view = TAB_VIEWS[state.tab];
   const content = state.tab === 'sources' ? sourcesTab(brief) : statements(brief.views[state.tab] ?? [], brief.mode);
   const notKnown = brief.notKnown.length ? `<p class="meta brief-not-known">Not known: ${escape(brief.notKnown.join('; '))}.</p>` : '';
-  return `${header}${busy}${error}${mode}${phaseNote}${tabs}
+  return `${header}${busy}${error}${readNotice(brief)}${mode}${phaseNote}${tabs}
     <section class="brief-view" role="tabpanel"><h2>${escape(TAB_TITLES[state.tab])}${view ? ` <span class="badge">${escape(view)}</span>` : ''}</h2>
       <p class="meta">${escape(TAB_PURPOSE[state.tab])}</p>${content}</section>${notKnown}`;
 }
@@ -163,6 +194,8 @@ export const REPOSITORY_BRIEF_SCRIPT = `
   });
   document.addEventListener('change', (event) => {
     const select = event.target.closest('[data-message="phase"]');
-    if (select) vscode.postMessage({ type: 'phase', phase: select.value });
+    if (select) return vscode.postMessage({ type: 'phase', phase: select.value });
+    const ref = event.target.closest('[data-message="ref"]');
+    if (ref) vscode.postMessage({ type: 'ref', ref: ref.value });
   });
 `;

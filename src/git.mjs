@@ -171,6 +171,22 @@ export function head(root) {
   return git(['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
 }
 
+/** The commit a branch, tag or commit name points at, or null when there is none by that name. */
+export function commitOfRef(root, ref) {
+  const name = String(ref ?? '');
+  if (!name || name.startsWith('-') || !/^[\w./@{}^~+-]+$/u.test(name)) return null;
+  const result = git(['rev-parse', '--verify', '--quiet', '--end-of-options', `${name}^{commit}`], { cwd: root, allowFailure: true });
+  return gitReadOutput(result, `The commit of '${name}'`, { absentStatus: 1 })?.trim() || null;
+}
+
+/** Local and remote-tracking branches, most recently committed first: short name and commit. */
+export function recentBranches(root, { limit = 40 } = {}) {
+  const output = gitAnswer(['for-each-ref', '--sort=-committerdate', `--count=${limit * 2}`, '--format=%(refname:short)%09%(objectname)%09%(symref)',
+    'refs/heads', 'refs/remotes'], { cwd: root }, 'The repository branches');
+  return output.split('\n').map((line) => line.split('\t')).filter(([name, commit, symref]) => name && commit && !symref)
+    .map(([name, commit]) => ({ name, commit })).slice(0, limit);
+}
+
 export function gitDir(root) {
   if (gitDirCache.has(root)) return gitDirCache.get(root);
   const value = git(['rev-parse', '--absolute-git-dir'], { cwd: root }).stdout.trim();
@@ -1936,9 +1952,9 @@ export function trackedPathListing(root, { prefix = null, maximumBytes = 8 * 102
  * which files change together. Merges are skipped (they repeat their parents' files). A failure is
  * an empty history, never a partial one presented as complete.
  */
-export function recentCommitFileSets(root, { since = '12 months ago', limit = 2000, paths = [], env = process.env } = {}) {
+export function recentCommitFileSets(root, { since = '12 months ago', limit = 2000, paths = [], ref = null, env = process.env } = {}) {
   const result = git(['log', `--since=${since}`, `--max-count=${limit}`, '--no-merges', '--name-only', '--format=%x00%H%x09%P',
-    ...(paths.length ? ['--', ...paths] : [])], { cwd: root, env, allowFailure: true, maxBuffer: 32 * 1024 * 1024 });
+    ...(ref ? [ref] : []), ...(paths.length ? ['--', ...paths] : [])], { cwd: root, env, allowFailure: true, maxBuffer: 32 * 1024 * 1024 });
   if (result.status !== 0) return [];
   return String(result.stdout ?? '').split('\0').slice(1).map((chunk) => {
     const [header, ...files] = chunk.split('\n').map((line) => line.trim()).filter(Boolean);

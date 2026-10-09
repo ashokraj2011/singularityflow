@@ -51,11 +51,11 @@ function approvedArtifacts(workflow) {
  * Read every approved specification at HEAD. Returns the documents (with their lines, for
  * citations) and the clauses each one defines; never throws for one bad document.
  */
-export function readApprovedRequirements(root, definition = {}, { limits = REQUIREMENT_SOURCE_LIMITS } = {}) {
+export function readApprovedRequirements(root, definition = {}, { limits = REQUIREMENT_SOURCE_LIMITS, ref = 'HEAD' } = {}) {
   const base = workItemRootOf(definition);
   const records = new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}/[^/]+/workflow\\.json$`, 'u');
   const skipped = [];
-  const listing = readRefTreeResult(root, 'HEAD', [base], {
+  const listing = readRefTreeResult(root, ref, [base], {
     pathFilter: (relative) => records.test(relative),
     maxObjectBytes: limits.maximumDocumentBytes
   });
@@ -69,7 +69,7 @@ export function readApprovedRequirements(root, definition = {}, { limits = REQUI
   if (!wanted.length) return { documents: [], clauses: [], skipped, root: base };
   const byPath = new Map(wanted.slice(0, limits.maximumDocuments).map((entry) => [entry.path, entry]));
   let total = 0;
-  const read = readRefTreeResult(root, 'HEAD', [base], {
+  const read = readRefTreeResult(root, ref, [base], {
     pathFilter: (relative) => byPath.has(relative),
     filter: (relative, entry) => {
       if (total + entry.size > limits.maximumTotalBytes) { skipped.push({ path: relative, reason: 'total-budget' }); return false; }

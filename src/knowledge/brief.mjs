@@ -149,9 +149,9 @@ export function documentStatements(relative, text, { limits = BRIEF_LIMITS } = {
  * README files, docs and architecture decision records at HEAD: their rule-like statements, ranked,
  * deduplicated and bounded. Reads the commit through the bounded tree reader, never working files.
  */
-export function readDocumentation(root, { limits = BRIEF_LIMITS, focus = null } = {}) {
+export function readDocumentation(root, { limits = BRIEF_LIMITS, focus = null, ref = 'HEAD' } = {}) {
   const wanted = [];
-  const listing = readRefTreeResult(root, 'HEAD', [], {
+  const listing = readRefTreeResult(root, ref, [], {
     pathFilter: (relative, entry) => {
       if (entry.type === 'blob' && DOCUMENT_PATH.test(relative) && !SKIPPED_PATH.test(relative)) wanted.push(relative);
       return false;
@@ -163,7 +163,7 @@ export function readDocumentation(root, { limits = BRIEF_LIMITS, focus = null } 
   const keep = new Set(ordered);
   let total = 0;
   const skipped = wanted.slice(limits.documentFiles).map((relative) => ({ path: relative, reason: 'file-limit' }));
-  const read = readRefTreeResult(root, 'HEAD', [], {
+  const read = readRefTreeResult(root, ref, [], {
     pathFilter: (relative) => keep.has(relative),
     filter: (relative, entry) => {
       if (entry.size > limits.documentBytes) { skipped.push({ path: relative, reason: 'too-large' }); return false; }

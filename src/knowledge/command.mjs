@@ -10,7 +10,7 @@
  *   confirm|correct|reject ID [--note TEXT]                           review an item (writes docs/knowledge/confirmations.yml)
  *   areas   [--json]                                                  the areas a large repository is built in
  *   explain [--area PATH] [--dry-run] [--json]                        plain-language explanations, citation-checked (needs a model; --dry-run shows the prompt)
- *   brief   [--phase PHASE] [--focus TEXT] [--refresh] [--cached] [--dry-run] [--json]
+ *   brief   [--ref BRANCH] [--phase PHASE] [--focus TEXT] [--refresh] [--cached] [--dry-run] [--json]
  *                                                                     business rules, contracts, flows, impact, risks and questions;
  *                                                                     written by the model when one is on, checked against its evidence
  *
@@ -20,6 +20,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { loadDefinition } from '../config.mjs';
+import { checkedOutBranch, commitOfRef, recentBranches } from '../git.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
 import { loadModelTiers } from '../model-tiers.mjs';
 import { operationContext } from '../operation-context.mjs';
@@ -39,8 +40,8 @@ import { KNOWLEDGE_SOURCE_LIMITS } from './source.mjs';
 
 const USAGE = 'Usage: singularity-flow wm knowledge <build|show|slice|status|items|eval|explain|brief|areas|confirm|correct|reject> [--area PATH] [--json]';
 
-async function built(root, options) {
-  const result = await buildKnowledge(root, { area: optionString(options, 'area') ?? null, refresh: optionBoolean(options, 'refresh') });
+async function built(root, options, ref = 'HEAD') {
+  const result = await buildKnowledge(root, { area: optionString(options, 'area') ?? null, refresh: optionBoolean(options, 'refresh'), ref });
   if (result.status !== 'ok') {
     const areas = (result.areas ?? []).slice(0, 12).map((area) => `${area.path || '.'} (${area.files})`).join(', ');
     throw new SingularityFlowError(
@@ -60,7 +61,8 @@ export async function knowledgeCommand(root, positionals, options) {
   const json = optionBoolean(options, 'json');
   if (!subcommand || !['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'brief', 'areas', 'confirm', 'correct', 'reject'].includes(subcommand)) throw new SingularityFlowError(USAGE);
   if (subcommand === 'areas') return areasCommand(root, options);
-  const result = await built(root, options);
+  const target = subcommand === 'brief' ? await briefTarget(root, options) : null;
+  const result = await built(root, options, target?.commit ?? 'HEAD');
   if (['confirm', 'correct', 'reject'].includes(subcommand)) return reviewCommand(root, result, subcommand, positionals[1], options);
   // People's reviews (docs/knowledge/confirmations.yml) apply to everything shown below.
   const knowledge = applyReviews(result.knowledge, await readConfirmations(root));
@@ -68,7 +70,7 @@ export async function knowledgeCommand(root, positionals, options) {
   const focus = optionString(options, 'focus') ?? null;
   const explanations = (await readExplanations(root, result.key))?.accepted ?? [];
   if (subcommand === 'explain') return explainCommand(root, result, options);
-  if (subcommand === 'brief') return briefCommand(root, result, knowledge, options);
+  if (subcommand === 'brief') return briefCommand(root, result, knowledge, options, target);
 
   if (subcommand === 'build' || subcommand === 'status') {
     const summary = {
@@ -206,11 +208,36 @@ async function explainCommand(root, result, options) {
  * statements. With the model off (or --cached), a brief the model wrote earlier for the same
  * evidence is shown, otherwise the template brief. Nothing here writes to the repository.
  */
-async function briefCommand(root, result, knowledge, options) {
+/**
+ * What the brief reads: the commit --ref names; otherwise the checked-out commit when it has code;
+ * otherwise the most recently committed local or remote branch that has code. Every one is read
+ * from Git's objects, so nothing is checked out or cloned and the working tree is never touched.
+ */
+async function briefTarget(root, options) {
+  let checkedOut = null;
+  try { checkedOut = checkedOutBranch(root); } catch { checkedOut = null; }
+  const area = optionString(options, 'area') ?? null;
+  const branches = recentBranches(root);
+  const requested = optionString(options, 'ref') ?? null;
+  if (requested) {
+    const commit = commitOfRef(root, requested);
+    if (!commit) throw new SingularityFlowError(`There is no branch, tag or commit named '${requested}' in this repository.`, { code: 'KNOWLEDGE_REF_UNKNOWN' });
+    return { ref: requested, commit, checkedOut, chosen: 'requested', branches };
+  }
+  const here = await readKnowledgeSource(root, { area, listOnly: true });
+  if (here.codePaths > 0) return { ref: checkedOut ?? 'HEAD', commit: 'HEAD', checkedOut, chosen: 'checked-out', branches };
+  for (const candidate of branches.filter((entry) => entry.commit !== here.commit).slice(0, 20)) {
+    const listed = await readKnowledgeSource(root, { area, listOnly: true, ref: candidate.commit });
+    if (listed.codePaths > 0) return { ref: candidate.name, commit: candidate.commit, checkedOut, chosen: 'has-code', branches };
+  }
+  return { ref: checkedOut ?? 'HEAD', commit: 'HEAD', checkedOut, chosen: 'checked-out', branches };
+}
+
+async function briefCommand(root, result, knowledge, options, target) {
   const json = optionBoolean(options, 'json');
   const phase = optionString(options, 'phase') ?? null;
   const focus = optionString(options, 'focus') ?? null;
-  const documentation = readDocumentation(root, { focus });
+  const documentation = readDocumentation(root, { focus, ref: target.commit });
   const evidence = briefEvidence(knowledge, documentation, { focus });
   const prompt = buildBriefPrompt(knowledge, evidence, { focus });
   if (optionBoolean(options, 'dry-run')) {
@@ -224,8 +251,18 @@ async function briefCommand(root, result, knowledge, options) {
   const modelOn = operationContext()?.operation?.id === 'wm.knowledge.brief' && !optionBoolean(options, 'cached');
   let written = optionBoolean(options, 'refresh') ? null : await readCachedBrief(root, key);
   const fromCache = Boolean(written);
+  // The brief reads the checked-out commit. One with no code and no rule-like docs has nothing to
+  // brief, so the model is not asked and the reason names the branch to switch from.
+  const codeFiles = knowledge.repository.files ?? 0;
+  const branch = target.ref === 'HEAD' ? null : target.ref;
+  const nothing = !codeFiles && !documentation.statements.length;
+  const at = `${branch ? `branch ${branch}` : 'this commit'} (${String(knowledge.repository.commit).slice(0, 12)})`;
   let reason = null;
-  if (!written && modelOn) {
+  if (!written && nothing) {
+    reason = target.chosen === 'requested'
+      ? `There is nothing to brief at ${at}: it has no code files and its docs state no rules. Name a branch that has code.`
+      : `There is nothing to brief at ${at}: it has no code files and its docs state no rules, and no other branch here has code. Fetch the branch that holds the code, or name one with --ref.`;
+  } else if (!written && modelOn) {
     try {
       const invocation = await invokeModel({
         ...provider.request,
@@ -259,6 +296,9 @@ async function briefCommand(root, result, knowledge, options) {
     schemaVersion: 1,
     repository: knowledge.repository.name ?? 'repository',
     commit: knowledge.repository.commit,
+    branch,
+    source: { ref: target.ref, commit: knowledge.repository.commit, checkedOut: target.checkedOut, chosen: target.chosen },
+    branches: target.branches.map((entry) => entry.name),
     phase,
     order: briefOrder(phase),
     mode: written ? 'model' : 'template',
@@ -269,7 +309,7 @@ async function briefCommand(root, result, knowledge, options) {
     views,
     rejected: written?.rejected?.length ?? 0,
     rejections: (written?.rejected ?? []).slice(0, 12),
-    evidence: { count: evidence.length, documents: documentation.files.map((file) => file.path), documentStatements: documentation.statements.length },
+    evidence: { count: evidence.length, codeFiles, documents: documentation.files.map((file) => file.path), documentStatements: documentation.statements.length },
     documented: evidence.filter((entry) => entry.view === 'docs').map((entry) => ({ text: entry.text, path: entry.source.path, line: entry.source.line, heading: entry.heading })),
     notKnown: briefNotKnown(knowledge, documentation)
   };

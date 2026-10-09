@@ -1,5 +1,20 @@
 [
   {
+    "id": "instructions",
+    "class": "deterministic",
+    "transport": "cli",
+    "effect": "read",
+    "runtime": ["instruction", "list", "--json"],
+    "template": "instructions",
+    "skill": "/sf-instructions",
+    "description": "List reusable instructions and their skill references without a model",
+    "keywords": ["instructions", "instruction library"],
+    "acceptsArguments": false,
+    "requiresRepository": true,
+    "requiresSession": false,
+    "confirmation": "none"
+  },
+  {
     "id": "help",
     "class": "deterministic",
     "transport": "local",

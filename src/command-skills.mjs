@@ -95,6 +95,7 @@ const entries = {
   'review-source': ['sf-review-source'],
   workflow: ['sf-workflows'],
   skill: ['sf-skill'],
+  instruction: ['sf-instructions'],
   assign: ['sf-assign'],
   watch: ['sf-watch'],
   recover: ['sf-recover'],

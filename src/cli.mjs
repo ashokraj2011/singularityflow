@@ -18670,6 +18670,7 @@ async function dispatch(command, positionals, options) {
     receipt: () => receiptCommand(positionals, options),
     workflow: () => workflowCommand(positionals, options),
     skill: async () => (await import('./commands/skill.mjs')).run(null, { positionals, options, applyChangeSet: (root, changeSet, meta) => applyImportChangeSet(root, changeSet, options, meta), printResult: printImportResult }),
+    instruction: async () => (await import('./commands/instruction.mjs')).run(null, { positionals, options, applyChangeSet: (root, changeSet, meta) => applyImportChangeSet(root, changeSet, options, meta), printResult: printImportResult }),
     assign: () => assignCommand(positionals),
     watch: () => watchCommand(positionals, options),
     recover: () => recoverCommand(positionals, options),

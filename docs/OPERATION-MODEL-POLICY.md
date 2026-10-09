@@ -335,6 +335,14 @@ Every public operation is classified before its implementation module is importe
 | initiative | mutation | never | — | — |
 | inputs.dry-run | read | never | — | — |
 | inputs.prepare | mutation | never | — | — |
+| instruction.create | mutation | never | — | — |
+| instruction.create.preview | read | never | — | — |
+| instruction.edit | mutation | never | — | — |
+| instruction.edit.preview | read | never | — | — |
+| instruction.list | read | never | — | — |
+| instruction.remove | mutation | never | — | — |
+| instruction.remove.preview | read | never | — | — |
+| instruction.show | read | never | — | — |
 | integrations.deliver | mutation | never | — | — |
 | integrations.list | read | never | — | — |
 | integrations.record | mutation | never | — | — |

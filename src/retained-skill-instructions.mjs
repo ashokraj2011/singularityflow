@@ -2,6 +2,7 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { parseLibrarySkill } from './skill-library.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { renderReferencedInstructions } from './instruction-library.mjs';
 
 const digest = value => String(value ?? '').replace(/^sha256:/, '');
 const matches = (phase, phases) => !phases?.length || phases.includes(phase);
@@ -37,6 +38,10 @@ export function selectRetainedSkillInstructions(workflow, phase, context, reques
     snapshotSha256: context.identity.snapshotHash, skill: {
       id: skill.id, label: skill.label, sha256: skill.sha256, description: skill.description,
       loading: skill.loading, instructions: skill.instructions,
+      instructionRefs: skill.instructionRefs,
+      referencedInstructions: entries[0].referencedInstructions ?? [],
+      referencedInstructionText: renderReferencedInstructions([{ ...skill,
+        referencedInstructions: entries[0].referencedInstructions ?? [] }]),
       attachments: entries.map(entry => ({ scope: entry.scope ?? 'agent',
         phases: entry.phases, use: entry.use ?? '' }))
     },

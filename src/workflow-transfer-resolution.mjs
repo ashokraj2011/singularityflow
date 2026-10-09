@@ -15,6 +15,7 @@ import { EPIC_PHASES } from './initiative-phase-roles.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 import { librarySkillPath } from './skill-library.mjs';
+import { instructionPath } from './instruction-library.mjs';
 
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -34,7 +35,7 @@ export const CATALOG_SUBJECTS = Object.freeze({
 });
 const NOUNS = Object.freeze({
   ...Object.fromEntries(Object.entries(CATALOG_SUBJECTS).map(([kind, [, , noun]]) => [kind, noun])),
-  agent: 'agent', 'template-file': 'template file', skill: 'skill'
+  agent: 'agent', 'template-file': 'template file', skill: 'skill', instruction: 'instruction'
 });
 export const RESOLUTION_ACTIONS = Object.freeze(['keep', 'replace', 'rename']);
 export const RESOLVE_ALL_CHOICES = Object.freeze(['suggested', 'keep', 'replace', 'rename']);
@@ -610,22 +611,32 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
 
   // Skills from the skill master: their file, the name in their front matter, and their label.
   const skillMap = map('skill');
+  const instructionMap = map('instruction');
+  for (const asset of bundle.assets.filter(candidate => candidate.kind === 'instruction' && instructionMap.has(candidate.id))) {
+    const from = asset.id; const to = instructionMap.get(from);
+    movedPaths.set(asset.path, instructionPath(to)); asset.id = to; asset.path = instructionPath(to);
+    asset.content = rewriteAgent(asset.content, (document, body) => { document.set('name', to); return body; });
+  }
   const changedSkills = new Map();
   for (const entry of bundle.workflowSkillAttachments ?? []) {
     entry.workflow = map('workflow').get(entry.workflow) ?? entry.workflow;
     entry.id = skillMap.get(entry.id) ?? entry.id;
     entry.phases = entry.phases.map((id) => phaseMap.get(id) ?? id);
   }
-  for (const asset of bundle.assets.filter((candidate) => candidate.kind === 'skill' && skillMap.has(candidate.id))) {
-    const from = asset.id; const to = skillMap.get(from);
+  for (const asset of bundle.assets.filter((candidate) => candidate.kind === 'skill')) {
+    const from = asset.id; const to = skillMap.get(from) ?? from;
+    const needsInstructionRename = instructionMap.size > 0;
+    if (to === from && !needsInstructionRename) continue;
     movedPaths.set(asset.path, librarySkillPath(to));
     asset.id = to;
     asset.path = librarySkillPath(to);
     asset.content = rewriteAgent(asset.content, (document, body) => {
       if (document.get('name') === from) document.set('name', to);
+      const refs = document.getIn(['metadata', 'sflow-instructions'])?.toJSON?.();
+      if (Array.isArray(refs)) document.setIn(['metadata', 'sflow-instructions'], refs.map(id => instructionMap.get(id) ?? id));
       const label = document.getIn(['metadata', 'sflow-label']);
       const named = typeof label === 'string' ? label : `${from.split('-').join(' ').replace(/^./, (letter) => letter.toUpperCase())}`;
-      if (!named.endsWith(IMPORTED_LABEL)) document.setIn(['metadata', 'sflow-label'], `${named}${IMPORTED_LABEL}`);
+      if (to !== from && !named.endsWith(IMPORTED_LABEL)) document.setIn(['metadata', 'sflow-label'], `${named}${IMPORTED_LABEL}`);
       return body;
     });
     changedSkills.set(to, asset.content);

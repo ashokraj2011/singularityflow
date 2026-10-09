@@ -13,8 +13,8 @@ const AUTHORING = ['json', 'dry-run', 'propose', 'expected-authority-kind', 'exp
 const RETAINED = ['work-id', 'phase', 'agent', 'generation', 'snapshot-sha256', 'expected-sha256'];
 const OPTIONS = Object.freeze({
   list: ['json'], show: ['json', ...RETAINED],
-  create: [...AUTHORING, 'label', 'description', 'instructions', 'from', 'loading'],
-  edit: [...AUTHORING, 'label', 'description', 'instructions', 'from', 'loading'],
+  create: [...AUTHORING, 'label', 'description', 'instructions', 'from', 'loading', 'instruction-refs'],
+  edit: [...AUTHORING, 'label', 'description', 'instructions', 'from', 'loading', 'instruction-refs'],
   attach: [...AUTHORING, 'agent', 'workflow', 'phases', 'use'],
   detach: [...AUTHORING, 'agent', 'workflow'],
   remove: AUTHORING
@@ -67,14 +67,16 @@ async function changeFor(action, id, options) {
     const instructions = await instructionsFrom(options);
     if (!text(options, 'description')) fail('skill create needs --description "<what it does and when to use it>".', 'SKILL_MASTER_OPTION_INVALID');
     if (!instructions?.trim()) fail('skill create needs its instructions: --from <FILE> or --instructions "<TEXT>".', 'SKILL_MASTER_OPTION_INVALID');
-    return { op: 'skill.create', id, label: text(options, 'label'), description: text(options, 'description'), instructions, loading: text(options, 'loading') };
+    return { op: 'skill.create', id, label: text(options, 'label'), description: text(options, 'description'), instructions, loading: text(options, 'loading'),
+      instructionRefs: text(options, 'instruction-refs')?.split(',').map(id => id.trim()).filter(Boolean) };
   }
   if (action === 'edit') {
     const change = { op: 'skill.update', id };
     for (const key of ['label', 'description', 'loading']) if (text(options, key) != null) change[key] = text(options, key);
     const instructions = await instructionsFrom(options);
     if (instructions != null) change.instructions = instructions;
-    if (Object.keys(change).length === 2) fail('Say what to change: --label, --description, --instructions, --from or --loading.', 'SKILL_MASTER_OPTION_INVALID');
+    if (text(options, 'instruction-refs') != null) change.instructionRefs = options['instruction-refs'].split(',').map(id => id.trim()).filter(Boolean);
+    if (Object.keys(change).length === 2) fail('Say what to change: --label, --description, --instructions, --from, --loading or --instruction-refs.', 'SKILL_MASTER_OPTION_INVALID');
     return change;
   }
   if (action === 'attach') {
@@ -102,6 +104,7 @@ function printSkill(model, skill) {
   const labels = new Map(model.agents.map((agent) => [agent.id, agent.label]));
   console.log(`${skill.label} (${skill.id}) · ${skill.path}`);
   console.log(skill.description);
+  if (skill.instructionRefs?.length) console.log(`Reusable instructions: ${skill.instructionRefs.join(', ')}`);
   console.log('');
   console.log(skill.instructions);
   console.log('');
@@ -139,7 +142,7 @@ export async function runSkillMaster({ positionals, options, applyChangeSet, pri
         generation: Number(options.generation), snapshotSha256: options['snapshot-sha256'],
         expectedSha256: options['expected-sha256']
       });
-    return console.log(json ? JSON.stringify(result, null, 2) : result.skill.instructions);
+    return console.log(json ? JSON.stringify(result, null, 2) : [result.skill.instructions, result.skill.referencedInstructionText].filter(Boolean).join('\n\n'));
   }
   if (SKILL_MASTER_READS.includes(action)) {
     const model = await withApprovedConfigurationRead(root, () => buildStudioModel(root), { preferAuthority: true });

@@ -22,7 +22,7 @@ export function modelFreeCommandForArgv(argv) {
   for (const [route, expected] of [
     ['next', ['nextsteps']], ['status', ['status']], ['checks', ['precheck', '--quick']],
     ['docs', ['documents', 'list', '--active']], ['workflows', ['workflow', 'list']],
-    ['validate', ['validate']], ['converge', ['converge']]
+    ['validate', ['validate']], ['converge', ['converge']], ['instructions', ['instruction', 'list']]
   ]) if (exact(expected)) return `@sflow /${route}`;
   if (top === 'inputs' && tokens.length === 3 && ID.test(operation ?? '') && tokens[2] === '--dry-run') {
     // The participant resolves the phase itself; don't claim a different explicit phase is equivalent.

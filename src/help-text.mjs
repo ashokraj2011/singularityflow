@@ -334,8 +334,15 @@ Usage:
                                                         inspect exact retained Story bytes; never adopts a newer source
   singularity-flow skill list [--json]                  the skill master: named skills any agent can attach, and who uses them
   singularity-flow skill show <ID> [--json]
+  singularity-flow instruction list [--json]            reusable instruction catalog; no implicit global application
+  singularity-flow instruction show <ID> [--json]
+  singularity-flow instruction create <ID> --description TEXT (--from FILE | --instructions TEXT) [--label TEXT] [--dry-run] [--propose] [--json]
+  singularity-flow instruction edit <ID> [--label TEXT] [--description TEXT] [--from FILE | --instructions TEXT] [--dry-run] [--propose] [--json]
+  singularity-flow instruction remove <ID> [--dry-run] [--propose] [--json]
+                                                        detach references first; changes use configuration approval
   singularity-flow skill create <ID> --description TEXT (--from FILE | --instructions TEXT) [--label TEXT] [--dry-run] [--propose] [--json]
   singularity-flow skill edit <ID> [--label TEXT] [--description TEXT] [--from FILE | --instructions TEXT] [--dry-run] [--propose] [--json]
+                                                        create/edit: --instruction-refs ID,ID (empty on edit clears refs)
   singularity-flow skill attach <ID> --agent AGENT [--phases A,B] [--use TEXT] [--dry-run] [--propose] [--json]
   singularity-flow skill attach <ID> --workflow WORKFLOW [--phases A,B] [--use TEXT] [--dry-run] [--propose] [--json]
                                                         the agent reads and applies the skill in those steps (all steps by default)

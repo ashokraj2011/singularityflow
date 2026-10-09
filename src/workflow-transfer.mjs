@@ -38,6 +38,7 @@ import {
   IMPORTS_LOCK_PATH, IMPORTS_VENDOR_ROOT, parseImportsLedger, renderImportsLedger
 } from './imports-ledger.mjs';
 import { mcpDescriptorPath } from './mcp-descriptor.mjs';
+import { instructionPath, loadInstructionLibrary, parseInstruction, readInstruction } from './instruction-library.mjs';
 import {
   LIBRARY_SKILL_TABLE, SKILL_ATTACHMENTS_PATH, effectiveLibrarySkills, librarySkillPath, loadSkillLibrary, parseLibrarySkill, readSkillAttachments, skillAttachmentsText
 } from './skill-library.mjs';
@@ -728,6 +729,7 @@ function summarizeBundle(bundle) {
     templates: bundle.assets.filter((asset) => asset.kind === 'template').length,
     vendoredCopies: bundle.assets.filter((asset) => asset.kind === 'vendored').length,
     skills: bundle.assets.filter((asset) => asset.kind === 'skill').length,
+    instructions: bundle.assets.filter((asset) => asset.kind === 'instruction').length,
     importRecords: Object.keys(bundle.imports ?? {}).length,
     assets: bundle.assets.length,
     skillPackages: bundle.skillPackages?.length ?? 0,
@@ -751,6 +753,7 @@ function dependencyInventory(bundle) {
     agentLocks: Object.keys(bundle.agentLocks ?? {}).sort(),
     vendoredCopies: bundle.assets.filter((asset) => asset.kind === 'vendored').map((asset) => asset.path).sort(),
     skills: bundle.assets.filter((asset) => asset.kind === 'skill').map((asset) => asset.id).sort(),
+    instructions: bundle.assets.filter((asset) => asset.kind === 'instruction').map((asset) => asset.id).sort(),
     importRecords: Object.keys(bundle.imports ?? {}).sort(),
     approvalAuthorities: [
       ...objectIds('story', 'approvalAuthorities').map((id) => `story:${id}`),
@@ -1070,6 +1073,24 @@ function validateCarriedSkills(bundle, agents, storedVersion) {
   for (const id of carried) {
     if (!attached.has(id)) fail(`Workflow bundle carries skill '${id}', which no carried agent or workflow attaches.`, 'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
   }
+  const requiredInstructions = new Set(bundle.assets.filter(asset => asset.kind === 'skill').flatMap(asset => parseLibrarySkill(asset.content, { id: asset.id }).instructionRefs));
+  const instructionIds = new Set(bundle.assets.filter(asset => asset.kind === 'instruction').map(asset => asset.id));
+  if (storedVersion < 8 && requiredInstructions.size) fail('Instruction references require a v8 workflow bundle carrying their exact definitions.', 'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
+  for (const id of requiredInstructions) if (!instructionIds.has(id)) fail(`Workflow bundle references missing instruction '${id}'.`, 'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
+  for (const id of instructionIds) if (!requiredInstructions.has(id)) fail(`Workflow bundle carries unreferenced instruction '${id}'.`, 'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
+}
+
+async function referencedInstructionAssets(root, assets) {
+  const ids = new Set(assets.filter(asset => asset.kind === 'skill').flatMap(asset => parseLibrarySkill(asset.content, { id: asset.id }).instructionRefs));
+  const carried = new Set(assets.filter(asset => asset.kind === 'instruction').map(asset => asset.id));
+  const result = [];
+  for (const id of [...ids].sort()) {
+    if (carried.has(id)) continue;
+    const item = await readInstruction(root, id);
+    if (!item) fail(`Skill references missing instruction '${id}'.`, 'WORKFLOW_DEPENDENCY_MISSING');
+    result.push({ kind: 'instruction', id, path: item.path, mediaType: 'text/markdown; charset=utf-8', size: item.bytes, sha256: digest(item.text), content: item.text });
+  }
+  return result;
 }
 
 async function readAgentLock(root, { optional = true } = {}) {
@@ -1393,6 +1414,7 @@ async function buildBundle(root, workflowIds) {
       size: Buffer.byteLength(content, 'utf8'), sha256: digest(content), content
     });
   }
+  for (const asset of await referencedInstructionAssets(sourceRoot, assets)) pushAsset(asset);
   for (const serverId of Object.keys(objects.story.mcpServers)) {
     const relative = mcpDescriptorPath(serverId);
     const secured = await secureRepositoryPath(sourceRoot, relative, {
@@ -1547,7 +1569,7 @@ async function validateBundle(raw, { importedHere = null } = {}) {
   let total = 0;
   const identities = new Set();
   const agents = new Map();
-  const assetKinds = storedVersion > 4 ? ['template', 'agent', 'vendored', 'skill']
+  const assetKinds = storedVersion >= 8 ? ['template', 'agent', 'vendored', 'skill', 'instruction'] : storedVersion > 4 ? ['template', 'agent', 'vendored', 'skill']
     : storedVersion > 3 ? ['template', 'agent', 'vendored'] : ['template', 'agent'];
   for (const asset of raw.assets) {
     if (!plainObject(asset) || !assetKinds.includes(asset.kind)
@@ -1571,6 +1593,10 @@ async function validateBundle(raw, { importedHere = null } = {}) {
       }
       try { parseLibrarySkill(asset.content, { id: asset.id }); }
       catch (error) { fail(`Workflow bundle skill '${asset.id}' is not a valid skill: ${error.message}`); }
+    }
+    if (asset.kind === 'instruction') {
+      if (!ID.test(asset.id ?? '') || asset.path !== instructionPath(asset.id)) fail(`Workflow bundle instruction path is not canonical: ${asset.path}`);
+      try { parseInstruction(asset.content, { id: asset.id }); } catch (error) { fail(`Workflow bundle instruction '${asset.id}' is invalid: ${error.message}`); }
     }
     if (asset.kind === 'template') {
       if (!['story', 'initiative'].includes(asset.governs)
@@ -1718,7 +1744,7 @@ function linkedDependencyKind(governs, section) {
 }
 
 function targetTemplatePath(asset, storyValue, initiativeValue) {
-  if (['agent', 'vendored', 'skill', 'skill-package-file'].includes(asset.kind)) return asset.path;
+  if (['agent', 'vendored', 'skill', 'instruction', 'skill-package-file'].includes(asset.kind)) return asset.path;
   const governs = asset.governs;
   const targetRoot = configuredTemplateRoot(
     governs === 'story' ? storyValue : initiativeValue, governs, storyValue
@@ -1987,6 +2013,7 @@ function assetSubject(asset, relative) {
   if (asset.kind === 'template') return subjectRef('template-file', relative);
   if (asset.kind === 'vendored') return subjectRef(asset.owner.kind, asset.owner.id);
   if (asset.kind === 'skill') return subjectRef('skill', asset.id);
+  if (asset.kind === 'instruction') return subjectRef('instruction', asset.id);
   return null;
 }
 
@@ -2077,10 +2104,12 @@ async function importNaming(target, bundle, values, agents) {
   }
   for (const agent of agents) take('agent', agent.id);
   for (const id of (await loadSkillLibrary(target.root)).skills.keys()) take('skill', id);
+  for (const id of (await loadInstructionLibrary(target.root)).instructions.keys()) take('instruction', id);
   const templateRoots = new Map();
   for (const asset of bundle.assets) {
     if (asset.kind === 'agent') take('agent', asset.id);
     if (asset.kind === 'skill') take('skill', asset.id);
+    if (asset.kind === 'instruction') take('instruction', asset.id);
     if (asset.kind === 'template') {
       const relative = targetTemplatePath(asset, values.story, values.initiative);
       take('template-file', relative);
@@ -2092,7 +2121,7 @@ async function importNaming(target, bundle, values, agents) {
   const occupied = async (kind, id) => {
     if (taken.get(kind)?.has(id)) return true;
     const relative = kind === 'agent' ? `.github/agents/${id}.agent.md`
-      : kind === 'mcp-server' ? mcpDescriptorPath(id) : kind === 'skill' ? librarySkillPath(id)
+      : kind === 'mcp-server' ? mcpDescriptorPath(id) : kind === 'skill' ? librarySkillPath(id) : kind === 'instruction' ? instructionPath(id)
         : kind === 'template-file' ? id : null;
     return relative != null && (await portableTargetState(target.root, relative)).exists;
   };
@@ -2103,7 +2132,7 @@ async function importNaming(target, bundle, values, agents) {
         const [governs, catalog] = CATALOG_SUBJECTS[kind];
         return Object.hasOwn(transferCatalog(bundle.objects[governs], catalog), id);
       }
-      if (kind === 'agent' || kind === 'skill') return bundle.assets.some((asset) => asset.kind === kind && asset.id === id);
+      if (['agent', 'skill', 'instruction'].includes(kind)) return bundle.assets.some((asset) => asset.kind === kind && asset.id === id);
       return kind === 'template-file' && templateRoots.has(id);
     },
     async free(kind, id) {
@@ -2432,9 +2461,9 @@ async function importPlan(root, destination, original, chosen) {
   const byIdentity = (a, b) => `${a.kind}:${a.id}`.localeCompare(`${b.kind}:${b.id}`);
   const renamed = [...renames].map(([subject, to]) => ({ subject, to })).sort((a, b) => a.subject.localeCompare(b.subject));
   const identities = [];
-  const assetDetails = new Map(original.assets.filter((asset) => ['agent', 'skill'].includes(asset.kind))
+  const assetDetails = new Map(original.assets.filter((asset) => ['agent', 'skill', 'instruction'].includes(asset.kind))
     .map((asset) => [asset, asset.kind === 'agent' ? parseAgentDependencies(asset.content, { source: asset.path })
-      : parseLibrarySkill(asset.content, { id: asset.id })]));
+      : asset.kind === 'instruction' ? parseInstruction(asset.content, { id: asset.id }) : parseLibrarySkill(asset.content, { id: asset.id })]));
   const skillAttachments = new Map();
   const phaseDestination = (id) => resolutions[`phase:${id}`]?.to ?? resolutions[`initiative-phase:${id}`]?.to ?? id;
   const attachment = (skillId, scope, ownerId, phases, use) => {
@@ -2461,16 +2490,18 @@ async function importPlan(root, destination, original, chosen) {
         suggestedId: reason ? id : resolutions[subject]?.to ?? await naming.free(kind, id) });
     }
   }
-  for (const asset of original.assets.filter((asset) => ['agent', 'skill'].includes(asset.kind))) {
+  for (const asset of original.assets.filter((asset) => ['agent', 'skill', 'instruction'].includes(asset.kind))) {
     const subject = `${asset.kind}:${asset.id}`;
     const details = assetDetails.get(asset);
     identities.push({ subject, kind: asset.kind, sourceId: asset.id, targetId: resolutions[subject]?.to ?? asset.id,
       action: resolutions[subject]?.action ?? 'automatic', renameable: true,
       occupiedIds: asset.kind === 'agent' ? targetAgents.map((agent) => agent.id).sort()
-        : [...(await loadSkillLibrary(target.root)).skills.keys()].sort(),
+        : asset.kind === 'instruction' ? [...(await loadInstructionLibrary(target.root)).instructions.keys()].sort() : [...(await loadSkillLibrary(target.root)).skills.keys()].sort(),
       suggestedId: resolutions[subject]?.to ?? await naming.free(asset.kind, asset.id),
       label: details.label, description: details.description,
       ...(asset.kind === 'skill' ? { attachments: skillAttachments.get(asset.id) ?? [] } : {}),
+      ...(asset.kind === 'skill' ? { instructionRefs: details.instructionRefs } : {}),
+      ...(asset.kind === 'instruction' ? { usedBy: original.assets.filter(item => item.kind === 'skill' && parseLibrarySkill(item.content, { id: item.id }).instructionRefs.includes(asset.id)).map(item => item.id) } : {}),
       skills: details.librarySkills ?? [], resources: (details.dependencies ?? []).map((dependency) => ({ ...dependency,
         ...(Array.isArray(dependency.phases) ? { targetPhases: agentCatalog.get(resolutions[subject]?.to ?? asset.id)
           ?.dependencies.find((entry) => entry.id === dependency.id)?.phases ?? dependency.phases.map(phaseDestination) } : {}) })) });
@@ -2740,7 +2771,7 @@ export async function planWorkflowCopy(root, { sourceId, targetId, label, indepe
     }
     for (const asset of closure.assets) {
       const kind = asset.kind === 'template' ? 'template-file' : asset.kind;
-      if (['agent', 'skill', 'template-file'].includes(kind)) {
+      if (['agent', 'skill', 'instruction', 'template-file'].includes(kind)) {
         const id = kind === 'template-file' ? targetTemplatePath(asset, located.documents.story?.value ?? {}, located.documents.initiative?.value ?? {}) : asset.id;
         choices[`${kind}:${id}`] ??= { action: 'rename' };
       }
@@ -2837,6 +2868,7 @@ async function carryFileAttachments(root, closure) {
       carried.add(entry.id);
     }
   }
+  closure.assets.push(...await referencedInstructionAssets(configurationReadRoot(root), closure.assets));
 }
 
 /** Exact portable representation shared by export and collision comparison. */

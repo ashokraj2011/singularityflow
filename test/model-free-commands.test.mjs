@@ -7,6 +7,7 @@ test('model-free presentation preserves supported phase and Story selectors', ()
   assert.deepEqual(parseModelFreeTarget('custom-build --work-id PILOT-1'), { phase: 'custom-build', workId: 'PILOT-1' });
   for (const [argv, expected] of [
     [['nextsteps', '--json'], '@sflow /next'],
+    [['instruction', 'list', '--json'], '@sflow /instructions'],
     [['submit', 'custom-build', '--json'], '@sflow /submit custom-build'],
     [['approve', 'custom-check', '--work-id', 'PILOT-1', '--fetch'], '@sflow /approve custom-check --work-id PILOT-1'],
     [['phase', 'publish', 'custom-build', '--authored', 'governed-agent', '--channel', 'copilot-host'], '@sflow /publish custom-build'],
@@ -17,6 +18,7 @@ test('model-free presentation preserves supported phase and Story selectors', ()
 test('unsafe, unsupported, selector-dropping and authority-bearing alternatives are never advertised', () => {
   for (const argv of [
     ['next'], ['nextsteps', 'OTHER-STORY'], ['inputs', 'planning', '--dry-run'],
+    ['instruction', 'show', 'web-guide', '--json'], ['instruction', 'list', '--unknown'],
     ['submit', 'build', '--skip-checks'], ['approve', 'phase', '--allow-dirty'],
     ['approve', 'phase', '--yes'], ['approve', 'Story-1', '--phase', 'build'],
     ['phase', 'publish', 'build', '--from', '/private/file'],

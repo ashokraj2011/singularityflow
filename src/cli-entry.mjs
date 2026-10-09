@@ -660,6 +660,7 @@ async function runMain(argv) {
     const { validateSkillRequest } = await import('./commands/skill.mjs');
     await validateSkillRequest({ positionals, options });
   }
+  if (definition.name === 'instruction') (await import('./commands/instruction.mjs')).validateInstructionRequest({ positionals, options });
   if (definition.name === 'workflow' && positionals[1] === 'author') {
     const { validateWorkflowAuthorRequest } = await import('./commands/workflow-author.mjs');
     validateWorkflowAuthorRequest({ positionals, options });

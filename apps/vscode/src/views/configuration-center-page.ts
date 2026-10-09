@@ -38,6 +38,7 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
     { label: 'Auto mode', glyph: 'start', tab: 'auto' },
     { label: 'Agents & delivery', glyph: 'agent', action: 'open-instruction-designer' },
     { label: 'Skills', glyph: 'agent', action: 'skills' },
+    { label: 'Instructions', glyph: 'agent', action: 'instructions' },
     { label: 'Model routing', glyph: 'agent', tab: 'models' },
     { label: 'MCP tools', glyph: 'mcp', tab: 'mcp' }
   ] },
@@ -534,7 +535,7 @@ function mcp(view: ConfigurationCenterView, selected: McpServerView | null): str
             : 'host setup required';
       return `<button class="configuration-row secondary" data-mcp="${escape(server.id)}"><span>${icon(glyph)}</span><strong>${escape(server.label)}</strong><small>${escape(`${server.hostReference} · ${detail}`)}</small></button>`;
     }).join('') || '<p class="empty">No MCP servers are governed yet.</p>'}</div>
-    <p class="card-foot"><button class="secondary" data-action="playwright">Add Playwright host starter</button><button class="secondary" data-action="open-mcp-host">Open VS Code MCP host file</button><button class="secondary" data-action="instructions">Open Agent Designer</button></p>
+    <p class="card-foot"><button class="secondary" data-action="playwright">Add Playwright host starter</button><button class="secondary" data-action="open-mcp-host">Open VS Code MCP host file</button><button class="secondary" data-action="open-instruction-designer">Open Agent Designer</button></p>
     ${selected ? mcpForm(selected) : ''}
   </section>`;
 }

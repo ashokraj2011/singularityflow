@@ -1,5 +1,6 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { retainedSkillExpansion } from './retained-skill-instructions.mjs';
+import { resolveSkillInstructions, renderReferencedInstructions } from './instruction-library.mjs';
 import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -685,9 +686,14 @@ export async function renderAgentSkills(root, workflow, phase, session, {
     const command = retainedSkillExpansion(workflow, phase, executionContext, entry);
     return command ? [[entry.id, command]] : [];
   }));
+  // Definitions referenced by on-demand skills are retained with the skill, not eagerly loaded.
+  for (const skill of library.skills) {
+    if (!saved) skill.referencedInstructions = await resolveSkillInstructions(configurationReadRoot(root), skill);
+  }
   const text = [
     selected.map((entry) => `<!-- agent skill: ${session.agent}/${entry.id} sha256=${entry.sha256} -->\n\n## Agent skill: ${entry.id}\n\n${entry.content.trim()}`).join('\n\n'),
-    renderLibrarySkills(session.agent, library.skills, { expansions })
+    renderLibrarySkills(session.agent, library.skills, { expansions }),
+    renderReferencedInstructions(library.skills.filter(entry => !expansions.has(entry.id)))
   ].filter(Boolean).join('\n\n');
   const warnings = [...synced.warnings, ...library.warnings];
   let audit = null;
@@ -713,6 +719,12 @@ export async function renderAgentSkills(root, workflow, phase, session, {
         sha256: entry.sha256, size: entry.bytes,
         path: saved ? entry.path : posix(path.relative(root, target))
       });
+    }
+    const seenInstructions = new Set();
+    for (const skill of library.skills.filter(entry => !expansions.has(entry.id))) for (const item of skill.referencedInstructions ?? []) {
+      if (seenInstructions.has(item.id)) continue;
+      seenInstructions.add(item.id);
+      files.push({ id: item.id, type: 'instruction', url: null, sha256: item.sha256, size: item.bytes, path: item.path });
     }
     audit = { schemaVersion: currentSchemaVersion('agent-context-audit'), workId: workflow.workItem.id, phase: phase.id, generation, agent: session.agent, nativeCopilotAgent: session.nativeCopilotAgent ?? null, agentSourceSha256: synced.agent.sha256, files, recordedAt: nowIso() };
     await writeJson(path.join(itemDirectory, 'context', `agents-${phase.id}-gen${generation}.json`), audit);
@@ -742,6 +754,7 @@ async function attachedLibrarySkills(root, phase, executionContext, agent, agent
       }
       const parsed = parseLibrarySkill(entry.text, { id: entry.id });
       skills.push({ ...parsed, sha256: parsed.sha256, use: entry.use ?? '', path: entry.blobPath ?? null,
+        referencedInstructions: entry.referencedInstructions ?? [],
         scopes: [entry.scope === 'workflow' ? `workflow ${entry.workflowId}` : `agent ${agentId}`] });
     }
     return { skills, warnings };

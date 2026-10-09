@@ -1072,6 +1072,16 @@ function renderParticipantResult(
   if (command.template === 'router') return renderRouter(value);
   if (command.template === 'documents') return renderDocuments(value);
   if (command.template === 'workflows') return renderWorkflows(value);
+  if (command.template === 'instructions') {
+    const result = jsonObject(value) ?? {};
+    const data = jsonObject(result.data) ?? result;
+    const items = jsonArray(data.instructions).map(jsonObject).filter((item): item is JsonObject => Boolean(item));
+    let markdown = `### Reusable instructions\n\n${items.length} definition(s); none applies globally.\n\n`;
+    for (const item of items.slice(0, 20)) markdown += `- **${markdownValue(item.label ?? item.id)}** · ${markdownValue(item.id)} · skills: ${markdownValue(jsonArray(item.usedBy).join(', ') || 'none')}\n`;
+    if (items.length > 20) markdown += '\nOpen Configuration → Instructions for the complete catalog.\n';
+    for (const problem of jsonArray(data.problems).slice(0, 5)) markdown += `\nFinding: ${markdownValue(jsonObject(problem)?.message ?? problem)}\n`;
+    return { markdown, ...renderedCommand({ command: 'singularity-flow instruction list --json' }) };
+  }
   if (command.template === 'approval-review') return renderApprovalReview(value);
   if (command.template === 'inputs') return renderInputs(value, phaseId);
   if (command.template === 'validation') {

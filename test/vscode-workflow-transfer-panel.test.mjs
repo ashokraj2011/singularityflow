@@ -29,7 +29,7 @@ test('transfer page lists every agent and skill safely and requires collision-fr
   const rows = [identity('workflow', 'flow'), identity('agent', 'reviewer', { label: '<img onerror=boom>', skills: [{ id: 'checklist' }], resources: [{ type: 'skill', id: 'remote-check', url: 'https://skills.example.test/check.md' }] }), identity('skill', 'checklist', { description: 'Check the specification.' }), identity('agent', 'developer', { occupiedIds: ['existing-agent'] })];
   ui.receive(ready(rows));
   assert.equal(ui.elements['transfer-apply'].disabled, false);
-  assert.deepEqual(ui.elements['transfer-inventory'].all('h2').map((el) => el.textContent), ['Agents included', 'Skills included']);
+  assert.deepEqual(ui.elements['transfer-inventory'].all('h2').map((el) => el.textContent), ['Agents included', 'Skills included', 'Instructions included']);
   assert.ok(ui.elements['transfer-inventory'].all('td').some((el) => el.textContent === '<img onerror=boom>'));
   assert.equal(ui.elements['transfer-inventory'].all('img').length, 0, 'source labels are never HTML');
   const inputs = ui.elements['transfer-identities'].all('input');
@@ -60,6 +60,24 @@ test('existing IDs get independent names automatically, and immutable contract i
   assert.equal(ui.elements['transfer-apply'].disabled, false);
   assert.equal(ui.elements['transfer-identities'].all('input')[1].disabled, true);
   assert.equal(ui.elements['transfer-identities'].all('input')[2].value, 'reviewer-imported/check');
+});
+
+test('instruction inventory tracks renamed owning skills and blocks instruction collisions', () => {
+  const ui = browser();
+  const rows = [identity('skill', 'web-check'), identity('instruction', 'web-guide', { usedBy: ['web-check'], occupiedIds: ['other-guide'], label: '<script>bad</script>', description: 'Keyboard support.' })];
+  ui.receive(ready(rows));
+  const cells = () => ui.elements['transfer-inventory'].all('td').map(item => item.textContent);
+  assert.ok(cells().includes('<script>bad</script>'));
+  assert.equal(ui.elements['transfer-inventory'].all('script').length, 0);
+  const inputs = ui.elements['transfer-identities'].all('input');
+  inputs[0].value = 'my-web-check'; inputs[0].listeners.input();
+  assert.ok(cells().includes('my-web-check'));
+  inputs[1].value = 'other-guide'; inputs[1].listeners.input();
+  assert.match(ui.elements['transfer-status'].textContent, /Already exists: instruction:other-guide/);
+  assert.equal(ui.elements['transfer-apply'].disabled, true);
+  inputs[1].value = 'my-guide'; inputs[1].listeners.input();
+  assert.ok(cells().includes('my-guide'));
+  assert.equal(ui.elements['transfer-apply'].disabled, true, 'renames require exact revalidation');
 });
 
 test('skill inventory shows both scopes, their phases and live destination names without changing bindings', () => {

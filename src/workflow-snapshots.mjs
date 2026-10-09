@@ -12,6 +12,8 @@ import { approvalRequirementsMet, matchApprovalAuthority } from './approval-auth
 import { syncAgent } from './agents.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { effectiveLibrarySkills, librarySkillPath, librarySkillReference, parseLibrarySkill, readSkillAttachments } from './skill-library.mjs';
+import { instructionPath, parseInstruction, instructionUtf8 } from './instruction-library.mjs';
+import { assertInstructionClosure, instructionOwner, INSTRUCTION_COMPOSER } from './instruction-snapshots.mjs';
 import { approvedStoryApprovalAuthorities, inspectApprovedSkillPackage,
   resolveApprovedStoryWorkType } from './configuration-branch.mjs';
 import { verifySkillConfigurationAncestry } from './skp-amendment-audit.mjs';
@@ -332,6 +334,28 @@ async function captureWorkflowLibrarySkills(root, config, workflow) {
     attachments.push({ id: entry.id, phases: [...entry.phases], use: entry.use, logicalId, sha256: blob.sha256 });
   }
   return { assets, attachments };
+}
+
+async function captureReferencedInstructions(root, config, workId, assets) {
+  const required = new Set(); const bytes = new Map(); const capturedAssets = [];
+  for (const asset of assets.filter(instructionOwner)) {
+    const source = await stableFile(path.join(root, asset.blob.path), 'Retained skill instructions');
+    if (qualified(source.sha256) !== asset.blob.sha256) fail('Retained skill changed during instruction capture.', 'WFA_SOURCE_STALE');
+    bytes.set(asset.logicalId, source.bytes);
+    const skill = parseLibrarySkill(source.bytes.toString('utf8'), { id: asset.source.skillId ?? asset.source.dependencyId });
+    for (const id of skill.instructionRefs) required.add(id);
+  }
+  for (const id of [...required].sort()) {
+    const secured = await secureRepositoryPath(configurationReadRoot(root), instructionPath(id), { mustExist: true, type: 'file', label: `Instruction '${id}'` });
+    const captured = await stableFile(secured.absolute, `Instruction '${id}'`);
+    parseInstruction(instructionUtf8(captured.bytes), { id });
+    const blob = await installBlob(root, config, workId, { ...captured, mediaType: 'text/markdown; charset=utf-8' });
+    const logicalId = `instruction:${id}`;
+    bytes.set(logicalId, captured.bytes);
+    capturedAssets.push({ logicalId, purpose: 'shared-instruction', dependencies: [], blob,
+      source: { kind: 'reviewed-instruction', instructionId: id, sha256: blob.sha256 } });
+  }
+  return { assets: capturedAssets, bytes };
 }
 
 async function captureRemoteAgentDependencies(root, config, workId, agent) {
@@ -1074,6 +1098,8 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
   else delete workflow.resolution.skillAttachments;
   const workflowSkills = await captureWorkflowLibrarySkills(root, config, workflow);
   assets.push(...workflowSkills.assets);
+  const instructionClosure = await captureReferencedInstructions(root, config, workId, assets);
+  assets.push(...instructionClosure.assets);
   if (workflowSkills.attachments.length) workflow.resolution.workflowSkills = workflowSkills.attachments;
   else delete workflow.resolution.workflowSkills;
   const assetLimit = selectedSkills.length ? MAXIMUM_SKILL_ASSETS : MAXIMUM_ASSETS;
@@ -1139,7 +1165,8 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
       canonicalJson: 'singularity-flow-canonical-json-v1',
       policyReaderMinimum: selectedSkills.length ? 9 : 5,
       agentDocumentParser: 'sflow-agent-document-v1',
-      promptComposer: workflowSkills.attachments.length ? 'story-snapshot-agent-v2' : 'story-snapshot-agent-v1',
+      promptComposer: instructionClosure.assets.length ? INSTRUCTION_COMPOSER
+        : workflowSkills.attachments.length ? 'story-snapshot-agent-v2' : 'story-snapshot-agent-v1',
       ...(workflow.resolution.phaseSemantics ? { phaseSemantics: workflow.resolution.phaseSemantics.profile } : {}),
       ...(selectedSkills.length ? {
         skillPackageReader: SKP_PACKAGE_FORMAT,
@@ -1154,6 +1181,7 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
   };
   if (selectedSkills.length) manifest.skillPackages = skillClosure.skillPackages;
   assertWorkflowSkillClosure(manifest, workflow.resolution, capturedAssetIndex);
+  assertInstructionClosure(manifest, capturedAssetIndex, instructionClosure.bytes);
   manifest.snapshotHash = domainHash(
     selectedSkills.length ? 'wfa.snapshot.v2' : 'wfa.snapshot.v1', manifestCore(manifest)
   );
@@ -2615,7 +2643,7 @@ function assertDependencyClosure(manifest, assetByLogicalId) {
 function assertWorkflowSkillClosure(manifest, policy, assetByLogicalId) {
   const entries = policy.workflowSkills ?? [];
   const claimed = new Set();
-  if (!Array.isArray(entries) || (entries.length && manifest.semantics?.promptComposer !== 'story-snapshot-agent-v2')) {
+  if (!Array.isArray(entries) || (entries.length && !['story-snapshot-agent-v2', INSTRUCTION_COMPOSER].includes(manifest.semantics?.promptComposer))) {
     fail('Workflow skills require the workflow-scoped prompt composer.', 'WFA_RUNTIME_INCOMPATIBLE');
   }
   for (const entry of entries) {
@@ -2999,13 +3027,14 @@ export async function verifyWorkflowSnapshot(root, config, workflow, options = {
       `Workflow snapshot asset '${asset.logicalId}'`, { acceptedBytes: acceptedBlobBytes }
     );
     assetByLogicalId.set(asset.logicalId, asset);
-    if (retainBytes || asset.purpose === 'skill-package-file') {
+    if (retainBytes || asset.purpose === 'skill-package-file' || instructionOwner(asset) || asset.purpose === 'shared-instruction') {
       retainedAssets.set(asset.logicalId, Buffer.from(captured.bytes));
     }
     totalBytes += captured.size;
   }
   assertDependencyClosure(manifest, assetByLogicalId);
   assertWorkflowSkillClosure(manifest, capturedPolicy, assetByLogicalId);
+  assertInstructionClosure(manifest, assetByLogicalId, retainedAssets);
   assertSkillPackageClosure(manifest, storedVersion, capturedPolicy, assetByLogicalId, retainedAssets);
   if (totalBytes > (storedVersion >= 2 ? MAXIMUM_SKILL_SNAPSHOT_BYTES : MAXIMUM_BUNDLE_BYTES)
       || manifest.limits?.bytes !== totalBytes

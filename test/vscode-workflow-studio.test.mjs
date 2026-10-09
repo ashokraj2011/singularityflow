@@ -80,6 +80,32 @@ test('the page loads without a document and says nothing changed until something
   assert.doesNotMatch(WORKFLOW_STUDIO_SCRIPT, /setAttribute\('style'/, 'the nonce-only CSP would drop style attributes');
 });
 
+test('the Instructions editor preserves skill references and emits atomic catalog changes', async () => {
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const model = await buildStudioModel(root);
+  const { logic } = studioLogic();
+  const draft = logic.initialDraft(model);
+  draft.instructions['web-guide'] = { id: 'web-guide', label: 'Web guide', description: 'Accessible web changes.', instructions: 'Preserve keyboard support.', isNew: true };
+  draft.skills['web-check'] = { id: 'web-check', label: 'Web check', description: 'Check web changes.', instructions: 'Inspect changed controls.', instructionRefs: ['web-guide'], isNew: true };
+  const changes = logic.changeSetFrom(model, draft);
+  assert.ok(changes.changes.some(item => item.op === 'instruction.create' && item.id === 'web-guide'));
+  assert.deepEqual(changes.changes.find(item => item.op === 'skill.create').instructionRefs, ['web-guide']);
+  const applied = await planStudioChangeSet(root, changes, { write: true });
+  assert.equal(applied.valid, true, JSON.stringify(applied.problems));
+  const fresh = await buildStudioModel(root);
+  const retained = logic.initialDraft(fresh);
+  assert.deepEqual(logic.changeSetFrom(fresh, retained).changes, []);
+  retained.instructions['web-guide'].instructions = 'Preserve keyboard and focus support.';
+  assert.deepEqual(logic.changeSetFrom(fresh, retained).changes, [{ op: 'instruction.update', id: 'web-guide', instructions: 'Preserve keyboard and focus support.' }]);
+  delete retained.instructions['web-guide'];
+  retained.skills['web-check'].instructionRefs = [];
+  const removed = logic.changeSetFrom(fresh, retained);
+  assert.ok(removed.changes.some(item => item.op === 'instruction.remove'));
+  assert.deepEqual(removed.changes.find(item => item.op === 'skill.update').instructionRefs, []);
+  assert.equal((await planStudioChangeSet(root, removed)).valid, true);
+});
+
 test('edits made in the page become one change set the engine accepts', async () => {
   const root = await repository();
   const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);

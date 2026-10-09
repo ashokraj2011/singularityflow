@@ -1,4 +1,5 @@
 import { SKILL_LIBRARY_ROOT } from './skill-library.mjs';
+import { INSTRUCTION_LIBRARY_ROOT } from './instruction-library.mjs';
 import { retiredWorldModelError, selectsRetiredWorldModel } from './world-model-format.mjs';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { assertPhaseTopology, phaseTopologyFindings } from './phase-semantics.mjs';
@@ -1819,6 +1820,8 @@ function allowedConfigurationPath(
     || relative === ENVIRONMENT_DECLARATION_PATH
     || paths.directoryRoots.some((directory) => relative.startsWith(`${directory}/`))
     || relative.startsWith(`${REPOSITORY_SKILLS_ROOT}/`)
+    || relative.startsWith(`${SKILL_LIBRARY_ROOT}/`)
+    || relative.startsWith(`${INSTRUCTION_LIBRARY_ROOT}/`)
     || relative.startsWith(`${PROMPTS_ROOT}/`)
     || relative === DEFAULT_WORLD_MODEL_PROMPT
     || paths.promptSources.includes(relative)
@@ -1917,7 +1920,7 @@ export async function validateConfigurationCandidates(root, candidates, definiti
       WORKFLOW_PATH, PORTFOLIO_PATH, CAPABILITIES_PATH, IMPACT_CONFIG_PATH, AGENT_MAPPING_PATH,
       ENVIRONMENT_DECLARATION_PATH,
       definition.templatesRoot, portfolio?.templatesRoot, definition.agentPromptsRoot,
-      REPOSITORY_SKILLS_ROOT, PROMPTS_ROOT, '.github/agents', SKILL_LIBRARY_ROOT
+      REPOSITORY_SKILLS_ROOT, PROMPTS_ROOT, '.github/agents', SKILL_LIBRARY_ROOT, INSTRUCTION_LIBRARY_ROOT
     ].filter(Boolean).map(posix));
     for (const { path: relative, content } of candidates) {
       if (relative !== WORKFLOW_PATH && relative !== PORTFOLIO_PATH) continue;

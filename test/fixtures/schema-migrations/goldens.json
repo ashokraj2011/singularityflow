@@ -132,7 +132,7 @@
   "policy-snapshot": [{ "schemaVersion": 1 }],
   "learning-workspace": [{ "schemaVersion": 1 }],
   "learning-offline-bundle": [{ "schemaVersion": 1 }],
-  "workflow-bundle": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "skillPackages": [] }, { "schemaVersion": 3, "skillPackages": [] }, { "schemaVersion": 4, "skillPackages": [], "imports": {} }, { "schemaVersion": 5, "skillPackages": [], "imports": {} }, { "schemaVersion": 6, "skillPackages": [], "imports": {} }, { "schemaVersion": 7, "skillPackages": [], "imports": {}, "workflowSkillAttachments": [] }],
+  "workflow-bundle": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "skillPackages": [] }, { "schemaVersion": 3, "skillPackages": [] }, { "schemaVersion": 4, "skillPackages": [], "imports": {} }, { "schemaVersion": 5, "skillPackages": [], "imports": {} }, { "schemaVersion": 6, "skillPackages": [], "imports": {} }, { "schemaVersion": 7, "skillPackages": [], "imports": {}, "workflowSkillAttachments": [] }, { "schemaVersion": 8, "skillPackages": [], "imports": {}, "workflowSkillAttachments": [] }],
   "learning-progress": [
     {
       "schemaVersion": 1,

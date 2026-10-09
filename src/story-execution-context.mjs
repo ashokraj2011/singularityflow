@@ -2,6 +2,7 @@ import path from 'node:path';
 
 import { parseAgentDependencies } from './agents.mjs';
 import { effectiveLibrarySkills } from './skill-library.mjs';
+import { INSTRUCTION_COMPOSER, retainedInstructionsForSkill } from './instruction-snapshots.mjs';
 import {
   hasRetainedWorkflowSnapshotDraft, verifyWorkflowSnapshot
 } from './workflow-snapshots.mjs';
@@ -184,7 +185,7 @@ function pinnedAttachedSkills(closure, agentId) {
 function parsedSnapshotAgents(closure) {
   const parserProfile = closure.semantics?.agentDocumentParser ?? AGENT_PARSER;
   const composerProfile = closure.semantics?.promptComposer ?? COMPOSER;
-  if (parserProfile !== AGENT_PARSER || ![COMPOSER, 'story-snapshot-agent-v2'].includes(composerProfile)) {
+  if (parserProfile !== AGENT_PARSER || ![COMPOSER, 'story-snapshot-agent-v2', INSTRUCTION_COMPOSER].includes(composerProfile)) {
     fail(
       `Story snapshot requires unsupported execution interpretation '${parserProfile}/${composerProfile}'.`,
       'WFA_RUNTIME_INCOMPATIBLE',
@@ -543,7 +544,9 @@ export async function resolveStoryExecutionContext(root, definition, workflow, {
     blobPath: closure.manifest.assets.find((asset) => asset.logicalId === entry.logicalId).blob.path
   }));
   const dependencies = Object.freeze([...dependenciesForAgent(closure, selectedId, agent), ...workflowSkills]
-    .map((entry) => Object.freeze(entry)));
+    .map(entry => Object.freeze(entry.source === 'library' && entry.inclusion === 'included'
+      ? { ...entry, referencedInstructions: retainedInstructionsForSkill(closure, entry.text, entry.id) }
+      : entry)));
   const identity = Object.freeze({
     mode: 'workflow-snapshot',
     snapshotHash: catalog.snapshotHash,
@@ -552,6 +555,7 @@ export async function resolveStoryExecutionContext(root, definition, workflow, {
     dependencies: Object.freeze(dependencies.filter((entry) => entry.inclusion === 'included')
       .map((entry) => Object.freeze({ logicalId: entry.logicalId, sha256: entry.sha256 }))
       .sort((left, right) => compareText(left.logicalId, right.logicalId))),
+    instructions: Object.freeze([...new Map(dependencies.flatMap(entry => (entry.referencedInstructions ?? []).map(item => [item.id, { logicalId: `instruction:${item.id}`, sha256: `sha256:${item.sha256}` }]))).values()].map(Object.freeze).sort((left, right) => compareText(left.logicalId, right.logicalId))),
     parserProfile: catalog.parserProfile,
     composerProfile: catalog.composerProfile,
     overrideSha256: overrideSha256 == null ? null : hash(overrideSha256, 'Prompt override')

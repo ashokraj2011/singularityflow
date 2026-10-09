@@ -28,6 +28,7 @@ import { importsStatus, readStagedImport, stageImport } from '../src/asset-impor
 import { buildStudioModel, planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA } from '../src/workflow-studio.mjs';
 import { operationCatalog, resolveOperation } from '../src/command-registry.mjs';
 import { captureWorkflowSnapshot } from '../src/workflow-snapshots.mjs';
+import { instructionPath, instructionText, loadInstructionLibrary } from '../src/instruction-library.mjs';
 import { resolveStoryExecutionContext } from '../src/story-execution-context.mjs';
 import { retainedSkillExpansion, selectRetainedSkillInstructions } from '../src/retained-skill-instructions.mjs';
 import { loadAcceptedStoryExecution } from '../src/accepted-story-execution.mjs';
@@ -164,7 +165,7 @@ test('workflow skill import, export and duplication preserve scope and follow id
   ]), { write: true, imports: stagedSkill.imports });
   assert.equal(attached.valid, true, JSON.stringify(attached.problems));
   const bundle = await exportWorkflowBundle(source, ['mobile-release']);
-  assert.equal(bundle.schemaVersion, 7);
+  assert.equal(bundle.schemaVersion, 8);
   assert.deepEqual(bundle.workflowSkillAttachments, [{ workflow: 'mobile-release', id: 'security-review', phases: ['store-submission'], use: 'Before release' }]);
   assert.equal(bundle.assets.find((asset) => asset.kind === 'skill').content, librarySkillText(optionalSkill));
   const target = await repository(t, 'sflow-workflow-skills-import-');
@@ -245,7 +246,7 @@ test('a reviewed v7 replacement removes obsolete workflow skills and preserves u
   // to a historical format that cannot express removing old target-local attachments.
   await planStudioChangeSet(source, changeSet([{ op: 'skill.detach', skill: 'security-review', workflow: 'second-release' }]), { write: true });
   const empty = await exportWorkflowBundle(source, ['second-release']);
-  assert.equal(empty.schemaVersion, 7);
+  assert.equal(empty.schemaVersion, 8);
   assert.deepEqual(empty.workflowSkillAttachments, []);
   const cleared = await planWorkflowImport(target, empty, { resolutions: { 'workflow:second-release': { action: 'replace' } } });
   assert.equal(cleared.status, 'ready', JSON.stringify(cleared.unresolved));
@@ -671,7 +672,8 @@ test('a skill from a link comes into the skill master: a SKILL.md as it is, plai
   assert.equal(record.fileSha256, sha256(written));
 
   // An update of plain Markdown keeps the skill's name and description unless new ones are given.
-  await planStudioChangeSet(root, changeSet([{ op: 'skill.update', id: 'release-notes', label: 'Release notes for people' }]), { write: true });
+  await writeInstruction(root);
+  await planStudioChangeSet(root, changeSet([{ op: 'skill.update', id: 'release-notes', label: 'Release notes for people', instructionRefs: ['web-guide'] }]), { write: true });
   const newer = await staged(root, '# Release notes\n\nWrite them for people. Keep them short.\n', 'https://skills.example.org/notes.md');
   const updated = await planStudioChangeSet(root, changeSet([{ op: 'import.librarySkill', id: 'release-notes', sha256: newer.sha, replace: true }]),
     { write: true, imports: newer.imports });
@@ -679,7 +681,7 @@ test('a skill from a link comes into the skill master: a SKILL.md as it is, plai
   assert.deepEqual(updated.summary, ['Skill Release notes for people updated from https://skills.example.org/notes.md.']);
   assert.equal(await readFile(path.join(root, 'singularity/skill-library/release-notes/SKILL.md'), 'utf8'), librarySkillText({
     id: 'release-notes', label: 'Release notes for people', description: 'Writes release notes. Use it when a release is planned.',
-    instructions: '# Release notes\n\nWrite them for people. Keep them short.'
+    instructions: '# Release notes\n\nWrite them for people. Keep them short.', instructionRefs: ['web-guide']
   }));
 
   // A skill written here is never replaced by an import.
@@ -838,7 +840,7 @@ test('a workflow bundle carries the skills its agents attach, and nothing else f
   await addReleaseWorkflow(source, 'source', { librarySkill: true });
   await writeSkill(source);
   const bundle = await exportWorkflowBundle(source, ['mobile-release']);
-  assert.equal(bundle.schemaVersion, 7);
+  assert.equal(bundle.schemaVersion, 8);
   const skills = bundle.assets.filter((asset) => asset.kind === 'skill');
   assert.deepEqual(skills.map((asset) => [asset.id, asset.path]), [['store-review', LIBRARY_SKILL_PATH]],
     'security-review is in the skill master but no carried agent attaches it');
@@ -964,6 +966,146 @@ test('the VS Code import names a skill conflict as a skill', async () => {
 // The attachments file: any skill, attached to any agent, without changing the agent.
 
 const ATTACHMENTS_PATH = 'singularity/skill-library/attachments.yml';
+
+const WEB_INSTRUCTION = { id: 'web-guide', label: 'Web guide', description: 'Accessible local web changes.', instructions: 'PINNED-WEB-INSTRUCTION: preserve keyboard interaction.' };
+async function writeInstruction(root, item = WEB_INSTRUCTION) {
+  const file = path.join(root, instructionPath(item.id));
+  await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, instructionText(item));
+}
+
+test('Studio instructions are reusable CRUD with explicit reference edits and stale-base protection', async t => {
+  const root = await repository(t, 'sflow-instruction-studio-');
+  const original = await buildStudioModel(root);
+  const created = await planStudioChangeSet(root, changeSet([
+    { op: 'instruction.create', ...WEB_INSTRUCTION },
+    { op: 'skill.create', ...SECURITY_REVIEW, instructionRefs: ['web-guide'] }
+  ]), { write: true });
+  assert.equal(created.valid, true, JSON.stringify(created.problems));
+  const model = await buildStudioModel(root);
+  assert.deepEqual(model.instructions[0].usedBy, ['security-review']);
+  assert.deepEqual(model.skills[0].instructionRefs, ['web-guide']);
+  assert.notEqual(model.base.instructionsSha256, original.base.instructionsSha256);
+  await assert.rejects(planStudioChangeSet(root, { ...changeSet([{ op: 'instruction.update', id: 'web-guide', instructions: 'New.' }]), base: original.base }), error => error.code === 'STUDIO_BASE_CHANGED');
+  const deletion = await planStudioChangeSet(root, changeSet([{ op: 'instruction.remove', id: 'web-guide' }]));
+  assert.equal(deletion.valid, false);
+  assert.ok(deletion.problems.some(item => item.code === 'INSTRUCTION_REFERENCE_MISSING'));
+  const removed = await planStudioChangeSet(root, changeSet([{ op: 'skill.update', id: 'security-review', instructionRefs: [] }, { op: 'instruction.remove', id: 'web-guide' }]), { write: true });
+  assert.equal(removed.valid, true, JSON.stringify(removed.problems));
+  assert.equal((await loadInstructionLibrary(root)).instructions.size, 0);
+});
+
+test('referenced instructions remain scoped to the skill attachments and are injected once', async t => {
+  const root = await seededRepository(t, 'sflow-instruction-scope-');
+  await writeInstruction(root);
+  await writeSkill(root, { ...SECURITY_REVIEW, instructionRefs: ['web-guide'] });
+  await writeAttachments(root, skillAttachmentsText([{ workflow: 'feature', id: 'security-review', phases: ['implementation'], use: 'Check UI changes' }]));
+  const render = (workType, agent = 'developer', phase = 'implementation') => renderAgentSkills(root, { workItem: { id: 'INS-1', workType } }, { id: phase }, { agent });
+  assert.match((await render('feature')).text, /PINNED-WEB-INSTRUCTION/);
+  assert.doesNotMatch((await render('quick-fix')).text, /PINNED-WEB-INSTRUCTION/);
+  assert.doesNotMatch((await render('feature', 'developer', 'verification')).text, /PINNED-WEB-INSTRUCTION/);
+  await attach(root);
+  const both = await render('feature');
+  assert.equal(both.text.split(WEB_INSTRUCTION.instructions).length - 1, 1);
+  assert.match((await render('quick-fix')).text, /PINNED-WEB-INSTRUCTION/);
+});
+
+test('accepted snapshots pin instructions offline and on-demand expansion retains them', async t => {
+  const story = await storyFixture(t);
+  await writeInstruction(story.root);
+  await writeSkill(story.root, { ...SECURITY_REVIEW, loading: 'on-demand', instructionRefs: ['web-guide'] });
+  story.workflow.currentPhase = 'implementation';
+  story.workflow.phases = { implementation: { id: 'implementation', generation: 0, defaultAgent: 'developer' } };
+  story.workflow.workflowSnapshot = await captureWorkflowSnapshot(story.root, story.config, story.workflow);
+  await accept(story);
+  const manifest = JSON.parse(await readFile(path.join(story.root, story.workflow.workflowSnapshot.manifestPath), 'utf8'));
+  assert.equal(manifest.semantics.promptComposer, 'story-snapshot-agent-v3');
+  assert.equal(manifest.assets.filter(item => item.purpose === 'shared-instruction').length, 1);
+  await writeInstruction(story.root, { ...WEB_INSTRUCTION, instructions: 'LIVE-TEXT-MUST-NOT-SUBSTITUTE' });
+  const context = await resolveStoryExecutionContext(story.root, story.config, story.workflow, { agentId: 'developer', phaseId: 'implementation' });
+  assert.equal(context.dependencies.find(item => item.source === 'library').referencedInstructions[0].instructions, WEB_INSTRUCTION.instructions);
+  await rm(path.join(story.root, 'singularity/instruction-library'), { recursive: true });
+  const rendered = await renderAgentSkills(story.root, story.workflow, story.workflow.phases.implementation, { agent: 'developer' }, { executionContext: context });
+  assert.doesNotMatch(rendered.text, /PINNED-WEB-INSTRUCTION/);
+  const result = selectRetainedSkillInstructions(story.workflow, story.workflow.phases.implementation, context, { skillId: 'security-review', workId: 'SEC-1', phaseId: 'implementation', agentId: 'developer', generation: 1, snapshotSha256: context.identity.snapshotHash, expectedSha256: rendered.skills[0].sha256 });
+  assert.match(result.skill.referencedInstructionText, /PINNED-WEB-INSTRUCTION/);
+});
+
+test('workflow bundles carry referenced instructions and independent copies rewrite their identities', async t => {
+  const source = await repository(t, 'sflow-instruction-export-');
+  await addReleaseWorkflow(source, 'source', { librarySkill: true });
+  const file = path.join(source, LIBRARY_SKILL_PATH);
+  const skill = parseLibrarySkill(await readFile(file, 'utf8'));
+  await writeFile(file, librarySkillText({ ...skill, instructionRefs: ['web-guide'] }));
+  await writeInstruction(source);
+  const bundle = await exportWorkflowBundle(source, ['mobile-release']);
+  assert.equal(bundle.schemaVersion, 8);
+  assert.equal(bundle.assets.filter(item => item.kind === 'instruction').length, 1);
+  const missing = resealed({ ...structuredClone(bundle), assets: bundle.assets.filter(item => item.kind !== 'instruction') });
+  await assert.rejects(planWorkflowImport(await repository(t, 'sflow-instruction-missing-'), missing), error => error.code === 'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
+  const older = resealed({ ...structuredClone(bundle), schemaVersion: 7, assets: bundle.assets.filter(item => item.kind !== 'instruction') });
+  await assert.rejects(planWorkflowImport(await repository(t, 'sflow-instruction-old-'), older), error => error.code === 'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');
+  const extraText = instructionText({ ...WEB_INSTRUCTION, id: 'unused-guide' });
+  const extra = resealed({ ...structuredClone(bundle), assets: [...bundle.assets, { kind: 'instruction', id: 'unused-guide', path: instructionPath('unused-guide'), content: extraText, mediaType: 'text/markdown; charset=utf-8', size: Buffer.byteLength(extraText), sha256: `sha256:${sha256(extraText)}` }] });
+  await assert.rejects(planWorkflowImport(await repository(t, 'sflow-instruction-extra-'), extra), error => error.code === 'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
+  const target = await repository(t, 'sflow-instruction-import-');
+  const plan = await planWorkflowImport(target, bundle);
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.unresolved));
+  assert.ok(plan.identities.some(item => item.kind === 'instruction'));
+  await applyWorkflowImport(target, bundle, { expectedPlanSha256: plan.planSha256, resolutions: plan.resolutions });
+  const copied = await planWorkflowCopy(target, { sourceId: 'mobile-release', targetId: 'new-release', label: 'New release', independent: true });
+  assert.equal(copied.status, 'ready', JSON.stringify(copied.unresolved));
+  const instruction = copied.renamed.find(item => item.subject === 'instruction:web-guide');
+  assert.ok(instruction);
+  await copyWorkflow(target, { sourceId: 'mobile-release', targetId: 'new-release', label: 'New release', independent: true, expectedPlanSha256: copied.planSha256, resolutions: copied.resolutions });
+  const reexport = await exportWorkflowBundle(target, ['new-release']);
+  assert.ok(reexport.assets.some(item => item.kind === 'instruction' && item.id === instruction.to));
+  assert.ok(reexport.assets.filter(item => item.kind === 'skill').some(item => parseLibrarySkill(item.content).instructionRefs.includes(instruction.to)));
+  assert.equal((await loadInstructionLibrary(target)).instructions.get('web-guide').instructions, WEB_INSTRUCTION.instructions);
+});
+
+test('instruction commands preview, create, inspect, update and clear exact skill references', async t => {
+  const root = await cliRepository(t);
+  const args = ['instruction', 'create', 'web-guide', '--description', WEB_INSTRUCTION.description, '--instructions', WEB_INSTRUCTION.instructions];
+  const preview = JSON.parse(flow(root, [...args, '--dry-run', '--json']).stdout);
+  assert.equal(preview.effects.filesChanged, false);
+  assert.equal(preview.data.result.valid, true);
+  assert.equal(existsSync(path.join(root, instructionPath('web-guide'))), false);
+  const applied = JSON.parse(flow(root, [...args, '--json']).stdout);
+  assert.equal(applied.effects.filesChanged, true);
+  const list = JSON.parse(flow(root, ['instruction', 'list', '--json']).stdout);
+  assert.deepEqual(list.data.instructions.map(item => item.id), ['web-guide']);
+  const shown = JSON.parse(flow(root, ['instruction', 'show', 'web-guide', '--json']).stdout);
+  assert.equal(shown.data.instruction.instructions, WEB_INSTRUCTION.instructions);
+  flow(root, ['skill', 'create', 'security-review', '--description', SECURITY_REVIEW.description, '--instructions', SECURITY_REVIEW.instructions, '--instruction-refs', 'web-guide', '--json']);
+  assert.deepEqual(parseLibrarySkill(await readFile(path.join(root, SKILL_PATH), 'utf8')).instructionRefs, ['web-guide']);
+  flow(root, ['instruction', 'edit', 'web-guide', '--instructions', 'Updated guidance.', '--json']);
+  assert.equal((await loadInstructionLibrary(root)).instructions.get('web-guide').instructions, 'Updated guidance.');
+  const blocked = JSON.parse(flow(root, ['instruction', 'remove', 'web-guide', '--dry-run', '--json']).stdout);
+  assert.equal(blocked.data.result.valid, false);
+  assert.equal(blocked.effects.filesChanged, false);
+  flow(root, ['skill', 'edit', 'security-review', '--instruction-refs', '', '--json']);
+  assert.deepEqual(parseLibrarySkill(await readFile(path.join(root, SKILL_PATH), 'utf8')).instructionRefs, []);
+  flow(root, ['instruction', 'remove', 'web-guide', '--json']);
+  assert.equal(existsSync(path.join(root, instructionPath('web-guide'))), false);
+});
+
+test('eager instruction audits are exact and tampered checkout blobs never replace accepted bytes', async t => {
+  const story = await storyFixture(t);
+  await writeInstruction(story.root);
+  await writeSkill(story.root, { ...SECURITY_REVIEW, instructionRefs: ['web-guide'] });
+  story.workflow.workflowSnapshot = await captureWorkflowSnapshot(story.root, story.config, story.workflow);
+  await accept(story);
+  const context = await resolveStoryExecutionContext(story.root, story.config, story.workflow, { agentId: 'developer', phaseId: 'implementation' });
+  const rendered = await renderAgentSkills(story.root, story.workflow, { id: 'implementation', generation: 0 }, { agent: 'developer' }, { executionContext: context, record: true, itemDirectory: path.join(story.root, 'singularity/work-items/SEC-1') });
+  assert.equal(rendered.audit.files.filter(item => item.type === 'instruction').length, 1);
+  assert.equal(rendered.audit.files.find(item => item.type === 'instruction').sha256, context.dependencies.find(item => item.source === 'library').referencedInstructions[0].sha256);
+  const manifest = JSON.parse(await readFile(path.join(story.root, story.workflow.workflowSnapshot.manifestPath), 'utf8'));
+  const asset = manifest.assets.find(item => item.purpose === 'shared-instruction');
+  await writeFile(path.join(story.root, asset.blob.path), instructionText({ ...WEB_INSTRUCTION, instructions: 'TAMPERED' }));
+  git(story.root, 'add', asset.blob.path); git(story.root, 'commit', '-q', '-m', 'tampered retained bytes');
+  const retained = await resolveStoryExecutionContext(story.root, story.config, story.workflow, { agentId: 'developer', phaseId: 'implementation' });
+  assert.equal(retained.dependencies.find(item => item.source === 'library').referencedInstructions[0].instructions, WEB_INSTRUCTION.instructions, 'accepted Git bytes remain authoritative; modified checkout blobs never substitute');
+});
 
 async function writeAttachments(root, text) {
   await mkdir(path.join(root, 'singularity/skill-library'), { recursive: true });

@@ -9,6 +9,8 @@ const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge'
 const MODEL_FREE_MIXED_COMMANDS = new Set(['skill', 'init', 'precheck', 'configuration', 'report', 'telemetry', 'doctor', 'review', 'review-source', 'inputs', 'spec', 'visual', 'mcp', 'clarification', 'story', 'session', 'constitution', 'secrets', 'env', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'push', 'integrations', 'next', 'return', 'impact', 'copilot', 'context', 'tokens', 'help-metrics', 'auto', 'adhoc', 'capability', 'repositories', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'candidate', 'execution-unit', 'device', 'authority-store', 'pack', 'learn', 'memory', 'meta-tool', 'comprehension', 'change', 'proof', 'delivery', 'local', 'architecture', 'revision', 'revise', 'explain', 'workflow', 'documents', 'jira', 'prompt-log', 'factory-reset', 'governance', 'phase', 'product', 'decision', 'import', 'imports', 'marketplace']);
 STRUCTURED.add('appeal');
 MODEL_FREE_MIXED_COMMANDS.add('appeal');
+STRUCTURED.add('instruction');
+MODEL_FREE_MIXED_COMMANDS.add('instruction');
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
@@ -82,6 +84,7 @@ const LAZY_MODULES = Object.freeze({
   revision: './commands/revision.mjs',
   revise: './commands/revise.mjs',
   skill: './commands/skill.mjs',
+  instruction: './commands/instruction.mjs',
   // Machine-level like `reinstall`: product surfaces, never a repository or workspace.
   product: './commands/product.mjs'
 });
@@ -124,7 +127,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['candidate'], ['execution-unit'], ['device'], ['authority-store'], ['pack'], ['learn'], ['memory'], ['meta-tool'],
   ['inbox'], ['finalize'], ['status'], ['approvals', ['approval-chain']], ['progress'], ['report'], ['receipt'], ['impact'], ['telemetry'], ['context'], ['tokens'], ['prompt-log'], ['help-metrics'], ['guide'], ['refresh-branch'],
   ['next'], ['run'], ['fault'], ['fix'], ['repair'], ['goal'], ['journal'], ['push'], ['integrations'], ['auto'], ['home', ['cockpit']], ['recommend', ['what-next']], ['logs'], ['doctor'], ['review'], ['review-source'], ['workflow'], ['skill'],
-  ['assign'], ['watch'], ['recover'], ['appeal'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
+  ['instruction'], ['assign'], ['watch'], ['recover'], ['appeal'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
   ['agents'], ['import'], ['imports'], ['marketplace'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['clarification'], ['comprehension'], ['change'], ['proof'], ['delivery'],
   ['approve'], ['reject'], ['decision'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
@@ -448,6 +451,7 @@ const SGOS_SUBCOMMANDS = Object.freeze({
 
 /** Every command whose subcommands a resolver owns, for the guard that keeps these honest. */
 export const RESOLVER_SUBCOMMANDS = Object.freeze({
+  instruction: Object.freeze(['list', 'show', 'create', 'edit', 'remove']),
   pause: Object.freeze(['on', 'off', 'status']),
   decision: DECISION_SUBCOMMANDS,
   import: IMPORT_SUBCOMMANDS,
@@ -1449,6 +1453,12 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
       ? never(`skill.${action}.preview`, definition, 'read')
       : never(`skill.${action}`, definition, 'mutation');
   }
+  if (definition.name === 'instruction') {
+    const action = positionals[1];
+    if (!['list', 'show', 'create', 'edit', 'remove'].includes(action)) return unknownSubcommand('instruction', action, ['list', 'show', 'create', 'edit', 'remove']);
+    return never(`instruction.${action}${!['list', 'show'].includes(action) && optionBoolean(options, 'dry-run') ? '.preview' : ''}`, definition,
+      ['list', 'show'].includes(action) || optionBoolean(options, 'dry-run') ? 'read' : 'mutation');
+  }
   if (definition.name === 'phase') {
     if (positionals[1] === 'enter' && optionBoolean(options, 'compose')) return never('phase.enter.compose', definition, 'mutation');
     return PHASE_READ_SUBCOMMANDS.includes(positionals[1])
@@ -1709,6 +1719,8 @@ export function operationCatalog() {
     never('phase.enter.compose', commandDefinition('phase'), 'mutation'),
     ...PHASE_READ_SUBCOMMANDS.map((name) => never(`phase.${name}`, commandDefinition('phase'), 'read')),
     ...SKILL_READ_SUBCOMMANDS.map((name) => never(`skill.${name}`, commandDefinition('skill'), 'read')),
+    ...['list', 'show'].map(name => never(`instruction.${name}`, commandDefinition('instruction'), 'read')),
+    ...['create', 'edit', 'remove'].flatMap(name => [never(`instruction.${name}.preview`, commandDefinition('instruction'), 'read'), never(`instruction.${name}`, commandDefinition('instruction'), 'mutation')]),
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [
       never(`skill.${name}.preview`, commandDefinition('skill'), 'read'), never(`skill.${name}`, commandDefinition('skill'), 'mutation')
     ]),

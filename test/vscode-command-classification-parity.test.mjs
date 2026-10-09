@@ -5,6 +5,18 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { commandClass } from '../apps/vscode/src/cli/client.ts';
+
+test('reusable instruction reads, previews and edits have exact VS Code operation classification', () => {
+  for (const args of [['instruction', 'list', '--json'], ['instruction', 'show', 'web-guide'], ['instruction', 'create', 'web-guide', '--dry-run'], ['instruction', 'edit', 'web-guide', '--dry-run'], ['instruction', 'remove', 'web-guide', '--dry-run']]) {
+    assert.equal(commandClass(args), 'read', args.join(' '));
+    assert.equal(commandClass(args), resolved(args).classification, args.join(' '));
+  }
+  for (const args of [['instruction', 'create', 'web-guide'], ['instruction', 'edit', 'web-guide'], ['instruction', 'remove', 'web-guide']]) {
+    assert.equal(commandClass(args), 'mutation', args.join(' '));
+    assert.equal(commandClass(args), resolved(args).classification, args.join(' '));
+  }
+  assert.equal(commandClass(['instruction', 'unknown']), 'mutation');
+});
 import { operationCatalog, resolveOperation } from '../src/command-registry.mjs';
 import { parseArgs } from '../src/util.mjs';
 

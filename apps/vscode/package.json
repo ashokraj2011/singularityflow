@@ -57,7 +57,8 @@
           { "name": "attachments", "description": "Preview or inspect private feedback attachment sets" },
           { "name": "revision-checks", "description": "Inspect guarded browser revision-check capabilities without starting a run" },
           { "name": "revise", "description": "Inspect REV status/cards or prepare a separately confirmed Candidate revision" },
-          { "name": "topics", "description": "List reviewed offline help topics" }
+          { "name": "topics", "description": "List reviewed offline help topics" },
+          { "name": "instructions", "description": "List reusable instructions and their skill references, without a model" }
         ]
       }
     ],
@@ -532,6 +533,11 @@
         "command": "singularityFlow.configureTemplates",
         "title": "Singularity Flow: Configure Templates (opens Workflow Studio Artifacts)",
         "icon": "$(file-text)"
+      },
+      {
+        "command": "singularityFlow.openReusableInstructions",
+        "title": "Singularity Flow: Reusable Instructions",
+        "category": "Singularity Flow"
       },
       {
         "command": "singularityFlow.openSkills",

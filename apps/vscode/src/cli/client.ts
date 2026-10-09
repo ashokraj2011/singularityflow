@@ -273,6 +273,10 @@ function cacheableRead(args: string[]): boolean {
 
 export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   if (!args[0]) return 'unknown';
+  if (args[0] === 'instruction') {
+    if (['list', 'show'].includes(args[1] ?? '')) return 'read';
+    return ['create', 'edit', 'remove'].includes(args[1] ?? '') && enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
+  }
   if (args[0] === 'adhoc') return args[1] === 'status' ? 'read' : 'mutation';
   if (args[0] === 'jira') return args[1] === 'status' ? 'read' : 'mutation';
   if (args[0] === 'integrations') return ['list', 'status', 'test'].includes(args[1] ?? 'status') ? 'read' : 'mutation';

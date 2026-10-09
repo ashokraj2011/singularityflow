@@ -1516,6 +1516,12 @@ test('@sflow deterministic commands use bounded CLI reads and unmatched text nev
   assert.equal(modelRead, false);
   assert.equal(registered.terminals.length, 0, 'the participant uses the bounded client, not a terminal');
 
+  const instructions = await invoke({ command: 'instructions', prompt: '' });
+  assert.match(instructions.markdown.join(''), /Reusable instructions/);
+  assert.match(instructions.markdown.join(''), /none applies globally/);
+  assert.match(instructions.markdown.join(''), /0 model calls/);
+  assert.ok(instructions.buttons.some(button => button.title === 'Copy Shell' && button.arguments?.[0] === 'singularity-flow instruction list --json'));
+
   for (const command of ['next', 'status', 'docs']) {
     const response = await invoke({ command, prompt: '' });
     const output = response.markdown.join('');
@@ -5918,6 +5924,9 @@ test('the retired Designer and templates commands open Workflow Studio, which ex
 
   await registered.commands.get('singularityFlow.configureTemplates')();
   assert.deepEqual(panel.sent.at(-1), { type: 'studio.focus', view: 'artifacts' }, 'templates open in Studio\'s Artifacts');
+
+  await registered.commands.get('singularityFlow.openReusableInstructions')();
+  assert.deepEqual(panel.sent.at(-1), { type: 'studio.focus', view: 'instructions' }, 'reusable instructions open in their own catalog, not Agent Designer');
 
   await panel.post({ type: 'studio.exportWorkflows', workflowIds: ['story:feature'] });
   assert.equal(registered.saveDialogs.at(-1)?.title, 'Export portable workflow bundle');

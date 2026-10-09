@@ -1,6 +1,6 @@
 export const WORKFLOW_TRANSFER_BODY = `
 <main><h1>Import or duplicate a workflow</h1>
-<p>Review every agent and skill, then choose unique destination identities. References are rewritten together; existing objects are not overwritten.</p>
+<p>Review every agent, skill and reusable instruction, then choose unique destination identities. References are rewritten together; existing objects are not overwritten.</p>
 <p id="transfer-status" role="status" aria-live="polite">Loading dependencies…</p>
 <div id="transfer-inventory"></div><div id="transfer-identities"></div>
 <h2>Exact plan</h2><pre id="transfer-plan"></pre>
@@ -71,6 +71,9 @@ export const WORKFLOW_TRANSFER_SCRIPT = String.raw`
         agent + '/' + resource.id, resource.url || 'Pinned remote skill']);
     }); });
     inventory.appendChild(table('Skills included', ['Skill', 'Scope', 'Owner / destination', 'Phases', 'Skill destination', 'Purpose / when'], skills));
+    inventory.appendChild(table('Instructions included', ['Instruction', 'Destination', 'Referenced by skills', 'Purpose'], rows.filter(function (row) { return row.kind === 'instruction'; }).map(function (row) {
+      return [row.label || row.sourceId, destination(rows, 'instruction', row.sourceId), (row.usedBy || []).map(function (id) { return destination(rows, 'skill', id); }).join(', '), row.description];
+    })));
   }
   function render() {
     var rows = plan.identities || []; renderInventory(rows);

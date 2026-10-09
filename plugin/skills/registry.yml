@@ -228,6 +228,7 @@ skills:
   sflow-show: { class: echo }
   sflow-show-prompt: { class: echo }
   sflow-skill: { class: conversational, executionBoundary: machine }
+  sflow-instructions: { class: mutation, executionBoundary: repository }
   sflow-snapshot: { class: echo, executionBoundary: repository }
   sflow-spec: { class: mutation, kernelModelPolicy: conditional }
   sflow-stack: { class: mutation, executionBoundary: repository }

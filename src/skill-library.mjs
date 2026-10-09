@@ -22,6 +22,7 @@ import { lstat, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { SingularityFlowError, secureRepositoryPath } from './util.mjs';
+import { instructionReferences, resolveSkillInstructions } from './instruction-library.mjs';
 
 export const SKILL_LIBRARY_ROOT = 'singularity/skill-library';
 export const SKILL_FILE = 'SKILL.md';
@@ -94,6 +95,7 @@ export function parseLibrarySkill(text, { id, source = librarySkillPath(id) } = 
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) fail(`Skill '${name}' metadata must be a map.`);
   const rawLabel = metadata['sflow-label'];
   const loading = metadata['sflow-loading'] ?? 'eager';
+  const instructionRefs = instructionReferences(metadata['sflow-instructions']);
   if (!['eager', 'on-demand'].includes(loading)) fail(`Skill '${name}' sflow-loading must be eager or on-demand.`);
   if (rawLabel != null && (typeof rawLabel !== 'string' || !rawLabel.trim() || rawLabel.length > MAX_LABEL)) {
     fail(`Skill '${name}' has an invalid sflow-label.`);
@@ -101,18 +103,19 @@ export function parseLibrarySkill(text, { id, source = librarySkillPath(id) } = 
   const instructions = body.trim();
   if (!instructions) fail(`Skill '${name}' has no instructions.`);
   return Object.freeze({
-    id: name, label: rawLabel?.trim() ?? defaultSkillLabel(name), description, instructions, loading,
+    id: name, label: rawLabel?.trim() ?? defaultSkillLabel(name), description, instructions, loading, instructionRefs,
     path: librarySkillPath(name), sha256: sha256(text), bytes: Buffer.byteLength(text, 'utf8'), text
   });
 }
 
 /** The SKILL.md text for a skill written in Workflow Studio or by `skill create`. */
-export function librarySkillText({ id, label = null, description, instructions, loading = 'eager' }) {
+export function librarySkillText({ id, label = null, description, instructions, loading = 'eager', instructionRefs = [] }) {
   if (!ID.test(String(id ?? ''))) fail('A skill ID must be lower-case kebab-case.');
   const front = { name: id, description: String(description ?? '').replace(/\s+/g, ' ').trim() };
   const name = String(label ?? '').trim();
   if (name && name !== defaultSkillLabel(id)) front.metadata = { 'sflow-label': name };
   if (loading !== 'eager') front.metadata = { ...front.metadata, 'sflow-loading': loading };
+  if (instructionReferences(instructionRefs).length) front.metadata = { ...front.metadata, 'sflow-instructions': [...instructionRefs] };
   const text = `---\n${YAML.stringify(front, { lineWidth: 0 })}---\n\n${String(instructions ?? '').trim()}\n`;
   parseLibrarySkill(text, { id });
   return text;
@@ -252,7 +255,9 @@ export async function assertAttachedLibrarySkills(configRoot, agents, definition
   }
   const problems = new Map();
   for (const attachment of attachments.filter((entry) => entry.workflow)) {
-    if (!await readLibrarySkill(configRoot, attachment.id)) fail(`Workflow '${attachment.workflow}' attaches missing skill '${attachment.id}'.`, 'SKILL_LIBRARY_MISSING');
+    const skill = await readLibrarySkill(configRoot, attachment.id);
+    if (!skill) fail(`Workflow '${attachment.workflow}' attaches missing skill '${attachment.id}'.`, 'SKILL_LIBRARY_MISSING');
+    await resolveSkillInstructions(configRoot, skill);
   }
   for (const agent of agents) {
     for (const attachment of effectiveLibrarySkills(agent)) {
@@ -264,7 +269,11 @@ export async function assertAttachedLibrarySkills(configRoot, agents, definition
           && !(agent.attachedSkills ?? []).some((entry) => entry.id === attachment.id)) continue;
       if (!problems.has(attachment.id)) {
         problems.set(attachment.id, await readLibrarySkill(configRoot, attachment.id)
-          .then((skill) => (skill ? null : `it is not in the skill master (${librarySkillPath(attachment.id)})`), (error) => error.message));
+          .then(async skill => {
+            if (!skill) return `it is not in the skill master (${librarySkillPath(attachment.id)})`;
+            await resolveSkillInstructions(configRoot, skill);
+            return null;
+          }).catch(error => error.message));
       }
       const problem = problems.get(attachment.id);
       if (problem) {
@@ -320,6 +329,7 @@ export function renderLibrarySkills(agentId, entries, { expansions = new Map() }
     entry.description ? `${entry.description}` : null,
     entry.scopes?.length ? `\nApplies through: ${entry.scopes.join('; ')}.` : null,
     entry.use ? `\nWhen to use it: ${entry.use}` : null,
+    entry.instructionRefs?.length ? `\nReferenced instructions: ${entry.instructionRefs.join(', ')} (retained with this skill).` : null,
     '',
     expansions.has(entry.id)
       ? `Optional procedure; instructions retained, not loaded. Retrieve before applying:\n\n${expansions.get(entry.id)}`

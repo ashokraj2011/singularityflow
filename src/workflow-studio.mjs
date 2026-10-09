@@ -24,6 +24,11 @@ import {
   SKILL_ATTACHMENTS_PATH, effectiveLibrarySkills, librarySkillPath, librarySkillText, loadSkillLibrary, normalizeSkillUse,
   parseLibrarySkill, readSkillAttachments, skillAttachmentsText, withoutAttachedSkills
 } from './skill-library.mjs';
+import { instructionPath, instructionText, parseInstruction, loadInstructionLibrary } from './instruction-library.mjs';
+
+function instructionCatalogHash(catalog) {
+  return sha256(JSON.stringify({ entries: [...catalog.instructions].map(([id, item]) => [id, item.sha256]), problems: catalog.problems }));
+}
 import { AGENT_CLARIFICATION_GUIDANCE, REPOSITORY_AGENT_BOUNDARY } from './agent-guidance.mjs';
 import {
   IMPORTS_LOCK_PATH, importLedgerKey, importedTemplateRelative, inspectImportContent, ledgerEntry,
@@ -47,7 +52,7 @@ import { dropRetiredWorldModelReferences, worldModelViewCatalog, WORLD_MODEL_VIE
 import { KNOWLEDGE_READER_RULES, knowledgePromptPolicy } from './knowledge/render.mjs';
 import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
-import { SingularityFlowError, posix } from './util.mjs';
+import { SingularityFlowError, posix, secureRepositoryPath } from './util.mjs';
 import { lineOperations, preserveYamlFormatting, renderPreservingFormatting } from './yaml-formatting.mjs';
 
 export { preserveYamlFormatting };
@@ -389,6 +394,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
   const retiredViews = [...new Set(dropRetiredWorldModelReferences(current).filter((entry) => !entry.source.startsWith('worldModel.format') && !entry.source.startsWith('worldModel.v4')).map((entry) => entry.value))];
   const discovered = (await discoverAgents(root)).filter((agent) => agent.scope !== 'plugin');
   const library = await loadSkillLibrary(configRoot);
+  const instructionLibrary = await loadInstructionLibrary(configRoot);
   const attachmentsText = await readFile(path.join(configRoot, SKILL_ATTACHMENTS_PATH), 'utf8').catch(() => null);
   const workflowAttachments = (await readSkillAttachments(configRoot)).filter((entry) => entry.workflow);
   const security = normalizeApprovalSecurity(raw.approvalSecurity ?? {});
@@ -461,6 +467,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       workflowSha256: sha256(definitionText),
       agentsSha256: agentsSha256(discovered),
       attachmentsSha256: sha256(attachmentsText ?? ''),
+      instructionsSha256: instructionCatalogHash(instructionLibrary),
       ...(portfolioText != null ? { portfolioSha256: sha256(portfolioText) } : {})
     },
     problems,
@@ -507,12 +514,19 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     imports: await importsStatus(root).catch((error) => { problems.push({ code: error?.code ?? 'IMPORTS_LOCK_INVALID', message: error.message }); return []; }),
     skills: [...library.skills.values()].map((skill) => ({
       id: skill.id, label: skill.label, description: skill.description, instructions: skill.instructions, loading: skill.loading, path: skill.path,
+      instructionRefs: [...skill.instructionRefs],
       usedBy: discovered.flatMap((agent) => skillUses(agent).filter((entry) => entry.id === skill.id)
         .map((entry) => ({ agent: agent.id, phases: entry.phases, use: entry.use, origin: entry.origin })))
         .concat(workflowAttachments.filter((entry) => entry.id === skill.id)
           .map((entry) => ({ workflow: entry.workflow, phases: [...entry.phases], use: entry.use, origin: 'attachments' })))
     })),
     skillProblems: library.problems,
+    instructions: [...instructionLibrary.instructions.values()].map(item => ({
+      id: item.id, label: item.label, description: item.description, instructions: item.instructions,
+      path: item.path, sha256: item.sha256,
+      usedBy: [...library.skills.values()].filter(skill => skill.instructionRefs.includes(item.id)).map(skill => skill.id)
+    })),
+    instructionProblems: instructionLibrary.problems,
     skillAttachmentsPath: SKILL_ATTACHMENTS_PATH,
     mcpSources: await importableMcpServers(root).catch(() => []),
     blueprintPhases: Object.fromEntries(Object.entries(starter.phases).filter(([id]) => !phases[id]).map(([id, phase]) => {
@@ -632,6 +646,7 @@ const RANK = Object.freeze({
   'phase.create': 4, 'workflow.create': 4.5, 'phase.update': 5, 'workflow.update': 7, 'artifactSet.remove': 11.6,
   'epicStep.create': 4.2, 'epicWorkflow.create': 4.7, 'epicStep.update': 5.2, 'epicOutput.set': 5.3, 'epicOutput.remove': 5.4, 'epicWorkflow.update': 7.2,
   'skill.create': 2.2, 'import.librarySkill': 2.3, 'skill.update': 2.4,
+  'instruction.create': 2.05, 'instruction.update': 2.1, 'instruction.remove': 11.2,
   'phase.agent': 8, 'agent.update': 9, 'skill.attach': 9.5, 'skill.detach': 9.5,
   'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11, 'skill.remove': 11.1,
   'integration.target.remove': 11.5
@@ -708,6 +723,8 @@ class StudioCandidate {
     // The skill master: skills by ID, and the SKILL.md files this change set writes (null removes one).
     this.skills = new Map(sources.library?.skills ?? []);
     this.skillFiles = new Map();
+    this.instructions = new Map(sources.instructions?.instructions ?? []);
+    this.instructionFiles = new Map();
     // Skills attached in the attachments file, and the agents a framework workflow keeps read-only:
     // a skill attaches to those there, so the agent and its workflow stay as they shipped.
     this.attachments = [...(sources.attachments ?? [])];
@@ -884,6 +901,9 @@ class StudioCandidate {
       case 'import.remove': return this.removeImport(change);
       case 'import.librarySkill': return this.importLibrarySkill(change);
       case 'skill.create': return this.createSkill(change);
+      case 'instruction.create': return this.writeInstruction(change, true);
+      case 'instruction.update': return this.writeInstruction(change, false);
+      case 'instruction.remove': return this.removeInstruction(change);
       case 'skill.update': return this.updateSkill(change);
       case 'skill.remove': return this.removeSkill(change);
       case 'skill.attach': return this.attachSkill(change);
@@ -941,26 +961,27 @@ class StudioCandidate {
     this.attachmentsChanged = true;
   }
 
-  writeSkill(skillId, { label, description, instructions, loading }) {
-    const text = librarySkillText({ id: skillId, label, description, instructions, loading });
+  writeSkill(skillId, { label, description, instructions, loading, instructionRefs }) {
+    const text = librarySkillText({ id: skillId, label, description, instructions, loading, instructionRefs });
     const skill = parseLibrarySkill(text, { id: skillId });
     this.skills.set(skillId, skill);
     this.skillFiles.set(librarySkillPath(skillId), text);
     return skill;
   }
 
-  createSkill({ id, label, description, instructions, loading }) {
+  createSkill({ id, label, description, instructions, loading, instructionRefs }) {
     const skillId = requireId(id, 'A skill ID');
     if (this.skills.has(skillId)) throw new SingularityFlowError(`The skill master already has a skill called '${skillId}'.`, { code: 'STUDIO_SKILL_EXISTS' });
-    const skill = this.writeSkill(skillId, { label, description, instructions, loading });
+    const skill = this.writeSkill(skillId, { label, description, instructions, loading, instructionRefs });
     this.summary.push(`New skill ${skill.label} in the skill master.`);
   }
 
-  updateSkill({ id, label, description, instructions, loading }) {
+  updateSkill({ id, label, description, instructions, loading, instructionRefs }) {
     const current = this.requireSkill(id);
     const skill = this.writeSkill(current.id, {
       label: label ?? current.label, description: description ?? current.description,
-      instructions: instructions ?? current.instructions, loading: loading ?? current.loading
+      instructions: instructions ?? current.instructions, loading: loading ?? current.loading,
+      instructionRefs: instructionRefs ?? current.instructionRefs
     });
     // The agents that use the new text are known once every change is applied.
     this.updatedSkills.set(skill.id, this.summary.push(`Skill ${skill.label} updated.`) - 1);
@@ -984,6 +1005,27 @@ class StudioCandidate {
     this.skillFiles.set(librarySkillPath(skill.id), null);
     this.forgetImport(`library-skill:${skill.id}`);
     this.summary.push(`Skill ${skill.label} removed from the skill master${detached.length ? ` and from ${detached.join(', ')}` : ''}.`);
+  }
+
+  async writeInstruction(change, create) {
+    const id = requireId(change.id, 'An instruction ID');
+    const current = this.instructions.get(id);
+    if (create === Boolean(current)) throw new SingularityFlowError(create
+      ? `Instruction '${id}' already exists.` : `Instruction '${id}' does not exist.`, { code: 'STUDIO_INSTRUCTION_ID_INVALID' });
+    const destination = await secureRepositoryPath(this.sources.configRoot, instructionPath(id), { label: `Instruction '${id}'`, type: 'file' });
+    if (create && destination.exists) throw new SingularityFlowError(`Instruction '${id}' has an existing file that must be repaired, not overwritten as a new definition.`, { code: 'STUDIO_INSTRUCTION_ID_INVALID' });
+    const text = instructionText({ ...current, ...change, id });
+    const item = parseInstruction(text, { id });
+    this.instructions.set(id, item); this.instructionFiles.set(instructionPath(id), text);
+    this.summary.push(`${create ? 'New' : 'Updated'} reusable instruction ${item.label}; only referencing skills use it in new Stories.`);
+  }
+
+  removeInstruction({ id }) {
+    if (!this.instructions.has(id)) throw new SingularityFlowError(`Instruction '${id}' does not exist.`, { code: 'STUDIO_INSTRUCTION_ID_INVALID' });
+    // References are validated after all operations, allowing an explicit skill edit and removal
+    // in one atomic change set. Never silently detach an instruction from its owners.
+    this.instructions.delete(id); this.instructionFiles.set(instructionPath(id), null);
+    this.summary.push(`Removed reusable instruction ${id}.`);
   }
 
   attachSkill({ skill: skillId, agent: agentId, workflow: workflowId, phases = [], use = '' }) {
@@ -1074,7 +1116,7 @@ class StudioCandidate {
       const current = replace ? this.skills.get(skillId) : null;
       const what = String(description ?? current?.description ?? '').replace(/\s+/g, ' ').trim();
       if (!what) throw new SingularityFlowError('This file is plain Markdown, so the skill needs a description of what it does and when to use it (--description on the command line).', { code: 'STUDIO_SKILL_INVALID' });
-      text = librarySkillText({ id: skillId, label: current?.label ?? null, description: what, instructions: staged.text, loading: current?.loading });
+      text = librarySkillText({ id: skillId, label: current?.label ?? null, description: what, instructions: staged.text, loading: current?.loading, instructionRefs: current?.instructionRefs });
       skill = parseLibrarySkill(text, { id: skillId });
       extra = { transforms: ['wrapped-as-skill'], fileSha256: sha256Of(Buffer.from(text, 'utf8')) };
     }
@@ -2439,6 +2481,10 @@ class StudioCandidate {
 
   /** Pin planned claims, trim agents to existing steps, and check every step has one agent. */
   finalize(problems) {
+    for (const skill of this.skills.values()) for (const id of skill.instructionRefs ?? []) {
+      if (!this.instructions.has(id)) problems.push({ code: 'INSTRUCTION_REFERENCE_MISSING',
+        message: `Skill '${skill.id}' references missing instruction '${id}'. Remove its reference explicitly or create the instruction in this change set.`, subject: { kind: 'skill', id: skill.id } });
+    }
     this.rewireCopies();
     for (const [skillId, index] of this.updatedSkills) {
       const skill = this.skills.get(skillId);
@@ -2495,7 +2541,7 @@ class StudioCandidate {
       const before = content?.replace ? await readFile(path.join(this.sources.configRoot, relative), 'utf8').catch(() => null) : null;
       files.push({ path: relative, before, after });
     }
-    for (const [relative, text] of this.skillFiles) {
+    for (const [relative, text] of [...this.skillFiles, ...this.instructionFiles]) {
       const before = await readFile(path.join(this.sources.configRoot, relative), 'utf8').catch(() => null);
       if (text == null && before == null) continue;
       files.push({ path: relative, before, after: text });
@@ -2691,6 +2737,7 @@ async function loadSources(root, options = {}) {
     root, configRoot, definitionText, raw, definition, agents, bundledAgents: await bundledAgents(),
     ledger: await loadImportsLedger(configRoot), ledgerText, agentLock, agentLockText,
     library: await loadSkillLibrary(configRoot),
+    instructions: await loadInstructionLibrary(configRoot),
     agentShas: new Map(agents.map((agent) => [agent.id, agent.sha256])),
     imports: options.imports ?? new Map(),
     templatesRoot: posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates'),
@@ -2752,13 +2799,16 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
       code: 'STUDIO_BASE_CHANGED', details: { expected: expectedAttachments, actual: actualAttachments }
     });
   }
+  if (changeSet.base?.instructionsSha256 && changeSet.base.instructionsSha256 !== instructionCatalogHash(sources.instructions)) {
+    throw new SingularityFlowError('Reusable instructions changed since Studio loaded. Reload and review the newer definitions.', { code: 'STUDIO_BASE_CHANGED' });
+  }
   const changes = orderChanges(changeSet.changes);
   const candidate = new StudioCandidate(sources, finalWorkflowPhases(sources, changes));
   const problems = [];
   candidate.expect(changes);
   candidate.fastPathProfile = (await import('./fast-path.mjs')).fastPathProfile;
   for (const change of changes) {
-    try { candidate.apply(change); }
+    try { await candidate.apply(change); }
     catch (error) {
       const subjectId = change?.id ?? change?.phase ?? null;
       problems.push({ code: error?.code ?? 'STUDIO_CHANGE_INVALID', message: error.message, change: change?.op ?? null, ...(subjectId ? { subject: { kind: String(change?.op ?? '').split('.')[0], id: subjectId } } : {}) });

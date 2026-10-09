@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "bae053c921ff6ea5d697140ca9afe195ec79cbda",
-  "topicCount": 81,
-  "contentSha256": "85e3a11b7e0800fb249f361b307353eab264d31100dca76df6f708a26848b419",
+  "sourceCommit": "3b29a68531912e8627b809eeb19c61f089495122",
+  "topicCount": 82,
+  "contentSha256": "092234b2931fa718f24fe03ef9cffee781d0f9be68b8c738de78fd0aac64ad7a",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -476,6 +476,14 @@
       "sha256": "5650b57cc96ac08bf99cab5063722cd9bc5c795c8181425dc2363f0a5edb894b",
       "routingSha256": "6a466026dd470566f0b40ffddd76705c52ba2bf2968c4d8c0b282e5f60b0b3e4",
       "file": "resets-and-cleanup.md"
+    },
+    {
+      "id": "reusable-instructions",
+      "title": "Reusable instructions referenced by skills",
+      "version": 1,
+      "sha256": "a3725943992992c76933f60fef14d0fff89b98cca839d598c88afc1f12c59d88",
+      "routingSha256": "819508e7d86f0c94478e4e14ff69d396888fe9a2769c18b780d25b0d43747622",
+      "file": "reusable-instructions.md"
     },
     {
       "id": "revision-feedback-attachments",

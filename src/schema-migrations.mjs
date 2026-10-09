@@ -2335,7 +2335,7 @@ const families = [
   // Portable workflow bundles are immutable, digest-bound configuration transfer records. They
   // deliberately have no repository path because contributors choose an external export path.
   family({
-    id: 'workflow-bundle', currentVersion: 7, immutable: true,
+    id: 'workflow-bundle', currentVersion: 8, immutable: true,
     // Historical v1/v2 bundle bytes and bundleSha256 keep their stored identity. Read-side
     // projections cannot manufacture retained packages, approval provenance, or v3's strict
     // dependency closure; the bundle reader applies the contract of the stored version. v4 adds
@@ -2351,7 +2351,8 @@ const families = [
       migration(3, 4, (source) => ({ ...clone(source), schemaVersion: 4, imports: {} })),
       migration(4, 5, (source) => ({ ...clone(source), schemaVersion: 5 })),
       migration(5, 6, (source) => ({ ...clone(source), schemaVersion: 6 })),
-      migration(6, 7, (source) => ({ ...clone(source), schemaVersion: 7, workflowSkillAttachments: [] }))
+      migration(6, 7, (source) => ({ ...clone(source), schemaVersion: 7, workflowSkillAttachments: [] })),
+      migration(7, 8, (source) => ({ ...clone(source), schemaVersion: 8 }))
     ]
   }),
   family({

@@ -276,7 +276,7 @@ body:has(#studio-root) .page-nav .link,body:has(#studio-root) .page-nav .nav-cur
 export const PROPOSAL_BRANCH = /^sflow\/config-change\/[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/;
 const MAX_LISTED_PROPOSALS = 100;
 /** The sections the page can be opened at, for screens that send a person to one. */
-export const STUDIO_FOCUS_VIEWS = Object.freeze(['home', 'agents', 'skills', 'artifacts', 'library', 'people', 'integrations', 'changes'] as const);
+export const STUDIO_FOCUS_VIEWS = Object.freeze(['home', 'agents', 'skills', 'instructions', 'artifacts', 'library', 'people', 'integrations', 'changes'] as const);
 export type StudioFocusView = typeof STUDIO_FOCUS_VIEWS[number];
 
 /** A configuration proposal as the Changes view lists it: names and counts, never file content. */
@@ -321,7 +321,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   // ---- The draft and the change set ---------------------------------------------------------
 
   function initialDraft(model) {
-    var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, integrations: {}, order: [], imports: [], templates: {}, artifactSets: {}, skills: {} };
+    var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, integrations: {}, order: [], imports: [], templates: {}, artifactSets: {}, skills: {}, instructions: {} };
     (model.workflows || []).forEach(function (workflow) {
       draft.order.push(workflow.id);
       draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null, readOnly: Boolean(workflow.readOnly),
@@ -350,8 +350,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     });
     // The skill master: named instructions attached at workflow or agent scope.
     (model.skills || []).forEach(function (skill) {
-      draft.skills[skill.id] = { id: skill.id, label: skill.label, description: skill.description, instructions: skill.instructions, loading: skill.loading || 'eager', isNew: false };
+      draft.skills[skill.id] = { id: skill.id, label: skill.label, description: skill.description, instructions: skill.instructions, instructionRefs: clone(skill.instructionRefs || []), loading: skill.loading || 'eager', isNew: false };
     });
+    (model.instructions || []).forEach(function (item) { draft.instructions[item.id] = { id: item.id, label: item.label, description: item.description, instructions: item.instructions, isNew: false }; });
     (model.groups || []).forEach(function (group) {
       draft.groups[group.id] = { id: group.id, label: group.label, members: clone(group.members || []), status: group.status, isNew: false };
     });
@@ -385,6 +386,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   /** A kept draft from an older Studio may lack collections added since; they start from the configuration. */
   function withDraftDefaults(draft) {
     var fresh = initialDraft(state.model);
+    if (!draft.instructions) draft.instructions = clone(fresh.instructions);
+    Object.keys(draft.skills || {}).forEach(function (id) { if (draft.skills[id].instructionRefs === undefined) draft.skills[id].instructionRefs = fresh.skills[id] ? clone(fresh.skills[id].instructionRefs) : []; });
     Object.keys(fresh).forEach(function (key) { if (draft[key] === undefined) draft[key] = fresh[key]; });
     // A draft saved before agents listed their skills keeps the skills they have, not none.
     Object.keys(draft.agents || {}).forEach(function (id) {
@@ -524,17 +527,28 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       ['tools', 'views'].forEach(function (key) { if (!same(before[key], agent[key])) patch[key] = agent[key]; });
       if (Object.keys(patch).length > 2) changes.push(patch);
     });
+    var instructionsNow = draft.instructions || {};
+    Object.keys(instructionsNow).sort().forEach(function (id) {
+      var item = instructionsNow[id]; var prior = base.instructions[id];
+      if (!prior) { changes.push({ op: 'instruction.create', id: id, label: item.label, description: item.description, instructions: item.instructions }); return; }
+      var edit = { op: 'instruction.update', id: id };
+      ['label', 'description', 'instructions'].forEach(function (key) { if (prior[key] !== item[key]) edit[key] = item[key]; });
+      if (Object.keys(edit).length > 2) changes.push(edit);
+    });
+    Object.keys(base.instructions).sort().forEach(function (id) { if (!instructionsNow[id]) changes.push({ op: 'instruction.remove', id: id }); });
     var skillsNow = draft.skills || {};
     Object.keys(skillsNow).sort().forEach(function (id) {
       var skill = skillsNow[id]; var prior = base.skills[id];
       if (!prior) {
         var createdSkill = { op: 'skill.create', id: id, label: skill.label, description: skill.description, instructions: skill.instructions };
         if (skill.loading === 'on-demand') createdSkill.loading = skill.loading;
+        if ((skill.instructionRefs || []).length) createdSkill.instructionRefs = clone(skill.instructionRefs);
         changes.push(createdSkill); return;
       }
       var edit = { op: 'skill.update', id: id };
       ['label', 'description', 'instructions'].forEach(function (key) { if (prior[key] !== skill[key]) edit[key] = skill[key]; });
       if ((prior.loading || 'eager') !== (skill.loading || 'eager')) edit.loading = skill.loading || 'eager';
+      if (!same(prior.instructionRefs || [], skill.instructionRefs || [])) edit.instructionRefs = clone(skill.instructionRefs || []);
       if (Object.keys(edit).length > 2) changes.push(edit);
     });
     Object.keys(base.skills).sort().forEach(function (id) { if (!skillsNow[id]) changes.push({ op: 'skill.remove', id: id }); });
@@ -765,6 +779,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       case 'epicOutput.remove': return epicStepName(change.step) + ': output ' + change.id + ' removed';
       case 'agent.create': return 'New agent ' + change.label;
       case 'agent.update': return 'Agent ' + agentName(change.id) + ' changed';
+      case 'instruction.create': return 'New reusable instruction ' + (change.label || change.id);
+      case 'instruction.update': return 'Reusable instruction ' + change.id + ' changed';
+      case 'instruction.remove': return 'Delete reusable instruction ' + change.id;
       case 'skill.create': return 'New skill ' + (change.label || change.id) + ' in the skill master';
       case 'skill.update': return 'Skill ' + skillName(change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', description: 'description', instructions: 'instructions' }[key] || key; }).join(', ') + ' changed';
       case 'skill.remove': return 'Delete skill ' + skillName(change.id) + ' from the skill master';
@@ -1135,6 +1152,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       item('home', 'Workflows', 'flow', Object.keys(state.draft.workflows).length, false),
       item('agents', 'Agents', 'agent', Object.keys(state.draft.agents).length, false),
       item('skills', 'Skill master', 'spark', Object.keys(state.draft.skills || {}).length || null, false),
+      item('instructions', 'Instructions', 'book', Object.keys(state.draft.instructions || {}).length || null, false),
       item('artifacts', 'Artifacts', 'doc', null, false),
       item('library', 'Library', 'book', (state.model.imports || []).length || null, false),
       item('people', 'People & approvals', 'people', blocked || null, blocked > 0),
@@ -4644,6 +4662,38 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     ];
   }
 
+  function renderInstructions(main) {
+    var items = state.draft.instructions || {};
+    main.appendChild(el('h1', { text: 'Instructions' }));
+    main.appendChild(el('p', { class: 'studio-lede', text: 'Reusable Markdown guidance, referenced explicitly by skills. Not global Copilot instructions; these cannot change approval authority or workflow gates. Changes are reviewed configuration proposals and running Stories retain their exact snapshot.' }));
+    function openForm(id) { var item = id ? items[id] : null; state.instructionForm = { id: id || null, label: item ? item.label : '', description: item ? item.description : '', instructions: item ? item.instructions : '' }; render(); }
+    main.appendChild(button('Create instruction', function () { openForm(null); }, { class: 'primary' }));
+    var form = state.instructionForm;
+    if (form) {
+      var card = el('section', { class: 'studio-card' }, el('h2', { text: form.id ? 'Edit ' + form.id : 'New instruction' }));
+      card.appendChild(field('instruction-label', 'Name', textInput('instruction-label', form.label, function (value) { form.label = value; }), form.id || 'A unique lower-case ID is made from the name.'));
+      card.appendChild(field('instruction-description', 'Purpose', textInput('instruction-description', form.description, function (value) { form.description = value; })));
+      card.appendChild(field('instruction-body', 'Instructions (Markdown)', el('textarea', { id: 'instruction-body', rows: 10, onchange: function (event) { form.instructions = event.target.value; } }, form.instructions)));
+      card.appendChild(el('div', { class: 'studio-row' }, button('Keep changes', function () {
+        var id = form.id || kebab(form.label);
+        if (!id || !form.label.trim() || !form.description.trim() || !form.instructions.trim()) { setStatus('Provide a name, purpose and instruction text.'); return; }
+        if (!form.id && items[id]) { setStatus('Instruction ' + id + ' already exists. Choose another name.'); return; }
+        items[id] = { id: id, label: form.label.trim(), description: form.description.trim(), instructions: form.instructions.trim(), isNew: form.id ? items[id].isNew : true };
+        state.instructionForm = null; changed(); render();
+      }, { class: 'primary' }), button('Cancel', function () { state.instructionForm = null; render(); }, { class: 'secondary' })));
+      main.appendChild(card);
+    }
+    Object.keys(items).sort().forEach(function (id) {
+      var item = items[id]; var users = Object.keys(state.draft.skills || {}).filter(function (skill) { return (state.draft.skills[skill].instructionRefs || []).indexOf(id) >= 0; });
+      main.appendChild(el('article', { class: 'studio-card' }, el('h2', { text: item.label }), el('span', { class: 'pill', text: id }), el('p', { text: item.description }),
+        el('p', { class: 'hint', text: 'Used by skills: ' + (users.join(', ') || 'none') }),
+        el('details', null, el('summary', { text: 'View instruction text' }), el('pre', { text: item.instructions })),
+        el('div', { class: 'studio-row' }, button('Edit', function () { openForm(id); }, { class: 'secondary' }),
+          button('Delete', function () { if (users.length) { setStatus('Remove ' + id + ' from skills first: ' + users.join(', ')); return; } delete items[id]; changed(); render(); }, { class: 'secondary', disabled: users.length > 0 }))));
+    });
+    (state.model.instructionProblems || []).forEach(function (problem) { main.appendChild(el('p', { class: 'error', text: problem.message || String(problem) })); });
+  }
+
   function renderSkills(main) {
     var view = skillsView();
     backLink(main);
@@ -4697,6 +4747,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return el('article', { class: 'studio-card', 'aria-label': 'Skill ' + skill.label },
       el('div', { class: 'studio-row spread' }, el('strong', { text: skill.label }), el('span', { class: 'pill' + (skill.isNew ? ' new' : ''), title: id, text: skill.isNew ? 'NEW' : id })),
       el('span', { class: 'muted', text: skill.description }),
+      el('span', { class: 'hint', text: 'Reusable instructions: ' + ((skill.instructionRefs || []).join(', ') || 'none') }),
       renderSkillUsers(id),
       el('div', { class: 'studio-row' },
         button('Attach to an agent', function () { openAttachForm(id, null); }, { class: 'secondary', 'aria-label': 'Attach ' + skill.label + ' to an agent' }),
@@ -4708,7 +4759,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (id && protectedObject('skills', id)) { setStatus('Seeded skill: duplicate the workflow before editing its copy.'); return; }
     var skill = id ? state.draft.skills[id] : null;
     var view = skillsView();
-    view.form = { mode: id ? 'edit' : 'create', id: id, label: skill ? skill.label : '', description: skill ? skill.description : '', instructions: skill ? skill.instructions : '', loading: skill ? skill.loading || 'eager' : 'eager', attachTo: attachTo || null };
+    view.form = { mode: id ? 'edit' : 'create', id: id, label: skill ? skill.label : '', description: skill ? skill.description : '', instructions: skill ? skill.instructions : '', instructionRefs: skill ? clone(skill.instructionRefs || []) : [], loading: skill ? skill.loading || 'eager' : 'eager', attachTo: attachTo || null };
     if (attachTo) state.returnTo = boardReturn();
     view.attach = null; state.view = 'skills'; render();
   }
@@ -4732,6 +4783,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       field('skill-description', 'What it does and when to use it', textInput('skill-description', form.description, function (value) { form.description = value; }, { placeholder: 'Checks a change for common security mistakes before it is published.' }))));
     card.appendChild(field('skill-instructions', 'Instructions', el('textarea', { id: 'skill-instructions', 'data-key': 'skill-instructions', rows: 12, onchange: function (event) { form.instructions = event.target.value; } }, form.instructions || ''),
       'What the agent does when it uses this skill, step by step. Markdown.'));
+    var refs = el('fieldset', { class: 'studio-card' }, el('legend', { text: 'Reusable instructions' }), el('p', { class: 'hint', text: 'Only selected instructions follow this skill. Edit definitions in Instructions. Running Stories keep their pinned bytes.' }));
+    Array.from(new Set(Object.keys(state.draft.instructions || {}).concat(form.instructionRefs))).sort().forEach(function (ref) {
+      refs.appendChild(el('label', { class: 'studio-row' }, el('input', { type: 'checkbox', checked: form.instructionRefs.indexOf(ref) >= 0, onchange: function (event) { form.instructionRefs = form.instructionRefs.filter(function (id) { return id !== ref; }); if (event.target.checked) form.instructionRefs.push(ref); } }), (state.draft.instructions[ref] ? state.draft.instructions[ref].label : 'Missing definition — create it or deselect') + ' (' + ref + ')'));
+    });
+    if (!Object.keys(state.draft.instructions || {}).length) refs.appendChild(el('span', { class: 'hint', text: 'No reusable instructions yet. Create one in Instructions first.' }));
+    card.appendChild(refs);
     card.appendChild(field('skill-loading', 'Prompt loading', select('skill-loading', [
       { value: 'eager', label: 'Eager — instructions in every applicable prompt' },
       { value: 'on-demand', label: 'On demand — optional self-contained procedure' }
@@ -4754,7 +4811,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (!description) { setStatus('Say what the skill does and when to use it.'); return; }
     if (!instructions) { setStatus('Write the instructions the agent follows.'); return; }
     var existing = state.draft.skills[id];
-    state.draft.skills[id] = { id: id, label: label, description: description, instructions: instructions, loading: form.loading || 'eager', isNew: existing ? existing.isNew : true };
+    state.draft.skills[id] = { id: id, label: label, description: description, instructions: instructions, instructionRefs: clone(form.instructionRefs || []), loading: form.loading || 'eager', isNew: existing ? existing.isNew : true };
     var attachTo = form.attachTo && state.draft.workflows[form.attachTo.workflow] ? form.attachTo : null;
     if (attachTo) {
       var back = state.returnTo;
@@ -5134,6 +5191,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     else if (state.view === 'artifacts') renderArtifacts(main);
     else if (state.view === 'epic') renderEpic(main);
     else if (state.view === 'skills') renderSkills(main);
+    else if (state.view === 'instructions') renderInstructions(main);
     else if (state.view === 'library') renderLibrary(main);
     else if (state.view === 'people') renderPeople(main);
     else if (state.view === 'integrations') renderIntegrations(main);
@@ -5189,7 +5247,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       render();
     } else if (message.type === 'studio.focus') {
       if (typeof message.workflowId === 'string') openWorkflowCanvas(message.workflowId);
-      else if (['home', 'agents', 'skills', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
+      else if (['home', 'agents', 'skills', 'instructions', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
     } else if (message.type === 'studio.failed') {
       state.busy = null; state.reviewing = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();
     } else if (message.type === 'studio.cancelled') {

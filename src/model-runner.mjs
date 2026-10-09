@@ -3,7 +3,7 @@ import { mkdir, open, readFile, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { gitCommonDir, gitDir } from './git.mjs';
 import { assertModelInvocationAllowed } from './operation-context.mjs';
-import { modelProvider, modelProviderIds } from './model-provider-registry.mjs';
+import { modelProvider, modelProviderIds, modelProviderSession } from './model-provider-registry.mjs';
 import { COPILOT_MINIMUM_AI_CREDITS } from './model-limits.mjs';
 import { resolveModelPromptTransport } from './model-provider-capability.mjs';
 import {
@@ -492,6 +492,45 @@ async function captureInvocationPrompt(root, staged, event, executionContext) {
   });
 }
 
+const MODEL_SESSION = Symbol('model-session');
+
+/**
+ * A model session several related prompts share, such as an authoring attempt and its repair.
+ *
+ * Every model call otherwise starts its own provider process, and Copilot CLI sends about 11,400
+ * tokens of its own instructions with each one; across sessions it never reads its cache back. In
+ * one session the earlier text is read from cache, so a follow-up pays only for what it adds.
+ * Pass the handle as `session` to invokeModel: each prompt is still audited, staged and checked
+ * as its own invocation, and records its `session` id and turn. Prompts in one session must use
+ * the same provider, model, folder, allowed roots and tool policy; a failed prompt closes the
+ * session. Close it when done; a provider without sessions runs each prompt on its own.
+ */
+export function createModelSession({ maxTurns = 6 } = {}) {
+  if (!Number.isSafeInteger(maxTurns) || maxTurns < 1 || maxTurns > 32) {
+    throw new SingularityFlowError('Model session maxTurns must be from 1 through 32.', { code: 'MODEL_REQUEST_INVALID' });
+  }
+  const session = {
+    [MODEL_SESSION]: true, id: randomUUID(), maxTurns, turns: 0, shape: null, live: null, closed: false,
+    async close() {
+      session.closed = true;
+      const live = session.live;
+      session.live = null;
+      if (live) await live.close();
+    }
+  };
+  return session;
+}
+
+/** What must stay the same for prompts to share one provider session. */
+function sessionShape(normalized, providerId, adapterId, model, transport) {
+  return sha256(canonicalJson({
+    provider: providerId, adapterId, transport, model: model ?? null,
+    providerConfig: normalized.providerConfig ?? null, cwd: normalized.cwd,
+    allowedRoots: [...normalized.allowedRoots].sort(),
+    tools: { mode: normalized.tools.mode, names: [...normalized.tools.names].sort() }
+  }));
+}
+
 function canTryMappedFallback(error) {
   // A fallback is an approved substitute for a retired/unavailable model, not a way around auth,
   // policy, network, tool, timeout, cancellation, or malformed-output failures.
@@ -511,6 +550,29 @@ export async function invokeModel(request) {
   // treated as proof that current Copilot releases accept text files.
   const transportResolution = resolveModelPromptTransport(normalized.providerConfig, adapterId);
   const promptTransport = transportResolution.transport;
+  const session = normalized.session?.[MODEL_SESSION] ? normalized.session : null;
+  if (normalized.session != null && !session) {
+    throw new SingularityFlowError('Model request session must come from createModelSession.', { code: 'MODEL_REQUEST_INVALID' });
+  }
+  const openSession = session && promptTransport === 'acp-stdio' ? modelProviderSession(adapterId) : null;
+  const sessionModel = routing?.available?.[0] ?? normalized.model ?? normalized.providerConfig?.model ?? null;
+  const shape = openSession ? sessionShape(normalized, providerId, adapterId, sessionModel, promptTransport) : null;
+  if (openSession) {
+    // Refused before any audit record or provider process exists.
+    if (session.closed) {
+      throw new SingularityFlowError('This model session is closed; start a new one.', { code: 'MODEL_SESSION_CLOSED' });
+    }
+    if (session.shape && session.shape !== shape) {
+      throw new SingularityFlowError('A model session carries prompts with one provider, model, folder and tool policy; this prompt differs.', {
+        code: 'MODEL_SESSION_INCOMPATIBLE'
+      });
+    }
+    if (session.turns >= session.maxTurns) {
+      throw new SingularityFlowError(`This model session has used its ${session.maxTurns} prompts; start a new one.`, {
+        code: 'MODEL_SESSION_TURN_LIMIT'
+      });
+    }
+  }
   const id = randomUUID();
   if (!context.root) throw new SingularityFlowError('Model invocation requires a trusted operation audit root.', { code: 'MODEL_AUDIT_ROOT_MISSING' });
   const trustedAuditRoot = await realpath(context.root).catch(() => null);
@@ -566,6 +628,8 @@ export async function invokeModel(request) {
     tokenAdmission: admission,
     economics: invocationEconomics(staged.bytes),
     cwdSha256: sha256(normalized.cwd),
+    // Present when this prompt ran as a turn of a model session (createModelSession).
+    ...(openSession ? { session: { id: session.id, turn: session.turns + 1 } } : {}),
     channel: normalized.channel,
     subject: normalized.subject ?? null,
     generationNonce: randomBytes(24).toString('base64url'),
@@ -638,9 +702,11 @@ export async function invokeModel(request) {
     const telemetryHost = normalized.channel.includes('vscode')
       ? 'vscode-terminal'
       : normalized.channel.includes('intellij') ? 'intellij-terminal' : 'cli';
-    const candidates = routing?.available?.length
-      ? [...routing.available]
-      : [normalized.model ?? normalized.providerConfig?.model ?? null];
+    // A session is bound to the model it started with, so it cannot fall back to another one.
+    const candidates = openSession ? [sessionModel]
+      : routing?.available?.length
+        ? [...routing.available]
+        : [normalized.model ?? normalized.providerConfig?.model ?? null];
     const fallbackHops = [];
     let result = null;
     let resolvedModel = candidates[0] ?? null;
@@ -648,7 +714,8 @@ export async function invokeModel(request) {
     for (let index = 0; index < candidates.length; index += 1) {
       const candidate = candidates[index];
       auditModel = candidate;
-      const telemetry = adapterId === 'copilot-cli'
+      // A session's provider process is launched once, with the first prompt's telemetry.
+      const telemetry = adapterId === 'copilot-cli' && !(openSession && session.live)
         ? await prepareTelemetryLaunch({
           root: resolvedAuditRoot,
           story: normalized.subject?.id ?? normalized.subject?.workId ?? null,
@@ -673,7 +740,16 @@ export async function invokeModel(request) {
         transport: promptTransport, promptBytes: staged.bytes
       });
       try {
-        result = await provider(invocation);
+        if (openSession) {
+          if (!session.live) {
+            session.live = await openSession(invocation);
+            session.shape = shape;
+          }
+          result = await session.live.prompt(invocation);
+          session.turns += 1;
+        } else {
+          result = await provider(invocation);
+        }
         log.info('model.provider.completed', null, {
           provider: providerId, model: candidate, attempt: index + 1,
           transport: promptTransport, promptBytes: staged.bytes,
@@ -692,6 +768,8 @@ export async function invokeModel(request) {
           errorCode: error?.code ?? 'MODEL_PROVIDER_FAILED'
         });
         providerStartedAt = null;
+        // A failed prompt stays in the provider's conversation history, so the session ends here.
+        if (openSession) await session.close().catch(() => {});
         const hasFallback = Boolean(routing && index + 1 < candidates.length);
         if (!hasFallback || !canTryMappedFallback(error)) throw error;
         fallbackHops.push(candidate);

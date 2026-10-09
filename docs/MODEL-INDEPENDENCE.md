@@ -117,6 +117,17 @@ fingerprints, provider/model identity, tool policy, limits, result hashes, and u
 availability are recorded under `.git/singularity-flow/model-invocations/` before
 and after execution. Audit-write failure prevents provider startup.
 
+A kernel operation can send several prompts through one model session
+(`createModelSession()` passed as `session` to `invokeModel`). The prompts share one
+Copilot ACP process and conversation, so a follow-up reads the session's earlier
+text, including Copilot's ~11,400-token built-in prompt, from the provider cache
+instead of paying for it again. Each prompt is still staged, verified, limited and
+audited as its own invocation; its record carries `session: { id, turn }` and the
+usage for that turn alone. A session accepts only prompts with the same provider,
+model, folder, allowed roots and tool policy, up to its turn limit (default 6). A
+failed prompt closes the session, and the next prompt must start a new one. Only
+the ACP transport has sessions; other transports run each prompt on its own.
+
 Interactive Copilot hosting is a separate boundary. Singularity Flow can compose
 and hand off governed context, but it does not claim control over model calls made
 by VS Code, Copilot extensions, MCP servers, or other external hosts. Reports label

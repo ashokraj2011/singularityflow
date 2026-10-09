@@ -583,7 +583,29 @@ function terminateAcpProcess(child, force = false, runtimeOverrides = {}) {
   catch { return child.kill(force ? 'SIGKILL' : 'SIGTERM'); }
 }
 
-async function invokeCopilotAcp(request, runtimeOverrides = {}) {
+/**
+ * Copilot reports a session's usage as running totals: the second prompt in a session reports the
+ * first prompt's tokens plus its own. A turn's own usage is the difference from the previous turn.
+ * When any figure goes down, the provider reported this turn alone, and it is used as it is.
+ */
+export function acpTurnUsage(current, previous) {
+  if (!current || typeof current !== 'object' || !previous || typeof previous !== 'object') return current;
+  const keys = ['totalTokens', 'inputTokens', 'outputTokens', 'thoughtTokens', 'cachedReadTokens', 'cachedWriteTokens'];
+  const both = keys.filter((key) => Number.isFinite(current[key]) && Number.isFinite(previous[key]));
+  if (!both.length || both.some((key) => current[key] < previous[key])) return current;
+  return { ...current, ...Object.fromEntries(both.map((key) => [key, current[key] - previous[key]])) };
+}
+
+/**
+ * One Copilot ACP process and session that can carry several prompts.
+ *
+ * `turn(request)` sends one prompt and returns its raw result; `close()` ends the process with the
+ * bounded graceful-then-forced cleanup. Everything a prompt can exhaust or violate (output, tool
+ * calls and permissions, turns, the protocol byte ceiling, the timeout) is counted per turn. A
+ * failed turn breaks the session: Copilot keeps that turn in its history, so a caller starts a new
+ * session rather than continuing after a failure.
+ */
+async function openCopilotAcp(request, runtimeOverrides = {}) {
   const { configured, launch, providerLabel, runtime } = providerIdentity(request, runtimeOverrides);
   if (request.promptTransport !== 'acp-stdio') {
     throw new SingularityFlowError('Copilot ACP adapter received the wrong prompt transport.', { code: 'MODEL_REQUEST_INVALID' });
@@ -591,7 +613,8 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
   if (request.signal?.aborted) {
     throw new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' });
   }
-  const promptText = await verifiedStagedPrompt(request, 'ACP stdio');
+  // The first prompt is verified before any process starts, as a single invocation always was.
+  await verifiedStagedPrompt(request, 'ACP stdio');
   const args = [
     ...(configured.arguments ?? []), '--acp', ...ACP_BOUNDARY_OPTIONS,
     ...copilotAllowedRootArguments(request)
@@ -602,8 +625,7 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
   const requestedModel = request.model ?? configured.model ?? 'auto';
   args.push('--model', requestedModel);
   args.push(...copilotAiCreditArguments(request.limits));
-  const outputLimit = request.limits.outputBytes;
-  const protocolLimit = Math.max(1024 * 1024, Math.min(64 * 1024 * 1024, outputLimit * 16));
+  const diagnosticLimit = request.limits.outputBytes;
   if (request.telemetry) await recordTelemetryLaunch(request.telemetry, { state: 'started' }).catch(() => {});
 
   const child = runtime.spawnImpl(launch.command, launch.arguments(args), {
@@ -615,18 +637,25 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
     windowsHide: true
   });
   let expectedExit = false;
-  let stderr = ''; let stderrBytes = 0; let output = ''; let outputBytes = 0;
-  let protocolBytes = 0; let protocolVersion = null; let sessionId = null;
-  let providerSelectedModel = null; let promptResult = null;
+  let stderr = ''; let stderrBytes = 0;
+  let protocolBytes = 0; let protocolLimit = 1024 * 1024;
+  let protocolVersion = null; let sessionId = null; let providerSelectedModel = null;
+  let previousUsage = null; let turns = 0; let broken = false; let closed = false;
+  // The prompt in flight. Every callback reads its limits, permissions and counters from here.
+  let turn = null;
   const stderrDecoder = new StringDecoder('utf8');
   const protocolDecoder = new StringDecoder('utf8');
   let protocolPending = '';
-  let boundaryReject;
-  let boundaryStopped = false;
-  const boundaryFailure = new Promise((resolve, reject) => { boundaryReject = reject; });
+  const turnBoundaryError = (error) => {
+    if (turn && !turn.boundaryStopped) {
+      turn.boundaryStopped = true;
+      turn.boundaryReject(error);
+    }
+    return error;
+  };
   child.stderr?.on('data', (chunk) => {
     stderrBytes += chunk.length;
-    if (stderrBytes <= outputLimit) stderr += stderrDecoder.write(chunk);
+    if (stderrBytes <= diagnosticLimit) stderr += stderrDecoder.write(chunk);
   });
   let closeObserved = false;
   const exit = new Promise((resolve) => child.once('close', (status, signal) => {
@@ -648,6 +677,8 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
         }));
     });
   });
+  // A rejection nobody awaits yet (between turns) is not an unhandled failure; each turn races it.
+  processFailure.catch(() => {});
   const guardedInput = Readable.toWeb(child.stdout).pipeThrough(new TransformStream({
     transform(chunk, controller) {
       protocolBytes += chunk.byteLength;
@@ -655,7 +686,7 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
         const error = new SingularityFlowError(`${providerLabel} ACP protocol stream exceeded ${protocolLimit} bytes.`, {
           code: 'MODEL_OUTPUT_LIMIT'
         });
-        boundaryReject(error);
+        turnBoundaryError(error);
         throw error;
       }
       protocolPending += protocolDecoder.write(Buffer.from(chunk));
@@ -668,7 +699,7 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
           const error = new SingularityFlowError(`${providerLabel} emitted malformed ACP NDJSON.`, {
             code: 'MODEL_PROVIDER_PROTOCOL_FAILED'
           });
-          boundaryReject(error);
+          turnBoundaryError(error);
           throw error;
         }
       }
@@ -682,15 +713,12 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
         const error = new SingularityFlowError(`${providerLabel} ended with malformed ACP NDJSON.`, {
           code: 'MODEL_PROVIDER_PROTOCOL_FAILED'
         });
-        boundaryReject(error);
+        turnBoundaryError(error);
         throw error;
       }
     }
   }));
   const stream = acp.ndJsonStream(Writable.toWeb(child.stdin), guardedInput);
-  const toolCalls = new Map();
-  const activeToolCalls = new Set();
-  const toolPermissions = new Map();
   let sessionUpdateTail = Promise.resolve();
   const enqueueSessionUpdate = (work) => {
     const current = sessionUpdateTail.then(work, work);
@@ -712,18 +740,8 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
       stableTurns = observedTail === sessionUpdateTail ? stableTurns + 1 : 0;
     }
   };
-  let toolRounds = 0;
-  const maximumToolCalls = request.limits.maxToolCalls ?? 64;
-  const toolCallsAreAutomatic = maximumToolCalls === 'auto';
-  // `auto` delegates conversation completion to the ACP agent. It is intentionally not the
-  // provider-wide default: callers must opt in for operations, such as world-model discovery and
-  // synthesis, whose number of tool rounds depends on repository size and the output graph. Independent
-  // timeout, output, token, tool-call, tool-result, and cancellation guards remain in force.
-  const maximumTurns = request.limits.maxTurns ?? 16;
-  const turnsAreAutomatic = maximumTurns === 'auto';
-  const maximumToolResultBytes = request.limits.maxToolResultBytes ?? 1024 * 1024;
-  const toolObservation = (exactTurns = null) => {
-    const calls = [...toolCalls.values()].sort((a, b) => a.sequence - b.sequence).map((entry) => ({
+  const toolObservationOf = (state) => (exactTurns = null) => {
+    const calls = [...state.toolCalls.values()].sort((a, b) => a.sequence - b.sequence).map((entry) => ({
       sequence: entry.sequence,
       name: boundedToolName(entry.name, boundedToolName(entry.kind)),
       kind: boundedToolName(entry.kind),
@@ -741,7 +759,7 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
       preparationFailedCalls: calls.filter((entry) => entry.preparationFailed).length,
       incompleteCalls: calls.filter((entry) => ['pending', 'in_progress', 'unknown'].includes(entry.status)).length,
       truncatedCalls: calls.filter((entry) => entry.truncated).length,
-      turns: exactTurns ?? Math.max(1, toolRounds + 1),
+      turns: exactTurns ?? Math.max(1, state.toolRounds + 1),
       turnAssurance: exactTurns == null ? 'protocol-derived' : 'provider-telemetry'
     };
   };
@@ -759,14 +777,10 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
       code, details: {
         ...details,
         modelSelection: modelSelectionReceipt(),
-        toolObservation: toolObservation()
+        toolObservation: turn ? toolObservationOf(turn)() : null
       }
     });
-    if (!boundaryStopped) {
-      boundaryStopped = true;
-      boundaryReject(error);
-    }
-    return error;
+    return turnBoundaryError(error);
   };
   const connection = new acp.ClientSideConnection(() => ({
     async requestPermission(params) {
@@ -774,23 +788,25 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
       // operation classification before deciding the same toolCallId so either ACP ordering has one
       // identical authorization boundary.
       await drainSessionUpdates();
+      const current = turn;
+      if (!current || current.done) return { outcome: { outcome: 'cancelled' } };
       const option = params.options?.find((entry) => entry.kind === 'allow_once');
       const decision = option
-        ? await acpToolDecision(request, params.toolCall)
+        ? await acpToolDecision(current.request, params.toolCall)
         : { allowed: false, operation: null, identity: null, targets: [] };
       const toolCallId = params.toolCall?.toolCallId;
       if (decision.allowed && option && toolCallId) {
-        const announced = toolCalls.get(toolCallId);
+        const announced = current.toolCalls.get(toolCallId);
         if (announced && (announced.operation !== decision.operation
             || announced.identity !== decision.identity)) {
           boundaryError(
             `${providerLabel} changed an ACP tool's operation or targets before permission.`,
-            request.tools?.scope ? 'MODEL_TOOL_SCOPE_UNENFORCED' : 'MODEL_TOOL_OPERATION_UNENFORCED'
+            current.request.tools?.scope ? 'MODEL_TOOL_SCOPE_UNENFORCED' : 'MODEL_TOOL_OPERATION_UNENFORCED'
           );
           return { outcome: { outcome: 'cancelled' } };
         }
         try {
-          if (!await precreateAcpEditTarget(request, decision)) {
+          if (!await precreateAcpEditTarget(current.request, decision)) {
             boundaryError(
               `${providerLabel} could not prove an empty ACP create target at permission time.`,
               'MODEL_CREATE_TARGET_FAILED'
@@ -804,191 +820,241 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
           );
           return { outcome: { outcome: 'cancelled' } };
         }
-        toolPermissions.set(toolCallId, decision);
+        current.toolPermissions.set(toolCallId, decision);
         return { outcome: { outcome: 'selected', optionId: option.optionId } };
       }
       return { outcome: { outcome: 'cancelled' } };
     },
     async sessionUpdate(params) {
       return enqueueSessionUpdate(async () => {
-        if (boundaryStopped) return;
+        const current = turn;
+        if (!current || current.done || current.boundaryStopped) return;
         const update = params.update;
-      if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') {
-        const isNew = !toolCalls.has(update.toolCallId);
-        if (isNew && !toolCallsAreAutomatic && toolCalls.size >= maximumToolCalls) {
-          boundaryError(
-            `${providerLabel} exceeded the ${maximumToolCalls}-call ACP tool budget.`,
-            'MODEL_TOOL_CALL_LIMIT', { maximumToolCalls }
-          );
-          return;
-        }
-        if (isNew && activeToolCalls.size === 0) {
-          toolRounds += 1;
-          if (!turnsAreAutomatic && toolRounds + 1 > maximumTurns) {
+        if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') {
+          const isNew = !current.toolCalls.has(update.toolCallId);
+          if (isNew && !current.toolCallsAreAutomatic && current.toolCalls.size >= current.maximumToolCalls) {
             boundaryError(
-              `${providerLabel} exceeded the ${maximumTurns}-turn ACP budget.`,
-              'MODEL_TURN_LIMIT', { maximumTurns }
+              `${providerLabel} exceeded the ${current.maximumToolCalls}-call ACP tool budget.`,
+              'MODEL_TOOL_CALL_LIMIT', { maximumToolCalls: current.maximumToolCalls }
+            );
+            return;
+          }
+          if (isNew && current.activeToolCalls.size === 0) {
+            current.toolRounds += 1;
+            if (!current.turnsAreAutomatic && current.toolRounds + 1 > current.maximumTurns) {
+              boundaryError(
+                `${providerLabel} exceeded the ${current.maximumTurns}-turn ACP budget.`,
+                'MODEL_TURN_LIMIT', { maximumTurns: current.maximumTurns }
+              );
+              return;
+            }
+          }
+          const prior = current.toolCalls.get(update.toolCallId) ?? {
+            sequence: current.toolCalls.size + 1, status: 'pending', outputBytes: 0,
+            truncated: false, preparationFailed: false
+          };
+          const toolOutput = update.rawOutput ?? update.content;
+          const call = {
+            ...prior,
+            ...(update.name != null ? { name: update.name } : {}),
+            ...(update.kind != null ? { kind: update.kind } : {}),
+            ...(update.status != null ? { status: update.status } : {}),
+            ...(update.rawInput != null ? { rawInput: update.rawInput } : {}),
+            ...(update.locations != null ? { locations: update.locations } : {}),
+            ...(toolOutput != null ? {
+              outputBytes: serializedBytes(toolOutput),
+              truncated: prior.truncated || truncationObserved(toolOutput)
+            } : {})
+          };
+          const permission = current.toolPermissions.get(update.toolCallId) ?? null;
+          const decision = await acpToolDecision(current.request, call, {
+            expectedOperation: permission?.operation ?? prior.operation ?? null
+          });
+          call.operation = decision.operation;
+          call.identity = decision.identity;
+          current.toolCalls.set(update.toolCallId, call);
+          const terminal = ['completed', 'failed'].includes(call.status) || toolOutput != null;
+          const changedFromAnnouncement = prior.operation && (
+            prior.operation !== decision.operation || prior.identity !== decision.identity
+          );
+          const changedFromPermission = permission && (
+            permission.operation !== decision.operation || permission.identity !== decision.identity
+          );
+          const permissionRequired = ACP_MUTATING_OPERATIONS.has(decision.operation);
+          if (!decision.allowed || !decision.identity || changedFromAnnouncement
+              || changedFromPermission || (terminal && permissionRequired && !permission)) {
+            boundaryError(
+              `${providerLabel} attempted an ACP tool without one exact operation-and-target permission.`,
+              current.request.tools?.scope ? 'MODEL_TOOL_SCOPE_UNENFORCED' : 'MODEL_TOOL_OPERATION_UNENFORCED',
+              {
+                operation: decision.operation,
+                operationAllowed: decision.allowed,
+                changedFromAnnouncement: Boolean(changedFromAnnouncement),
+                changedFromPermission: Boolean(changedFromPermission),
+                permissionPresent: Boolean(permission),
+                providerTool: boundedToolName(call.name),
+                providerKind: boundedToolName(call.kind)
+              }
+            );
+            return;
+          }
+          if (!['completed', 'failed'].includes(call.status)) current.activeToolCalls.add(update.toolCallId);
+          else current.activeToolCalls.delete(update.toolCallId);
+          if (call.outputBytes > current.maximumToolResultBytes) {
+            boundaryError(
+              `${providerLabel} ACP tool result exceeded ${current.maximumToolResultBytes} bytes.`,
+              'MODEL_TOOL_RESULT_LIMIT', { maximumToolResultBytes: current.maximumToolResultBytes }
             );
             return;
           }
         }
-        const prior = toolCalls.get(update.toolCallId) ?? {
-          sequence: toolCalls.size + 1, status: 'pending', outputBytes: 0,
-          truncated: false, preparationFailed: false
-        };
-        const toolOutput = update.rawOutput ?? update.content;
-        const current = {
-          ...prior,
-          ...(update.name != null ? { name: update.name } : {}),
-          ...(update.kind != null ? { kind: update.kind } : {}),
-          ...(update.status != null ? { status: update.status } : {}),
-          ...(update.rawInput != null ? { rawInput: update.rawInput } : {}),
-          ...(update.locations != null ? { locations: update.locations } : {}),
-          ...(toolOutput != null ? {
-            outputBytes: serializedBytes(toolOutput),
-            truncated: prior.truncated || truncationObserved(toolOutput)
-          } : {})
-        };
-        const permission = toolPermissions.get(update.toolCallId) ?? null;
-        const decision = await acpToolDecision(request, current, {
-          expectedOperation: permission?.operation ?? prior.operation ?? null
-        });
-        current.operation = decision.operation;
-        current.identity = decision.identity;
-        toolCalls.set(update.toolCallId, current);
-        const terminal = ['completed', 'failed'].includes(current.status) || toolOutput != null;
-        const changedFromAnnouncement = prior.operation && (
-          prior.operation !== decision.operation || prior.identity !== decision.identity
-        );
-        const changedFromPermission = permission && (
-          permission.operation !== decision.operation || permission.identity !== decision.identity
-        );
-        const permissionRequired = ACP_MUTATING_OPERATIONS.has(decision.operation);
-        if (!decision.allowed || !decision.identity || changedFromAnnouncement
-            || changedFromPermission || (terminal && permissionRequired && !permission)) {
-          boundaryError(
-            `${providerLabel} attempted an ACP tool without one exact operation-and-target permission.`,
-            request.tools?.scope ? 'MODEL_TOOL_SCOPE_UNENFORCED' : 'MODEL_TOOL_OPERATION_UNENFORCED',
-            {
-              operation: decision.operation,
-              operationAllowed: decision.allowed,
-              changedFromAnnouncement: Boolean(changedFromAnnouncement),
-              changedFromPermission: Boolean(changedFromPermission),
-              permissionPresent: Boolean(permission),
-              providerTool: boundedToolName(current.name),
-              providerKind: boundedToolName(current.kind)
-            }
-          );
-          return;
-        }
-        if (!['completed', 'failed'].includes(current.status)) activeToolCalls.add(update.toolCallId);
-        else activeToolCalls.delete(update.toolCallId);
-        if (current.outputBytes > maximumToolResultBytes) {
-          boundaryError(
-            `${providerLabel} ACP tool result exceeded ${maximumToolResultBytes} bytes.`,
-            'MODEL_TOOL_RESULT_LIMIT', { maximumToolResultBytes }
-          );
-          return;
-        }
-      }
         if (update.sessionUpdate !== 'agent_message_chunk' || update.content?.type !== 'text') return;
         const chunkBytes = Buffer.byteLength(update.content.text, 'utf8');
-        outputBytes += chunkBytes;
-        if (outputBytes > outputLimit) {
+        current.outputBytes += chunkBytes;
+        if (current.outputBytes > current.outputLimit) {
           boundaryError(
-            `${providerLabel} output exceeded ${outputLimit} bytes.`,
-            'MODEL_OUTPUT_LIMIT', { outputLimit }
+            `${providerLabel} output exceeded ${current.outputLimit} bytes.`,
+            'MODEL_OUTPUT_LIMIT', { outputLimit: current.outputLimit }
           );
           return;
         }
-        output += update.content.text;
+        current.output += update.content.text;
       });
     }
   }), stream);
-  let timer;
-  let abortListener;
-  let primaryFailure = null;
-  const timeout = new Promise((resolve, reject) => {
-    timer = setTimeout(() => reject(new SingularityFlowError(`${providerLabel} invocation exceeded ${request.limits.timeoutMs}ms.`, {
-      code: 'MODEL_TIMEOUT'
-    })), request.limits.timeoutMs);
-  });
-  const cancellation = new Promise((resolve, reject) => {
-    abortListener = () => reject(new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' }));
-    request.signal?.addEventListener('abort', abortListener, { once: true });
-  });
 
-  try {
-    const operation = (async () => {
-      const initialized = await connection.initialize({
-        protocolVersion: acp.PROTOCOL_VERSION,
-        clientCapabilities: {},
-        clientInfo: { name: 'singularity-flow', version: VERSION }
+  /** Send one prompt in this session. */
+  const sendTurn = async (turnRequest) => {
+    if (closed || broken) {
+      throw new SingularityFlowError(`${providerLabel} ACP session is ${closed ? 'closed' : 'broken by an earlier failure'}; start a new one.`, {
+        code: 'MODEL_SESSION_CLOSED'
       });
-      if (!Number.isInteger(initialized.protocolVersion)
-        || initialized.protocolVersion !== acp.PROTOCOL_VERSION) {
-        throw new SingularityFlowError(`Copilot ACP negotiated unsupported protocol version '${initialized.protocolVersion}'.`, {
-          code: 'MODEL_PROVIDER_PROTOCOL_UNSUPPORTED'
+    }
+    if (turnRequest.signal?.aborted) {
+      throw new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' });
+    }
+    const promptText = await verifiedStagedPrompt(turnRequest, 'ACP stdio');
+    const outputLimit = turnRequest.limits.outputBytes;
+    protocolLimit = Math.max(1024 * 1024, Math.min(64 * 1024 * 1024, outputLimit * 16));
+    protocolBytes = 0;
+    let boundaryReject;
+    const boundaryFailure = new Promise((resolve, reject) => { boundaryReject = reject; });
+    const maximumToolCalls = turnRequest.limits.maxToolCalls ?? 64;
+    // `auto` delegates conversation completion to the ACP agent. It is intentionally not the
+    // provider-wide default: callers must opt in for operations, such as world-model discovery and
+    // synthesis, whose number of tool rounds depends on repository size and the output graph. Independent
+    // timeout, output, token, tool-call, tool-result, and cancellation guards remain in force.
+    const maximumTurns = turnRequest.limits.maxTurns ?? 16;
+    turn = {
+      request: turnRequest, output: '', outputBytes: 0, outputLimit,
+      toolCalls: new Map(), activeToolCalls: new Set(), toolPermissions: new Map(), toolRounds: 0,
+      maximumToolCalls, toolCallsAreAutomatic: maximumToolCalls === 'auto',
+      maximumTurns, turnsAreAutomatic: maximumTurns === 'auto',
+      maximumToolResultBytes: turnRequest.limits.maxToolResultBytes ?? 1024 * 1024,
+      boundaryReject, boundaryStopped: false, done: false
+    };
+    const current = turn;
+    let timer;
+    let abortListener;
+    const timeout = new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new SingularityFlowError(`${providerLabel} invocation exceeded ${turnRequest.limits.timeoutMs}ms.`, {
+        code: 'MODEL_TIMEOUT'
+      })), turnRequest.limits.timeoutMs);
+    });
+    const cancellation = new Promise((resolve, reject) => {
+      abortListener = () => reject(new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' }));
+      // Cancellation can arrive while the staged prompt is being verified, before this listener exists.
+      if (turnRequest.signal?.aborted) return abortListener();
+      turnRequest.signal?.addEventListener('abort', abortListener, { once: true });
+    });
+    let promptResult;
+    try {
+      const operation = (async () => {
+        if (!sessionId) {
+          const initialized = await connection.initialize({
+            protocolVersion: acp.PROTOCOL_VERSION,
+            clientCapabilities: {},
+            clientInfo: { name: 'singularity-flow', version: VERSION }
+          });
+          if (!Number.isInteger(initialized.protocolVersion)
+            || initialized.protocolVersion !== acp.PROTOCOL_VERSION) {
+            throw new SingularityFlowError(`Copilot ACP negotiated unsupported protocol version '${initialized.protocolVersion}'.`, {
+              code: 'MODEL_PROVIDER_PROTOCOL_UNSUPPORTED'
+            });
+          }
+          protocolVersion = initialized.protocolVersion;
+          const session = await connection.newSession({ cwd: request.cwd, mcpServers: [] });
+          sessionId = session.sessionId;
+          providerSelectedModel = acpSessionModel(session);
+          if (requestedModel !== 'auto' && providerSelectedModel && providerSelectedModel !== requestedModel) {
+            const modelSelection = modelSelectionReceipt();
+            throw new SingularityFlowError(
+              `${providerLabel} selected '${providerSelectedModel}' instead of required model '${requestedModel}'.`,
+              {
+                code: 'MODEL_NOT_AVAILABLE', details: {
+                  requestedModel, providerSelectedModel, modelSelection, transport: 'acp-stdio'
+                }
+              }
+            );
+          }
+        }
+        const result = await connection.prompt({
+          sessionId, prompt: [{ type: 'text', text: promptText }]
         });
-      }
-      protocolVersion = initialized.protocolVersion;
-      const session = await connection.newSession({ cwd: request.cwd, mcpServers: [] });
-      sessionId = session.sessionId;
-      providerSelectedModel = acpSessionModel(session);
-      if (requestedModel !== 'auto' && providerSelectedModel && providerSelectedModel !== requestedModel) {
-        const modelSelection = modelSelectionReceipt();
-        throw new SingularityFlowError(
-          `${providerLabel} selected '${providerSelectedModel}' instead of required model '${requestedModel}'.`,
-          {
-            code: 'MODEL_NOT_AVAILABLE', details: {
-              requestedModel, providerSelectedModel, modelSelection, transport: 'acp-stdio'
+        // ACP notifications preceding the prompt result can contain asynchronous canonical-path
+        // checks. Do not accept the result until every preceding update has crossed that boundary.
+        await drainSessionUpdates();
+        if (result.stopReason !== 'end_turn') {
+          throw new SingularityFlowError(`Copilot ACP stopped with reason '${result.stopReason}'.`, {
+            code: result.stopReason === 'cancelled' ? 'MODEL_CANCELLED'
+              : ['max_tokens', 'max_turn_requests'].includes(result.stopReason)
+                ? 'MODEL_TOKEN_BUDGET_EXCEEDED' : 'MODEL_PROVIDER_FAILED',
+            details: {
+              stopReason: result.stopReason,
+              transport: 'acp-stdio',
+              promptProtocolVersion: protocolVersion,
+              usage: acpUsage(acpTurnUsage(result.usage, previousUsage)),
+              toolObservation: toolObservationOf(current)()
             }
-          }
-        );
+          });
+        }
+        return result;
+      })();
+      promptResult = await Promise.race([operation, processFailure, boundaryFailure, timeout, cancellation]);
+      if (stderrBytes > diagnosticLimit) {
+        throw new SingularityFlowError(`${providerLabel} diagnostics exceeded ${diagnosticLimit} bytes.`, { code: 'MODEL_OUTPUT_LIMIT' });
       }
-      const result = await connection.prompt({
-        sessionId, prompt: [{ type: 'text', text: promptText }]
-      });
-      // ACP notifications preceding the prompt result can contain asynchronous canonical-path
-      // checks. Do not accept the result until every preceding update has crossed that boundary.
-      await drainSessionUpdates();
-      if (result.stopReason !== 'end_turn') {
-        throw new SingularityFlowError(`Copilot ACP stopped with reason '${result.stopReason}'.`, {
-          code: result.stopReason === 'cancelled' ? 'MODEL_CANCELLED'
-            : ['max_tokens', 'max_turn_requests'].includes(result.stopReason)
-              ? 'MODEL_TOKEN_BUDGET_EXCEEDED' : 'MODEL_PROVIDER_FAILED',
-          details: {
-            stopReason: result.stopReason,
-            transport: 'acp-stdio',
-            promptProtocolVersion: protocolVersion,
-            usage: acpUsage(result.usage),
-            toolObservation: toolObservation()
-          }
-        });
+      if (unavailableModelDiagnostic(stderr) && requestedModel !== 'auto') {
+        throw providerExitError(providerLabel, 0, null, stderr);
       }
-      return result;
-    })();
-    promptResult = await Promise.race([operation, processFailure, boundaryFailure, timeout, cancellation]);
-    if (stderrBytes > outputLimit) {
-      throw new SingularityFlowError(`${providerLabel} diagnostics exceeded ${outputLimit} bytes.`, { code: 'MODEL_OUTPUT_LIMIT' });
-    }
-    if (unavailableModelDiagnostic(stderr) && requestedModel !== 'auto') {
-      throw providerExitError(providerLabel, 0, null, stderr);
-    }
-  } catch (error) {
-    if (sessionId) await connection.cancel({ sessionId }).catch(() => {});
-    if (error instanceof SingularityFlowError) primaryFailure = error;
-    else {
+    } catch (error) {
+      broken = true;
+      if (sessionId) await connection.cancel({ sessionId }).catch(() => {});
+      if (error instanceof SingularityFlowError) throw error;
       const diagnostic = boundedDiagnostic(stderr);
-      primaryFailure = new SingularityFlowError(
+      throw new SingularityFlowError(
         diagnostic ? `${providerLabel} ACP prompt transport failed: ${diagnostic}` : `${providerLabel} ACP prompt transport failed.`,
         { code: 'MODEL_PROVIDER_PROTOCOL_FAILED', details: { transport: 'acp-stdio', diagnostic: diagnostic || null } }
       );
+    } finally {
+      current.done = true;
+      clearTimeout(timer);
+      turnRequest.signal?.removeEventListener('abort', abortListener);
     }
-    throw primaryFailure;
-  } finally {
-    clearTimeout(timer);
-    request.signal?.removeEventListener('abort', abortListener);
+    const usage = acpTurnUsage(promptResult?.usage, previousUsage);
+    if (promptResult?.usage && typeof promptResult.usage === 'object') previousUsage = promptResult.usage;
+    turns += 1;
+    return {
+      output: current.output, outputBytes: current.outputBytes, usage,
+      toolObservation: toolObservationOf(current), modelSelectionReceipt,
+      requestedModel, providerSelectedModel, protocolVersion, turn: turns
+    };
+  };
+
+  /** End the process: graceful, then soft and forced signals, each bounded. */
+  const close = async ({ primaryFailure = null } = {}) => {
+    if (closed) return;
+    closed = true;
     expectedExit = true;
     child.stdin?.end();
     await Promise.race([exit, new Promise((resolve) => setTimeout(resolve, TERMINATION_GRACE_MS))]);
@@ -1025,19 +1091,28 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
         throw cleanupFailure;
       }
     }
-  }
+  };
 
-  const telemetry = await acpTelemetryObservation(request);
-  const observation = toolObservation(telemetry.turns);
-  const modelSelection = modelSelectionReceipt(
-    telemetry.resolvedModels, telemetry.modelAssurance
-  );
-  const usage = acpUsage(promptResult?.usage);
+  return {
+    turn: sendTurn, close, providerLabel,
+    get stderr() { return stderr; },
+    get turns() { return turns; },
+    get broken() { return broken; },
+    get closed() { return closed; }
+  };
+}
+
+/** The checks every completed prompt passes, and the result handed back to the model runner. */
+function completedAcpTurn(request, providerLabel, raw, telemetry, diagnostics) {
+  const observation = raw.toolObservation(telemetry.turns);
+  const modelSelection = raw.modelSelectionReceipt(telemetry.resolvedModels, telemetry.modelAssurance);
+  const usage = acpUsage(raw.usage);
+  const requestedModel = raw.requestedModel;
   const completedEvidence = {
     modelSelection,
     toolObservation: observation,
     usage,
-    promptProtocolVersion: protocolVersion,
+    promptProtocolVersion: raw.protocolVersion,
     transport: 'acp-stdio'
   };
   if (requestedModel !== 'auto' && telemetry.resolvedModels.length
@@ -1062,7 +1137,8 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
       }
     );
   }
-  if (!turnsAreAutomatic && observation.turns > maximumTurns) {
+  const maximumTurns = request.limits.maxTurns ?? 16;
+  if (maximumTurns !== 'auto' && observation.turns > maximumTurns) {
     throw new SingularityFlowError(
       `${providerLabel} exceeded the ${maximumTurns}-turn ACP budget.`,
       { code: 'MODEL_TURN_LIMIT', details: { ...completedEvidence, maximumTurns } }
@@ -1089,15 +1165,56 @@ async function invokeCopilotAcp(request, runtimeOverrides = {}) {
       { code: 'MODEL_TOOL_RESULT_TRUNCATED', details: completedEvidence }
     );
   }
-  const normalizedOutput = output.trim();
+  const normalizedOutput = raw.output.trim();
   return {
-    output: normalizedOutput, diagnostics: stderr.trim(), status: 0, signal: null,
-    outputBytes: Buffer.byteLength(normalizedOutput, 'utf8'), streamedOutputBytes: outputBytes,
+    output: normalizedOutput, diagnostics: diagnostics.trim(), status: 0, signal: null,
+    outputBytes: Buffer.byteLength(normalizedOutput, 'utf8'), streamedOutputBytes: raw.outputBytes,
     usage, requestedModel,
     model: telemetry.resolvedModels.length === 1
-      ? telemetry.resolvedModels[0] : providerSelectedModel ?? requestedModel,
+      ? telemetry.resolvedModels[0] : raw.providerSelectedModel ?? requestedModel,
     modelSelection, toolObservation: observation,
-    promptTransport: 'acp-stdio', promptProtocolVersion: protocolVersion
+    promptTransport: 'acp-stdio', promptProtocolVersion: raw.protocolVersion
+  };
+}
+
+async function invokeCopilotAcp(request, runtimeOverrides = {}) {
+  const session = await openCopilotAcp(request, runtimeOverrides);
+  let raw = null;
+  let primaryFailure = null;
+  try {
+    raw = await session.turn(request);
+  } catch (error) {
+    primaryFailure = error;
+    throw error;
+  } finally {
+    await session.close({ primaryFailure });
+  }
+  const telemetry = await acpTelemetryObservation(request);
+  return completedAcpTurn(request, session.providerLabel, raw, telemetry, session.stderr);
+}
+
+/**
+ * A Copilot ACP session several prompts share: the first prompt starts it, later prompts reuse its
+ * process and conversation. Copilot reads the session's earlier text from its cache, so a follow-up
+ * pays only for what it adds. Each prompt is checked exactly as a single invocation is, except that
+ * per-prompt provider telemetry is not available until the process ends, so model and turn
+ * evidence comes from the session protocol.
+ */
+export async function openCopilotSession(request, runtimeOverrides = {}) {
+  if (request.promptTransport !== 'acp-stdio') {
+    throw new SingularityFlowError('Copilot sessions need the ACP stdio prompt transport.', { code: 'MODEL_SESSION_UNSUPPORTED' });
+  }
+  const session = await openCopilotAcp(request, runtimeOverrides);
+  const unavailable = { resolvedModels: [], modelAssurance: 'unavailable', turns: null };
+  return {
+    async prompt(turnRequest) {
+      const raw = await session.turn(turnRequest);
+      return { ...completedAcpTurn(turnRequest, session.providerLabel, raw, unavailable, ''), sessionTurn: raw.turn };
+    },
+    close: (options) => session.close(options),
+    get broken() { return session.broken; },
+    get closed() { return session.closed; },
+    get turns() { return session.turns; }
   };
 }
 

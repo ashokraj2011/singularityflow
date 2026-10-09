@@ -12,6 +12,30 @@ import { secureRepositoryPath } from './util.mjs';
 
 const VERDICT = /^(matched|partial|missing|deviated|unplanned)(?:\s|\(|$)/u;
 const MULTIPLE_VERDICTS = /\b(?:matched|partial|missing|deviated|unplanned)\s*(?:\/|\bor\b)\s*(?:matched|partial|missing|deviated|unplanned)\b/u;
+const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/gu;
+const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\n[\s\S]*?\n-->\s*/u;
+
+function authoredConformanceText(markdown) {
+  return String(markdown ?? '').replace(MANAGED_METADATA, '').replace(MANAGED_INPUTS, '');
+}
+
+/** Required disclosure is derived from retained approvals, not model-authored recollection. */
+export function inspectSelfApprovalDisclosures(markdown, workflow) {
+  const authored = authoredConformanceText(markdown);
+  const findings = [];
+  for (const phaseId of workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {})) {
+    for (const approval of workflow?.phases?.[phaseId]?.approvals ?? []) {
+      if (approval.invalidatedAt || !approval.selfApproval) continue;
+      const actor = approval.actor?.login ?? approval.actor?.email ?? approval.actor?.name ?? null;
+      if (authored.includes(phaseId) && (!actor || authored.includes(actor))) continue;
+      findings.push({
+        code: 'conformance.self-approval-undisclosed', clauseId: null, line: null,
+        message: `conformance report does not disclose self-approval for ${phaseId}${actor ? ` by ${actor}` : ''}`
+      });
+    }
+  }
+  return findings;
+}
 
 /** One report-row contract for draft, publication, approval, and terminal review. */
 export function inspectQualifiedConformanceReport(markdown, clauseIds) {
@@ -55,7 +79,6 @@ export async function inspectPhaseQualifiedConformance(root, config, workflow, p
   const records = await loadActiveSpecRecords(itemDirectory, workflow);
   const clauseIds = [...new Set(records.indexes.flatMap((index) =>
     (index.clauses ?? []).map((clause) => clause.id)))];
-  if (!clauseIds.length) return [];
   const relative = path.posix.join(
     config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
     phase.requiredArtifact.path
@@ -64,7 +87,10 @@ export async function inspectPhaseQualifiedConformance(root, config, workflow, p
     label: `Conformance report for phase '${phase.id}'`, mustExist: true, type: 'file'
   });
   const markdown = await readFile(safe.absolute, 'utf8');
-  return inspectQualifiedConformanceReport(markdown, clauseIds).map((finding) => ({
+  return [
+    ...inspectQualifiedConformanceReport(markdown, clauseIds),
+    ...inspectSelfApprovalDisclosures(markdown, workflow)
+  ].map((finding) => ({
     ...finding, path: relative
   }));
 }

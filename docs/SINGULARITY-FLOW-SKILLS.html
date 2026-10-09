@@ -1319,7 +1319,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~982 body tokens</span>
+          <span class="pill">~898 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-approve</code></dd></div>
@@ -1351,9 +1351,9 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 &lt;!-- sflow-turn-boundary: approval-only --&gt;
 **Approval-only:** An explicit human phase ID confirms only the unchanged packet already reviewed in this conversation. The approval CLI is the sole permitted lifecycle mutation. Never edit repository files, run tests/builds/raw Git, delegate, submit, or begin/author another phase. A failed approval ends this turn.
 
-1. A positional argument selects **PHASE-ID**, never Work ID; Story comes from session or `--work-id`. Run `singularity-flow choices begin approve &lt;WORK-ID&gt; --fetch --json`. Require supplied phase = `approvalContext.phase`.
-2. Run `singularity-flow phase show &lt;phase&gt; --json`. Match `reviewBinding` to receipt: repository/HEAD, Work ID, phase/generation, source commit, packet hash. Match artifacts/brief `documentId`, `documentPath`, and `documentSha256` to `approvalContext`; brief `path` is integrity JSON. Only `fallback-whole` may lack a brief. Missing binding/mismatch: stop. Do not perform a second `singularity-flow documents view` lookup.
-3. **Render once per exact display binding.** Retain `displayBinding` and `reviewBinding`. Reuse bodies only from a complete visible same-chat display with exactly matching non-null `displayBinding`. New chat, changed/null binding, omissions or truncation require full display. Render all text/briefs between `--- BEGIN &lt;path&gt; ---` and `--- END &lt;path&gt; ---` with ID/kind/path/bytes/generation/SHA-256, across messages if needed. Binary: path/metadata/open instruction. Tool output or summaries are not review. Truncated content: stop. Always show the current `reviewBinding`; body reuse never reuses approval consent.
+1. A positional argument selects **PHASE-ID**, never Work ID. Run `singularity-flow status &lt;WORK-ID&gt; --submission-readiness --json`; on `terminal-obligations-required`, relay blockers/actions and stop without choices or generic recovery. Otherwise run `singularity-flow choices begin approve &lt;WORK-ID&gt; --fetch --json`; require the supplied phase to match.
+2. Run `singularity-flow phase show &lt;phase&gt; --json`. Match receipt, `reviewBinding`, artifacts and briefs to `approvalContext`; mismatch or missing binding stops. Do not repeat document lookup.
+3. **Render once per exact display binding.** Reuse complete same-chat bodies only for an exactly matching non-null `displayBinding`. New chat, changed/null binding, omissions or truncation require full display. Render every text/brief with identity, hash and boundaries; binary uses path/metadata. Always show current `reviewBinding`; body reuse never reuses approval consent.
 4. Show identity/authority, agent, checks/usage, decisions/self-approval warnings; unauthorized identity stops.
 5. A human `/sf-approve &lt;PHASE-ID&gt;` or exact phase answer **after** complete review of this exact `reviewBinding` is `&lt;TYPED-PHASE&gt;`: do not ask again. Otherwise ask for the exact phase ID and wait. A phase supplied before a new or changed packet review is not its confirmation, even if document bodies match. Run `singularity-flow choices answer &lt;TOKEN&gt; phase-confirmation &lt;TYPED-PHASE&gt; --json`, then `singularity-flow approve &lt;TYPED-PHASE&gt; --work-id &lt;WORK-ID&gt; --fetch --selection-receipt &lt;TOKEN&gt;` only when `ready: true`. Never add `--yes`; the receipt is consumed once.
 6. Refusal: relay recovery/commit option; stop for human choice, never add `--allow-dirty`. Report commit/push, reviewer/authority, assurance, threshold/next phase; absent proof is unverified. The approval CLI advances and activates the next phase when the threshold is met; no second advance. Relay `Context boundary` and `Next Copilot actions` as display-only handoff; end this turn before next-phase authoring.
@@ -10451,7 +10451,7 @@ TRP: read and follow `singularity-flow explain test-recovery`; returned legal ac
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~983 body tokens</span>
+          <span class="pill">~875 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-submit</code></dd></div>
@@ -10482,15 +10482,15 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 `Out of sequence`: stop; humans confirm soft warnings.
 
-1. Run `singularity-flow status &lt;WORK-ID&gt; --submission-readiness --json`. Require `resultType: sflow-submission-readiness`, matching work/phase, `draftExists`, `draftModified`, `publicationRecorded`, `nextSkill`, `nextCommand`. Trust `lifecycleReady`; equal generation while `in_progress` is ready. Never republish.
+1. Run `singularity-flow status &lt;WORK-ID&gt; --submission-readiness --json`; require matching work/phase and its readiness fields. Trust `lifecycleReady`; never republish. For `terminal-obligations-required`, relay blockers/actions and stop—no submit or generic recovery.
 2. Generation zero: **Seeded draft — not published**. `lifecycleReady: true`: **Published generation &lt;N&gt; — ready to submit**. Otherwise disable Submit; `classification: generation-required`: **Generate and publish &lt;Phase&gt;**, returned `nextSkill`, stop. Never generate/publish here.
 3. Pinned review-required routes, including copies or renamed steps: `singularity-flow review-source status &lt;phase&gt; --json`; unless `not-required`/`ready`, relay findings and exact recovery/review actions. Reviewer reports are not approval. Pending amendment acknowledgement requires the person&#39;s explicit choice.
 4. `confirmationRequired: true`: show full warning and returned Work-ID-pinned command; human provides `continue`.
 5. Convergence: never generic `singularity-flow submit`. Run returned `singularity-flow story advance` without `--confirm`; show review/digest, stop on unresolved dispositions. Human confirms exact `--confirm sha256:&lt;DIGEST&gt;` once. Changed digest requires fresh review.
 6. Run returned Work-ID-pinned submit command. `--skip-checks` requires authorization.
-7. On failure show `requiredTestExecution` argv/cwd, exit, bounded stderr/report and guidance. Nonzero exit fails despite passing JUnit. `/sf-recover`: authorized environment repair permits retry without republishing unchanged source; changed source/artifacts need reviewed rollover. Preserve untracked `.sflow/results/**`; tracked/staged changes require review. Fingerprint refusal plus artifact/check hashes and diagnosed runtime evidence. Stop on an unchanged condition or after three distinct repairs. Never loop quality commands or waive tests/integrity/policy.
-8. Run `singularity-flow phase show &lt;phase&gt; --json`; retain `reviewBinding`/`displayBinding`. Reuse bodies only from a complete visible same-chat display with exactly matching non-null `displayBinding`; show fresh `reviewBinding`, checks/warnings. Body reuse never reuses approval consent. Otherwise render all documents/briefs: ID/kind/path/bytes/generation/SHA-256, `--- BEGIN &lt;path&gt; ---` / `--- END &lt;path&gt; ---`. Tool output or summaries are not review. Binary: path/metadata.
-9. New chat, changed/null binding, omissions or truncation require full display. Fetch omissions: `singularity-flow documents view &lt;DOCUMENT-ID&gt; --json`; incomplete review cannot offer approval.
+7. On failure, fingerprint refusal plus artifact/check hashes and diagnosed runtime evidence. Nonzero exit fails despite passing JUnit. Proven environment repair permits retry without republishing unchanged source; changed source/artifacts need reviewed rollover. Stop on an unchanged condition or after three distinct repairs. Never loop quality commands or waive tests/integrity/policy. `/sf-recover` never substitutes for terminal decisions.
+8. Run `singularity-flow phase show &lt;phase&gt; --json`. Reuse complete same-chat bodies only for the identical non-null `displayBinding`; always show the fresh `reviewBinding`, checks and warnings. Otherwise render every document/brief with identity, hash and boundaries. Summaries are not review.
+9. New/changed/null bindings, omissions or truncation require full display; incomplete review cannot offer approval.
 10. Report commit/push/hashes/checks/cost; offer `/sf-approve &lt;PHASE-ID&gt; --work-id &lt;WORK-ID&gt;` with real IDs; never approve.
 
 TRP: follow `singularity-flow explain test-recovery`.

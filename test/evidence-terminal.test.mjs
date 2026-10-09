@@ -8,7 +8,7 @@ import {
 import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
 import { evidenceGraph } from '../src/evidence/graph.mjs';
 import { COMPLETION_LABELS } from '../src/evidence/labels.mjs';
-import { terminalRefusalMessage } from '../src/evidence/terminal.mjs';
+import { terminalRecoveryActions, terminalRefusalMessage } from '../src/evidence/terminal.mjs';
 
 const W = 'POC-1';
 const REASON = 'This Story demonstrates the lifecycle on one local change and has no requirements.';
@@ -184,4 +184,25 @@ test('completion reads the record the ending transition made, and a refusal says
   assert.match(message, /^Story POC-1 cannot finish yet: its final evaluation found 22 open obligations\./);
   assert.match(message, /- open obligation 20\n- …and 2 more\nNothing was recorded; the Story stays where it was\.\nRecover:\n  singularity-flow decision applicability/);
   assert.match(terminalRefusalMessage('POC-1', { blockers: ['one'], recovery: [] }), /found an open obligation\.\n- one\nNothing was recorded/);
+});
+
+test('terminal recovery returns scope and witness decisions before diagnostics or risk', () => {
+  const actions = terminalRecoveryActions('HEX-1', {
+    decision: { gate: 'block' },
+    rows: [
+      {
+        id: 'HEX-1:AC-001', result: 'missing',
+        actions: [{ kind: 'accept-risk', command: 'singularity-flow decision risk --obligation OBL:visual' }],
+        verification: { contract: { slots: [{ slot: 'browser-result', method: 'visual', status: 'missing' }] } }
+      },
+      {
+        id: 'SRI-123', result: 'pending', verification: null,
+        actions: [{ kind: 'decide', command: 'singularity-flow decision scope --item SRI-123 --as <DISPOSITION> --reason "<why>"' }]
+      }
+    ]
+  });
+  assert.match(actions[0], /decision scope --item SRI-123/);
+  assert.match(actions[1], /decision witness HEX-1 --criterion HEX-1:AC-001 --slot browser-result/);
+  assert.match(actions[2], /decision risk --obligation OBL:visual/);
+  assert.equal(actions.at(-1), 'singularity-flow evidence matrix HEX-1 --json');
 });

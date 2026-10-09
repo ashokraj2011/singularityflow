@@ -10,6 +10,7 @@ import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { decisionFedBy, decisionSubmitArguments, recordedDecisionValues, storyDecisionView } from './workflow-decisions.mjs';
 import { storyRequiresStepActions } from './step-actions.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
+import { completionPhaseOf } from './lifecycle-transitions.mjs';
 
 function currentPublication(phase) {
   const generation = Number(phase?.generation ?? 0);
@@ -179,6 +180,46 @@ export async function submissionReadiness(root, config, workflow, {
         reasonCode: error.code ?? 'PHASE_APPEAL_INTEGRITY', reason: error.message,
         command: `singularity-flow appeal list --phase ${phase.id} --json`,
         nextCommand: `singularity-flow appeal list --phase ${phase.id} --json`, nextSkill: '/sf-appeal' };
+    }
+  }
+  // Before submission, the command must first run fresh quality checks and refresh observed claim
+  // bindings; it performs the terminal preview at that last pre-mutation boundary. Re-evaluate
+  // here only once the phase is already awaiting approval, so host routing cannot mistake
+  // not-yet-recorded test evidence for an integrity failure.
+  if (phase?.status === 'awaiting_approval'
+      && completionPhaseOf(workflow)?.id === phase.id) {
+    try {
+      const { evaluateTerminalReadiness } = await import('./evidence/terminal.mjs');
+      const terminal = await evaluateTerminalReadiness(root, config, workflow);
+      if (terminal.blockers.length) {
+        const command = terminal.recovery[0] ?? `singularity-flow evidence matrix ${workflow.workItem.id} --json`;
+        return {
+          ...readiness,
+          lifecycleReady: false,
+          classification: 'terminal-obligations-required',
+          reasonCode: 'STORY_TERMINAL_READINESS_REFUSED',
+          reason: `Final Story readiness has ${terminal.blockers.length} open obligation${terminal.blockers.length === 1 ? '' : 's'}.`,
+          command,
+          nextCommand: command,
+          nextSkill: copilotSkillForCommand(command),
+          terminal: {
+            inputSha256: terminal.evaluation.inputSha256,
+            blockers: terminal.blockers,
+            actions: terminal.recovery
+          }
+        };
+      }
+    } catch (error) {
+      return {
+        ...readiness,
+        lifecycleReady: false,
+        classification: 'terminal-readiness-unavailable',
+        reasonCode: error.code ?? 'STORY_TERMINAL_READINESS_UNAVAILABLE',
+        reason: error.message,
+        command: `singularity-flow evidence matrix ${workflow.workItem.id} --json`,
+        nextCommand: `singularity-flow evidence matrix ${workflow.workItem.id} --json`,
+        nextSkill: '/sf-evidence'
+      };
     }
   }
   return readiness;
@@ -386,6 +427,8 @@ export function submissionReadinessText(snapshot) {
     snapshot.sourceReviewStatus && snapshot.sourceReviewStatus !== 'ready'
       ? `Independent source review: ${snapshot.sourceReviewStatus}` : null,
     snapshot.stepActionHold?.reason ?? null,
+    snapshot.reason ?? null,
+    ...(snapshot.terminal?.blockers ?? []).slice(0, 5).map((blocker) => `Open obligation: ${blocker}`),
     `Full artifact, test, policy, and evidence validation: ${snapshot.validation}`,
     snapshot.nextCommand ? `Shell: ${snapshot.nextCommand}` : null,
     snapshot.nextSkill ? `Copilot: ${snapshot.nextSkill}` : null

@@ -549,7 +549,18 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     }
     for (const artifact of phase.artifacts) {
       const current = await snapshot(path.join(root, artifact.path));
-      if (current.exists !== artifact.exists || current.size !== artifact.size || current.sha256 !== artifact.sha256) refuse('gate.approval.stale', `STALE ${phaseId} approval: ${artifact.path} changed after approval`, { phase: phaseId, path: artifact.path });
+      if (current.exists !== artifact.exists || current.size !== artifact.size || current.sha256 !== artifact.sha256) {
+        // A later approved phase may deliberately repair a file owned by an earlier delivery
+        // (notably a bounded test-repair step). Its exact current artifact record supersedes the
+        // earlier snapshot; an out-of-band edit still matches no later approved owner and fails.
+        const phaseIndex = (workflow.phaseOrder ?? []).indexOf(phaseId);
+        const superseded = (workflow.phaseOrder ?? []).slice(phaseIndex + 1).some((laterId) =>
+          workflow.phases?.[laterId]?.status === 'approved'
+          && (workflow.phases[laterId].artifacts ?? []).some((entry) => entry.path === artifact.path
+            && entry.exists === current.exists && entry.size === current.size && entry.sha256 === current.sha256));
+        if (superseded) passes.push(`approved successor owns current artifact: ${phaseId}/${artifact.path}`);
+        else refuse('gate.approval.stale', `STALE ${phaseId} approval: ${artifact.path} changed after approval`, { phase: phaseId, path: artifact.path });
+      }
     }
     const required = path.join(root, config.workItemRoot, workflow.workItem.id, phase.requiredArtifact.path);
     const text = await readFile(required, 'utf8').catch(() => '');

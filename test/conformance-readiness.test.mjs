@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { inspectQualifiedConformanceReport } from '../src/conformance-readiness.mjs';
+import { inspectQualifiedConformanceReport, inspectSelfApprovalDisclosures } from '../src/conformance-readiness.mjs';
 
 const clauseIds = [
   'STORY-1:REQ-001', 'STORY-1:BEH-001', 'STORY-1:IFC-001',
@@ -79,4 +79,30 @@ test('qualified report rejects extra bare rows and spaced template verdict choic
   assert.deepEqual(findings.map((finding) => finding.code), [
     'conformance.verdict-invalid', 'conformance.clause-row-invalid'
   ]);
+});
+
+test('self-approval disclosure comes from retained decisions and ignores managed metadata and inputs', () => {
+  const workflow = {
+    phaseOrder: ['planning', 'release'],
+    phases: {
+      planning: { approvals: [{ decision: 'approved', selfApproval: true, actor: { login: 'reviewer-one' } }] },
+      release: { approvals: [] }
+    }
+  };
+  const managedOnly = [
+    '<!-- singularity-flow:metadata',
+    '{"phase":"planning","login":"reviewer-one"}',
+    '-->',
+    '# Conformance',
+    '## Self-approval disclosures',
+    'None.',
+    '<!-- singularity-flow:inputs:start -->',
+    'planning was approved by reviewer-one',
+    '<!-- singularity-flow:inputs:end -->'
+  ].join('\n');
+  assert.deepEqual(inspectSelfApprovalDisclosures(managedOnly, workflow).map((entry) => entry.code), [
+    'conformance.self-approval-undisclosed'
+  ]);
+  const disclosed = managedOnly.replace('None.', 'planning was self-approved by reviewer-one.');
+  assert.deepEqual(inspectSelfApprovalDisclosures(disclosed, workflow), []);
 });

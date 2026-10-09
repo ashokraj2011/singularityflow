@@ -5602,6 +5602,15 @@ async function submitPhaseTransition(root, config, workflow, {
       { code: 'WMC_INTENT_STATE_CHANGED' }
     );
   }
+  // Do not let the last phase enter human review when approval still could not complete the Story.
+  // Run this only after ordinary submission validation has refreshed tests, observed claim maps,
+  // conformance and interval evidence; running it earlier can mistake not-yet-recorded fresh test
+  // evidence for claim-map corruption. It remains before submittedAt/status/history mutations and
+  // is rerun against the exact final state inside approval.
+  if (completionPhaseOf(workflow)?.id === phase.id) {
+    const { assertTerminalReadiness } = await import('./evidence/terminal.mjs');
+    await assertTerminalReadiness(root, config, workflow);
+  }
   phase.submissionArchitectureDecision = architectureGate.architectureDecision ? {
     generation: phase.generation,
     identity: structuredClone(architectureGate.architectureDecision)

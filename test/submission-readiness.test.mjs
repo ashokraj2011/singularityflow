@@ -89,6 +89,22 @@ test('a recorded current generation in progress is explicitly ready to submit', 
   assert.doesNotMatch(submissionReadinessText(result), /publish-ready/);
 });
 
+test('terminal readiness text shows the concrete obligations and remediation route', () => {
+  const source = snapshot(workflow({ phaseId: 'release', status: 'awaiting_approval' }));
+  const held = {
+    ...source,
+    lifecycleReady: false,
+    classification: 'terminal-obligations-required',
+    reason: 'Final Story readiness has 2 open obligations.',
+    terminal: { blockers: ['AC-001 needs a generation-bound witness.', 'SRI-123 has no scope disposition.'] },
+    nextCommand: 'singularity-flow decision scope --item SRI-123 --as <DISPOSITION> --reason "<why>"',
+    nextSkill: '/sf-decide'
+  };
+  assert.match(submissionReadinessText(held), /Final Story readiness has 2 open obligations/);
+  assert.match(submissionReadinessText(held), /Open obligation: AC-001 needs a generation-bound witness/);
+  assert.match(submissionReadinessText(held), /Copilot: \/sf-decide/);
+});
+
 test('a pinned independent review routes real corrections to the author before Submit', () => {
   const source = workflow();
   source.resolution.sourceReview = {

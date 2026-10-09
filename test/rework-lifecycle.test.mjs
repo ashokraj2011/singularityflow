@@ -270,6 +270,10 @@ test('governed repairs and later Code publications are not stale evidence; out-o
   git('remote', 'add', 'origin', path.join(directory, 'remote.git')); git('push', '-u', 'origin', 'main');
   flow(['start', 'CHAIN-1', '--from-branch', 'main', '--work-type', 'governed-chain', '--agent', 'qa',
     '--title', 'Governed chain', '--description', 'Governed repairs across two code steps stay fresh evidence.']);
+  for (const responsibility of ['scope', 'plan']) {
+    flow(['decision', 'applicability', '--responsibility', responsibility,
+      '--reason', 'This governed-chain regression intentionally omits specification and planning.']);
+  }
   const draft = async () => JSON.parse(flow(['phase', 'draft-check', verify, '--json']).stdout);
   const stale = (result) => `${result.stdout}\n${result.stderr}`.match(/changed after their approved execution: ([^\n]*?)\. Return/u)?.[1];
 

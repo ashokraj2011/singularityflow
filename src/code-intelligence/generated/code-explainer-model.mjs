@@ -49,6 +49,40 @@ const CONTAINER_KINDS = new Set([
 ]);
 /** Variables, constants and properties count as callables only when their text defines a function. */
 const MAYBE_CALLABLE_KINDS = new Set([SYMBOL_KIND.Variable, SYMBOL_KIND.Constant, SYMBOL_KIND.Property, SYMBOL_KIND.Field]);
+const ANALYSIS_KIND = { method: SYMBOL_KIND.Method, constructor: SYMBOL_KIND.Constructor, class: SYMBOL_KIND.Class, function: SYMBOL_KIND.Function };
+/**
+ * Calls from Singularity Flow's analysis as call-hierarchy calls, for files whose language gave none
+ * (Java without its language server in Standard mode, for one). Each end becomes the innermost
+ * outline symbol of its file that contains its line, so it lands on the card the outline drew; in a
+ * file with no outline it keeps the analysis's own name and lines. Only calls that touch a file
+ * `wanted` accepts are kept.
+ */
+export function analysisCalls(edges, files, wanted) {
+    const outlines = new Map();
+    const flatten = (entries, into) => {
+        for (const entry of entries) {
+            into.push(entry);
+            if (entry.children?.length)
+                flatten(entry.children, into);
+        }
+        return into;
+    };
+    for (const file of files)
+        if (file.symbols?.length)
+            outlines.set(file.path, flatten(file.symbols, []));
+    const endOf = (end) => {
+        const inside = (outlines.get(end.file) ?? []).filter((entry) => CALLABLE_KINDS.has(entry.kind)
+            && entry.range.start <= end.line && end.line <= entry.range.end);
+        const owner = inside.sort((a, b) => (a.range.end - a.range.start) - (b.range.end - b.range.start))[0];
+        if (owner)
+            return { path: end.file, name: owner.name, kind: owner.kind, detail: owner.detail ?? null, range: owner.range, selection: owner.selection };
+        return { path: end.file, name: end.name, kind: ANALYSIS_KIND[end.kind] ?? SYMBOL_KIND.Function, detail: null,
+            range: { start: end.start, end: end.end }, selection: { line: end.line, character: 0 } };
+    };
+    return edges.filter((edge) => wanted(edge.from.file) || wanted(edge.to.file)).map((edge) => ({
+        from: endOf(edge.from), to: endOf(edge.to), sites: [edge.line ?? edge.from.line]
+    }));
+}
 const CONTROL = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
 /** Controls and bidirectional overrides become visible markers; tabs stay, as in the Change Explorer. */
 export function visibleCode(value) {
@@ -1698,7 +1732,9 @@ export function buildCodeExplainerModel(input, id) {
             const status = symbols.get(symbolId)?.callStatus;
             if (status === 'complete')
                 entry.calls = 'available';
-            else if (status === 'unavailable' && entry.calls !== 'available')
+            else if (status === 'analysis' && entry.calls !== 'available')
+                entry.calls = 'analysis';
+            else if (status === 'unavailable' && entry.calls !== 'available' && entry.calls !== 'analysis')
                 entry.calls = 'unavailable';
         }
         languages.set(module.language, entry);

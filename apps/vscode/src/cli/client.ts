@@ -869,7 +869,7 @@ export class SingularityFlowClient {
     }
     // A model-written repository brief or explanation can take minutes; a cached or template brief returns at once.
     return (args[0] === 'wm' && ['build'].includes(args[1] ?? ''))
-      || (args[0] === 'wm' && args[1] === 'knowledge' && ['brief', 'explain'].includes(args[2] ?? ''))
+      || (args[0] === 'wm' && args[1] === 'knowledge' && ['brief', 'explain', 'calls'].includes(args[2] ?? ''))
       || (args[0] === 'workspace' && args[1] === 'impact' && args[2] === 'analyze')
       ? WORLD_MODEL_TIMEOUT_MS : CLI_TIMEOUT_MS;
   }

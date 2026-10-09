@@ -41,6 +41,7 @@ singularity-flow wm knowledge items [--kind KIND] [--json]
 singularity-flow wm knowledge eval --expected FILE [--json]
 singularity-flow wm knowledge explain [--dry-run] [--json]
 singularity-flow wm knowledge brief [--ref BRANCH] [--phase PHASE] [--focus TEXT] [--refresh] [--cached] [--dry-run] [--json]
+singularity-flow wm knowledge calls [--path PREFIX] [--json]   # each call, with where both ends are defined
 singularity-flow wm knowledge areas [--json]
 singularity-flow wm knowledge confirm ITEM [--note TEXT]
 singularity-flow wm knowledge correct ITEM --note TEXT

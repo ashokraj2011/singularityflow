@@ -11,7 +11,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
-  buildCodeExplainerModel, changePrompt, convertSymbols, copilotPrompt, countParameters, declaredName, diffLines,
+  analysisCalls, buildCodeExplainerModel, changePrompt, convertSymbols, copilotPrompt, countParameters, declaredName, diffLines,
   codeAreas, CX_LIMITS, estimateComplexity, explanationText, exportDocument, externalLabel, fairSample, flattenSymbols, hoverParts, inArea,
   isExplainableRepositoryPath, isSingularityOwnedPath, isTestPath,
   leadingStart, maskSource, parseFilePatch, SYMBOL_KIND, symbolKey, textSymbols, visibleCode, workingDiff
@@ -526,4 +526,41 @@ test('files under Git metadata or Singularity Flow roots never become cards, eve
     { path: '.git/hooks/pre-commit.ts', language: 'typescript', lines, symbols: null, symbolReason: null }
   ] }), 'cx-hidden');
   assert.deepEqual(model.modules.map((module) => module.path), []);
+});
+
+test('calls from Singularity Flow\'s analysis land on the outline\'s own symbols, and say where they came from', () => {
+  // The Red Hat Java outline names methods with their parameters; the analysis names them plainly.
+  const controller = 'src/main/java/org/example/api/InterestController.java';
+  const service = 'src/main/java/org/example/rules/InterestCalculationService.java';
+  const files = [
+    { path: controller, language: 'java', lines: null, symbols: [symbol('InterestController', SYMBOL_KIND.Class, 10, 30, [symbol('calculate(InterestRequest)', SYMBOL_KIND.Method, 22, 27, [], 4)])] },
+    { path: service, language: 'java', lines: null, symbols: [symbol('InterestCalculationService', SYMBOL_KIND.Class, 8, 40, [symbol('calculate(InterestRequest)', SYMBOL_KIND.Method, 12, 38, [], 4)])] },
+    { path: 'src/main/java/org/example/Other.java', language: 'java', lines: null, symbols: null }
+  ];
+  const at = (file, name, line, start, end, kind = 'method') => ({ file, name, qualifiedName: name, kind, line, start, end });
+  const edges = [
+    { from: at(controller, 'calculate', 24, 24, 26), to: at(service, 'calculate', 13, 13, 38), line: 25, how: 'by-name' },
+    { from: at('src/main/java/org/example/Other.java', 'run', 5, 5, 9), to: at(service, 'calculate', 13, 13, 38), line: 7, how: 'by-name' },
+    { from: at('src/main/java/org/example/Unrelated.java', 'a', 1, 1, 2), to: at('src/main/java/org/example/Unrelated.java', 'b', 3, 3, 4), line: 1, how: 'by-name' }
+  ];
+  const wanted = new Set([controller, service, 'src/main/java/org/example/Other.java']);
+  const calls = analysisCalls(edges, files, (path) => wanted.has(path));
+  assert.equal(calls.length, 2, 'a call touching no shown file is left out');
+  assert.deepEqual(calls[0].from, { path: controller, name: 'calculate(InterestRequest)', kind: SYMBOL_KIND.Method, detail: null, range: { start: 22, end: 27 }, selection: { line: 22, character: 4 } });
+  assert.equal(calls[0].to.name, 'calculate(InterestRequest)');
+  assert.deepEqual(calls[0].sites, [25]);
+  assert.deepEqual(calls[1].from, { path: 'src/main/java/org/example/Other.java', name: 'run', kind: SYMBOL_KIND.Method, detail: null, range: { start: 5, end: 9 }, selection: { line: 5, character: 0 } }, 'a file with no outline keeps the analysis\'s own name and lines');
+
+  const callStatus = {
+    [symbolKey(controller, 22, 'calculate(InterestRequest)')]: 'analysis',
+    [symbolKey(service, 12, 'calculate(InterestRequest)')]: 'analysis'
+  };
+  const model = buildCodeExplainerModel(baseInput({ files, calls, callStatus, view: 'full' }), 'cx-analysis');
+  const byKey = new Map(model.symbols.map((entry) => [entry.key, entry]));
+  const caller = byKey.get(symbolKey(controller, 22, 'calculate(InterestRequest)'));
+  const callee = byKey.get(symbolKey(service, 12, 'calculate(InterestRequest)'));
+  assert.ok(caller && callee, 'the outline symbols exist');
+  assert.ok(caller.callees.includes(callee.id), 'the call joins the outline\'s cards, not copies of them');
+  assert.equal(caller.callStatus, 'analysis');
+  assert.equal(model.intelligence.languages.find((entry) => entry.language === 'java').calls, 'analysis');
 });

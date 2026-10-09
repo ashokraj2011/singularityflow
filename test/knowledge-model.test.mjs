@@ -238,7 +238,7 @@ test('wm knowledge works from the command line, read-only for the repository', a
   assert.equal(git(repository, 'status', '--porcelain'), '', 'the working tree is untouched');
   const unknown = run('explode');
   assert.notEqual(unknown.status, 0);
-  assert.match(unknown.stderr, /Available: areas, brief, build, confirm, correct, eval, explain, items, reject, show, slice, status/u);
+  assert.match(unknown.stderr, /Available: areas, brief, build, calls, confirm, correct, eval, explain, items, reject, show, slice, status/u);
 });
 
 test('phase prompts receive one slice for the phase reader, focused on the Story, unless turned off', async (t) => {

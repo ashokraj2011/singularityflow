@@ -949,7 +949,14 @@ export function analyzeKnowledge(source, { churn = null, commits = null, resolve
     },
     graph: {
       imports: imports.map((edge) => [edge.from, edge.to]),
-      calls: callEdges.map((edge) => [symbolsById.get(edge.from)?.qualifiedName ?? edge.from, symbolsById.get(edge.to)?.qualifiedName ?? edge.to, edge.inferred ? 'by-name' : 'resolved'])
+      calls: callEdges.map((edge) => [symbolsById.get(edge.from)?.qualifiedName ?? edge.from, symbolsById.get(edge.to)?.qualifiedName ?? edge.to, edge.inferred ? 'by-name' : 'resolved']),
+      // The same calls with where each end is defined, for an editor whose language has no call hierarchy.
+      callSites: callEdges.flatMap((edge) => {
+        const from = symbolsById.get(edge.from);
+        const to = symbolsById.get(edge.to);
+        const at = (symbol) => ({ file: symbol.file, name: symbol.name, qualifiedName: symbol.qualifiedName, kind: symbol.kind, line: symbol.line, start: symbol.start, end: symbol.end });
+        return from && to ? [{ from: at(from), to: at(to), line: edge.line ?? null, how: edge.inferred ? 'by-name' : 'resolved' }] : [];
+      })
     },
     items
   };

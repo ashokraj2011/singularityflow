@@ -23,12 +23,30 @@ import { DEFAULT_COMPREHENSION_SLICE_LEASE_MS, type SliceLease, type WorkspaceSt
 import { changeExplorerDiffHost } from './change-explorer-diff.ts';
 import { containedWorkingPath, readExactSource } from './change-explorer-source.ts';
 import {
-  buildCodeExplainerModel, changePrompt, codeAreas, convertSymbols, copilotPrompt, CX_LIMITS, CX_OUTPUT_FOLDERS, explanationText, exportDocument,
+  analysisCalls, buildCodeExplainerModel, changePrompt, codeAreas, convertSymbols, copilotPrompt, CX_LIMITS, CX_OUTPUT_FOLDERS, explanationText, exportDocument,
   externalLabel, fairSample, hoverParts, inArea, isCodeLanguage, isExplainableRepositoryPath, isTestPath, languageOf, repositoryPath, symbolKey, workingDiff,
-  type CxArea, type CxBuildInput, type CxDiffHunk, type CxCallEnd, type CxCallInput, type CxChangeView, type CxFileInput, type CxModel, type CxRawSymbol,
+  type CxAnalysisCall, type CxArea, type CxBuildInput, type CxDiffHunk, type CxCallEnd, type CxCallInput, type CxChangeView, type CxFileInput, type CxModel, type CxRawSymbol,
   type CxView
 } from './code-explainer-model.ts';
 import { buildLenses } from './code-explainer-lenses.ts';
+
+const LANGUAGE_NAMES: Record<string, string> = {
+  java: 'Java', kotlin: 'Kotlin', python: 'Python', typescript: 'TypeScript', javascript: 'JavaScript', csharp: 'C#', go: 'Go', ruby: 'Ruby', php: 'PHP'
+};
+function languageLabel(language: string): string { return LANGUAGE_NAMES[language] ?? language; }
+
+/**
+ * Why Java has no call hierarchy in this editor, and what gives it one: the Red Hat Java extension,
+ * in Standard mode (LightWeight mode answers outlines but not callers and callees), with its project
+ * imported.
+ */
+function javaCallHierarchyHint(): string {
+  const java = vscode.extensions.getExtension('redhat.java');
+  if (!java) return 'For the editor\'s own Java callers and callees, install "Language Support for Java by Red Hat" (redhat.java).';
+  const mode = java.isActive ? (java.exports as { serverMode?: string } | undefined)?.serverMode : undefined;
+  if (mode === 'LightWeight') return 'Java is running in LightWeight mode, which has no call hierarchy. Run "Java: Switch to Standard Mode" for the editor\'s own callers and callees.';
+  return 'The Java language server gave no call hierarchy yet; it may still be importing the project. Refresh when the Java status in the status bar shows it is ready.';
+}
 import { CODE_EXPLAINER_SCRIPT, codeExplainerBody } from './code-explainer-page.ts';
 import { commandData } from './surface-adapters.ts';
 import { enumField, integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
@@ -790,6 +808,27 @@ export class CodeExplainerPanel {
       + (stats.timedOut ? `, ${stats.timedOut} timed out` : '') + (stats.errors.length ? ` (${stats.errors.join('; ')})` : '');
     if (prepareStats.asked) notes.push(described('call hierarchy', prepareStats), described('callers and callees', callStats));
     if (!current()) return;
+    // A file none of whose functions got a call hierarchy (Java without its language server in
+    // Standard mode, for one) gets the calls Singularity Flow found in the committed code instead.
+    const answered = new Set(seeds.filter((symbol) => input.callStatus[symbol.key] === 'complete').map((symbol) => symbol.file));
+    const lacking = new Set(seeds.map((symbol) => symbol.file).filter((file): file is string => Boolean(file) && !answered.has(file)));
+    if (lacking.size) {
+      this.progress('Reading calls from the code…');
+      try {
+        const reply = await this.client.run<unknown>(['wm', 'knowledge', 'calls', '--json']);
+        const data = (reply && typeof reply === 'object' && 'data' in reply ? (reply as { data: unknown }).data : reply) as { edges?: CxAnalysisCall[]; resolution?: string } | null;
+        const found = analysisCalls(data?.edges ?? [], files.values(), (file) => lacking.has(file));
+        if (current() && found.length) {
+          calls.push(...found);
+          for (const symbol of seeds) if (symbol.file && lacking.has(symbol.file)) input.callStatus[symbol.key] = 'analysis';
+          const languages = [...new Set([...lacking].map((file) => languageLabel(languageOf(file))))].join(', ');
+          notes.push(`Calls for ${languages} come from Singularity Flow's analysis of the committed code (${data?.resolution === 'complete' ? 'resolved by the compiler' : 'matched by name'}), because the editor gave no call hierarchy for them.`);
+        }
+      } catch (error) {
+        notes.push(`Singularity Flow's own call analysis was not available: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if ([...lacking].some((file) => languageOf(file) === 'java')) notes.push(javaCallHierarchyHint());
+    }
     input.calls = calls;
     input.files = [...files.values()];
     publish(false, 'Finding tests and signatures…');

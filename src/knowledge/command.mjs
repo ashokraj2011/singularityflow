@@ -10,6 +10,7 @@
  *   confirm|correct|reject ID [--note TEXT]                           review an item (writes docs/knowledge/confirmations.yml)
  *   areas   [--json]                                                  the areas a large repository is built in
  *   explain [--area PATH] [--dry-run] [--json]                        plain-language explanations, citation-checked (needs a model; --dry-run shows the prompt)
+ *   calls   [--path PREFIX] [--json]                                   calls found in the code, with where each end is defined
  *   brief   [--ref BRANCH] [--phase PHASE] [--focus TEXT] [--refresh] [--cached] [--dry-run] [--json]
  *                                                                     business rules, contracts, flows, impact, risks and questions;
  *                                                                     written by the model when one is on, checked against its evidence
@@ -38,7 +39,7 @@ import { readKnowledgeSource } from './source.mjs';
 import { buildKnowledge } from './store.mjs';
 import { KNOWLEDGE_SOURCE_LIMITS } from './source.mjs';
 
-const USAGE = 'Usage: singularity-flow wm knowledge <build|show|slice|status|items|eval|explain|brief|areas|confirm|correct|reject> [--area PATH] [--json]';
+const USAGE = 'Usage: singularity-flow wm knowledge <build|show|slice|status|items|eval|explain|brief|calls|areas|confirm|correct|reject> [--area PATH] [--json]';
 
 async function built(root, options, ref = 'HEAD') {
   const result = await buildKnowledge(root, { area: optionString(options, 'area') ?? null, refresh: optionBoolean(options, 'refresh'), ref });
@@ -59,7 +60,7 @@ function levelLine(levels) {
 export async function knowledgeCommand(root, positionals, options) {
   const subcommand = positionals[0];
   const json = optionBoolean(options, 'json');
-  if (!subcommand || !['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'brief', 'areas', 'confirm', 'correct', 'reject'].includes(subcommand)) throw new SingularityFlowError(USAGE);
+  if (!subcommand || !['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'brief', 'calls', 'areas', 'confirm', 'correct', 'reject'].includes(subcommand)) throw new SingularityFlowError(USAGE);
   if (subcommand === 'areas') return areasCommand(root, options);
   const target = subcommand === 'brief' ? await briefTarget(root, options) : null;
   const result = await built(root, options, target?.commit ?? 'HEAD');
@@ -71,6 +72,7 @@ export async function knowledgeCommand(root, positionals, options) {
   const explanations = (await readExplanations(root, result.key))?.accepted ?? [];
   if (subcommand === 'explain') return explainCommand(root, result, options);
   if (subcommand === 'brief') return briefCommand(root, result, knowledge, options, target);
+  if (subcommand === 'calls') return callsCommand(result, options);
 
   if (subcommand === 'build' || subcommand === 'status') {
     const summary = {
@@ -208,6 +210,29 @@ async function explainCommand(root, result, options) {
  * statements. With the model off (or --cached), a brief the model wrote earlier for the same
  * evidence is shown, otherwise the template brief. Nothing here writes to the repository.
  */
+/**
+ * The calls found in the committed code, each end with the file and lines that define it: matched
+ * by name, or resolved by a compiler when a semantic pack is warmed. Editors use it where a
+ * language offers no call hierarchy of its own.
+ */
+function callsCommand(result, options) {
+  const edges = result.knowledge.graph?.callSites ?? [];
+  const prefix = optionString(options, 'path') ?? null;
+  const shown = prefix ? edges.filter((edge) => [edge.from.file, edge.to.file].some((file) => file === prefix || file.startsWith(`${prefix.replace(/\/$/u, '')}/`))) : edges;
+  const output = {
+    status: 'ok', commit: result.knowledge.repository.commit, area: result.knowledge.repository.area ?? null,
+    resolution: result.knowledge.metrics.callResolution?.status ?? 'by-name',
+    counts: { calls: shown.length, byName: shown.filter((edge) => edge.how === 'by-name').length, resolved: shown.filter((edge) => edge.how === 'resolved').length },
+    edges: shown
+  };
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(output, null, 2));
+  else {
+    console.log(`${output.counts.calls} calls (${output.counts.resolved} resolved, ${output.counts.byName} matched by name).`);
+    for (const edge of shown.slice(0, 50)) console.log(`  ${edge.from.qualifiedName} -> ${edge.to.qualifiedName} (${edge.from.file}:${edge.line ?? edge.from.line})`);
+  }
+  return output;
+}
+
 /**
  * What the brief reads: the commit --ref names; otherwise the checked-out commit when it has code;
  * otherwise the most recently committed local or remote branch that has code. Every one is read

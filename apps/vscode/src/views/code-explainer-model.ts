@@ -100,6 +100,42 @@ export interface CxCallEnd {
 /** One reported call; `positions` are its call sites with columns, when the service gave them. */
 export interface CxCallInput { from: CxCallEnd; to: CxCallEnd; sites: number[]; positions?: CxPoint[] }
 
+/** Where a symbol's calls came from: the editor's call hierarchy, or Singularity Flow's analysis of the code. */
+export type CxCallStatus = 'complete' | 'analysis' | 'unavailable' | 'not-requested';
+
+/** One end of a call Singularity Flow found in the committed code (`wm knowledge calls`). */
+export interface CxAnalysisEnd { file: string; name: string; qualifiedName?: string | null; kind: string; line: number; start: number; end: number }
+export interface CxAnalysisCall { from: CxAnalysisEnd; to: CxAnalysisEnd; line: number | null; how: 'by-name' | 'resolved' }
+
+const ANALYSIS_KIND: Record<string, number> = { method: SYMBOL_KIND.Method, constructor: SYMBOL_KIND.Constructor, class: SYMBOL_KIND.Class, function: SYMBOL_KIND.Function };
+
+/**
+ * Calls from Singularity Flow's analysis as call-hierarchy calls, for files whose language gave none
+ * (Java without its language server in Standard mode, for one). Each end becomes the innermost
+ * outline symbol of its file that contains its line, so it lands on the card the outline drew; in a
+ * file with no outline it keeps the analysis's own name and lines. Only calls that touch a file
+ * `wanted` accepts are kept.
+ */
+export function analysisCalls(edges: CxAnalysisCall[], files: Iterable<CxFileInput>, wanted: (path: string) => boolean): CxCallInput[] {
+  const outlines = new Map<string, CxRawSymbol[]>();
+  const flatten = (entries: CxRawSymbol[], into: CxRawSymbol[]) => {
+    for (const entry of entries) { into.push(entry); if (entry.children?.length) flatten(entry.children, into); }
+    return into;
+  };
+  for (const file of files) if (file.symbols?.length) outlines.set(file.path, flatten(file.symbols, []));
+  const endOf = (end: CxAnalysisEnd): CxCallEnd => {
+    const inside = (outlines.get(end.file) ?? []).filter((entry) => CALLABLE_KINDS.has(entry.kind)
+      && entry.range.start <= end.line && end.line <= entry.range.end);
+    const owner = inside.sort((a, b) => (a.range.end - a.range.start) - (b.range.end - b.range.start))[0];
+    if (owner) return { path: end.file, name: owner.name, kind: owner.kind, detail: owner.detail ?? null, range: owner.range, selection: owner.selection };
+    return { path: end.file, name: end.name, kind: ANALYSIS_KIND[end.kind] ?? SYMBOL_KIND.Function, detail: null,
+      range: { start: end.start, end: end.end }, selection: { line: end.line, character: 0 } };
+  };
+  return edges.filter((edge) => wanted(edge.from.file) || wanted(edge.to.file)).map((edge) => ({
+    from: endOf(edge.from), to: endOf(edge.to), sites: [edge.line ?? edge.from.line]
+  }));
+}
+
 export interface CxDiffLine { k: '+' | '-' | ' '; a: number | null; b: number | null; t: string }
 export interface CxDiffHunk { header: string; beforeStart: number; afterStart: number; lines: CxDiffLine[] }
 
@@ -151,8 +187,8 @@ export interface CxBuildInput {
   };
   files: CxFileInput[];
   calls: CxCallInput[];
-  /** Per symbol key: whether its call hierarchy answered (`complete`), failed or was not asked. */
-  callStatus: Record<string, 'complete' | 'unavailable' | 'not-requested'>;
+  /** Per symbol key: whether its call hierarchy answered (`complete`), failed or was not asked, or its calls came from Singularity Flow's analysis (`analysis`). */
+  callStatus: Record<string, CxCallStatus>;
   references: Array<{ symbol: string; path: string; line: number }>;
   referenceStatus: Record<string, 'complete' | 'unavailable' | 'not-requested'>;
   hovers: Record<string, { signature: string | null; doc: string | null }>;
@@ -212,7 +248,7 @@ export interface CxSymbol {
   metrics: CxMetrics | null;
   callers: string[];
   callees: string[];
-  callStatus: 'complete' | 'unavailable' | 'not-requested';
+  callStatus: CxCallStatus;
   tests: Array<{ path: string; line: number; symbolId: string | null }>;
   testStatus: 'complete' | 'unavailable' | 'not-requested';
   clauses: string[];
@@ -296,7 +332,7 @@ export interface CxModel {
   attention: Array<{ category: string; label: string; reason: string; count: number; text: string }>;
   intelligence: {
     status: 'pending' | 'complete' | 'partial';
-    languages: Array<{ language: string; files: number; symbols: 'language-service' | 'text' | 'none'; calls: 'available' | 'unavailable' | 'not-requested' }>;
+    languages: Array<{ language: string; files: number; symbols: 'language-service' | 'text' | 'none'; calls: 'available' | 'analysis' | 'unavailable' | 'not-requested' }>;
     depth: number;
     notes: string[];
     truncated: string[];
@@ -1751,7 +1787,7 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
     blocker: 'Reported failure', visibility: 'Visibility limit', 'missing-explanation': 'Reason not recorded', advisory: 'Worth inspecting'
   };
   const statementText = new Map((view?.statements ?? []).map((statement) => [statement.id, statement.text]));
-  const languages = new Map<string, { language: string; files: number; symbols: 'language-service' | 'text' | 'none'; calls: 'available' | 'unavailable' | 'not-requested' }>();
+  const languages = new Map<string, { language: string; files: number; symbols: 'language-service' | 'text' | 'none'; calls: 'available' | 'analysis' | 'unavailable' | 'not-requested' }>();
   for (const module of sortedModules) {
     if (module.external || !isCodeLanguage(module.language)) continue;
     const entry = languages.get(module.language) ?? { language: module.language, files: 0, symbols: 'none' as const, calls: 'not-requested' as const };
@@ -1761,7 +1797,8 @@ export function buildCodeExplainerModel(input: CxBuildInput, id: string): CxMode
     for (const symbolId of module.symbolIds) {
       const status = symbols.get(symbolId)?.callStatus;
       if (status === 'complete') entry.calls = 'available';
-      else if (status === 'unavailable' && entry.calls !== 'available') entry.calls = 'unavailable';
+      else if (status === 'analysis' && entry.calls !== 'available') entry.calls = 'analysis';
+      else if (status === 'unavailable' && entry.calls !== 'available' && entry.calls !== 'analysis') entry.calls = 'unavailable';
     }
     languages.set(module.language, entry);
   }

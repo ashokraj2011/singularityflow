@@ -187,7 +187,7 @@ const WM_AST_MUTATION_ACTIONS = new Set(['build', 'warm']);
 const WM_AST_ACTIONS = Object.freeze([...WM_AST_READ_ACTIONS, ...WM_AST_MUTATION_ACTIONS, 'cache', 'evidence', 'pack', 'preference']);
 const WM_RECOVERY_ACTIONS = Object.freeze(['list', 'inspect', 'publish']);
 // Repository knowledge reads the committed tree and writes only its machine-local cache; no model, no governed state.
-const WM_KNOWLEDGE_ACTIONS = Object.freeze(['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'brief', 'areas', 'confirm', 'correct', 'reject']);
+const WM_KNOWLEDGE_ACTIONS = Object.freeze(['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'brief', 'calls', 'areas', 'confirm', 'correct', 'reject']);
 // Reviews write docs/knowledge/confirmations.yml in the working tree (committed by the person, with the code).
 const WM_KNOWLEDGE_REVIEW_ACTIONS = new Set(['confirm', 'correct', 'reject']);
 

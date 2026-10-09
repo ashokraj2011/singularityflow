@@ -1261,7 +1261,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     else if (model) seg('● ' + model.change.files + ' changed files · ' + model.change.symbols + ' changed symbols · ' + model.edges.length + ' calls', 'ok');
     if (model) {
       const engines = model.intelligence.languages.map(function (entry) {
-        return entry.language + (entry.calls === 'available' ? ' (calls)' : entry.symbols === 'language-service' ? ' (symbols)' : entry.symbols === 'text' ? ' (text outline)' : ' (file level)');
+        return entry.language + (entry.calls === 'available' ? ' (calls)' : entry.calls === 'analysis' ? ' (calls from code analysis)' : entry.symbols === 'language-service' ? ' (symbols)' : entry.symbols === 'text' ? ' (text outline)' : ' (file level)');
       });
       const engine = button('cx-attn cx-engine', 'ⓘ engine: ' + (engines.length ? engines.join(', ') : 'no code files'), function () { toggleBuildInfo(); }, 'How this view was built');
       status.appendChild(engine);
@@ -1305,7 +1305,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     const add = function (text) { list.appendChild(el('li', '', text)); };
     model.intelligence.languages.forEach(function (entry) {
       add(entry.language + ': ' + entry.files + ' file' + (entry.files === 1 ? '' : 's') + ', symbols from ' + (entry.symbols === 'language-service' ? 'the language service' : entry.symbols === 'text' ? 'its own text (no language service answered)' : 'nothing (file level only)')
-        + ', calls ' + (entry.calls === 'available' ? 'from its call hierarchy' : entry.calls));
+        + ', calls ' + (entry.calls === 'available' ? 'from its call hierarchy' : entry.calls === 'analysis' ? "from Singularity Flow's analysis of the code" : entry.calls));
     });
     add('Call depth ' + model.intelligence.depth + '. Change: ' + (model.change.status === 'available' ? model.change.files + ' files against ' + short(model.repository.base) : (model.change.reason || model.change.status)) + '.');
     model.intelligence.notes.forEach(add);
@@ -1682,7 +1682,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
     if (!view.fitted && Object.keys(positions).length && canvas.getBoundingClientRect().width > 0) { frame(); view.fitted = true; save(); }
     const note = $('cx-canvas-note');
     const modules = visibleModules();
-    const anyCalls = model.intelligence.languages.some(function (entry) { return entry.calls === 'available'; });
+    const anyCalls = model.intelligence.languages.some(function (entry) { return entry.calls === 'available' || entry.calls === 'analysis'; });
     const lines = [];
     if (!modules.length) {
       if (model.view === 'full') lines.push("No functions were found in the current worktree's code files.");
@@ -1919,7 +1919,7 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       const tone = m.complexity <= 5 ? 'good' : m.complexity <= 10 ? 'warn' : 'bad';
       metrics.appendChild(metric('Complexity', String(m.complexity), '/ guide ≤ 10', m.band + ' · estimated', tone, m.complexity * 6.6));
       metrics.appendChild(metric('Size', String(m.lines), 'lines', m.params === null ? 'parameters unknown' : m.params + ' parameter' + (m.params === 1 ? '' : 's'), '', undefined));
-      metrics.appendChild(metric('Callers', String(symbol.callers.length), symbol.callStatus === 'complete' ? 'found' : '', symbol.callStatus === 'complete' ? 'language service' : symbol.callStatus === 'unavailable' ? 'unavailable' : 'not asked', '', undefined));
+      metrics.appendChild(metric('Callers', String(symbol.callers.length), symbol.callStatus === 'complete' || symbol.callStatus === 'analysis' ? 'found' : '', symbol.callStatus === 'complete' ? 'language service' : symbol.callStatus === 'analysis' ? 'code analysis' : symbol.callStatus === 'unavailable' ? 'unavailable' : 'not asked', '', undefined));
       metrics.appendChild(metric('Calls', String(symbol.callees.length), '', 'nesting depth ' + m.nesting, '', undefined));
       metrics.appendChild(metric('Tests', String(symbol.tests.length), 'refs', symbol.testStatus === 'complete' ? (symbol.tests.length ? 'named in tests' : 'none name it') : symbol.testStatus === 'unavailable' ? 'unavailable' : 'not asked', symbol.tests.length ? 'good' : symbol.testStatus === 'complete' && symbol.status !== 'unchanged' ? 'warn' : '', undefined));
       metrics.appendChild(metric('Change', symbol.status === 'unchanged' ? '—' : '+' + symbol.added + ' −' + symbol.removed, '', symbol.units.length ? symbol.units.join(' ') : symbol.status, symbol.status === 'unchanged' ? '' : 'warn', undefined));
@@ -1937,13 +1937,13 @@ export const CODE_EXPLAINER_SCRIPT = String.raw`
       inspector.appendChild(change);
     }
     const callers = box('Called by', symbol.callStatus === 'unavailable' ? 'call hierarchy unavailable' : '');
-    callers.appendChild(linkList(symbol.callers, symbol.callStatus === 'complete' ? 'No callers in this workspace.' : 'Not known.', function (id) {
+    callers.appendChild(linkList(symbol.callers, symbol.callStatus === 'complete' ? 'No callers in this workspace.' : symbol.callStatus === 'analysis' ? 'No callers found in the code.' : 'Not known.', function (id) {
       const edge = model.edges.find(function (entry) { return entry.from === id && entry.to === symbol.id; });
       return edge && edge.sites.length ? ':' + edge.sites.join(', ') : '';
     }));
     inspector.appendChild(callers);
     const callees = box('Calls');
-    callees.appendChild(linkList(symbol.callees, symbol.callStatus === 'complete' ? 'Calls nothing the language service resolved.' : 'Not known.'));
+    callees.appendChild(linkList(symbol.callees, symbol.callStatus === 'complete' ? 'Calls nothing the language service resolved.' : symbol.callStatus === 'analysis' ? 'Calls nothing the code analysis found.' : 'Not known.'));
     inspector.appendChild(callees);
     const tests = box('Tests that name it', 'references, not coverage');
     if (symbol.tests.length) {

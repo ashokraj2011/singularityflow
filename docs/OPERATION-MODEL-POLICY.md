@@ -748,6 +748,7 @@ Every public operation is classified before its implementation module is importe
 | wm.knowledge.brief | read | optional | wm.knowledge.brief.deterministic | copilot-cli |
 | wm.knowledge.brief.deterministic | read | never | — | — |
 | wm.knowledge.build | read | never | — | — |
+| wm.knowledge.calls | read | never | — | — |
 | wm.knowledge.confirm | mutation | never | — | — |
 | wm.knowledge.correct | mutation | never | — | — |
 | wm.knowledge.eval | read | never | — | — |

@@ -270,3 +270,19 @@ test('wm knowledge brief shows the model brief written earlier, and the template
   assert.match(markdown, /Written by recorded-model/u);
   assert.match(markdown, /## Contracts \(arch\.contracts\)/u);
 });
+
+test('wm knowledge calls lists each call with where both ends are defined, for editors with no call hierarchy', async (t) => {
+  const repository = await ordersRepository(t);
+  const result = JSON.parse(await quiet(() => knowledgeCommand(repository, ['calls'], { json: true })));
+  assert.equal(result.status, 'ok');
+  assert.ok(result.counts.calls > 0 && result.counts.calls === result.edges.length);
+  assert.equal(result.counts.byName + result.counts.resolved, result.counts.calls);
+  const placed = result.edges.find((edge) => edge.from.qualifiedName.startsWith('OrderController.') && edge.to.qualifiedName.startsWith('OrderService.'));
+  assert.ok(placed, 'the controller calls the service');
+  for (const end of [placed.from, placed.to]) {
+    assert.match(end.file, /\.java$/u);
+    assert.ok(Number.isInteger(end.line) && end.start <= end.line && end.line <= end.end, 'each end names its lines');
+  }
+  const scoped = JSON.parse(await quiet(() => knowledgeCommand(repository, ['calls'], { json: true, path: path.dirname(placed.to.file) })));
+  assert.ok(scoped.edges.length && scoped.edges.every((edge) => [edge.from.file, edge.to.file].some((file) => file.startsWith(path.dirname(placed.to.file)))), '--path keeps calls touching that folder');
+});

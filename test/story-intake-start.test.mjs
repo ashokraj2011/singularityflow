@@ -169,7 +169,10 @@ test('a passing preview\'s receipt lets start verify every input in one wave, on
   assert.equal(receipt.issued, true);
   assert.match(receipt.id, /^sir_[0-9a-f]{32}$/);
 
-  const started = start(root, 'STORY-FAST', ['--intake-receipt', receipt.id]);
+  const started = start(root, 'STORY-FAST', ['--intake-receipt', receipt.id], {
+    env: { SINGULARITY_FLOW_PROGRESS: 'stderr-v1' }
+  });
+  if (process.env.SINGULARITY_FLOW_INTAKE_BENCHMARK === '1') console.error(started.stderr);
   const result = data(started);
   assert.equal(result.intakeReceipt.status, 'verified', JSON.stringify(result.intakeReceipt));
   assert.deepEqual([...result.intakeReceipt.reused].sort(),
@@ -178,6 +181,14 @@ test('a passing preview\'s receipt lets start verify every input in one wave, on
   assert.equal(counter(started.stderr, 'git.remote.command.ls-remote'), 1,
     'configuration, base, destination and state are observed together once');
   assert.equal(counter(started.stderr, 'git.remote.command.push'), 2, 'one fresh dry run, then the publication');
+  assert.ok(counter(started.stderr, 'git.spawns') > 0);
+  assert.ok(counter(started.stderr, 'git.spawns') <= 260,
+    'intake Git-process ratchet: archive checks must batch live refs instead of spawning per ref');
+  assert.match(started.stderr, /@@sflow-progress\/v1 start\.authority/);
+  const events = (await readFile(path.join(root, '.git/singularity-flow/dx/timings.jsonl'), 'utf8'))
+    .trim().split('\n').map(line => JSON.parse(line));
+  const event = events.findLast(row => row.command === 'start' && row.event === 'dx.command-timing');
+  assert.ok(event.firstFeedbackMs < event.durationMs / 2, 'progress is measured before completion');
   assert.match(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-FAST'), /refs\/heads\/STORY-FAST$/);
 
   const reused = data(start(root, 'STORY-AGAIN', ['--intake-receipt', receipt.id]));
@@ -452,6 +463,13 @@ test('a readiness preview lists its own origin once and fetches only when a tip 
     'authority, base, destination and state come from one listing');
   assert.equal(counter(warm.stderr, 'git.story-preflight-fetch-verified'), 1);
   assert.equal(counter(warm.stderr, 'git.remote.command.fetch'), 0, 'the tracking refs were already current');
+  const events = (await readFile(path.join(root, '.git/singularity-flow/dx/timings.jsonl'), 'utf8'))
+    .trim().split('\n').map(line => JSON.parse(line));
+  const timed = events.findLast(row => row.command === 'workspace' && row.event === 'dx.command-timing');
+  for (const stage of ['intake.preflight.repositories', 'intake.preflight.readiness', 'intake.preflight.test-policy']) {
+    assert.ok(timed.spans[stage] >= 0, `${stage} is measured independently`);
+  }
+  assert.equal(timed.spans['intake.catalog'], undefined, 'selected-base preview never rebuilds the catalog');
 
   const other = path.join(base, 'other');
   git(base, 'clone', '-q', path.join(base, 'origin.git'), other);

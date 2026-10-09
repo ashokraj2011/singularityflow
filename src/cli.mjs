@@ -16159,7 +16159,7 @@ async function workspaceCommand(positionals, options) {
           throw new SingularityFlowError('--work-id reads the complete branch catalog; omit --selected-base-only.');
         }
       }
-      let catalog = selectedBaseOnly ? null : await storyBaseCatalog(root, {
+      let catalog = selectedBaseOnly ? null : await measureCommandSpan('intake.catalog', () => storyBaseCatalog(root, {
         observedHeads: originHeads,
         remote: definition.git?.remote ?? 'origin',
         defaultBranch: definition.defaultBaseBranch,
@@ -16169,7 +16169,7 @@ async function workspaceCommand(positionals, options) {
         // With no shared configuration authority, the exact base chosen later in this request is
         // the only map allowed to authorize the provisional workspace repository set.
         deferCapabilityAuthority: !approvedConfigurationSnapshot
-      });
+      }));
       let preflight = null;
       if (storyId) {
         validateId(definition, storyId);
@@ -16255,7 +16255,7 @@ async function workspaceCommand(positionals, options) {
           }
         }
         const publishRequired = (definition.git?.publish ?? 'required') !== 'off';
-        const repositories = await preflightStoryRepositories(
+        const repositories = await measureCommandSpan('intake.preflight.repositories', () => preflightStoryRepositories(
           selected.workspaceRoot, selected.plan, storyId,
           {
             remote: selected.remote,
@@ -16266,7 +16266,7 @@ async function workspaceCommand(positionals, options) {
             capabilityEvidence: legacyCapabilityEvidence,
             observedTips: originTips
           }
-        );
+        ));
         if (legacyBaseConfigurationCommit) {
           const observedCommit = refHead(
             root, `refs/remotes/${selected.remote}/${selected.localBase}`
@@ -16302,13 +16302,13 @@ async function workspaceCommand(positionals, options) {
             allowExistingStoryBranch: false
           });
         }
-        const repositoryReadiness = await collectRepositoryReadinessEvidence(
+        const repositoryReadiness = await measureCommandSpan('intake.preflight.readiness', () => collectRepositoryReadinessEvidence(
           repositories.map((entry) => ({
             id: entry.repository, root: entry.root, baseCommit: entry.baseCommit
           })),
           { scope: requiredRepositoryReadinessScope(definition), advisory: !repositoryReadinessRequired(definition),
             testRuntime: definition.repositoryReadiness?.testRuntime }
-        );
+        ));
         let readiness = inspectStoryStartReadiness({
           workId: storyId,
           definition,
@@ -16328,7 +16328,7 @@ async function workspaceCommand(positionals, options) {
           publicationRequired: publishRequired,
           surface: 'vscode-preflight'
         });
-        const testRecovery = await prepareTestRecoveryIntake(root, {
+        const testRecovery = await measureCommandSpan('intake.preflight.test-policy', () => prepareTestRecoveryIntake(root, {
           definition, workId: storyId, workType: preflightWorkType,
           isolatedWorktree: optionBoolean(options, 'isolated-worktree'),
           repositories: repositories.map(entry => ({ id: entry.repository, baseCommit: entry.baseCommit })),
@@ -16336,7 +16336,7 @@ async function workspaceCommand(positionals, options) {
           phaseDefinitions: definition.workTypes?.[preflightWorkType]
             ? testRecoveryIntakePhases(definition, preflightWorkType,
               approvedConfigurationSnapshot, selected.capability, legacyCapabilityEvidence) : []
-        });
+        }));
         readiness = applyTestRecoveryAdmission(readiness, testRecovery);
         const receiptReferences = optionBoolean(options, 'mint-intake-receipt')
           ? parseReferenceRepositoryOptions(

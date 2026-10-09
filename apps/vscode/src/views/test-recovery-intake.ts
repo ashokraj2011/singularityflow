@@ -128,14 +128,19 @@ export function testRecoveryConfirmation(
     ? draft.testRecovery!.planDigest! : null;
 }
 
-/** These flags request a preview. Only the explicit final confirmation adds a mutation digest. */
-export function testRecoveryArguments(draft: TestRecoveryDraft, confirmed = false): string[] {
-  if (!testRecoveryEnabled(draft)) return [];
-  const args = [
+/** Read-only discovery carries choices on its first request, not an approval or acceptance. */
+export function testRecoveryPreviewArguments(draft: TestRecoveryDraft): string[] {
+  return [
     '--test-baseline-disposition', draft.testBaselineDisposition,
     '--test-execution-mode', draft.testExecutionMode,
     '--test-baseline-scope', draft.testBaselineScope
   ];
+}
+
+/** Disabled policies send no mutation flags. Only exact final confirmation adds a digest. */
+export function testRecoveryArguments(draft: TestRecoveryDraft, confirmed = false): string[] {
+  if (!testRecoveryEnabled(draft)) return [];
+  const args = testRecoveryPreviewArguments(draft);
   if (testRecoveryNeedsTerminalReview(draft) && testRecoveryTermsProblems(draft).length === 0) {
     args.push(...draft.testBaselineRecords.trim().split(/[\s,]+/u).flatMap(value => ['--test-baseline-record', value]),
       '--test-baseline-reason', draft.testBaselineReason.trim(), '--test-baseline-owner', draft.testBaselineOwner.trim(),

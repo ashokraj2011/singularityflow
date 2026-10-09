@@ -61,6 +61,11 @@ The optimized paths preserve exact-ref authority and mutation preflights:
   the base, state, absent Story destination and transport identity;
 - VS Code Story intake lists remote branch choices once. After a base is selected, its preflight
   skips repeating that list but still performs the fresh fetch and dry-run publication checks;
+- that first preflight also carries the test-policy choice tuple for discovery. Enabling test
+  recovery no longer triggers a second full preflight just to evaluate display defaults. Defaults
+  are not consent: Start still requires confirmation of the exact returned plan when enabled;
+- archive guards resolve their live refs in one batch per write boundary, without caching ref tips
+  or negative results. This removes repeated per-ref Git launches during creation/publication;
 - selected Story materialization reuses the repair status instead of scanning every workspace
   repository before and after the repair a second time;
 - automatic identity enrollment uses the hash-verified configuration snapshot to prove a no-op and
@@ -83,11 +88,27 @@ about an office network's wall-clock latency:
 | Mapping with two pending proposals, one unrelated | One full proposal definition/worktree materialization instead of two | Exact base proof and claim-delta inspection for both; matching or unclear proposals retain full validation |
 | Deferred workspace with two explicit delivery branches | Zero delivery `ls-remote` probes instead of two | Approved capability-map authority; selected branch at first checkout |
 | VS Code Story preflight after selecting a base | One fewer all-heads advertisement per selected repository | Fresh selected-ref fetch, publication dry run, and Story-start validation |
+| First Story preflight with test recovery | One discovery/choice request instead of two full preflights | Exact human test-plan confirmation; defaults never accept failures |
+| Receipt-backed Story creation, archive-free local fixture | 256 Git processes instead of 288; enforced ceiling of 260 in the focused test | Every archive write guard re-resolves current refs; fresh Start observation and publication dry run |
 | Start Work on a selected capability | One readiness scan when already present, or two when materializing instead of four | Checkout identity and readiness for the selected closure |
 
 Protected configuration branches still require their server's review path. A pending capability
 proposal is still checked before proposing a potentially duplicate mapping; incomplete coverage
 never means the repository is safe to map.
+
+Story-intake timing now distinguishes `intake.catalog`, `intake.preflight.repositories`,
+`intake.preflight.readiness`, and `intake.preflight.test-policy`. When the editor requests
+`stderr-v1` progress, first-feedback timing records the first emitted `start.*` stage rather than
+the eventual JSON response. The process-count fixture is reproducible with:
+
+```sh
+SINGULARITY_FLOW_INTAKE_BENCHMARK=1 node --test --test-name-pattern='a passing preview' test/story-intake-start.test.mjs
+```
+
+This fixture does not certify wall-clock latency on a large monorepo or an office network. Locked
+dependency installation, test execution, AST and World Model builds remain outside ordinary Story
+intake. Remote checks, approved configuration validation, worktree creation and initial publication
+still take real time; these optimizations do not bypass them.
 
 Short-lived configuration clones now fetch the one required shallow commit completely whenever a
 working tree is consumed, rather than advertising `blob:none` and immediately negotiating the same

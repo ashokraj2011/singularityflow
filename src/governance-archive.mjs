@@ -15,8 +15,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 
-import { committedFileText } from './git.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { committedFileText, committedFilesAtRevisions } from './git.mjs';
+import { SingularityFlowError, SUBPROCESS_MAX_BUFFER_BYTES } from './util.mjs';
 
 export const GOVERNANCE_ARCHIVE_PATH = 'singularity/governance/archive.json';
 export const GOVERNANCE_ARCHIVE_VERSION = 'governance-archive/v1';
@@ -74,11 +74,20 @@ function sources(root, workflow) {
     const local = path.join(directory, GOVERNANCE_ARCHIVE_PATH);
     if (existsSync(local)) texts.push(readFileSync(local, 'utf8'));
   }
-  for (const ref of refs) {
-    try {
-      texts.push(committedFileText(root, ref, GOVERNANCE_ARCHIVE_PATH));
-    } catch {
-      // An unreadable copy proves nothing either way; the others still answer.
+  // Resolve all live refs afresh at every write boundary. Batching the reads avoids five Git
+  // processes per guard without memoizing mutable refs across Story creation and publication.
+  // No small-view byte ceiling may silently hide a large registry that names an archived Story.
+  try {
+    const committed = committedFilesAtRevisions(root, [...refs].map(ref => ({
+      key: ref, ref, path: GOVERNANCE_ARCHIVE_PATH
+    })), { maximumObjectBytes: SUBPROCESS_MAX_BUFFER_BYTES, maximumBytes: SUBPROCESS_MAX_BUFFER_BYTES,
+      requireCompleteRead: true });
+    for (const bytes of committed.values()) texts.push(bytes.toString('utf8'));
+  } catch {
+    // Preserve independent-copy recovery if one object cannot be read by the batch. An unreadable
+    // copy proves nothing either way; another ref or the checkout can still name the Story.
+    for (const ref of refs) {
+      try { texts.push(committedFileText(root, ref, GOVERNANCE_ARCHIVE_PATH)); } catch { /* next copy */ }
     }
   }
   return texts.map(parse).filter(Boolean);

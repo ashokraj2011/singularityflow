@@ -133,6 +133,9 @@ test('disabled TRP still permits unobserved test setup under the normal choice p
   assert.equal(result.readiness.ready, true);
   assert.ok(result.readiness.warnings.some(row => row.code === 'STORY_TEST_CONFIGURATION_PENDING'));
   assert.deepEqual(result.testRecovery, { schemaVersion: 1, enabled: false });
+  const firstChoicePreview = f.preview('changed-and-affected');
+  assert.equal(firstChoicePreview.passed, true, 'choice discovery remains harmless under disabled policy');
+  assert.deepEqual(firstChoicePreview.testRecovery, { schemaVersion: 1, enabled: false });
   await assert.rejects(access(f.marker), { code: 'ENOENT' });
   f.assertUnchanged();
 });

@@ -1192,9 +1192,12 @@ export function committedFileBytes(root, ref, relative, { env = process.env } = 
  * Files at several revisions, read in a fixed number of Git calls however many are asked for.
  * `requests` is `[{ key, ref, path }]`; the map holds the bytes of each file that exists and fits
  * `maximumObjectBytes`. A missing ref or path, or one past either byte ceiling, is simply absent.
+ * `requireCompleteRead` refuses resolver/size failures instead of silently omitting known files,
+ * for callers with an independent-copy fallback. Missing refs/files can still be absent.
  */
 export function committedFilesAtRevisions(root, requests, {
-  env = process.env, maximumObjectBytes = 4 * 1024 * 1024, maximumBytes = 32 * 1024 * 1024
+  env = process.env, maximumObjectBytes = 4 * 1024 * 1024, maximumBytes = 32 * 1024 * 1024,
+  requireCompleteRead = false
 } = {}) {
   const wanted = (requests ?? []).filter((request) => request?.ref && request?.path
     && !/[\n\0]/u.test(`${request.ref}:${request.path}`));
@@ -1203,7 +1206,8 @@ export function committedFilesAtRevisions(root, requests, {
     cwd: root, env: immutableLocalGitEnvironment(env), allowFailure: true,
     input: `${wanted.map((request) => `${request.ref}:${request.path}`).join('\n')}\n`
   });
-  if (checked.status !== 0) return new Map();
+  if (requireCompleteRead) gitReadOutput(checked, 'Committed file resolution');
+  else if (checked.status !== 0) return new Map();
   const rows = String(checked.stdout).split('\n');
   const found = [];
   let total = 0;
@@ -1212,7 +1216,13 @@ export function committedFilesAtRevisions(root, requests, {
     const [oid, type, rawSize] = String(rows[index] ?? '').trim().split(' ');
     const size = Number(rawSize);
     if (type !== 'blob' || !/^[a-f0-9]{40,64}$/u.test(oid ?? '') || !Number.isSafeInteger(size)
-      || size > maximumObjectBytes || total + size > maximumBytes) return;
+      || size < 0) return;
+    if (size > maximumObjectBytes || total + size > maximumBytes) {
+      if (requireCompleteRead) throw new SingularityFlowError('Committed files exceed the batch byte ceiling.', {
+        code: 'GIT_COMMITTED_FILE_LIMIT'
+      });
+      return;
+    }
     total += size;
     found.push({ key: request.key, oid });
   });

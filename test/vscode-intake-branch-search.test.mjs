@@ -233,8 +233,13 @@ test('baseline and ongoing scope are independent explicit choices, not implied r
   for (const args of [intakeCommand(intake), storyPreflightCommand(intake)]) {
     assert.equal(args[args.indexOf('--readiness-baseline') + 1], 'defer');
     assert.equal(args[args.indexOf('--test-execution-mode') + 1], 'all-configured');
-    assert.ok(!args.includes('--accept-test-risk') && !args.includes('--test-baseline-disposition'));
+    assert.ok(!args.includes('--accept-test-risk') && !args.includes('--test-policy-confirm'));
   }
+  assert.ok(!intakeCommand(intake).includes('--test-baseline-disposition'),
+    'an undiscovered policy gets no mutation agreement flags');
+  const preview = storyPreflightCommand(intake);
+  assert.equal(preview[preview.indexOf('--test-baseline-disposition') + 1], 'fix',
+    'read-only discovery evaluates default choices, never failure acceptance');
   const strict = intakeHtml({ ...intake, baselinePolicy: 'required', readinessBaseline: 'reuse' });
   assert.doesNotMatch(strict, /data-readiness-baseline value="defer"\s+disabled/);
   assert.match(strict, /Test setup, missing results and existing failures do not block Story creation/);

@@ -16,7 +16,10 @@ const PROGRESS_STEP = /^start\.[a-z][a-z-]*$/u;
 
 function reportProgress(name) {
   if (!PROGRESS_MODE || !PROGRESS_STEP.test(name)) return;
-  try { process.stderr.write(`@@sflow-progress/v1 ${name}\n`); } catch { /* progress is advisory */ }
+  try {
+    process.stderr.write(`@@sflow-progress/v1 ${name}\n`);
+    commandTimingContext.getStore()?.feedback();
+  } catch { /* progress is advisory */ }
 }
 
 export function withCommandTiming(timer, action) {

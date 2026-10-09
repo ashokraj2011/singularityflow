@@ -1171,12 +1171,8 @@ export class IntakePanel {
       if (version !== this.preflightVersion) return;
       const testRecovery = result.preflight?.testRecovery?.schemaVersion === 1
         ? result.preflight.testRecovery : null;
-      // Capability discovery is read-only. Once advertised, request the explicit choice tuple
-      // before a confirmable plan can be shown. No tests are executed by this preview request.
-      if (testRecovery?.enabled === true && !command.includes('--test-baseline-disposition')) {
-        this.update({ testRecovery, testRecoveryConfirmedDigest: null }, { background: true });
-        return this.preflightBaseBranch();
-      }
+      // The first read includes the choice tuple, so capability discovery does not trigger a
+      // second fetch/dry-run. A returned plan remains display data until the human confirms it.
       const readiness = result.preflight?.readiness;
       this.update({ baselinePolicy: 'choice',
         baselineScope: readiness?.repositoryExecution?.scope ?? 'dependency-test' }, { background: true });

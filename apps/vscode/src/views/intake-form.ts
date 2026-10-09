@@ -20,7 +20,8 @@ import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts
 import { gitRemoteProblem } from './map-capability-form.ts';
 import { commandGuidance } from '../copilot-command.ts';
 import {
-  EMPTY_TEST_RECOVERY_DRAFT, testRecoveryArguments, testRecoveryHtml, testRecoveryProblems, testRecoveryNeedsTerminalReview,
+  EMPTY_TEST_RECOVERY_DRAFT, testRecoveryArguments, testRecoveryPreviewArguments, testRecoveryEnabled,
+  testRecoveryHtml, testRecoveryProblems, testRecoveryNeedsTerminalReview,
   type TestRecoveryDraft
 } from './test-recovery-intake.ts';
 
@@ -632,10 +633,11 @@ export function storyPreflightCommand(form: IntakeForm): string[] | null {
     '--from-branch', form.baseBranch, '--selected-base-only',
     '--readiness-baseline', form.readinessBaseline,
     '--gate-mode', form.qualityGateMode,
-    ...(!form.testRecovery?.enabled ? ['--test-execution-mode', form.testExecutionMode] : []),
     ...(form.workType ? ['--work-type', form.workType, '--mint-intake-receipt'] : []),
     ...references,
-    ...testRecoveryArguments(form)
+    // Discovery and choice evaluation happen in one read. These defaults never imply consent;
+    // Start still requires the returned exact plan digest when the policy is enabled.
+    ...(testRecoveryEnabled(form) ? testRecoveryArguments(form) : testRecoveryPreviewArguments(form))
   ];
 }
 

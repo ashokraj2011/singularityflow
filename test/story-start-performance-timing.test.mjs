@@ -41,3 +41,23 @@ test('durable Story timing retains stage spans and independent overlapping read 
   assert.equal(stored.stages.execute, 9);
   assert.doesNotMatch(JSON.stringify(stored), /remoteUrl|repositoryPath|argv|password|credential/);
 });
+
+test('the first emitted Start progress marks feedback, not the final JSON response', () => {
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import { commandTimer, measureCommandSpan, withCommandTiming } from './src/dx-command-timing.mjs';
+    let clock = 0n;
+    const timer = commandTimer('start', { clock: () => clock });
+    await withCommandTiming(timer, async () => {
+      clock = 2_000_000n;
+      await measureCommandSpan('start.authority', async () => { clock = 12_000_000n; });
+      await measureCommandSpan('start.worktree', async () => { clock = 22_000_000n; });
+    });
+    console.log(JSON.stringify(timer.finish()));
+  `], { cwd: new URL('..', import.meta.url), encoding: 'utf8',
+    env: { ...process.env, SINGULARITY_FLOW_PROGRESS: 'stderr-v1' } });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /@@sflow-progress\/v1 start\.authority/);
+  const event = JSON.parse(result.stdout);
+  assert.equal(event.firstFeedbackMs, 2);
+  assert.equal(event.durationMs, 22);
+});

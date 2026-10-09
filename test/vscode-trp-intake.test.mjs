@@ -73,6 +73,24 @@ test('Story preflight and Start both bind the isolated target checkout', () => {
   }
 });
 
+test('first preflight discovers policy and evaluates choices in one read without implying consent', () => {
+  for (const testRecovery of [null, capability({ enabled: false }), capability({ schemaVersion: 2 }), capability()]) {
+    const form = story({ testRecovery, testExecutionMode: 'all-configured' });
+    const argv = storyPreflightCommand(form);
+    for (const [flag, value] of [['--test-baseline-disposition', 'fix'],
+      ['--test-execution-mode', 'all-configured'], ['--test-baseline-scope', 'reuse']]) {
+      assert.equal(argv.filter(arg => arg === flag).length, 1, `${flag} is supplied once`);
+      assert.equal(argv[argv.indexOf(flag) + 1], value);
+    }
+    assert.ok(!argv.includes('--test-policy-confirm'));
+    assert.ok(!argv.includes('--run'));
+    assert.equal(intakeCommand(form).includes('--test-baseline-disposition'),
+      testRecovery?.schemaVersion === 1 && testRecovery?.enabled === true,
+      'disabled/undiscovered policy never receives mutation agreement flags');
+    assert.ok(!intakeCommand(form).includes('--test-policy-confirm'), 'defaults are not consent');
+  }
+});
+
 test('existing-failure disposition, ongoing execution scope and baseline scope stay independent', () => {
   const form = story({ testRecovery: capability() });
   const all = { ...form, testExecutionMode: 'all-configured' };

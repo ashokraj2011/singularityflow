@@ -132,8 +132,9 @@ Knowledge** picks an item and records the same confirm, correct or reject review
   `--dry-run` prints the exact prompt.
 - It reads the checked-out commit. When that commit has no code, it reads the most recently
   committed local or remote branch that has code instead, and says which; `--ref BRANCH` names one.
-  Another branch is read from Git's objects: nothing is checked out or cloned. A commit with no
-  code and no rule-like docs is not sent to the model.
+  Another branch is read from Git's objects: nothing is checked out or cloned; in a partial clone the
+  files it reads are downloaded into `.git` first. Singularity Flow's own branches (`sflow/*`, the
+  state ledger) are never offered. A commit with no code and no rule-like docs is not sent to the model.
 - It works in any Git repository. Without `singularity/workflow.yml` the model is Copilot CLI
   (`copilot` on PATH) choosing its own model; a configured provider and model are used when present.
   Nothing is written to the working tree: the cache and the model audit live under `.git`.

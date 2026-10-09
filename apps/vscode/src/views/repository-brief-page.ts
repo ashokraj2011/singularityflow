@@ -6,7 +6,11 @@ import { escape } from './webview.ts';
 
 export type BriefSource = { path: string; line: number | null; label: string };
 export type BriefStatement = { text: string; cites: string[]; sources: BriefSource[]; origin?: 'model' | 'template' };
-export type BriefRead = { ref: string; commit: string; checkedOut: string | null; chosen: 'checked-out' | 'requested' | 'has-code' };
+export type BriefRead = {
+  ref: string; commit: string; checkedOut: string | null; chosen: 'checked-out' | 'requested' | 'has-code';
+  /** Files downloaded into .git first, in a partial clone that did not have them. */
+  fetched?: number; remote?: string | null;
+};
 export type RepositoryBrief = {
   repository: string;
   commit: string;
@@ -110,12 +114,17 @@ function branchPicker(brief: RepositoryBrief | null, state: BriefPageState): str
   return `<label class="meta" for="brief-ref">Branch</label><select id="brief-ref" data-message="ref">${options}</select>`;
 }
 
+/** Files a partial clone did not have and fetched first, said in one sentence. */
+function downloaded(read: BriefRead): string {
+  return read.fetched ? ` ${read.fetched} of its file${read.fetched === 1 ? ' was' : 's were'} downloaded from ${escape(read.remote ?? 'the remote')} into .git first.` : '';
+}
+
 /** Says when the brief read another branch than the checked-out one, or found no code at all. */
 function readNotice(brief: RepositoryBrief): string {
   const read = brief.source;
   const at = `<code>${escape(String(brief.commit).slice(0, 12))}</code>`;
   if (read?.chosen === 'has-code') {
-    return `<p class="callout" role="status">The checked-out branch${read.checkedOut ? ` <strong>${escape(read.checkedOut)}</strong>` : ''} has no code, so this brief reads <strong>${escape(read.ref)}</strong> at ${at} straight from Git. Nothing was checked out or cloned. Pick another branch above to read that one.</p>`;
+    return `<p class="callout" role="status">The checked-out branch${read.checkedOut ? ` <strong>${escape(read.checkedOut)}</strong>` : ''} has no code, so this brief reads <strong>${escape(read.ref)}</strong> at ${at} straight from Git.${downloaded(read)} Nothing was checked out. Pick another branch above to read that one.</p>`;
   }
   if (brief.evidence.codeFiles === 0) {
     return `<p class="warning" role="status">No code at ${brief.branch ? `<strong>${escape(brief.branch)}</strong> ` : ''}${at}${read?.chosen === 'requested' ? '. Pick a branch that has code above.' : ', and no other branch here has code. Fetch the branch that holds the code, then press Refresh.'}</p>`;

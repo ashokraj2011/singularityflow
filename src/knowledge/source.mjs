@@ -80,6 +80,7 @@ export async function readKnowledgeSource(root, { area = null, ownOnly = false, 
   if (listOnly || codePaths.length > limits.maximumCodeFiles) {
     return {
       ...base, status: listOnly ? 'listed' : 'insufficient', reason: listOnly ? null : 'too-many-files', files: [], manifests: [], skipped: [],
+      ...(listOnly ? { paths: listed } : {}),
       // Areas of about a quarter of the limit, so each one builds on its own with room to spare.
       areas: codeAreas(codePaths, { target: Math.max(1, Math.floor(limits.maximumCodeFiles / 4)), maxAreas: 60 })
     };

@@ -179,12 +179,53 @@ export function commitOfRef(root, ref) {
   return gitReadOutput(result, `The commit of '${name}'`, { absentStatus: 1 })?.trim() || null;
 }
 
-/** Local and remote-tracking branches, most recently committed first: short name and commit. */
-export function recentBranches(root, { limit = 40 } = {}) {
-  const output = gitAnswer(['for-each-ref', '--sort=-committerdate', `--count=${limit * 2}`, '--format=%(refname:short)%09%(objectname)%09%(symref)',
-    'refs/heads', 'refs/remotes'], { cwd: root }, 'The repository branches');
-  return output.split('\n').map((line) => line.split('\t')).filter(([name, commit, symref]) => name && commit && !symref)
-    .map(([name, commit]) => ({ name, commit })).slice(0, limit);
+/**
+ * Local and remote-tracking branches, most recently committed first: short name, commit, the remote
+ * (null for a local branch) and the branch name without the remote.
+ */
+export function recentBranches(root, { limit = 500 } = {}) {
+  const output = gitAnswer(['for-each-ref', '--sort=-committerdate', `--count=${limit}`,
+    '--format=%(refname)%09%(refname:short)%09%(objectname)%09%(symref)', 'refs/heads', 'refs/remotes'], { cwd: root }, 'The repository branches');
+  return output.split('\n').map((line) => line.split('\t')).filter(([full, name, commit, symref]) => full && name && commit && !symref)
+    .map(([full, name, commit]) => {
+      const remote = full.startsWith('refs/remotes/') ? full.slice('refs/remotes/'.length).split('/')[0] : null;
+      return { name, commit, remote, branch: remote ? full.slice(`refs/remotes/${remote}/`.length) : full.slice('refs/heads/'.length) };
+    });
+}
+
+/**
+ * In a partial clone, download the blobs of `commit` whose paths `wanted` accepts and that are not
+ * here yet: one fetch from the promisor remote into the object store, nothing checked out. Returns
+ * how many were fetched (0 for a complete clone, or when nothing was missing).
+ */
+export function fetchMissingBlobs(root, commit, wanted, { limit = 20000 } = {}) {
+  const promisors = git(['config', '--local', '--get-regexp', '^remote\\..*\\.promisor$'], { cwd: root, allowFailure: true });
+  const remote = String(promisors.stdout ?? '').split('\n').map((line) => line.trim().split(/\s+/u))
+    .find(([, value]) => value === 'true')?.[0]?.replace(/^remote\.|\.promisor$/gu, '') ?? null;
+  if (!remote) return { fetched: 0, remote: null };
+  const local = { ...process.env, GIT_NO_LAZY_FETCH: '1', GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' };
+  const listed = git(['ls-tree', '-r', '-z', '--format=%(objecttype)%x09%(objectname)%x09%(path)', commit], { cwd: root, env: local, allowFailure: true });
+  if (listed.status !== 0) return { fetched: 0, remote };
+  const oids = [...new Set(String(listed.stdout ?? '').split('\0').map((row) => row.split('\t'))
+    .filter(([type, , file]) => type === 'blob' && file && wanted(file)).map(([, oid]) => oid))];
+  if (!oids.length) return { fetched: 0, remote };
+  const checked = git(['cat-file', '--batch-check=%(objectname) %(objecttype)'], { cwd: root, env: local, allowFailure: true, input: `${oids.join('\n')}\n` });
+  const missing = String(checked.stdout ?? '').split('\n').filter((line) => line.endsWith(' missing')).map((line) => line.split(' ')[0]);
+  if (!missing.length) return { fetched: 0, remote };
+  if (missing.length > limit) {
+    throw new SingularityFlowError(`${missing.length} files of ${commit.slice(0, 12)} are not downloaded in this partial clone, more than ${limit} to fetch at once. Check the branch out, or fetch it in full, then try again.`, { code: 'GIT_PARTIAL_CLONE_TOO_MANY_MISSING' });
+  }
+  // The same request Git makes for a lazy fetch, made once for the whole set.
+  const fetched = git(['-c', 'fetch.negotiationAlgorithm=noop', 'fetch', remote, '--no-tags', '--no-write-fetch-head',
+    '--recurse-submodules=no', '--filter=blob:none', '--stdin'], {
+    cwd: root, allowFailure: true, input: `${missing.join('\n')}\n`,
+    env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' }
+  });
+  if (fetched.status !== 0) {
+    const detail = String(fetched.stderr ?? '').trim().split('\n').at(-1) || `git exited ${fetched.status}`;
+    throw new SingularityFlowError(`${missing.length} files of ${commit.slice(0, 12)} are not downloaded in this partial clone, and fetching them from '${remote}' failed: ${detail}`, { code: 'GIT_PARTIAL_CLONE_FETCH_FAILED' });
+  }
+  return { fetched: missing.length, remote };
 }
 
 export function gitDir(root) {

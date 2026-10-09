@@ -5,10 +5,9 @@
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
     "reviewedAtCommit": "d206b553b742bb73b549cdee5add2870e0c7f0a5",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-09-LEGACY-V3-REMOVAL.md",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-09-LOCAL-EVIDENCE-REVIEW.md",
     "companionIds": [
-      "workflow-configuration",
-      "world-model-v4"
+      "action-authorization"
     ]
   },
   "companions": [
@@ -95,7 +94,7 @@
     {
       "id": "action-authorization",
       "path": "src/action-authorization.mjs",
-      "sha256": "sha256:63de1360825c9024fa9d21fdc69375d2950948bdb648987b4398f55b18e152b7"
+      "sha256": "sha256:ecf788b638cbc305cfb598c2b6013e1569c479499cc84c9f7eec27fb636195df"
     },
     {
       "id": "migration-registry",

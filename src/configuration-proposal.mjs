@@ -525,8 +525,11 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       if (merged.status !== 0) {
         throw new SingularityFlowError(
           `Workflow proposal '${proposalBranch}' no longer merges cleanly into '${CONFIGURATION_BRANCH}'. `
-          + 'The proposal was preserved; rebase or recreate it against current approved configuration.',
-          { code: 'WORKFLOW_PROPOSAL_CONFLICT' }
+          + 'The proposal was preserved. Use Recreate & sync configuration in the main panel to rebuild pending intent without a Git merge.',
+          { code: 'WORKFLOW_PROPOSAL_CONFLICT', details: { nextAction: {
+            label: 'Preview recreation against the current approved configuration. To apply without merge questions, click Recreate & sync configuration in the main panel.',
+            command: 'singularity-flow configuration recreate-sync --json'
+          } } }
         );
       }
     }

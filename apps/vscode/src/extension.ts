@@ -33,6 +33,7 @@ import {
   decisionChoiceItems, decisionChooseArgv, decisionInputPrompt, pendingDecisionSummary, submitArgvWithDecisionValues
 } from './decisions.ts';
 import { ConfigurationValidator } from './validation.ts';
+import { ConfigurationSyncAction } from './views/configuration-sync-model.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
@@ -907,6 +908,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openCapabilities', 'singularityFlow.openImpact', 'singularityFlow.openFlowImpact', 'singularityFlow.openStories',
     'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.openWorkspaceStories', 'singularityFlow.openReviews', 'singularityFlow.startWork',
     'singularityFlow.openConfigurationApprovals',
+    'singularityFlow.recreateAndSyncConfiguration',
     'singularityFlow.openAdhocWork',
     'singularityFlow.openDeveloperHome',
     'singularityFlow.openGoals', 'singularityFlow.openFaultRepairs', 'singularityFlow.openJournal',
@@ -7259,6 +7261,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     if (message.action === 'after-install') await vscode.commands.executeCommand('singularityFlow.afterInstall');
+    else if (message.action === 'recreate-sync') await vscode.commands.executeCommand('singularityFlow.recreateAndSyncConfiguration');
     else if (message.action === 'repository-setup') await vscode.commands.executeCommand(
       'singularityFlow.repairRepositorySetup', { repositoryPath: client.repository }
     );
@@ -7490,6 +7493,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Governed workflow configuration routines: review and activate a configuration proposal, propose
   // a change after previewing it, and export, import or copy workflows. Workflow Studio calls them;
   // every mutation goes through the engine's validation and the repository's review proposal.
+  const configurationSyncAction = new ConfigurationSyncAction({
+    run: argv => client.run(argv), refresh: refreshAfterKnownMutation
+  });
   const reviewAndActivateWorkflowProposal = async (branch: string): Promise<string | null> => {
     try {
       const inspected = await client.run<{
@@ -7723,6 +7729,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     'singularityFlow.openConfigurationApprovals': async () =>
       vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' }),
+    'singularityFlow.recreateAndSyncConfiguration': async () => {
+      await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+        title: 'Recreating and syncing configuration', cancellable: false }, async () => {
+        const result = await configurationSyncAction.run();
+        output.appendLine(JSON.stringify(result, null, 2));
+        if (!['synced', 'current'].includes(result.status)) {
+          showRefusal(result.failure?.message ?? `Configuration recreation is ${result.status}.`,
+            { headline: 'Configuration sync needs attention' });
+          return;
+        }
+        if (result.referenceSync?.status === 'attention') {
+          void showCompactWarningMessage(`Configuration synced at ${result.targetCommit.slice(0, 12)}, but local references need attention. `
+            + 'Details are in Activity & logs. Click Recreate & sync again to retry reference sync; no new merge is needed.');
+          return;
+        }
+        void showCompactInformationMessage(result.status === 'current'
+          ? 'Configuration is current; no pending proposals. Application code and Stories unchanged.'
+          : `Configuration recreated and synced at ${result.targetCommit.slice(0, 12)}. `
+            + `${result.proposals.length} proposals archived. Application code and Stories unchanged.`);
+      });
+    },
     // Backward-compatible command ID for old keybindings and links; it never opens a second home.
     'singularityFlow.openDeveloperHome': async () =>
       vscode.commands.executeCommand('singularityFlow.myWork'),

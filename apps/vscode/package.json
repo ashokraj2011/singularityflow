@@ -261,6 +261,11 @@
         "icon": "$(git-merge)"
       },
       {
+        "command": "singularityFlow.recreateAndSyncConfiguration",
+        "title": "Singularity Flow: Recreate & Sync Configuration (One Click)",
+        "icon": "$(sync)"
+      },
+      {
         "command": "singularityFlow.createWorkspace",
         "title": "Singularity Flow: Create a Workspace",
         "icon": "$(root-folder)"

@@ -2120,7 +2120,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
     <details>
       <summary>
         <span class="skill-number">022</span>
-        <span class="skill-title"><strong>sflow-configuration</strong><span>Inspect, explain, validate, save, and explicitly publish governed Singularity Flow configuration changes.</span></span>
+        <span class="skill-title"><strong>sflow-configuration</strong><span>Inspect, validate, publish, or explicitly recreate and sync governed configuration without Git merge questions.</span></span>
         <span class="chevron" aria-hidden="true"></span>
       </summary>
       <div class="skill-content">
@@ -2129,11 +2129,11 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">mutation</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~534 body tokens</span>
+          <span class="pill">~682 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-configuration</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>show|explain [--pointer &lt;JSON-POINTER&gt;]|validate|save &lt;path&gt;|publish</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>show|explain [--pointer &lt;JSON-POINTER&gt;]|validate|save &lt;path&gt;|publish|recreate-sync [--apply]</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-configuration/SKILL.md</code></dd></div>
         </dl>
@@ -2143,9 +2143,9 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
         </div>
         <pre data-source="sflow-configuration"><code>---
 name: sflow-configuration
-description: Inspect, explain, validate, save, and explicitly publish governed Singularity Flow configuration changes.
+description: Inspect, validate, publish, or explicitly recreate and sync governed configuration without Git merge questions.
 disable-model-invocation: true
-argument-hint: &quot;show|explain [--pointer &lt;JSON-POINTER&gt;]|validate|save &lt;path&gt;|publish&quot;
+argument-hint: &quot;show|explain [--pointer &lt;JSON-POINTER&gt;]|validate|save &lt;path&gt;|publish|recreate-sync [--apply]&quot;
 ---
 # Manage governed configuration
 
@@ -2159,10 +2159,11 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 1. For `show` or `explain`, run the exact requested read-only command and preserve any explicit
    `--pointer`; do not substitute validation or a write.
-2. Run `singularity-flow configuration validate --json` before proposing any write.
-3. For save, require the exact reviewed source path. For publish, show the changed governed files, target configuration branch, commit message, and remote state.
-4. Require an explicit mutation request, then run only the selected `singularity-flow configuration save` or `singularity-flow configuration publish` operation.
-5. Report validation, commit, push, and active-work invalidation effects. Never edit lifecycle snapshots or publish directly to an application branch.
+2. For `recreate-sync`, run the read-only preview unless the user explicitly requests recreation and sync. That request authorizes `singularity-flow configuration recreate-sync --apply --json` without follow-up merge or confirmation questions. The main-panel **Recreate &amp; sync configuration** menu performs the same model-free operation. Preserve its backups and effects; never reset application code or Story history, and never apply merely because a proposal conflict was reported. The operation owns validation; do not add a pre-validation or another publication command.
+3. For other writes, run `singularity-flow configuration validate --json` before proposing any write.
+4. For save, require the exact reviewed source path. For publish, show the changed governed files, target configuration branch, commit message, and remote state.
+5. Require an explicit mutation request, then run only the selected `singularity-flow configuration save` or `singularity-flow configuration publish` operation.
+6. Report validation, commit, push, and active-work invalidation effects. Never edit lifecycle snapshots or publish directly to an application branch.
 
 Always report the equivalent routes:
 

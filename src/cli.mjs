@@ -14952,7 +14952,12 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
   const subcommand = requirePositional(positionals, 1, `${namespace} subcommand`);
   const root = repoRoot();
   let result;
-  if (subcommand === 'explain') result = await import('./initialization/explain.mjs').then(({ explainSmartInitialization }) => (
+  if (subcommand === 'recreate-sync') {
+    result = await import('./configuration-recreate-sync.mjs').then(({ recreateAndSyncConfiguration }) =>
+      recreateAndSyncConfiguration(root, { apply: optionBoolean(options, 'apply') }));
+    if (['not-synced', 'outcome-unknown'].includes(result.status)) process.exitCode = 2;
+  }
+  else if (subcommand === 'explain') result = await import('./initialization/explain.mjs').then(({ explainSmartInitialization }) => (
     explainSmartInitialization(root, { pointer: optionString(options, 'pointer') })
   ));
   else if (subcommand === 'snapshot') result = await repositorySnapshot(root, positionals[2], optionString(options, 'initiative'));

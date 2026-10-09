@@ -783,6 +783,7 @@ Usage:
   singularity-flow plugin uninstall | list | verify [--json] | path
   singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] [--git-shadow] --json
   singularity-flow configuration validate --json
+  singularity-flow configuration recreate-sync [--apply] [--json]  Replay pending configuration intent, archive old refs, and sync without a Git merge; preview unless --apply
   singularity-flow configuration explain [--pointer JSON-POINTER] [--json]
   singularity-flow configuration save <PATH> [--propose]    Reads replacement content from stdin
   singularity-flow configuration add-current-identity [--target *|story:*|initiative:*|SCOPE:GROUP] [--self-approval on|off] [--auto-enroll on|off] [--automatic] [--json]

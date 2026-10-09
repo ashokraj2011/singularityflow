@@ -7,6 +7,19 @@ import test from 'node:test';
 import {
   refusalEnvelope, refusalRemediationPlan, renderRefusalPlan
 } from '../src/refusal-remediation.mjs';
+
+test('a stale workflow proposal exposes read-only recreation and the one-click menu, not blind activation', () => {
+  const plan = refusalRemediationPlan(Object.assign(new Error('Proposal conflict'), {
+    code: 'WORKFLOW_PROPOSAL_CONFLICT', details: { nextAction: {
+      label: 'Preview recreation; click Recreate & sync configuration in the main panel to apply.',
+      command: 'singularity-flow configuration recreate-sync --json'
+    } }
+  }), ['workflow', 'proposal', 'activate']);
+  assert.equal(plan.steps[0].command, 'singularity-flow configuration recreate-sync --json');
+  assert.match(plan.steps[0].copilotCommand, /sf-configuration/u);
+  assert.match(plan.steps[0].label, /Recreate & sync/u);
+  assert.equal(plan.steps.some(step => step.command?.includes('--apply')), false);
+});
 import { structuredTestCommandRequiredError } from '../src/code-delivery-tests.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');

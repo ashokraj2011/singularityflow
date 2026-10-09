@@ -13,6 +13,7 @@ export const PRIMARY_NAVIGATION = [
   { id: 'configuration-approvals', label: 'Configuration approvals', icon: 'merge', command: 'singularityFlow.openConfigurationApprovals' },
   { id: 'workspace-manage', label: 'Workspaces', icon: 'workspace', command: 'singularityFlow.openWorkspaces' },
   { id: 'configuration-center', label: 'Configuration', icon: 'configuration', command: 'singularityFlow.openConfigurationCenter' },
+  { id: 'configuration-sync', label: 'Recreate & sync configuration', icon: 'configuration', command: 'singularityFlow.recreateAndSyncConfiguration' },
   { id: 'after-install', label: 'After install', icon: 'configuration', command: 'singularityFlow.afterInstall' }
 ] as const;
 export type PrimaryNavigationId = typeof PRIMARY_NAVIGATION[number]['id'];

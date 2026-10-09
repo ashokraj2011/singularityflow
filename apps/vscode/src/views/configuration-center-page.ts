@@ -24,6 +24,7 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
   { label: 'Repository setup', items: [
     { label: 'Overview', glyph: 'configuration', tab: 'overview' },
     { label: 'After install', glyph: 'configuration', action: 'after-install' },
+    { label: 'Recreate & sync configuration', glyph: 'configuration', action: 'recreate-sync' },
     { label: 'Upgrade / migrate SFlow', glyph: 'configuration', action: 'capability-refresh' },
     { label: 'Repair or upgrade setup', glyph: 'configuration', action: 'repository-setup' },
     { label: 'Capabilities', glyph: 'capability', action: 'capabilities' },
@@ -90,6 +91,7 @@ function overview(view: ConfigurationCenterView): string {
 
     <h2>Workflow tools</h2>
     <div class="configuration-action-list">
+      <button class="configuration-action-row" data-action="recreate-sync">${icon('configuration', { size: 16 })}<span><strong>Recreate &amp; sync configuration</strong><small>Apply pending edits to current approved configuration, archive old proposals, and sync. One click authorizes the update; no Git merge or follow-up questions. Application code and Stories stay unchanged.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="workflow-studio">${icon('workflow', { size: 16 })}<span><strong>Workflow Studio</strong><small>Design workflows, steps, agents and approvals visually, then publish once.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="shared-workflow-drafts">${icon('workflow', { size: 16 })}<span><strong>Shared workflow drafts</strong><small>Explicitly save partial drafts in the configuration authority across machines.</small></span>${icon('next')}</button>
       <button class="configuration-action-row" data-action="open-copilot">${icon('agent', { size: 16 })}<span><strong>Continue active Story in Copilot</strong><small>Hand the open interval to Copilot with governed context.</small></span>${icon('next')}</button>

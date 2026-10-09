@@ -1242,7 +1242,7 @@ test('Edit opens custom, duplicated and unpublished workflows in the canvas with
   assert.match(state.status, /no longer available/);
   assert.ok(posted.every((message) => message.type !== 'studio.publish'), 'navigation never publishes');
   assert.match(WORKFLOW_STUDIO_SCRIPT, /button\(readOnly \? 'View' : 'Edit'/);
-  assert.match(WORKFLOW_STUDIO_SCRIPT, /if \(workflowReadOnly\(workflowId\)\) \{ renderSeededWorkflow/);
+  assert.match(WORKFLOW_STUDIO_SCRIPT, /var inspector = readOnly \? \(selectedDecision \? renderReadOnlyDecision\(workflowId, selectedDecision\) : renderReadOnlyStep\(workflowId, state\.step\)\)/, 'a seeded workflow opens on the canvas, read-only');
   state.draft.epics = { workflows: { 'custom-epic': { id: 'custom-epic', label: 'Custom Epic', phases: ['define'] } }, steps: {} };
   reply({ type: 'studio.focus', workflowId: 'initiative:custom-epic' });
   assert.deepEqual([state.view, state.epic, state.epicStep], ['epic', 'custom-epic', 'define']);
@@ -1840,4 +1840,44 @@ test('a new step shows its World Model: its agent\'s views ticked, the repositor
   for (const phase of ['intake', 'requirements', 'design', 'implementation', 'security-review', 'acceptance-testing', 'release']) {
     assert.equal(page.knowledgeReader(phase), roleForPhase(phase), `the page and the engine agree on ${phase}`);
   }
+});
+
+test('a seeded workflow opens on a read-only canvas: its structure without editing tools, and each step\'s details', async () => {
+  const { buildStudioModel } = await import('../src/workflow-studio.mjs');
+  const root = await repository();
+  const model = await buildStudioModel(root);
+  // A workflow as it ships, protected the way installed seeded workflows are; the rest stay editable.
+  const seeded = model.workflows.find((workflow) => (workflow.decisions ?? []).length) ?? model.workflows[0];
+  seeded.readOnly = true;
+  model.protection = { ...(model.protection ?? {}), workflows: [...(model.protection?.workflows ?? []), seeded.id] };
+  const editable = model.workflows.find((workflow) => workflow.id !== seeded.id && !workflow.readOnly);
+  assert.ok(editable, 'the fixture has an editable workflow');
+  const element = (tag) => ({ tag, attributes: {}, children: [], style: { setProperty() {} }, classList: { add() {}, remove() {}, toggle() {} }, textContent: '', setAttribute(name, value) { this.attributes[name] = value; }, appendChild(child) { this.children.push(child); return child; }, addEventListener() {} });
+  const page = loadedStudio(model, { getElementById: () => null, createElement: element, createElementNS: (namespace, tag) => element(tag), createTextNode: (text) => ({ text }) });
+  const text = (node) => [node.textContent ?? node.text ?? '', ...(node.children ?? []).map(text)].join(' ');
+  const all = (node) => [node, ...(node.children ?? []).flatMap(all)];
+  const state = page.state();
+  page.openWorkflowCanvas(seeded.id);
+  assert.deepEqual([state.view, state.workflow, state.panel], ['board', seeded.id, null], 'View opens the canvas');
+
+  const rail = (id) => all(page.renderToolRail(id, state.draft.workflows[id], { finding: false })).map((node) => node.attributes?.['aria-label']).filter(Boolean);
+  assert.deepEqual(rail(seeded.id).filter((label) => /^(Add a step|Decide what|Select a step to decide|Send rejected|Only a step with a sign-off|Workflow settings)/u.test(label)), [], 'no editing tools');
+  assert.ok(rail(seeded.id).includes('Find a step or agent'));
+  assert.ok(rail(editable.id).some((label) => label.startsWith('Add a step')), 'an editable workflow keeps them');
+
+  const first = seeded.phases[0];
+  const details = page.renderReadOnlyStep(seeded.id, first);
+  assert.equal(details.attributes['aria-label'], 'Step details');
+  const shown = text(details);
+  for (const label of ['Produces', 'Drafted by', 'Drafted with', 'Reads', 'Sign-off', 'Then', 'Clarifying questions', 'World Model']) assert.match(shown, new RegExp(label, 'u'));
+  assert.match(shown, /The Story itself/u, 'the first step reads the Story');
+  assert.match(shown, /Views: |No World Model views/u);
+  assert.ok(!all(details).some((node) => node.tag === 'input' && node.attributes.type === 'checkbox' && String(node.attributes['data-key'] ?? '').startsWith('view-')), 'views are shown, not edited');
+  assert.match(WORKFLOW_STUDIO_SCRIPT, /fixed \? null : el\('div', \{ class: 'node-tools' \}/, 'nodes have no move or remove tools');
+  assert.match(WORKFLOW_STUDIO_SCRIPT, /draggable: fixed \? null : 'true'/, 'nodes cannot be dragged');
+  const ask = { id: 'go-on', after: first, kind: 'ask', label: 'Go on?', routes: [{ id: 'yes', label: 'Yes', to: 'next' }, { id: 'stop', label: 'Stop', to: 'finish' }] };
+  const decision = page.renderReadOnlyDecision(seeded.id, ask);
+  assert.equal(decision.attributes['aria-label'], 'Decision details');
+  assert.match(text(decision), /Go on\?/u);
+  assert.match(text(decision), /A person chooses:.*Yes → .*Stop → /su, 'each answer and where it goes');
 });

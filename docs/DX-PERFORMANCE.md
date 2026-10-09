@@ -110,6 +110,15 @@ dependency installation, test execution, AST and World Model builds remain outsi
 intake. Remote checks, approved configuration validation, worktree creation and initial publication
 still take real time; these optimizations do not bypass them.
 
+Verification of this intake increment (2026-10-09): all 14 Story-start scenarios and 41 intake UI
+tests passed, as did test-policy/receipt, archive, authority-reader and capability-preflight checks.
+The package check and VS Code typecheck/build passed again after merging main's newer branch-brief
+changes. The installed VS Code host and an office-network/300-GB corpus were not qualified here.
+Broader runs were not fully green: 6 DX-performance, 2 governance-rebuild, 10 publication-preflight
+(including nested cases), and 1 model-brief failure reproduced on untouched main `1e3bc624`.
+Their snapshot/import, retained-convergence, terminal claim-map/obligation and model-mock failures
+remain separate work; no assertion or product gate was weakened to make this increment pass.
+
 Short-lived configuration clones now fetch the one required shallow commit completely whenever a
 working tree is consumed, rather than advertising `blob:none` and immediately negotiating the same
 blobs lazily. Read-only proposal inventories use `--no-checkout`. Application workspace clone mode

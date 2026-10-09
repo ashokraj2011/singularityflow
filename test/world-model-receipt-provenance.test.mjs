@@ -82,7 +82,7 @@ async function repository() {
   return root;
 }
 
-test('Initiative World-Model availability receipts cannot contradict their consumed files', async (t) => {
+test('Initiative World-Model availability receipts that contradict their consumed files are reported, never blocking', async (t) => {
   const root = await repository();
   t.after(() => Promise.all([
     rm(root, { recursive: true, force: true }),
@@ -111,8 +111,8 @@ test('Initiative World-Model availability receipts cannot contradict their consu
     worldModelFiles: [fakeFile]
   }, null, 2)}\n`);
   let result = await verify();
-  assert.equal(result.valid, false);
-  assert.match(result.errors.join('\n'), /marks grounding unavailable but records 1 consumed file/);
+  assert.equal(result.valid, true, 'guidance never blocks');
+  assert.match(result.warnings.join('\n'), /marks grounding unavailable but records 1 consumed file/);
 
   await writeFile(recordPath, `${JSON.stringify({
     ...original,
@@ -120,8 +120,8 @@ test('Initiative World-Model availability receipts cannot contradict their consu
     worldModelFiles: [fakeFile]
   }, null, 2)}\n`);
   result = await verify();
-  assert.equal(result.valid, false);
-  assert.match(result.errors.join('\n'), /world-model commit is missing/);
+  assert.equal(result.valid, true, 'guidance never blocks');
+  assert.match(result.warnings.join('\n'), /world-model commit is missing/);
 
   await writeFile(recordPath, `${JSON.stringify({
     ...original,
@@ -129,8 +129,8 @@ test('Initiative World-Model availability receipts cannot contradict their consu
     worldModelFiles: [fakeFile]
   }, null, 2)}\n`);
   result = await verify();
-  assert.equal(result.valid, false);
-  assert.match(result.errors.join('\n'), /world-model commit is missing/);
+  assert.equal(result.valid, true, 'guidance never blocks');
+  assert.match(result.warnings.join('\n'), /world-model commit is missing/);
 
   await writeFile(recordPath, `${JSON.stringify({
     ...original,
@@ -143,6 +143,6 @@ test('Initiative World-Model availability receipts cannot contradict their consu
     worldModelFiles: []
   }, null, 2)}\n`);
   result = await verify();
-  assert.equal(result.valid, false);
-  assert.match(result.errors.join('\n'), /marks grounding available but records no consumed files/);
+  assert.equal(result.valid, true, 'guidance never blocks');
+  assert.match(result.warnings.join('\n'), /marks grounding available but records no consumed files/);
 });

@@ -489,7 +489,7 @@ test('routine annotation repair never opens unowned or spent generations', async
   assert.equal(item.phase.generationIntent.status, 'consumed');
 });
 
-test('prepublish shares the repair plan but withdraws annotation permission behind lifecycle and grounding gates', async (t) => {
+test('prepublish shares the repair plan, withdraws annotation permission behind lifecycle gates, and never behind World-Model grounding', async (t) => {
   const item = await fixture({ 'BIND-1:REQ-001': planned(['src/payment.js']) });
   t.after(() => rm(item.root, { recursive: true, force: true }));
   await openCodeGeneration(item);
@@ -516,11 +516,13 @@ test('prepublish shares the repair plan but withdraws annotation permission behi
   assert.ok(blocked.traceabilityRepair.actions.every((action) => !action.sameTurn));
   assert.equal(await readFile(pending, 'utf8'), '{unreadable publication');
   await rm(pending);
+  // The World Model is guidance: 'enforce' acts as warn and withdraws nothing.
   item.workflow.resolution.worldModelGrounding = 'enforce';
   const grounding = await preview();
-  assert.equal(grounding.correction.sameTurn, false);
-  assert.equal(grounding.traceabilityRepair.sameTurn, false);
-  assert.ok(grounding.traceabilityRepair.actions.every((action) => !action.sameTurn));
+  assert.equal(result.traceabilityRepair.sameTurn, true);
+  assert.equal(grounding.correction.sameTurn, result.correction.sameTurn);
+  assert.equal(grounding.traceabilityRepair.sameTurn, true);
+  assert.deepEqual(grounding.traceabilityRepair.actions.map((action) => action.sameTurn), result.traceabilityRepair.actions.map((action) => action.sameTurn));
 });
 
 test('code-delivery preflight refuses missing source tags before a generation is published', async (t) => {

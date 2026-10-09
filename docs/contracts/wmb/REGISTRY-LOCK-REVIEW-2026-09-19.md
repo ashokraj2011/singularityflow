@@ -752,6 +752,30 @@ earlier registries keep their 21-check contract, which this build no longer runs
 | Coverage manifest | `sha256:d5249513a9b31a2350265fb1564eca75fae33521ec04732d801e508d7aac5fca` | `sha256:06bb00d231154d27c2e19dc0cd29fb75feb2be3b1837ef02bcaa35090f214bc1` |
 | Built-in Extractor Registry | `sha256:64f104caf153ef69fabd7c62406fa584b1bc34b5efc410d57c1e5154c62f8550` | `sha256:a737579c710b1a7048632c9a4c8cf1402631bffb8b90cfe6251bc625774b26c8` |
 
+## Deterministic section placement by fact type
+
+Review boundary: `main@020f7c17e59b0c9f214b1f78d754e3cfd82eb67a` plus the section-placement patch to
+`src/world-model/compose/candidate.mjs`. This is a **view-selection** transition: facts are
+unchanged; the deterministic composer files each admitted fact under the first body section whose
+registered meaning names the fact's type (for example `signature` and `interface` under Public
+contracts, `consumer-dependency` under Consumers, `test-impact` under Test impact), and a type no
+section names keeps the previous rotation, so no admitted fact is dropped. The TL;DR now leads with
+found facts; unavailable analysis keeps its own section. Contradictions and unavailable facts are
+placed exactly as before. Budget admission (`deterministicArrangementFits`) uses the same placement. Because facts of one type now share their section's narrative budget, a view can admit fewer optional facts of a crowded type than the rotation did; required facts, contradictions and unavailable analysis are unaffected.
+
+Earlier models stay readable (the validation contract is unchanged, 22 checks) and are stale until
+rebuilt, as for any non-mechanical transition. The fact vocabulary, extractor versions, View
+Registry, permissions, candidate schema and validation checks are unchanged. A composition test
+pins the placement for the `arch.contracts` fixture and fails on the previous rotation.
+
+| Identity | Previously accepted | Accepted at this review |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:8dbd09ba86d750aa7a8fe46937a51d421f89fb280db346d6b90bfb43cc43047e` | `sha256:172a066931ef331e310b826a0d650bddd26c718336064d21ac5382781932463b` |
+| Coverage implementation | `sha256:536a852cdeb032dde85ee65e83859bf2547fa0ce69e2cb59689a233223152eec` | `sha256:85c081585fb2288d881c679e2bffea1ec166860f7a92f039dfcd0dd88df0dae4` |
+| Coverage conformance receipt | `sha256:197fbb8397104c4637e26f12cb6d2f569b744ed94cecdd16beee0a8d275edc83` | `sha256:f28839535d5f1f72161cc0bbcc61bc2daa1441186d6de075d9639581448b5279` |
+| Coverage manifest | `sha256:06bb00d231154d27c2e19dc0cd29fb75feb2be3b1837ef02bcaa35090f214bc1` | `sha256:41b6fff51296f83a96ab27dbf24a323216f5c9bac388caf744c59c9436e75851` |
+| Built-in Extractor Registry | `sha256:a737579c710b1a7048632c9a4c8cf1402631bffb8b90cfe6251bc625774b26c8` | `sha256:a271499fb95dc970438f96fa075b83b0edafb585fe9143588fefe13ac999b173` |
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.

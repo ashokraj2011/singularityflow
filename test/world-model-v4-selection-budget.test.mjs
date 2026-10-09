@@ -8,7 +8,7 @@ import test from 'node:test';
 import { canonicalJson, sealRecord } from '../src/world-model/canonicalize.mjs';
 import { assembleWmbV4Prompt } from '../src/world-model/compose/pinned-core.mjs';
 import {
-  candidateFactReferences, renderDeterministicCandidate
+  canonicalFactSentence, candidateFactReferences, renderDeterministicCandidate
 } from '../src/world-model/compose/candidate.mjs';
 import {
   createFactLedger, factIdentityFromRecord
@@ -214,14 +214,23 @@ test('large registered-v4 views preserve coverage and contradictions within exac
     admittedFactIds: prompt.admittedFactIds
   }).receipt.status, 'passed');
 
-  const omittedFactId = prompt.omittedFactIds[0];
-  assert.ok(!mandatoryIds.includes(omittedFactId));
-  const omittedFactCandidate = renderDeterministicCandidate(context.contract, {
-    ...first,
-    facts: first.facts.filter((fact) => (
-      admittedFactIds.has(fact.id) || fact.id === omittedFactId
-    ))
-  }, { outputBudget: promptInputs.outputBudget });
+  // An omitted optional Fact does not fit the budget by construction, so swap it for an admitted
+  // optional Fact's line in the valid candidate: same shape, one reference the prompt never had.
+  const omittedFactId = prompt.omittedFactIds.find((id) => !mandatoryIds.includes(id));
+  assert.ok(omittedFactId);
+  const omittedFact = first.facts.find((fact) => fact.id === omittedFactId);
+  const replacedId = prompt.admittedFactIds.find((id) => !mandatoryIds.includes(id)
+    && modelCandidate.sections.some((section) => section.markdown.includes(`[F:${id}]`)));
+  assert.ok(replacedId, 'the valid candidate cites an admitted optional Fact');
+  const omittedFactCandidate = structuredClone(modelCandidate);
+  for (const section of omittedFactCandidate.sections) {
+    section.markdown = section.markdown.split('\n').map((line) => (line.includes(`[F:${replacedId}]`)
+      ? `- ${canonicalFactSentence(omittedFact)} [F:${omittedFactId}]` : line)).join('\n');
+  }
+  if (Array.isArray(omittedFactCandidate.usedFactIds)) {
+    omittedFactCandidate.usedFactIds = omittedFactCandidate.usedFactIds
+      .map((id) => (id === replacedId ? omittedFactId : id)).sort();
+  }
   assert.ok(candidateFactReferences(omittedFactCandidate).includes(omittedFactId),
     'the fixture candidate must cite a Fact omitted from the bounded model prompt');
   assert.throws(

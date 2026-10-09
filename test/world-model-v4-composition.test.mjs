@@ -615,3 +615,31 @@ test('model execution stamps reject non-canonical, oversized, and unknown-provid
     route: 'deterministic', provider: 'copilot-cli'
   }));
 });
+
+test('deterministic placement files each fact under the section that names its type', async (t) => {
+  const base = await fixture(t);
+  const registration = runDeterministicRegistration({
+    root: base.root,
+    scopeManifest: base.scopeManifest,
+    requestedViews: ['arch.contracts@4']
+  });
+  const contract = resolveBuiltInViewContract('arch.contracts@4');
+  const viewFactLedger = selectViewFacts({ factLedger: registration.factLedger, viewContract: contract });
+  const candidate = renderDeterministicCandidate(contract, viewFactLedger);
+  // The summary may cite any fact; placement is about the registered body sections.
+  const body = candidate.sections.filter((section) => contract.sections.some((entry) => (
+    entry.id === section.sectionId && !['summary', 'contradiction', 'unavailable'].includes(entry.sectionKind)
+  )));
+  const sectionOf = (factId) => body.find((section) => section.markdown.includes(factId))?.sectionId ?? null;
+  const expected = {
+    interface: 'public-contracts', signature: 'public-contracts', 'schema-contract': 'public-contracts',
+    'protocol-field': 'public-contracts', implementation: 'implementations', 'consumer-dependency': 'consumers'
+  };
+  const typed = viewFactLedger.facts.filter((fact) => fact.status === 'available' && expected[fact.factType]);
+  assert.ok(typed.length, 'the fixture yields facts of section-named types');
+  for (const fact of typed) assert.equal(sectionOf(fact.id), expected[fact.factType], `${fact.factType} ${fact.id}`);
+  assert.equal(validate(candidate, {
+    contract, viewFactLedger, scopeManifest: base.scopeManifest,
+    evidenceCatalog: registration.evidenceCatalog
+  }).receipt.status, 'passed');
+});

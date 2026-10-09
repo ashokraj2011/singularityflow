@@ -162,6 +162,14 @@ export const REVIEWED_EXTRACTOR_REGISTRY_TRANSITIONS = Object.freeze([
     to: 'sha256:a737579c710b1a7048632c9a4c8cf1402631bffb8b90cfe6251bc625774b26c8',
     kernelFrom: 'sha256:6e3f8f9e8474bb464aa0140f07cb64ee92a6d5d6a4a4423ea5f2eda3baf36f46',
     kernelTo: 'sha256:8dbd09ba86d750aa7a8fe46937a51d421f89fb280db346d6b90bfb43cc43047e'
+  }),
+  Object.freeze({
+    review: 'Deterministic section placement by fact type',
+    effect: 'view-selection',
+    from: 'sha256:a737579c710b1a7048632c9a4c8cf1402631bffb8b90cfe6251bc625774b26c8',
+    to: 'sha256:a271499fb95dc970438f96fa075b83b0edafb585fe9143588fefe13ac999b173',
+    kernelFrom: 'sha256:8dbd09ba86d750aa7a8fe46937a51d421f89fb280db346d6b90bfb43cc43047e',
+    kernelTo: 'sha256:172a066931ef331e310b826a0d650bddd26c718336064d21ac5382781932463b'
   })
 ]);
 

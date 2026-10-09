@@ -166,6 +166,7 @@ const STUDIO_STYLE = `
 .studio .prop-icon:hover:not(:disabled){border-color:var(--sf-border-color);background:var(--sf-surface-raised,transparent);box-shadow:none}
 .prop-title h2{font-size:14px;margin:2px 0 0}
 .prop-section{border-bottom:1px solid var(--sf-border-color)}
+.ro-details{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:0}.ro-details dt{opacity:.75}.ro-details dd{margin:0}.ro-routes{margin:0;padding-left:18px}.ro-routes li{margin:4px 0}
 .section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px var(--sf-space-3)}
 .section-toggle{display:flex;align-items:center;gap:6px;flex:1;min-width:0;padding:2px 0;border:0;background:transparent;color:inherit;font-family:var(--sf-font-mono,monospace);font-weight:700;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;text-align:left;cursor:pointer;white-space:nowrap}
 .section-toggle .summary{margin-left:auto;font-family:var(--vscode-font-family);font-size:11.5px;font-weight:400;letter-spacing:0;text-transform:none;opacity:.7;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0}
@@ -790,6 +791,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   window.__workflowStudio = { initialDraft: initialDraft, changeSetFrom: changeSetFrom, copiedPhaseDraft: copiedPhaseDraft, describe: describe, kebab: kebab,
     worldModelSection: function () { return worldModelSection.apply(null, arguments); }, knowledgeReader: function () { return knowledgeReader.apply(null, arguments); },
     newStepWorldModelHint: function () { return newStepWorldModelHint.apply(null, arguments); },
+    renderReadOnlyStep: function () { return renderReadOnlyStep.apply(null, arguments); }, renderReadOnlyDecision: function () { return renderReadOnlyDecision.apply(null, arguments); },
+    renderToolRail: function () { return renderToolRail.apply(null, arguments); },
     newDecision: function () { return newDecision.apply(null, arguments); }, convertDecision: function () { return convertDecision.apply(null, arguments); },
     decisionLines: function () { return decisionLines.apply(null, arguments); }, reachOf: function () { return reachOf.apply(null, arguments); },
     targetOptions: function () { return targetOptions.apply(null, arguments); }, pruneDecisions: function () { return pruneDecisions.apply(null, arguments); },
@@ -2258,14 +2261,15 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         el('span', { class: 'node-sign' + (blocked ? ' bad' : group ? '' : ' none'), title: signText }, icon(group ? 'people' : 'right', 11), group ? String(minimum) : 'auto')),
       el('span', { class: 'node-after' }, el('span', { class: 'lane', text: 'THEN' }), chips.map(chip))
     ];
+    var fixed = workflowReadOnly(workflowId);
     var card = el('div', {
       class: 'node tone-' + look.tone + (node.collapsed ? ' collapsed' : '') + (selected ? ' selected' : '') + (blocked ? ' blocked' : '') + (findMatches(view, phase, agent) ? ' match' : ''),
-      draggable: 'true', 'data-phase': phaseId,
-      ondragstart: function (event) { event.dataTransfer.setData('text/plain', phaseId); event.dataTransfer.effectAllowed = 'move'; card.classList.add('dragging'); },
+      draggable: fixed ? null : 'true', 'data-phase': phaseId,
+      ondragstart: fixed ? null : function (event) { event.dataTransfer.setData('text/plain', phaseId); event.dataTransfer.effectAllowed = 'move'; card.classList.add('dragging'); },
       ondragend: function () { card.classList.remove('dragging'); },
-      ondragover: function (event) { event.preventDefault(); card.classList.add('drop-target'); },
+      ondragover: fixed ? null : function (event) { event.preventDefault(); card.classList.add('drop-target'); },
       ondragleave: function () { card.classList.remove('drop-target'); },
-      ondrop: function (event) {
+      ondrop: fixed ? null : function (event) {
         event.preventDefault(); card.classList.remove('drop-target');
         var moved = event.dataTransfer.getData('text/plain'); var from = phases.indexOf(moved);
         if (from >= 0 && from !== node.index) moveStep(workflowId, moved, node.index - from);
@@ -2284,7 +2288,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       el('button', { type: 'button', class: 'node-fold', 'data-key': 'fold-' + phaseId, 'aria-expanded': node.collapsed ? 'false' : 'true',
         title: node.collapsed ? 'Expand ' + phase.label : 'Minimize ' + phase.label, 'aria-label': (node.collapsed ? 'Expand ' : 'Minimize ') + phase.label,
         onclick: function (event) { event.stopPropagation(); setCollapsed(workflowId, [phaseId], !node.collapsed); state.focusKey = 'fold-' + phaseId; render(); } }, icon(node.collapsed ? 'down' : 'up', 12)),
-      el('div', { class: 'node-tools' },
+      fixed ? null : el('div', { class: 'node-tools' },
         el('button', { type: 'button', title: 'Move earlier', 'aria-label': 'Move ' + phase.label + ' earlier', disabled: node.index === 0, onclick: function () { moveStep(workflowId, phaseId, -1); } }, icon('left', 14)),
         el('button', { type: 'button', title: 'Move later', 'aria-label': 'Move ' + phase.label + ' later', disabled: node.index === phases.length - 1, onclick: function () { moveStep(workflowId, phaseId, 1); } }, icon('right', 14)),
         el('button', { type: 'button', title: 'Remove from this workflow', 'aria-label': 'Remove ' + phase.label + ' from this workflow', onclick: function () { removeStep(workflowId, phaseId); } }, icon('trash', 14))));
@@ -2301,24 +2305,25 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     function tool(name, label, onClick, attrs) {
       return el('button', Object.assign({ type: 'button', class: 'tool', title: label, 'aria-label': label, onclick: onClick }, attrs || {}), icon(name, 18));
     }
+    var fixed = workflowReadOnly(workflowId);
     return el('div', { class: 'tool-rail', role: 'toolbar', 'aria-label': 'Workflow tools', 'aria-orientation': 'vertical' },
-      tool('plus', selected ? 'Add a step after ' + stepLabel(selected) : 'Add a step', function () {
+      fixed ? null : tool('plus', selected ? 'Add a step after ' + stepLabel(selected) : 'Add a step', function () {
         state.panel = 'add'; state.decision = null; if (state.adding) state.adding.after = selected; render();
       }, { 'aria-pressed': state.panel === 'add' ? 'true' : 'false' }),
-      tool('diamond', !selected ? 'Select a step to decide what happens after it' : existing ? 'Open the decision after ' + stepLabel(selected) : 'Decide what happens after ' + stepLabel(selected), function () {
+      fixed ? null : tool('diamond', !selected ? 'Select a step to decide what happens after it' : existing ? 'Open the decision after ' + stepLabel(selected) : 'Decide what happens after ' + stepLabel(selected), function () {
         if (existing) { openDecision(existing); return; }
         // After the last step the useful question is 'another round or finish?', which a person answers.
         var decision = newDecision(workflow, selected, workflow.phases.indexOf(selected) === workflow.phases.length - 1 ? 'ask' : 'branch');
         workflow.decisions = (workflow.decisions || []).concat([decision]);
         state.decision = decision.id; state.panel = null; changed();
       }, { disabled: !selected }),
-      tool('back', signed ? 'Send rejected work from ' + stepLabel(selected) + ' back to an earlier step' : 'Only a step with a sign-off can send work back', function () {
+      fixed ? null : tool('back', signed ? 'Send rejected work from ' + stepLabel(selected) + ' back to an earlier step' : 'Only a step with a sign-off can send work back', function () {
         state.panel = null; state.decision = null; state.sections.signoff = true; state.focusKey = 'step-back'; render();
       }, { disabled: !signed || workflow.phases.indexOf(selected) === 0 }),
       tool('search', 'Find a step or agent', function () {
         view.finding = !view.finding; if (view.finding) state.focusKey = 'canvas-find'; else view.find = ''; render();
       }, { 'aria-pressed': view.finding ? 'true' : 'false' }),
-      tool('gear', 'Workflow settings: name, description and rules', function () { state.panel = 'workflow'; state.decision = null; render(); }, { 'aria-pressed': state.panel === 'workflow' ? 'true' : 'false' }),
+      fixed ? null : tool('gear', 'Workflow settings: name, description and rules', function () { state.panel = 'workflow'; state.decision = null; render(); }, { 'aria-pressed': state.panel === 'workflow' ? 'true' : 'false' }),
       tool(allFolded ? 'unfoldAll' : 'foldAll', allFolded ? 'Expand every step' : 'Minimize every step', function () {
         setCollapsed(workflowId, workflow.phases, !allFolded); render();
       }, { 'aria-pressed': allFolded ? 'true' : 'false' }),
@@ -2500,7 +2505,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return 'developer';
   }
   /** A step's World Model: the views ticked here, and the repository knowledge every step gets. */
-  function worldModelSection(workflowId, phaseId, phase) {
+  function worldModelSection(workflowId, phaseId, phase, readOnly) {
     var choices = state.model.choices;
     var views = choices.views || [];
     var knowledge = choices.knowledge || { prompt: 'slice', maxBytes: 8192 };
@@ -2509,7 +2514,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var retired = choices.retiredViews || [];
     var body = [];
     if (off) body.push(el('p', { class: 'hint', text: 'This workflow turns the World Model off: its steps get no views and no repository knowledge.' }));
-    body.push(views.length
+    body.push(readOnly
+      ? el('p', { 'data-key': 'world-model-views', text: phase.views.length ? 'Views: ' + phase.views.join(', ') : 'No World Model views' })
+      : views.length
       ? el('div', { class: 'checks' }, views.map(function (view) {
         return el('label', null, el('input', { type: 'checkbox', 'data-key': 'view-' + view, checked: phase.views.indexOf(view) >= 0, onchange: function (event) {
           phase.views = event.target.checked ? phase.views.concat([view]) : phase.views.filter(function (entry) { return entry !== view; }); changed();
@@ -2519,10 +2526,10 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     body.push(el('p', { class: 'hint', 'data-key': 'world-model-knowledge', text: knowledge.prompt === 'off'
       ? 'Repository knowledge is off for this repository (worldModel.knowledge.prompt: off).'
       : 'Repository knowledge (rules, flows, tests and risks read from the committed code) is added to this step\'s prompt for the ' + knowledgeReader(phaseId) + ' reader, up to ' + Math.round(knowledge.maxBytes / 1024) + ' KB. Nothing to set here.' }));
-    if (retired.length) body.push(el('p', { class: 'hint', 'data-key': 'world-model-retired', text: 'workflow.yml still names retired views (' + retired.join(', ') + '). They are ignored; run singularity-flow wm migrate-views to replace them.' }));
+    if (retired.length && !readOnly) body.push(el('p', { class: 'hint', 'data-key': 'world-model-retired', text: 'workflow.yml still names retired views (' + retired.join(', ') + '). They are ignored; run singularity-flow wm migrate-views to replace them.' }));
     var summary = off ? 'off in this workflow'
       : (phase.views.length ? phase.views.length + ' view' + (phase.views.length === 1 ? '' : 's') : 'no views') + (knowledge.prompt === 'off' ? '' : ' + repository knowledge');
-    return section('views', 'World Model', body, null, summary, !phase.isNew);
+    return section('views', 'World Model', body, null, summary, !phase.isNew && !readOnly);
   }
   function section(key, title, body, control, summary, closed) {
     var open = state.sections[key] === undefined ? !closed : state.sections[key];
@@ -2566,7 +2573,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var workflowId = state.workflow;
     var workflow = state.draft.workflows[workflowId];
     if (!workflow) { state.view = 'home'; render(); return; }
-    if (workflowReadOnly(workflowId)) { renderSeededWorkflow(main, workflow, 'story'); return; }
+    // A seeded workflow opens on the canvas too, read-only: its structure, and each step's details.
+    var readOnly = workflowReadOnly(workflowId);
+    if (readOnly) { state.panel = null; }
     var phases = workflow.phases;
     if (phases.indexOf(state.step) < 0) state.step = phases[0];
     main.appendChild(el('div', { class: 'board-head' },
@@ -2577,14 +2586,18 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
           openWorkflowCanvas(value);
         }, { 'aria-label': 'Workflow' }),
         workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'New · not published' }) : null,
+        readOnly ? el('span', { class: 'pill', 'data-key': 'workflow-read-only', title: 'Duplicate it to change its steps, agents and templates. Skills can still be attached to its steps.', text: 'Seeded · read-only' }) : null,
         el('span', { class: 'muted', text: phases.length + (phases.length === 1 ? ' step' : ' steps') + (workflow.description ? ' · ' + workflow.description : '') }),
         workflow.isNew || workflow.installFrom ? button('Back to details', function () { openWorkflowDetails(workflowId); }, { class: 'secondary', 'data-key': 'workflow-details' }) : null,
         workflow.isNew || workflow.installFrom ? button('Cancel this workflow', function () { askRemoveNewWorkflow(workflowId); }, { class: 'secondary', 'data-key': 'workflow-cancel' }) : null),
       el('div', { id: 'studio-status', class: 'studio-status muted', role: 'status', 'aria-live': 'polite', text: state.status }),
-      button('Review changes (' + changesNow().length + ')', function () { state.view = 'changes'; render(); }, { class: 'primary' })));
+      readOnly
+        ? button('Duplicate and customize', function () { duplicateWorkflow('story:' + workflowId); }, { class: 'primary', 'data-key': 'workflow-duplicate' })
+        : button('Review changes (' + changesNow().length + ')', function () { state.view = 'changes'; render(); }, { class: 'primary' })));
     var selectedDecision = state.decision ? decisionById(workflow, state.decision) : null;
     if (!selectedDecision) state.decision = null;
-    var inspector = state.panel === 'add' ? renderAddStep(workflowId, workflow)
+    var inspector = readOnly ? (selectedDecision ? renderReadOnlyDecision(workflowId, selectedDecision) : renderReadOnlyStep(workflowId, state.step))
+      : state.panel === 'add' ? renderAddStep(workflowId, workflow)
       : state.panel === 'workflow' ? renderWorkflowProperties(workflowId, workflow)
         : selectedDecision ? renderDecisionInspector(workflowId, selectedDecision) : renderInspector(workflowId, state.step);
     var board = el('div', { class: 'board' + (state.panelHidden ? ' panel-hidden' : '') });
@@ -2938,6 +2951,43 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return box;
   }
 
+  /** A seeded step, read-only: what it produces, who drafts it, what it reads, who signs it off, what follows, its World Model and skills. */
+  function renderReadOnlyStep(workflowId, phaseId) {
+    var workflow = state.draft.workflows[workflowId];
+    var phase = state.draft.phases[phaseId];
+    var aside = el('aside', { class: 'inspector properties', 'aria-label': 'Step details' });
+    if (!phase) { aside.appendChild(el('p', { class: 'muted', text: 'Select a step.' })); return aside; }
+    var index = workflow.phases.indexOf(phaseId);
+    var settings = stepSettings(workflowId, phaseId);
+    var agent = state.draft.agents[phase.agent];
+    var look = OUTPUT_LOOK[stepOutput(workflowId, phaseId)] || OUTPUT_LOOK.document;
+    var groups = groupsOf(settings.approval).map(function (id) { return (state.draft.groups[id] || { label: id }).label; });
+    aside.appendChild(propTitle(look.tone, look.icon, 'STEP ' + (index + 1) + ' OF ' + workflow.phases.length, phase.label, []));
+    var rows = [
+      ['Produces', look.label],
+      ['Drafted by', agent ? agent.label + (agent.description ? ' — ' + agent.description : '') : 'No agent'],
+      ['Drafted with', settings.authoringSkill ? '/' + settings.authoringSkill : 'Automatic, from what it produces'],
+      ['Reads', (settings.inputs || []).length ? settings.inputs.map(stepLabel).join(', ') : 'The Story itself'],
+      ['Sign-off', groups.length ? (settings.approval.minimum || 1) + ' from ' + groups.join(', ') : 'None'],
+      ['Then', afterChips(workflow, phaseId, index).map(function (entry) { return entry.title; }).join('; ')],
+      ['Clarifying questions', phase.clarification && phase.clarification !== 'off' ? phase.clarification : 'Off']
+    ];
+    aside.appendChild(section('ro-step', 'Step', el('dl', { class: 'ro-details', 'data-key': 'step-details' }, rows.map(function (row) {
+      return [el('dt', { text: row[0] }), el('dd', { text: row[1] })];
+    }))));
+    aside.appendChild(worldModelSection(workflowId, phaseId, phase, true));
+    if (agent) aside.appendChild(section('ro-skills', 'Skills', stepSkillsBody(phaseId, phase.agent, 'seeded-skill-' + phaseId + '-'), null, null, true));
+    aside.appendChild(el('p', { class: 'hint', text: 'Seeded workflow: duplicate it to change steps, agents and templates. Skills can still be attached to its steps here.' }));
+    return aside;
+  }
+  /** A seeded workflow's decision, read-only: where each answer goes. */
+  function renderReadOnlyDecision(workflowId, decision) {
+    var workflow = state.draft.workflows[workflowId];
+    var aside = el('aside', { class: 'inspector properties', 'aria-label': 'Decision details' });
+    aside.appendChild(propTitle('purple', 'diamond', 'DECISION AFTER ' + stepLabel(decision.after).toUpperCase(), decision.label, []));
+    aside.appendChild(section('ro-decision', 'Routes', el('ul', { class: 'ro-routes' }, decisionLines(workflow, decision).map(function (line) { return el('li', { text: line }); }))));
+    return aside;
+  }
   function renderInspector(workflowId, phaseId) {
     var workflow = state.draft.workflows[workflowId];
     var phase = state.draft.phases[phaseId];

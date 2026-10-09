@@ -564,3 +564,10 @@ test('calls from Singularity Flow\'s analysis land on the outline\'s own symbols
   assert.equal(caller.callStatus, 'analysis');
   assert.equal(model.intelligence.languages.find((entry) => entry.language === 'java').calls, 'analysis');
 });
+
+test('the host names calls the compiler resolved by their counts, not by a status word', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const host = await readFile(new URL('../apps/vscode/src/views/code-explainer.ts', import.meta.url), 'utf8');
+  assert.match(host, /data\?\.counts\?\.resolved \? \(data\.counts\.byName \? 'resolved by the compiler where it could, matched by name elsewhere' : 'resolved by the compiler'\) : 'matched by name'/u);
+  assert.doesNotMatch(host, /resolution === 'complete'/u, 'a warmed pack reports "resolved", never "complete"');
+});

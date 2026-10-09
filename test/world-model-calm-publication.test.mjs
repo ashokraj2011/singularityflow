@@ -979,7 +979,7 @@ test('public init, publish, submit, approve, render and verify bind exact archit
   );
   assert.equal((await projectArchitectureIntentStatus(root, definition, workflow)).status, 'approved');
   const missing = await evaluateArchitectureIntentGate(root, definition, workflow, 'verification');
-  assert.match(missing.errors.join('\n'), /has no fulfilment receipt/);
+  assert.match(missing.warnings.join('\n'), /has no fulfilment receipt/);
 
   const report = verifyArchitectureIntent({
     intent, baseAfter: current.projection, baseAfterSha256: current.projectionSha256
@@ -990,7 +990,7 @@ test('public init, publish, submit, approve, render and verify bind exact archit
   assert.equal(fulfilledStatus.fulfilment.baseAfterSha256, current.projectionSha256);
   assert.equal(fulfilledStatus.fulfilment.counts.fulfilled, 1);
   const mismatched = await evaluateArchitectureIntentGate(root, definition, workflow, 'verification');
-  assert.match(mismatched.errors.join('\n'), /WMC_INTENT_REPORT_MISMATCH/);
+  assert.match(mismatched.warnings.join('\n'), /WMC_INTENT_REPORT_MISMATCH/);
 
   flow(root, [
     'architecture', 'intent', 'verify', '--work-id', workflow.workItem.id, '--json'
@@ -1398,7 +1398,8 @@ test('the gate rejects a self-hashed report edited to claim a missing requiremen
     root, fixture.definition, fixture.workflow, 'verification'
   );
   assert.equal(missingReport.code, 'WMC_INTENT_UNFULFILLED');
-  assert.match(missingReport.errors.join('\n'), /has no fulfilment receipt/);
+  assert.deepEqual(missingReport.errors, [], 'an unfulfilled intent is reported, never a refusal');
+  assert.match(missingReport.warnings.join('\n'), /has no fulfilment receipt/);
   await assert.rejects(readFile(reportPath), (error) => error?.code === 'ENOENT');
 
   const honestBytes = canonicalJson(honest);
@@ -1408,7 +1409,7 @@ test('the gate rejects a self-hashed report edited to claim a missing requiremen
   );
   assert.equal(matchingBlocking.code, 'WMC_INTENT_UNFULFILLED');
   assert.equal(matchingBlocking.reasonCodes.includes('WMC_INTENT_REPORT_MISMATCH'), false);
-  assert.match(matchingBlocking.errors.join('\n'), /required architecture clause .* is missing/);
+  assert.match(matchingBlocking.warnings.join('\n'), /required architecture clause .* is missing/);
   assert.equal(await readFile(reportPath, 'utf8'), honestBytes);
 
   // Each semantic binding is checked independently against evaluator-owned evidence. Every
@@ -1447,7 +1448,7 @@ test('the gate rejects a self-hashed report edited to claim a missing requiremen
     );
     assert.ok(
       refused.reasonCodes.includes('WMC_INTENT_REPORT_MISMATCH'),
-      `${label}: ${refused.errors.join('\n')}`
+      `${label}: ${refused.warnings.join('\n')}`
     );
     assert.deepEqual(refused.passes, [], label);
     assert.equal(await readFile(reportPath, 'utf8'), bytes, `${label} rewrote the report`);
@@ -1477,8 +1478,8 @@ test('the gate rejects a self-hashed report edited to claim a missing requiremen
   );
   assert.equal(gate.code, 'WMC_INTENT_REPORT_MISMATCH');
   assert.ok(gate.reasonCodes.includes('WMC_INTENT_UNFULFILLED'));
-  assert.match(gate.errors.join('\n'), /WMC_INTENT_REPORT_MISMATCH/);
-  assert.match(gate.errors.join('\n'), /required architecture clause .* is missing/);
+  assert.match(gate.warnings.join('\n'), /WMC_INTENT_REPORT_MISMATCH/);
+  assert.match(gate.warnings.join('\n'), /required architecture clause .* is missing/);
   assert.deepEqual(gate.passes, []);
   assert.equal(await readFile(reportPath, 'utf8'), tamperedBytes);
 });
@@ -1573,7 +1574,7 @@ test('architecture enforcement refuses unavailable current source without rewrit
     root, fixture.definition, fixture.workflow, 'verification'
   );
   assert.equal(gate.code, 'WMB_SOURCE_SNAPSHOT_REQUIRED');
-  assert.match(gate.errors.join('\n'), /WMB_SOURCE_SNAPSHOT_REQUIRED/);
+  assert.match(gate.warnings.join('\n'), /WMB_SOURCE_SNAPSHOT_REQUIRED/);
   assert.deepEqual(gate.passes, []);
   assert.equal(await readFile(reportPath, 'utf8'), reportBytes);
   assert.equal(git(root, ['rev-parse', 'state']), stateBefore);

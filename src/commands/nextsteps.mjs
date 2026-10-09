@@ -97,7 +97,8 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
   // The lifecycle's own freshness rule: a phase reopened as downstream rework or by a skill
   // amendment needs a new generation (and its grounding) as much as a never-published one.
   const generationRequired = Boolean(active) && phaseNeedsGeneration(workflow, active);
-  const groundingMode = workflow.resolution?.worldModelGrounding ?? 'off';
+  const { guidanceGroundingMode } = await import('../world-model-policy.mjs');
+  const groundingMode = guidanceGroundingMode(workflow.resolution?.worldModelGrounding ?? 'off');
   if (active?.status === 'in_progress' && generationRequired
       && groundingMode !== 'off' && !deterministicConvergence) {
     const { loadDefinition } = await import('../config.mjs');
@@ -108,14 +109,10 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
       agent: activeAgent
     });
     if (!readiness.availability.ready) {
-      const integrityBlocks = groundingMode === 'enforce'
-        && readiness.availability.failureClass === 'integrity';
       prerequisites.push({
-        timing: integrityBlocks ? 'now' : 'optional',
+        timing: 'optional',
         skill: '/sf-worldmodel', command: readiness.command,
-        reason: integrityBlocks
-          ? `${readiness.reason} Enforced context integrity must be repaired before these bytes can be used.`
-          : `${readiness.reason} World-model recovery is optional and does not block phase work.`
+        reason: `${readiness.reason} World-model recovery is optional and does not block phase work.`
       });
     } else {
       if (readiness.availability.staleness?.warns) prerequisites.push({
@@ -125,8 +122,8 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
       const grounding = await verifyGroundingRecord(root, definition, workflow, active, {
         agent: activeAgent
       });
-      if (grounding.errors.length || grounding.warnings.length) prerequisites.push({
-        timing: grounding.errors.length ? 'now' : 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
+      if (grounding.warnings.length) prerequisites.push({
+        timing: 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
         route: 'grounding-composition',
         reason: 'Create or refresh the required grounding record and exact prompt snapshot before publishing this generation.'
       });

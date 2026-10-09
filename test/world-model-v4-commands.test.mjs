@@ -1427,7 +1427,7 @@ test('confirmed on-demand next uses registered-v4 build rather than the read-onl
   ], { cwd: root, allowFailure: true }).status, 0);
 });
 
-test('registered-v4 fail staleness policy blocks reuse without replacing state', async (t) => {
+test('registered-v4 fail staleness leaves a stale model out of prompts without replacing state', async (t) => {
   const root = await registeredRepository(t, { staleness: 'fail' });
   await quiet(() => worldModelCommand(root, ['wm', 'build'], { views: 'dev.impact' }));
   const stateBefore = git(root, ['rev-parse', 'state']);
@@ -1446,7 +1446,8 @@ test('registered-v4 fail staleness policy blocks reuse without replacing state',
   });
   assert.equal(readiness.availability.status, 'stale');
   assert.equal(readiness.availability.ready, false);
-  assert.equal(readiness.availability.staleness.blocks, true);
+  // `fail` acts as warn: the stale model is reported and not used, and work is never blocked.
+  assert.equal(readiness.availability.staleness.warns, true);
   assert.equal(readiness.availability.extensionBase ?? null, null);
   assert.equal(automaticMaterializationDecision(readiness.availability).allowed, false,
     'a stale registered projection must never become an automatic extension base');
@@ -1959,7 +1960,7 @@ test('an audited cross-phase agent session consumes only its exact pinned Story 
     'the exact architect packet must occur once in the delivered prompt');
 });
 
-test('active Story prompt delivery re-proves authority after audit for fresh, reused, and render-only prompts', async (t) => {
+test('active Story prompt delivery re-proves authority after audit and warns, never refuses, when it moved', async (t) => {
   const root = await registeredRepository(t);
   const transport = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmp-delivery-race-'));
   t.after(() => rm(transport, { recursive: true, force: true }));
@@ -2051,19 +2052,25 @@ test('active Story prompt delivery re-proves authority after audit for fresh, re
   const composeArgs = {
     workId: 'WMB-V4-DELIVERY-RACE', phase: 'intake', agent: 'product-owner'
   };
+  // The World Model is guidance: a withdrawn cut is reported at delivery and the pinned prompt is
+  // still returned.
   const expectWithdrawnAuthority = async (runtime) => {
+    const messages = [];
+    const original = console.error;
+    console.error = (...values) => { messages.push(values.join(' ')); };
     try {
-      await assert.rejects(
-        () => composePhasePrompt(root, composeArgs, runtime),
-        (error) => error?.code === 'WMP_AUTHORITY_CUT_NOT_ADMITTED'
-      );
+      const prompt = await composePhasePrompt(root, composeArgs, runtime);
+      assert.ok(prompt?.text ?? prompt, 'the prompt is delivered');
     } finally {
+      console.error = original;
       git(root, ['update-ref', authorityRef, authorityTip]);
     }
+    assert.ok(messages.some((message) => /pinned World-Model authority could not be re-proved \(WMP_AUTHORITY_CUT_NOT_ADMITTED\)/.test(message)),
+      messages.join('\n'));
   };
 
   // Fresh durable composition records both immutable halves and its audit before the race hook;
-  // the final guard must still refuse to return those otherwise-valid bytes.
+  // the final guard re-proves the cut and reports that it was withdrawn.
   await expectWithdrawnAuthority(await raceAtDelivery());
   const recordPath = path.join(
     root, 'singularity/work-items/WMB-V4-DELIVERY-RACE/context/intake-gen1.json'
@@ -2072,7 +2079,7 @@ test('active Story prompt delivery re-proves authority after audit for fresh, re
   assert.ok(recorded.promptPath, 'fresh composition reached immutable prompt persistence');
 
   // Reuse validates the saved pair first. Moving authority during the following idempotent audit
-  // must be caught by the same final delivery boundary.
+  // is reported by the same final delivery boundary.
   await expectWithdrawnAuthority(await raceAtDelivery({ expectedAuditDelta: 0 }));
 
   // Force a fresh preview. Render-only intentionally records neither half nor a new audit, but it
@@ -2305,10 +2312,11 @@ test('advisory registered-v4 absence records a verifiable prompt without inventi
     root, config, enforcedWorkflow, enforcedWorkflow.phases.intake,
     { generation: 1, agent: 'product-owner' }
   );
-  assert.doesNotMatch(enforced.errors.join('\n'), /repository world-model grounding was unavailable/);
+  // A Story pinned `enforce` acts as `warn`: every grounding finding is guidance.
+  assert.deepEqual(enforced.errors, []);
   assert.match(enforced.warnings.join('\n'), /repository world-model grounding was unavailable/);
-  assert.match(enforced.errors.join('\n'), /prompt snapshot hash differs/);
-  assert.match(enforced.errors.join('\n'), /not bound to the current pinned Story source/);
+  assert.match(enforced.warnings.join('\n'), /prompt snapshot hash differs/);
+  assert.match(enforced.warnings.join('\n'), /not bound to the current pinned Story source/);
 });
 
 test('active tkr-v1 configuration is refused before a Story can pin it', async (t) => {

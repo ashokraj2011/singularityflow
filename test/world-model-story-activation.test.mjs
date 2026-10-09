@@ -655,7 +655,7 @@ test('active Story pin preserves an explicit no-grounding result for an unplanne
   const rejectedFallback = await verifyGroundingRecord(
     fixture.root, definition, fixture.workflow, phase, { generation: 1, agent: 'developer' }
   );
-  assert.match(rejectedFallback.errors.join('\n'), /must retain the explicit no-grounding result/u);
+  assert.match(rejectedFallback.warnings.join('\n'), /must retain the explicit no-grounding result/u);
   await writeFile(recordPath, exact);
 
   await assert.rejects(
@@ -732,7 +732,8 @@ test('enforced lifecycle verification accepts exact persisted Story grounding an
       resolveCurrentAuthority: fixture.resolveCurrentAuthority
     }
   );
-  assert.match(missing.errors.join('\n'), /requires a persisted grounding receipt/u);
+  assert.deepEqual(missing.errors, [], 'grounding findings are guidance, never errors');
+  assert.match(missing.warnings.join('\n'), /requires a persisted grounding receipt/u);
   await writeFile(recordPath, exactRecord);
 
   const refreshedDefinition = { ...definition, agents: {} };
@@ -757,7 +758,7 @@ test('enforced lifecycle verification accepts exact persisted Story grounding an
       resolveCurrentAuthority: fixture.resolveCurrentAuthority
     }
   );
-  assert.match(conflicted.errors.join('\n'), /envelope differs from its pinned phase plan/u);
+  assert.match(conflicted.warnings.join('\n'), /envelope differs from its pinned phase plan/u);
   await writeFile(recordPath, exactRecord);
 
   // A coordinated attacker can make a replacement packet, payload, receipt, and prompt internally
@@ -844,7 +845,7 @@ test('enforced lifecycle verification accepts exact persisted Story grounding an
     }
   );
   assert.match(
-    substituted.errors.join('\n'),
+    substituted.warnings.join('\n'),
     /differs from the exact closure pinned by this Story/u
   );
   await Promise.all([
@@ -864,12 +865,13 @@ test('enforced lifecycle verification accepts exact persisted Story grounding an
       resolveCurrentAuthority: fixture.resolveCurrentAuthority
     }
   );
-  assert.equal(exactHistoryStillVerified.mode, 'enforce');
+  // An active pin is verified even with projection grounding off, and reported as warnings.
+  assert.equal(exactHistoryStillVerified.mode, 'warn');
   assert.deepEqual(exactHistoryStillVerified.errors, []);
 
-  // A valid, sealed prompt cannot retain lifecycle authority after the configured state ref is
-  // rewound. The verifier reports a normal enforce-mode blocker instead of falling back to legacy
-  // projection assumptions or throwing past the caller's structured gate.
+  // A valid, sealed prompt is no longer verified after the configured state ref is rewound. The
+  // verifier reports it as a warning (the World Model is guidance) instead of falling back to legacy
+  // projection assumptions or throwing past the caller.
   git(fixture.root, 'update-ref', STATE_REF, fixture.sourceCommit);
   const rewound = await verifyGroundingRecord(
     fixture.root, definition, projectionGroundingOff, fixture.phase, {
@@ -879,7 +881,7 @@ test('enforced lifecycle verification accepts exact persisted Story grounding an
       resolveCurrentAuthority: fixture.resolveCurrentAuthority
     }
   );
-  assert.equal(rewound.warnings.length, 0);
-  assert.match(rewound.errors.join('\n'), /persisted Story grounding verification failed/u);
-  assert.match(rewound.errors.join('\n'), /not an admitted cut of the configured state authority/u);
+  assert.deepEqual(rewound.errors, []);
+  assert.match(rewound.warnings.join('\n'), /persisted Story grounding verification failed/u);
+  assert.match(rewound.warnings.join('\n'), /not an admitted cut of the configured state authority/u);
 });

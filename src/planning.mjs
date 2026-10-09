@@ -20,7 +20,7 @@ import {
 } from './grounding.mjs';
 import { resolveGroundingPlan } from './world-model-selection.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
-import { assertWorldModelStaleness } from './world-model-policy.mjs';
+import { worldModelStalenessDecision } from './world-model-policy.mjs';
 import { inspectConfiguredGrounding, resolveInspectedGrounding } from './worldmodel.mjs';
 import { injectAgentPrompt } from './inject.mjs';
 import { composeInitiativeContext } from './initiative-context.mjs';
@@ -428,7 +428,7 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
     definition,
     workflow.resolution?.worldModelSourceScope ?? workflow.resolution?.capability?.sourceScope ?? null
   );
-  const mode = workflow.resolution?.worldModelGrounding ?? groundingMode(definition);
+  const mode = groundingMode(definition, workflow.resolution?.worldModelGrounding ? workflow : null);
   if (mode === 'off') return {
     sections: [], files: [], directory: null, validatedModelFiles: [], validatedManifest: null,
     warnings: [], record: { mode, available: false }
@@ -469,14 +469,6 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
       plan, refreshRemote: true
     });
     if (!inspected.availability.ready) {
-      if (inspected.availability.failureClass === 'integrity' && mode === 'enforce') {
-        throw new SingularityFlowError(
-          `Repository world-model integrity is not ready. ${inspected.reason}\nRun: ${inspected.command}`, {
-            code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED',
-            details: { command: inspected.command }
-          }
-        );
-      }
       throw new SingularityFlowError(`${inspected.reason} Run: ${inspected.command}`, {
         code: inspected.availability.error?.code ?? 'WORLD_MODEL_GROUNDING_UNAVAILABLE'
       });
@@ -484,7 +476,7 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
     const resolved = await resolveInspectedGrounding(root, inspected, phase.id, {
       evidence: phase.worldModel?.evidence ?? false
     });
-    const staleness = assertWorldModelStaleness(config.staleness, resolved.freshness.fresh);
+    const staleness = worldModelStalenessDecision(config.staleness, resolved.freshness.fresh);
     const commit = resolved.located?.commit ?? null;
     if (!commit) {
       const reason = 'repository world model is not committed';
@@ -524,10 +516,9 @@ async function workItemWorldModel(root, definition, workflow, phase, agent) {
       }
     };
   } catch (error) {
-    // Planning must remain usable on a new/offline laptop and for repositories without a
-    // supported model. `enforce` governs the integrity of bytes we consume; it does not make the
-    // optional accelerator a prerequisite. A failed/stale candidate is omitted in full.
-    if (!isWorldModelAvailabilityError(error) && mode === 'enforce') throw error;
+    // The World Model is guidance: planning works without it on a new or offline laptop, for a
+    // repository without a supported model, and when a candidate fails integrity checks. A failed
+    // candidate is omitted in full.
     return {
       sections: [], files: [], warnings: [
         `Repository world model ${isWorldModelAvailabilityError(error) ? 'unavailable' : 'invalid'}: ${error.message}`

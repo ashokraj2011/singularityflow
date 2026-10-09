@@ -380,8 +380,8 @@ function worldModel(view: ConfigurationCenterView): string {
       <div class="editor-card">
         <h2>${icon('approval')}Grounding policy</h2>
         <div class="form-grid">
-          <label><span>Phase grounding</span><select name="grounding">${option('off', model.grounding, 'Off — no World-Model context')}${option('warn', model.grounding, 'Warn — use when available')}${option('enforce', model.grounding, 'Enforce — verify strictly when used')}</select><small>No mode makes availability a lifecycle blocker. Enforce rejects tampered or unverifiable context that was actually consumed.</small></label>
-          <label><span>Stale model</span><select name="staleness">${option('warn', model.staleness, 'Warn and continue')}${option('fail', model.staleness, 'Treat as unavailable until refreshed')}${option('ignore', model.staleness, 'Ignore staleness')}</select><small>Controls whether stale bytes may be consumed. Phase work can still continue with zero World-Model context.</small></label>
+          <label><span>Phase grounding</span><select name="grounding">${option('off', model.grounding, 'Off — no World-Model context')}${option('warn', model.grounding, 'Warn — use when available')}</select><small>The World Model is guidance: missing, stale or unverifiable context is reported and left out, never a blocker.</small></label>
+          <label><span>Stale model</span><select name="staleness">${option('warn', model.staleness, 'Warn and continue')}${option('ignore', model.staleness, 'Ignore staleness')}</select><small>A stale model is still guidance. Phase work never waits for a refresh.</small></label>
         </div>
       </div>
 

@@ -776,6 +776,28 @@ pins the placement for the `arch.contracts` fixture and fails on the previous ro
 | Coverage manifest | `sha256:06bb00d231154d27c2e19dc0cd29fb75feb2be3b1837ef02bcaa35090f214bc1` | `sha256:41b6fff51296f83a96ab27dbf24a323216f5c9bac388caf744c59c9436e75851` |
 | Built-in Extractor Registry | `sha256:a737579c710b1a7048632c9a4c8cf1402631bffb8b90cfe6251bc625774b26c8` | `sha256:a271499fb95dc970438f96fa075b83b0edafb585fe9143588fefe13ac999b173` |
 
+## Story grounding activation is guidance
+
+Review boundary: `main@376692f2a634a44cd1cabba79c9bd740347ac330` plus the guidance-only World Model change. The product owner
+decided on 2026-10-09 that the World Model is guidance and never authority. In the kernel this
+touches only `history/story-grounding-activation.mjs`: when Story start cannot select an exact
+history cut for any reason (planning the view selection included), it records a typed unavailable
+pin carrying the failure's stable code instead of refusing the Story; codes that do not match the
+pin's reason-code grammar become `WMP_STORY_HISTORY_UNAVAILABLE`. The former allow-list of
+"expected" absences is gone because every failure is now an absence.
+
+This is a **mechanical** transition: extraction, facts, view selection, rendering, composition,
+validation and publication are unchanged, so earlier models stay current. Callers outside the kernel
+(`worldmodel.mjs`, `grounding.mjs`) now treat pinned-history failures as warnings.
+
+| Identity | Previously accepted | Accepted at this review |
+| --- | --- | --- |
+| Packaged WMB kernel | `sha256:172a066931ef331e310b826a0d650bddd26c718336064d21ac5382781932463b` | `sha256:f2c15a80673b4717594960342898e1119d164aa32c8d70907314296bbae2fd91` |
+| Coverage implementation | `sha256:85c081585fb2288d881c679e2bffea1ec166860f7a92f039dfcd0dd88df0dae4` | `sha256:36235fa8e423293a834465fd98701da30d0bffca728a49362e8c1637ab681e98` |
+| Coverage conformance receipt | `sha256:f28839535d5f1f72161cc0bbcc61bc2daa1441186d6de075d9639581448b5279` | `sha256:4e6d52d82a787b72de2952dcf141685acbeb5a8f1ccb50453de42bdfd31c4e83` |
+| Coverage manifest | `sha256:41b6fff51296f83a96ab27dbf24a323216f5c9bac388caf744c59c9436e75851` | `sha256:171ad26447bd2f468d7c878be874b0408f9a0fd38048205dbd4740a000bf2ba7` |
+| Built-in Extractor Registry | `sha256:a271499fb95dc970438f96fa075b83b0edafb585fe9143588fefe13ac999b173` | `sha256:58a68115c70d3f6067ce1e69e015204f97c3723ee27ee1b2d6ab240208f444af` |
+
 ## Sanctioned reconciliation rule
 
 1. Never copy a new digest from a failing assertion.

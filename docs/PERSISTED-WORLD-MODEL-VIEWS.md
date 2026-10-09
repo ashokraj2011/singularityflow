@@ -20,9 +20,10 @@ second World-Model authority; the external draft is not a packaged runtime depen
 > **Operational boundary:** This roadmap does not gate Story creation, phase progression, current
 > World-Model builds, current-projection publication, or existing reuse mechanisms. The shipped default
 > is `worldModel.grounding: warn`: absent intelligence is represented by a stable unavailable
-> receipt with zero World-Model bytes and ordinary repository access continues. Changing grounding
-> to `enforce` changes the handling of consumed-context integrity failures, not model availability;
-> a separately required projection or persisted domain may have its own explicit policy. Those
+> receipt with zero World-Model bytes and ordinary repository access continues. The World Model is
+> guidance, never authority; `enforce` is still accepted and acts as `warn`, so a consumed-context
+> integrity failure leaves the model out of the prompt with a warning instead of blocking work.
+> A separately required projection or persisted domain may have its own explicit policy. Those
 > independent requirements must not be confused with WMP exact-history activation.
 
 > **No hidden preparation:** Story activation is an exact-history read, not a build. If the required
@@ -120,9 +121,10 @@ model call, extraction, AST query, Git fetch, cache fill, or source checkout. Th
     `registered-v4` Story, the lifecycle owner derives every eligible governed-agent phase/agent
     selection, plans the exact
     deterministic View Keys without rendering, and reads those keys plus their Model Binding from
-    one authority commit. It rechecks repository and state authority after the reads. An authority
-    movement during enrollment refuses the transaction; an exact-history miss becomes the
-    immutable unavailable pin described above.
+    one authority commit. It rechecks repository and state authority after the reads. Story start
+    never fails because of World-Model history: an authority movement during enrollment, an
+    exact-history miss, or any other failure to select a cut becomes the immutable unavailable pin
+    described above, carrying the failure code (for example `WMP_REPOSITORY_AUTHORITY_CHANGED`).
 
 The supplied draft repeated the `inputObjects` row and `WMP:AC-001`; those duplicates have no
 additional normative meaning. Public commands use `singularity-flow`/`sflow` equivalently, while
@@ -241,9 +243,12 @@ Story lifecycle activation that consumes it:
   the Model/View closure at that cut before changing the packet result to `authorityProven: true`;
 - an active Story pin accepts a later fast-forward only when the pinned authority commit remains an
   ancestor of the configured state ref. Rewind, unrelated replacement, endpoint/identity drift,
-  missing or changed bytes, and closure mismatch fail closed. The phase prompt receives the exact
-  packet bytes once and records their binding in the prompt receipt; it never falls back to the
-  mutable current projection;
+  missing or changed bytes, and closure mismatch keep the pinned packet out of the prompt: the
+  phase composes without World-Model guidance, the receipt records why, and a warning is reported.
+  A pending prompt whose pin can no longer be re-proved is recomposed rather than refused; an
+  authority move noticed only while a composed prompt is delivered keeps its pinned guidance. When
+  the pin verifies, the phase prompt receives the exact packet bytes once and records their binding
+  in the prompt receipt; it never falls back to the mutable current projection;
 - `wm history list --authority-commit <full-commit>` pages exact key paths with a continuation
   cursor bound to the authority cut, kind selection, history root, and page size, while `show`
   verifies the selected binding and complete semantically owned closure. Both prove that the cut is
@@ -288,8 +293,9 @@ state entry: it derives complete keys, reads one cut, and rechecks that cut.
 
 Only behavior backed by its runtime tests is advertised. W0-W2 do not claim foreign-candidate
 continuation, complete incremental extraction, physical Windows/macOS/Linux qualification, or all
-36 release criteria. World-Model or AST absence remains non-blocking under the shipped `warn`
-grounding policy; `enforce` changes consumed-context integrity handling, not absence. A separately
+36 release criteria. The World Model is guidance, never authority: World-Model or AST absence, and
+a pinned cut that cannot be re-proved, never block lifecycle work. `enforce` is still accepted and
+acts as `warn`; integrity checks decide only whether World-Model bytes are used. A separately
 required intelligence product may retain its own explicit policy.
 
 ## Related operational documentation

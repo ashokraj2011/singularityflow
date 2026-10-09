@@ -170,6 +170,14 @@ export const REVIEWED_EXTRACTOR_REGISTRY_TRANSITIONS = Object.freeze([
     to: 'sha256:a271499fb95dc970438f96fa075b83b0edafb585fe9143588fefe13ac999b173',
     kernelFrom: 'sha256:8dbd09ba86d750aa7a8fe46937a51d421f89fb280db346d6b90bfb43cc43047e',
     kernelTo: 'sha256:172a066931ef331e310b826a0d650bddd26c718336064d21ac5382781932463b'
+  }),
+  Object.freeze({
+    review: 'Story grounding activation is guidance',
+    effect: 'mechanical',
+    from: 'sha256:a271499fb95dc970438f96fa075b83b0edafb585fe9143588fefe13ac999b173',
+    to: 'sha256:58a68115c70d3f6067ce1e69e015204f97c3723ee27ee1b2d6ab240208f444af',
+    kernelFrom: 'sha256:172a066931ef331e310b826a0d650bddd26c718336064d21ac5382781932463b',
+    kernelTo: 'sha256:f2c15a80673b4717594960342898e1119d164aa32c8d70907314296bbae2fd91'
   })
 ]);
 

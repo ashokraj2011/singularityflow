@@ -12,13 +12,12 @@ import { sourcePathIncluded, worldModelSourceScope } from './source-scope.mjs';
 import { withoutConfiguredFilters } from './worktree-fingerprint.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { selectionId } from './world-model-selection.mjs';
-import { worldModelStalenessDecision } from './world-model-policy.mjs';
+import { guidanceGroundingMode, worldModelStalenessDecision } from './world-model-policy.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { loadEnvironmentDeclaration, matchEnvironmentLocalPath } from './environment-declaration.mjs';
 
-const GROUNDING_MODES = new Set(['off', 'warn', 'enforce']);
 let storyGroundingVerificationRuntimePromise = null;
 let promptGenerationVerificationRuntimePromise = null;
 
@@ -51,9 +50,8 @@ async function withInitiativeRoot(root, definition = {}) {
 }
 
 export function groundingMode(definition, workflow = null) {
-  const mode = workflow ? workflow.resolution?.worldModelGrounding ?? 'off' : definition.worldModel?.grounding ?? 'off';
-  if (!GROUNDING_MODES.has(mode)) throw new SingularityFlowError(`worldModel.grounding must be off, warn, or enforce; got '${mode}'.`);
-  return mode;
+  // A Story pinned `enforce` before the World Model became guidance-only acts as `warn` too.
+  return guidanceGroundingMode(workflow ? workflow.resolution?.worldModelGrounding ?? 'off' : definition.worldModel?.grounding ?? 'off');
 }
 
 // Where this tool keeps its own material. Nothing under here is application source, so nothing
@@ -379,8 +377,9 @@ export function groundingRecordRelative(definition, workflow, phase, generation 
   return posix(path.join(definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context', `${phase.id}-gen${generation}.json`));
 }
 
-function severityResult(mode, messages) {
-  return mode === 'enforce' ? { errors: messages, warnings: [] } : { errors: [], warnings: messages };
+// Grounding problems are guidance about the prompt's World-Model context, never lifecycle errors.
+function groundingWarnings(messages) {
+  return { errors: [], warnings: messages };
 }
 
 const GROUNDING_FILE_CATEGORIES = new Set([
@@ -457,8 +456,8 @@ function currentGroundingPath(definition, workflow, file) {
  * legacy projection checks would therefore reject valid packets for having no manifest and for
  * living outside the projection root. This verifier substitutes only those incompatible checks:
  * the ordinary prompt receipt/snapshot verifier still proves exact bytes and packet identity, and
- * the history owner re-proves today's repository, state-ref, and ancestor authority before a
- * lifecycle mutation may consume the record.
+ * the history owner re-proves today's repository, state-ref, and ancestor authority before the
+ * receipt is reported as verified. A failure is a warning: the World Model never gates the phase.
  */
 async function verifyPersistedStoryGrounding(
   root, definition, workflow, phase, record, relative, generation, agent, authorityOptions = {}
@@ -523,8 +522,8 @@ async function verifyPersistedStoryGrounding(
   }
   // Receipt, packet, payload, and prompt hashes can prove only that the recorded bytes agree with
   // one another. Re-resolve the immutable Story cut and replay the registered model/view closure
-  // before granting lifecycle authority, so a coordinated replacement of every local byte cannot
-  // substitute prose that was never rendered by the pinned WMP owners.
+  // before calling the receipt verified, so a coordinated replacement of every local byte cannot
+  // pass off prose that was never rendered by the pinned WMP owners.
   const replay = await resolvePinnedStoryWorldModelGrounding(root, {
     ...proofOptions,
     phase: generationPhase,
@@ -555,25 +554,25 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   admitHistoryCut = null
 } = {}) {
   const configuredMode = groundingMode(definition, workflow);
-  // An active Story pin is itself an accepted exact-history grounding contract. The composer
-  // consumes that packet even when the older projection-grounding switch is off, so publication
-  // must verify it rather than silently returning before the receipt boundary.
+  // An active Story pin is consumed by the composer even when projection grounding is off, so its
+  // receipt is still checked and reported. Like every grounding finding, the result only warns.
   const mode = configuredMode === 'off'
       && workflow.resolution?.worldModelHistoryPin?.status === 'active'
-    ? 'enforce'
+    ? 'warn'
     : configuredMode;
   if (mode === 'off') return { mode, errors: [], warnings: [], passes: [], record: null, path: null };
   const relative = groundingRecordRelative(definition, workflow, phase, generation);
   const absolute = path.join(root, relative);
   if (!(await exists(absolute))) {
-    const severity = severityResult(mode, [`grounding composition is missing for ${phase.id} generation ${generation}; run singularity-flow wm compose --phase ${phase.id}`]);
+    const severity = groundingWarnings([`grounding composition is missing for ${phase.id} generation ${generation}; run singularity-flow wm compose --phase ${phase.id}`]);
     return { mode, ...severity, passes: [], record: null, path: relative };
   }
   let record;
   try { record = readRecord('prompt-injection', await readFile(absolute)).record; }
   catch (error) {
-    if (String(error?.code ?? '').startsWith('SCHEMA_')) throw error;
-    const severity = severityResult(mode, [`grounding composition is invalid JSON for ${phase.id} generation ${generation}: ${error.message}`]);
+    const severity = groundingWarnings([String(error?.code ?? '').startsWith('SCHEMA_')
+      ? `grounding composition record is not a valid receipt for ${phase.id} generation ${generation}: ${error.message}`
+      : `grounding composition is invalid JSON for ${phase.id} generation ${generation}: ${error.message}`]);
     return { mode, ...severity, passes: [], record: null, path: relative };
   }
   const problems = [];
@@ -930,13 +929,13 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
       }
     }
   }
-  const severity = severityResult(mode, problems);
+  const severity = groundingWarnings(problems);
   const staleness = worldModelStalenessDecision(
     workflow.resolution?.worldModelStaleness ?? definition.worldModel?.staleness ?? 'warn',
     stalenessProblems.length === 0,
     stalenessProblems.join('; ')
   );
-  const errors = [...severity.errors, ...(staleness.blocks ? stalenessProblems : [])];
+  const errors = severity.errors;
   const warnings = [
     ...availabilityWarnings,
     ...historyNotes,

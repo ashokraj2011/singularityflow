@@ -145,39 +145,27 @@ test('real prepublish reserves and resumes owned corrections without treating it
   assert.equal(ready.status, 'ready'); assert.equal(ready.repairLoop.active, null);
 });
 
-test('prepublish catches missing governed grounding before offering publication, without composing it', async (t) => {
+test('prepublish reports missing governed grounding as guidance and still offers publication', async (t) => {
   const item = await fixture(t);
   await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');
-  item.workflow.resolution.worldModelGrounding = 'enforce';
-  const result = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
-  assert.equal(result.status, 'correction-required');
-  assert.equal(result.commands.publish, null);
-  assert.equal(result.commands.next, 'singularity-flow wm compose --phase planning');
-  assert.equal(result.correction.skill, '/sf-worldmodel');
-  assert.equal(result.grounding.status, 'blocked');
-  assert.ok(result.findings.some((entry) => entry.code === 'phase.grounding.required'));
-  await assert.rejects(readFile(path.join(item.root, result.grounding.path)), { code: 'ENOENT' });
-  assert.equal(result.mutates, false);
+  // A Story pinned `enforce` acts as `warn`: the World Model never blocks publication.
+  for (const mode of ['enforce', 'warn']) {
+    item.workflow.resolution.worldModelGrounding = mode;
+    const result = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+    assert.equal(result.status, 'ready', mode);
+    assert.equal(result.grounding.status, 'warning', mode);
+    assert.match(result.grounding.warnings.join('\n'), /grounding composition is missing/);
+    assert.equal(result.findings.some((entry) => String(entry.code).startsWith('phase.grounding.')), false);
+    assert.equal(result.mutates, false);
+  }
 
-  const unowned = await phasePrepublish(item.root, item.config, item.workflow, item.phase);
-  assert.equal(unowned.status, 'correction-required', 'an absent agent session does not waive model grounding');
-  assert.equal(unowned.commands.publish, null);
-  assert.equal(unowned.grounding.status, 'blocked');
-
-  item.workflow.resolution.worldModelGrounding = 'warn';
-  const advisory = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
-  assert.equal(advisory.status, 'ready');
-  assert.equal(advisory.grounding.status, 'warning');
-  assert.match(advisory.grounding.warnings.join('\n'), /grounding composition is missing/);
-
-  item.workflow.resolution.worldModelGrounding = 'enforce';
   item.phase.generationPolicy = { defaultProducer: 'human', allowedProducers: ['human'] };
   const human = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
   assert.equal(human.status, 'ready', 'human authorship has no model-grounding requirement');
   assert.equal(human.grounding.status, 'not-applicable');
 });
 
-test('prepublish surfaces an invalid retained grounding receipt and does not offer a recompose loop', async (t) => {
+test('prepublish reports an invalid retained grounding receipt without blocking or rewriting it', async (t) => {
   const item = await fixture(t);
   await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');
   item.workflow.resolution.worldModelGrounding = 'enforce';
@@ -185,10 +173,8 @@ test('prepublish surfaces an invalid retained grounding receipt and does not off
   await mkdir(path.dirname(receipt), { recursive: true });
   await writeFile(receipt, '{invalid receipt');
   const result = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
-  assert.equal(result.status, 'correction-required');
-  assert.equal(result.commands.publish, null);
-  assert.equal(result.commands.next, 'singularity-flow wm doctor --json');
-  assert.ok(result.findings.some((entry) => entry.code === 'phase.grounding.not-ready'));
+  assert.equal(result.status, 'ready');
+  assert.match(result.grounding.warnings.join('\n'), /grounding composition record is not a valid receipt/);
   assert.equal(await readFile(receipt, 'utf8'), '{invalid receipt');
 });
 

@@ -22,6 +22,7 @@ import {
   submitPhase, storyWelEnrollmentStatus, validateWorkflow
 } from '../src/state.mjs';
 import { finalizeDraftWorkflowSnapshot } from '../src/workflow-snapshots.mjs';
+import { verifyGroundingRecord } from '../src/grounding.mjs';
 import { composePhasePrompt, worldModelCommand } from '../src/worldmodel.mjs';
 import {
   resolveWorldModelRepositoryIdentityAuthority
@@ -403,32 +404,30 @@ test('an honestly anchored v3 Story survives the deterministic convergence polic
   validation.errors.join('\n'));
 });
 
-test('governed publication verifies the exact persisted Story grounding receipt', async (t) => {
+test('governed publication verifies the persisted Story grounding receipt and only warns about it', async (t) => {
   const fixture = await activePersistedStoryFixture(t);
   const exactRecordText = await readFile(fixture.recordPath, 'utf8');
-  const acceptedHead = git(fixture.root, 'rev-parse', 'HEAD');
+  const verify = () => verifyGroundingRecord(fixture.root, fixture.config, fixture.workflow, fixture.phase);
 
+  // The World Model is guidance: a missing or tampered persisted receipt is reported, never an error.
   const missing = JSON.parse(exactRecordText);
   missing.persistedGrounding = null;
   await writeFile(fixture.recordPath, `${JSON.stringify(missing, null, 2)}\n`);
-  await assert.rejects(
-    () => publishFixtureGeneration(fixture),
-    (error) => /requires a persisted grounding receipt/u.test(error?.message ?? '')
-  );
-  assert.equal(fixture.workflow.phases.intake.generation, 0);
-  assert.equal(git(fixture.root, 'rev-parse', 'HEAD'), acceptedHead);
+  const missingCheck = await verify();
+  assert.deepEqual(missingCheck.errors, []);
+  assert.match(missingCheck.warnings.join('\n'), /requires a persisted grounding receipt/u);
 
   const tampered = JSON.parse(exactRecordText);
   tampered.persistedGrounding.groundingSha256 = `sha256:${'0'.repeat(64)}`;
   await writeFile(fixture.recordPath, `${JSON.stringify(tampered, null, 2)}\n`);
-  await assert.rejects(
-    () => publishFixtureGeneration(fixture),
-    (error) => /persisted Story grounding verification failed/u.test(error?.message ?? '')
-  );
-  assert.equal(fixture.workflow.phases.intake.generation, 0);
-  assert.equal(git(fixture.root, 'rev-parse', 'HEAD'), acceptedHead);
+  const tamperedCheck = await verify();
+  assert.deepEqual(tamperedCheck.errors, []);
+  assert.match(tamperedCheck.warnings.join('\n'), /persisted Story grounding verification failed/u);
 
   await writeFile(fixture.recordPath, exactRecordText);
+  const exactCheck = await verify();
+  assert.deepEqual(exactCheck.warnings, []);
+  assert.ok(exactCheck.passes.some((entry) => /persisted Story grounding authority/.test(entry)));
   await publishFixtureGeneration(fixture);
   assert.equal(fixture.workflow.phases.intake.generation, 1);
   assert.equal(fixture.workflow.phases.intake.generationPublications.length, 1);

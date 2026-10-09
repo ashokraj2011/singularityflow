@@ -41,38 +41,12 @@ import {
   writeBytes, writeJson
 } from './util.mjs';
 import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
+import { guidanceGroundingMode } from './world-model-policy.mjs';
 import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
 import { executeGitQuery } from './git-query.mjs';
 
 const CAPABILITY_CONTEXT_SCHEMA = 1;
 const CAPABILITY_WORLD_MODEL_UNAVAILABLE = 'world_model.capability_unavailable';
-const CAPABILITY_WORLD_MODEL_AVAILABILITY_CODES = new Set([
-  CAPABILITY_WORLD_MODEL_UNAVAILABLE,
-  'world_model.capability_missing',
-  'world_model.capability_stale',
-  'WMB_MANIFEST_MISSING',
-  'WMB_SOURCE_SNAPSHOT_STALE',
-  'WMB_STATE_AUTHORITY_REFRESH_REQUIRED',
-  'WMB_STATE_AUTHORITY_UNAVAILABLE',
-  'WMB_VIEW_UNAVAILABLE',
-  'world_model.state_extraction_failed'
-]);
-const CAPABILITY_WORLD_MODEL_AVAILABILITY_STATUSES = new Set([
-  'missing',
-  'world-model-missing',
-  'world-model-stale',
-  'world-model-unavailable'
-]);
-const CAPABILITY_WORLD_MODEL_SUCCESS_STATUSES = new Set(['local-grounding', 'pinned']);
-const LEGACY_CAPABILITY_AVAILABILITY_REFRESH = new Set([
-  'offline-cached', 'offline-no-state-copy', 'remote-absent', 'timeout-cached', 'unavailable'
-]);
-const LEGACY_CAPABILITY_AVAILABILITY_CLASSIFICATIONS = new Set([
-  'authentication-required', 'authorization-denied', 'credential-helper-unavailable',
-  'git-unavailable', 'sso-authorization-required', 'working-directory-unavailable',
-  'branch-not-found', 'network-transient', 'offline', 'proxy-configuration', 'rate-limited',
-  'remote-not-found', 'tls-trust'
-]);
 let capabilityMapReadObserverForTests = null;
 
 /** @internal Test-only hook for exercising path replacement at the descriptor boundary. */
@@ -1219,45 +1193,6 @@ async function renderCapabilityWorldModelPackStrict(root, capability, { views = 
     }
     files.push({ ...entry, content: content.toString('utf8') });
   }
-  const crossRepositories = (record.repositories ?? []).filter((entry) => entry.status !== 'local-grounding');
-  const failureClass = (entry) => {
-    if (CAPABILITY_WORLD_MODEL_SUCCESS_STATUSES.has(entry.status)) return null;
-    if (['availability', 'integrity'].includes(entry.failureClass)) return entry.failureClass;
-    if (CAPABILITY_WORLD_MODEL_AVAILABILITY_STATUSES.has(entry.status)) return 'availability';
-    // Pre-fix v4 authority failures were stored as `world-model-invalid`, but retained the remote
-    // failure classification. That is enough to migrate them safely at read time without
-    // weakening genuinely malformed legacy records, which have no such classification.
-    if (entry.status === 'world-model-invalid'
-        && LEGACY_CAPABILITY_AVAILABILITY_CLASSIFICATIONS.has(entry.classification)) {
-      return 'availability';
-    }
-    // Compatibility records written before failureClass/reasonCode existed retained enough
-    // transport evidence to distinguish absence/offline state from malformed pinned bytes. Keep
-    // this deliberately narrow: an authority conflict without one of these refresh outcomes, or
-    // an invalid row without a known availability code, remains an integrity failure.
-    if (entry.status === 'world-model-authority-conflict'
-        && LEGACY_CAPABILITY_AVAILABILITY_REFRESH.has(entry.refresh)) {
-      return 'availability';
-    }
-    if (entry.status === 'world-model-invalid'
-        && CAPABILITY_WORLD_MODEL_AVAILABILITY_CODES.has(entry.reasonCode ?? entry.code)) {
-      return 'availability';
-    }
-    return 'integrity';
-  };
-  const integrityFailures = crossRepositories.filter((entry) => failureClass(entry) === 'integrity');
-  if (capability.policy?.worldModelGrounding === 'enforce' && integrityFailures.length) {
-    throw new SingularityFlowError(
-      `Capability '${capability.id}' has invalid cross-repository world-model context for ${integrityFailures.map((entry) => entry.id).join(', ')}.`
-    );
-  }
-  if (!files.length && capability.policy?.worldModelGrounding === 'enforce' && crossRepositories.length) {
-    const availabilityOnly = crossRepositories.every((entry) => failureClass(entry) !== 'integrity');
-    throw new SingularityFlowError(
-      `Capability '${capability.id}' requires cross-repository grounding, but no sibling world-model files were pinned.`,
-      availabilityOnly ? { code: CAPABILITY_WORLD_MODEL_UNAVAILABLE } : {}
-    );
-  }
   const text = files.map((file) => [
     `## Capability world model: ${file.repositoryId} — ${file.sourcePath}`,
     '',
@@ -1270,7 +1205,6 @@ async function renderCapabilityWorldModelPackStrict(root, capability, { views = 
 
 export async function renderCapabilityWorldModelPack(root, capability, options = {}) {
   const views = options.views ?? [];
-  const grounding = options.grounding ?? capability?.policy?.worldModelGrounding ?? 'off';
   // Preserve the legacy direct-helper default for callers that only ask to render a pinned pack,
   // while an explicit workflow/capability `off` policy must not read or validate optional context.
   if (options.grounding === 'off' || capability?.policy?.worldModelGrounding === 'off') {
@@ -1279,10 +1213,8 @@ export async function renderCapabilityWorldModelPack(root, capability, options =
   try {
     return await renderCapabilityWorldModelPackStrict(root, capability, { views });
   } catch (error) {
-    if (!isWorldModelAvailabilityError(error) && grounding !== 'warn') throw error;
-    // Capability context is additional world-model intelligence. Known availability failures
-    // retain ordinary governed inputs in every mode. Warn mode also preserves its historical
-    // advisory behavior, while enforce still fails closed for changed or invalid pinned context.
+    // Capability context is World-Model guidance. Unavailable, changed or invalid pinned context is
+    // left out with a warning and the ordinary governed inputs remain.
     return {
       text: '', files: [],
       warnings: [`Capability world-model grounding unavailable: ${error.message}`]
@@ -1315,5 +1247,6 @@ export function assertCapabilitySource(capability, source = {}) {
 }
 
 export function capabilityWorldModelGrounding(current, capability) {
-  return stricter(current ?? 'off', capability?.policy?.worldModelGrounding ?? 'off');
+  // A capability may still declare `enforce`; like every grounding mode it only warns.
+  return guidanceGroundingMode(stricter(current ?? 'off', capability?.policy?.worldModelGrounding ?? 'off'));
 }

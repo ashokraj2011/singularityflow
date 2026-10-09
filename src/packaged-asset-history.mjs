@@ -21,7 +21,8 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'cd93d41ccc98e4ccc09550c60cc79ad6c5a6004d7f8ea66cec596640ab73ffb4'
   ]),
   'singularity/templates/initiatives/epic/repository-map.yml': Object.freeze([
-    'd87a27fb71918827adbb9cbbcbc58efcf9e00689e24154215c021e217cb75b6b'
+    'd87a27fb71918827adbb9cbbcbc58efcf9e00689e24154215c021e217cb75b6b',
+    'f1d971a9d7791427572c8e6bca7fe86b30b3c7762b197e8f7189cd564fa4a64f'
   ]),
   '.github/agents/demo-web-analyst.agent.md': Object.freeze(['4bf52173acab7a379c75157795e1a37ff5deb8154dd88894d60f0e4fde857e3f']),
   '.github/agents/demo-web-developer.agent.md': Object.freeze(['1f6b44af2a0b2e15c8f8c39fd44812055baeda5fdb9faf6073b4aab1ee03684f']),
@@ -421,7 +422,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/initiatives/epic/jira-write-plan.yml': '176c8c177d77e61df465472bdb5b9bfb67a9a3183e13e4704aafa1f4931e48e9',
   'singularity/templates/initiatives/epic/materialization-report.md': '18bdd184358ac5f1f08f4e0edda9e09bab7dab8b8dcbfe7a65a2e4196e99001c',
   'singularity/templates/initiatives/epic/parent-spec.md': '4c80b3cb91962fd1b1fe64f01bd7dc4b0ed14ec7fb889750cabf1522eaabfa72',
-  'singularity/templates/initiatives/epic/repository-map.yml': 'f1d971a9d7791427572c8e6bca7fe86b30b3c7762b197e8f7189cd564fa4a64f',
+  'singularity/templates/initiatives/epic/repository-map.yml': 'fc948774dce5b0263cd0823cd71f446a7c9c165b8e68a7ea6a4588486adfd328',
   'singularity/templates/initiatives/epic/requirements-traceability.yml': '672a8ccb13f2945e9043e325f7fe0538bddfe8a43d3bf07864bee7937b680b73',
   'singularity/templates/initiatives/epic/requirements.md': '174d57ca16c5b43a23c6292873c683335f9fb08c6efd6d0a7bf6e6594aa5ec0b',
   'singularity/templates/initiatives/epic/story-plan.yml': '9ff2b979d06de8302c36ef0e1898c1c74df6f0dd92df64c1b68accdf360b555f',

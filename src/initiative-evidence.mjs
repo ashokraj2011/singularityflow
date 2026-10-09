@@ -35,7 +35,6 @@ import {
   cachedWorldModelV4AuthorityPresent, refreshWorldModelV4Authority
 } from './world-model/authority-refresh.mjs';
 import { worldModelStateAuthority } from './world-model/authority-config.mjs';
-import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 import {
   artifactPlaceholderFindings, authoredArtifactFingerprint
 } from './publication-preflight.mjs';
@@ -864,7 +863,6 @@ async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
   const outputDir = initiative.resolution?.worldModelOutputDir ?? 'singularity/world-model';
   let manifest = null;
   let modelDiagnostic = null;
-  let modelFailure = 'availability';
   try {
     const definition = withWorldModelSourceScope(
       await loadDefinition(root),
@@ -920,20 +918,14 @@ async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
     }
   } catch (error) {
     modelDiagnostic = error.message;
-    modelFailure = isWorldModelAvailabilityError(error)
-      ? 'availability'
-      : 'integrity';
   }
-  const mode = initiative.resolution?.worldModelGrounding ?? 'off';
   if (!manifest) {
+    // The World Model is guidance: an impact map is never refused because no model can confirm it.
     const message = `impact map references world-model views, but no exact-source validated model is available from governed state or the application projection (${outputDir}): ${modelDiagnostic ?? 'model authority is unavailable'}`;
     const referencesViews = Object.values(impact.repositories).some((entry) => (entry?.worldModelViews ?? entry?.views ?? []).length);
-    if (!referencesViews) return { errors: [], warnings: [] };
-    return mode === 'enforce' && modelFailure === 'integrity'
-      ? { errors: [message], warnings: [] }
-      : { errors: [], warnings: [message] };
+    return { errors: [], warnings: referencesViews ? [message] : [] };
   }
-  return validateImpactMap(portfolio, manifest, impact, { mode });
+  return validateImpactMap(portfolio, manifest, impact);
 }
 
 /**

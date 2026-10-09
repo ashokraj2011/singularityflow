@@ -206,7 +206,7 @@ export function validateInitiativeBreakdown(value, portfolio) {
 // source evidence. The generated answer still needs deterministic checking: every repository
 // named must exist in the portfolio. Custom profiles may additionally name world-model views, and
 // those references must exist whenever a manifest is available.
-export function validateImpactMap(portfolio, manifest, repositoryMap, { mode = 'warn' } = {}) {
+export function validateImpactMap(portfolio, manifest, repositoryMap) {
   const problems = [];
   const declaredViews = new Set(Array.isArray(manifest?.views)
     ? manifest.views.map((entry) => entry?.viewId).filter(Boolean)
@@ -225,9 +225,8 @@ export function validateImpactMap(portfolio, manifest, repositoryMap, { mode = '
     problems.push('impact map repositories must be a mapping of repository ID to impact');
   }
 
-  if (!problems.length) return { errors: [], warnings: [] };
-  // Fail closed only where grounding is enforced; elsewhere surface the same findings as warnings.
-  return mode === 'enforce' ? { errors: problems, warnings: [] } : { errors: [], warnings: problems };
+  // Checked against the World Model, so the findings are guidance: warnings, never refusals.
+  return { errors: [], warnings: problems };
 }
 
 // The order stories merge into the epic branch, derived from the dependsOn graph the breakdown

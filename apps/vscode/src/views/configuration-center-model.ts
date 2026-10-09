@@ -65,8 +65,8 @@ export interface WorldModelSettingsView {
     lookahead: 'none' | 'next-phase'; depth: 'light' | 'phase';
     confirmation: 'prompt' | 'automatic';
   };
-  grounding: 'off' | 'warn' | 'enforce';
-  staleness: 'warn' | 'fail' | 'ignore';
+  grounding: 'off' | 'warn';
+  staleness: 'warn' | 'ignore';
   injection: { placeholder: string; mode: 'replace' | 'append' | 'off'; maxBytes: number; rulesCount: number };
 }
 export type AutoEligibility = 'disabled' | 'plan-only' | 'bounded';
@@ -481,8 +481,9 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
         lookahead: materialization.lookahead ?? 'none', depth: materialization.depth ?? 'phase',
         confirmation: materialization.confirmation ?? 'prompt'
       },
-      grounding: worldModel.grounding ?? 'off',
-      staleness: worldModel.staleness ?? 'warn',
+      // The World Model is guidance: the former blocking settings (enforce, fail) run as warn.
+      grounding: worldModel.grounding === 'enforce' ? 'warn' : worldModel.grounding ?? 'off',
+      staleness: worldModel.staleness === 'fail' ? 'warn' : worldModel.staleness ?? 'warn',
       injection: {
         placeholder: injection.placeholder ?? '{{WORLD_MODEL}}',
         mode: injection.mode ?? 'append', maxBytes: injection.maxBytes ?? 32_768,

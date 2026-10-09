@@ -57,22 +57,6 @@ const DEFAULT_MAXIMUM_BYTES = 32_768;
 const MAXIMUM_CLOSURE_OBJECTS = 100_000;
 const MAXIMUM_CLOSURE_BYTES = 256 * 1024 * 1024;
 const LIFECYCLE_PROVEN_GROUNDINGS = new WeakSet();
-const INITIAL_UNAVAILABLE_CODES = new Set([
-  'WMP_MODEL_MISSING',
-  'WMP_VIEW_NOT_MATERIALIZED',
-  'WMP_VIEW_SELECTION_UNAVAILABLE',
-  'WMP_AUTHORITY_REFRESH_REQUIRED',
-  'WMP_AUTHORITY_CUT_REQUIRED',
-  'WMP_AUTHORITY_UNAVAILABLE',
-  'WMP_REPOSITORY_AUTHORITY_REQUIRED',
-  'WMP_REPOSITORY_AUTHORITY_EXPLICIT_CAPABILITY_REQUIRED',
-  'WMP_REPOSITORY_AUTHORITY_UNGOVERNED',
-  'WMP_REPOSITORY_AUTHORITY_PORTFOLIO_REQUIRED',
-  'WMP_REPOSITORY_AUTHORITY_REPOSITORY_MISSING',
-  'WMP_REPOSITORY_AUTHORITY_REMOTE_INVALID',
-  'WMP_STATE_AUTHORITY_IDENTITY_REQUIRED',
-  'WMP_STORY_CAPABILITY_PIN_REQUIRED'
-]);
 const WMB_TO_WMP = deepFreeze({
   'arch.contracts': 'architecture',
   'biz.rules': 'business',
@@ -559,22 +543,24 @@ export async function prepareStoryWorldModelHistoryPin(root, {
       || workflow?.resolution?.worldModelGrounding === 'off') {
     return unavailablePin('WMP_STORY_ACTIVATION_NOT_CONFIGURED', { historyDir, outputDir });
   }
-  const selected = phaseSelectionPlans(definition, workflow);
-  if (selected.unsupported.length) {
-    // The Story may proceed without this optional accelerator, but it must never activate a
-    // partial roster that silently omits a configured view.
-    return unavailablePin('WMP_VIEW_SELECTION_UNAVAILABLE', { historyDir, outputDir });
-  }
-  if (!selected.plans.length || !selected.requiredPairs.length) {
-    return unavailablePin('WMP_VIEW_SELECTION_UNAVAILABLE', { historyDir, outputDir });
-  }
-  if (selected.plans.length > MAXIMUM_PHASE_PLANS) {
-    // Never truncate the immutable override roster: doing so would make an accepted agent choice
-    // depend on iteration order. Preserve a typed absence instead of blocking Story creation or
-    // sealing a partial authority set.
-    return unavailablePin('WMP_VIEW_SELECTION_UNAVAILABLE', { historyDir, outputDir });
-  }
+  // The World Model is guidance, so a Story always starts: any failure to select an exact history
+  // cut, from planning the views to proving the authority, becomes an explicit unavailable pin.
   try {
+    const selected = phaseSelectionPlans(definition, workflow);
+    if (selected.unsupported.length) {
+      // The Story may proceed without this optional accelerator, but it must never activate a
+      // partial roster that silently omits a configured view.
+      return unavailablePin('WMP_VIEW_SELECTION_UNAVAILABLE', { historyDir, outputDir });
+    }
+    if (!selected.plans.length || !selected.requiredPairs.length) {
+      return unavailablePin('WMP_VIEW_SELECTION_UNAVAILABLE', { historyDir, outputDir });
+    }
+    if (selected.plans.length > MAXIMUM_PHASE_PLANS) {
+      // Never truncate the immutable override roster: doing so would make an accepted agent choice
+      // depend on iteration order. Preserve a typed absence instead of blocking Story creation or
+      // sealing a partial authority set.
+      return unavailablePin('WMP_VIEW_SELECTION_UNAVAILABLE', { historyDir, outputDir });
+    }
     // Match the repository-authority owner: capability source/shared roots are approved scope
     // policy, not merely descriptive capability metadata. Planning from the raw workflow policy
     // here while persisted-model admission planned from the selected delivery produced two valid
@@ -738,10 +724,10 @@ export async function prepareStoryWorldModelHistoryPin(root, {
       phasePlans: selected.plans, historyDir, outputDir, maximumBytes
     });
   } catch (error) {
-    if (INITIAL_UNAVAILABLE_CODES.has(error?.code)) {
-      return unavailablePin(error.code, { historyDir, outputDir });
-    }
-    throw error;
+    const code = String(error?.code ?? '');
+    const reasonCode = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$/u.test(code) && code.length <= 128
+      ? code : 'WMP_STORY_HISTORY_UNAVAILABLE';
+    return unavailablePin(reasonCode, { historyDir, outputDir });
   }
 }
 

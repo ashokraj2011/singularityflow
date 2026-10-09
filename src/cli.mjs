@@ -13962,8 +13962,8 @@ async function capabilityCommand(positionals, options) {
 function groundingOption(options) {
   const requested = optionString(options, 'grounding');
   if (requested == null) return null;
-  if (!['off', 'warn', 'enforce'].includes(requested)) {
-    throw new SingularityFlowError(`--grounding must be off, warn, or enforce; got '${requested}'.`);
+  if (!['off', 'warn'].includes(requested)) {
+    throw new SingularityFlowError(`--grounding must be off or warn; got '${requested}'. The World Model is guidance and never blocks.`);
   }
   return requested;
 }

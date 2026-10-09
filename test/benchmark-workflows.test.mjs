@@ -39,7 +39,7 @@ test('starter configuration ships comparable Benchmark A and Benchmark B workflo
   assert.deepEqual(generic.intelligence, {
     worldModel: 'off', ast: 'off', agentBriefs: 'off'
   });
-  assert.equal(governed.worldModelGrounding, 'enforce');
+  assert.equal(governed.worldModelGrounding, 'warn');
   assert.equal(generic.worldModelGrounding, 'off');
 
   for (const id of PHASES) {
@@ -68,7 +68,7 @@ test('starter configuration ships comparable Benchmark A and Benchmark B workflo
   const genericSnapshot = await snapshotResolution(root, definition, generic);
   assert.deepEqual(governedSnapshot.intelligence, governed.intelligence);
   assert.deepEqual(genericSnapshot.intelligence, generic.intelligence);
-  assert.equal(governedSnapshot.worldModelGrounding, 'enforce');
+  assert.equal(governedSnapshot.worldModelGrounding, 'warn');
   assert.equal(genericSnapshot.worldModelGrounding, 'off');
 });
 

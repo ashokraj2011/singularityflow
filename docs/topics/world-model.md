@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 35
+version: 36
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -81,7 +81,7 @@ registered IDs from `wm views`, and publish the configuration before building. A
 legacy-v3 projection at the output path is not read; a registered `sflow wm build` replaces it. A
 Story started under legacy-v3 keeps its records, but its phases compose with zero World Model bytes
 (grounding unavailable, reason `WMB_FORMAT_RETIRED`), `wm` commands refuse for it, and its old
-prompt receipts are reported as not verifiable: a warning, or an error under `grounding: enforce`.
+prompt receipts are reported as not verifiable, as a warning.
 Start a new Story to use registered views. For the business reading of the code, use
 `wm knowledge show business`.
 
@@ -112,15 +112,18 @@ continues. Create or replace v4 bytes only through an explicit `wm build`, `wm r
 `wm migrate`; exact valid cache entries are reused without another model call.
 
 The same fail-open availability rule applies when a new Story enrolls in immutable exact history.
-An exact Model/View hit becomes an active self-hashed Story pin. A miss becomes a self-hashed
-`unavailable` exact-history pin; Story start performs no model, render, AST, cache, fetch, or
-publication work, and later history cannot silently repin the Story. Existing WMB current-
-projection grounding remains available under its existing policy, but it does not acquire immutable
-WMP authority. For an active pin,
+An exact Model/View hit becomes an active self-hashed Story pin. A miss, or any other failure to
+select a history cut, becomes a self-hashed `unavailable` exact-history pin carrying the failure
+code, so Story start never fails because of World-Model history. Story start performs no model,
+render, AST, cache, fetch, or publication work, and later history cannot silently repin the Story.
+Existing WMB current-projection grounding remains available under its existing policy, but it does
+not acquire immutable WMP authority. For an active pin,
 each phase re-reads the exact bytes at the pinned commit and proves the complete closure and current
 authority ancestry. State fast-forward is allowed while the cut remains reachable. Rewind,
-unrelated replacement, authority drift, missing or modified bytes, and closure mismatch fail closed
-instead of falling back to a newer mutable projection.
+unrelated replacement, authority drift, missing or modified bytes, and closure mismatch leave the
+pinned bytes out of the prompt, with a warning and the reason in the receipt, instead of falling
+back to a newer mutable projection. A pending prompt whose pin can no longer be re-proved is
+recomposed, as when its documents change; the phase is not refused.
 
 All state-backed surfaces use the same approved authority: `ledger.remote`, then
 `worldModel.remote`, then `git.remote`. Read-only status, Help, gateway, and VS Code views never
@@ -154,9 +157,10 @@ Example (other authority and view fields are omitted):
 
 This result does not corrupt or delete the reusable model. Advisory prompt composition may use its
 verified bytes only as clearly labelled historical context under the pinned staleness policy.
-Strict grounding and architecture enforcement refuse it as current evidence until the source is a
-comparable committed revision or an explicitly captured Candidate Snapshot. Diagnostic reads do
-not commit source, capture a snapshot, rebuild, refresh skills, or call a model.
+Grounding and architecture-intent checks do not count it as current evidence until the source is a
+comparable committed revision or an explicitly captured Candidate Snapshot; they report this as a
+warning and do not refuse work. Diagnostic reads do not commit source, capture a snapshot,
+rebuild, refresh skills, or call a model.
 
 The state branch is `worldModel.stateBranch` when that compatibility override is authored;
 otherwise it is `ledger.branch` (default `state`). Canonical configuration resolves these fallbacks
@@ -199,9 +203,18 @@ reviewed action. The automatic child build is bound to the inspected state commi
 authority movement before execution cannot widen an extension into a replacement. In every
 grounding mode, a failed deterministic warm-up does not block normal file-based authoring: the
 prompt receipt records `groundingAvailability: unavailable` with a stable reason code and zero
-World-Model bytes. Enforced grounding remains fail-closed for context integrity—hash, provenance,
-source, path, or prompt-snapshot mismatches—but never turns intelligence availability into lifecycle
-authority.
+World-Model bytes.
+
+The World Model is guidance, never authority. Integrity checks—hash, provenance, source, path, or
+prompt-snapshot mismatches—decide only whether World-Model bytes are used; bytes that fail them are
+left out of the prompt with a warning. If the prompt budget drops the pinned World-Model section,
+the receipt records it as unavailable (`WMP_GROUNDING_OMITTED_BY_BUDGET`). Phase publish, submission,
+Story completion, Auto, `next`, planning, capability context, and Initiative publication report
+grounding findings as warnings and never refuse because of them. `worldModel.grounding: enforce`
+and `worldModel.staleness: fail` are still accepted and act as `warn`, as do a work type's
+`intelligence.worldModel: required` and a capability policy's `worldModelGrounding: enforce`; use
+`off` or `warn` in new configuration. `sflow doctor` warns once (`world-model-guidance`) while a
+repository still configures `enforce`, `fail`, or `architectureIntent.blockRequiredUnfulfilledAt`.
 
 The optional registered runtime and human-confirmed inputs live only at
 `world-model-inputs/runtime-observations.json` and
@@ -218,7 +231,7 @@ Use this topic when the current goal matches **world model**. Start in a governe
 
 - **Shell:** `sflow wm`. Run `singularity-flow wm --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-worldmodel` for world-model and bounded AST status, context, query, build, and evidence-replay guidance. Read operations remain bounded and model-free. A registered-v4 build uses the existing five-tool gateway: it creates an exact Plan, requires a separate host confirmation, then runs only the opaque one-time Plan handle.
-- **VS Code:** open Singularity Flow **Configuration Center → World model** for grounding scope and the registered composer, consumer, cache, and total-token controls; there is no format choice. Dotted registered view IDs such as `dev.impact` are accepted. **Build / refresh** selects an approved capability (when needed), exact installed views, and a reviewed state-branch Plan. A Story pinned to legacy-v3 is refused with `WMB_FORMAT_RETIRED`. Cancelling the review performs no mutation. If authority refresh is required, **Refresh state & retry** preserves the capability selection. With external authority, a settings Save creates a review proposal against the exact approved `sflow/config` revision and leaves the application checkout unchanged; merge it and refresh workspace configuration before building. A true local/FOS authority retains the validated local-draft path. Saving controls does not itself build or rewrite World-Model history, and an existing Story retains its pinned configuration. The Explorer exposes separate bounded exact reads for unavailable analysis, contradictions, staleness receipts, and cache economics; those datasets never inflate the ordinary workspace snapshot. Use **Configuration → AST intelligence** for optional structural diagnostics, adapter availability, coverage, and guarded cache maintenance. The AST scope banner identifies the active workspace repository and, for multi-repository workspaces, switches the shared repository used by VS Code, Copilot, and the CLI.
+- **VS Code:** open Singularity Flow **Configuration Center → World model** for grounding scope (grounding Off/Warn, staleness Warn/Ignore; an existing `enforce` or `fail` shows as Warn) and the registered composer, consumer, cache, and total-token controls; there is no format choice. Dotted registered view IDs such as `dev.impact` are accepted. **Build / refresh** selects an approved capability (when needed), exact installed views, and a reviewed state-branch Plan. A Story pinned to legacy-v3 is refused with `WMB_FORMAT_RETIRED`. Cancelling the review performs no mutation. If authority refresh is required, **Refresh state & retry** preserves the capability selection. With external authority, a settings Save creates a review proposal against the exact approved `sflow/config` revision and leaves the application checkout unchanged; merge it and refresh workspace configuration before building. A true local/FOS authority retains the validated local-draft path. Saving controls does not itself build or rewrite World-Model history, and an existing Story retains its pinned configuration. The Explorer exposes separate bounded exact reads for unavailable analysis, contradictions, staleness receipts, and cache economics; those datasets never inflate the ordinary workspace snapshot. Use **Configuration → AST intelligence** for optional structural diagnostics, adapter availability, coverage, and guarded cache maintenance. The AST scope banner identifies the active workspace repository and, for multi-repository workspaces, switches the shared repository used by VS Code, Copilot, and the CLI.
 
 ## Guided workflow
 

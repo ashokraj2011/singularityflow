@@ -28,7 +28,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    - Record answers with `singularity-flow choices answer`.
    - When ready, run `singularity-flow story start <STORY-KEY> --fetch --selection-receipt <TOKEN>`; add `--target-url <AUTHORIZED-URL>` only for `poc-workflow`.
 7. Show the Epic → Jira Story → canonical branch lineage, base/commit, workflow, agent, phase, outputs, commit, and pushed Story ref. Verify the base ref did not move.
-8. Then run `singularity-flow wm availability --phase <CURRENT-PHASE>`. Story context comes from the governed workflow and must never become a world-model task guide. If grounding is unavailable—missing or unreachable, or stale under staleness `fail`—show the exact returned `singularity-flow wm ensure ...` repair/build command as optional; do not run it without separate authorization and do not delay phase work. Never use `--local`.
+8. Then run `singularity-flow wm availability --phase <CURRENT-PHASE>`. Story context comes from the governed workflow and must never become a world-model task guide. If grounding is unavailable—missing, unreachable, or unverifiable; the World Model is guidance—show the exact returned `singularity-flow wm ensure ...` repair/build command as optional; do not run it without separate authorization and do not delay phase work. Never use `--local`.
 9. Show world-model provenance and push status. If intelligence is unavailable, explain that `/sf-phase` records zero World-Model bytes and continues through ordinary repository access.
 10. Continue only when asked; offer `/sf-phase` and read-only `/sf-nextsteps`.
 

@@ -9,6 +9,7 @@ import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
 import { head } from '../git.mjs';
 import { verifyGroundingRecord } from '../grounding.mjs';
+import { guidanceGroundingMode } from '../world-model-policy.mjs';
 import { readPromptGeneration } from '../inject.mjs';
 import { generationTaskForPhase } from '../model-tasks.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
@@ -1084,28 +1085,13 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       }
       const deterministicProducer = phase.generationPolicy?.producer === 'deterministic'
         && !phaseRequiresCodeDelivery(phase);
-      const groundingMode = workflow.resolution?.worldModelGrounding ?? 'off';
+      const groundingMode = guidanceGroundingMode(workflow.resolution?.worldModelGrounding ?? 'off');
       if (!deterministicProducer && groundingMode !== 'off') {
         let readiness = await inspectWorkflowGrounding(worktree, workflow, phase.id, {
           agent: phase.defaultAgent,
           refreshRemote: true
         });
         if (!readiness.availability.ready) {
-          if (groundingMode === 'enforce'
-              && readiness.availability.failureClass === 'integrity') {
-            return stopActive(
-              'waiting-human',
-              'world-model-grounding-integrity',
-              `${readiness.reason} Enforced context integrity must be repaired before Auto can use these bytes.`,
-              {
-                lastError: {
-                  code: readiness.availability.error?.code
-                    ?? 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED',
-                  message: readiness.reason
-                }
-              }
-            );
-          }
           const policy = effectiveMaterializationPolicy(readiness.config, workflow);
           const preservation = automaticMaterializationDecision(readiness.availability);
           const materialization = workflowGroundingMaterializationPlan(readiness, {
@@ -1222,17 +1208,10 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         composed = await composePhasePrompt(worktree, {
           workId: state.story.workId, phase: phase.id, agent: phase.defaultAgent
         });
+        // Grounding findings are guidance; Auto records the reference and keeps going.
         const grounding = await verifyGroundingRecord(
           worktree, definition, workflow, phase, { agent: phase.defaultAgent }
         );
-        if (grounding.errors.length) {
-          throw new SingularityFlowError(
-            `Auto grounding authority is not ready: ${grounding.errors.join('; ')}`, {
-              code: 'AUTO_GROUNDING_REFERENCE_INVALID',
-              details: { phase: phase.id, path: grounding.path }
-            }
-          );
-        }
         worldModelReference = autoWorldModelReference(grounding);
         const generationPrompt = await readPromptGeneration(worktree, workflow, phase, {
           workDir: path.join(

@@ -12,7 +12,7 @@ import {
 import { resolveGroundingPlan } from './world-model-selection.mjs';
 import { worldModelAssignmentViews } from './world-model-views.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
-import { assertWorldModelStaleness } from './world-model-policy.mjs';
+import { guidanceGroundingMode, worldModelStalenessDecision } from './world-model-policy.mjs';
 import { inspectConfiguredGrounding, resolveInspectedGrounding } from './worldmodel.mjs';
 import { validatePortfolioWorldModelViews } from './initiative-config.mjs';
 import {
@@ -276,14 +276,6 @@ async function repositoryGrounding(
       plan, refreshRemote: true
     });
     if (!inspected.availability.ready) {
-      if (inspected.availability.failureClass === 'integrity' && mode === 'enforce') {
-        throw new SingularityFlowError(
-          `Repository world-model integrity is not ready. ${inspected.reason}\nRun: ${inspected.command}`, {
-            code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED',
-            details: { command: inspected.command }
-          }
-        );
-      }
       throw new SingularityFlowError(
         `Repository grounding is not ready. ${inspected.reason}\nRun: ${inspected.command}`, {
           code: inspected.availability.error?.code ?? 'WORLD_MODEL_GROUNDING_UNAVAILABLE',
@@ -295,7 +287,7 @@ async function repositoryGrounding(
     const commit = resolved.located?.commit ?? null;
     const issues = [];
     if (!commit) issues.push('repository world model is not committed');
-    const stalenessDecision = assertWorldModelStaleness(config.staleness, resolved.freshness.fresh);
+    const stalenessDecision = worldModelStalenessDecision(config.staleness, resolved.freshness.fresh);
     if (issues.length) {
       warnings.push(...issues);
       return {
@@ -351,9 +343,8 @@ async function repositoryGrounding(
       }
     };
   } catch (error) {
-    // Initiative work obeys the same optional-intelligence contract as Story work. Never consume a
-    // failed candidate, but do not require the contributor to build one before continuing.
-    if (!isWorldModelAvailabilityError(error) && mode === 'enforce') throw error;
+    // Initiative work obeys the same guidance-only contract as Story work. Never consume a failed
+    // candidate, and never require the contributor to build one before continuing.
     warnings.push(
       `Repository world model ${isWorldModelAvailabilityError(error) ? 'unavailable' : 'invalid'}: ${error.message}`
     );
@@ -436,7 +427,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const inputs = await approvedInputSections(root, portfolio, initiative, phase);
   const epicSources = await epicSourceSections(root, initiative, phase);
   const knowledge = await knowledgeSections(root, definition, initiative);
-  const mode = initiative.resolution.worldModelGrounding ?? groundingMode(definition);
+  const mode = guidanceGroundingMode(initiative.resolution.worldModelGrounding ?? groundingMode(definition));
   const groundingDefinition = withWorldModelSourceScope(
     definition,
     initiative.resolution?.worldModelSourceScope ?? initiative.resolution?.capability?.sourceScope ?? null
@@ -588,13 +579,13 @@ export async function verifyInitiativeContext(root, portfolio, initiative, phase
     label: `Initiative prompt record for '${phaseId}'`,
     type: 'file'
   });
-  const mode = initiative.resolution.worldModelGrounding ?? 'off';
+  // Context findings are guidance about the prompt, so every one of them is a warning.
+  const mode = guidanceGroundingMode(initiative.resolution.worldModelGrounding ?? 'off');
   const errors = [];
   const warnings = [];
   if (!recordTarget.exists) {
-    const message = `governed Copilot prompt is missing for ${phaseId} generation ${targetGeneration}; run singularity-flow initiative context ${phaseId}`;
-    (mode === 'enforce' ? errors : warnings).push(message);
-    return { valid: !errors.length, mode, errors, warnings, path: relative, record: null };
+    warnings.push(`governed Copilot prompt is missing for ${phaseId} generation ${targetGeneration}; run singularity-flow initiative context ${phaseId}`);
+    return { valid: true, mode, errors, warnings, path: relative, record: null };
   }
   const record = readRecord('initiative-context', await readFile(recordTarget.absolute)).record;
   const expectedPrompt = posix(path.join(
@@ -678,6 +669,6 @@ export async function verifyInitiativeContext(root, portfolio, initiative, phase
     // A context that claims availability must still prove immutable authority.
     errors.push(`initiative world-model commit is missing for ${phaseId}`);
   }
-  if (errors.length && mode !== 'enforce') warnings.push(...errors.splice(0));
+  warnings.push(...errors.splice(0));
   return { valid: !errors.length, mode, errors, warnings, path: relative, record };
 }

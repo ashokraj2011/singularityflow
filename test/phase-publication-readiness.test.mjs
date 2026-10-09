@@ -244,14 +244,16 @@ test('no-model fallback keeps human authorship in the publication command and re
   assert.match(recovery.actions.find(entry => entry.retry)?.retry.beforeRetry, / --no-model$/);
 });
 
-test('grounding failure is visible in recovery without rewriting the retained receipt', async t => {
+test('a grounding problem is reported in recovery, never blocks it, and leaves the receipt', async t => {
   const f = await fixture(t);
   f.workflow.resolution.worldModelGrounding = 'enforce';
   const file = path.join(f.itemDirectory, 'context/planning-gen1.json');
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, '{invalid retained receipt');
-  const preview = await expectBlocked(f, 'grounding', 'PHASE_GROUNDING_NOT_READY');
-  assert.equal(preview.commands.next, 'singularity-flow wm doctor --json');
+  // The World Model is guidance: the invalid receipt is a warning and publication stays ready.
+  await assertPhasePublicationReadiness(f.root, f.config, f.workflow, f.phase);
+  const recovery = await inspectPhaseRecovery(f.root, f.config, f.workflow, f.phase);
+  assert.ok(!recovery.blockers.some(entry => entry.category === 'grounding'));
   assert.equal(await readFile(file, 'utf8'), '{invalid retained receipt');
 });
 

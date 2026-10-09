@@ -36,7 +36,8 @@ The current packaged diagnostic tutorials are `sflow explain diagnostics-and-reg
   mutating state.
 - Generation records the agent ID, Agent Markdown hash, world-model manifest and
   source hashes, included files, byte limits, and rendered-prompt hash.
-- `off`, `warn`, and `enforce` grounding modes produce their configured severity.
+- `off` omits World-Model handling and `warn` reports grounding findings as warnings; `enforce`
+  is accepted and acts as `warn`, so no grounding finding blocks a lifecycle step.
 - Agent-added views never remove phase-required views.
 
 ## Lifecycle and approval

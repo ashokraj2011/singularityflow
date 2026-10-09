@@ -123,12 +123,18 @@ test('an exact mandatory section preserves its terminal packet separator byte-fo
   ], policy('observe'));
   assert.equal(result.text.split(packet).length - 1, 1);
   assert.ok(result.text.includes(packet));
-  assert.throws(
-    () => compilePromptSections([
-      { id: 'world-model-grounding', text: packet, exact: true }
-    ], policy('observe')),
-    (error) => error.code === 'TKN_EXACT_SECTION_OPTIONAL'
-  );
+});
+
+test('an optional exact section is delivered byte-for-byte or evicted whole, never trimmed', () => {
+  const packet = `# Historical grounding\n\n${'Pinned bytes. '.repeat(600)}\n\n---\n\n`;
+  const sections = [
+    { id: 'before', text: 'before', mandatory: true },
+    { id: 'world-model-grounding', text: packet, exact: true, priority: 40 }
+  ];
+  assert.ok(compilePromptSections(sections, policy('observe')).text.includes(packet));
+  const evicted = compilePromptSections(sections, policy('assist', 1024));
+  assert.equal(evicted.text.includes('Pinned bytes.'), false);
+  assert.deepEqual(evicted.omitted.map((section) => section.id), ['world-model-grounding']);
 });
 
 test('section IDs are closed, unique, and reserve kernel-owned names', () => {

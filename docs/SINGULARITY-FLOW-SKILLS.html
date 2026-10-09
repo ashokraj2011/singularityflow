@@ -1381,7 +1381,7 @@ TRP: read and follow `singularity-flow explain test-recovery`; returned legal ac
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~973 body tokens</span>
+          <span class="pill">~978 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-architecture</code></dd></div>
@@ -1416,8 +1416,8 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 5. Export only to an explicitly supplied repository-relative destination. Run `singularity-flow architecture export --format calm --out &lt;FILE&gt;` as preflight, show destination, digest and effects, then ask for confirmation. Only then rerun with its `--confirm &lt;SHA256&gt;`.
 6. When the user explicitly asks to create an architecture intent, require an exact Work ID and repository-relative candidate file, show the exact mutation, then run `singularity-flow architecture intent init --work-id &lt;ID&gt; --from &lt;FILE&gt;`. The candidate must name the active owner phase and may omit `generation`; omission means the owner&#39;s next publication (`P+1`). Report whether the draft was created or already identical. Do not hand-edit the managed intent.
 7. When the user explicitly asks to revise an existing intent, first show its current digest, require the exact `--expect-intent sha256:&lt;DIGEST&gt;` value and a repository-relative candidate file, then run `singularity-flow architecture intent revise --work-id &lt;ID&gt; --from &lt;FILE&gt; --expect-intent sha256:&lt;DIGEST&gt;`. Revision is a compare-and-swap under the Story lock and cannot change the owner phase or generation. On conflict, re-read and ask the user to review the newer intent; never retry with a substituted digest.
-8. For explicit verification, run `singularity-flow architecture intent verify --work-id &lt;ID&gt;`. On dirty-source refusal, stop without capture. Append `--candidate-snapshot sha256:&lt;DIGEST&gt;` only when the user supplied the exact reviewed current Candidate; never substitute an older one. For `WMC_INTENT_REPORT_MISMATCH`, preserve the report, repair the named input, rerun verification, and review the replacement before retrying the gate.
-9. Init/revise creates only an unapproved draft. Governed order is owner-phase publish, submit, approve; enforcement consumes only that publication-bound approval.
+8. For explicit verification, run `singularity-flow architecture intent verify --work-id &lt;ID&gt;`. On dirty-source refusal, stop without capture. Append `--candidate-snapshot sha256:&lt;DIGEST&gt;` only when the user supplied the exact reviewed current Candidate; never substitute an older one. For `WMC_INTENT_REPORT_MISMATCH`, preserve the report, repair the named input, rerun verification, and review the replacement; intent findings only warn, never block.
+9. Init/revise creates only an unapproved draft. Governed order is owner-phase publish, submit, approve; the fulfilment check uses only that publication-bound approval.
 10. Never edit `singularity/world-model/projections/arch.calm.json`, its source map, a planned projection, a managed architecture intent, or a receipt. Direct the user to the exact source returned by `singularity-flow architecture explain`.
 11. Never call a model, approve an intent, publish or submit a Story phase, or execute a returned lifecycle action.
 </code></pre>
@@ -5423,7 +5423,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">generative</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~889 body tokens</span>
+          <span class="pill">~892 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-initiative-phase</code></dd></div>
@@ -5454,7 +5454,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 1. Run `singularity-flow initiative status [INIT-ID] --json` and use only its current phase.
 2. Run `singularity-flow initiative phase [PHASE] [--initiative INIT-ID]`. This prepares every configured output and records one governed Copilot prompt containing the exact phase contract, selected governed-agent prompt, required repository world-model views, active agent Markdown, and approved upstream initiative artifacts.
-3. If the command reports unavailable World-Model intelligence—missing or unreachable, or stale under staleness `fail`—show the exact displayed `singularity-flow wm ensure ...` command as optional. Never run it without explicit contributor authorization and never block the Initiative phase on its absence; continue with a recorded zero-World-Model context. Never substitute a Story phase for an Initiative phase.
+3. If the command reports unavailable World-Model intelligence—missing, unreachable, or unverifiable; the World Model is guidance—show the exact displayed `singularity-flow wm ensure ...` command as optional. Never run it without explicit contributor authorization and never block the Initiative phase on its absence; continue with a recorded zero-World-Model context. Never substitute a Story phase for an Initiative phase.
 4. Run `singularity-flow initiative context [PHASE] [--initiative INIT-ID]` and use the complete returned prompt. Do not generate from a summary or from filenames alone.
 5. Run `singularity-flow initiative documents [PHASE] [--initiative INIT-ID]`. Complete every required output, preserve managed metadata, satisfy the checklist contract, and do not invent evidence.
 6. Run `singularity-flow initiative phase draft-check [PHASE] [--initiative INIT-ID] --json`. If unready, inspect `singularity-flow initiative recover [INIT-ID] --json` and keep repair in this phase. Correct every agent finding now from governed evidence only when ownership permits; otherwise route to its producer or human. Recheck up to three changed fingerprints and stop on an unchanged fingerprint. Never blindly delete markers, invent facts or padding, invoke a nested model, or overwrite another producer.
@@ -10380,7 +10380,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~980 body tokens</span>
+          <span class="pill">~983 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-story-start</code></dd></div>
@@ -10422,7 +10422,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    - Record answers with `singularity-flow choices answer`.
    - When ready, run `singularity-flow story start &lt;STORY-KEY&gt; --fetch --selection-receipt &lt;TOKEN&gt;`; add `--target-url &lt;AUTHORIZED-URL&gt;` only for `poc-workflow`.
 7. Show the Epic → Jira Story → canonical branch lineage, base/commit, workflow, agent, phase, outputs, commit, and pushed Story ref. Verify the base ref did not move.
-8. Then run `singularity-flow wm availability --phase &lt;CURRENT-PHASE&gt;`. Story context comes from the governed workflow and must never become a world-model task guide. If grounding is unavailable—missing or unreachable, or stale under staleness `fail`—show the exact returned `singularity-flow wm ensure ...` repair/build command as optional; do not run it without separate authorization and do not delay phase work. Never use `--local`.
+8. Then run `singularity-flow wm availability --phase &lt;CURRENT-PHASE&gt;`. Story context comes from the governed workflow and must never become a world-model task guide. If grounding is unavailable—missing, unreachable, or unverifiable; the World Model is guidance—show the exact returned `singularity-flow wm ensure ...` repair/build command as optional; do not run it without separate authorization and do not delay phase work. Never use `--local`.
 9. Show world-model provenance and push status. If intelligence is unavailable, explain that `/sf-phase` records zero World-Model bytes and continues through ordinary repository access.
 10. Continue only when asked; offer `/sf-phase` and read-only `/sf-nextsteps`.
 

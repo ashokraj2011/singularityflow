@@ -26,7 +26,7 @@ import { assertPhaseSequence } from './sequence.mjs';
 import { groundingMode, resolveWorldModelAgentPrompt, worldModelCommit } from './grounding.mjs';
 import { resolveViews } from './world-model-selection.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
-import { assertWorldModelStaleness, worldModelStalenessDecision } from './world-model-policy.mjs';
+import { worldModelStalenessDecision } from './world-model-policy.mjs';
 import {
   renderCapabilityWorldModelPack, resolveLifecycleCapability
 } from './capability-context.mjs';
@@ -775,8 +775,8 @@ export async function inspectConfiguredGrounding(root, config, phaseId, {
     );
     const availability = {
       format: 'registered-v4',
-      status: staleness.blocks ? 'stale' : 'ready',
-      ready: !staleness.blocks,
+      status: 'ready',
+      ready: true,
       source: resolved.located.source,
       located: resolved.located,
       selected: {
@@ -792,9 +792,7 @@ export async function inspectConfiguredGrounding(root, config, phaseId, {
       missing: [],
       refresh: authorityRefresh.status,
       staleness,
-      action: staleness.blocks ? {
-        command: registeredV4BuildCommand(config, phaseId), reason: staleMessage
-      } : null
+      action: null
     };
     return {
       format: 'registered-v4', config,
@@ -811,7 +809,7 @@ export async function inspectConfiguredGrounding(root, config, phaseId, {
     const stale = error?.code === 'WMB_SOURCE_SNAPSHOT_STALE';
     const present = error?.code !== 'WMB_MANIFEST_MISSING';
     const staleness = stale
-      ? worldModelStalenessDecision('fail', false, error.message)
+      ? worldModelStalenessDecision('warn', false, error.message)
       : worldModelStalenessDecision(
         config.staleness ?? config.definition?.worldModel?.staleness ?? 'warn', true
       );
@@ -1172,7 +1170,52 @@ async function assertStoryGroundingPromptDelivery(root, {
   // authority at the exact async boundary; production callers never receive an authority bypass.
   if (beforeFinalAuthorityCheck) await beforeFinalAuthorityCheck({ root, workflow, phase });
   await assertStoryGroundingLifecycleUnchanged(root, expectedLifecycle);
-  await assertPinnedStoryWorldModelHistoryAuthority(root, { definition, workflow });
+  await warnIfStoryGroundingAuthorityMoved(root, { definition, workflow });
+}
+
+/**
+ * Why a pending prompt of a pinned Story cannot be reused as composed, or null when it can.
+ * Immutable prompt bytes are reusable only after re-resolving the complete pinned Model/View
+ * closure: receipt self-hashes alone cannot show that a coordinated packet, payload and prompt
+ * replacement still describe the Story-selected keys.
+ */
+async function pinnedPromptReplayProblem(root, { definition, workflow, phase, agent, existing }) {
+  if (workflow.resolution?.worldModelHistoryPin?.status !== 'active') return null;
+  try {
+    const replay = await resolvePinnedStoryWorldModelGrounding(root, {
+      definition, workflow, phase, agent
+    });
+    if (replay.status === 'composed' && replay.authorityProven === true) {
+      assertPinnedStoryWorldModelGroundingReplay(replay, {
+        receipt: existing.record.persistedGrounding,
+        promptText: existing.text
+      });
+      return null;
+    }
+    if (existing.record.persistedGrounding == null
+        && existing.record.groundingAvailability?.status === 'unavailable'
+        && existing.record.groundingAvailability?.reasonCode === 'WMP_VIEW_SELECTION_UNAVAILABLE') {
+      return null;
+    }
+    return `the pinned World Model has no plan for ${phase.id}/${agent} (${replay.reasonCode ?? 'unplanned'})`;
+  } catch (error) {
+    return `the pinned World Model could not be replayed (${error?.code ?? error?.message})`;
+  }
+}
+
+/**
+ * Re-prove that the configured state authority still admits the Story's pinned World-Model cut.
+ * The World Model is guidance: when it no longer does, the prompt keeps the pinned (immutable)
+ * guidance it was composed with, and the move is reported instead of refusing delivery.
+ */
+async function warnIfStoryGroundingAuthorityMoved(root, { definition, workflow }) {
+  try {
+    await assertPinnedStoryWorldModelHistoryAuthority(root, { definition, workflow });
+    return null;
+  } catch (error) {
+    console.error(`Grounding warning: the Story's pinned World-Model authority could not be re-proved (${error?.code ?? error?.message}); the prompt keeps its pinned guidance.`);
+    return error;
+  }
 }
 
 /**
@@ -1473,34 +1516,25 @@ async function compose(root, options, {
       console.error(`Warning: the prompt composed for ${phase.id} generation ${nextPhaseGeneration(phase)} is out of date (${drift}). Run singularity-flow wm compose --phase ${phase.id} to recompose it, then review the authored artifact.`);
     }
     if (existing) {
+      // A pending prompt whose pinned World Model can no longer be re-proved is recomposed like one
+      // whose documents moved; the World Model is guidance and never refuses the phase.
+      const replayProblem = await pinnedPromptReplayProblem(root, {
+        definition, workflow, phase, agent, existing
+      });
+      if (replayProblem && storyLockHeld && !renderOnly) {
+        const moved = await supersedePromptGeneration(root, workflow, phase, expectedPrompt,
+          replayProblem);
+        console.error(`Recomposing ${phase.id} generation ${nextPhaseGeneration(phase)}: ${replayProblem}. The earlier prompt is kept in ${moved.directory}.`);
+        existing = null;
+      } else if (replayProblem) {
+        console.error(`Grounding warning: the prompt composed for ${phase.id} generation ${nextPhaseGeneration(phase)} could not be re-proved against its pinned World Model (${replayProblem}); it is guidance only.`);
+      }
+    }
+    if (existing) {
       const existingDeliveryLifecycle = workflow.resolution?.worldModelHistoryPin?.status === 'active'
           && existing.record.persistedGrounding != null
         ? storyGroundingLifecycleIdentity(workflow, phase.id)
         : null;
-      if (workflow.resolution?.worldModelHistoryPin?.status === 'active') {
-        // Immutable prompt bytes remain reusable only after re-resolving the complete pinned
-        // Model/View closure. Receipt self-hashes alone cannot prove that a coordinated packet,
-        // payload and prompt replacement still describe the Story-selected keys.
-        const replay = await resolvePinnedStoryWorldModelGrounding(root, {
-          definition, workflow, phase, agent
-        });
-        if (replay.status === 'composed' && replay.authorityProven === true) {
-          assertPinnedStoryWorldModelGroundingReplay(replay, {
-            receipt: existing.record.persistedGrounding,
-            promptText: existing.text
-          });
-        } else if (existing.record.persistedGrounding != null
-            || existing.record.groundingAvailability?.status !== 'unavailable'
-            || existing.record.groundingAvailability?.reasonCode
-              !== 'WMP_VIEW_SELECTION_UNAVAILABLE') {
-          throw new SingularityFlowError(
-            'Recorded prompt substituted grounding for an unplanned Story phase/agent.', {
-              code: 'WMP_GROUNDING_REPLAY_MISMATCH',
-              details: { phase: phase.id, agent, reasonCode: replay.reasonCode ?? null }
-            }
-          );
-        }
-      }
       // A generation prompt is immutable. Reuse the exact bytes that were verified above instead
       // of re-reading World-Model authority or rebuilding large input sections. Prompt audit is
       // still completed idempotently below: it may have been enabled, or the prior process may have
@@ -1573,10 +1607,19 @@ async function compose(root, options, {
   if (storyWorldModelHistoryPin?.status === 'active') {
     // This is the only automatic WMP activation path. The lifecycle owner re-resolves the exact
     // retained closure at the Story's authority cut and proves the cut against current authority.
-    // Any active-pin error is an integrity failure: never fall back to a mutable projection.
-    persistedGrounding = await resolvePinnedStoryWorldModelGrounding(root, {
-      definition, workflow, phase, agent
-    });
+    // It never falls back to a mutable projection; when the cut cannot be resolved or proved, the
+    // prompt is composed without World-Model guidance and the receipt records why.
+    try {
+      persistedGrounding = await resolvePinnedStoryWorldModelGrounding(root, {
+        definition, workflow, phase, agent
+      });
+    } catch (error) {
+      console.error(`Grounding warning: the Story's pinned World Model could not be used (${error?.code ?? error?.message}).`);
+      persistedGrounding = {
+        status: 'unavailable', authorityProven: false,
+        reasonCode: durableGroundingReasonCode(error?.code)
+      };
+    }
     if (persistedGrounding.status === 'composed'
         && persistedGrounding.authorityProven === true) {
       storyGroundingLifecycle = storyGroundingLifecycleIdentity(workflow, signals.phase);
@@ -1635,16 +1678,7 @@ async function compose(root, options, {
         groundingAvailable = true;
         groundingAvailability = { status: 'available', reasonCode: null };
       } else {
-        if (inspected.availability.failureClass === 'integrity'
-            && config.grounding === 'enforce') {
-          throw new SingularityFlowError(
-            `Repository world-model integrity is not ready. ${inspected.reason}\nRun: ${inspected.command}`, {
-              code: 'WORLD_MODEL_GROUNDING_INTEGRITY_FAILED',
-              details: { command: inspected.command }
-            }
-          );
-        }
-        // World-model intelligence is an optional accelerator, never lifecycle authority.
+        // World-model intelligence is guidance, never lifecycle authority.
         console.error(`Grounding warning: ${inspected.reason}`);
         console.error(`Grounding recovery: ${inspected.command}`);
         groundingAvailability = {
@@ -1656,7 +1690,6 @@ async function compose(root, options, {
       // A candidate can disappear between inspection and exact resolution, and legacy authority
       // probes can fail before returning a normalized availability object. Consume none of it.
       if (!isWorldModelAvailabilityError(error)) {
-        if (config.grounding === 'enforce') throw error;
         console.error(`Grounding integrity warning: ${error.message}`);
       } else {
         console.error(`Grounding warning: ${error.message}`);
@@ -1691,7 +1724,7 @@ async function compose(root, options, {
     const message = required.freshness.status === 'unavailable'
       ? `World-model source comparison is unavailable (${required.freshness.reason ?? 'source identity unavailable'}).`
       : `World model is stale (${String(required.freshness.built).slice(0, 18)} != ${String(required.freshness.current).slice(0, 18)}).`;
-    const staleness = assertWorldModelStaleness(config.staleness, false, message);
+    const staleness = worldModelStalenessDecision(config.staleness, false, message);
     if (staleness.warns) console.error(`Grounding warning: ${message}`);
   }
   const promptStudy = workflow
@@ -1732,7 +1765,7 @@ async function compose(root, options, {
   const requiredText = persistedGrounding?.status === 'composed'
     ? persistedGrounding.content
     : groundingSectionsText(mandatory, rulePaths);
-  const persistedGroundingReceipt = persistedGrounding?.status === 'composed'
+  let persistedGroundingReceipt = persistedGrounding?.status === 'composed'
     ? persistedStoryWorldModelGroundingReceipt(persistedGrounding)
     : null;
   const governed = await workflowPromptContext(
@@ -1900,7 +1933,7 @@ async function compose(root, options, {
     { id: 'world-model-status', text: groundingStatus, mandatory: true, priority: 0 },
     {
       id: 'world-model-grounding', text: requiredText,
-      mandatory: persistedGrounding?.status === 'composed' || config.grounding === 'enforce',
+      mandatory: false,
       exact: persistedGrounding?.status === 'composed', priority: 40
     },
     // This is a small deterministic navigation overlay, not a second model build. Keep it mandatory
@@ -1936,6 +1969,17 @@ async function compose(root, options, {
   });
   promptCompilation.warnings.forEach((warning) => console.error(`Token-economy warning: ${warning}`));
   const candidateText = promptCompilation.text;
+  if (persistedGroundingReceipt
+      && exactOccurrenceCount(candidateText, persistedGrounding.content) === 0
+      && (promptCompilation.omitted ?? []).some((section) => section.id === 'world-model-grounding')) {
+    // The prompt budget dropped the pinned World Model. It is guidance: record it as unavailable.
+    console.error('Grounding warning: the prompt budget omitted the pinned World Model.');
+    persistedGrounding = { status: 'unavailable', authorityProven: false, reasonCode: 'WMP_GROUNDING_OMITTED_BY_BUDGET' };
+    persistedGroundingReceipt = null;
+    storyGroundingLifecycle = null;
+    groundingAvailable = false;
+    groundingAvailability = { status: 'unavailable', reasonCode: 'WMP_GROUNDING_OMITTED_BY_BUDGET' };
+  }
   if (persistedGroundingReceipt
       && exactOccurrenceCount(candidateText, persistedGrounding.content) !== 1) {
     throw new SingularityFlowError(
@@ -2197,20 +2241,15 @@ async function compose(root, options, {
       beforePersist: persistedGrounding?.status === 'composed'
         ? async () => {
             await assertStoryGroundingLifecycleUnchanged(root, storyGroundingLifecycle);
-            await assertPinnedStoryWorldModelHistoryAuthority(root, {
-              definition, workflow
-            });
+            await warnIfStoryGroundingAuthorityMoved(root, { definition, workflow });
           }
         : null
     });
     if (persistedGrounding?.status === 'composed') {
-      // If authority moved while the immutable pair was written, stop before the prompt can be
-      // returned to a model. The content-addressed pair remains non-authoritative evidence and a
-      // later reuse repeats this proof before returning bytes.
+      // If authority moved while the immutable pair was written, say so; a later reuse repeats
+      // this proof and recomposes without the model when it fails.
       await assertStoryGroundingLifecycleUnchanged(root, storyGroundingLifecycle);
-      await assertPinnedStoryWorldModelHistoryAuthority(root, {
-        definition, workflow
-      });
+      await warnIfStoryGroundingAuthorityMoved(root, { definition, workflow });
     }
     persistedPromptRecord = record;
     console.error(`Grounding composition recorded: ${file}`);

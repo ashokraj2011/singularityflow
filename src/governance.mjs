@@ -391,7 +391,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         grounding = await verifyGroundingRecord(root, config, workflow, phase, {
           generation, superseded: generation < Number(phase.generation ?? 0)
         });
-        refuseEach('gate.grounding.invalid', grounding.errors, { phase: phaseId }); warnings.push(...grounding.warnings); passes.push(...grounding.passes);
+        warnings.push(...grounding.warnings); passes.push(...grounding.passes);
         if (grounding.path && await exists(path.join(root, grounding.path)) && found) {
           if (run('git', ['cat-file', '-e', `${found[0]}:${grounding.path}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.grounding.uncommitted', `grounding composition was not committed with ${phaseId} generation ${generation}`, { phase: phaseId });
           else passes.push(`grounding audit committed: ${phaseId} generation ${generation}`);
@@ -704,7 +704,6 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       ?? config.architectureIntent?.blockRequiredUnfulfilledAt ?? [];
     for (const phaseId of configuredArchitectureGates) {
       const result = await evaluateArchitectureIntentGate(root, config, workflow, phaseId);
-      refuseEach('gate.architecture.intent', result.errors.map((message) => `${phaseId}: ${message}`), { phase: phaseId });
       warnings.push(...result.warnings.map((message) => `${phaseId}: ${message}`));
       passes.push(...result.passes);
     }

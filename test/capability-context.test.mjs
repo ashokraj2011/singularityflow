@@ -181,20 +181,20 @@ test('capability world-model rendering is phase scoped and hash verified', async
     assert.equal(advisory.text, '');
     assert.deepEqual(advisory.files, []);
     assert.match(advisory.warnings.join('\n'), /Capability world-model grounding unavailable/);
-    await assert.rejects(
-      () => renderCapabilityWorldModelPack(root, {
-        id: 'payments-api', policy: {}, context: {
-          path: 'singularity/work-items/WORK-1/context/capability-world-model.json', sha256: record.sha256
-        }
-      }, { views: ['dev.impact'], grounding: 'enforce' }),
-      /Capability world-model snapshot changed/
-    );
+    // `enforce` acts as warn: changed pinned context is left out, never a refusal.
+    const enforced = await renderCapabilityWorldModelPack(root, {
+      id: 'payments-api', policy: {}, context: {
+        path: 'singularity/work-items/WORK-1/context/capability-world-model.json', sha256: record.sha256
+      }
+    }, { views: ['dev.impact'], grounding: 'enforce' });
+    assert.equal(enforced.text, '');
+    assert.match(enforced.warnings.join('\n'), /Capability world-model snapshot changed/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test('unavailable capability world-model context stays advisory under enforce', async () => {
+test('unavailable or invalid capability world-model context stays advisory under enforce', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-unavailable-'));
   try {
     const recordPath = path.join(root, 'capability-world-model.json');
@@ -211,7 +211,7 @@ test('unavailable capability world-model context stays advisory under enforce', 
     }, { grounding: 'enforce' });
     assert.equal(unavailable.text, '');
     assert.deepEqual(unavailable.files, []);
-    assert.match(unavailable.warnings.join('\n'), /grounding unavailable/);
+    assert.match(unavailable.warnings.join('\n'), /has no current world model/);
 
     const missingRecord = await renderCapabilityWorldModelPack(root, {
       id: 'payments-api',
@@ -255,7 +255,7 @@ test('unavailable capability world-model context stays advisory under enforce', 
       context: { path: 'capability-world-model.json', sha256: legacyAvailabilityRecord.sha256 }
     }, { grounding: 'enforce' });
     assert.equal(legacyAvailability.text, '');
-    assert.match(legacyAvailability.warnings.join('\n'), /grounding unavailable/);
+    assert.deepEqual(legacyAvailability.files, []);
 
     for (const legacyRepository of [
       { id: 'api', status: 'world-model-authority-conflict', refresh: 'offline-cached' },
@@ -274,10 +274,10 @@ test('unavailable capability world-model context stays advisory under enforce', 
         context: { path: 'capability-world-model.json', sha256: legacyRecord.sha256 }
       }, { grounding: 'enforce' });
       assert.equal(result.text, '');
-      assert.match(result.warnings.join('\n'), /grounding unavailable/);
+      assert.deepEqual(result.files, []);
     }
 
-    // Semantic invalidity remains fail-closed; only proven availability failures are advisory.
+    // Invalid sibling context is guidance too: nothing is pinned for it and nothing is refused.
     for (const invalidRepository of [
       { id: 'api', status: 'world-model-invalid' },
       {
@@ -289,17 +289,16 @@ test('unavailable capability world-model context stays advisory under enforce', 
         files: [], repositories: [invalidRepository], warnings: []
       })}\n`);
       const invalidRecord = await snapshot(recordPath);
-      await assert.rejects(
-        () => renderCapabilityWorldModelPack(root, {
-          id: 'payments-api',
-          policy: { worldModelGrounding: 'enforce' },
-          context: { path: 'capability-world-model.json', sha256: invalidRecord.sha256 }
-        }, { grounding: 'enforce' }),
-        /invalid cross-repository world-model context/
-      );
+      const invalid = await renderCapabilityWorldModelPack(root, {
+        id: 'payments-api',
+        policy: { worldModelGrounding: 'enforce' },
+        context: { path: 'capability-world-model.json', sha256: invalidRecord.sha256 }
+      }, { grounding: 'enforce' });
+      assert.equal(invalid.text, '');
+      assert.deepEqual(invalid.files, []);
     }
 
-    // One valid sibling must not hide another sibling's corrupted context.
+    // A corrupted sibling is left out; the valid sibling's pinned context is still guidance.
     const pinnedPath = path.join(root, 'pinned-core.md');
     await writeFile(pinnedPath, '# Valid sibling context\n');
     const pinnedInfo = await snapshot(pinnedPath);
@@ -315,14 +314,13 @@ test('unavailable capability world-model context stays advisory under enforce', 
       warnings: []
     })}\n`);
     const mixedRecord = await snapshot(recordPath);
-    await assert.rejects(
-      () => renderCapabilityWorldModelPack(root, {
-        id: 'payments-api',
-        policy: { worldModelGrounding: 'enforce' },
-        context: { path: 'capability-world-model.json', sha256: mixedRecord.sha256 }
-      }, { grounding: 'enforce' }),
-      /invalid cross-repository world-model context for invalid-api/
-    );
+    const mixed = await renderCapabilityWorldModelPack(root, {
+      id: 'payments-api',
+      policy: { worldModelGrounding: 'enforce' },
+      context: { path: 'capability-world-model.json', sha256: mixedRecord.sha256 }
+    }, { grounding: 'enforce' });
+    assert.match(mixed.text, /Valid sibling context/);
+    assert.deepEqual(mixed.files.map((file) => file.repositoryId), ['valid-api']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

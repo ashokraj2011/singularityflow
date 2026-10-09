@@ -35,7 +35,8 @@ export function normalizeWorkTypeIntelligence(value = null, label = 'Work type i
 }
 
 export function worldModelModeForIntelligence(configuredMode, intelligence) {
-  if (intelligence?.worldModel === 'required') return 'enforce';
+  // `required` turns grounding on. The World Model is guidance, so it warns rather than enforces.
+  if (intelligence?.worldModel === 'required') return 'warn';
   if (intelligence?.worldModel === 'off') return 'off';
   return configuredMode;
 }

@@ -212,7 +212,7 @@ phase contract/template
 
 A World Model build reads an exact scoped source snapshot, runs closed extractors and registered view contracts, validates every view, and publishes one atomic current projection to the state branch. Its source identity excludes model output and work-item lifecycle state, so those commits do not create false staleness.
 
-Normal phase skills use one `wm compose` operation. It joins the phase-default agent, mandatory phase/agent views, the exact task guide, applicable evidence, and locked remote Agent Markdown dependencies. The next generation commit includes a provenance record plus the exact rendered prompt. The configurable `off|warn|enforce` policy verifies consumed model context against the committed model. Missing or unreachable intelligence—and stale intelligence when staleness policy is `fail`—is represented by an unavailable receipt with zero World-Model bytes and never becomes lifecycle authority. Staleness `warn` or `ignore` may consume an otherwise integrity-verified stale snapshot with the configured visibility.
+Normal phase skills use one `wm compose` operation. It joins the phase-default agent, mandatory phase/agent views, the exact task guide, applicable evidence, and locked remote Agent Markdown dependencies. The next generation commit includes a provenance record plus the exact rendered prompt. The configurable `off|warn` policy verifies model context against the committed model before it is used; context that fails is left out of the prompt with a warning. Missing or unreachable intelligence is represented by an unavailable receipt with zero World-Model bytes. The World Model is guidance and never becomes lifecycle authority: no grounding or staleness finding refuses publication, submission, or completion. Staleness `warn` or `ignore` may consume an otherwise integrity-verified stale snapshot with the configured visibility. `grounding: enforce` and `staleness: fail` are still accepted and act as `warn`.
 
 The `registered-v4` builder is the only World Model format; the legacy-v3 builder was removed. Its
 current state-branch projection and exact cache reuse are operational. The newer WMP
@@ -220,8 +220,8 @@ immutable exact-history contracts, lookup, and build-to-binding staging are an a
 they are not yet invoked automatically by Story start or phase grounding. That staged boundary does
 not disable existing Story or World-Model commands. The shipped `grounding: warn` policy records an
 unavailable model with zero injected bytes and lets ordinary repository work continue.
-`grounding: enforce` changes the handling of integrity failures in consumed bytes, not model
-availability; a separately required intelligence product may retain its own explicit gate.
+`grounding: enforce` acts as `warn`: an integrity failure leaves the bytes out of the prompt and
+never blocks work. A separately required intelligence product may retain its own explicit gate.
 
 Repository world models never move to remote delivery. Agent Markdown is the governed execution-role layer. `singularity/agents.lock.yml` supplies committed trust-on-first-use hashes; `.git/singularity-flow/agents/` is an uncommitted verified cache. Sync records the active agent without changing the lock. Remote Markdown dependencies are copied and hash-recorded per generation, remote templates are copied once into immutable work-item context, and generated outputs receive per-generation provenance records.
 

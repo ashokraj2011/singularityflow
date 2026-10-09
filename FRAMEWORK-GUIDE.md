@@ -346,9 +346,10 @@ The record includes:
 - Complete rendered-prompt hash.
 - Freshness and task information.
 
-In enforced mode, publication fails if the composition is missing, stale, built
-for the wrong governed agent, omits a required view, or differs from the recorded prompt
-or manifest.
+Publication reports a warning if the composition is missing, stale, built for the wrong
+governed agent, omits a required view, or differs from the recorded prompt or manifest. The
+World Model is guidance, never authority, so none of these findings blocks publication;
+`worldModel.grounding: enforce` is still accepted and acts as `warn`.
 
 ## 11. Approved phase inputs
 

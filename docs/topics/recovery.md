@@ -20,7 +20,7 @@ commands:
 related:
   - checkpoints-pause-continue
   - sequence-gates
-version: 14
+version: 15
 ---
 Publication is a transaction: verified preconditions, an integrity-bound preimage written to the local journal, one isolated commit of allowlisted paths, compare-and-swap branch advance, and push without force. If the process dies before the commit, `sflow sync` reclaims its dead subject lock, preserves the partial bytes under `.git/singularity-flow/publication-rescues/`, and restores the exact pre-transaction governed state. If the commit exists but push failed, sync retries that exact commit once without regenerating or rewriting it. When the push was refused because another clone published to the same Story first, sync says so; if the retained commit is a document upload, `sflow sync --replay` (preview with `--dry-run`) adds the same documents again on top of the published Story, where they take the next free IDs, and keeps the retained commit under `refs/sflow-replayed/<WORK-ID>/`. An upload refused before it committed, because this checkout was behind, names `sflow refresh-branch`. A live command is reported as active and is never rolled back. A branch-head race refuses rather than clobbering — reload and retry. A dead laptop costs nothing already committed: clone and `sflow resume`. `sflow doctor` diagnoses; `sflow recover` produces a content-addressed, model-free plan for transport, artifact, Agent Brief, code-delivery, and generation-intent blockers. Concurrent writes to the same work item are serialized by a subject lock and caught by a state fingerprint even when uncommitted.
 
@@ -118,7 +118,9 @@ For an unpublished generation, recovery and prepublish share the publication dep
 approved input bytes and hashes, required integration receipts, grounding, generation-bound human
 clarification, MCP host readiness, and required MCP evidence. A missing dependency suppresses the
 publication command and automatic draft correction and names its own diagnostic or guided repair.
-Warning-only policies remain warnings in both CLI and VS Code. These checks do not send a delivery,
+Warning-only policies remain warnings in both CLI and VS Code. Grounding is always warning-only:
+the World Model is guidance, so a missing or unverifiable grounding record never suppresses
+publication. These checks do not send a delivery,
 start a host, answer a question, or rewrite a saved prompt. Publication rechecks the dependencies;
 a prior `ready` result is not reusable authorization. Code publication checks again after tests,
 because test commands can change files.

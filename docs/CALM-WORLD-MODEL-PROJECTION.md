@@ -187,17 +187,22 @@ bytes. Verification does not capture a Candidate, rebuild the model, or commit s
 The fulfilment receipt keeps `fulfilled`, `missing`, `deviated`, `not-observable`, and `unplanned`
 distinct. It resolves the intent base from bounded local state-branch history, so unrelated
 architectural drift cannot be presented as successful delivery. A self-hashed receipt is displayed
-as `recorded-unverified`, not as gate-ready proof. At every enforcing gate, SFlow independently
-resolves the approved intent, historical base, current projection and source maps, recomputes the
-complete deterministic report, and compares it with the saved receipt.
+as `recorded-unverified`, not as verified proof. When a phase listed in
+`architectureIntent.blockRequiredUnfulfilledAt` is published or submitted, and in the governance
+gate, SFlow independently resolves the approved intent, historical base, current projection and
+source maps, recomputes the complete deterministic report, and compares it with the saved receipt.
 
-If the gate returns `WMC_INTENT_REPORT_MISMATCH`, do not edit the receipt. First correct any reported
+The intent is checked against the World Model, which is guidance, never authority. An unfulfilled or
+unverifiable intent is reported as warnings and never blocks publish, submit, or the terminal gate.
+Despite its name, `blockRequiredUnfulfilledAt` now only selects where the check runs, and
+`singularity-flow doctor` warns while it is configured.
+
+If the check reports `WMC_INTENT_REPORT_MISMATCH`, do not edit the receipt. First correct any reported
 base-history, current-source, Candidate Snapshot, or state-authority problem; then rerun
 `singularity-flow architecture intent verify --work-id WRK-123`. That command takes the Story lock,
 rechecks the current intent and Story revision, and atomically replaces the stale report with the
-recomputed result. Review it and retry the lifecycle gate. A matching but blocking report remains
-`WMC_INTENT_UNFULFILLED` until the implementation satisfies the required clauses and unplanned
-architecture changes are resolved.
+recomputed result. Review it. A matching report keeps warning `WMC_INTENT_UNFULFILLED` until the
+implementation satisfies the required clauses and unplanned architecture changes are resolved.
 
 ## Trust and privacy boundaries
 

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "9cfd16b757dd3c2c5714aeaff7f9b4eb88bbc2a4",
+  "sourceCommit": "e90e1638e12ef27d2593318fa4e39a352b55ede0",
   "topicCount": 81,
-  "contentSha256": "ccecba862bcbe6f7816694a0c40a4cda598bb5e621e03eac2429a1efe4f591fe",
+  "contentSha256": "eba8c6ab4cb4c08a9f93c5a7fb588bfab9b0648cc22e3bb0591932e1751ddfbf",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -80,8 +80,8 @@
     {
       "id": "calm-architecture",
       "title": "Deterministic CALM architecture projection",
-      "version": 4,
-      "sha256": "ba549de66ad587a73370bd790ec4504233bed311154287b3a3999d29a2433e8f",
+      "version": 5,
+      "sha256": "a3223776f7bfe1390c62d6d110e8e543f180440d4b79f562f0827689f1c9520e",
       "routingSha256": "95abae8d6afdc37c22055710a180a38c8cefd150bbb4d4ec2d82a3a8ae5a870d",
       "file": "calm-architecture.md"
     },
@@ -440,8 +440,8 @@
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 14,
-      "sha256": "ce9526b5a76628e3ba6ec92e658f39878de7fbd0187a81b8300b959532001979",
+      "version": 15,
+      "sha256": "c8baae6b80610bc657b4ad2d761b7bf5a45d4d545f5aa42dd3ec84185ad4d916",
       "routingSha256": "36c528b9d6d19e6cb6fbff5168bb2c203071e18874e1a230c7300b67342c40cd",
       "file": "recovery.md"
     },
@@ -648,8 +648,8 @@
     {
       "id": "world-model",
       "title": "World model grounding and views",
-      "version": 35,
-      "sha256": "5814dc181ce3229c25486c1181e6a2f9aafbff14f398a5f360806f3eebad62c6",
+      "version": 36,
+      "sha256": "758fbcff9ff7a6a460235f6237f025c2e89b49c83c49f42c3e5974233464bbf9",
       "routingSha256": "e8bc81fa19c1360eb38defcc0c51657bfdbe20101662beb54d403fa0bccefa68",
       "file": "world-model.md"
     }

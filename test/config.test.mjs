@@ -842,7 +842,11 @@ test('world-model grounding is configurable and legacy-safe', async () => {
   definition.worldModel.grounding = 'warn';
   assert.equal(validateDefinition(definition).worldModel.grounding, 'warn');
   assert.equal(groundingMode(definition, { resolution: {} }), 'off');
-  assert.equal(groundingMode(definition, { resolution: { worldModelGrounding: 'enforce' } }), 'enforce');
+  // A Story pinned `enforce` acts as `warn`: the World Model is guidance, never authority.
+  assert.equal(groundingMode(definition, { resolution: { worldModelGrounding: 'enforce' } }), 'warn');
+  definition.worldModel.grounding = 'enforce';
+  assert.equal(validateDefinition(definition).worldModel.grounding, 'enforce', 'still accepted in configuration');
+  assert.equal(groundingMode(definition), 'warn');
   delete definition.worldModel.grounding;
   assert.doesNotThrow(() => validateDefinition(definition));
   definition.worldModel.grounding = 'sometimes';

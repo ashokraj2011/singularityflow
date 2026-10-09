@@ -12,7 +12,7 @@ related:
   - world-model
   - capability-management
   - evidence-and-ledger
-version: 4
+version: 5
 ---
 
 The `arch.calm@1` product projects validated World Model facts into a deterministic FINOS CALM
@@ -79,8 +79,10 @@ destination and does not mutate World Model, Story state, or approval authority.
   Reusing a Candidate after any source or base-revision change is refused and never rewrites the
   saved fulfilment report.
 - If fulfilment reports `WMC_INTENT_REPORT_MISMATCH`, do not hand-edit the report. Repair the named
-  base/source/authority input, rerun `sflow architecture intent verify --work-id <WORK-ID>`, review
-  the atomically recomputed report, and retry the gate.
+  base/source/authority input, rerun `sflow architecture intent verify --work-id <WORK-ID>`, and
+  review the atomically recomputed report. Like `WMC_INTENT_UNFULFILLED`, it is a warning: the
+  World Model is guidance, so architecture intent never blocks publish or submit, even for phases
+  listed in `architectureIntent.blockRequiredUnfulfilledAt`.
 - If export is refused, choose a new repository-relative destination and review the refreshed action.
 
 ## Related topics

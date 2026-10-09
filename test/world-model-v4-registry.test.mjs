@@ -79,16 +79,16 @@ test('testing overview preserves the frozen coverage extractor and keeps test-im
     `${REQUIRED_FACT_COVERAGE_ID}@${REQUIRED_FACT_COVERAGE_VERSION}`
   );
   assert.equal(REQUIRED_FACT_COVERAGE_VERSION, '1.0.1');
-  // The deterministic section placement in the bounded lock review changes how a view's facts are
-  // arranged, not required-fact-coverage's version, algorithm, fact types, or governing View
-  // Contract. Every implementation identity still binds the complete packaged WMB kernel and
-  // shared lexer.
+  // The Story grounding activation review in the bounded lock review changes only how Story start
+  // records an unavailable history pin, not required-fact-coverage's version, algorithm, fact
+  // types, or governing View Contract. Every implementation identity still binds the complete
+  // packaged WMB kernel and shared lexer.
   assert.equal(
     REQUIRED_FACT_COVERAGE_IMPLEMENTATION_SHA256,
-    'sha256:85c081585fb2288d881c679e2bffea1ec166860f7a92f039dfcd0dd88df0dae4'
+    'sha256:36235fa8e423293a834465fd98701da30d0bffca728a49362e8c1637ab681e98'
   );
-  assert.equal(coverage.manifestSha256, 'sha256:41b6fff51296f83a96ab27dbf24a323216f5c9bac388caf744c59c9436e75851');
-  assert.equal(BUILTIN_EXTRACTOR_REGISTRY.registrySha256, 'sha256:a271499fb95dc970438f96fa075b83b0edafb585fe9143588fefe13ac999b173');
+  assert.equal(coverage.manifestSha256, 'sha256:171ad26447bd2f468d7c878be874b0408f9a0fd38048205dbd4740a000bf2ba7');
+  assert.equal(BUILTIN_EXTRACTOR_REGISTRY.registrySha256, 'sha256:58a68115c70d3f6067ce1e69e015204f97c3723ee27ee1b2d6ab240208f444af');
   assert.equal(coverage.factTypes.includes('test-impact'), false);
 
   const testing = resolveWmpOverviewViewContract('testing');

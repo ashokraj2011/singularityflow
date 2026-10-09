@@ -23,10 +23,12 @@ function gateResult({
   architectureDecision = null, authorityObservationCommit = null
 }) {
   const uniqueReasons = [...new Set(reasonCodes.filter(Boolean))];
+  // An intent is checked against the World Model's CALM projection. The World Model is guidance,
+  // so an unfulfilled or unverifiable intent is reported and never refuses a phase.
   return Object.freeze({
     applies,
-    errors: Object.freeze(errors),
-    warnings: Object.freeze(warnings),
+    errors: Object.freeze([]),
+    warnings: Object.freeze([...warnings, ...errors]),
     passes: Object.freeze(passes),
     code: uniqueReasons[0] ?? null,
     reasonCodes: Object.freeze(uniqueReasons),

@@ -343,8 +343,10 @@ For a newly accepted `registered-v4` Story, exact-history activation is stricter
 current-projection reuse. Story creation derives the complete phase/agent view selection, plans
 exact deterministic View Keys without rendering, reads those views and their Model Binding at one
 state-authority commit, rechecks repository/state authority, and stores the closed self-hashed pin
-inside `workflow.resolution` before WFA capture. If an exact model or view is absent, it stores a
-typed unavailable **exact-history** pin; it never builds, renders, invokes a model or AST, fills a
+inside `workflow.resolution` before WFA capture. If an exact model or view is absent, or a cut
+cannot be selected for any other reason, it stores a typed unavailable **exact-history** pin with
+the failure code, so Story creation never fails because of World-Model history; it never builds,
+renders, invokes a model or AST, fills a
 cache, fetches, or publishes. That Story never silently gains exact-history authority if history
 appears later. Existing current-projection grounding remains governed by its pre-existing WMB
 policy, preserving compatibility without misrepresenting it as immutable WMP history.
@@ -354,15 +356,18 @@ its accepted phase/agent pair at the pinned cut, validates
 the complete closure, proves the cut is still reachable from the same configured authority, and
 includes the exact grounding packet once in the prompt receipt. A normal state-branch fast-forward
 is acceptable while the pinned commit remains an ancestor. Rewind, unrelated replacement,
-authority endpoint or repository-identity drift, missing/tampered bytes, and closure mismatch fail
-closed; the resolver never falls back to the mutable current projection.
+authority endpoint or repository-identity drift, missing/tampered bytes, and closure mismatch leave
+the pinned packet out of the prompt with a warning, and the receipt records why; the resolver never
+falls back to the mutable current projection. A pending prompt whose pin can no longer be re-proved
+is recomposed rather than refused.
 
-Grounding mode controls the integrity failure boundary. When the exact model is unavailable, every
-enabled mode continues with ordinary bounded repository access and writes a versioned
+The World Model is guidance, never authority. When the exact model is unavailable, every enabled
+grounding mode continues with ordinary bounded repository access and writes a versioned
 prompt-injection receipt whose `groundingAvailability` contains only a stable reason code—never a
 path, provider diagnostic, or invented manifest identity—and whose World-Model byte count is zero.
-`enforce` stops only when consumed context, provenance, or its prompt snapshot fails verification;
-`warn` reports those integrity findings without blocking. Older receipts migrate as
+When consumed context, provenance, or its prompt snapshot fails verification, the bytes are left
+out and `warn` reports the finding without blocking. `enforce` is still accepted and acts as
+`warn`. Older receipts migrate as
 `legacy-unverified`; migration does not retroactively claim that missing grounding was approved.
 
 ## Migration from v3

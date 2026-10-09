@@ -451,16 +451,10 @@ test('Auto uses the shared format-aware grounding boundary and never asks ensure
   assert.match(source, /inspectWorkflowGrounding\(worktree, workflow, phase\.id/);
   assert.match(source, /workflowGroundingMaterializationPlan\(readiness/);
   assert.match(source, /runLifecycle\(worktree, materialization\.argv\)/);
-  assert.match(
-    source,
-    /groundingMode === 'enforce'[\s\S]*?failureClass === 'integrity'/,
-    'enforced grounding must distinguish integrity failures from ordinary unavailability'
-  );
-  assert.doesNotMatch(
-    source,
-    /groundingMode === 'enforce'[\s\S]{0,160}failureClass === 'availability'/,
-    'World-Model availability must not become Auto lifecycle authority'
-  );
+  assert.doesNotMatch(source, /groundingMode === 'enforce'/,
+    'the World Model is guidance: no grounding mode lets it stop Auto');
+  assert.doesNotMatch(source, /Auto grounding authority is not ready/,
+    'grounding findings are recorded with the reference, never a refusal');
   assert.match(source, /Optional intelligence must never stop Auto/);
   assert.doesNotMatch(
     source,

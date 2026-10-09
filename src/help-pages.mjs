@@ -1111,7 +1111,7 @@ const PAGES = Object.freeze({
       ['--name TEXT', 'Human-readable capability name.'],
       ['--kind collection|delivery', 'Whether the capability collects work or delivers it.'],
       ['--into DIRECTORY', 'Where to clone. Defaults to a directory named after the repository.'],
-      ['--grounding off|warn|enforce', 'World-model context policy. Missing intelligence never blocks. Enforce verifies hashes, provenance, and snapshots whenever context is consumed.'],
+      ['--grounding off|warn', 'World-model context policy. The World Model is guidance: nothing about it ever blocks; warn reports missing, stale or unverifiable context.'],
       ['--no-push', 'Do everything locally and push nothing.']
     ],
     examples: [

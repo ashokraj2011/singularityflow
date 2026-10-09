@@ -303,7 +303,7 @@ Operate an initiative inside GitHub Copilot:
 
 Start and approval use Copilot selectable options and one-time receipts when persistent terminal input is unavailable. governed agents control prompt perspective; they never grant initiative approval authority. Authority comes from normalized local Git emails configured in `approvalAuthorities`, and reports label this `configured-local` rather than cryptographic identity.
 
-`/sf-initiative-phase` composes and records the complete governed Copilot prompt before generation. Its order is phase contract → selected governed-agent prompt → required repository world-model views → active agent Markdown → approved upstream initiative artifacts. `singularity-flow initiative context [PHASE]` prints that complete prompt; `--json` prints its hashes and provenance. With `worldModel.grounding: enforce`, a missing or changed prompt/approved input and any unverifiable World-Model bytes still block publication. A missing or unreachable model instead records zero World-Model bytes and does not block the Initiative phase. A stale snapshot is omitted under staleness `fail`, warned under `warn`, and accepted silently under `ignore` only after its bytes and provenance verify.
+`/sf-initiative-phase` composes and records the complete governed Copilot prompt before generation. Its order is phase contract → selected governed-agent prompt → required repository world-model views → active agent Markdown → approved upstream initiative artifacts. `singularity-flow initiative context [PHASE]` prints that complete prompt; `--json` prints its hashes and provenance. The World Model is guidance, never authority: a missing or changed prompt/approved input, unverifiable World-Model bytes, and a missing, unreachable, or stale model are reported as warnings and never block publication. Unverifiable bytes are left out of the prompt, and a missing or unreachable model records zero World-Model bytes. A stale snapshot is used with a warning under staleness `warn` (and under `fail`, which is still accepted and acts as `warn`) and silently under `ignore`, only after its bytes and provenance verify.
 
 For `kind: binary-bundle` outputs without a template, phase preparation prints the exact target as `awaiting upload`. Place the binary evidence at that path and run the phase command again to register its size and SHA-256 before publishing. Required missing bundles block publication with their expected paths. Downstream prompts include binary provenance, never decoded binary bytes.
 
@@ -1660,7 +1660,7 @@ Routing-required REV feedback creates no durable Human Request; use `/sf-recomme
 Candidate-bound browser checks use `singularity-flow revision checks`. `capabilities` is a machine-local read; `plan` selects only the current retained Candidate and approved browser checks from the active phase; `status` and `result` inspect durable run records. `run` accepts only an exact plan whose complete digest is repeated in both `--plan` and `--confirm`, and it fails closed when the installed fixed broker cannot prove an approved runner receipt. There is no public cancel or retry mutation in this slice. Planning or observing a browser run never establishes a repository-test pass, Testing/Verification, publication, approval, merge, deployment, or release authority.
 
 `benchmarking-a` and `benchmarking-b` are deliberately paired. Both run the same templates, agents,
-artifacts, approvals, and rejection routes. A pins `worldModel: required`, `ast: optional-context`,
+artifacts, approvals, and rejection routes. A pins `worldModel: required` (grounding on as `warn`), `ast: optional-context`,
 and `agentBriefs: required`; B pins all three off and uses full approved phase inputs. A records a
 degraded intelligence observation and continues when World-Model context is unavailable. Its
 optional AST page is bounded and records the cone, engine, extractor, assurance, fact count, and
@@ -2288,7 +2288,8 @@ or cause current WMB publication to write WMP history.
 
 In VS Code, open **Singularity Flow → Configuration → World model**, or run
 **Singularity Flow: World Model Settings** from the Command Palette. The guided
-screen configures grounding and staleness policy, explicit/on-demand/disabled
+screen configures grounding (Off/Warn) and staleness (Warn/Ignore) policy; an existing
+`enforce` or `fail` shows as Warn. It also configures explicit/on-demand/disabled
 materialization, publication, views, the registered composer, consumer, cache and token
 controls, parallel workers, paths, and prompt-injection limits. There is no format choice.
 Saving updates only those guided fields in `singularity/workflow.yml`; comments, context
@@ -2506,8 +2507,8 @@ worldModel:
   generation:
     parallel: true
     maxWorkers: 4           # 1..16
-  grounding: enforce        # off | warn | enforce; absent means off
-  staleness: warn           # warn | fail | ignore
+  grounding: warn           # off | warn; absent means off (enforce is accepted and acts as warn)
+  staleness: warn           # warn | ignore (fail is accepted and acts as warn)
   injection:
     placeholder: "{{WORLD_MODEL}}"
     mode: append             # replace | append | off
@@ -2531,14 +2532,17 @@ For a configured clarification checkpoint, the accepted human response is separa
 stored in `context/clarifications-<phase>-gen<n>.json`. Its prompt and composition
 hashes prevent an answer from an older prompt or generation from satisfying a new one.
 
-In `enforce` mode, publication fails if composition is absent or changed, uses the wrong governed
-agent, or World-Model bytes differ from their committed manifest/prompt snapshot before use. A valid
-unavailable receipt for a missing or unreachable model—or a stale model under staleness `fail`—
-contains zero World-Model bytes and does not block publication. Staleness `warn` and `ignore` may
-consume an otherwise integrity-verified stale snapshot with the configured visibility. `warn`
-reports consumed-context integrity problems without blocking.
-`off` skips World-Model handling. The mode is pinned into work-item resolution at start, so
-later configuration changes cannot weaken or strengthen an in-flight item.
+The World Model is guidance, never authority. Under `warn`, a composition that is absent or
+changed, uses the wrong governed agent, or carries World-Model bytes that differ from their
+committed manifest/prompt snapshot is reported as a warning; publication, submission, and the
+terminal gate continue. Integrity checks decide only whether World-Model bytes are used: bytes that
+fail them are left out of the prompt. A missing or unreachable model gets a valid unavailable
+receipt with zero World-Model bytes. Staleness `warn` consumes an otherwise integrity-verified stale
+snapshot with a warning, and `ignore` consumes it silently. `grounding: enforce` and
+`staleness: fail` are still accepted and act as `warn`; `singularity-flow doctor` warns
+(`world-model-guidance`) while either is configured. `off` skips World-Model handling. The mode is
+pinned into work-item resolution at start, so later configuration changes cannot change an
+in-flight item; a Story pinned with `enforce` acts as `warn`.
 
 Context composition is additive:
 
@@ -2974,7 +2978,7 @@ singularity-flow doctor --performance --json
 singularity-flow run --task "Implement the approved screen contract"
 ```
 
-Doctor checks Node and Git, YAML and workflow state, durable-record schema version distributions, the phase agent, human authority configuration, assignment policy, pending publication, working-tree safety, upstream configuration, and remote reachability. A schema census is read-only: it reports stored versions and refuses out-of-range records without rewriting evidence or history. Guided execution may prepare grounding/artifacts or offer submission, but always stops for authoring and approval. It never treats an agent as approval permission and never approves automatically.
+Doctor checks Node and Git, YAML and workflow state, durable-record schema version distributions, the phase agent, human authority configuration, assignment policy, pending publication, working-tree safety, upstream configuration, and remote reachability. It warns once (`world-model-guidance`) when the repository still configures grounding `enforce`, staleness `fail`, or `architectureIntent.blockRequiredUnfulfilledAt`, because those settings no longer block. A schema census is read-only: it reports stored versions and refuses out-of-range records without rewriting evidence or history. Guided execution may prepare grounding/artifacts or offer submission, but always stops for authoring and approval. It never treats an agent as approval permission and never approves automatically.
 
 ## Fault intake and governed repair
 

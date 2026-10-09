@@ -3778,15 +3778,6 @@ export async function publishGeneration(root, config, workflow, {
   );
   const acceptedArchitectureGateIdentity = architectureIntentGateIdentity(architectureGate);
   architectureGate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-  if (architectureGate.errors.length) {
-    throw new SingularityFlowError(
-      `Phase ${phase.id} is not publishable:\n- ${architectureGate.errors.join('\n- ')}`,
-      {
-        code: architectureGate.code ?? 'WMC_INTENT_UNFULFILLED',
-        details: { reasonCodes: architectureGate.reasonCodes ?? [] }
-      }
-    );
-  }
 
   /**
    * Constitution citations `[SPK:REQ-101]`.
@@ -5128,15 +5119,6 @@ async function submitPhaseTransition(root, config, workflow, {
   );
   const acceptedArchitectureGateIdentity = architectureIntentGateIdentity(architectureGate);
   architectureGate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-  if (architectureGate.errors.length) {
-    throw new SingularityFlowError(
-      `Phase ${phase.id} cannot be submitted for approval:\n- ${architectureGate.errors.join('\n- ')}`,
-      {
-        code: architectureGate.code ?? 'WMC_INTENT_UNFULFILLED',
-        details: { reasonCodes: architectureGate.reasonCodes ?? [] }
-      }
-    );
-  }
 
   // Legacy AST receipts are observed diagnostically. Their absence or invalidity cannot prevent
   // submission because normal repository file access is the permanent fallback.

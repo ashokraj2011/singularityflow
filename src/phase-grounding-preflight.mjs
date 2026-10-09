@@ -15,7 +15,8 @@ export async function phaseGroundingPreflight(root, config, workflow, phase, dra
       agent: draft.ownership.proven ? draft.ownership.agent : null, generation: draft.generation
     });
   } catch (error) {
-    check = { errors: [error.message], warnings: [], path: null };
+    // Grounding is World-Model guidance; even an unreadable record only warns.
+    check = { errors: [], warnings: [error.message], path: null };
   }
   const missing = check.path && !(await exists(path.join(root, check.path)));
   const blockers = check.errors.map((message) => ({

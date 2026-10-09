@@ -377,27 +377,27 @@ test('Epic pull requests land only after the blocking Story stack has merged', a
   assert.ok(calls.some((args) => args[0] === 'gh' && args[1] === 'pr' && args[2] === 'create'));
 });
 
-test('impact map validation rejects unknown repositories and undeclared world-model views', async () => {
+test('impact map validation flags unknown repositories and undeclared world-model views as warnings', async () => {
   const { validateImpactMap } = await import('../src/initiative-repositories.mjs');
   const portfolio = { repositories: { api: { url: 'x' }, web: { url: 'y' } } };
   const manifest = { views: [{ viewId: 'arch.contracts', viewVersion: 4 }, { viewId: 'dev.impact', viewVersion: 4 }] };
 
   const good = { version: 1, repositories: { api: { worldModelViews: ['arch.contracts'] } } };
-  assert.deepEqual(validateImpactMap(portfolio, manifest, good, { mode: 'enforce' }), { errors: [], warnings: [] });
+  assert.deepEqual(validateImpactMap(portfolio, manifest, good), { errors: [], warnings: [] });
 
+  // Checked against the World Model, so they are guidance: reported, never refusals.
   const unknownRepo = { version: 1, repositories: { ghost: { worldModelViews: ['arch.contracts'] } } };
-  assert.match(validateImpactMap(portfolio, manifest, unknownRepo, { mode: 'enforce' }).errors[0], /unknown repository 'ghost'/);
+  const repoResult = validateImpactMap(portfolio, manifest, unknownRepo);
+  assert.deepEqual(repoResult.errors, []);
+  assert.match(repoResult.warnings[0], /unknown repository 'ghost'/);
 
   const unknownView = { version: 1, repositories: { api: { worldModelViews: ['telepathy'] } } };
-  assert.match(validateImpactMap(portfolio, manifest, unknownView, { mode: 'enforce' }).errors[0], /undeclared world-model view 'telepathy'/);
-
-  // Outside enforce the same findings surface as warnings rather than blocking.
-  const warned = validateImpactMap(portfolio, manifest, unknownView, { mode: 'warn' });
-  assert.equal(warned.errors.length, 0);
-  assert.equal(warned.warnings.length, 1);
+  const viewResult = validateImpactMap(portfolio, manifest, unknownView);
+  assert.deepEqual(viewResult.errors, []);
+  assert.match(viewResult.warnings[0], /undeclared world-model view 'telepathy'/);
 });
 
-test('publishing a phase blocks an impact map naming an unknown repository under enforce', async () => {
+test('publishing a phase reports, and does not block on, an impact map the World Model cannot confirm', async () => {
   const { publishInitiativePhase } = await import('../src/initiative-evidence.mjs');
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-impact-publish-'));
   const root = path.join(base, 'lead');
@@ -448,11 +448,13 @@ test('publishing a phase blocks an impact map naming an unknown repository under
   const mapPath = path.join(directory, created.initiative.phases.plan.outputs['repository-map'].path);
   await mkdir(path.dirname(mapPath), { recursive: true });
 
-  // An unknown repository is rejected outright.
-  await writeFile(mapPath, YAML.stringify({ version: 1, repositories: { ghost: { worldModelViews: ['arch.contracts'] } } }));
-  await assert.rejects(() => publishInitiativePhase(root, 'INIT-IMPACT', 'plan'), /unknown repository 'ghost'/);
-
-  // So is a view the committed world model does not declare.
+  // `grounding: enforce` acts as warn: a view the committed World Model does not declare is
+  // reported, and the phase still publishes with its impact-grounded evidence.
   await writeFile(mapPath, YAML.stringify({ version: 1, repositories: { app: { worldModelViews: ['telepathy'] } } }));
-  await assert.rejects(() => publishInitiativePhase(root, 'INIT-IMPACT', 'plan'), /undeclared world-model view 'telepathy'/);
+  const warnings = [];
+  console.warn = (message) => warnings.push(String(message));
+  try {
+    await publishInitiativePhase(root, 'INIT-IMPACT', 'plan');
+  } finally { console.warn = prior.warn; }
+  assert.ok(warnings.some((message) => /undeclared world-model view 'telepathy'/.test(message)), warnings.join('\n'));
 });

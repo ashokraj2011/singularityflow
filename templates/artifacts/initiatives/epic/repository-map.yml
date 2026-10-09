@@ -8,8 +8,8 @@
 #     `worldModelViews` must exist in it
 #
 # A missing or unavailable World Model records degraded evidence and does not block
-# publication. Against an available manifest, an unresolvable reference blocks under
-# `grounding: enforce` and otherwise warns. These checks are why this file is worth
+# publication. Against an available manifest, an unresolvable reference is a warning:
+# the World Model is guidance and never blocks. These checks are why this file is worth
 # completing properly: an impact map that names a repository nobody configured, or
 # cites a view absent from the available manifest, is a guess wearing the costume of
 # an analysis.

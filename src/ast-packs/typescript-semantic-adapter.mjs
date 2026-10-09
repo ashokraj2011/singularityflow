@@ -1,8 +1,19 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
+import { readdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { resolveTypeScript, semanticCalls, TYPESCRIPT_SEMANTIC_PACK } from './typescript-core.mjs';
+// Installed, this pack's modules keep their names; replayed from retained evidence, each is written
+// beside the others as <sha256>-<name>. Either way the bytes were verified against the manifest.
+function sibling(name) {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const entries = readdirSync(here);
+  const found = entries.includes(name) ? name : entries.find((entry) => entry.endsWith(`-${name}`));
+  return found ? path.join(here, found) : null;
+}
+const { resolveTypeScript, semanticCalls, TYPESCRIPT_SEMANTIC_PACK } = await import(pathToFileURL(sibling('typescript-core.mjs')).href);
 
 function sha256(value) { return createHash('sha256').update(value).digest('hex'); }
 
@@ -11,7 +22,7 @@ for await (const chunk of process.stdin) input += chunk;
 
 try {
   const request = JSON.parse(input);
-  const typescript = resolveTypeScript();
+  const typescript = resolveTypeScript(sibling('typescript.js'));
   if (!typescript) throw new Error('typescript unavailable');
   const diagnostics = [];
   const verified = [];

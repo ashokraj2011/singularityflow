@@ -235,13 +235,24 @@ async function indexScope(root, scope, inventory, { build, limits }) {
       try {
         const context = await astContext(root, { paths: current });
         workingTreeFiles = current.length;
+        // Text and parser extractors can both report a declaration; it is listed once, at its strongest.
+        const rank = (assurance) => ['text', 'syntax', 'semantic'].indexOf(assurance);
+        const listed = new Map(symbols.map((symbol, index) => [`${symbol.path}\0${symbol.name}\0${symbol.line}`, index]));
         for (const fact of context.facts ?? []) {
-          if (fact.kind !== 'symbol' || symbols.length >= limits.maximumSymbols) continue;
-          symbols.push({
+          if (fact.kind !== 'symbol') continue;
+          const symbol = {
             name: String(fact.name), qualifiedName: fact.qualifiedName ? String(fact.qualifiedName) : null,
             declarationKind: String(fact.declarationKind ?? 'symbol'), path: fact.path,
             line: Number(fact.line ?? fact.span?.startLine), assurance: fact.assurance
-          });
+          };
+          const key = `${symbol.path}\0${symbol.name}\0${symbol.line}`;
+          if (listed.has(key)) {
+            if (rank(symbol.assurance) > rank(symbols[listed.get(key)].assurance)) symbols[listed.get(key)] = symbol;
+            continue;
+          }
+          if (symbols.length >= limits.maximumSymbols) continue;
+          listed.set(key, symbols.length);
+          symbols.push(symbol);
         }
       } catch {
         // The committed index still answers; these files are reported as not indexed.

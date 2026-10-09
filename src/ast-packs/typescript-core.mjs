@@ -13,8 +13,6 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
-import { PACKAGE_ROOT } from '../package-root.mjs';
-
 export const TYPESCRIPT_SYNTAX_PACK = Object.freeze({ id: 'sflow-typescript-syntax', packVersion: '1.0.0', extractorVersion: '1.0.0' });
 export const TYPESCRIPT_SEMANTIC_PACK = Object.freeze({ id: 'sflow-typescript', packVersion: '1.0.0', extractorVersion: '1.0.0' });
 export const TYPESCRIPT_LANGUAGES = Object.freeze({
@@ -22,12 +20,15 @@ export const TYPESCRIPT_LANGUAGES = Object.freeze({
   javascript: Object.freeze(['.js', '.jsx', '.mjs', '.cjs'])
 });
 
-/** Singularity Flow's own compiler, resolved from its package; null when it is not installed. */
-export function resolveTypeScript() {
+/**
+ * Singularity Flow's own compiler; null when it is not installed. An adapter replayed from retained
+ * evidence passes the retained compiler file; otherwise it resolves from this package's location.
+ */
+export function resolveTypeScript(compilerPath = null) {
   try {
-    const require = createRequire(path.join(PACKAGE_ROOT, 'package.json'));
-    const entry = require.resolve('typescript');
-    return { entry, packageJson: path.join(path.dirname(entry), '..', 'package.json'), module: require('typescript') };
+    const require = createRequire(import.meta.url);
+    const entry = compilerPath ?? require.resolve('typescript');
+    return { entry, packageJson: path.join(path.dirname(entry), '..', 'package.json'), module: require(entry) };
   } catch {
     return null;
   }

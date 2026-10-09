@@ -1583,10 +1583,14 @@ export async function readCachedAstSymbols(root, {
     facts.push(...materializeFacts(entry, syntax, { includeFile: false })
       .filter((fact) => fact.kind === 'symbol'));
   }
-  const unique = [...new Map(facts.map((fact) => [
-    `${fact.path}\0${fact.extractor?.id ?? ''}\0${fact.id ?? fact.qualifiedName ?? fact.name}\0${fact.line ?? fact.span?.startLine ?? ''}`,
-    fact
-  ])).values()].sort((left, right) => left.path.localeCompare(right.path)
+  // Text and parser extractors can both report a declaration; it is listed once, at its strongest.
+  const strongestByDeclaration = new Map();
+  for (const fact of facts) {
+    const key = `${fact.path}\0${fact.name}\0${fact.line ?? fact.span?.startLine ?? ''}`;
+    const existing = strongestByDeclaration.get(key);
+    if (!existing || assuranceRank(fact.assurance) > assuranceRank(existing.assurance)) strongestByDeclaration.set(key, fact);
+  }
+  const unique = [...strongestByDeclaration.values()].sort((left, right) => left.path.localeCompare(right.path)
     || Number(left.line ?? left.span?.startLine ?? 0) - Number(right.line ?? right.span?.startLine ?? 0)
     || String(left.name).localeCompare(String(right.name)));
   const selected = unique.slice(0, maximumSymbols).map((fact) => ({

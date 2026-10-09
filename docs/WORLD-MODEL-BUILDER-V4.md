@@ -29,12 +29,19 @@ does not rebuild an unchanged repository model.
 selections, deterministic composition and strict assignment validation. A configuration without a
 `format` uses it. World Model-off workflows remain off.
 
-The legacy-v3 World Model was removed in a hard cutover. A configuration that still sets
+The legacy-v3 World Model was removed in a hard cutover; its commands and options are refused with
+`WMB_FORMAT_RETIRED`. Because the World Model is guidance, a configuration that still sets
 `format: legacy-v3`, names a v3 view (`business`, `architecture`, `development`, `testing`,
-`release`, `operations`, `security`) or sets `v4.legacyAssignments: inherit-configured` is refused
-with `WMB_FORMAT_RETIRED` and told what to change; nothing converts it automatically. A Story
-started under legacy-v3 keeps its records, but its phases compose with zero World Model bytes and
-its v3 prompt receipts can no longer be verified. Start a new Story to use registered views.
+`release`, `operations`, `security`) or sets `v4.legacyAssignments: inherit-configured` is not
+refused: loading drops those entries, so a phase or agent assigned only v3 views runs without World
+Model context, and `doctor` names each dropped entry. `sflow wm migrate-views --dry-run` previews
+the rewrite to registered views (`business` to `biz.rules`, `architecture` and `security` to
+`arch.contracts`, `development` and `testing` to `dev.impact`; `release` and `operations` are
+removed) in `workflow.yml`, `portfolio.yml` and Agent Markdown, keeping each file's formatting;
+`--confirm` applies it and the change is published like any configuration edit. A new phase is never
+written with a v3 view. A Story started under legacy-v3 keeps its records, but its phases compose with
+zero World Model bytes and its v3 prompt receipts can no longer be verified. Start a new Story to use
+registered views.
 
 For advanced configuration in VS Code, open **Singularity Flow → Configuration Center → World
 model**, review the composer, consumer, cache, and token controls, then use the normal
@@ -496,9 +503,9 @@ key-custody boundary, and retained output contract are in
 
 - `WMB_MANIFEST_MISSING`: run an explicit v4 build for at least one registered view.
 - `WMB_MIGRATION_REQUIRED`: rebuild or run the explicit migration command; do not rename a v3 file.
-- `WMB_FORMAT_RETIRED`: the configuration (or the Story pin) still names the removed legacy-v3
-  World Model. Set `format: registered-v4` or remove it, and replace v3 view names with the IDs from
-  `sflow wm views`; a legacy-v3 Story continues without World Model context.
+- `WMB_FORMAT_RETIRED`: a command, option, new phase or Story pin names the removed legacy-v3 World
+  Model. A configuration that still names v3 views is not refused; run `sflow wm migrate-views` to
+  rewrite them. A legacy-v3 Story continues without World Model context.
 - `WMB_SOURCE_SNAPSHOT_REQUIRED`: commit or stash the in-scope application bytes, then rerun the
   plan/build against a clean exact source snapshot. If those bytes are the intentional reviewed
   candidate and policy permits it, run `wm snapshot`, review its source hash, and pass that exact

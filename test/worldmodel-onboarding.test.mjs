@@ -87,8 +87,8 @@ test('ensureRepositoryWorldModelViews declares missing views, preserves comments
   // Idempotent: already covered → no rewrite, returns the current declared set.
   const again = await ensureRepositoryWorldModelViews(root, ['biz.rules']);
   assert.deepEqual(again, declared);
-  // A retired legacy-v3 name is refused, never declared or aliased.
-  await assert.rejects(ensureRepositoryWorldModelViews(root, ['business']), { code: 'WMB_FORMAT_RETIRED' });
+  // A retired legacy-v3 name is never declared or aliased: nothing to add, nothing written.
+  assert.deepEqual(await ensureRepositoryWorldModelViews(root, ['business']), declared);
   assert.equal(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), text);
 });
 

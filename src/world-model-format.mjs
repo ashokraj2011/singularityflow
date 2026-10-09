@@ -1,10 +1,12 @@
 /**
- * The one World Model format, and the refusal for the retired one.
+ * The one World Model format, and the refusal for the retired one's commands.
  *
  * The legacy-v3 builder (light and semantic builds, dual state/current-branch publication, the
  * business/architecture/... view names) was removed in a hard cutover: there is no compatibility
- * mode and no automatic conversion. A repository that still names it is refused with what to
- * change, and a Story started under it keeps its records but cannot use the World Model again.
+ * mode. Its commands and options are refused by name. A configuration that still names its format
+ * or views is not refused: the World Model is guidance, so loading drops those entries, `doctor`
+ * names them, and `wm migrate-views` rewrites them to registered views. A Story started under it
+ * keeps its records and continues without the World Model.
  */
 import { SingularityFlowError } from './util.mjs';
 

@@ -742,23 +742,19 @@ test('a storyless registered build requires an explicit capability when reposito
   assert.equal(selected.repositoryCapability.id, 'alpha');
 });
 
-test('World-Model configuration refuses the retired legacy-v3 format and view IDs', async (t) => {
+test('World-Model configuration drops the retired legacy-v3 format and view IDs instead of refusing', async (t) => {
   const root = await registeredRepository(t);
   const workflowPath = path.join(root, 'singularity', 'workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
   await writeFile(workflowPath, YAML.stringify({
     ...workflow, worldModel: { ...workflow.worldModel, format: 'legacy-v3' }
   }));
-  await assert.rejects(
-    () => loadWorldModelConfig(root),
-    (error) => error.code === 'WMB_FORMAT_RETIRED' && /legacy-v3/.test(error.message)
-  );
+  // The World Model is guidance: the retired format reads as registered-v4.
+  assert.equal((await loadWorldModelConfig(root)).definition.worldModel.format, 'registered-v4');
   workflow.phases.intake.worldModel = { ...workflow.phases.intake.worldModel, views: ['business'] };
   await writeFile(workflowPath, YAML.stringify(workflow));
-  await assert.rejects(
-    () => loadWorldModelConfig(root),
-    (error) => error.code === 'WMB_FORMAT_RETIRED' && /phase 'intake'=business/.test(error.message)
-  );
+  const config = await loadWorldModelConfig(root);
+  assert.deepEqual(config.definition.phases.intake.worldModel.views, [], 'intake runs without World Model views');
 });
 
 test('non-scope World-Model controls do not invalidate an unchanged registered-v4 projection', async (t) => {
@@ -1533,16 +1529,15 @@ test('Initiative start and composition consume the exact registered-v4 projectio
     || phase.worldModelViews.length === 1 && phase.worldModelViews[0] === 'dev.impact'
   )), 'start persists only registered-v4 IDs');
 
-  // A resolution pinned before the legacy-v3 World Model was removed is refused, not aliased.
+  // A resolution pinned before the legacy-v3 World Model was removed composes without those views:
+  // the World Model is guidance, so a retired name is dropped, never aliased and never a refusal.
   const statePath = path.join(root, 'singularity', 'initiatives', 'WMB-V4-INIT', 'state.json');
   const accepted = await readFile(statePath, 'utf8');
   const retired = JSON.parse(accepted);
   retired.resolution.phases.find((phase) => phase.id === 'define').worldModelViews = ['business'];
   await writeFile(statePath, `${JSON.stringify(retired, null, 2)}\n`);
-  await assert.rejects(
-    () => composeInitiativeContext(root, 'WMB-V4-INIT', 'define', { agent: 'product-owner' }),
-    (error) => error.code === 'WMB_FORMAT_RETIRED'
-  );
+  const withoutViews = await composeInitiativeContext(root, 'WMB-V4-INIT', 'define', { agent: 'product-owner', dryRun: true });
+  assert.deepEqual(withoutViews.phase.worldModelViews, []);
   await writeFile(statePath, accepted);
 
   const composed = await composeInitiativeContext(root, 'WMB-V4-INIT', 'define', {

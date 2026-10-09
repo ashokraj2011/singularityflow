@@ -2361,8 +2361,9 @@ singularity-flow wm check
 ```
 
 The legacy-v3 World Model was removed. A configuration that still sets `format: legacy-v3` or
-names a legacy view such as `business` or `architecture` is refused at load with
-`WMB_FORMAT_RETIRED`; replace those names with registered views from `singularity-flow wm views`.
+names a legacy view such as `business` or `architecture` still loads, without World Model context
+for those entries; `singularity-flow doctor` lists them and `singularity-flow wm migrate-views`
+rewrites them to registered views.
 For the business or product reading of the code, use repository knowledge:
 `singularity-flow wm knowledge show business` (see [Repository knowledge](./docs/KNOWLEDGE-MODEL.md)).
 

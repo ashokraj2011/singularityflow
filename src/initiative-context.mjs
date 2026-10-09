@@ -10,7 +10,7 @@ import {
   groundingMode
 } from './grounding.mjs';
 import { resolveGroundingPlan } from './world-model-selection.mjs';
-import { worldModelAssignmentViews } from './world-model-views.mjs';
+import { isRetiredWorldModelView, worldModelAssignmentViews } from './world-model-views.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
 import { guidanceGroundingMode, worldModelStalenessDecision } from './world-model-policy.mjs';
 import { inspectConfiguredGrounding, resolveInspectedGrounding } from './worldmodel.mjs';
@@ -368,10 +368,13 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   }
   const pinnedPhase = initiative.resolution.phases.find((candidate) => candidate.id === phaseId);
   if (!pinnedPhase) throw new SingularityFlowError(`Unknown initiative phase '${phaseId}'.`);
-  // A resolution pinned before the legacy-v3 World Model was removed may still name its views;
-  // validation refuses those (WMB_FORMAT_RETIRED) before any grounding or capability reader sees them.
+  // A resolution pinned before the legacy-v3 World Model was removed may still name its views; they
+  // are dropped before any grounding or capability reader sees them, so the phase has no World Model.
   validatePortfolioWorldModelViews({ initiativePhases: { [phaseId]: pinnedPhase } }, definition);
-  const phase = { ...pinnedPhase, worldModelViews: worldModelAssignmentViews(pinnedPhase.worldModelViews) };
+  const phase = {
+    ...pinnedPhase,
+    worldModelViews: worldModelAssignmentViews(pinnedPhase.worldModelViews).filter((view) => !isRetiredWorldModelView(view))
+  };
   const session = await loadSession(root, { required: false });
   const sessionAgentApplies = Boolean(
     session?.agent

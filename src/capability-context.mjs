@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { retiredWorldModelFormatError } from './world-model-format.mjs';
 import { constants as fsConstants } from 'node:fs';
 import { lstat, mkdir, open, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -814,8 +813,8 @@ export async function resolveCapabilityWorldModelCandidate(repositoryRoot, defin
   authorityRefresh = null
 } = {}) {
   const scoped = withWorldModelSourceScope(definition ?? {}, sourceScope);
-  // A sibling repository still configured for the retired legacy-v3 World Model is refused by name.
-  if (scoped.worldModel?.format === 'legacy-v3') throw retiredWorldModelFormatError('capability repository worldModel.format: legacy-v3');
+  // A sibling repository still configured for the retired legacy-v3 format is read as registered-v4,
+  // the only World Model; its retired view names were dropped when its configuration loaded.
   const groundingDefinition = { ...scoped, worldModel: { ...(scoped.worldModel ?? {}), format: 'registered-v4' } };
   const worldModel = groundingDefinition.worldModel;
   const outputDir = worldModel.outputDir ?? 'singularity/world-model';

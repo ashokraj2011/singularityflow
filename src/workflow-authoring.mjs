@@ -26,6 +26,8 @@ import { PORTFOLIO_PATH, validatePortfolio, validatePortfolioWorldModelViews } f
 import { assertPlannedClaimsReady, resolveWorkType, WORKFLOW_PATH, validateDefinition } from './config.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
+import { isRetiredWorldModelView, LEGACY_WORLD_MODEL_VIEW_SUCCESSORS, worldModelAssignmentViews } from './world-model-views.mjs';
+import { retiredWorldModelFormatError } from './world-model-format.mjs';
 
 /**
  * The two places a workflow can live.
@@ -414,6 +416,17 @@ export async function editWorkflow(root, workflowId, changes = {}) {
  * A new phase runs nowhere until a workflow lists it, which is the right default: adding a stage to
  * every workflow at once is not what anybody means by adding a stage.
  */
+/**
+ * A configuration that already names a retired legacy-v3 view keeps working without it; a phase is
+ * not written with one, so the author learns the registered successor instead.
+ */
+function assertNoRetiredViews(id, views) {
+  const retired = worldModelAssignmentViews(views).filter(isRetiredWorldModelView);
+  if (!retired.length) return;
+  throw retiredWorldModelFormatError(`phase '${id}' would name retired view${retired.length === 1 ? '' : 's'} `
+    + retired.map((view) => LEGACY_WORLD_MODEL_VIEW_SUCCESSORS[view] ? `${view} (use ${LEGACY_WORLD_MODEL_VIEW_SUCCESSORS[view]})` : view).join(', '));
+}
+
 export async function addPhase(root, phaseId, {
   label = null,
   worldModelViews = [],
@@ -439,6 +452,7 @@ export async function addPhase(root, phaseId, {
       + `Configured: ${authorities.join(', ') || 'none'}.`);
   }
   await assertAgentsExist(root, agents, id);
+  assertNoRetiredViews(id, worldModelViews);
   if (task != null && store.governs !== 'story') {
     throw new SingularityFlowError('--task applies only to Story phases.');
   }
@@ -487,6 +501,7 @@ export async function editPhase(root, phaseId, changes = {}, { governs = null } 
   if (!content[store.phases]?.[id]) throw new SingularityFlowError(`Unknown phase '${id}'.`);
 
   if (changes.agents !== undefined) await assertAgentsExist(root, changes.agents, id);
+  if (changes.worldModelViews !== undefined) assertNoRetiredViews(id, changes.worldModelViews);
   if (changes.task !== undefined) {
     if (store.governs !== 'story') throw new SingularityFlowError('--task applies only to Story phases.');
     if (!['code', 'analyze', 'none'].includes(changes.task)) {

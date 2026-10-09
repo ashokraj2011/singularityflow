@@ -36,7 +36,7 @@ import {
   authoredArtifactFingerprint, inspectArtifactContent
 } from '../src/publication-preflight.mjs';
 import { normalizeTokenEconomy } from '../src/token-economy.mjs';
-import { WORLD_MODEL_VIEW_REFERENCE } from '../src/world-model-views.mjs';
+import { retiredWorldModelReferences, WORLD_MODEL_VIEW_REFERENCE } from '../src/world-model-views.mjs';
 import { run } from '../src/util.mjs';
 
 test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agents', async () => {
@@ -330,7 +330,7 @@ test('the shipped workflow schema stays in parity with token economy and code-de
   assert.equal(template.codeDelivery.tests.minimumPassed, 1);
 });
 
-test('the retired legacy-v3 World Model is refused and an omitted format means registered-v4', async () => {
+test('a retired legacy-v3 World Model setting is dropped with a record, and an omitted format means registered-v4', async () => {
   const template = YAML.parse(await readFile(path.join(process.cwd(), 'templates/workflow.yml'), 'utf8'));
   const omitted = structuredClone(template);
   delete omitted.worldModel.format;
@@ -338,32 +338,32 @@ test('the retired legacy-v3 World Model is refused and an omitted format means r
   const absent = structuredClone(template);
   delete absent.worldModel;
   assert.equal(validateDefinition(absent).worldModel.format, 'registered-v4');
+  assert.deepEqual(retiredWorldModelReferences(absent), []);
 
+  // The World Model is guidance: none of these refuses the configuration.
   const legacyFormat = structuredClone(template);
   legacyFormat.worldModel.format = 'legacy-v3';
-  assert.throws(() => validateDefinition(legacyFormat), (error) => (
-    error.code === 'WMB_FORMAT_RETIRED' && /worldModel\.format: legacy-v3/.test(error.message)
-  ));
+  assert.equal(validateDefinition(legacyFormat).worldModel.format, 'registered-v4');
+  assert.deepEqual(retiredWorldModelReferences(legacyFormat), [{ source: 'worldModel.format', value: 'legacy-v3' }]);
   const legacyViews = structuredClone(template);
-  legacyViews.worldModel.views = ['dev.impact@4', 'architecture'];
-  assert.throws(() => validateDefinition(legacyViews), (error) => (
-    error.code === 'WMB_FORMAT_RETIRED'
-      && /worldModel\.views\[1\]=architecture/.test(error.message)
-      && error.details.invalidEntries.some((entry) => entry.view === 'architecture')
-  ));
+  legacyViews.worldModel.views = ['arch.contracts@4', 'architecture', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'];
+  assert.deepEqual(validateDefinition(legacyViews).worldModel.views, ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4']);
+  assert.deepEqual(retiredWorldModelReferences(legacyViews), [{ source: 'worldModel.views', value: 'architecture' }]);
   const legacyPhase = structuredClone(template);
   legacyPhase.phases.design.worldModel.views = ['architecture'];
-  assert.throws(() => validateDefinition(legacyPhase), (error) => (
-    error.code === 'WMB_FORMAT_RETIRED' && /phase 'design'=architecture/.test(error.message)
-  ));
+  assert.deepEqual(validateDefinition(legacyPhase).phases.design.worldModel.views, [], 'the phase runs without the World Model');
+  assert.deepEqual(retiredWorldModelReferences(legacyPhase), [{ source: "phase 'design'", value: 'architecture' }]);
   const bridge = structuredClone(template);
   bridge.worldModel.v4.legacyAssignments = 'inherit-configured';
-  assert.throws(() => validateDefinition(bridge), (error) => (
-    error.code === 'WMB_FORMAT_RETIRED' && /inherit-configured/.test(error.message)
-  ));
+  assert.equal(validateDefinition(bridge).worldModel.v4.legacyAssignments, 'strict');
+  assert.deepEqual(retiredWorldModelReferences(bridge), [{ source: 'worldModel.v4.legacyAssignments', value: 'inherit-configured' }]);
   const strict = structuredClone(template);
   strict.worldModel.v4.legacyAssignments = 'strict';
   assert.doesNotThrow(() => validateDefinition(strict), 'the retired strict value is accepted and ignored');
+  // An unknown view is still refused: only the retired vocabulary is forgiven.
+  const unknown = structuredClone(template);
+  unknown.phases.design.worldModel.views = ['ops.runbooks'];
+  assert.throws(() => validateDefinition(unknown), /installed active view contracts/);
 });
 
 test('every shipped workflow profile resolves an explicit safe code-delivery contract', async () => {

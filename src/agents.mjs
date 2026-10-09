@@ -15,7 +15,7 @@ import {
 import { repositoryGitPath } from './git-directory.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
+import { isRetiredWorldModelView, WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
 import { BUILTIN_VIEW_IDS } from './world-model/registry/views.mjs';
 import { COPILOT_AGENT_MAPPING_NAME_RULE, validCopilotAgentMappingName } from './copilot-agent-names.mjs';
 
@@ -338,7 +338,10 @@ export function validateAgentCatalog(agents, definition) {
         );
       }
     }
-    for (const view of agent.worldModelViews) if (!viewIds.has(view)) throw new SingularityFlowError(`Agent '${agent.id}' references undeclared world-model view '${view}'.`);
+    // A retired legacy-v3 view name gives the agent no World Model for it; it is never a refusal.
+    for (const view of agent.worldModelViews) {
+      if (!viewIds.has(view) && !isRetiredWorldModelView(view)) throw new SingularityFlowError(`Agent '${agent.id}' references undeclared world-model view '${view}'.`);
+    }
   }
   for (const phaseId of phaseIds) {
     const compatible = agents.filter((agent) => !agent.phases.length || agent.phases.includes(phaseId));

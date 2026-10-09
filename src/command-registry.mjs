@@ -161,7 +161,7 @@ const WM_MODEL_OPERATIONS = new Set(['build']);
 const WM_NEVER_OPERATIONS = new Set([
   'inject', 'compose', 'show-prompt', 'cleanup', 'context',
   'facts', 'check', 'cache', 'availability', 'status', 'design-inventory',
-  'read', 'read-views', 'read-contract'
+  'read', 'read-views', 'read-contract', 'migrate-views'
 ]);
 // Subcommands of the legacy-v3 World Model, removed in a hard cutover. They are refused by name
 // before any handler loads, so a script that still calls one learns what replaced it.

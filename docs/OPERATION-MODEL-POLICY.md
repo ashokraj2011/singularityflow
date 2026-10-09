@@ -758,6 +758,7 @@ Every public operation is classified before its implementation module is importe
 | wm.knowledge.status | read | never | — | — |
 | wm.manifest | read | never | — | — |
 | wm.migrate | mutation | required | — | copilot-cli |
+| wm.migrate-views | mutation | never | — | — |
 | wm.migrate.deterministic | mutation | never | — | — |
 | wm.plan | read | never | — | — |
 | wm.read | read | never | — | — |

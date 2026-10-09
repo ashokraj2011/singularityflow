@@ -32,10 +32,10 @@ import {
   validateAgentCatalog
 } from './agents.mjs';
 import {
-  isRetiredWorldModelView, markdownWorldModelViews,
+  dropRetiredWorldModelReferences, isRetiredWorldModelView, markdownWorldModelViews,
   structuredWorldModelViewReferences, WORLD_MODEL_VIEW_REFERENCE
 } from './world-model-views.mjs';
-import { retiredWorldModelFormatError, WORLD_MODEL_FORMAT } from './world-model-format.mjs';
+import { WORLD_MODEL_FORMAT } from './world-model-format.mjs';
 import { loadPortfolio, normalizeStorage } from './initiative-config.mjs';
 import { normalizeLogging } from './logging.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
@@ -1022,6 +1022,9 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError('Legacy role-prompt configuration is no longer supported. Define governed Agent Markdown under .github/agents.');
   if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
+  // The World Model is guidance: retired legacy-v3 view names are dropped (doctor names them and
+  // `wm migrate-views` rewrites them), never a reason to refuse the configuration.
+  dropRetiredWorldModelReferences(definition);
   // Integration targets first: every step's after-step actions are checked against them.
   definition.integrations = normalizeIntegrations(definition.integrations);
   for (const [phaseId, phase] of Object.entries(definition.phases)) {
@@ -1160,16 +1163,12 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   if (definition.worldModel != null) {
     const worldModel = definition.worldModel;
     worldModel.projections = normalizeWorldModelProjections(worldModel.projections);
-    // registered-v4 is the only World Model. An omitted format means it; the retired legacy-v3
-    // builder is refused with what to change, never run or converted.
-    if (worldModel.format === 'legacy-v3') throw retiredWorldModelFormatError('worldModel.format: legacy-v3');
+    // registered-v4 is the only World Model. An omitted format means it; a retired legacy-v3 format
+    // was dropped above.
     if (worldModel.format != null && worldModel.format !== WORLD_MODEL_FORMAT) {
       throw new SingularityFlowError(`worldModel.format must be '${WORLD_MODEL_FORMAT}' (or omitted).`);
     }
     worldModel.format = WORLD_MODEL_FORMAT;
-    if (worldModel.v4?.legacyAssignments === 'inherit-configured') {
-      throw retiredWorldModelFormatError('worldModel.v4.legacyAssignments: inherit-configured');
-    }
     {
       const configured = worldModel.views ?? [];
       const referenced = structuredWorldModelViewReferences(definition);
@@ -1204,12 +1203,6 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
       }
       if (invalidEntries.length) {
         const locations = invalidEntries.map(({ view, source }) => `${source}=${view}`).join('; ');
-        const retired = invalidEntries.filter(({ view }) => isRetiredWorldModelView(view));
-        if (retired.length) {
-          throw retiredWorldModelFormatError(`legacy-v3 view names in use: ${retired.map(({ view, source }) => `${source}=${view}`).join('; ')}`, {
-            invalidEntries, registeredViews: [...BUILTIN_VIEW_IDS]
-          });
-        }
         throw new SingularityFlowError(
           `The World Model accepts only installed active view contracts (${BUILTIN_VIEW_IDS.join(', ')}); `
           + `replace these entries with installed contracts: ${locations}.`,
@@ -1634,7 +1627,8 @@ export function validateWorldModelPromptReferences(definition, references) {
   const declared = definition.worldModel?.views ?? BUILTIN_VIEW_IDS;
   const configured = new Set(declared.map(normalizeView));
   for (const [view, files] of references) {
-    if (isRetiredWorldModelView(view)) throw retiredWorldModelFormatError(`legacy-v3 view '${view}' referenced by ${files.join(', ')}`);
+    // A prompt that still names a retired legacy-v3 view simply gets no World Model for it.
+    if (isRetiredWorldModelView(view)) continue;
     let id;
     try { id = normalizeView(view); } catch { id = view; }
     if (!configured.has(id)) throw new SingularityFlowError(`World-model view '${view}' is referenced by ${files.join(', ')} but is not declared in worldModel.views.`);
@@ -1914,10 +1908,9 @@ export async function ensureRepositoryWorldModelViews(root, requiredViews = []) 
   // A declared worldModel.views must cover every view the repository phase and agent contracts reference,
   // reference (validateDefinition enforces this), plus the views the initiative portfolio needs.
   const referenced = [...structuredWorldModelViewReferences(definition)].map(([view]) => view);
-  const wanted = [...new Set([...requiredViews.map(String), ...referenced].filter(Boolean))];
+  // Retired legacy-v3 names are dropped, not declared (`wm migrate-views` rewrites them).
+  const wanted = [...new Set([...requiredViews.map(String), ...referenced].filter(Boolean))].filter((view) => !isRetiredWorldModelView(view));
   if (!wanted.length) return null;
-  const retired = wanted.filter(isRetiredWorldModelView);
-  if (retired.length) throw retiredWorldModelFormatError(`legacy-v3 view names requested: ${retired.join(', ')}`);
   const declaredNode = doc.getIn(['worldModel', 'views']);
   const declared = declaredNode?.toJSON?.() ?? declaredNode ?? [];
   // Omitted views means every installed active contract. Treat that as an effective catalog
@@ -1926,7 +1919,8 @@ export async function ensureRepositoryWorldModelViews(root, requiredViews = []) 
     ? BUILTIN_VIEW_IDS.map((view) => normalizeBuiltInViewReference(view).reference)
     : Array.isArray(declared) ? declared.map(String) : [];
   const identity = (view) => normalizeBuiltInViewReference(view);
-  const declaredById = new Map(declaredValues.map((view) => {
+  // A retired name stays in the file (loading drops it); it never stands for a registered view.
+  const declaredById = new Map(declaredValues.filter((view) => !isRetiredWorldModelView(view)).map((view) => {
     const normalized = identity(view);
     return [normalized.viewId, view];
   }));
@@ -2084,7 +2078,6 @@ async function assertSeedAgentViewCompatibility(root) {
   const workflow = await secureRepositoryPath(root, WORKFLOW_PATH, { label: 'Initialization workflow' });
   if (!workflow.exists) return;
   const definition = YAML.parse(await readFile(workflow.absolute, 'utf8'));
-  if (definition?.worldModel?.format === 'legacy-v3') throw retiredWorldModelFormatError('worldModel.format: legacy-v3');
   const catalog = definition?.worldModel?.views ?? BUILTIN_VIEW_IDS;
   const enabled = new Set(Array.isArray(catalog) ? catalog.flatMap(view => {
     try { return [normalizeBuiltInViewReference(view).viewId]; } catch { return []; }

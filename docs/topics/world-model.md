@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 36
+version: 37
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -75,9 +75,13 @@ a stored view through a freshly reviewed Plan when its installed-build identity 
 
 **Legacy-v3 removed.** A configuration that sets `format: legacy-v3`, names a legacy view
 (`business`, `architecture`, `development`, `testing`, `release`, `operations`, `security`), or
-sets `worldModel.v4.legacyAssignments: inherit-configured` is refused at load with
-`WMB_FORMAT_RETIRED`. Set `format: registered-v4` or remove it, replace the view names with
-registered IDs from `wm views`, and publish the configuration before building. An old
+sets `worldModel.v4.legacyAssignments: inherit-configured` still loads: the World Model is guidance,
+so those entries are dropped, a phase or agent assigned only legacy views runs without World Model
+context, and `sflow doctor` names each one. `sflow wm migrate-views --dry-run` previews the rewrite
+to registered views across `workflow.yml`, `portfolio.yml` and Agent Markdown (`business` →
+`biz.rules`, `architecture`/`security` → `arch.contracts`, `development`/`testing` → `dev.impact`;
+`release` and `operations` are removed), keeping each file's formatting; apply it with the printed
+`--confirm` phrase, then publish the configuration (`sflow config publish`) before building. An old
 legacy-v3 projection at the output path is not read; a registered `sflow wm build` replaces it. A
 Story started under legacy-v3 keeps its records, but its phases compose with zero World Model bytes
 (grounding unavailable, reason `WMB_FORMAT_RETIRED`), `wm` commands refuse for it, and its old
@@ -284,7 +288,7 @@ toolchain matrix for the selected repository.
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`. Registered v4 recovery replays only the retained validated projection; do not rebuild or copy its files manually.
-- If a command refuses with `WMB_FORMAT_RETIRED`, the configuration or the Story pin still names legacy-v3. Replace the legacy view names with IDs from `wm views`; for a legacy-v3 Story, start a new Story.
+- If a command refuses with `WMB_FORMAT_RETIRED`, it is a removed legacy-v3 command or option, a new phase named a legacy view, or the Story pin is legacy-v3 (start a new Story). If `doctor` warns about ignored legacy views, run `sflow wm migrate-views --dry-run`.
 - If a build refuses uncommitted source, preserve the edits. Commit or stash the in-scope changes through the normal Story workflow before retrying; the shared state model cannot be built from private working-tree bytes.
 - If status says **source comparison unavailable**, preserve the source edits. Commit them through the normal workflow or explicitly capture a Candidate Snapshot when policy permits, then rerun the read or reviewed build. Do not treat `current: null` as the published digest and do not create a receipt from it.
 - If all files remain in scope, save non-empty `sourceRoots`/`sharedRoots` in Configuration Center or the capability map; an empty list deliberately means the whole application tree.

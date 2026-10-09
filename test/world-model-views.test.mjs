@@ -93,15 +93,12 @@ test('registered-v4 omission expands to every installed active exact contract', 
   ]);
 });
 
-test('registered-v4 validation refuses retired legacy names and unknown assignments', async () => {
+test('registered-v4 validation drops retired legacy names and refuses unknown assignments', async () => {
   const workflow = await definition();
   workflow.worldModel.format = 'registered-v4';
   workflow.phases.implementation.worldModel.views = ['development', 'dev.impact'];
-  assert.throws(
-    () => validateDefinition(workflow),
-    (error) => error.code === 'WMB_FORMAT_RETIRED'
-      && /phase 'implementation'=development/.test(error.message)
-  );
+  // A retired name is guidance that no longer exists: dropped, never aliased, never a refusal.
+  assert.deepEqual(validateDefinition(workflow).phases.implementation.worldModel.views, ['dev.impact']);
 
   const unknown = await definition();
   unknown.worldModel.format = 'registered-v4';

@@ -10,7 +10,6 @@ import { secureRepositoryPath, SingularityFlowError, posix, snapshot } from './u
 import { normalizeContextPolicy } from './context-policy.mjs';
 import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/registry/views.mjs';
 import { isRetiredWorldModelView, worldModelAssignmentViews, worldModelViewIdentity } from './world-model-views.mjs';
-import { retiredWorldModelFormatError } from './world-model-format.mjs';
 import { assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
 
 export { usesEpicPlanningLifecycle };
@@ -419,7 +418,8 @@ function normalizePhase(phase, id) {
     id,
     label: phase.label ?? id.replaceAll('-', ' '),
     lanes: [...(phase.lanes ?? [])],
-    worldModelViews: [...(phase.worldModelViews ?? [])],
+    // A retired legacy-v3 view name is dropped (`wm migrate-views` rewrites it), never refused.
+    worldModelViews: [...(phase.worldModelViews ?? [])].filter((view) => !isRetiredWorldModelView(view)),
     agents,
     outputs,
     checklist,
@@ -602,6 +602,7 @@ export function validatePortfolio(value) {
       const label = `Initiative profile '${id}' phaseOverrides '${phaseId}'`;
       object(override, label);
       if (!position.has(phaseId)) throw new SingularityFlowError(`${label} references inactive phase '${phaseId}'.`);
+      if (Array.isArray(override.worldModelViews)) override.worldModelViews = override.worldModelViews.filter((view) => !isRetiredWorldModelView(view));
       if (override.bundleApproval != null) {
         override.bundleApproval = normalizedApproval(override.bundleApproval, `${label} bundle approval`);
         for (const authority of override.bundleApproval.authorities) {
@@ -693,15 +694,14 @@ export function validatePortfolioWorldModelViews(portfolio, workflowDefinition) 
       });
     }
   }
-  const retired = [];
   for (const assignment of assignments) {
     for (const view of worldModelAssignmentViews(assignment.views)) {
-      if (isRetiredWorldModelView(view)) { retired.push(`${assignment.key}:${view}`); continue; }
+      // An Initiative resolved before the legacy-v3 views were retired may still name one: no World Model for it.
+      if (isRetiredWorldModelView(view)) continue;
       const id = worldModelViewIdentity(workflowDefinition, view)?.id;
       if (!id || !declared.has(id)) unknown.push(`${assignment.key}:${view}`);
     }
   }
-  if (retired.length) throw retiredWorldModelFormatError(`Initiative phases use legacy-v3 view names: ${retired.join(', ')}`, { assignments: retired });
   if (unknown.length) throw new SingularityFlowError(
     `Initiative phases reference undeclared repository world-model views: ${unknown.join(', ')}.`,
     { code: 'WMB_VIEW_UNKNOWN', details: { assignments: unknown } }
@@ -744,7 +744,7 @@ function resolveProfilePhase(portfolio, profileId, profile, phaseId, order, work
     ...override,
     id: phaseId,
     label: override.label ?? phase.label,
-    worldModelViews: override.worldModelViews ?? phase.worldModelViews,
+    worldModelViews: (override.worldModelViews ?? phase.worldModelViews ?? []).filter((view) => !isRetiredWorldModelView(view)),
     agents: override.agents ?? phase.agents,
     bundleApproval: override.bundleApproval ?? phase.bundleApproval,
     outputs,

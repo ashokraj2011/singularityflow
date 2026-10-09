@@ -240,11 +240,10 @@ test('initiative world-model views must be declared by the repository workflow',
   const registered = {
     worldModel: { format: 'registered-v4', views: ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'] }
   };
-  // legacy-v3 view names are refused by name, never translated into registered views.
-  assert.throws(() => validatePortfolioWorldModelViews({
+  // legacy-v3 view names are dropped (the World Model is guidance), never translated or refused.
+  assert.doesNotThrow(() => validatePortfolioWorldModelViews({
     initiativePhases: { define: { worldModelViews: ['business', 'architecture'] } }
-  }, registered), (error) => error?.code === 'WMB_FORMAT_RETIRED'
-    && /define:business, define:architecture/.test(error.message));
+  }, registered));
   assert.throws(() => validatePortfolioWorldModelViews({
     initiativePhases: { define: { worldModelViews: ['unknown-view'] } }
   }, registered), error => error.code === 'WMB_VIEW_UNKNOWN' && /define:unknown-view/.test(error.message));
@@ -258,10 +257,8 @@ test('initiative world-model views must be declared by the repository workflow',
 
   const retiredOverride = structuredClone(packaged);
   retiredOverride.initiativeProfiles['initiative-lite'].phaseOverrides.define = { worldModelViews: ['business'] };
-  assert.throws(
-    () => resolveInitiativeProfile(retiredOverride, 'initiative-lite', { workflowDefinition: registered }),
-    (error) => error?.code === 'WMB_FORMAT_RETIRED'
-  );
+  const withoutRetired = resolveInitiativeProfile(retiredOverride, 'initiative-lite', { workflowDefinition: registered });
+  assert.deepEqual(withoutRetired.phases.find((phase) => phase.id === 'define').worldModelViews, []);
   const unknownOverride = structuredClone(packaged);
   unknownOverride.initiativeProfiles['initiative-lite'].phaseOverrides.define = {
     worldModelViews: ['dev.imapct']

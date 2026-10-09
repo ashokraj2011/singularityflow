@@ -7,8 +7,8 @@ export const WORLD_MODEL_VIEW_REFERENCE = /^[a-z0-9]+(?:[.-][a-z0-9]+)*(?:@[1-9]
 
 /**
  * The view names of the retired legacy-v3 World Model. They are not aliases for registered
- * contracts; they are kept only so a repository or Story that still names one is refused with a
- * precise message instead of a generic "unknown view".
+ * contracts: a configuration that still names one keeps working without those views and is told
+ * how to migrate (`singularity-flow wm migrate-views`).
  */
 export const LEGACY_WORLD_MODEL_VIEW_IDS = Object.freeze([
   'business', 'architecture', 'development', 'testing', 'release', 'operations', 'security'
@@ -18,6 +18,98 @@ const LEGACY_WORLD_MODEL_VIEW_ID_SET = new Set(LEGACY_WORLD_MODEL_VIEW_IDS);
 /** Whether a view name belongs to the retired legacy-v3 vocabulary. */
 export function isRetiredWorldModelView(view) {
   return LEGACY_WORLD_MODEL_VIEW_ID_SET.has(String(view ?? '').trim());
+}
+
+/**
+ * The registered view that `wm migrate-views` writes in place of each retired name, as the packaged
+ * configuration was migrated: release and operations have no successor and are removed.
+ */
+export const LEGACY_WORLD_MODEL_VIEW_SUCCESSORS = Object.freeze({
+  business: 'biz.rules', architecture: 'arch.contracts', security: 'arch.contracts',
+  development: 'dev.impact', testing: 'dev.impact', release: null, operations: null
+});
+
+const RETIRED_REFERENCES = new WeakMap();
+const INJECTED_VIEW = /^views\/([a-z0-9]+(?:[.-][a-z0-9]+)*)\.md$/;
+
+/**
+ * Drop retired legacy-v3 view names (and the retired format and assignment settings) from a
+ * workflow definition, in place, and return what was dropped as `{ source, value }`.
+ *
+ * The World Model is guidance, never authority: a repository that still names the retired views
+ * keeps every command working. A phase or agent assigned only retired views gets no World Model,
+ * and `doctor` names each dropped entry with the migration command.
+ */
+export function dropRetiredWorldModelReferences(definition) {
+  if (!definition || typeof definition !== 'object') return [];
+  const dropped = [];
+  const keep = (views, source) => {
+    if (!Array.isArray(views)) return views;
+    return views.filter((view) => {
+      if (!isRetiredWorldModelView(view)) return true;
+      dropped.push(Object.freeze({ source, value: String(view).trim() }));
+      return false;
+    });
+  };
+  const worldModel = definition.worldModel;
+  if (worldModel && typeof worldModel === 'object' && !Array.isArray(worldModel)) {
+    if (worldModel.format === 'legacy-v3') {
+      dropped.push(Object.freeze({ source: 'worldModel.format', value: 'legacy-v3' }));
+      delete worldModel.format;
+    }
+    if (worldModel.v4 && typeof worldModel.v4 === 'object' && worldModel.v4.legacyAssignments === 'inherit-configured') {
+      dropped.push(Object.freeze({ source: 'worldModel.v4.legacyAssignments', value: 'inherit-configured' }));
+      worldModel.v4.legacyAssignments = 'strict';
+    }
+    if (Array.isArray(worldModel.views)) {
+      const kept = keep(worldModel.views, 'worldModel.views');
+      // Every listed view was retired: the repository has the registered views' defaults.
+      if (kept.length) worldModel.views = kept;
+      else delete worldModel.views;
+    }
+    if (Array.isArray(worldModel.injection?.rules)) {
+      worldModel.injection.rules = worldModel.injection.rules.filter((rule, index) => {
+        if (!Array.isArray(rule?.include)) return true;
+        const include = rule.include.filter((entry) => {
+          const view = String(entry).match(INJECTED_VIEW)?.[1]?.replace(/\.(?:brief|full)$/, '');
+          if (!view || !isRetiredWorldModelView(view)) return true;
+          dropped.push(Object.freeze({ source: `world-model injection rule ${index + 1}`, value: String(entry) }));
+          return false;
+        });
+        if (include.length === rule.include.length) return true;
+        rule.include = include;
+        return include.length > 0;
+      });
+    }
+  }
+  for (const [phaseId, phase] of Object.entries(definition.phases ?? {})) {
+    if (Array.isArray(phase?.worldModel?.views)) phase.worldModel.views = keep(phase.worldModel.views, `phase '${phaseId}'`);
+  }
+  for (const [workTypeId, workType] of Object.entries(definition.workTypes ?? {})) {
+    for (const [phaseId, override] of Object.entries(workType?.phaseOverrides ?? {})) {
+      if (Array.isArray(override?.worldModel?.views)) {
+        override.worldModel.views = keep(override.worldModel.views, `workflow '${workTypeId}' phase '${phaseId}' override`);
+      }
+    }
+  }
+  // Agents are shared, possibly frozen, catalog entries: a changed agent is replaced by a copy.
+  const agentCopies = new Map();
+  for (const [agentId, agent] of Object.entries(definition.agents ?? {})) {
+    if (!Array.isArray(agent?.worldModelViews) || !agent.worldModelViews.some(isRetiredWorldModelView)) continue;
+    const copy = { ...agent, worldModelViews: keep(agent.worldModelViews, `agent '${agentId}' prompt`) };
+    agentCopies.set(agent, copy);
+    definition.agents[agentId] = copy;
+  }
+  if (agentCopies.size && Array.isArray(definition.agentCatalog)) {
+    definition.agentCatalog = definition.agentCatalog.map((agent) => agentCopies.get(agent) ?? agent);
+  }
+  if (dropped.length) RETIRED_REFERENCES.set(definition, [...(RETIRED_REFERENCES.get(definition) ?? []), ...dropped]);
+  return dropped;
+}
+
+/** What `dropRetiredWorldModelReferences` dropped from this exact definition, for diagnostics. */
+export function retiredWorldModelReferences(definition) {
+  return definition && typeof definition === 'object' ? [...(RETIRED_REFERENCES.get(definition) ?? [])] : [];
 }
 
 /** A phase or agent assignment, trimmed; every entry must be a registered view ID. */

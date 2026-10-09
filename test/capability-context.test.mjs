@@ -441,11 +441,13 @@ test('a Story worktree does not pin its own repository as sibling capability con
   ), false);
 });
 
-test('a sibling repository still configured for legacy-v3 is refused by name', async () => {
+test('a sibling repository still configured for legacy-v3 is read as registered-v4, not refused', async () => {
+  // The World Model is guidance: the retired format is not a reason to refuse. The read goes on to
+  // the sibling's registered-v4 state (here: a folder without a workflow).
   await assert.rejects(
     resolveCapabilityWorldModelCandidate(os.tmpdir(), {
       worldModel: { format: 'legacy-v3', outputDir: 'singularity/world-model' }
     }, { views: ['dev.impact'] }),
-    (error) => error.code === 'WMB_FORMAT_RETIRED' && /capability repository/.test(error.message)
+    (error) => error.code !== 'WMB_FORMAT_RETIRED'
   );
 });

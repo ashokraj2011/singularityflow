@@ -2276,11 +2276,13 @@ singularity-flow wm compose --phase design --task "Design invoice export"
 singularity-flow wm show-prompt
 ```
 
-The legacy-v3 World Model was removed: `format: legacy-v3`, legacy view names (`business`,
-`architecture`, `development`, `testing`, `release`, `operations`, `security`), and
-`worldModel.v4.legacyAssignments: inherit-configured` are refused at load with `WMB_FORMAT_RETIRED`;
-use registered views such as `arch.contracts`, `biz.rules`, `dev.hotspots`, and `dev.impact`
-instead, and `wm knowledge show business` for the product owner's reading of the code.
+The legacy-v3 World Model was removed. A configuration that still names it (`format: legacy-v3`,
+legacy view names such as `business` or `development`, or
+`worldModel.v4.legacyAssignments: inherit-configured`) still loads: those entries are dropped, so
+their phases run without World Model context, and `doctor` lists them. `wm migrate-views --dry-run`
+previews their rewrite to registered views such as `arch.contracts`, `biz.rules`, `dev.hotspots`, and
+`dev.impact`; `--confirm` applies it. Use `wm knowledge show business` for the product owner's
+reading of the code.
 
 `wm history list/show` are read-only WMP foundation commands over exact history already present at
 an explicitly selected authority commit. They never fetch, build, invoke a model/AST, fill a cache,
@@ -3723,6 +3725,7 @@ singularity-flow wm context|check [--branch BRANCH] [--remote REMOTE]
 singularity-flow wm inject
 singularity-flow wm cleanup [--force] [--json]
 singularity-flow wm cache status|clear [--json]
+singularity-flow wm migrate-views [--dry-run|--confirm PHRASE] [--json]
 singularity-flow architecture show [--json]
 singularity-flow architecture explain <ELEMENT-ID> [--json]
 singularity-flow architecture sources <ELEMENT-ID> [--json]

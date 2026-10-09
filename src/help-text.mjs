@@ -726,6 +726,7 @@ Usage:
   singularity-flow wm check [--branch BRANCH] [--remote REMOTE]
   singularity-flow wm cleanup [--force] [--json]
   singularity-flow wm cache status|clear [--json]
+  singularity-flow wm migrate-views [--dry-run|--confirm PHRASE] [--json]   Rewrite retired legacy-v3 view names to registered views
   singularity-flow wm ast doctor|status [--json]
   singularity-flow wm ast build [--paths PATH]... [--all] [--max-files N] [--max-bytes N] [--max-facts N] [--max-output-bytes N] [--resume HANDLE] [--json]
   singularity-flow wm ast context [--paths PATH]... [--all] [--max-files N] [--max-bytes N] [--max-facts N] [--max-output-bytes N] [--cursor CURSOR] [--json]

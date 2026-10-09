@@ -94,6 +94,7 @@ import { tokenReductionShadowFailure } from './token-reduction/shadow-record.mjs
 // this module do not carry the analysis engine.
 const KNOWLEDGE_COMMAND_MODULE = './knowledge/command.mjs';
 const KNOWLEDGE_PROMPT_MODULE = './knowledge/prompt.mjs';
+const VIEW_MIGRATION_MODULE = './world-model-view-migration.mjs';
 
 let tokenReductionShadowRuntimePromise = null;
 
@@ -2461,6 +2462,10 @@ export async function worldModelCommand(root, positionals, options) {
     );
   }
   if (command === 'ast') return astCommand(root, positionals.slice(2), options);
+  if (command === 'migrate-views') {
+    const { worldModelViewMigrationCommand } = await import(VIEW_MIGRATION_MODULE);
+    return worldModelViewMigrationCommand(root, options);
+  }
   if (command === 'knowledge') {
     // Loaded on use, through a non-literal specifier, so editor bundles that import this module do not carry the analysis engine.
     const { knowledgeCommand } = await import(KNOWLEDGE_COMMAND_MODULE);

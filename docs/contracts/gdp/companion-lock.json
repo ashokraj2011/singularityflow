@@ -4,10 +4,9 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "376692f2a634a44cd1cabba79c9bd740347ac330",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-09-WORLD-MODEL-GUIDANCE.md",
+    "reviewedAtCommit": "b931b39689a80a23251410b62dbdaa44b2eb1f9a",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-09-RETIRED-VIEWS-GUIDANCE.md",
     "companionIds": [
-      "workflow-configuration",
       "world-model-v4"
     ]
   },
@@ -35,7 +34,7 @@
     {
       "id": "world-model-v4",
       "path": "docs/WORLD-MODEL-BUILDER-V4.md",
-      "sha256": "sha256:8a39ff76e3fa891a3c0a689f6669b3093e4fdb474c63126da4660c2137126a2c"
+      "sha256": "sha256:c3b16850f3ca8db49f0380f781defb99e4e2a444b7468d3b1dc90044b5a24088"
     },
     {
       "id": "witnessed-engineering-loop",

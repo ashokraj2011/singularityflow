@@ -48,7 +48,7 @@ const portfolio = async (root) =>
 test('a profile can be created from phases that exist', async () => {
   const root = await repository();
   await addPhase(root, 'market-validation', {
-    label: 'Market validation', worldModelViews: ['business'], approvalAuthorities: ['product-approvers']
+    label: 'Market validation', worldModelViews: ['biz.rules'], approvalAuthorities: ['product-approvers']
   });
   const created = await defineWorkflow(root, 'discovery-first', {
     label: 'Discovery first', phases: ['market-validation', 'define', 'build']
@@ -57,7 +57,7 @@ test('a profile can be created from phases that exist', async () => {
 
   const after = await portfolio(root);
   assert.equal(after.initiativeProfiles['discovery-first'].label, 'Discovery first');
-  assert.deepEqual(after.initiativePhases['market-validation'].worldModelViews, ['business']);
+  assert.deepEqual(after.initiativePhases['market-validation'].worldModelViews, ['biz.rules']);
   // The approval is written in the shape the engine reads, not a shape of its own.
   assert.equal(after.initiativePhases['market-validation'].bundleApproval.mode, 'bundle');
 
@@ -107,10 +107,13 @@ test('editing a phase says which profiles it reaches', async () => {
   // Changing a phase changes every lifecycle that runs it, and that consequence should not have to
   // be worked out from the file.
   const root = await repository();
-  const edited = await editPhase(root, 'define', { worldModelViews: ['business', 'architecture'] });
+  const edited = await editPhase(root, 'define', { worldModelViews: ['biz.rules', 'arch.contracts'] });
   assert.deepEqual(edited.usedBy, ['lite']);
   assert.deepEqual((await portfolio(root)).initiativePhases.define.worldModelViews,
-    ['business', 'architecture']);
+    ['biz.rules', 'arch.contracts']);
+  // A retired legacy-v3 name is never written; the refusal names its registered successor.
+  await assert.rejects(editPhase(root, 'define', { worldModelViews: ['business'] }),
+    (error) => error.code === 'WMB_FORMAT_RETIRED' && /business \(use biz\.rules\)/.test(error.message));
 });
 
 test('the commentary in the portfolio survives every edit', async () => {

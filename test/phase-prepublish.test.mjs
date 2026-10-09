@@ -85,6 +85,21 @@ test('prepublish routes authored findings to same-phase correction, then enables
   assert.notEqual(ready.draftFingerprint, red.draftFingerprint);
 });
 
+test('model-free publication preserves governed draft provenance instead of selecting a human fallback', async (t) => {
+  const item = await fixture(t);
+  item.phase.generationPolicy.allowedProducers.push('human');
+  await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');
+  const ready = await phasePrepublish(item.root, item.config, item.workflow, item.phase, {
+    session: item.session, modelEnabled: false, requestedProducer: 'governed-agent'
+  });
+  assert.equal(ready.status, 'ready');
+  assert.equal(ready.producer, 'governed-agent');
+  assert.match(ready.commands.publish, /--authored governed-agent --channel copilot-host/);
+  assert.equal(ready.commandGuidance.publish.modelFreeCommand, '@sflow /publish planning');
+  assert.equal(ready.modelInvocations, 0);
+  assert.equal(ready.mutates, false);
+});
+
 test('prepublish never presents a publish command for a non-current or non-in-progress phase', async (t) => {
   const item = await fixture(t);
   await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');

@@ -13,7 +13,8 @@ export function phaseContinuation(workflow, { reviewedPhaseId = null, primary = 
   const nextAction = actions.find(entry => ['now', 'blocked'].includes(entry.timing)) ?? null;
   return { workId: workflow.workItem.id, phase: workflow.currentPhase ?? null, reviewedPhaseId,
     automaticAdvance: false, actions, nextAction, nextCommand: nextAction?.command ?? null,
-    nextSkill: nextAction?.skill ?? null, copilotCommand: nextAction?.copilotCommand ?? null };
+    nextSkill: nextAction?.skill ?? null, copilotCommand: nextAction?.copilotCommand ?? null,
+    modelFreeCommand: nextAction ? safeCommandGuidance(nextAction)?.modelFreeCommand ?? null : null };
 }
 
 /** Render just the immediate, verified action. The structured projection retains later choices. */
@@ -23,5 +24,6 @@ export function phaseContinuationLines(continuation) {
   const guidance = safeCommandGuidance(first);
   if (!guidance) return ['Next action: inspect the returned diagnostics; no safe command pair was verified.'];
   return ['Next action:', first.reason ?? 'Follow the current lifecycle; this inspection is not approval.',
-    `Shell: ${guidance.command}`, `Copilot: ${guidance.copilotCommand}`];
+    `Shell: ${guidance.command}`, `Copilot: ${guidance.copilotCommand}`,
+    ...(guidance.modelFreeCommand ? [`VS Code (model-free): ${guidance.modelFreeCommand}`] : [])];
 }

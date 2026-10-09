@@ -200,6 +200,10 @@ declare module '*/gateway/conversation.mjs' {
   };
 }
 
+declare module '*/model-free-commands.mjs' {
+  export function parseModelFreeTarget(text?: string): { phase: string | null; workId: string | null };
+}
+
 declare module '*/copilot-guidance.mjs' {
   export function directCopilotSkillId(skill: unknown): string | null;
   export function copilotSkillForCommand(command: unknown, fallback?: string): string;

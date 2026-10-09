@@ -99,12 +99,26 @@ export function previewAction(item = {}) {
   });
 }
 
-function normalizeAction(item, index, revision) {
+function normalizeAction(item, index, revision, decisionValues = {}, usedDecisions = new Set()) {
   const tokens = tokenize(item.command);
   if (tokens[0] !== 'singularity-flow') {
     throw new SingularityFlowError(`Governed actions must invoke singularity-flow directly: ${item.command}`);
   }
   const argv = tokens.slice(1);
+  let parameterized = false;
+  if (argv[0] === 'submit' && item.timing === 'now') {
+    for (let i = 0; i < argv.length - 1; i += 1) {
+      if (argv[i] !== '--decision') continue;
+      const match = /^([A-Za-z][A-Za-z0-9._-]*)=<[^>]*>$/u.exec(argv[i + 1]);
+      if (!match || !Object.hasOwn(decisionValues, match[1])) continue;
+      argv[i + 1] = `${match[1]}=${decisionValues[match[1]]}`;
+      usedDecisions.add(match[1]);
+      parameterized = true;
+    }
+  }
+  const quote = (value) => /^[A-Za-z0-9_./:@%+=,<>|-]+$/u.test(value) ? value
+    : `'${value.replaceAll("'", `'"'"'`)}'`;
+  const command = parameterized ? ['singularity-flow', ...argv].map(quote).join(' ') : item.command;
   const executable = item.timing === 'now' && !argv.some((value) => /<[^>]+>/.test(value));
   const effect = effectFor(argv);
   const references = (item.references ?? []).map((reference) => {
@@ -124,7 +138,7 @@ function normalizeAction(item, index, revision) {
     type: argv.slice(0, 2).join(':'),
     arguments: argv.slice(1),
     skill: item.skill ?? null,
-    command: item.command,
+    command,
     argv,
     reason: item.reason,
     executable,
@@ -145,7 +159,7 @@ function normalizeAction(item, index, revision) {
     confirmation: effect.mutatesState
       ? { required: true, mode: 'one-time-authorization' }
       : { required: false, mode: 'none' },
-    idempotencyKey: recordSha256({ revision, actionId, command: item.command })
+    idempotencyKey: recordSha256({ revision, actionId, command })
   };
 }
 
@@ -163,14 +177,27 @@ export function repositoryActionRevision(root, lifecycleSnapshot) {
 
 export async function createActionPlan(root, lifecycleSnapshot, {
   ttlMs = DEFAULT_TTL_MS,
-  subject: explicitSubject = null
+  subject: explicitSubject = null,
+  decisionValues = {},
+  additionalActions = []
 } = {}) {
+  if (!decisionValues || typeof decisionValues !== 'object' || Array.isArray(decisionValues)
+      || Object.entries(decisionValues).some(([name, value]) => !/^[A-Za-z][A-Za-z0-9._-]*$/u.test(name)
+        || typeof value !== 'string' || !value || value.length > 128 || /[\u0000-\u001f\u007f]/u.test(value))) {
+    throw new SingularityFlowError('Action-plan decision values must be bounded literal name=value pairs.');
+  }
   const createdAt = nowIso();
   const expiresAt = new Date(Date.parse(createdAt) + ttlMs).toISOString();
   const revision = repositoryActionRevision(root, lifecycleSnapshot);
   const subject = explicitSubject ?? lifecycleSnapshot.subject ?? (lifecycleSnapshot.workId
     ? { kind: 'story', id: lifecycleSnapshot.workId }
     : { kind: 'repository', id: null });
+  const usedDecisions = new Set();
+  const actions = [...(lifecycleSnapshot.actions ?? []), ...additionalActions]
+    .map((item, index) => normalizeAction(item, index, revision, decisionValues, usedDecisions));
+  if (Object.keys(decisionValues).some((name) => !usedDecisions.has(name))) {
+    throw new SingularityFlowError('Action-plan decision values must match the current submission placeholders.');
+  }
   const core = {
     schemaVersion: PLAN_SCHEMA_VERSION,
     kind: 'governed-action-plan',
@@ -184,7 +211,7 @@ export async function createActionPlan(root, lifecycleSnapshot, {
     },
     createdAt,
     expiresAt,
-    actions: (lifecycleSnapshot.actions ?? []).map((item, index) => normalizeAction(item, index, revision))
+    actions
   };
   const planHash = recordSha256(core);
   const plan = { ...core, planId: planHash.slice(0, 24), planHash };

@@ -258,6 +258,7 @@ Usage:
   singularity-flow guide --first-run [--keep] [--json]
   singularity-flow nextsteps [WORK-ID] [--json]
   singularity-flow action plan [STORY-OR-INITIATIVE] [--ttl-ms N] [--json]
+    [--operation publish|lifecycle] [--decision NAME=VALUE]...
   singularity-flow action authorize <PLAN-ID> --action ACTION-ID --confirm ACTION-ID [--channel terminal|vscode] [--json]
   singularity-flow action execute <PLAN-ID> [--action ACTION-ID] [--authorization TOKEN] [--json]
   singularity-flow next [--task TEXT] [--fetch] [--yes] [--skip-checks]

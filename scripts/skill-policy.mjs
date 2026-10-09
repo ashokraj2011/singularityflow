@@ -5,7 +5,7 @@ import { operationCatalog } from '../src/command-registry.mjs';
 import { AUTHORING_SKILL_DECLARATION, parseAuthoringSkills } from '../src/authoring-skills.mjs';
 import { copilotPauseGuardForSkill, COPILOT_PAUSE_MARKER, PHASE_ENTRY_SKILLS } from '../src/copilot-mode.mjs';
 
-export const COMMAND_PRESENTATION_CONTRACT = 'For suggested actions, pair Shell with the returned Copilot command; honor `commandGuidance`. If absent, say "Copilot: no verified equivalent"; never invent a slash command.';
+export const COMMAND_PRESENTATION_CONTRACT = 'Honor returned `commandGuidance`: show Shell, Copilot and available `modelFreeCommand` as "VS Code (model-free)". Missing Copilot: "Copilot: no verified equivalent". Never invent routes.';
 
 const CONTRACT_TEXT = Object.freeze({
   'guided-actions': 'Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.',

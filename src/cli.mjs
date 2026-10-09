@@ -368,6 +368,7 @@ function printCommandRoutes(command, { skill = null, indent = '', label = null }
   }
   console.log(`${indent}Shell: ${guidance.command}`);
   console.log(`${indent}Copilot: ${guidance.copilotCommand}`);
+  if (guidance.modelFreeCommand) console.log(`${indent}VS Code (model-free): ${guidance.modelFreeCommand}`);
 }
 
 /**
@@ -4412,11 +4413,19 @@ async function actionCommand(positionals, options) {
   if (subcommand === 'plan') {
     const reference = positionals[2] ?? optionString(options, 'work-id');
     const snapshot = await resolveNextStepsSnapshot(['nextsteps', reference].filter(Boolean), {});
+    const operation = optionString(options, 'operation');
+    if (operation && !['publish', 'lifecycle'].includes(operation)) throw new SingularityFlowError('Action-plan --operation supports only publish or lifecycle.');
+    const publication = operation
+      ? await (await import('./action-publication.mjs')).inspectPublicationAction(root, snapshot, {
+        modelEnabled: operationContext()?.modelMode.enabled !== false }) : null;
     const plan = await createActionPlan(root, snapshot, {
       ttlMs: optionNumber(options, 'ttl-ms', 15 * 60 * 1000),
-      subject: snapshot.subject ?? null
+      subject: snapshot.subject ?? null,
+      decisionValues: parseDecisionAssignments(optionStrings(options, 'decision')),
+      additionalActions: publication?.actions ?? []
     });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ ...plan,
+      ...(publication ? { publicationReadiness: publication.readiness } : {}) }, null, 2));
     console.log(`Governed action plan: ${plan.planId}`);
     console.log(`Bound to: ${plan.revision.branch}@${plan.revision.head.slice(0, 12)} · expires ${plan.expiresAt}`);
     console.log(table(plan.actions.map((action) => ({

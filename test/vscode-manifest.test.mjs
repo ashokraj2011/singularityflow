@@ -113,7 +113,8 @@ test('the participant command table is safe, unique, and has an installed skill 
   assert.match(participantSource, /result\.records\s*\?\?/,
     'the input preview consumes the CLI records contract');
   const approve = participantCommands.find((entry) => entry.id === 'approve');
-  assert.deepEqual(approve.runtime, ['phase', 'show', '$PHASE', '--json']);
+  assert.equal(approve.transport, 'local');
+  assert.equal(approve.runtime, null);
   assert.equal(approve.confirmation, 'separate-guarded-flow');
   const approvalRenderer = participantSource.slice(participantSource.indexOf('function renderApprovalReview('),
     participantSource.indexOf('function renderInputs('));
@@ -123,6 +124,12 @@ test('the participant command table is safe, unique, and has an installed skill 
   assert.match(approvalRenderer, /copilot: guidance\?\.copilotCommand/);
   assert.doesNotMatch(approvalRenderer, /client\.run|runText|executeCommand/,
     'rendering the pinned approval handoff never performs the decision');
+  const lifecycleSource = await readFile(path.join(extensionRoot, 'src', 'lifecycle-chat.ts'), 'utf8');
+  assert.match(lifecycleSource, /approveWithReceipt\(active\.client/);
+  assert.match(lifecycleSource, /'action', 'authorize'/);
+  assert.match(lifecycleSource, /'action', 'execute'/);
+  assert.doesNotMatch(lifecycleSource, /request\.model|\.sendRequest\(|\.countTokens\(/);
+  assert.match(participantSource, /SINGULARITY_FLOW_NO_MODEL: '1'/);
 });
 
 test('the activity view opens as one compact enterprise navigation surface', () => {

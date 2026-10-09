@@ -193,3 +193,31 @@ test('action plans reject shell composition rather than evaluating it', async ()
     timing: 'now', skill: null, command: 'singularity-flow status; touch escaped', reason: 'unsafe'
   }])), /unsupported shell syntax/);
 });
+
+test('human decision values are bound into the plan and authorization, not appended at execution', async () => {
+  const root = await repository();
+  const snapshot = lifecycle([{ timing: 'now', skill: '/sf-submit', reason: 'Submit custom phase.',
+    command: 'singularity-flow submit custom-check --decision pass=<pass> --decision score=<score>' }]);
+  const plan = await createActionPlan(root, snapshot, { decisionValues: { pass: 'yes', score: '90' } });
+  assert.equal(plan.actions[0].executable, true);
+  assert.deepEqual(plan.actions[0].argv, ['submit', 'custom-check', '--decision', 'pass=yes', '--decision', 'score=90']);
+  assert.doesNotThrow(() => assertActionPlanFresh(root, plan, snapshot));
+  const changed = await createActionPlan(root, snapshot, { decisionValues: { pass: 'no', score: '90' } });
+  assert.notEqual(changed.planHash, plan.planHash);
+  assert.notEqual(changed.actions[0].actionId, plan.actions[0].actionId);
+  const authorization = await issueActionAuthorization(root, plan, plan.actions[0], { confirmation: plan.actions[0].actionId, channel: 'test' });
+  await assert.rejects(() => consumeActionAuthorization(root, authorization.token, changed, changed.actions[0]), /bound|match/);
+  await assert.rejects(() => createActionPlan(root, snapshot, { decisionValues: { nonexistent: 'yes' } }), /current submission placeholders/);
+  await assert.rejects(() => createActionPlan(root, snapshot, { decisionValues: { pass: 'yes\n--skip-checks' } }), /bounded literal/);
+});
+
+test('a prechecked publication action uses the same unchanged lifecycle freshness boundary', async () => {
+  const root = await repository();
+  const snapshot = lifecycle();
+  const plan = await createActionPlan(root, snapshot, { additionalActions: [{ timing: 'now', skill: '/sf-phase',
+    command: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host', reason: 'Publish prechecked draft.' }] });
+  assert.equal(plan.actions[1].executable, true);
+  assert.doesNotThrow(() => assertActionPlanFresh(root, plan, snapshot));
+  await writeFile(path.join(root, 'README.md'), '# changed\n');
+  assert.throws(() => assertActionPlanFresh(root, plan, snapshot), /worktreeHash changed/);
+});

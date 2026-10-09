@@ -14,6 +14,7 @@ export type CommandGuidance = Readonly<{
   argv: readonly string[];
   skill: string;
   copilotCommand: string;
+  modelFreeCommand: string | null;
   copyable: boolean;
   platformCommands: Readonly<{ darwin: string; linux: string; win32: string }> | null;
 }>;
@@ -33,6 +34,7 @@ export function commandGuidance(value: unknown): CommandGuidance | null {
     argv: Object.freeze([...guidance.argv]),
     skill: guidance.skill,
     copilotCommand: guidance.copilotCommand,
+    modelFreeCommand: guidance.modelFreeCommand,
     copyable: guidance.copyable,
     platformCommands: guidance.platformCommands
   });

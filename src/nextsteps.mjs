@@ -275,6 +275,7 @@ export function nextStepsText(snapshot) {
     if (guidance) {
       lines.push(`   Shell: ${guidance.command}`);
       lines.push(`   Copilot: ${guidance.copilotCommand}`);
+      if (guidance.modelFreeCommand) lines.push(`   VS Code (model-free): ${guidance.modelFreeCommand}`);
     } else {
       lines.push('   Shell: unavailable — the supplied command was not safe to display.');
       lines.push('   Copilot: unavailable — ask /sf-next for a current governed action.');

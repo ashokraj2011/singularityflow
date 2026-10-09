@@ -91,9 +91,10 @@ function draftOwnership(configuredProducer, workflow, phase, session) {
  */
 export async function phaseDraftCheck(root, config, workflow, phase, {
   modelEnabled = true,
-  session = null
+  session = null,
+  requestedProducer = null
 } = {}) {
-  const configuredProducer = effectivePhasePublicationProducer(phase, { modelEnabled });
+  const configuredProducer = effectivePhasePublicationProducer(phase, { modelEnabled, requestedProducer });
   const prospective = workflow.currentPhase === phase.id && requiresProspectivePhaseInspection(workflow, phase);
   const retained = hasPublishedPhaseGeneration(phase) && !prospective;
   const ownership = draftOwnership(configuredProducer, workflow, phase, session);

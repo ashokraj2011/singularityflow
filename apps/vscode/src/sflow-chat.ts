@@ -25,6 +25,7 @@ import {
 import { buildResultCard } from './views/result-card-model.ts';
 import { resolvePersonalization } from '../../../src/personalization.mjs';
 import { readCopilotMode } from '../../../src/copilot-mode.mjs';
+import { runLifecycleChat, type LifecycleChatCommand } from './lifecycle-chat.ts';
 
 const PARTICIPANT_ID = 'singularity-flow.sflow';
 
@@ -103,7 +104,8 @@ async function activeAttachmentSession(
       configuredNode: settings.get<string>('nodePath'),
       extensionPath: context.extensionPath
     }),
-    repository: active.root
+    repository: active.root,
+    environment: () => ({ ...process.env, SINGULARITY_FLOW_NO_MODEL: '1' })
   });
   const session = await client.run<{
     ready?: boolean; repositoryPath?: string; workId?: string; phase?: string; status?: string;
@@ -842,7 +844,7 @@ async function handleChatRevisionChecks(
 }
 
 function examples(stream: vscode.ChatResponseStream): SflowChatMetadata {
-  stream.markdown('Ask about Singularity Flow or choose a declared command. Deterministic commands are local/CLI reads and never call a model. Human decisions open a separate guarded flow.\n\n');
+  stream.markdown('Ask about Singularity Flow or choose a declared command. These commands never call a model. Lifecycle writes require the separate human-confirmed review flow; /next only reads, /continue offers one legal action.\n\n');
   for (const command of PARTICIPANT_COMMANDS) {
     stream.markdown(`- \`@sflow /${command.id}\` — ${command.description}\n`);
   }
@@ -901,7 +903,8 @@ function participantClient(context: vscode.ExtensionContext): SingularityFlowCli
       configuredNode: settings.get<string>('nodePath'),
       extensionPath: context.extensionPath
     }),
-    repository: active.root
+    repository: active.root,
+    environment: () => ({ ...process.env, SINGULARITY_FLOW_NO_MODEL: '1' })
   });
 }
 
@@ -934,6 +937,8 @@ function renderNextAction(value: unknown): ParticipantRendered {
   const commands = renderedCommand(action);
   if (commands.shell) markdown += `\n**Shell:** ${inlineCode(commands.shell)}\n`;
   if (commands.copilot) markdown += `\n**Copilot:** ${inlineCode(commands.copilot)}\n`;
+  const guidance = commandGuidance(action);
+  if (guidance?.modelFreeCommand) markdown += `\n**VS Code, model-free:** ${inlineCode(guidance.modelFreeCommand)}\n`;
   markdown += '\nNothing was executed. Review or prefill the returned action.\n';
   return { markdown, ...commands };
 }
@@ -1197,6 +1202,9 @@ export function registerSflowChat(
 
   const confirmations = new ChatAttachmentConfirmations();
   const removals = new ChatAttachmentRemovals();
+  const lifecycleOutput = vscode.window.createOutputChannel('SFlow model-free lifecycle');
+  context.subscriptions.push(lifecycleOutput);
+  let lifecycleRunning = false;
   context.subscriptions.push({ dispose: () => { confirmations.clear(); removals.clear(); } });
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.registerFeedbackAttachmentFromChat', async (handle: unknown) => {
@@ -1325,6 +1333,27 @@ export function registerSflowChat(
         declared, effectivePrompt, stream, token, context, getCurrentWork
       );
       return { metadata };
+    }
+    if (['submit', 'publish', 'approve', 'continue'].includes(declared.id)) {
+      if (lifecycleRunning) {
+        stream.markdown('A model-free lifecycle review is already running. Finish or cancel it before starting another.\n');
+        return { metadata: { intent: 'procedure', topicId: declared.id, followups: [] } satisfies SflowChatMetadata };
+      }
+      lifecycleRunning = true;
+      const cancellation = chatAbortSignal(token);
+      try {
+        await runLifecycleChat(declared.id as LifecycleChatCommand, effectivePrompt, stream, token,
+          cancellation.signal, (signal) => activeAttachmentSession(context, getCurrentWork, signal),
+          () => readCopilotMode().paused, lifecycleOutput);
+      } catch (error) {
+        stream.markdown(renderParticipantRefusal(error).markdown);
+      } finally {
+        lifecycleRunning = false;
+        cancellation.dispose();
+      }
+      zeroModelFooter(stream, participantStartedAt, 'human-confirmed lifecycle');
+      await recordLocalParticipantMetric(declared.id, participantStartedAt);
+      return { metadata: { intent: 'procedure', topicId: declared.id, followups: [] } satisfies SflowChatMetadata };
     }
     if (declared.id === 'attachments') {
       const action = chatAttachmentAction(effectivePrompt, request.references?.length ?? 0);

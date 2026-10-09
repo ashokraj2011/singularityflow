@@ -2,7 +2,7 @@ import { recap } from './narration/recap.mjs';
 import { completionPhaseOf } from './lifecycle-transitions.mjs';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { branch } from './git.mjs';
+import { branch, identity } from './git.mjs';
 import { currentPhase, workDir } from './state-stores.mjs';
 import { documentCatalog } from './documents.mjs';
 import { assistedRecordRelative } from './assisted-quality.mjs';
@@ -186,10 +186,16 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
   const markers = markerSummary(phase);
   const priorExceptions = priorChecklistExceptions(phase);
   const witnessReview = await witnessMappingReview(root, config, workflow, phase);
+  // Presentation only: compare the local/cached Git identity, never a profile display name or
+  // phase-agent id. Approval still re-resolves authority and authorship at its write boundary.
+  const reviewer = identity(root, { offline: true });
+  const identityKey = actor => actor?.login ?? actor?.email ?? actor?.name ?? null;
+  const reviewerSelfApproval = Boolean(identityKey(phase.generatedBy))
+    && identityKey(phase.generatedBy) === identityKey(reviewer);
 
   return {
     schemaVersion: 1, generatedAt: new Date().toISOString(), workItem: workflow.workItem, branch: branch(root), workflowStatus: workflow.status,
-    specificationQuality, witnessReview, markers, priorExceptions,
+    specificationQuality, witnessReview, markers, priorExceptions, reviewerSelfApproval,
     /**
      * The constitution articles this phase is bound by `[SPK:REQ-101]`, and every exception to them
      * `[SPK:REQ-104]`.

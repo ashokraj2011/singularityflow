@@ -32,10 +32,12 @@ route and does not ask a model to decide which Singularity Flow command to run.
   surfaces. It does not implement a second lifecycle engine or a second approval authority.
 
 “Deterministic” means the route contains no model decision or generation. It does not mean that a
-later, separately confirmed handoff is read-only. In particular, the pre-existing attachment flow
+later, separately confirmed operation is read-only. In particular, the pre-existing attachment flow
 can register or exclude private feedback evidence only after its own modal confirmation, and the
-approval handoff can open the existing guarded approval experience. Those confirmations remain
-outside the participant command handler.
+approval command uses the existing guarded approval experience. Submit, publish and continue
+execute one engine-owned action only after human review. Model invocation is disabled in the CLI
+environment (`SINGULARITY_FLOW_NO_MODEL=1`), including nested actions. No command selects a chat
+model or guesses a route from prose.
 
 ## Implemented commands
 
@@ -50,7 +52,10 @@ outside the participant command handler.
 | `@sflow /docs` | `singularity-flow documents list --active --json` | Lists active governed documents without uploading, registering, or changing one. |
 | `@sflow /inputs` | `singularity-flow inputs <active-phase> --dry-run --json` | Resolves the phase from the verified active session and previews input provenance without writing the managed input record. |
 | `@sflow /workflows` | `singularity-flow workflow list --json` | Lists installed and available workflow profiles. |
-| `@sflow /approve` | `singularity-flow phase show <active-phase> --json` | Binds to the verified active phase, reviews its hash context, then offers a handoff to the existing guarded approval surface. It does not accept a phase argument, approve, prefill a confirmation hash, or treat “approve it” as authority. |
+| `@sflow /approve [phase] [--work-id ID]` | Native exact-hash human review and selection receipt | Selectors must match the active Story. Requires typed confirmation, checklist/witness decisions where applicable, human authority and self-approval acknowledgement. Never accepts a decision from prose. |
+| `@sflow /submit [phase] [--work-id ID]` | Action plan → review → one-time authorization → submit | Runs configured submission checks. Workflow decision inputs are prompted and bound into the plan before review. Convergence uses its distinct digest-reviewed submission contract. |
+| `@sflow /publish [phase] [--work-id ID]` | Ready prepublish contract → action plan → confirmed publication | Does not generate or rewrite a draft. Fresh tests and every publication gate remain enforced. Unready drafts stay intact and return diagnostics. |
+| `@sflow /continue [phase] [--work-id ID]` | Choose one currently executable submit/publish/approve action | Human confirms the action. Never executes authoring/model generation, waivers, arbitrary scripts, or an automatic lifecycle loop. |
 | `@sflow /validate` | `singularity-flow validate` | Runs the existing deterministic validation read and renders its text result; `/sf-validate` is the exact skill fallback and neither route accepts a validation decision. |
 | `@sflow /why <blocker>` | Reviewed-topic resolver | Explains only from packaged help and may show current read-only readiness context. |
 | `@sflow /how <task>` | Reviewed-topic resolver | Returns a reviewed procedure and reviewable shell/skill handoffs. |
@@ -76,10 +81,13 @@ current engine. The implementation deliberately narrows them:
    operation; check execution continues to use its existing plan and confirmation boundary.
 3. `/inputs` always supplies the verified active phase and `--dry-run`. Plain `inputs` may prepare
    and write managed input records, which is outside this handler.
-4. `/approve` accepts no phase argument. It resolves the phase from the verified active session,
-   reads `phase show`, and hands the person to the existing approval review. The participant never
-   turns chat prose into approval, copies a digest into a confirmation field, or invokes the
-   approval CLI directly.
+4. `/approve` resolves the phase from the active session; optional selectors must match it. The
+   existing approval review records the person's typed answer against a fresh selection receipt.
+   The participant never turns prose into approval or prefills a confirmation field.
+5. Lifecycle writes recheck pause, cancellation, saved buffers, repository and selected Story after
+   human interaction. Plans bind HEAD, index/worktree bytes and lifecycle state, expire and use
+   one-time authorization. Stale failures are not retried. `/next` stays read-only; use `/continue`
+   for a separately confirmed action.
 
 Buttons and displayed commands are therefore handoffs, not implicit consent. A handoff either
 opens an existing review surface or prepares a command for review; the governed operation retains
@@ -96,7 +104,17 @@ effect in both the loader and runtime dispatcher; those entries cannot become ex
 editing or repackaging the table before their separate guarded implementation exists. Immediately
 before execution, the expanded argv must also classify as a read in the shared extension CLI
 classifier. A row falsely labelled `read` cannot smuggle `next`, `phase publish`, writable
-`inputs`, confirmed precheck execution, or another mutation through the participant.
+`inputs`, confirmed precheck execution, or another mutation through the generic dispatcher. The
+four local lifecycle adapters are separate closed handlers, not a generic mutation escape hatch.
+
+## Discovering the model-free alternative in Copilot
+
+Guidance includes `modelFreeCommand` and a **VS Code (model-free)** line for supported operations,
+alongside Shell and `/sf-*` routes. Panels offer **Copy @sflow**; `@sflow /help` and Copilot's
+participant command menu list the adapters. Unsupported flags, imports, authoring/model work and
+arbitrary targets are not advertised as equivalent commands. Select another Story before using its
+phase or Work ID. Lifecycle commands reject bypass flags, raw shell text and private receipts in
+chat. Install this extension build and reload VS Code to see the new commands.
 
 The `skill` field documents the established `/sf-*` fallback for hosts without VS Code chat
 participants. It is a route relationship, not a claim that chat and skill hosts have identical UI

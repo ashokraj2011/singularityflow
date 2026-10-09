@@ -65,9 +65,11 @@ test('direct skills install as personal bare-command aliases and update only man
   const directSubmit = await readFile(path.join(targetRoot, 'sf-submit', 'SKILL.md'), 'utf8');
   const sourceSubmit = await readFile(path.join(sourceRoot, 'sflow-submit', 'SKILL.md'), 'utf8');
   assert.match(directSubmit, /^name: sf-submit$/m);
-  assert.match(directSubmit, /exactly matching non-null `displayBinding`/);
-  assert.match(directSubmit, /Otherwise render all documents\/briefs/);
-  assert.match(directSubmit, /Body reuse never reuses approval consent/);
+  assert.match(directSubmit, /identical non-null `displayBinding`/);
+  assert.match(directSubmit, /Otherwise render every document\/brief/);
+  assert.match(directSubmit, /always show the fresh `reviewBinding`/);
+  assert.match(directSubmit, /never approve/);
+  assert.match(directSubmit, /available `modelFreeCommand` as "VS Code \(model-free\)"/);
   assert.equal(directSubmit, renderDirectSkill(sourceSubmit, 'sflow-submit'));
 
   await writeFile(path.join(targetRoot, 'sf-submit', 'SKILL.md'), directSubmit.replace('Validate and submit', 'OLD Validate and submit'));

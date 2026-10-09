@@ -1,4 +1,5 @@
 import { skillForCommandLine } from './command-skills.mjs';
+import { modelFreeCommandForCommand } from './model-free-commands.mjs';
 
 /**
  * User-facing Copilot commands use the direct, globally installed `/sf-*` aliases.
@@ -125,7 +126,8 @@ export function copilotAction({ skill = null, command, ...rest }) {
     ...rest,
     skill: directSkill,
     command,
-    copilotCommand: copilotCommandForCommand(command, directSkill)
+    copilotCommand: copilotCommandForCommand(command, directSkill),
+    modelFreeCommand: modelFreeCommandForCommand(command)
   };
 }
 
@@ -231,9 +233,11 @@ export function submissionReadinessPresentation(readiness) {
  * secondary way to use the product. `label` is retained for callers that introduce the pair.
  */
 export function actionCommandLines({ skill, command }, label = 'Run') {
+  const modelFreeCommand = modelFreeCommandForCommand(command);
   return [
     `${label}:`,
     `Shell: ${command}`,
-    `Copilot: ${copilotCommandForCommand(command, skill)}`
+    `Copilot: ${copilotCommandForCommand(command, skill)}`,
+    ...(modelFreeCommand ? [`VS Code (model-free): ${modelFreeCommand}`] : [])
   ];
 }

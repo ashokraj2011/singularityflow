@@ -24,6 +24,8 @@ export function commandGuidanceHtml(value: unknown, options: {
       ${shellButton}</p>
     <p><strong>${escape(options.copilotLabel ?? 'Copilot')}:</strong> <code>${escape(guidance.copilotCommand)}</code>
       ${copilotButton}</p>
+    ${guidance.modelFreeCommand ? `<p><strong>VS Code (model-free):</strong> <code>${escape(guidance.modelFreeCommand)}</code>
+      <button type="button" class="secondary" data-copy-command="${escape(guidance.modelFreeCommand)}">Copy @sflow</button></p>` : ''}
     ${guidance.copyable ? '' : '<p class="muted">Replace the shown placeholders before running this command.</p>'}
   </div>`;
 }
@@ -32,7 +34,7 @@ export function commandGuidanceHtml(value: unknown, options: {
 export function commandGuidanceText(value: unknown): string | null {
   const guidance = safeCommandPair(value);
   return guidance
-    ? `Shell: ${guidance.command}\nCopilot: ${guidance.copilotCommand}`
+    ? `Shell: ${guidance.command}\nCopilot: ${guidance.copilotCommand}${guidance.modelFreeCommand ? `\nVS Code (model-free): ${guidance.modelFreeCommand}` : ''}`
     : null;
 }
 

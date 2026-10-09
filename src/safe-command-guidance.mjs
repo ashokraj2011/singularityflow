@@ -11,6 +11,7 @@
 import { authoringSkillEntry } from './authoring-skills.mjs';
 import { commandDefinition } from './command-registry.mjs';
 import { skillForCommandLine } from './command-skills.mjs';
+import { modelFreeCommandForArgv } from './model-free-commands.mjs';
 import {
   copilotCommandForCommand, directCopilotSkill, directCopilotSkillId
 } from './copilot-guidance.mjs';
@@ -310,7 +311,8 @@ export function safeCommandGuidance(value) {
   return Object.freeze({
     ...safe,
     skill: selectedSkill,
-    copilotCommand: canonicalCopilotCommand
+    copilotCommand: canonicalCopilotCommand,
+    modelFreeCommand: modelFreeCommandForArgv(safe.argv)
   });
 }
 
@@ -327,6 +329,7 @@ export function commandGuidanceForCommands(commands) {
     const phaseOperation = safe.argv[0] === 'phase'
       && ['draft-check', 'prepublish', 'begin', 'publish'].includes(safe.argv[1]);
     return [id, Object.freeze({ command: safe.command,
+      modelFreeCommand: safe.modelFreeCommand,
       copilotCommand: phaseOperation ? null : safe.copilotCommand,
       copilotStatus: phaseOperation ? 'unavailable' : 'available',
       copilotReason: phaseOperation
@@ -338,5 +341,6 @@ export function commandGuidanceForCommands(commands) {
 export function commandGuidanceLines(guidance, label) {
   if (!guidance) return [];
   return [`${label}:`, `Shell: ${guidance.command ?? 'unavailable — unsafe command'}`,
-    `Copilot: ${guidance.copilotCommand ?? guidance.copilotReason}`];
+    `Copilot: ${guidance.copilotCommand ?? guidance.copilotReason}`,
+    ...(guidance.modelFreeCommand ? [`VS Code (model-free): ${guidance.modelFreeCommand}`] : [])];
 }

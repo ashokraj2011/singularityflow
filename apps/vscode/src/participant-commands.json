@@ -137,16 +137,37 @@
   {
     "id": "approve",
     "class": "deterministic",
-    "transport": "cli",
+    "transport": "local",
     "effect": "human-decision",
-    "runtime": ["phase", "show", "$PHASE", "--json"],
-    "template": "approval-review",
+    "runtime": null,
+    "template": "lifecycle",
     "skill": "/sf-approve",
-    "description": "Show exact approval context and prepare the guarded approval form",
+    "description": "Review and approve the current phase through exact human confirmation, without a model",
     "keywords": [],
-    "acceptsArguments": false,
+    "acceptsArguments": true,
     "requiresRepository": true,
     "requiresSession": true,
+    "confirmation": "separate-guarded-flow"
+  },
+  {
+    "id": "submit", "class": "deterministic", "transport": "local", "effect": "human-decision",
+    "runtime": null, "template": "lifecycle", "skill": "/sf-submit",
+    "description": "Confirm and submit the published current phase with its governed checks, without a model",
+    "keywords": [], "acceptsArguments": true, "requiresRepository": true, "requiresSession": true,
+    "confirmation": "separate-guarded-flow"
+  },
+  {
+    "id": "publish", "class": "deterministic", "transport": "local", "effect": "human-decision",
+    "runtime": null, "template": "lifecycle", "skill": "/sf-phase",
+    "description": "Confirm the current draft publication with fresh tests and normal gates, without a model",
+    "keywords": [], "acceptsArguments": true, "requiresRepository": true, "requiresSession": true,
+    "confirmation": "separate-guarded-flow"
+  },
+  {
+    "id": "continue", "class": "deterministic", "transport": "local", "effect": "human-decision",
+    "runtime": null, "template": "lifecycle", "skill": "/sf-continue",
+    "description": "Choose and confirm one currently legal model-free lifecycle action; never auto-loop",
+    "keywords": [], "acceptsArguments": true, "requiresRepository": true, "requiresSession": true,
     "confirmation": "separate-guarded-flow"
   },
   {

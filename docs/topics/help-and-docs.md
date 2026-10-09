@@ -21,7 +21,7 @@ commands:
 related:
   - getting-started
   - nextsteps
-version: 5
+version: 6
 ---
 Every command supports `--help` (without executing). `sflow nextsteps` answers "what should I do here" from state; `sflow doctor` answers "why is my machine unhappy" with named fixes. Product questions in Copilot are answered from these packaged topics — grounded in the served text with the topic cited, never from model memory; questions with no matching topic say so and list the nearest topics. Judgment questions ("should I escalate?") are for `nextsteps` and the humans your pinned configuration names.
 
@@ -35,11 +35,14 @@ path, and action-shaped prose still requires the normal explicit governed select
 VS Code also contributes the explicit `@sflow` participant. Its `/help`, `/why`, `/how`, `/recover`,
 and `/topics` routes use the same resolver and never call the chat model; `/explain` also remains
 a reviewed-topic route in this increment. Declared zero-model adapters cover `/next`, `/status`, `/checks`, `/converge`, `/docs`, `/inputs`,
-`/workflows`, `/approve`, and `/validate`. The safety mappings matter: `/next` reads `nextsteps`,
-`/checks` selects `precheck --quick`, `/inputs` is an active-phase `--dry-run`, and `/approve` only
-reviews current context before opening the existing guarded approval flow. Buttons and `/sf-*`
-queries are handoffs for review; the participant neither executes the displayed next action nor
-turns chat prose into approval. See [the complete participant boundary](../CPT-CHAT-PARTICIPANT.md).
+`/workflows`, `/approve`, `/submit`, `/publish`, `/continue`, and `/validate`. `/next` reads
+`nextsteps`, `/checks` selects `precheck --quick`, and `/inputs` is an active-phase `--dry-run`.
+`/approve [phase] [--work-id ID]` uses the native exact human approval review. `/submit` and
+`/publish` confirm one hash-bound action with normal tests and gates; `/continue` lets the human
+choose one legal model-free lifecycle action. They never auto-loop or turn prose into approval.
+SFlow disables model invocation in their CLI environment. Copilot guidance and VS Code panels
+show **VS Code (model-free): @sflow /…** only for supported commands. Install the new extension
+and reload VS Code. See [the complete participant boundary](../CPT-CHAT-PARTICIPANT.md).
 
 ## Purpose and prerequisites
 

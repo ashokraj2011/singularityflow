@@ -255,6 +255,7 @@ function stubVscode() {
     ExtensionContext: null,
     workspace: {
       workspaceFolders: null,
+      registerTextDocumentContentProvider: () => ({ dispose() {} }),
       getConfiguration: () => ({ get: () => '' }),
       onDidSaveTextDocument: (listener) => { registered.saveListeners.push(listener); return { dispose() {} }; },
       createFileSystemWatcher: (pattern) => {
@@ -2473,7 +2474,7 @@ test('approving from the editor still demands the exact confirmation a terminal 
   assert.equal(validateInput(''), null, 'an empty box is not yet an error, just not a confirmation');
 });
 
-test('starter Story approval does not ask the six legacy specification-quality questions', async (t) => {
+for (const approvalSurface of ['native', 'chat']) test(`${approvalSurface} starter Story approval does not ask the six legacy specification-quality questions`, async (t) => {
   if (!requireBundle(t)) return;
   const root = await demoRepository();
   const cli = (args) => spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'), ...args], {
@@ -2494,6 +2495,11 @@ test('starter Story approval does not ask the six legacy specification-quality q
   // review before Submit; that gate has its own lifecycle tests and is not the legacy checklist.
   definition.workTypes['spec-driven-standard'].sourceReview = {
     mode: 'off', phases: [], reviewerAgent: null
+  };
+  // This fixture has fully specified intent and isolates publication/submission/review UI.
+  // Required clarification has separate lifecycle tests; do not invent a human answer here.
+  definition.phases.specification.clarification = {
+    ...definition.phases.specification.clarification, mode: 'off'
   };
   for (const authority of Object.values(definition.approvalAuthorities ?? {})) {
     authority.allowAnyGitIdentity = true;
@@ -2542,17 +2548,40 @@ test('starter Story approval does not ask the six legacy specification-quality q
   ].join('\n'));
   for (const args of [
     ['artifact', 'scan', '--phase', 'specification'],
-    ['phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place'],
-    ['submit', 'specification', '--skip-checks']
+    ...(approvalSurface === 'native' ? [
+      ['phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place'],
+      ['submit', 'specification', '--skip-checks']
+    ] : [])
   ]) {
     const result = cli(args);
     assert.equal(result.status, 0, `${args.join(' ')} failed:\n${result.stderr}`);
   }
 
+  if (approvalSurface === 'chat') {
+    const attached = cli(['session', 'attach', 'CFA-STORY', '--json']);
+    assert.equal(attached.status, 0, attached.stderr);
+    const selected = cli(['session', 'current', '--json']);
+    assert.equal(selected.status, 0, selected.stderr);
+    assert.equal(JSON.parse(selected.stdout).ready, true, selected.stdout);
+  }
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
   const extension = loadExtension(api);
   await extension.activate(context());
+  const chatMarkdown = [];
+  let modelRead = false;
+  const invokeChat = command => registered.chatParticipants[0].handler({ command,
+    prompt: 'specification --work-id CFA-STORY', references: [],
+    get model() { modelRead = true; throw new Error('model-free lifecycle must not read request.model'); }
+  }, {}, { markdown: value => chatMarkdown.push(String(value)), progress() {}, button() {}, reference() {} },
+  { isCancellationRequested: false });
+  if (approvalSurface === 'chat') {
+    for (const command of ['publish', 'submit']) {
+      registered.warningAnswers.push('Run exact action');
+      await invokeChat(command);
+      assert.match(chatMarkdown.join(''), new RegExp(`${command}.*command completed`), chatMarkdown.join(''));
+    }
+  }
   const provider = section(registered, 'lifecycle');
   const story = provider.getChildren().find((node) => node.kind === 'story');
   assert.ok(story, 'the awaiting Story is visible in Lifecycle');
@@ -2562,9 +2591,17 @@ test('starter Story approval does not ask the six legacy specification-quality q
   assert.equal(approval?.approve?.selfApproval, true,
     'the approval action carries the self-approval fact from the same repository snapshot');
 
-  const approvalRun = registered.commands.get('singularityFlow.approve')(approval);
-  const panel = await until(() => registered.panels.find((entry) =>
-    entry.id === 'singularityFlow.approvalReview'));
+  registered.selfApprovalAnswer = 'Approve anyway';
+  const approvalRun = approvalSurface === 'native'
+    ? registered.commands.get('singularityFlow.approve')(approval)
+    : invokeChat('approve');
+  let approvalFinished = false;
+  void approvalRun.then(() => { approvalFinished = true; });
+  const panel = await until(() => {
+    const found = registered.panels.find(entry => entry.id === 'singularityFlow.approvalReview');
+    if (!found && approvalFinished) throw new Error(`Approval exited before review: ${chatMarkdown.join('')} ${registered.errors.join(' ')}`);
+    return found;
+  });
   await until(() => panel.webview.html.includes('This phase has no human specification-quality checklist') ? true : null);
   assert.doesNotMatch(panel.webview.html, /<h2>Specification quality checklist<\/h2>/);
   for (const article of [
@@ -2599,6 +2636,15 @@ test('starter Story approval does not ask the six legacy specification-quality q
   assert.equal(state.phases.specification.status, 'approved');
   assert.equal('checklist' in recorded, false, 'the approval has no legacy quality decisions');
   assert.equal(recorded.selfApproval, true, 'the engine retained the non-independent-review fact');
+  if (approvalSurface === 'chat') {
+    assert.equal(modelRead, false);
+    assert.match(chatMarkdown.join(''), /0 model calls/);
+    assert.match(chatMarkdown.join(''), /approve.*command completed/);
+    assert.equal(state.phases.specification.authorship.at(-1).producer, 'governed-agent',
+      'the no-model executor preserves the authored producer instead of relabelling the published draft as human');
+    assert.ok(panel.webview.html.includes('Self-approval — not independent review'),
+      'the current Git identity is disclosed before the human acknowledgement, not guessed from a chat profile');
+  }
 });
 
 test('a self-approval is refused by the engine and re-asked as an explicit acknowledgement', async (t) => {

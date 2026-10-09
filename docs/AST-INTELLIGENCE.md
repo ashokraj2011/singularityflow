@@ -13,9 +13,13 @@ not run a daemon, and never participates in lifecycle authorization.
 - a bundled, on-demand polyglot structural preview for Java, Python, Kotlin, and Swift declarations,
   signatures, nesting, imports, annotations, declared relationships, and exact spans, all honestly
   labeled `text` because the scanner is not a language parser;
+- bundled JavaScript/TypeScript packs built on the TypeScript compiler that ships with Singularity
+  Flow: `sflow-typescript-syntax` parses declarations, imports, and inheritance at `syntax`
+  assurance, and `sflow-typescript` adds type-checker-resolved `calls` edges at `semantic`
+  assurance once the project is warmed;
 - a data-driven `LanguageCatalogV1`, rich protocol-v2 fact boundary, and deterministic syntax-first,
   optional-semantic provider pipeline;
-- bounded, existing-only Maven, Gradle/Android, Python, SwiftPM, and Xcode project discovery that
+- bounded, existing-only Maven, Gradle/Android, Python, SwiftPM, Xcode, and Node project discovery that
   hashes existing metadata without running builds, dependency resolution, or repository scripts;
 - per-operation file, byte, and individual-file budgets with visible partial coverage;
 - separate content-addressed text, syntax-skeleton, and semantic-overlay cache families plus cone manifests below
@@ -34,7 +38,38 @@ not run a daemon, and never participates in lifecycle authorization.
 - deterministic structural predicates available through explicit diagnostics without becoming a
   prerequisite for publication, submission, readiness, or terminal governance.
 
-The built-in JavaScript/TypeScript extractor remains lexical and its facts are labeled `text`.
+JavaScript and TypeScript files (`.js`, `.jsx`, `.mjs`, `.cjs`, `.ts`, `.tsx`) keep the built-in
+lexical facts at `text` and also receive `sflow-typescript-syntax` facts from the compiler's parser at
+`syntax`, so a required `symbol-exists` gate can pass for them. The compiler is Singularity Flow's
+own dependency; nothing is loaded from the repository's `node_modules`. Declaration signatures stop
+before the body.
+
+Resolved calls come from the semantic `sflow-typescript` pack. Like every semantic pack it needs an
+explicit warm-up of the Node project (a root with `package.json`, `tsconfig.json`, or
+`jsconfig.json`):
+
+```bash
+singularity-flow wm ast warm --semantic --provider sflow-typescript --project node:. --profile default --dry-run
+```
+
+The plan runs only `node --version`; it executes no package script, install, or repository
+configuration. After the warm-up each AST build asks the type checker which declaration every call
+and `new` expression resolves to, following imports, aliases, and methods (`cart.add()` names
+`Cart.add`, not every `add`), and records a `calls` relationship between the two declaration IDs.
+Calls into `node_modules` or declaration files are left out. Compiler options come from the
+project's `tsconfig.json` or `jsconfig.json` when present; otherwise JavaScript is allowed and
+module resolution is `Bundler`. Until a project is warmed the semantic pack contributes nothing and
+is not reported as a degradation, unless policy requires `semantic` assurance. A nested
+`package.json` is its own project (`--project node:apps/web`) and is warmed separately. On
+Singularity Flow's own repository (2,333 JavaScript/TypeScript files) the first build after the
+warm-up resolves about 50,000 call edges in roughly 90 seconds; later builds reuse the cache in
+about 9 seconds. Repository knowledge (`wm knowledge`) uses these edges in place of name matching.
+
+Adapters receive bounded requests: at most 200 files and 1 MiB of source for a syntax pack, 500
+files and 2 MiB for a semantic pack, each with a 2 MiB response budget and a 30-second timeout. A
+response over its budget is split in half and retried, so only a single file too large for the
+budget degrades (`adapter-failed`) and keeps its other facts.
+
 Java, Python, Kotlin, and Swift use the legacy-named `sflow-polyglot-syntax` pack for a structural
 preview when effective policy permits adapters. Despite that compatibility ID and its syntax pipeline
 stage, it performs comment-aware line scanning rather than parsing; its manifest and every emitted
@@ -158,6 +193,7 @@ singularity-flow wm ast build --resume HANDLE --json
 singularity-flow wm ast gate --paths src --json
 singularity-flow wm ast evidence reproduce --receipt singularity/work-items/WRK-1/context/ast/intake-gen1.json --json
 singularity-flow wm ast warm --semantic --provider sflow-java-jdt --project maven:. --profile default --dry-run
+singularity-flow wm ast warm --semantic --provider sflow-typescript --project node:. --profile default --dry-run
 singularity-flow wm ast cache status
 singularity-flow wm ast cache prune --dry-run
 singularity-flow wm ast cache prune --confirm "PRUNE AST CACHE"
@@ -171,6 +207,10 @@ singularity-flow wm ast pack install /offline/pack/manifest.json --dry-run
 singularity-flow wm ast pack install /offline/pack.tgz --dry-run
 singularity-flow wm ast pack remove PACK --dry-run
 ```
+
+`wm ast build` warms every selected file but prints one bounded page of facts, like `context`
+(`--max-facts`, `--max-output-bytes`); `nextCursor` continues it with `wm ast context --cursor`.
+A resumed build (`--resume`) still prints all of its facts.
 
 `--paths` may be repeated or contain comma-separated repository-relative prefixes. Symlinks,
 gitlinks, missing paths, oversized files, and budget omissions are reported as degradation rather
@@ -235,6 +275,12 @@ binary, downloaded grammar, or separate build step. Optional parser and semantic
 their license metadata and bind the adapter, runtime, grammar, and dependency artifacts by digest;
 an incomplete or mismatched manifest is unavailable rather than silently downgraded.
 
+The bundled TypeScript packs run `src/ast-packs/typescript-*.mjs` with the exact `typescript`
+version pinned in Singularity Flow's `package-lock.json` (Apache-2.0, declared in the manifest). Their
+manifests bind the adapter, shared core, compiler, and its license by digest. With
+`ast.evidence.mode: replayable` they are retained like an installed pack, so each retained bundle
+carries a copy of the compiler (about 9 MB).
+
 ## Lifecycle independence
 
 AST never gates publication, submission, readiness, or governance. A predicate marked `required`
@@ -265,7 +311,8 @@ question remains unanswered. Whole-repository scope remains explicit.
 ## Safety and troubleshooting
 
 - Results contain paths, hashes, declaration locations, and dependency targets—not source bodies.
-- JavaScript and TypeScript receive built-in lexical symbols. Java, Python, Kotlin, and Swift use
+- JavaScript and TypeScript receive built-in lexical symbols plus the bundled compiler's `syntax`
+  facts, and resolved `calls` once the Node project is warmed. Java, Python, Kotlin, and Swift use
   the bundled text-assured structural preview unless policy selects `off`/`text-only`; other catalogued
   languages retain the text floor until a reviewed pack is installed. Recognition and preview
   scanning are never claimed as parsing.

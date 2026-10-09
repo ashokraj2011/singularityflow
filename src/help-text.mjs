@@ -727,7 +727,7 @@ Usage:
   singularity-flow wm cleanup [--force] [--json]
   singularity-flow wm cache status|clear [--json]
   singularity-flow wm ast doctor|status [--json]
-  singularity-flow wm ast build [--paths PATH]... [--all] [--max-files N] [--max-bytes N] [--resume HANDLE] [--json]
+  singularity-flow wm ast build [--paths PATH]... [--all] [--max-files N] [--max-bytes N] [--max-facts N] [--max-output-bytes N] [--resume HANDLE] [--json]
   singularity-flow wm ast context [--paths PATH]... [--all] [--max-files N] [--max-bytes N] [--max-facts N] [--max-output-bytes N] [--cursor CURSOR] [--json]
   singularity-flow wm recovery list|inspect <ID>|publish <ID> --confirm <ID> [--json]
   singularity-flow wm ast query --predicate symbol|symbol-id|import|references|hierarchy|module|language|path --value VALUE [--paths PATH]... [--max-facts N] [--max-output-bytes N] [--cursor CURSOR] [--json]

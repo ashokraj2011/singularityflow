@@ -21,7 +21,7 @@ related:
   - ast-intelligence
   - world-model
   - diagnostics-and-regression
-version: 1
+version: 2
 ---
 A project binding is the immutable description an optional semantic AST provider needs to interpret
 source in the correct build context. It binds the project kind and root, build files and lockfiles,
@@ -43,8 +43,9 @@ prerequisites only when semantic assurance is explicitly wanted.
 
 ## Guided workflow
 
-Singularity Flow discovers existing Maven, Gradle/Android, Python, SwiftPM, and Xcode metadata from
-the repository. Discovery is bounded and existing-only: it does not execute a build tool, resolve
+Singularity Flow discovers existing Maven, Gradle/Android, Python, SwiftPM, Xcode, and Node
+(`package.json`, `tsconfig*.json`, `jsconfig.json`, and npm/Yarn/pnpm lockfiles) metadata from the
+repository. Discovery is bounded and existing-only: it does not execute a build tool, resolve
 dependencies, download packages, run repository scripts, or invoke a model.
 
 Run `sflow wm ast doctor --json` to see discovered bindings and the exact missing boundary. An

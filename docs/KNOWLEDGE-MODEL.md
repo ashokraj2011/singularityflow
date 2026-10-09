@@ -152,8 +152,16 @@ suite:
 
 ## Boundaries
 
-- Pattern analysis, not a compiler: calls are matched by name where no language service answers
-  (reported as `callsMatchedByName`), and a dynamic dispatch can be missed.
+- Calls are resolved by a compiler only where a semantic AST pack has been warmed: the bundled
+  `sflow-typescript` pack for JavaScript/TypeScript (`wm ast warm --semantic --provider
+  sflow-typescript --project node:. --profile default`, once per `package.json` project), or an
+  installed semantic pack that reports `calls`. Those edges are reported as `callsResolved` (with
+  `callResolution` naming the providers), and a file's name-matched edges are dropped once it has
+  resolved ones. Elsewhere calls are matched by name (`callsMatchedByName`, marked `inferred`), and
+  a dynamic dispatch can be missed. Until a project is warmed, a build reads nothing from the AST
+  layer (`callResolution.status: not-warmed`). A file whose checkout differs from the commit
+  contributes no resolved calls. On Singularity Flow's own repository a warmed build resolves 47,475
+  of 49,413 calls; the rest are in projects that were not warmed.
 - Drift is reported only when a test that exercises a rule uses comparative words ("more than",
   "at least") that contradict the rule's operator and shares a value with it.
 - Coverage means a test names the function or reaches it through calls, not that a line ran.

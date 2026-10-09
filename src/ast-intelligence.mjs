@@ -8,8 +8,8 @@ import { gunzipSync } from 'node:zlib';
 import { normalizeAstPolicy, assuranceSatisfies } from './ast-policy.mjs';
 import { actionCommandLines, copilotAction } from './copilot-guidance.mjs';
 import {
-  adapterDerivationKey, astAdapterManifestSha256, astAdapterRequest, discoverAstAdapters, executeAstAdapter,
-  inspectAstAdapterArtifacts, validateAstAdapterManifest
+  BUNDLED_AST_ADAPTER_IDS, adapterDerivationKey, astAdapterManifestSha256, astAdapterRequest, discoverAstAdapters,
+  executeAstAdapter, inspectAstAdapterArtifacts, validateAstAdapterManifest
 } from './ast-adapter-contract.mjs';
 import {
   applyAstPackInstall, applyAstPackRemove, inspectAstPackRegistry, planAstPackInstall, planAstPackRemove, readAstPackRegistry
@@ -23,7 +23,9 @@ import { astSemanticOverlayKey, astSyntaxCacheKey } from './ast-derivation-key.m
 import { bindingForFile, discoverProjectBindings } from './ast-project-binding.mjs';
 import { astSemanticWarmCommand } from './ast-semantic-warm.mjs';
 import { latestStoryStartAstWarmStatus, readRepositoryAstWarmStatus } from './ast-story-start-status.mjs';
-import { OPTIONAL_AST_SEMANTIC_PACKS, optionalSemanticPack } from './ast-semantic-pack-catalog.mjs';
+import { BUNDLED_AST_SEMANTIC_PACKS, OPTIONAL_AST_SEMANTIC_PACKS, optionalSemanticPack } from './ast-semantic-pack-catalog.mjs';
+
+const BUNDLED_SEMANTIC_PACK_IDS = new Set(BUNDLED_AST_SEMANTIC_PACKS.map((pack) => pack.id));
 import { replayAstEvidence } from './ast-replay.mjs';
 import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
@@ -850,6 +852,32 @@ function providerFor(entry, stage, adapters, policy, diagnostics) {
   return compatible.find((adapter) => adapter.id === 'sflow-polyglot-syntax') ?? compatible[0] ?? null;
 }
 
+// Source per adapter request. A semantic request rebuilds its project model each time, so it takes
+// larger batches; both stay well inside the 2 MiB response budget for typical code.
+const ADAPTER_BATCH = Object.freeze({
+  syntax: Object.freeze({ files: 200, bytes: 1024 * 1024 }),
+  semantic: Object.freeze({ files: 500, bytes: 2 * 1024 * 1024 })
+});
+
+/** Split one adapter's files into bounded requests for its stage. */
+function adapterBatches(entries, stage) {
+  const limit = ADAPTER_BATCH[stage];
+  const batches = [];
+  let batch = [];
+  let bytes = 0;
+  for (const entry of entries) {
+    if (batch.length && (batch.length >= limit.files || bytes + entry.size > limit.bytes)) {
+      batches.push(batch);
+      batch = [];
+      bytes = 0;
+    }
+    batch.push(entry);
+    bytes += entry.size;
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
 async function applyConfiguredAdapters(root, runtime, selection, processed, { persist = false } = {}) {
   const diagnostics = [];
   const degradation = [];
@@ -892,6 +920,9 @@ async function applyConfiguredAdapters(root, runtime, selection, processed, { pe
         continue;
       }
       if (stage === 'semantic' && (!project || project.complete !== true)) {
+        // A bundled semantic pack is present on every machine; until its project is warmed it simply
+        // adds nothing. Only a requirement for semantic assurance makes that a degradation.
+        if (BUNDLED_SEMANTIC_PACK_IDS.has(adapter.id) && entry.requiredAssurance !== 'semantic') continue;
         degradation.push({
           path: entry.path, reason: 'semantic-project-binding-incomplete', adapter: adapter.id,
           required: entry.requiredAssurance,
@@ -943,67 +974,79 @@ async function applyConfiguredAdapters(root, runtime, selection, processed, { pe
       groups.set(groupId, group);
     }
     for (const { adapter, project, entries } of groups.values()) {
-      const request = astAdapterRequest({
-        protocolVersion: adapter.protocolVersion, operation: 'skeleton', stage,
-        scope: { ...selection.scope, repositoryRevision: selection.repositoryRevision },
-        files: entries.map((entry) => ({ path: entry.path, sha256: entry.sha256, language: entry.language })),
-        budget: { ...processed.budgets, maxOutputBytes: 2 * 1024 * 1024, timeoutMs: 30_000 },
-        implementation: adapter.implementation, project
-      });
-      try {
-        const response = await executeAstAdapter(adapter, request, { root });
-        const byPath = new Map(response.files.map((file) => [file.path, file]));
-        for (const entry of entries) {
-          const file = byPath.get(entry.path);
-          if (!file) {
-            degradation.push({ path: entry.path, reason: 'adapter-omitted-file', adapter: adapter.id, required: entry.requiredAssurance });
-            continue;
-          }
-          if (stage === 'semantic') {
-            const syntaxEntry = entry.adapters.find((item) => item.extractor?.stage === 'syntax');
-            const syntaxSkeleton = processed.memory.get(syntaxEntry.cacheKey)
-              ?? validateSkeleton(await readFile(blobPath(root, syntaxEntry.cacheKey, syntaxEntry.extractor)), entry, syntaxEntry.cacheKey, syntaxEntry.extractor);
-            const syntaxIds = new Set(syntaxSkeleton.facts.filter((fact) => fact.kind === 'symbol').map((fact) => fact.id));
-            if (file.facts.some((fact) => fact.kind === 'symbol' && (!fact.syntaxId || !syntaxIds.has(fact.syntaxId)))) {
-              degradation.push({ path: entry.path, reason: 'semantic-syntax-join-invalid', adapter: adapter.id, required: entry.requiredAssurance });
-              diagnostics.push({ code: 'AST_SEMANTIC_SYNTAX_JOIN_INVALID', message: `Semantic adapter '${adapter.id}' returned a declaration without a valid syntax identity.` });
+      // Bounded batches keep each response inside the adapter output budget. A batch that still
+      // overflows is halved and retried, so only a single file too large for the budget degrades.
+      const pending = adapterBatches(entries, stage);
+      const derivations = new Set();
+      while (pending.length) {
+        const batch = pending.shift();
+        const request = astAdapterRequest({
+          protocolVersion: adapter.protocolVersion, operation: 'skeleton', stage,
+          scope: { ...selection.scope, repositoryRevision: selection.repositoryRevision },
+          files: batch.map((entry) => ({ path: entry.path, sha256: entry.sha256, language: entry.language })),
+          budget: { ...processed.budgets, maxOutputBytes: 2 * 1024 * 1024, timeoutMs: 30_000 },
+          implementation: adapter.implementation, project
+        });
+        try {
+          const response = await executeAstAdapter(adapter, request, { root });
+          const byPath = new Map(response.files.map((file) => [file.path, file]));
+          for (const entry of batch) {
+            const file = byPath.get(entry.path);
+            if (!file) {
+              degradation.push({ path: entry.path, reason: 'adapter-omitted-file', adapter: adapter.id, required: entry.requiredAssurance });
               continue;
             }
-          }
-          const extractor = adapterExtractor(adapter, entry.language, project);
-          const key = blobKey(entry, extractor);
-          const family = cacheFamily(extractor).record;
-          const skeleton = sealSkeleton({
-            schemaVersion: currentSchemaVersion(family), key, contentKey: entry.contentKey,
-            sha256: entry.sha256, language: entry.language, extractor, facts: file.facts
-          });
-          processed.memory.set(key, skeleton);
-          if (persist && entry.contentKey?.startsWith('git:')) {
-            cacheRecords.push({
-              target: blobPath(root, key, extractor), record: skeleton, path: entry.path
+            if (stage === 'semantic') {
+              const syntaxEntry = entry.adapters.find((item) => item.extractor?.stage === 'syntax');
+              const syntaxSkeleton = processed.memory.get(syntaxEntry.cacheKey)
+                ?? validateSkeleton(await readFile(blobPath(root, syntaxEntry.cacheKey, syntaxEntry.extractor)), entry, syntaxEntry.cacheKey, syntaxEntry.extractor);
+              const syntaxIds = new Set(syntaxSkeleton.facts.filter((fact) => fact.kind === 'symbol').map((fact) => fact.id));
+              if (file.facts.some((fact) => fact.kind === 'symbol' && (!fact.syntaxId || !syntaxIds.has(fact.syntaxId)))) {
+                degradation.push({ path: entry.path, reason: 'semantic-syntax-join-invalid', adapter: adapter.id, required: entry.requiredAssurance });
+                diagnostics.push({ code: 'AST_SEMANTIC_SYNTAX_JOIN_INVALID', message: `Semantic adapter '${adapter.id}' returned a declaration without a valid syntax identity.` });
+                continue;
+              }
+            }
+            const extractor = adapterExtractor(adapter, entry.language, project);
+            const key = blobKey(entry, extractor);
+            const family = cacheFamily(extractor).record;
+            const skeleton = sealSkeleton({
+              schemaVersion: currentSchemaVersion(family), key, contentKey: entry.contentKey,
+              sha256: entry.sha256, language: entry.language, extractor, facts: file.facts
             });
+            processed.memory.set(key, skeleton);
+            if (persist && entry.contentKey?.startsWith('git:')) {
+              cacheRecords.push({
+                target: blobPath(root, key, extractor), record: skeleton, path: entry.path
+              });
+            }
+            entry.adapters.push({ cacheKey: key, extractor });
+            entry.assurance = assuranceRank(extractor.assurance) > assuranceRank(entry.assurance) ? extractor.assurance : entry.assurance;
+            processed.cache.misses += 1;
           }
-          entry.adapters.push({ cacheKey: key, extractor });
-          entry.assurance = assuranceRank(extractor.assurance) > assuranceRank(entry.assurance) ? extractor.assurance : entry.assurance;
-          processed.cache.misses += 1;
+          diagnostics.push(...response.diagnostics);
+          diagnostics.push(...response.rejectedFiles.map((item) => ({ ...item, message: `Adapter '${adapter.id}' returned an invalid result for ${item.path}.` })));
+          for (const entry of batch) derivations.add(adapterExtractor(adapter, entry.language, project).derivation.derivationSha256);
+        } catch (error) {
+          if (error?.code === 'AST_ADAPTER_OUTPUT_BUDGET' && batch.length > 1) {
+            const half = Math.ceil(batch.length / 2);
+            pending.unshift(batch.slice(0, half), batch.slice(half));
+            continue;
+          }
+          diagnostics.push({ code: error.code ?? 'AST_ADAPTER_FAILED', message: error.message, adapter: adapter.id });
+          degradation.push(...batch.map((entry) => ({
+            path: entry.path, reason: 'adapter-failed', adapter: adapter.id, required: entry.requiredAssurance
+          })));
+          provenance.push({
+            id: adapter.id, packVersion: adapter.packVersion, version: adapter.extractorVersion,
+            stage, assurance: adapter.assurance, status: 'failed'
+          });
         }
-        diagnostics.push(...response.diagnostics);
-        diagnostics.push(...response.rejectedFiles.map((item) => ({ ...item, message: `Adapter '${adapter.id}' returned an invalid result for ${item.path}.` })));
-        const derivations = entries.map((entry) => adapterExtractor(adapter, entry.language, project).derivation.derivationSha256);
-        provenance.push({
-          id: adapter.id, packVersion: adapter.packVersion, version: adapter.extractorVersion,
-          stage, assurance: adapter.assurance, derivations: [...new Set(derivations)].sort(), status: 'executed'
-        });
-      } catch (error) {
-        diagnostics.push({ code: error.code ?? 'AST_ADAPTER_FAILED', message: error.message, adapter: adapter.id });
-        degradation.push(...entries.map((entry) => ({
-          path: entry.path, reason: 'adapter-failed', adapter: adapter.id, required: entry.requiredAssurance
-        })));
-        provenance.push({
-          id: adapter.id, packVersion: adapter.packVersion, version: adapter.extractorVersion,
-          stage, assurance: adapter.assurance, status: 'failed'
-        });
       }
+      if (derivations.size) provenance.push({
+        id: adapter.id, packVersion: adapter.packVersion, version: adapter.extractorVersion,
+        stage, assurance: adapter.assurance, derivations: [...derivations].sort(), status: 'executed'
+      });
     }
   }
   await persistCacheRecords(cacheRecords, {
@@ -1831,8 +1874,9 @@ async function boundedReadPage(root, envelope, {
   }
   const allFacts = envelope.facts;
   const baseDiagnostics = envelope.diagnostics.filter((item) => item.code !== 'AST_RESULT_PAGED');
-  let pageFacts = allFacts.slice(offset, offset + limits.maxFacts);
-  while (true) {
+  // Render the page holding `count` facts and report whether it fits the output budget.
+  const render = (count) => {
+    const pageFacts = allFacts.slice(offset, offset + count);
     const nextOffset = offset + pageFacts.length;
     const hasMore = nextOffset < available;
     const payload = hasMore ? {
@@ -1873,14 +1917,29 @@ async function boundedReadPage(root, envelope, {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       envelope.page.outputBytes = Buffer.byteLength(JSON.stringify(envelope, null, 2), 'utf8');
     }
-    if (envelope.page.outputBytes <= limits.maxOutputBytes) break;
-    if (!pageFacts.length) {
+    return envelope.page.outputBytes <= limits.maxOutputBytes;
+  };
+  // The largest page that fits, found by halving: every try serializes the whole page, so dropping
+  // one fact at a time from an oversized 10,000-fact page would serialize it thousands of times.
+  const wanted = Math.min(limits.maxFacts, available - offset);
+  if (!render(wanted)) {
+    let fits = -1;
+    let low = 0;
+    let high = wanted - 1;
+    while (low <= high) {
+      const middle = Math.floor((low + high) / 2);
+      if (render(middle)) {
+        fits = middle;
+        low = middle + 1;
+      } else high = middle - 1;
+    }
+    if (fits < 0) {
       throw new SingularityFlowError(
         `AST result metadata exceeds the ${limits.maxOutputBytes}-byte output budget. Increase --max-output-bytes.`,
         { code: 'AST_OUTPUT_BUDGET_TOO_SMALL' }
       );
     }
-    pageFacts = pageFacts.slice(0, -1);
+    render(fits);
   }
   return validateAstResultEnvelope(envelope);
 }
@@ -2542,7 +2601,7 @@ async function astPackCommand(positionals, options) {
       packs: [...discovery.adapters.map((adapter) => ({
         id: adapter.id, packVersion: adapter.packVersion, stage: adapter.stage,
         languages: adapter.languages, assurance: adapter.assurance,
-        source: adapter.id === 'sflow-polyglot-syntax' ? 'bundled'
+        source: BUNDLED_AST_ADAPTER_IDS.includes(adapter.id) ? 'bundled'
           : registry.entries.some((entry) => entry.id === adapter.id) ? 'installed' : 'development-override'
       })), ...OPTIONAL_AST_SEMANTIC_PACKS.filter((pack) => !installedIds.has(pack.id)).map((pack) => ({
         ...pack, assurance: 'semantic', packVersion: null, source: 'optional-catalog', status: 'not-installed'
@@ -2649,7 +2708,14 @@ export async function astCommand(root, positionals, options) {
   else if (action === 'build') {
     const rawResume = Array.isArray(options.resume) ? options.resume.at(-1) : options.resume;
     const handle = rawResume === true ? positionals[1] : (rawResume ? String(rawResume) : null);
-    result = handle ? await resumeBuild(root, handle, options) : await buildAstCache(root, options);
+    if (handle) result = await resumeBuild(root, handle, options);
+    else {
+      // The build warms every selected file; what it prints is one bounded page of facts, continued
+      // with `wm ast context --cursor` like any other read. Parser and semantic facts for a large
+      // repository would otherwise exceed the CLI's output bound.
+      const built = await buildAstCache(root, options);
+      result = built.status === 'disabled' ? built : await boundedReadPage(root, built, { operation: 'context', options });
+    }
   }
   else if (action === 'context') result = await astContext(root, options);
   else if (action === 'query') result = await astQuery(root, options);

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 import { createAstDerivationKey } from './ast-derivation-key.mjs';
@@ -25,7 +26,11 @@ const FORBIDDEN_FACT_FIELDS = new Set(['sourceBody', 'text', 'body', 'content', 
 const POLYGLOT_ADAPTER = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'polyglot-syntax-adapter.mjs');
 const POLYGLOT_CORE = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'polyglot-syntax-core.mjs');
 const POLYGLOT_LICENSE = path.join(PACKAGE_ROOT, 'LICENSE');
+const TYPESCRIPT_SYNTAX_ADAPTER = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'typescript-syntax-adapter.mjs');
+const TYPESCRIPT_SEMANTIC_ADAPTER = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'typescript-semantic-adapter.mjs');
+const TYPESCRIPT_CORE = path.join(PACKAGE_ROOT, 'src', 'ast-packs', 'typescript-core.mjs');
 let bundledManifestPromise = null;
+let bundledTypeScriptPromise = null;
 
 function hashBytes(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
@@ -271,8 +276,77 @@ async function bundledPolyglotManifest() {
   return bundledManifestPromise;
 }
 
+/** Singularity Flow's own TypeScript compiler files (never the analyzed repository's), or null. */
+function bundledTypeScriptCompiler() {
+  try {
+    const entry = createRequire(path.join(PACKAGE_ROOT, 'package.json')).resolve('typescript');
+    const directory = path.dirname(path.dirname(entry));
+    return { entry, packageJson: path.join(directory, 'package.json'), license: path.join(directory, 'LICENSE.txt') };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The TypeScript/JavaScript packs: a syntax pack on the compiler's parser and a semantic pack on its
+ * type checker. Both run out of process like every adapter, and are absent (not failing) when the
+ * compiler is not installed. The semantic pack still needs an explicit `wm ast warm --semantic`.
+ */
+async function bundledTypeScriptManifests() {
+  if (!bundledTypeScriptPromise) bundledTypeScriptPromise = (async () => {
+    const compiler = bundledTypeScriptCompiler();
+    if (!compiler) return [];
+    const [syntaxBytes, semanticBytes, coreBytes, compilerBytes, packageBytes, licenseBytes] = await Promise.all([
+      readFile(TYPESCRIPT_SYNTAX_ADAPTER), readFile(TYPESCRIPT_SEMANTIC_ADAPTER), readFile(TYPESCRIPT_CORE),
+      readFile(compiler.entry), readFile(compiler.packageJson), readFile(compiler.license)
+    ]);
+    const version = String(JSON.parse(packageBytes.toString('utf8')).version ?? 'unknown');
+    const shared = [
+      { path: TYPESCRIPT_CORE, sha256: hashBytes(coreBytes) },
+      { path: compiler.entry, sha256: hashBytes(compilerBytes) },
+      { path: compiler.packageJson, sha256: hashBytes(packageBytes) },
+      { path: compiler.license, sha256: hashBytes(licenseBytes) }
+    ];
+    const languages = (stage) => Object.fromEntries([['typescript', ['.ts', '.tsx']], ['javascript', ['.js', '.jsx', '.mjs', '.cjs']]]
+      .map(([language, extensions]) => [language, {
+        extensions, canonicalFilenames: [], aliases: [], priority: 300,
+        parserEngine: 'typescript', parserVersion: version, grammarId: null, grammarVersion: null,
+        maximumAssurance: stage === 'semantic' ? 'semantic' : 'syntax',
+        ...(stage === 'semantic' ? { projectKinds: ['node'], toolchainRanges: ['node>=20'], platforms: ['any'] } : {})
+      }]));
+    const manifest = (id, stage, adapter, adapterBytes) => {
+      const artifactSha256 = hashBytes(adapterBytes);
+      const value = {
+        protocolVersion: AST_ADAPTER_PROTOCOL_VERSION,
+        id, packVersion: '1.0.0', extractorVersion: '1.0.0',
+        stage, assurance: stage, argv: [process.execPath, adapter],
+        capabilities: ['skeleton', 'query'], languages: languages(stage),
+        licenses: [{ id: 'typescript', spdx: 'Apache-2.0', sourceSha256: hashBytes(licenseBytes) }],
+        conformance: { fixtureVersion: '1', status: 'preview', languages: ['javascript', 'typescript'] },
+        implementation: {
+          artifactSha256, manifestSha256: '0'.repeat(64),
+          runtime: { id: 'node', version: process.versions.node, platform: 'any' },
+          grammars: [],
+          dependencies: { lockSha256: null, bundleSha256: recordSha256({ adapterSha256: artifactSha256, files: shared }) },
+          files: [{ path: adapter, sha256: artifactSha256 }, ...shared]
+        }
+      };
+      value.implementation.manifestSha256 = astAdapterManifestSha256(value);
+      return validateAstAdapterManifest(value, `bundled ${id}`);
+    };
+    return [
+      manifest('sflow-typescript-syntax', 'syntax', TYPESCRIPT_SYNTAX_ADAPTER, syntaxBytes),
+      manifest('sflow-typescript', 'semantic', TYPESCRIPT_SEMANTIC_ADAPTER, semanticBytes)
+    ];
+  })();
+  return bundledTypeScriptPromise;
+}
+
+/** Packs that ship inside Singularity Flow rather than being installed into the machine registry. */
+export const BUNDLED_AST_ADAPTER_IDS = Object.freeze(['sflow-polyglot-syntax', 'sflow-typescript-syntax', 'sflow-typescript']);
+
 export async function bundledAstAdapters() {
-  return [await bundledPolyglotManifest()];
+  return [await bundledPolyglotManifest(), ...await bundledTypeScriptManifests()];
 }
 
 /** Verify installed/bundled artifact bytes without launching adapter code. */

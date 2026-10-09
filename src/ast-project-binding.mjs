@@ -11,13 +11,18 @@ export const AST_PROJECT_BINDING_SCHEMA_VERSION = currentSchemaVersion('ast-proj
 const DIGEST = /^[a-f0-9]{64}$/;
 const MAX_PROJECT_FILES = 500;
 
-const BUILD_FILE = /(^|\/)(?:pom\.xml|settings\.gradle(?:\.kts)?|build\.gradle(?:\.kts)?|gradle\.properties|gradle\/libs\.versions\.toml|AndroidManifest\.xml|pyproject\.toml|setup\.cfg|requirements[^/]*\.txt|poetry\.lock|uv\.lock|Pipfile\.lock|Package\.swift|Package\.resolved|project\.pbxproj)$/;
+const BUILD_FILE = /(^|\/)(?:package\.json|tsconfig(?:\.[\w-]+)?\.json|jsconfig\.json|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|pom\.xml|settings\.gradle(?:\.kts)?|build\.gradle(?:\.kts)?|gradle\.properties|gradle\/libs\.versions\.toml|AndroidManifest\.xml|pyproject\.toml|setup\.cfg|requirements[^/]*\.txt|poetry\.lock|uv\.lock|Pipfile\.lock|Package\.swift|Package\.resolved|project\.pbxproj)$/;
+
+// Lockfiles pin the dependency graph a semantic provider resolves against.
+const LOCKFILE = /(?:\.lock|Package\.resolved|libs\.versions\.toml|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml)$/;
+const NODE_PROJECT_FILE = /(?:^|\/)(?:package\.json|tsconfig(?:\.[\w-]+)?\.json|jsconfig\.json|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml)$/;
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
 
 function rootFor(relative) {
+  if (NODE_PROJECT_FILE.test(relative)) return path.posix.dirname(relative);
   if (relative.endsWith('/pom.xml') || relative === 'pom.xml') return path.posix.dirname(relative);
   if (/(?:settings|build)\.gradle(?:\.kts)?$/.test(relative)) return path.posix.dirname(relative);
   if (relative.endsWith('gradle/libs.versions.toml')) return path.posix.dirname(path.posix.dirname(relative));
@@ -30,6 +35,7 @@ function rootFor(relative) {
 }
 
 function projectKind(relative) {
+  if (NODE_PROJECT_FILE.test(relative)) return 'node';
   if (relative.endsWith('pom.xml')) return 'maven';
   if (/settings\.gradle(?:\.kts)?$/.test(relative)) return 'gradle';
   if (/build\.gradle(?:\.kts)?$/.test(relative)) return 'gradle';
@@ -107,7 +113,7 @@ function sourceSetsFor(kind, files, repositoryPaths = []) {
 }
 
 function dependencyDigest(files) {
-  const locks = files.filter((file) => /(?:\.lock|Package\.resolved|libs\.versions\.toml)$/.test(file.path));
+  const locks = files.filter((file) => LOCKFILE.test(file.path));
   return recordSha256(locks.map(({ path: filePath, sha256: digest }) => ({ path: filePath, sha256: digest })));
 }
 
@@ -154,7 +160,7 @@ export async function discoverProjectBindings(root, { paths = null, maxFiles = M
   const bindings = [];
   for (const group of [...groups.values()].sort((left, right) => `${left.root}\0${left.kind}`.localeCompare(`${right.root}\0${right.kind}`))) {
     const files = group.files.map(({ path: filePath, sha256: digest }) => ({ path: filePath, sha256: digest })).sort((a, b) => a.path.localeCompare(b.path));
-    const lockfiles = files.filter((file) => /(?:\.lock|Package\.resolved|libs\.versions\.toml)$/.test(file.path));
+    const lockfiles = files.filter((file) => LOCKFILE.test(file.path));
     const binding = {
       schemaVersion: AST_PROJECT_BINDING_SCHEMA_VERSION,
       projectKind: group.kind,

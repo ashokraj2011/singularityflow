@@ -225,8 +225,10 @@ test('default scope never expands empty roots to the repository and explicit all
 test('text facts contain references and hashes but never source bodies', async () => withPreferenceFile(async () => {
   const root = await repository();
   const result = await astCommand(root, ['context'], { all: true });
-  assert.equal(result.assurance, 'text');
-  assert.ok(result.facts.some((fact) => fact.kind === 'symbol' && fact.name === 'one'));
+  // The bundled TypeScript parser lifts .ts files to syntax; the text facts are still recorded.
+  assert.equal(result.assurance, 'syntax');
+  assert.ok(result.facts.some((fact) => fact.kind === 'symbol' && fact.name === 'one' && fact.assurance === 'text'));
+  assert.ok(result.facts.some((fact) => fact.kind === 'symbol' && fact.name === 'one' && fact.assurance === 'syntax'));
   assert.ok(result.facts.some((fact) => fact.kind === 'import' && fact.target === './one.js'));
   assert.doesNotMatch(JSON.stringify(result), /return 1/);
 }));
@@ -349,9 +351,10 @@ test('a lexical symbol match never satisfies a required symbol gate', async () =
   await initializeDefinition(root);
   const workflowPath = path.join(root, 'singularity', 'workflow.yml');
   const template = await readFile(workflowPath, 'utf8');
+  // text-only keeps the bundled TypeScript parser out, so the only match is lexical.
   await writeFile(workflowPath, template.replace(
     '  fallback: host-and-text\n',
-    '  fallback: host-and-text\n  predicates:\n    - id: one-exists\n      mode: required\n      type: symbol-exists\n      symbol: one\n'
+    '  fallback: text-only\n  predicates:\n    - id: one-exists\n      mode: required\n      type: symbol-exists\n      symbol: one\n'
   ));
   const result = await astCommand(root, ['gate'], { paths: 'one.ts,two.ts', 'max-files': '1' });
   assert.equal(result.status, 'partial');
@@ -453,10 +456,11 @@ test('a zero-progress page remains resumable and recommends a sufficient byte bu
 test('a first context automatically warms blob skeletons and later reads reuse them', async () => withPreferenceFile(async () => {
   const root = await repository();
   const context = await astCommand(root, ['context'], { all: true });
-  assert.equal(context.provenance.cache.misses, 2);
+  // Two .ts files, each with a text skeleton and a TypeScript syntax skeleton.
+  assert.equal(context.provenance.cache.misses, 4);
   assert.equal((await astCacheStatus(root)).exists, true);
   const query = await astCommand(root, ['query'], { all: true, predicate: 'symbol', value: 'one' });
-  assert.equal(query.provenance.cache.hits, 2);
+  assert.equal(query.provenance.cache.hits, 4);
   assert.equal(query.provenance.cache.misses, 0);
   assert.ok(query.facts.some((item) => item.name === 'one'));
 }));
@@ -525,7 +529,7 @@ test('an out-of-cone edit does not invalidate or miss the selected cone cache', 
   await writeFile(path.join(root, 'two.ts'), 'export const changedOutsideCone = true;\n');
   const result = await astCommand(root, ['context'], { paths: 'one.ts' });
   assert.equal(result.status, 'complete');
-  assert.equal(result.provenance.cache.hits, 1);
+  assert.equal(result.provenance.cache.hits, 2, 'the text and TypeScript syntax skeletons of one.ts');
   assert.equal(result.provenance.cache.misses, 0);
 }));
 
@@ -690,7 +694,8 @@ test('host-and-text executes and caches an approved adapter while text-only neve
   const workflowPath = path.join(root, 'singularity', 'workflow.yml');
   const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
   definition.ast.fallback = 'host-and-text';
-  definition.ast.languages = { typescript: { mode: 'auto', minimumAssurance: 'syntax' } };
+  // Pinned, because the bundled TypeScript parser also serves typescript.
+  definition.ast.languages = { typescript: { mode: 'auto', minimumAssurance: 'syntax', syntaxProvider: 'syntax-fixture' } };
   await writeFile(workflowPath, YAML.stringify(definition));
 
   const adapter = path.join(root, 'syntax-adapter.mjs');
@@ -718,7 +723,7 @@ test('host-and-text executes and caches an approved adapter while text-only neve
   process.env.SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS = manifestPath;
   try {
     const doctor = await astCommand(root, ['doctor'], {});
-    assert.deepEqual(doctor.assuranceAvailable, ['text', 'syntax']);
+    assert.deepEqual(doctor.assuranceAvailable, ['text', 'syntax', 'semantic']);
     const built = await astCommand(root, ['build'], { paths: 'one.ts' });
     assert.equal(built.status, 'complete');
     assert.equal(built.assurance, 'syntax');
@@ -742,6 +747,51 @@ test('host-and-text executes and caches an approved adapter while text-only neve
     assert.equal(degraded.assurance, 'text');
     assert.equal(degraded.provenance.adapters.length, 0);
     assert.equal((await readFile(counter, 'utf8')).trim().split('\n').length, 1);
+  } finally {
+    if (before === undefined) delete process.env.SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS;
+    else process.env.SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS = before;
+  }
+}));
+
+test('an adapter response over its output budget is split and retried rather than failing every file', async () => withPreferenceFile(async () => {
+  const root = await repository();
+  await initializeDefinition(root);
+  const workflowPath = path.join(root, 'singularity', 'workflow.yml');
+  const definition = YAML.parse(await readFile(workflowPath, 'utf8'));
+  definition.ast.fallback = 'host-and-text';
+  definition.ast.languages = { typescript: { mode: 'auto', minimumAssurance: 'syntax', syntaxProvider: 'syntax-fixture' } };
+  await writeFile(workflowPath, YAML.stringify(definition));
+  const adapter = path.join(root, 'syntax-adapter.mjs');
+  const counter = path.join(root, '.adapter-runs');
+  // 1.2 MB of leading whitespace per requested file: one file fits the 2 MiB budget, two do not.
+  await writeFile(adapter, `
+    import { appendFileSync } from 'node:fs';
+    let input = ''; for await (const chunk of process.stdin) input += chunk;
+    const request = JSON.parse(input);
+    appendFileSync(${JSON.stringify(counter)}, request.files.length + '\\n');
+    process.stdout.write(' '.repeat(1_200_000 * request.files.length) + JSON.stringify({
+      protocolVersion: 2, adapterId: 'syntax-fixture', extractorVersion: '1.0.0', assurance: 'syntax',
+      derivationIdentity: request.derivationIdentity,
+      artifactSha256: request.implementation.artifactSha256,
+      manifestSha256: request.implementation.manifestSha256,
+      files: request.files.map((file) => ({ path: file.path, sha256: file.sha256,
+        facts: [{ kind: 'symbol', name: 'CompilerParsed', declarationKind: 'class', line: 1 }] }))
+    }));
+  `);
+  const manifestPath = path.join(root, 'adapter.json');
+  await writeFile(manifestPath, JSON.stringify(adapterManifestValue({
+    argv: [process.execPath, adapter],
+    implementation: { artifactSha256: digest(await readFile(adapter)) }
+  })));
+  const before = process.env.SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS;
+  process.env.SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS = manifestPath;
+  try {
+    const built = await astCommand(root, ['build'], { paths: 'one.ts,two.ts' });
+    assert.equal(built.status, 'complete');
+    assert.equal(built.assurance, 'syntax');
+    assert.deepEqual(built.facts.filter((item) => item.name === 'CompilerParsed').map((item) => item.path).sort(), ['one.ts', 'two.ts']);
+    assert.deepEqual((await readFile(counter, 'utf8')).trim().split('\n'), ['2', '1', '1'], 'both files, then each half');
+    assert.deepEqual(built.provenance.adapters.filter((item) => item.id === 'syntax-fixture').map((item) => item.status), ['executed']);
   } finally {
     if (before === undefined) delete process.env.SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS;
     else process.env.SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS = before;

@@ -71,8 +71,11 @@ test('local installer performs a safe ordered pull, pack, global install, and pl
   const script = await readFile(scriptPath, 'utf8');
   const packageJson = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
   assert.equal(packageJson.scripts['install:local'], 'bash ./install.sh');
-  assert.match(packageJson.devDependencies?.typescript ?? '', /^\^5\./,
+  // The schema migration check and the bundled TypeScript AST packs import it, so it ships inside
+  // the package rather than being left to whatever the installing machine has.
+  assert.match(packageJson.dependencies?.typescript ?? '', /^5\.\d+\.\d+$/,
     'CLI-only installs need TypeScript because the mandatory schema migration check imports it');
+  assert.ok(packageJson.bundleDependencies.includes('typescript'), 'TypeScript is bundled into the package');
   assert.ok((await stat(scriptPath)).mode & 0o100, 'install.sh must be executable');
   assert.match(script, /git status --porcelain/);
   assert.match(script, /git pull --ff-only/);

@@ -10,7 +10,7 @@
 import path from 'node:path';
 
 import { buildLenses } from '../code-intelligence/generated/code-explainer-lenses.mjs';
-import { buildCodeExplainerModel, codeAreas, inArea, isTestPath } from '../code-intelligence/generated/code-explainer-model.mjs';
+import { buildCodeExplainerModel, codeAreas, flattenSymbols, inArea, isTestPath, textSymbols } from '../code-intelligence/generated/code-explainer-model.mjs';
 import { scanSourceClauseTags } from '../traceability-ids.mjs';
 import { citation, invalidCitations, knowledgeItem, KNOWLEDGE_LEVELS, KNOWLEDGE_FORMAT } from './items.mjs';
 import {
@@ -51,15 +51,54 @@ function fileIdentifiers(file) {
   return file.identifiers;
 }
 
-function engineInput(name, files) {
+function engineInput(name, files, calls = []) {
   return {
     repository: { name, branch: null, head: null },
     story: null,
     change: { view: null, patch: null, patchFiles: [], base: null },
     files: files.map((file) => ({ path: file.path, language: file.language, lines: file.lines, symbols: null, symbolReason: null })),
-    calls: [], callStatus: {}, references: [], referenceStatus: {}, hovers: {},
+    calls, callStatus: {}, references: [], referenceStatus: {}, hovers: {},
     focus: null, depth: 3, view: 'full', modelEnabled: false
   };
+}
+
+/**
+ * Resolved calls as engine call inputs. Each end is placed on the exact outline entry the engine
+ * reads from that file's text (same outline, same range), so the engine folds it into its own
+ * symbol instead of adding a second one. Ends that do not land on an outline entry are dropped.
+ */
+function resolvedCallInputs(resolvedCalls, filesByPath) {
+  const result = { calls: [], raw: [], covered: new Set() };
+  if (!resolvedCalls?.calls?.length) return result;
+  const outlines = new Map();
+  const outline = (relative) => {
+    if (!outlines.has(relative)) {
+      const file = filesByPath.get(relative);
+      outlines.set(relative, file?.lines ? flattenSymbols(textSymbols(file.lines, file.language), file.lines, undefined, relative.slice(relative.lastIndexOf('/') + 1)) : []);
+    }
+    return outlines.get(relative);
+  };
+  const endFor = (end) => {
+    const entries = outline(end.path).filter((entry) => entry.raw.name === end.name
+      && entry.raw.range.start <= end.line + 2 && entry.raw.range.end >= end.line);
+    entries.sort((a, b) => (a.raw.range.end - a.raw.range.start) - (b.raw.range.end - b.raw.range.start));
+    const raw = entries[0]?.raw;
+    return raw ? { path: end.path, name: raw.name, kind: raw.kind, range: raw.range, selection: raw.selection, detail: raw.detail ?? null } : null;
+  };
+  const grouped = new Map();
+  for (const call of resolvedCalls.calls) {
+    result.covered.add(call.from.path);
+    result.raw.push(call);
+    const from = endFor(call.from);
+    const to = endFor(call.to);
+    if (!from || !to) continue;
+    const key = `${from.path}:${from.range.start}>${to.path}:${to.range.start}`;
+    const entry = grouped.get(key) ?? { from, to, sites: [] };
+    if (call.site != null && !entry.sites.includes(call.site)) entry.sites.push(call.site);
+    grouped.set(key, entry);
+  }
+  result.calls = [...grouped.values()].map((entry) => ({ ...entry, sites: entry.sites.sort((a, b) => a - b) }));
+  return result;
 }
 
 /** The first outcome of a branch, in words: what it returns, refuses, shows or sets. */
@@ -157,7 +196,7 @@ function comparisonIn(cond) {
   return null;
 }
 
-export function analyzeKnowledge(source, { churn = null, commits = null } = {}) {
+export function analyzeKnowledge(source, { churn = null, commits = null, resolvedCalls = null } = {}) {
   const files = source.files;
   const filesByPath = new Map([...files, ...source.manifests, ...(source.documents ?? [])].map((file) => [file.path, file]));
   const knownPaths = new Set(files.map((file) => file.path));
@@ -194,6 +233,7 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
   const symbolsByName = new Map();
   const symbolsById = new Map();
   const callEdges = [];
+  const resolved = resolvedCallInputs(resolvedCalls, filesByPath);
   const sinksBySymbol = new Map();
   const logicBySymbol = new Map();
   const entries = [];
@@ -202,7 +242,9 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
   for (const area of areas) {
     const areaFiles = files.filter((file) => areaOf(file.path) === (area.path || '.'));
     if (!areaFiles.length) continue;
-    const input = engineInput(source.name ?? 'repository', areaFiles);
+    const areaPaths = new Set(areaFiles.map((file) => file.path));
+    const input = engineInput(source.name ?? 'repository', areaFiles,
+      resolved.calls.filter((call) => areaPaths.has(call.from.path) && areaPaths.has(call.to.path)));
     let model;
     let lenses;
     try {
@@ -271,6 +313,24 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
       }
     }
     for (const [id, flow] of Object.entries(lenses.logic.flows)) logicBySymbol.set(id, flow);
+  }
+  if (resolved.calls.length) {
+    // Where the compiler resolved a file's calls, a name match from it is a duplicate or a guess at
+    // a callee it did not find in the repository (a library function with the same name).
+    const kept = callEdges.filter((edge) => !edge.inferred || !resolved.covered.has(symbolsById.get(edge.from)?.file));
+    callEdges.length = 0;
+    for (const edge of kept) callEdges.push(edge);
+    // A resolved call between two areas: each area's engine saw only one end of it.
+    const present = new Set(callEdges.map((edge) => `${edge.from}>${edge.to}`));
+    const symbolAt = (end) => (symbolsByName.get(end.name) ?? []).find((entry) => entry.file === end.path && entry.start <= end.line && entry.end >= end.line)
+      ?? (symbolsByName.get(end.name) ?? []).find((entry) => entry.file === end.path && Math.abs(entry.line - end.line) <= 2);
+    for (const call of resolved.raw) {
+      const from = symbolAt(call.from);
+      const to = symbolAt(call.to);
+      if (!from || !to || from.id === to.id || present.has(`${from.id}>${to.id}`)) continue;
+      present.add(`${from.id}>${to.id}`);
+      callEdges.push({ from: from.id, to: to.id, inferred: false, line: call.site });
+    }
   }
 
   // ---- Readers that need every file ---------------------------------------------------------
@@ -880,6 +940,8 @@ export function analyzeKnowledge(source, { churn = null, commits = null } = {}) 
       invalidCitations: invalid.length,
       calls: callEdges.length,
       callsMatchedByName: callEdges.filter((edge) => edge.inferred).length,
+      callsResolved: callEdges.filter((edge) => !edge.inferred).length,
+      callResolution: resolvedCalls ? { status: resolvedCalls.status, providers: resolvedCalls.providers ?? [], edges: resolved.raw.length } : null,
       imports: imports.length
     },
     graph: {

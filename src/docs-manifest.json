@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "94ed35919ef19805c50b2973260a0ba7e04ea08a",
+  "sourceCommit": "9cfd16b757dd3c2c5714aeaff7f9b4eb88bbc2a4",
   "topicCount": 81,
-  "contentSha256": "532beaa6bfd7f9b9e4f04b8f04a210a7775d11005558473a6add47867c43f6b8",
+  "contentSha256": "ccecba862bcbe6f7816694a0c40a4cda598bb5e621e03eac2429a1efe4f591fe",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -64,8 +64,8 @@
     {
       "id": "ast-intelligence",
       "title": "Optional AST intelligence",
-      "version": 5,
-      "sha256": "9e40cd30fbbcef05b45e0ddb97e05bac2ebba428d31b6082932b4e2e9c765d2c",
+      "version": 6,
+      "sha256": "3e2605d4fac077c8c980f351f6b01b0b5624ff206a86d10c6d6c5e8d8045bd0f",
       "routingSha256": "1671f988a2f09eeb1af1cef10389c698c3e3a813a6caf2a362c9c3509bf23847",
       "file": "ast-intelligence.md"
     },
@@ -408,8 +408,8 @@
     {
       "id": "project-binding",
       "title": "AST project binding",
-      "version": 1,
-      "sha256": "e4d1ad7f140d6efef13f5ef9398e3a752f54a0003b58f4b5b83c788e01eb36ec",
+      "version": 2,
+      "sha256": "84963b52b4833f0b75e9428dc6793a18ce100a22f7f6bd303bf85f496315c27c",
       "routingSha256": "4a66b7d3a00088285df8c1bacf9ef307dd511c057187fc0f0b1ab19118c3941b",
       "file": "project-binding.md"
     },

@@ -16,11 +16,12 @@ import { recentCommitFileSets } from '../git.mjs';
 import { analyzeKnowledge, KNOWLEDGE_ANALYZER_VERSION } from './analyze.mjs';
 import { sha256 } from './items.mjs';
 import { readKnowledgeSource } from './source.mjs';
+import { readResolvedCalls } from './resolved-calls.mjs';
 import { inArea } from '../code-intelligence/generated/code-explainer-model.mjs';
 import { focusStems, stemOf } from './render.mjs';
 
 const KEEP_ENTRIES = 12;
-const ANALYZER_SOURCES = ['./analyze.mjs', './producers.mjs', './items.mjs', './source.mjs', './requirements.mjs',
+const ANALYZER_SOURCES = ['./analyze.mjs', './producers.mjs', './items.mjs', './source.mjs', './requirements.mjs', './resolved-calls.mjs',
   '../code-intelligence/generated/code-explainer-model.mjs', '../code-intelligence/generated/code-explainer-lenses.mjs'];
 let analyzerIdentity = null;
 
@@ -54,7 +55,7 @@ async function prune(directory) {
  * The knowledge for HEAD (or one area of it). Reads the committed source, reuses an exact cache
  * entry when there is one, and otherwise analyses and stores the result.
  */
-export async function buildKnowledge(root, { area = null, ownOnly = false, history = true, refresh = false, limits = undefined } = {}) {
+export async function buildKnowledge(root, { area = null, ownOnly = false, history = true, refresh = false, limits = undefined, resolveCalls = true } = {}) {
   const started = performance.now();
   const source = await readKnowledgeSource(root, { area, ownOnly, ...(limits ? { limits } : {}) });
   if (source.status !== 'ok') {
@@ -63,7 +64,10 @@ export async function buildKnowledge(root, { area = null, ownOnly = false, histo
       codeFiles: source.codePaths, knowledge: null, cache: 'none', durationMs: Math.round(performance.now() - started)
     };
   }
-  const key = sha256(JSON.stringify([source.key, KNOWLEDGE_ANALYZER_VERSION, analyzerSourceIdentity(), history]));
+  // Calls a compiler resolved (a warmed semantic AST pack); their digest is part of the key, so
+  // warming a pack later rebuilds the knowledge instead of reusing a name-matched build.
+  const resolvedCalls = resolveCalls ? await readResolvedCalls(root, source) : { status: 'not-requested', calls: [], digest: null, providers: [] };
+  const key = sha256(JSON.stringify([source.key, KNOWLEDGE_ANALYZER_VERSION, analyzerSourceIdentity(), history, resolvedCalls.digest]));
   const directory = cacheDirectory(root);
   const file = path.join(directory, `${key}.json`);
   if (!refresh) {
@@ -82,7 +86,7 @@ export async function buildKnowledge(root, { area = null, ownOnly = false, histo
     churn = counts.size ? counts : null;
     if (!commits.length) commits = null;
   }
-  const knowledge = analyzeKnowledge(source, { churn, commits });
+  const knowledge = analyzeKnowledge(source, { churn, commits, resolvedCalls });
   await mkdir(directory, { recursive: true });
   const temporary = `${file}.${process.pid}.tmp`;
   await writeFile(temporary, JSON.stringify({ key, builtAt: new Date().toISOString(), knowledge }));

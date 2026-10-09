@@ -22,7 +22,7 @@ related:
   - project-binding
   - world-model
   - model-independence
-version: 5
+version: 6
 ---
 AST intelligence is an optional, bounded source of structural code facts for the world model. It
 can identify symbols, imports, declarations, and relationships with an explicit `text`, `syntax`,
@@ -73,8 +73,10 @@ model.
 ## Availability and assurance
 
 Run `sflow wm ast doctor --json` for effective mode, language/provider coverage, existing project
-bindings, available assurance, diagnostics, and cache size. JavaScript and TypeScript have bundled
-lexical facts. Java, Python, Kotlin, and Swift can use the bundled text-assured preview; reviewed
+bindings, available assurance, diagnostics, and cache size. JavaScript and TypeScript are parsed by
+the bundled TypeScript compiler (`syntax`); after `sflow wm ast warm --semantic --provider
+sflow-typescript --project node:. --profile default` their calls are resolved by its type checker
+(`semantic`). Java, Python, Kotlin, and Swift can use the bundled text-assured preview; reviewed
 parser or semantic packs are optional.
 
 Missing packs, unsupported languages, adapter failures, incomplete project bindings, and evidence

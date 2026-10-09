@@ -22,6 +22,15 @@ export const OPTIONAL_AST_SEMANTIC_PACKS = Object.freeze([
   })
 ]);
 
+/** Bundled semantic packs: present whenever their compiler ships with Singularity Flow. */
+export const BUNDLED_AST_SEMANTIC_PACKS = Object.freeze([
+  Object.freeze({
+    id: 'sflow-typescript', stage: 'semantic', languages: ['javascript', 'typescript'],
+    projectKinds: ['node'], platforms: ['win32', 'darwin', 'linux'],
+    requiredToolchains: ['Node.js (the bundled TypeScript compiler)'], maturity: 'preview'
+  })
+]);
+
 export function optionalSemanticPack(id) {
   return OPTIONAL_AST_SEMANTIC_PACKS.find((pack) => pack.id === id) ?? null;
 }

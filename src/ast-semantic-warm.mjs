@@ -14,7 +14,9 @@ const PROVIDERS = Object.freeze({
   'sflow-java-jdt': { projectKinds: ['maven', 'gradle', 'java-standalone'], tool: ['java'], modelTool: { maven: ['mvn'], gradle: ['gradle'] }, kind: 'jdk+jdt' },
   'sflow-python-pyright': { projectKinds: ['python'], tool: ['python3', 'python'], kind: 'python+pyright' },
   'sflow-kotlin-analysis': { projectKinds: ['gradle', 'gradle-android'], tool: ['kotlinc'], modelTool: { gradle: ['gradle'], 'gradle-android': ['gradle'] }, kind: 'jdk+kotlin' },
-  'sflow-swift-sourcekit': { projectKinds: ['swiftpm', 'xcode'], tool: ['sourcekit-lsp'], modelTool: { swiftpm: ['swift'], xcode: ['xcodebuild'] }, kind: 'swift+sourcekit' }
+  'sflow-swift-sourcekit': { projectKinds: ['swiftpm', 'xcode'], tool: ['sourcekit-lsp'], modelTool: { swiftpm: ['swift'], xcode: ['xcodebuild'] }, kind: 'swift+sourcekit' },
+  // The bundled TypeScript compiler runs on the Node that runs Singularity Flow; no project tool is executed.
+  'sflow-typescript': { projectKinds: ['node'], tool: ['node'], kind: 'node+typescript', defaultToolchain: () => process.execPath }
 });
 
 function sha256(bytes) {
@@ -55,6 +57,7 @@ function versionArguments(provider, executable) {
   const name = path.basename(executable).toLowerCase();
   if (provider === 'sflow-java-jdt' || name.startsWith('java')) return ['--version'];
   if (provider === 'sflow-python-pyright' || name.startsWith('python')) return ['--version'];
+  if (provider === 'sflow-typescript' || name.startsWith('node')) return ['--version'];
   if (name.startsWith('xcodebuild')) return ['-version'];
   return ['-version'];
 }
@@ -99,9 +102,9 @@ export async function planAstSemanticWarm(root, options = {}) {
     );
   }
   const provider = PROVIDERS[providerId];
-  const toolchainExecutable = await findExecutable(provider.tool, optionString(options, 'toolchain'));
+  const toolchainExecutable = await findExecutable(provider.tool, optionString(options, 'toolchain') ?? provider.defaultToolchain?.() ?? null);
   const modelNames = provider.modelTool?.[binding.projectKind] ?? provider.tool;
-  const modelExecutable = await findExecutable(modelNames, optionString(options, 'project-tool'));
+  const modelExecutable = await findExecutable(modelNames, optionString(options, 'project-tool') ?? (provider.modelTool ? null : toolchainExecutable));
   const commands = [];
   if (toolchainExecutable) commands.push({ kind: 'toolchain-version', cwd: '.', argv: [toolchainExecutable, ...versionArguments(providerId, toolchainExecutable)] });
   if (modelExecutable) {

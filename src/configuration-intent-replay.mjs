@@ -1,6 +1,7 @@
 /** Recreate configuration intent, not a textual merge of historical YAML layouts. */
 import YAML from 'yaml';
 import { renderDataPreservingFormatting } from './yaml-formatting.mjs';
+import { SingularityFlowError } from './util.mjs';
 
 const ABSENT = Symbol('absent');
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -11,12 +12,13 @@ const equal = (a, b) => a === b || (a !== ABSENT && b !== ABSENT
 const copy = value => value === ABSENT ? ABSENT : structuredClone(value);
 
 /** Explicit policy: changed proposal values win; unrelated current values survive. */
-export function replayConfigurationIntent(base, proposed, current) {
+export function replayConfigurationIntent(base, proposed, current, { conflictPolicy = 'proposal-wins' } = {}) {
+  if (!['proposal-wins', 'reject'].includes(conflictPolicy)) throw new Error('Unknown configuration conflict policy.');
   const replacements = [];
   function replay(before, after, now, pointer) {
     if (equal(before, after)) return copy(now);
     if (equal(now, after)) return copy(now);
-    if (object(before) && object(after) && (object(now) || now === ABSENT)) {
+    if (object(before) && object(after) && (object(now) || (now === ABSENT && conflictPolicy !== 'reject'))) {
       const target = now === ABSENT ? {} : now;
       const entries = new Map(Object.entries(target));
       for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
@@ -31,20 +33,26 @@ export function replayConfigurationIntent(base, proposed, current) {
     if (!equal(before, now)) replacements.push(pointer || '/');
     return copy(after);
   }
-  return { value: replay(base, proposed, current, ''), replacements };
+  const value = replay(base, proposed, current, '');
+  if (conflictPolicy === 'reject' && replacements.length) {
+    throw new SingularityFlowError('The same configuration values changed since this proposal was authored. Review these exact fields; unrelated settings and the proposal remain preserved.', {
+      code: 'CONFIGURATION_ENTITY_CONFLICT', details: { pointers: replacements }
+    });
+  }
+  return { value, replacements };
 }
 
 /** Formatting-only churn cannot roll current policy back to an older proposal's value. */
-export function replayConfigurationYaml(baseText, proposedText, currentText) {
+export function replayConfigurationYaml(baseText, proposedText, currentText, options = {}) {
   const parse = text => text == null ? {} : YAML.parse(text, { maxAliasCount: 100 });
   const current = parse(currentText);
-  const result = replayConfigurationIntent(parse(baseText), parse(proposedText), current);
+  const result = replayConfigurationIntent(parse(baseText), parse(proposedText), current, options);
   return { ...result, text: renderDataPreservingFormatting(currentText, result.value, { before: current }) };
 }
 
 /** JSON assets remain JSON; YAML syntax must never be silently adopted as valid JSON. */
-export function replayConfigurationJson(baseText, proposedText, currentText) {
+export function replayConfigurationJson(baseText, proposedText, currentText, options = {}) {
   const parse = text => text == null ? {} : JSON.parse(text);
-  const result = replayConfigurationIntent(parse(baseText), parse(proposedText), parse(currentText));
+  const result = replayConfigurationIntent(parse(baseText), parse(proposedText), parse(currentText), options);
   return { ...result, text: `${JSON.stringify(result.value, null, 2)}\n` };
 }

@@ -20,6 +20,7 @@ import { loadSkillLibrary } from './skill-library.mjs';
 import { readInstruction } from './instruction-library.mjs';
 import { syncConfigurationReferences } from './configuration-reference-sync.mjs';
 import { ConfigurationObjectReader } from './configuration-object-reader.mjs';
+import { isConfigurationStatePath } from './configuration-state-contract.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 
 const PREFIX = 'refs/heads/sflow/config-change/';
@@ -165,7 +166,7 @@ export async function recreateAndSyncConfiguration(root, {
       const policy = mergeConfigurationAssetPolicies(currentPolicy, policyAt(reader, item.sourceBase), policyAt(reader, item.commit));
       item.changed = readGitNameStatusDiff(scratch, item.sourceBase, item.commit, { env: transport.env, maximumRecords: MAX_FILES }).names;
       for (const relative of item.changed) {
-        if (!portableConfigurationPath(relative) || !isConfigurationAssetPath(relative, policy) || relative === LOG) {
+        if (!portableConfigurationPath(relative) || !isConfigurationAssetPath(relative, policy) || relative === LOG || isConfigurationStatePath(relative)) {
           fail(`Proposal '${item.branch}' changes non-configuration path '${relative}'. No application or Story files were changed.`);
         }
         objects.push(...[item.sourceBase, item.commit, baseCommit].map(commit => reader.lookup(commit, relative)));

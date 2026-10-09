@@ -1,5 +1,6 @@
 import { SKILL_LIBRARY_ROOT } from './skill-library.mjs';
 import { INSTRUCTION_LIBRARY_ROOT } from './instruction-library.mjs';
+import { isConfigurationStatePath } from './configuration-state-contract.mjs';
 import { retiredWorldModelError, selectsRetiredWorldModel } from './world-model-format.mjs';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { assertPhaseTopology, phaseTopologyFindings } from './phase-semantics.mjs';
@@ -1961,6 +1962,7 @@ export async function validateConfigurationCandidates(root, candidates, definiti
 
 export async function saveConfigurationFile(root, requestedPath, content, { expectedSha256 = null } = {}) {
   const relative = repoRelative(root, requestedPath);
+  if (isConfigurationStatePath(relative)) throw new SingularityFlowError('Configuration transaction receipts are kernel-owned. Inspect or reconcile the operation; do not edit its receipt.', { code: 'CONFIGURATION_STATE_PROTECTED' });
   // Bind the save lease to the target bytes before parsing any repository configuration. A
   // concurrent writer can leave workflow.yml temporarily malformed; that is still a revision
   // conflict, not a candidate-validation failure. Resolve the target through the secure repository
@@ -2063,6 +2065,7 @@ export async function deleteConfigurationTemplate(root, requestedPath) {
 }
 
 export async function deleteConfigurationFile(root, requestedPath) {
+  if (isConfigurationStatePath(repoRelative(root, requestedPath))) throw new SingularityFlowError('Configuration transaction receipts are kernel-owned and cannot be deleted through the editor.', { code: 'CONFIGURATION_STATE_PROTECTED' });
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const relative = repoRelative(root, requestedPath);
@@ -2235,6 +2238,7 @@ export async function publishEditorConfiguration(
     editorConfigurationPathAuthority(root, definition, portfolio, { ref: parent })
   );
   const changed = changedFiles(root);
+  if (changed.some(isConfigurationStatePath)) throw new SingularityFlowError('Configuration transaction receipts cannot be authored through a legacy publication. Use the exact reviewed configuration proposal route.', { code: 'CONFIGURATION_STATE_PROTECTED' });
   const configurationChanges = changed.filter((file) =>
     allowedConfigurationPath(definition, file, portfolio, root, pathAuthority));
   if (!configurationChanges.length) throw new SingularityFlowError('No workflow, portfolio, template, agent, prompt, skill, or agent changes are ready to publish.');

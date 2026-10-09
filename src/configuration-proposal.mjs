@@ -38,6 +38,11 @@ import {
 import { executeGitQuery } from './git-query.mjs';
 import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
+import { openConfigurationStateService, readConfigurationTransactionJournals } from './configuration-state-service.mjs';
+import { prepareConfigurationStateTransaction, materializeConfigurationSnapshot,
+  hydrateConfigurationProposal, configurationStateAtRef } from './configuration-state-git.mjs';
+import { isConfigurationStatePath, configurationDigest } from './configuration-state-contract.mjs';
+import { syncConfigurationReferences } from './configuration-reference-sync.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 
 const REVIEW_PREFIX = 'sflow/config-change/workflow/';
@@ -76,6 +81,16 @@ function authorityChanged(message, expected, actual) {
       code: 'CONFIGURATION_PROPOSAL_AUTHORITY_CHANGED', details: { expected, actual }
     }
   );
+}
+
+// A local persistence failure after transport must not hide an observed shared commit. The
+// prepared operation is already durable; disclose the pending journal update and exact recovery.
+async function retainConfigurationOutcome(service, id, state, reason = null) {
+  try { await service.mark(id, state, reason); return null; }
+  catch (error) {
+    return { code: error.code ?? 'CONFIGURATION_JOURNAL_WRITE_FAILED',
+      nextAction: `singularity-flow configuration reconcile ${id} --json` };
+  }
 }
 
 function configurationRepositoryHead(root, env = process.env) {
@@ -275,7 +290,7 @@ function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
   const reviewBase = merged ? proposalBase : mergeBase;
   const changed = changedConfigurationFiles(root, reviewBase, ref, env);
   const invalidFiles = changed.names.filter((file) => !isConfigurationReadPath(file));
-  const diff = includeDiff
+  const diff = includeDiff && invalidFiles.length === 0
     ? run('git', ['diff', '--no-ext-diff', '--unified=3', `${reviewBase}..${ref}`], {
       cwd: root, env
     }).stdout
@@ -316,6 +331,7 @@ async function withWorkflowProposalCheckout(root, requestedBranch, operation, {
   try {
     const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
+      '--no-checkout', '--filter=blob:none',
       '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
     if (cloned.status !== 0) {
@@ -325,7 +341,7 @@ async function withWorkflowProposalCheckout(root, requestedBranch, operation, {
       );
     }
     const fetched = await runRemoteGitAsync([
-      'fetch', '--quiet', '--no-tags', '--', transport.remote,
+      'fetch', '--quiet', '--no-tags', '--filter=blob:none', '--', transport.remote,
       `+refs/heads/${branch}:refs/remotes/origin/${branch}`
     ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
     if (fetched.status !== 0) {
@@ -334,6 +350,9 @@ async function withWorkflowProposalCheckout(root, requestedBranch, operation, {
         { code: fetched.failure?.code ?? 'WORKFLOW_PROPOSAL_UNAVAILABLE' }
       );
     }
+    const reader = await materializeConfigurationSnapshot(scratch, transport.remote,
+      configurationRepositoryHead(scratch, transport.env), transport.env, runRemoteGitAsync);
+    await hydrateConfigurationProposal(reader, `refs/remotes/origin/${branch}`, transport.env);
     return await operation(
       scratch, remote, branch, `refs/remotes/origin/${branch}`,
       {
@@ -366,29 +385,45 @@ export async function listWorkflowConfigurationProposals(root, {
     }))
     .sort((left, right) => left.branch.localeCompare(right.branch));
   if (!branches.length) return [];
+  const authorityCommit = advertised.refs.get(authorityRef);
+  // The database is only a verified-input read projection. Activation always observes Git anew.
+  let stateService = null;
+  try { stateService = await openConfigurationStateService(root, remote); } catch { /* disposable read cache */ }
+  if (!includeDiff && stateService) {
+    const cached = await stateService.cachedProposals(authorityCommit, branches);
+    if (cached) return includeMerged ? cached : cached.filter(record => !record.merged);
+  }
   const transport = frozenRemoteTransport(remote, { env: gitEnv });
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposals-'));
   try {
     const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--no-checkout',
+      '--filter=blob:none',
       '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
     if (cloned.status !== 0) throw new SingularityFlowError(cloned.failure?.advice ?? 'Workflow authority clone failed.');
     const fetched = await runRemoteGitAsync([
-      'fetch', '--quiet', '--no-tags', '--', transport.remote,
+      'fetch', '--quiet', '--no-tags', '--filter=blob:none', '--', transport.remote,
       `+refs/heads/${REVIEW_PREFIX}*:refs/remotes/origin/${REVIEW_PREFIX}*`
     ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
     if (fetched.status !== 0) throw new SingularityFlowError(fetched.failure?.advice ?? 'Workflow proposals could not be fetched.');
+    if (configurationRepositoryHead(scratch, transport.env) !== authorityCommit) {
+      throw new SingularityFlowError('Approved configuration changed during proposal inspection. Refresh its exact snapshot and retry.', { code: 'CONFIGURATION_SNAPSHOT_STALE' });
+    }
+    const reader = await materializeConfigurationSnapshot(scratch, transport.remote,
+      authorityCommit, transport.env, runRemoteGitAsync);
     const proposals = [];
     for (const entry of branches) {
       const ref = `refs/remotes/origin/${entry.branch}`;
       try {
-        if (!includeMerged && gitIsAncestor(scratch, ref, 'HEAD', {
-          env: transport.env
-        })) continue;
-        proposals.push(inspectWorkflowProposalCheckout(
+        await hydrateConfigurationProposal(reader, ref, transport.env);
+        const inspected = inspectWorkflowProposalCheckout(
           scratch, remote, entry.branch, ref, { includeDiff, env: transport.env }
-        ));
+        );
+        if (inspected.proposalCommit !== entry.proposalCommit) {
+          throw new SingularityFlowError('Proposal revision changed during inspection. Refresh before reviewing it.', { code: 'CONFIGURATION_SNAPSHOT_STALE' });
+        }
+        proposals.push(inspected);
       } catch (error) {
         proposals.push({
           remote: sanitizeRemote(remote), branch: entry.branch, targetBranch: CONFIGURATION_BRANCH,
@@ -398,7 +433,13 @@ export async function listWorkflowConfigurationProposals(root, {
         });
       }
     }
-    return proposals;
+    if (stateService && !includeDiff) {
+      try {
+        const projected = await stateService.projectProposals(authorityCommit, proposals);
+        return includeMerged ? projected : projected.filter(record => !record.merged);
+      } catch { /* cache failure cannot block inspection */ }
+    }
+    return includeMerged ? proposals : proposals.filter(record => !record.merged);
   } finally {
     await removeTemporaryTree(scratch);
   }
@@ -419,13 +460,18 @@ export async function inspectWorkflowConfigurationProposal(root, branch) {
  * authority SHA advance alone is not merge evidence, and a missing branch can also mean discard.
  */
 export async function configurationProposalCommitStatus(root, requestedBranch, requestedCommit, {
-  env = process.env, session = null
+  env = process.env, session = null, candidateCommit = null
 } = {}) {
   const branch = workflowProposalBranch(requestedBranch);
   const proposalCommit = String(requestedCommit ?? '').trim();
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(proposalCommit)) {
     throw new SingularityFlowError('Configuration proposal status requires an exact proposal commit.', {
       code: 'CONFIGURATION_PROPOSAL_COMMIT_INVALID'
+    });
+  }
+  if (candidateCommit !== null && !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(candidateCommit)) {
+    throw new SingularityFlowError('Configuration transaction status requires an exact candidate commit.', {
+      code: 'CONFIGURATION_TRANSACTION_CANDIDATE_INVALID'
     });
   }
   const gitEnv = enterpriseGitEnvironment(env);
@@ -438,6 +484,7 @@ export async function configurationProposalCommitStatus(root, requestedBranch, r
     // the exact proposal commit remains reachable through the merge/fast-forward ancestry.
     const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
+      '--no-checkout', '--filter=blob:none',
       '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
     ], { operation: 'remote-configuration', env: transport.env });
     if (cloned.status !== 0) {
@@ -454,7 +501,7 @@ export async function configurationProposalCommitStatus(root, requestedBranch, r
     const branchCommit = observed.refs.get(proposalRef) ?? null;
     if (branchCommit != null) {
       const fetched = await runRemoteGitAsync([
-        'fetch', '--quiet', '--no-tags', '--', transport.remote,
+        'fetch', '--quiet', '--no-tags', '--filter=blob:none', '--', transport.remote,
         `+${proposalRef}:refs/remotes/origin/${branch}`
       ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
       if (fetched.status !== 0) throw new SingularityFlowError(
@@ -463,6 +510,7 @@ export async function configurationProposalCommitStatus(root, requestedBranch, r
       );
     }
     const targetCommit = configurationRepositoryHead(scratch, transport.env);
+    const registry = await configurationStateAtRef(scratch, transport.remote, targetCommit, transport.env, runRemoteGitAsync);
     const merged = gitCommitObjectExists(scratch, proposalCommit, { env: transport.env })
       ? gitIsAncestor(scratch, proposalCommit, 'HEAD', { env: transport.env })
       : false;
@@ -473,9 +521,12 @@ export async function configurationProposalCommitStatus(root, requestedBranch, r
       targetBranch: CONFIGURATION_BRANCH,
       targetCommit,
       merged,
+      candidateIncluded: candidateCommit === null ? null : gitCommitObjectExists(scratch, candidateCommit, { env: transport.env })
+        && gitIsAncestor(scratch, candidateCommit, 'HEAD', { env: transport.env }),
       branchStatus: branchCommit == null ? 'absent'
         : branchCommit === proposalCommit ? 'matching' : 'replaced',
-      branchCommit
+      branchCommit,
+      transaction: registry.transactions.findLast(record => record.branch === branch && record.proposalRevision === proposalCommit) ?? null
     };
   } finally {
     await removeTemporaryTree(scratch);
@@ -511,6 +562,9 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       );
     }
     let alreadyMerged = reviewed.merged;
+    const stateService = await openConfigurationStateService(root, remote);
+    let prepared = null;
+    let journalWarning = null;
     let mergeEvidence = alreadyMerged ? 'existing-ancestor' : null;
     let protection = {
       enforced: null,
@@ -519,25 +573,22 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
         : 'repository enforcement has not been observed'
     };
     if (!alreadyMerged) {
-      const actor = gitCommitIdentity(root, { env: transport.identityEnv });
-      const merged = run('git', [
-        '-c', `user.name=${actor.name || 'Singularity Flow contributor'}`,
-        '-c', `user.email=${actor.email || 'unknown@invalid'}`,
-        'merge', '--no-ff', '--no-edit', ref
-      ], { cwd: scratch, env: transport.env, allowFailure: true });
-      if (merged.status !== 0) {
+      if (!acknowledgeUnprotected) {
+        const nextAction = workflowProposalCommand('activate', proposalBranch, reviewed.proposalCommit, true);
         throw new SingularityFlowError(
-          `Workflow proposal '${proposalBranch}' no longer merges cleanly into '${CONFIGURATION_BRANCH}'. `
-          + 'The proposal was preserved. Use Recreate & sync configuration in the main panel to rebuild pending intent without a Git merge.',
-          { code: 'WORKFLOW_PROPOSAL_CONFLICT', details: { nextAction: {
-            label: 'Preview recreation against the current approved configuration. To apply without merge questions, click Recreate & sync configuration in the main panel.',
-            command: 'singularity-flow configuration recreate-sync --json'
-          } } }
+          `Git cannot prove whether '${CONFIGURATION_BRANCH}' is protected without attempting the real update. Nothing was changed. Review externally, or explicitly acknowledge a direct-push attempt. Re-run: ${nextAction}`,
+          { code: 'WORKFLOW_CONFIGURATION_UNPROTECTED', details: { nextAction } }
         );
       }
+      const actor = gitCommitIdentity(root, { env: transport.identityEnv });
+      prepared = await prepareConfigurationStateTransaction(scratch, transport.remote, reviewed, {
+        env: transport.env, runRemoteCommand: runRemoteGitAsync, actor: { name: actor.name, email: actor.email },
+        proposalId: stateService.identity(proposalBranch)
+      });
+      await stateService.prepare(prepared.transaction, prepared.targetCommit);
     }
 
-    // Validate the complete merged configuration, including agents and routing, before a ref can
+    // Validate the complete transaction, including agents and routing, before a ref can
     // move. This is the same read-only validator used by Configuration Center.
     const baselineDefinition = validateDefinition(
       yamlAtRef(scratch, reviewed.targetCommit, 'singularity/workflow.yml', transport.env)
@@ -546,17 +597,6 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       validateEditorConfiguration(scratch, { baselineDefinition }));
     const targetCommit = configurationRepositoryHead(scratch, transport.env);
     if (!alreadyMerged) {
-      if (!acknowledgeUnprotected) {
-        const nextAction = workflowProposalCommand(
-          'activate', proposalBranch, reviewed.proposalCommit, true
-        );
-        throw new SingularityFlowError(
-          `Git cannot prove whether '${CONFIGURATION_BRANCH}' on '${sanitizeRemote(remote)}' is protected without `
-          + 'attempting the real update. Nothing was changed. Review and merge the proposal externally, '
-          + `or explicitly acknowledge a direct-push attempt. Re-run: ${nextAction}`,
-          { code: 'WORKFLOW_CONFIGURATION_UNPROTECTED', details: { nextAction } }
-        );
-      }
       const targetRef = `refs/heads/${CONFIGURATION_BRANCH}`;
       let pushed = await runRemoteGitAsync([
         'push', '--porcelain',
@@ -570,16 +610,18 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
         }).find((flag) => flag !== null)
         : null;
       const acquired = transition === ' ' || transition === '+';
-      if (pushed.status !== 0 || !acquired) {
+      let remoteOutcomeKnown = false;
+      {
         // A successful no-op (`=`) is not proof that this invocation acquired the leased
         // transition. Re-read the exact authority: identical bytes mean a concurrent external
         // action installed the reviewed commit, while any other tip remains a recoverable refusal.
         const authority = await transport.session.observeAsync(remote, {
           includeHead: false, refs: [targetRef], refresh: true
         });
+        remoteOutcomeKnown = authority.ok;
         if (authority.ok && authority.refs.get(targetRef) === targetCommit) {
-          alreadyMerged = true;
-          mergeEvidence = pushed.status === 0
+          alreadyMerged = !acquired;
+          mergeEvidence = acquired && pushed.status === 0 ? null : pushed.status === 0
             ? 'concurrent-identical-commit'
             : 'remote-exact-after-push-failure';
           protection = {
@@ -608,11 +650,15 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
         protection = reviewRequired
           ? { enforced: true, detail: 'the real exact update was refused by repository review controls' }
           : { enforced: null, detail: 'the real exact update failed without review-control evidence' };
+        journalWarning = await retainConfigurationOutcome(stateService, prepared.transaction.id,
+          remoteOutcomeKnown ? 'activation-pending' : 'outcome-unknown', failure.code ?? 'REMOTE_PUSH_FAILED');
         return {
           status: reviewRequired ? 'review-required' : 'activation-pending', activated: false,
           remote: sanitizeRemote(remote), branch: proposalBranch,
           proposalCommit: reviewed.proposalCommit, targetBranch: CONFIGURATION_BRANCH,
           targetCommit: reviewed.targetCommit, proposedMergeCommit: targetCommit,
+          transactionId: prepared.transaction.id, proposalId: prepared.transaction.proposalId,
+          journalWarning,
           changedFiles: reviewed.changedFiles, workflows: reviewed.workflows, protection,
           failure: {
             code: reviewRequired ? 'WORKFLOW_ACTIVATION_REVIEW_REQUIRED' : failure.code,
@@ -627,6 +673,7 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
             action: 'merge-proposal', sourceBranch: proposalBranch,
             targetBranch: CONFIGURATION_BRANCH, proposalCommit: reviewed.proposalCommit
           } : null,
+          recoveryCommand: `singularity-flow configuration reconcile ${prepared.transaction.id} --json`,
           nextAction: workflowProposalCommand(
             'activate', proposalBranch, reviewed.proposalCommit, !reviewRequired
           )
@@ -639,18 +686,31 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
           detail: 'the real exact leased update was accepted for this actor'
         };
       }
+      journalWarning = await retainConfigurationOutcome(stateService, prepared.transaction.id, 'committed');
     }
     const proposalCleanup = await cleanupActivatedConfigurationProposal(
       remote, proposalBranch, reviewed.proposalCommit, targetCommit,
       { proofRoot: scratch, env: transport.env, remoteSession: transport.session }
     );
+    let referenceSync = null;
+    if (prepared) {
+      try { referenceSync = await syncConfigurationReferences(root, remote, targetCommit); }
+      catch (error) { referenceSync = { status: 'attention', results: [], reason: error.code ?? 'CONFIGURATION_REFERENCE_SYNC_FAILED' }; }
+      journalWarning = await retainConfigurationOutcome(stateService, prepared.transaction.id,
+        referenceSync.status === 'complete' ? 'synced' : 'sync-pending');
+    }
     return {
       status: 'activated', activated: true, alreadyMerged,
       remote: sanitizeRemote(remote), branch: proposalBranch,
       proposalCommit: reviewed.proposalCommit, targetBranch: CONFIGURATION_BRANCH,
       targetCommit, changedFiles: reviewed.changedFiles, workflows: reviewed.workflows,
       mergeEvidence, protection, proposalCleanup,
-      nextAction: 'singularity-flow workspace refresh-configuration'
+      transactionId: prepared?.transaction.id ?? null, proposalId: stateService.identity(proposalBranch),
+      activationMethod: prepared ? 'semantic-transaction' : 'retained-history',
+      referenceSync, journalWarning,
+      nextAction: journalWarning?.nextAction ?? (prepared && referenceSync?.status !== 'complete'
+        ? `singularity-flow configuration reconcile ${prepared.transaction.id} --json`
+        : 'singularity-flow workspace refresh-configuration')
     };
     });
   } catch (error) {
@@ -670,9 +730,56 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
       protection: { enforced: null, detail: 'the confirmed proposal is in approved ancestry' },
       proposalCleanup: { branch: status.branch, proposalCommit: status.proposalCommit,
         status: 'already-absent' },
-      nextAction: 'singularity-flow workspace refresh-configuration'
+      transactionId: status.transaction?.id ?? null,
+      nextAction: status.transaction
+        ? `singularity-flow configuration reconcile ${status.transaction.id} --json`
+        : 'singularity-flow workspace refresh-configuration'
     };
   }
+}
+
+/** Reconcile an exact retained transaction; this never re-executes an unconfirmed push. */
+export async function configurationTransactions(root) {
+  return readConfigurationTransactionJournals(root);
+}
+
+export async function reconcileConfigurationTransaction(root, id) {
+  const session = new GitRemoteSession();
+  const remote = await proposalRemote(root, session);
+  const service = await openConfigurationStateService(root, remote);
+  const record = (await service.transactions()).transactions.find(entry => entry.transaction.id === id);
+  if (!record) throw new SingularityFlowError('Configuration transaction is not retained in this authority.', { code: 'CONFIGURATION_TRANSACTION_UNKNOWN' });
+  const binding = record.transaction;
+  const observed = await configurationProposalCommitStatus(root, binding.branch, binding.proposalRevision, { session, candidateCommit: record.targetCommit });
+  const installed = observed.transaction;
+  if (observed.merged && installed && installed.id !== id && !observed.candidateIncluded
+      && ['prepared', 'outcome-unknown', 'activation-pending', 'superseded'].includes(record.state)
+      && installed.proposalId === binding.proposalId && installed.expectedAuthorityCommit === binding.expectedAuthorityCommit
+      && configurationDigest(installed.changes) === configurationDigest(binding.changes)) {
+    const journalWarning = await retainConfigurationOutcome(service, id, 'superseded', `superseded-by:${installed.id}`);
+    return { status: journalWarning ? 'sync-pending' : 'superseded', transactionId: id, activated: false, proposalInstalled: true,
+      installedTransactionId: installed.id, targetCommit: observed.targetCommit, journalWarning,
+      nextAction: journalWarning?.nextAction ?? 'singularity-flow workspace refresh-configuration' };
+  }
+  if (!observed.merged || !observed.candidateIncluded || observed.transaction?.id !== id || observed.transaction.digest !== binding.digest) {
+    return { status: 'not-confirmed', transactionId: id, automaticRetry: false,
+      nextAction: workflowProposalCommand('activate', binding.branch, binding.proposalRevision, true),
+      effects: { applicationCode: 'unchanged', worktree: 'unchanged', approvals: 'unchanged' } };
+  }
+  await retainConfigurationOutcome(service, id, 'committed');
+  const cleanup = await cleanupActivatedConfigurationProposal(remote, binding.branch, binding.proposalRevision, observed.targetCommit, { remoteSession: session });
+  let referenceSync;
+  try { referenceSync = await syncConfigurationReferences(root, remote, observed.targetCommit); }
+  catch (error) {
+    const journalWarning = await retainConfigurationOutcome(service, id, 'sync-pending', error.code ?? 'CONFIGURATION_REFERENCE_SYNC_FAILED');
+    return { status: 'sync-pending', transactionId: id, activated: true, targetCommit: observed.targetCommit,
+      proposalCleanup: cleanup, journalWarning, nextAction: `singularity-flow configuration reconcile ${id} --json` };
+  }
+  const complete = referenceSync.status === 'complete';
+  const journalWarning = await retainConfigurationOutcome(service, id, complete ? 'synced' : 'sync-pending');
+  return { status: complete && !journalWarning ? 'synced' : 'sync-pending', transactionId: id, activated: true,
+    targetCommit: observed.targetCommit, proposalCleanup: cleanup, referenceSync, journalWarning,
+    nextAction: complete && !journalWarning ? null : `singularity-flow configuration reconcile ${id} --json` };
 }
 
 function safeSlug(value) {
@@ -866,7 +973,7 @@ export async function proposeConfigurationChange(root, {
       cwd: scratch, env: authorityTransport.env
     }).stdout
       .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
-    const escaped = files.filter((file) => !isConfigurationReadPath(file, approvedAssetPolicy));
+    const escaped = files.filter((file) => isConfigurationStatePath(file) || !isConfigurationReadPath(file, approvedAssetPolicy));
     if (escaped.length) {
       throw new SingularityFlowError(
         `Configuration proposal attempted to change non-configuration paths: ${escaped.join(', ')}.`, {
@@ -911,8 +1018,16 @@ export async function proposeConfigurationChange(root, {
       };
     }
 
-    const reviewBranch = `${REVIEW_PREFIX}${operationId}-${subjectId}-${baseCommit.slice(0, 8)}`;
-    const nextAction = `Merge ${reviewBranch} into ${CONFIGURATION_BRANCH}, then run singularity-flow workspace refresh-configuration.`;
+    const tree = run('git', ['write-tree'], { cwd: scratch, env: authorityTransport.env }).stdout.trim();
+    // Revisions are immutable. A new save on the same base is a new revision, not a naming dead end.
+    const logical = `${operationId}-${subjectId}`;
+    const label = logical.length <= 74 ? logical : /-[a-f0-9]{12}$/u.test(logical)
+      ? logical.slice(0, 61) + logical.slice(-13)
+      : logical.slice(0, 61) + '-' + createHash('sha256').update(logical).digest('hex').slice(0, 12);
+    const reviewBranch = `${REVIEW_PREFIX}${label}-${baseCommit.slice(0, 8)}-${tree.slice(0, 12)}`;
+    const stateService = await openConfigurationStateService(root, remoteUrl);
+    const proposalId = stateService.identity(reviewBranch);
+    const nextAction = `Review ${reviewBranch} with singularity-flow workflow review, then activate the exact reviewed revision.`;
     const existingCommit = await existingProposalCommit(remoteUrl, reviewBranch, remoteSession);
     if (existingCommit) {
       const remoteProposalRef = `refs/heads/${reviewBranch}`;
@@ -946,6 +1061,7 @@ export async function proposeConfigurationChange(root, {
           pushed: true,
           reviewRequired: true,
           branch: reviewBranch,
+          proposalId, proposalRevision: existingCommit,
           baseBranch: CONFIGURATION_BRANCH,
           baseCommit,
           commit: existingCommit,
@@ -1028,6 +1144,7 @@ export async function proposeConfigurationChange(root, {
       pushed: true,
       reviewRequired: true,
       branch: reviewBranch,
+      proposalId, proposalRevision: commit,
       baseBranch: CONFIGURATION_BRANCH,
       baseCommit,
       commit,

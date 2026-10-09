@@ -594,7 +594,14 @@
       "counts": {
         "command-run": 16
       },
-      "digest": "1393cd54faf9da7d30344407113700803f0aae01f6cec4d93f495e37f80485b6"
+      "digest": "e03c4ee82847a01554fe15eceffa3aa2cff0af34c3bbb66c8e207c526b298434"
+    },
+    "src/configuration-state-git.mjs": {
+      "counts": {
+        "command-git": 10,
+        "command-run": 1
+      },
+      "digest": "9c8b504cb81a3b6ad13df7344ee1b7b735faf2de4560fc877c7f9fb0ad136d06"
     },
     "src/configuration-recreate-sync.mjs": {
       "counts": {

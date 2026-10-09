@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 3
+version: 4
 commands:
   - configuration
   - workflow
@@ -36,6 +36,16 @@ Use this topic when the current goal matches **configuration**. Start in a gover
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
 
 ## State and safety
+
+Configuration proposal activation uses semantic transactions, not textual Git merges. A stable
+proposal identity can have multiple preserved, immutable revisions. Unrelated approved settings
+survive activation; competing edits return exact fields for review. A private SQLite read model
+speeds lists but cannot approve anything. Shared receipts and an SGOS-backed local journal support
+interrupted-operation recovery. Inspect with `singularity-flow configuration transactions --json`;
+explicitly reconcile an exact retained operation with `singularity-flow configuration reconcile
+<CFT-ID> --json` or `/sf-configuration reconcile <CFT-ID>`. Reconciliation observes authority and
+finishes pending reference sync; it never blindly repeats a push. See
+[Configuration State Service](../CONFIGURATION-STATE-SERVICE.md) for scope and rollout limitations.
 
 ### Test setup
 

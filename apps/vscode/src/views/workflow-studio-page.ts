@@ -283,6 +283,7 @@ export type StudioFocusView = typeof STUDIO_FOCUS_VIEWS[number];
 export interface StudioProposalSummary {
   branch: string; proposalCommit: string; valid: boolean; merged: boolean;
   proposalCreatedAt: string | null;
+  proposalId: string | null;
   workflows: Array<{ id: string; governs: string | null; change: string; label: string | null }>;
   files: number; invalidFiles: string[]; failure: string | null;
 }
@@ -301,6 +302,7 @@ export function proposalSummaries(listed: unknown): StudioProposalSummary[] {
     });
     return [{
       branch, proposalCommit, valid: entry.valid === true, merged: entry.merged === true, workflows,
+      proposalId: typeof entry.proposalId === 'string' && /^cfp-[a-f0-9]{64}$/.test(entry.proposalId) ? entry.proposalId : null,
       proposalCreatedAt: typeof entry.proposalCreatedAt === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(entry.proposalCreatedAt)
         && Number.isFinite(Date.parse(entry.proposalCreatedAt)) ? entry.proposalCreatedAt : null,
       files: Array.isArray(entry.changedFiles) ? entry.changedFiles.length : 0,
@@ -5040,8 +5042,9 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       var match = /^(sflow\/config-change\/workflow\/.+)-[a-f0-9]{8}$/.exec(proposal.branch);
       var subject = proposal.workflows.length === 1 ? proposal.workflows[0] : null;
       var time = Date.parse(proposal.proposalCreatedAt || '');
-      var key = match && subject && Number.isFinite(time) && !proposal.merged
-        ? JSON.stringify([match[1], subject.governs, subject.id]) : null;
+      var key = proposal.proposalId && !proposal.merged ? proposal.proposalId
+        : match && subject && Number.isFinite(time) && !proposal.merged
+          ? JSON.stringify([match[1], subject.governs, subject.id]) : null;
       var group = key ? keyed.get(key) : null;
       if (!group) { group = { proposals: [] }; groups.push(group); if (key) keyed.set(key, group); }
       group.proposals.push(proposal);
@@ -5049,7 +5052,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     return groups.map(function (group) {
       group.proposals.sort(function (a, b) { return Date.parse(b.proposalCreatedAt || '') - Date.parse(a.proposalCreatedAt || ''); });
       // Equal timestamps do not prove which proposal is newer; leave both as primary choices.
-      var tie = group.proposals.length > 1 && group.proposals[0].proposalCreatedAt === group.proposals[1].proposalCreatedAt;
+      var tie = group.proposals.length > 1 && (!group.proposals[0].proposalCreatedAt || !group.proposals[1].proposalCreatedAt
+        || group.proposals[0].proposalCreatedAt === group.proposals[1].proposalCreatedAt);
       return { current: tie ? group.proposals : group.proposals.slice(0, 1), earlier: tie ? [] : group.proposals.slice(1) };
     });
   }
@@ -5065,6 +5069,25 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       proposal.failure ? el('div', { class: 'callout bad', text: proposal.failure }) : null,
       proposal.invalidFiles.length ? el('div', { class: 'callout bad', text: 'Not configuration: ' + proposal.invalidFiles.join(', ') }) : null);
   }
+  function proposalEntityCard(group) {
+    var revisions = group.current.concat(group.earlier);
+    var first = revisions[0];
+    var name = first.workflows.map(function (workflow) { return workflow.label || workflow.id; }).join(', ') || 'Configuration proposal';
+    var chosen = revisions.length === 1 && first.valid ? first.branch : '';
+    var review = button('Review exact revision', function () { if (chosen) reviewProposal(chosen); }, { class: 'primary', disabled: Boolean(state.busy) || !chosen });
+    var options = [{ value: '', label: 'Choose a revision to review' }].concat(revisions.map(function (revision) {
+      return { value: revision.branch, label: revision.proposalCommit.slice(0, 12) + ' · ' + (revision.proposalCreatedAt || 'creation time unavailable'), disabled: !revision.valid };
+    }));
+    var picker = select('proposal-' + first.proposalId, options, chosen, function (value) {
+      chosen = revisions.some(function (revision) { return revision.branch === value && revision.valid; }) ? value : '';
+      review.disabled = Boolean(state.busy) || !chosen;
+    }, { 'aria-label': 'Exact revision for ' + name });
+    return el('article', { class: 'decision-box', 'aria-label': 'Proposal entity ' + first.proposalId },
+      el('div', { class: 'studio-row spread' }, el('h3', { text: name }), el('span', { class: 'pill', text: revisions.length + (revisions.length === 1 ? ' revision' : ' preserved revisions') })),
+      el('p', { class: 'muted', text: 'One proposal identity. Select the exact revision; older intent is preserved and never silently activated.' }),
+      el('div', { class: 'studio-row' }, picker, review),
+      el('details', null, el('summary', { text: 'Transport identifiers and revision details' }), revisions.map(function (revision) { return proposalCard(revision, true); })));
+  }
   function renderProposals(main) {
     var view = proposalsState();
     var card = el('section', { class: 'studio-card', 'aria-label': 'Waiting for review' });
@@ -5078,6 +5101,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (view.list === null) { if (!view.error) card.appendChild(el('p', { class: 'muted', text: 'Looking for configuration proposals…' })); }
     else if (!view.list.length) card.appendChild(el('p', { class: 'muted', text: 'No configuration proposals are waiting.' }));
     proposalGroups(view.list).forEach(function (group) {
+      if (group.current[0].proposalId && !group.current[0].merged) { card.appendChild(proposalEntityCard(group)); return; }
       group.current.forEach(function (proposal) { card.appendChild(proposalCard(proposal, false)); });
       if (group.earlier.length) {
         var earlier = el('details', null, el('summary', { text: 'Earlier versions — preserved (' + group.earlier.length + ')' }),
@@ -5086,7 +5110,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         card.appendChild(earlier);
       }
     });
-    card.appendChild(el('p', { class: 'muted', text: 'Reviewing opens the exact diff; activating merges it into the approved configuration after you confirm. Running Stories keep the configuration they started with.' }));
+    card.appendChild(el('p', { class: 'muted', text: 'Reviewing opens the exact revision; activating applies a validated configuration transaction after you confirm. Unrelated settings are preserved. Running Stories keep the configuration they started with.' }));
     main.appendChild(card);
   }
 

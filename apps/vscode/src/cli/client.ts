@@ -206,6 +206,7 @@ const READ_ONLY_COMMANDS = new Set([
   'comprehension'
 ]);
 const READ_ONLY_CONFIGURATION_COMMANDS = new Set([
+  'transactions',
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
 ]);
 const REMOTE_CAPABILITY_OPERATIONS = new Set([
@@ -797,7 +798,7 @@ export class SingularityFlowClient {
   private timeoutFor(args: string[], cancellable = false): number | null {
     // Configuration-only reconstruction still hydrates reviewed assets over the enterprise remote.
     // Do not interrupt its atomic archive/sync transaction at the ordinary two-minute read budget.
-    if (args[0] === 'configuration' && args[1] === 'recreate-sync') return CAPABILITY_AUTHORITY_TIMEOUT_MS;
+    if (args[0] === 'configuration' && ['recreate-sync', 'reconcile'].includes(args[1] ?? '')) return CAPABILITY_AUTHORITY_TIMEOUT_MS;
     // Engine bounds human browser review at 15 minutes; leave time for its guarded transaction.
     if (args[0] === 'appeal' && args[1] === 'evidence-accept' && enabledBooleanOption(args, 'review-ui')) return 20 * 60_000;
     // The dry-run only inventories bytes and stays under the ordinary bounded read deadline. Once

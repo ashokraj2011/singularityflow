@@ -2,7 +2,7 @@
 name: sflow-configuration
 description: Inspect, validate, publish, or explicitly recreate and sync governed configuration without Git merge questions.
 disable-model-invocation: true
-argument-hint: "show|explain [--pointer <JSON-POINTER>]|validate|save <path>|publish|recreate-sync [--apply]"
+argument-hint: "show|explain [--pointer <JSON-POINTER>]|validate|save <path>|publish|transactions|reconcile <CFT-ID>|recreate-sync [--apply]"
 ---
 # Manage governed configuration
 
@@ -16,6 +16,11 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 1. For `show` or `explain`, run the exact requested read-only command and preserve any explicit
    `--pointer`; do not substitute validation or a write.
+   `transactions` inspects the local non-authoritative recovery journal. For an explicitly requested
+   `reconcile <CFT-ID>`, run `singularity-flow configuration reconcile <CFT-ID> --json` directly:
+   the kernel re-observes shared authority and finishes only a verified transaction's reference sync.
+   It never retries a push, accepts a proposal, or grants approval. Preserve `not-confirmed` or
+   `sync-pending`; do not turn a prepared/cache record into an acceptance decision.
 2. For `recreate-sync`, run the read-only preview unless the user explicitly requests recreation and sync. That request authorizes `singularity-flow configuration recreate-sync --apply --json` without follow-up merge or confirmation questions. The main-panel **Recreate & sync configuration** menu performs the same model-free operation. Preserve its backups and effects; never reset application code or Story history, and never apply merely because a proposal conflict was reported. The operation owns validation; do not add a pre-validation or another publication command.
 3. For other writes, run `singularity-flow configuration validate --json` before proposing any write.
 4. For save, require the exact reviewed source path. For publish, show the changed governed files, target configuration branch, commit message, and remote state.

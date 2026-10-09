@@ -14952,7 +14952,15 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
   const subcommand = requirePositional(positionals, 1, `${namespace} subcommand`);
   const root = repoRoot();
   let result;
-  if (subcommand === 'recreate-sync') {
+  if (subcommand === 'transactions') {
+    result = await import('./configuration-proposal.mjs').then(({ configurationTransactions }) => configurationTransactions(root));
+  }
+  else if (subcommand === 'reconcile') {
+    result = await import('./configuration-proposal.mjs').then(({ reconcileConfigurationTransaction }) =>
+      reconcileConfigurationTransaction(root, requirePositional(positionals, 2, 'transaction ID')));
+    if (!['synced', 'superseded'].includes(result.status)) process.exitCode = 2;
+  }
+  else if (subcommand === 'recreate-sync') {
     result = await import('./configuration-recreate-sync.mjs').then(({ recreateAndSyncConfiguration }) =>
       recreateAndSyncConfiguration(root, { apply: optionBoolean(options, 'apply') }));
     if (['not-synced', 'outcome-unknown'].includes(result.status)) process.exitCode = 2;

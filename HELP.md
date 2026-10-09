@@ -3737,6 +3737,8 @@ singularity-flow jira status|projects|epics|children|permissions|boards|board
 singularity-flow jira transitions|transition|assign|priority|sprint|comment
 singularity-flow plugin install|uninstall|list|verify|path
 singularity-flow configuration save <PATH> [--propose]
+singularity-flow configuration transactions [--json]
+singularity-flow configuration reconcile <CFT-ID> [--json]
 singularity-flow configuration publish [--message TEXT] [--json]
 singularity-flow constitution check|show [--work-type ID] [--path FILE] [--json]
 singularity-flow constitution generate [--work-type ID] [--path FILE] [--dry-run]

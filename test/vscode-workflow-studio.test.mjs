@@ -1594,6 +1594,15 @@ test('external configuration sync refreshes a clean page but preserves dirty pri
   assert.match(host, /static async refreshAfterConfigurationSync[\s\S]*studio.externalConfigurationChanged[\s\S]*await current.proposals\(\)/u);
 });
 
+test('stable proposal identity groups revisions even when multiple workflows or creation-time ties are present', () => {
+  const { logic } = studioLogic();
+  const a = { branch: 'sflow/config-change/workflow/save-config-aaaaaaaa-bbbbbbbbbbbb', proposalCommit: 'a'.repeat(40),
+    proposalId: 'cfp-' + 'a'.repeat(64), proposalCreatedAt: '2026-10-10T00:00:00.000Z', valid: true, merged: false, workflows: [] };
+  const b = { ...a, branch: 'sflow/config-change/workflow/save-config-aaaaaaaa-cccccccccccc', proposalCommit: 'b'.repeat(40) };
+  assert.deepEqual(logic.proposalGroups([a, b]), [{ current: [a, b], earlier: [] }]);
+  assert.equal(logic.proposalGroups([a, { ...b, proposalId: 'cfp-' + 'b'.repeat(64) }]).length, 2);
+});
+
 test('proposals waiting for review are listed in Changes, and reviewing one reloads only when nothing is unpublished', async () => {
   const { proposalSummaries, STUDIO_FOCUS_VIEWS } = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts'));
   const listed = proposalSummaries([

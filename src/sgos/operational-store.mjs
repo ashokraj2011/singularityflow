@@ -610,7 +610,8 @@ async function ensureOperationalDirectory(target, label) {
  *
  * The caller supplies an explicit private root. Each committed event is a fsynced immutable file;
  * temporary files are ignored after process loss, and the head is always reconstructed from the
- * append-only lineage. This profile is still restricted to simulation and tests.
+ * append-only lineage. Owner wrappers select its purpose; only the separately admitted live
+ * adapter can serve Process-head state, and no operational profile grants shared authority.
  */
 function createFilesystemOperationalStore({
   storeId, root, lockTimeoutMs = 5_000, staleLockMs = 30_000,
@@ -968,6 +969,13 @@ export function createLiveFilesystemSgosOperationalStore(options) {
   });
   INSTALLED_LIVE_OPERATIONAL_STORES.add(adapter);
   return adapter;
+}
+
+/** Reuse the same journal/CAS implementation for configuration transport recovery, not authority. */
+export function createConfigurationOperationalStore(options) {
+  return createFilesystemOperationalStore({
+    ...options, profile: 'filesystem-configuration-v1', purposes: ['configuration-recovery']
+  });
 }
 
 /** Admit only the one installed runtime profile; this does not grant Program or policy authority. */

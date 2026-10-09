@@ -351,7 +351,7 @@ test('configuration save proposal identities distinguish equal basenames in diff
       assert.equal(saved.status, 0, `${saved.stderr}\n${saved.stdout}`);
       const proposal = JSON.parse(saved.stdout);
       const subjectHash = createHash('sha256').update(relative).digest('hex').slice(0, 12);
-      assert.match(proposal.branch, new RegExp(`${subjectHash}-[0-9a-f]{8}$`));
+      assert.match(proposal.branch, new RegExp(`${subjectHash}-[0-9a-f]{8}-[0-9a-f]{12}$`));
       branches.push(proposal.branch);
     }
 
@@ -394,7 +394,7 @@ test('configuration save bounds long filename proposal refs and retains full-pat
     assert.ok(Buffer.byteLength(component) <= 96,
       `proposal ref component must remain conservatively portable, got ${Buffer.byteLength(component)} bytes`);
     const pathDigest = createHash('sha256').update(relative).digest('hex').slice(0, 12);
-    assert.match(component, new RegExp(`${pathDigest}-[0-9a-f]{8}$`),
+    assert.match(component, new RegExp(`${pathDigest}-[0-9a-f]{8}-[0-9a-f]{12}$`),
       'the bounded ref must preserve the full normalized path digest');
     assert.equal(run('git', [
       '--git-dir', item.remote, 'show-ref', '--verify', '--quiet', `refs/heads/${proposal.branch}`
@@ -511,7 +511,7 @@ test('workflow proposals publish from approved configuration without changing th
     ]).stdout);
     assert.deepEqual(proposed.workTypes['customer-onboarding'].phases, ['requirements', 'implementation']);
     assert.equal(proposed.workTypes['customer-onboarding'].plannedClaims.mode, 'required');
-    assert.match(result.nextAction, /Merge .* into sflow\/config.*refresh-configuration/);
+    assert.match(result.nextAction, /Review .*workflow review.*activate the exact reviewed revision/);
 
     const retried = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'customer-onboarding',

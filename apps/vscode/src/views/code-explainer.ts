@@ -816,13 +816,14 @@ export class CodeExplainerPanel {
       this.progress('Reading calls from the code…');
       try {
         const reply = await this.client.run<unknown>(['wm', 'knowledge', 'calls', '--json']);
-        const data = (reply && typeof reply === 'object' && 'data' in reply ? (reply as { data: unknown }).data : reply) as { edges?: CxAnalysisCall[]; resolution?: string } | null;
+        const data = (reply && typeof reply === 'object' && 'data' in reply ? (reply as { data: unknown }).data : reply) as { edges?: CxAnalysisCall[]; counts?: { resolved?: number; byName?: number } } | null;
         const found = analysisCalls(data?.edges ?? [], files.values(), (file) => lacking.has(file));
         if (current() && found.length) {
           calls.push(...found);
           for (const symbol of seeds) if (symbol.file && lacking.has(symbol.file)) input.callStatus[symbol.key] = 'analysis';
           const languages = [...new Set([...lacking].map((file) => languageLabel(languageOf(file))))].join(', ');
-          notes.push(`Calls for ${languages} come from Singularity Flow's analysis of the committed code (${data?.resolution === 'complete' ? 'resolved by the compiler' : 'matched by name'}), because the editor gave no call hierarchy for them.`);
+          const resolved = found.length && data?.counts?.resolved ? (data.counts.byName ? 'resolved by the compiler where it could, matched by name elsewhere' : 'resolved by the compiler') : 'matched by name';
+          notes.push(`Calls for ${languages} come from Singularity Flow's analysis of the committed code (${resolved}), because the editor gave no call hierarchy for them.`);
         }
       } catch (error) {
         notes.push(`Singularity Flow's own call analysis was not available: ${error instanceof Error ? error.message : String(error)}`);

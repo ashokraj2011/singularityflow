@@ -1553,6 +1553,47 @@ test('a step can send rejected work back to several earlier steps, and rules int
   assert.equal(result.valid, true, JSON.stringify(result.problems));
 });
 
+test('proposal versions group only matching workflow operations with known unequal creation times', () => {
+  const { logic } = studioLogic();
+  const row = (suffix, time, id = 'test-ashok', op = 'create-workflow') => ({
+    branch: `sflow/config-change/workflow/${op}-test-ashok-${suffix}`, proposalCommit: suffix.repeat(5),
+    proposalCreatedAt: time, valid: true, merged: false, workflows: [{ id, governs: 'story' }]
+  });
+  const older = row('9ee51581', '2026-10-08T00:00:00.000Z');
+  const newer = row('cadd25fb', '2026-10-09T00:00:00.000Z');
+  const groups = logic.proposalGroups([older, newer]);
+  assert.deepEqual(groups, [{ current: [newer], earlier: [older] }]);
+  assert.equal(logic.proposalGroups([older, { ...newer, proposalCreatedAt: null }]).length, 2);
+  assert.equal(logic.proposalGroups([older, { ...newer, workflows: [{ id: 'other', governs: 'story' }] }]).length, 2);
+  assert.equal(logic.proposalGroups([older, row('cadd25fb', newer.proposalCreatedAt, 'test-ashok', 'edit-workflow')]).length, 2);
+  assert.deepEqual(logic.proposalGroups([older, { ...newer, proposalCreatedAt: older.proposalCreatedAt }])[0],
+    { current: [older, { ...newer, proposalCreatedAt: older.proposalCreatedAt }], earlier: [] }, 'ties do not invent a latest identity');
+  assert.equal(logic.proposalGroups([older, { ...newer, merged: true }]).length, 2);
+});
+
+test('external configuration sync refreshes a clean page but preserves dirty private drafts and invalidates stale plans', async () => {
+  const root = await repository();
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic, posted, reply } = studioWithHost();
+  const state = logic.state();
+  state.model = model; state.draft = logic.initialDraft(model);
+  reply({ type: 'studio.externalConfigurationChanged' });
+  assert.equal(posted.at(-1).type, 'studio.reload');
+  state.draft.groups['architecture-reviewers'].members.push({ name: 'Ada', email: 'ada@example.com', githubLogin: null });
+  const draft = structuredClone(state.draft);
+  state.plan = { valid: true }; state.planKey = 'stale';
+  const before = posted.length;
+  reply({ type: 'studio.externalConfigurationChanged' });
+  assert.equal(posted.length, before, 'no automatic reload discards an unpublished draft');
+  assert.deepEqual(state.draft, draft);
+  assert.equal(state.plan, null); assert.equal(state.planKey, null);
+  assert.match(state.configurationChanged, /draft is preserved/u);
+  reply({ type: 'studio.proposals', proposals: [] });
+  assert.deepEqual(state.proposals.list, [], 'retired proposals leave the cache');
+  const host = await readFile(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio.ts'), 'utf8');
+  assert.match(host, /static async refreshAfterConfigurationSync[\s\S]*studio.externalConfigurationChanged[\s\S]*await current.proposals\(\)/u);
+});
+
 test('proposals waiting for review are listed in Changes, and reviewing one reloads only when nothing is unpublished', async () => {
   const { proposalSummaries, STUDIO_FOCUS_VIEWS } = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts'));
   const listed = proposalSummaries([

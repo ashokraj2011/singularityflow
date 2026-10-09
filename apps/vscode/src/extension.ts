@@ -17,7 +17,7 @@ import { access, lstat, readFile, readdir, realpath as fsRealpath, rm } from 'no
 import { gatewayDestinationRequest } from './gateway-destination.ts';
 import { resolveCli, SingularityFlowClient, isCliReadSuperseded, type CliLocation } from './cli/client.ts';
 import {
-  CliError, formatCliArgsForDisplay, RepositoryAuthorityUnavailableError,
+  CliError, CliTimeoutError, formatCliArgsForDisplay, RepositoryAuthorityUnavailableError,
   terminalCommand, recentCliCommandTimings,
   validateFactoryResetRepositoryDirectory, validateRepositoryDirectory,
   validatedRepositoryGitCommonDirectory
@@ -33,7 +33,7 @@ import {
   decisionChoiceItems, decisionChooseArgv, decisionInputPrompt, pendingDecisionSummary, submitArgvWithDecisionValues
 } from './decisions.ts';
 import { ConfigurationValidator } from './validation.ts';
-import { ConfigurationSyncAction } from './views/configuration-sync-model.ts';
+import { ConfigurationSyncAction, configurationSyncInterruptedMessage } from './views/configuration-sync-model.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
@@ -7494,7 +7494,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // a change after previewing it, and export, import or copy workflows. Workflow Studio calls them;
   // every mutation goes through the engine's validation and the repository's review proposal.
   const configurationSyncAction = new ConfigurationSyncAction({
-    run: argv => client.run(argv), refresh: refreshAfterKnownMutation
+    run: argv => client.run(argv), refresh: async () => {
+      await refreshAfterKnownMutation();
+      await lazyPanels().WorkflowStudioPanel.refreshAfterConfigurationSync();
+    }
   });
   const reviewAndActivateWorkflowProposal = async (branch: string): Promise<string | null> => {
     try {
@@ -7732,11 +7735,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.recreateAndSyncConfiguration': async () => {
       await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
         title: 'Recreating and syncing configuration', cancellable: false }, async () => {
-        const result = await configurationSyncAction.run();
+        output.appendLine('Recreate & sync configuration: starting the bounded configuration-only transaction.');
+        let result;
+        try { result = await configurationSyncAction.run(); }
+        catch (error) {
+          output.appendLine(`Configuration sync did not return a confirmed result: ${(error as Error).message}`);
+          if (error instanceof CliError && error.result) {
+            // Preserve the engine's exact refusal and remediation; do not disguise validation as
+            // a host interruption or send the user around an unchanged retry loop.
+            showRefusal(error, { headline: 'Configuration sync needs attention' });
+          } else {
+            showRefusal(configurationSyncInterruptedMessage(error instanceof CliTimeoutError ? error.terminalCommand : null),
+              { headline: 'Configuration sync interrupted — retry to reconcile' });
+          }
+          return;
+        }
         output.appendLine(JSON.stringify(result, null, 2));
         if (!['synced', 'current'].includes(result.status)) {
           showRefusal(result.failure?.message ?? `Configuration recreation is ${result.status}.`,
             { headline: 'Configuration sync needs attention' });
+          return;
+        }
+        if (result.viewRefresh === 'attention') {
+          void showCompactWarningMessage(`Configuration sync confirmed at ${result.targetCommit.slice(0, 12)}, but the display refresh failed. `
+            + 'Reopen Workflow Studio or click Recreate & sync again. Do not activate a cached older proposal.');
           return;
         }
         if (result.referenceSync?.status === 'attention') {

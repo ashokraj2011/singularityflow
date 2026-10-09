@@ -62,3 +62,27 @@ lost acknowledgement reconciliation and double-click coalescing. No audit rule i
 
 To inspect preserved history, use the backup tag returned in `backupRefs`. No original proposal
 commit is deleted from history. Restoring that history is a separate deliberate operation.
+
+## Slow remotes and interrupted sync
+
+Recreation downloads only admitted configuration blobs in bounded batches through the shared
+remote boundary. Local blob reads disable lazy fetching and verify the exact Git object identity;
+there is no hidden per-file network fetch. VS Code gives both preview and execution the 15-minute
+configuration-authority budget, rather than the ordinary two-minute read timeout. Each Git call
+still has its own deadline.
+
+Exact-object requests use self-contained, filtered packs instead of thin deltas against historical
+blobs deliberately excluded from the checkout. The private checkout's promisor registrations are
+removed and verified after explicit fetches, so older supported Git versions cannot silently fetch
+missing blobs despite the local-only environment flag.
+
+If the host is interrupted, the UI reports an unconfirmed outcome with the exact retry command.
+It never says nothing changed or invites activating an obsolete proposal. Click the same action
+again to reconcile the current authority; a completed remote transaction is not applied twice.
+A failed display refresh is reported separately from a confirmed remote sync.
+
+After confirmed sync, an open Workflow Studio refreshes its proposal queue. A clean editor reloads
+the approved model; an unpublished private draft is preserved and its stale preview invalidated.
+Proposal branches for the same workflow operation are grouped by verified creation time, with
+earlier versions available in a collapsed section. Unknown/equal ordering remains explicit.
+Grouping is presentation only: it discards no intent and grants no activation authority.

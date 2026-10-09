@@ -93,7 +93,8 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run', 'feedback-stdin', 'saved-buffers-confirmed',
   'remove-stale', 'repair-projections', 'replace', 'replace-server', 'replay', 'resume', 'review-only', 'risk-status', 'send-test', 'set', 'sign', 'solo',
   'review-ui', 'search-known', 'selected-base-only', 'semantic', 'shadow', 'skip-checks', 'smart-detect', 'staged', 'stale', 'state-only', 'stdin', 'strict', 'submission-readiness', 'table', 'terminal', 'timings', 'today', 'update', 'write',
-  'yes', 'verbose', 'show-artifact', 'brief', 'without-defaults', 'launch'
+  'yes', 'verbose', 'show-artifact', 'brief', 'without-defaults', 'launch',
+  'compose', 'for-agent', 'attach-if-missing', 'migrate-world-model', 'hard-cutover', 'cached'
 ]);
 
 const DISPLAY_SECRET_KEY = /(token|secret|password|passwd|credential|authorization|cookie|api[-_]?key|access[-_]?key|private[-_]?key|signature|(?:^|[_.-])pat(?:$|[_.-])|[a-z]pat(?![a-z]))/i;

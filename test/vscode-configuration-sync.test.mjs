@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { ConfigurationSyncAction } from '../apps/vscode/src/views/configuration-sync-model.ts';
+import { ConfigurationSyncAction, configurationSyncInterruptedMessage } from '../apps/vscode/src/views/configuration-sync-model.ts';
 import { PRIMARY_NAVIGATION } from '../apps/vscode/src/views/sidebar-page.ts';
 
 const result = status => ({ status, baseCommit: 'a'.repeat(40), targetCommit: 'b'.repeat(40),
@@ -19,7 +19,10 @@ test('one-click sync is in the main panel, configuration menu and command palett
   const handler = source.slice(source.indexOf("'singularityFlow.recreateAndSyncConfiguration': async"),
     source.indexOf('// Backward-compatible command ID for old keybindings'));
   assert.match(handler, /configurationSyncAction.run\(\)/u);
-  assert.doesNotMatch(handler, /show.*(?:QuickPick|InputBox)|modal|confirm|Merge exact/iu);
+  assert.doesNotMatch(handler, /show\w*(?:QuickPick|InputBox|Confirmation)\s*\(|modal\s*:|confirm\s*:|Merge exact/iu);
+  assert.match(handler, /catch \(error\)[\s\S]*configurationSyncInterruptedMessage\(/u);
+  assert.match(handler, /error instanceof CliError && error.result[\s\S]*showRefusal\(error/u);
+  assert.match(source, /await lazyPanels\(\)\.WorkflowStudioPanel\.refreshAfterConfigurationSync\(\)/u);
 });
 
 test('a click executes one exact model-free command with no confirmation and reloads only on success', async () => {
@@ -59,4 +62,18 @@ test('a failed transport frees the click gate for an explicit retry', async () =
     refresh: async () => {} });
   await assert.rejects(action.run(), /offline/u);
   assert.equal((await action.run()).status, 'current');
+});
+
+test('a failed UI refresh cannot turn a confirmed remote sync into an unknown transaction', async () => {
+  const action = new ConfigurationSyncAction({ run: async () => result('synced'),
+    refresh: async () => { throw new Error('panel closed'); } });
+  assert.deepEqual(await action.run(), { ...result('synced'), viewRefresh: 'attention' });
+});
+
+test('interruption tells the user to reconcile without claiming unchanged or finished remote state', () => {
+  assert.match(configurationSyncInterruptedMessage(), /Do not assume it completed or that nothing changed/u);
+  assert.match(configurationSyncInterruptedMessage(), /recreate-sync --apply --json/u);
+  assert.match(configurationSyncInterruptedMessage(), /do not activate an older proposal/u);
+  const exact = "cd '/repo' && '/installed/node' '/installed/cli.mjs' 'configuration' 'recreate-sync' '--apply' '--json'";
+  assert.ok(configurationSyncInterruptedMessage(exact).endsWith(exact), 'timeout retry preserves the actually installed executable');
 });

@@ -143,16 +143,58 @@ test('partial recreation never downloads application blobs or runs worktree filt
   const item = await fixture(t, { filtered: true });
   const applicationBlob = run('git', ['--git-dir', item.remote, 'rev-parse', 'sflow/config:app.txt']).stdout.trim();
   let stillMissing = false;
+  const blobFetches = [];
   const result = await recreateAndSyncConfiguration(item.caller, { apply: true,
     runRemoteCommand: async (args, options) => {
+      if (args[0] === 'fetch' && args.includes('--no-write-fetch-head')) {
+        blobFetches.push(args.slice(args.indexOf('--') + 2));
+        assert.equal(options.env.GIT_NO_LAZY_FETCH, '1');
+        assert.equal(options.operation, 'remote-configuration');
+        assert.ok(args.includes('--refetch'), 'do not negotiate thin deltas against excluded historical blobs');
+        assert.ok(args.includes('--filter=blob:none'));
+      }
       if (args[0] === 'push') {
         const objects = run('git', ['rev-list', '--objects', '--missing=print', 'HEAD'], { cwd: options.cwd }).stdout;
         stillMissing = objects.split('\n').includes(`?${applicationBlob}`);
+        assert.equal(run('git', ['config', '--local', '--get-regexp',
+          '^(remote\\..*\\.(promisor|partialclonefilter)|extensions\\.partialclone)$'],
+        { cwd: options.cwd, allowFailure: true }).status, 1, 'no hidden lazy-fetch transport remains, including older Git');
       }
       return runRemoteGitAsync(args, options);
     } });
   assert.equal(result.status, 'synced');
   assert.equal(stillMissing, true, 'no application blob was read, materialized, staged or validated');
+  assert.ok(blobFetches.some(batch => batch.length > 1), 'configuration blobs are hydrated together, not one remote per file');
+  assert.ok(blobFetches.length <= 6, `bounded baseline/proposal fetches, observed ${blobFetches.length}`);
+  assert.ok(blobFetches.flat().every(oid => /^[a-f0-9]{40}$/.test(oid) && oid !== applicationBlob));
+});
+
+test('failed batch hydration cannot fall back to hidden fetch or update any authority refs', async t => {
+  const item = await fixture(t, { filtered: true });
+  const before = callerState(item);
+  let pushes = 0;
+  await assert.rejects(recreateAndSyncConfiguration(item.caller, { apply: true,
+    runRemoteCommand: async (args, options) => {
+      if (args[0] === 'push') pushes++;
+      if (args[0] === 'fetch' && args.includes('--no-write-fetch-head')) return { status: 1, failure: { advice: 'Batch transport refused.' } };
+      return runRemoteGitAsync(args, options);
+    } }), /Batch transport refused/u);
+  assert.equal(pushes, 0);
+  assert.equal(remoteHead(item), item.approved);
+  assert.equal(remoteHead(item, item.branch), item.proposal);
+  assert.deepEqual(callerState(item), before);
+});
+
+test('a successful transport status without the requested objects is refused before publication', async t => {
+  const item = await fixture(t, { filtered: true });
+  const before = callerState(item);
+  await assert.rejects(recreateAndSyncConfiguration(item.caller, { apply: true,
+    runRemoteCommand: (args, options) => args[0] === 'fetch' && args.includes('--no-write-fetch-head')
+      ? Promise.resolve({ status: 0, stdout: '', stderr: '' }) : runRemoteGitAsync(args, options) }),
+  /download was incomplete/u);
+  assert.equal(remoteHead(item), item.approved);
+  assert.equal(remoteHead(item, item.branch), item.proposal);
+  assert.deepEqual(callerState(item), before);
 });
 
 test('the public CLI previews in JSON without starting a separate approval or mutation flow', async t => {

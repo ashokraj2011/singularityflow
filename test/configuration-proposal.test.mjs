@@ -565,6 +565,8 @@ test('workflow proposals publish from approved configuration without changing th
     assert.equal(inspected.status, 0, inspected.stderr || inspected.stdout);
     const review = JSON.parse(inspected.stdout);
     assert.equal(review.proposalCommit, result.commit);
+    assert.match(review.proposalCreatedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/u,
+      'version ordering metadata comes from the pinned proposal commit');
     assert.deepEqual(review.workflows.map((entry) => [entry.id, entry.change]), [
       ['customer-onboarding', 'added']
     ]);

@@ -134,6 +134,14 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     return WorkflowStudioPanel.current;
   }
 
+  /** Refresh an open panel after sync without discarding its unpublished private draft. */
+  static async refreshAfterConfigurationSync(): Promise<void> {
+    const current = WorkflowStudioPanel.current;
+    if (!current || current.disposed) return;
+    current.post({ type: 'studio.externalConfigurationChanged' });
+    await current.proposals();
+  }
+
   /**
    * The messages the page sends. The change set arrives as JSON text and is bounded here; the
    * engine parses and validates its content, so the host never trusts its shape.

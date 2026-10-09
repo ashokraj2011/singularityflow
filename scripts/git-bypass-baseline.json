@@ -583,18 +583,25 @@
       },
       "digest": "7f9df2a82d55b5efa50754df22a07390919b9700c9ccde4e6cb27f141116f7d1"
     },
+    "src/configuration-object-reader.mjs": {
+      "counts": {
+        "command-git": 5,
+        "command-run": 1
+      },
+      "digest": "e1571298001f1a17dae61f457b27ec4fd6482c5140556a2327e53fcc0c59d357"
+    },
     "src/configuration-proposal.mjs": {
       "counts": {
-        "command-run": 15
+        "command-run": 16
       },
-      "digest": "62c3d5771b268e365114ddf4c2d0bf3969a5ee76e163ba3dd088d0db21353f70"
+      "digest": "1393cd54faf9da7d30344407113700803f0aae01f6cec4d93f495e37f80485b6"
     },
     "src/configuration-recreate-sync.mjs": {
       "counts": {
-        "command-git": 16,
+        "command-git": 13,
         "command-run": 1
       },
-      "digest": "7948005e465d23ae28ebc4ed98cd14bc1648149f0af90ff616d194844a265bd3"
+      "digest": "0df12f32366fb36b70ad797f2dc223d7080362283547aa20921272f45f4805d3"
     },
     "src/configuration-reference-sync.mjs": {
       "counts": {

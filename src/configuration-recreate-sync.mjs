@@ -19,6 +19,7 @@ import { replayConfigurationJson, replayConfigurationYaml } from './configuratio
 import { loadSkillLibrary } from './skill-library.mjs';
 import { readInstruction } from './instruction-library.mjs';
 import { syncConfigurationReferences } from './configuration-reference-sync.mjs';
+import { ConfigurationObjectReader } from './configuration-object-reader.mjs';
 import { removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 
 const PREFIX = 'refs/heads/sflow/config-change/';
@@ -38,25 +39,15 @@ function git(root, args, env, extra = {}) {
   return run('git', args, { cwd: root, env, maxBuffer: MAX_BYTES, timeoutMs: 15_000, ...extra });
 }
 
-function blob(root, commit, relative, env) {
-  const listing = git(root, ['ls-tree', '-z', commit, '--', relative], env).stdout;
-  if (!listing) return null;
-  const match = /^(100644|100755) blob ([a-f0-9]{40}|[a-f0-9]{64})\t([^\0]+)\0$/u.exec(listing);
-  if (!match || match[3] !== relative) fail(`Configuration asset '${relative}' is not a regular file.`);
-  const bytes = git(root, ['cat-file', 'blob', match[2]], env, { encoding: 'buffer' }).stdout;
-  if (!Buffer.isBuffer(bytes)) fail(`Cannot read exact configuration bytes for '${relative}'.`);
-  return { bytes, mode: match[1], sha256: hash(bytes) };
-}
-
-function definition(root, ref, env) {
-  const file = blob(root, ref, 'singularity/workflow.yml', env);
+function definition(reader, ref) {
+  const file = reader.file(ref, 'singularity/workflow.yml');
   if (!file) fail('Approved workflow configuration is missing.');
   return YAML.parse(utf8(file.bytes), { maxAliasCount: 100 });
 }
 
-function policyAt(root, ref, env) {
-  const portfolio = blob(root, ref, 'singularity/portfolio.yml', env);
-  return configurationAssetPolicy(definition(root, ref, env),
+function policyAt(reader, ref) {
+  const portfolio = reader.file(ref, 'singularity/portfolio.yml');
+  return configurationAssetPolicy(definition(reader, ref),
     portfolio ? YAML.parse(utf8(portfolio.bytes), { maxAliasCount: 100 }) : {});
 }
 
@@ -75,20 +66,15 @@ async function writeAsset(root, relative, file) {
   await chmod(target, file.mode === '100755' ? 0o755 : 0o644);
 }
 
-async function checkoutConfigurationOnly(root, commit, env) {
-  const policy = policyAt(root, commit, env);
-  const rows = git(root, ['ls-tree', '-r', '-z', commit, '--', ...configurationAssetSearchRoots(policy)], env).stdout.split('\0').filter(Boolean);
-  if (rows.length > 10_000) fail('The configuration tree exceeds the bounded recreation inventory.');
-  let bytes = 0;
+async function checkoutConfigurationOnly(root, commit, env, reader) {
+  await reader.hydrate(reader.inventory(commit, ['singularity/workflow.yml', 'singularity/portfolio.yml']));
+  const policy = policyAt(reader, commit);
+  const entries = reader.inventory(commit, configurationAssetSearchRoots(policy), relative => isConfigurationAssetPath(relative, policy));
+  await reader.hydrate(entries);
   // Populate the index with the exact base tree, but never materialize application source.
   git(root, ['read-tree', commit], env);
-  for (const row of rows) {
-    const relative = row.slice(row.indexOf('\t') + 1);
-    if (!isConfigurationAssetPath(relative, policy)) continue;
-    const file = blob(root, commit, relative, env);
-    bytes += file?.bytes.length ?? 0;
-    if (bytes > MAX_BYTES) fail('The configuration tree exceeds the bounded recreation byte budget.');
-    await writeAsset(root, relative, file);
+  for (const entry of entries) {
+    await writeAsset(root, entry.path, reader.file(commit, entry.path));
   }
 }
 
@@ -142,39 +128,55 @@ export async function recreateAndSyncConfiguration(root, {
     if (git(scratch, ['rev-parse', 'HEAD'], transport.env).stdout.trim() !== baseCommit) {
       fail('Approved configuration moved during recreation. Click Recreate & sync again; nothing changed.', 'CONFIGURATION_RECREATE_AUTHORITY_MOVED');
     }
-    await checkoutConfigurationOnly(scratch, baseCommit, transport.env);
-    const baseline = validateDefinition(definition(scratch, baseCommit, transport.env));
+    const reader = new ConfigurationObjectReader(scratch, transport.remote, transport.env, runRemoteCommand);
+    await checkoutConfigurationOnly(scratch, baseCommit, transport.env, reader);
+    const baseline = validateDefinition(definition(reader, baseCommit));
+    if (proposals.length) {
+      const fetched = await runRemoteCommand(['fetch', '--quiet', '--no-tags', '--filter=blob:none', '--recurse-submodules=no', '--', transport.remote,
+        ...proposals.map(item => `+${item.ref}:refs/remotes/recreate/${item.branch}`)],
+      { cwd: scratch, operation: 'remote-configuration', env: transport.env });
+      if (fetched.status !== 0) fail(fetched.failure?.advice ?? 'Configuration proposals could not be read.', 'CONFIGURATION_RECREATE_TRANSPORT_FAILED');
+      reader.seal();
+    }
     for (const item of proposals) {
       const local = `refs/remotes/recreate/${item.branch}`;
-      const fetched = await runRemoteCommand(['fetch', '--quiet', '--no-tags', '--', transport.remote,
-        `+${item.ref}:${local}`], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
-      if (fetched.status !== 0) fail(fetched.failure?.advice ?? 'A configuration proposal could not be read.', 'CONFIGURATION_RECREATE_TRANSPORT_FAILED');
       if (git(scratch, ['rev-parse', local], transport.env).stdout.trim() !== item.commit) {
         fail('A proposal moved during recreation. Click Recreate & sync again; nothing changed.', 'CONFIGURATION_RECREATE_PROPOSAL_MOVED');
       }
       item.merged = gitIsAncestor(scratch, item.commit, baseCommit, { env: transport.env });
       item.time = Number(git(scratch, ['show', '-s', '--format=%ct', item.commit], transport.env).stdout.trim());
+      if (!item.merged) {
+        const ancestor = git(scratch, ['merge-base', baseCommit, item.commit], transport.env, { allowFailure: true });
+        if (ancestor.status !== 0) fail(`Proposal '${item.branch}' has no configuration history. Original branches remain preserved.`);
+        item.sourceBase = ancestor.stdout.trim();
+      }
     }
     // Older pending edits first; the most recent explicit edit wins when proposals overlap.
     proposals.sort((a, b) => a.time - b.time || a.branch.localeCompare(b.branch));
     const files = new Map();
     const replacements = [];
     let bytesRead = 0;
-    const currentPolicy = policyAt(scratch, baseCommit, transport.env);
-    for (const item of proposals.filter(item => !item.merged)) {
-      const ancestor = git(scratch, ['merge-base', baseCommit, item.commit], transport.env, { allowFailure: true });
-      if (ancestor.status !== 0) fail(`Proposal '${item.branch}' has no configuration history. Original branches remain preserved.`);
-      const sourceBase = ancestor.stdout.trim();
-      const policy = mergeConfigurationAssetPolicies(currentPolicy, policyAt(scratch, sourceBase, transport.env),
-        policyAt(scratch, item.commit, transport.env));
-      const changed = readGitNameStatusDiff(scratch, sourceBase, item.commit, { env: transport.env, maximumRecords: MAX_FILES });
-      for (const relative of changed.names) {
+    const pending = proposals.filter(item => !item.merged);
+    await reader.hydrate(pending.flatMap(item => [item.sourceBase, item.commit].flatMap(commit =>
+      reader.inventory(commit, ['singularity/workflow.yml', 'singularity/portfolio.yml']))));
+    const currentPolicy = policyAt(reader, baseCommit);
+    const objects = [];
+    for (const item of pending) {
+      const policy = mergeConfigurationAssetPolicies(currentPolicy, policyAt(reader, item.sourceBase), policyAt(reader, item.commit));
+      item.changed = readGitNameStatusDiff(scratch, item.sourceBase, item.commit, { env: transport.env, maximumRecords: MAX_FILES }).names;
+      for (const relative of item.changed) {
         if (!portableConfigurationPath(relative) || !isConfigurationAssetPath(relative, policy) || relative === LOG) {
           fail(`Proposal '${item.branch}' changes non-configuration path '${relative}'. No application or Story files were changed.`);
         }
-        const original = blob(scratch, sourceBase, relative, transport.env);
-        const proposed = blob(scratch, item.commit, relative, transport.env);
-        const current = files.has(relative) ? files.get(relative) : blob(scratch, baseCommit, relative, transport.env);
+        objects.push(...[item.sourceBase, item.commit, baseCommit].map(commit => reader.lookup(commit, relative)));
+      }
+    }
+    await reader.hydrate(objects);
+    for (const item of pending) {
+      for (const relative of item.changed) {
+        const original = reader.file(item.sourceBase, relative);
+        const proposed = reader.file(item.commit, relative);
+        const current = files.has(relative) ? files.get(relative) : reader.file(baseCommit, relative);
         bytesRead += (original?.bytes.length ?? 0) + (proposed?.bytes.length ?? 0) + (current?.bytes.length ?? 0);
         if (bytesRead > MAX_BYTES || files.size >= MAX_FILES) fail('Configuration recreation exceeded its bounded asset budget.');
         let result = proposed;

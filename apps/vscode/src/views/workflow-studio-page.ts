@@ -282,6 +282,7 @@ export type StudioFocusView = typeof STUDIO_FOCUS_VIEWS[number];
 /** A configuration proposal as the Changes view lists it: names and counts, never file content. */
 export interface StudioProposalSummary {
   branch: string; proposalCommit: string; valid: boolean; merged: boolean;
+  proposalCreatedAt: string | null;
   workflows: Array<{ id: string; governs: string | null; change: string; label: string | null }>;
   files: number; invalidFiles: string[]; failure: string | null;
 }
@@ -300,6 +301,8 @@ export function proposalSummaries(listed: unknown): StudioProposalSummary[] {
     });
     return [{
       branch, proposalCommit, valid: entry.valid === true, merged: entry.merged === true, workflows,
+      proposalCreatedAt: typeof entry.proposalCreatedAt === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(entry.proposalCreatedAt)
+        && Number.isFinite(Date.parse(entry.proposalCreatedAt)) ? entry.proposalCreatedAt : null,
       files: Array.isArray(entry.changedFiles) ? entry.changedFiles.length : 0,
       invalidFiles: (Array.isArray(entry.invalidFiles) ? entry.invalidFiles : []).filter((name): name is string => typeof name === 'string').slice(0, 10),
       failure: text((entry.failure as { message?: unknown } | undefined)?.message)
@@ -811,6 +814,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   window.__workflowStudio = { initialDraft: initialDraft, changeSetFrom: changeSetFrom, copiedPhaseDraft: copiedPhaseDraft, describe: describe, kebab: kebab,
+    proposalGroups: function () { return proposalGroups.apply(null, arguments); },
     worldModelSection: function () { return worldModelSection.apply(null, arguments); }, knowledgeReader: function () { return knowledgeReader.apply(null, arguments); },
     newStepWorldModelHint: function () { return newStepWorldModelHint.apply(null, arguments); },
     renderReadOnlyStep: function () { return renderReadOnlyStep.apply(null, arguments); }, renderReadOnlyDecision: function () { return renderReadOnlyDecision.apply(null, arguments); },
@@ -5028,6 +5032,39 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     state.reviewing = branch; state.busy = 'review'; setStatus('Opening ' + branch + ' for review…'); render();
     post({ type: 'studio.reviewProposal', branch: branch, pending: changesNow().length });
   }
+  function proposalGroups(list) {
+    var groups = [], keyed = new Map();
+    (list || []).forEach(function (proposal) {
+      // A new approved base creates another branch for the same operation. Group presentation
+      // only: distinct workflow/operation identities and unknown creation dates stay separate.
+      var match = /^(sflow\/config-change\/workflow\/.+)-[a-f0-9]{8}$/.exec(proposal.branch);
+      var subject = proposal.workflows.length === 1 ? proposal.workflows[0] : null;
+      var time = Date.parse(proposal.proposalCreatedAt || '');
+      var key = match && subject && Number.isFinite(time) && !proposal.merged
+        ? JSON.stringify([match[1], subject.governs, subject.id]) : null;
+      var group = key ? keyed.get(key) : null;
+      if (!group) { group = { proposals: [] }; groups.push(group); if (key) keyed.set(key, group); }
+      group.proposals.push(proposal);
+    });
+    return groups.map(function (group) {
+      group.proposals.sort(function (a, b) { return Date.parse(b.proposalCreatedAt || '') - Date.parse(a.proposalCreatedAt || ''); });
+      // Equal timestamps do not prove which proposal is newer; leave both as primary choices.
+      var tie = group.proposals.length > 1 && group.proposals[0].proposalCreatedAt === group.proposals[1].proposalCreatedAt;
+      return { current: tie ? group.proposals : group.proposals.slice(0, 1), earlier: tie ? [] : group.proposals.slice(1) };
+    });
+  }
+  function proposalCard(proposal, earlier) {
+    var subjects = proposal.workflows.map(function (workflow) { return (workflow.label || workflow.id) + ' (' + workflow.change + ')'; });
+    return el('article', { class: 'decision-box', 'aria-label': 'Proposal ' + proposal.branch },
+      el('div', { class: 'studio-row spread' },
+        el('div', null, el('code', { text: proposal.branch }), el('span', { class: 'muted', text: '  ' + proposal.proposalCommit.slice(0, 12) })),
+        proposal.valid && !proposal.merged
+          ? button(state.busy === 'review' ? 'Reviewing…' : earlier ? 'Review earlier proposal' : 'Review and activate', function () { reviewProposal(proposal.branch); }, { class: earlier ? 'secondary' : 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + proposal.branch })
+          : el('span', { class: 'pill', text: proposal.merged ? 'Merged' : 'Blocked' })),
+      el('span', { class: 'muted', text: (subjects.length ? subjects.join(', ') : 'Configuration-only change') + ' · ' + proposal.files + (proposal.files === 1 ? ' file' : ' files') }),
+      proposal.failure ? el('div', { class: 'callout bad', text: proposal.failure }) : null,
+      proposal.invalidFiles.length ? el('div', { class: 'callout bad', text: 'Not configuration: ' + proposal.invalidFiles.join(', ') }) : null);
+  }
   function renderProposals(main) {
     var view = proposalsState();
     var card = el('section', { class: 'studio-card', 'aria-label': 'Waiting for review' });
@@ -5040,17 +5077,14 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (view.error) card.appendChild(el('div', { class: 'callout bad', text: view.error }));
     if (view.list === null) { if (!view.error) card.appendChild(el('p', { class: 'muted', text: 'Looking for configuration proposals…' })); }
     else if (!view.list.length) card.appendChild(el('p', { class: 'muted', text: 'No configuration proposals are waiting.' }));
-    (view.list || []).forEach(function (proposal) {
-      var subjects = proposal.workflows.map(function (workflow) { return (workflow.label || workflow.id) + ' (' + workflow.change + ')'; });
-      card.appendChild(el('article', { class: 'decision-box', 'aria-label': 'Proposal ' + proposal.branch },
-        el('div', { class: 'studio-row spread' },
-          el('div', null, el('code', { text: proposal.branch }), el('span', { class: 'muted', text: '  ' + proposal.proposalCommit.slice(0, 12) })),
-          proposal.valid && !proposal.merged
-            ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and activate', function () { reviewProposal(proposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + proposal.branch })
-            : el('span', { class: 'pill', text: proposal.merged ? 'Merged' : 'Blocked' })),
-        el('span', { class: 'muted', text: (subjects.length ? subjects.join(', ') : 'Configuration-only change') + ' · ' + proposal.files + (proposal.files === 1 ? ' file' : ' files') }),
-        proposal.failure ? el('div', { class: 'callout bad', text: proposal.failure }) : null,
-        proposal.invalidFiles.length ? el('div', { class: 'callout bad', text: 'Not configuration: ' + proposal.invalidFiles.join(', ') }) : null));
+    proposalGroups(view.list).forEach(function (group) {
+      group.current.forEach(function (proposal) { card.appendChild(proposalCard(proposal, false)); });
+      if (group.earlier.length) {
+        var earlier = el('details', null, el('summary', { text: 'Earlier versions — preserved (' + group.earlier.length + ')' }),
+          el('p', { class: 'muted', text: 'These are separate pending proposals for the same workflow operation, not duplicate rendering. Their intent is not discarded. Recreate & sync archives them only after a confirmed atomic update.' }));
+        group.earlier.forEach(function (proposal) { earlier.appendChild(proposalCard(proposal, true)); });
+        card.appendChild(earlier);
+      }
     });
     card.appendChild(el('p', { class: 'muted', text: 'Reviewing opens the exact diff; activating merges it into the approved configuration after you confirm. Running Stories keep the configuration they started with.' }));
     main.appendChild(card);
@@ -5234,6 +5268,11 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       }
       if (state.busy === 'review') state.busy = null;
       render();
+    } else if (message.type === 'studio.externalConfigurationChanged') {
+      state.plan = null; state.planKey = null;
+      if (changesNow().length) {
+        state.configurationChanged = 'Recreate & sync completed; your unpublished draft is preserved'; render();
+      } else post({ type: 'studio.reload' });
     } else if (message.type === 'studio.configurationChanged') {
       state.busy = null; state.configurationChanged = message.reason || 'the approved configuration changed'; render();
     } else if (message.type === 'studio.exported') {

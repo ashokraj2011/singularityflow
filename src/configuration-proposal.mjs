@@ -258,6 +258,9 @@ function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
   const proposalBase = run('git', ['rev-parse', '--verify', `${ref}^`], {
     cwd: root, env
   }).stdout.trim();
+  const createdSeconds = Number(run('git', ['show', '-s', '--format=%ct', proposalCommit], { cwd: root, env }).stdout.trim());
+  const proposalCreatedAt = Number.isSafeInteger(createdSeconds) && createdSeconds > 0 && createdSeconds <= 8_640_000_000_000
+    ? new Date(createdSeconds * 1000).toISOString() : null;
   const mergeBaseResult = run('git', ['merge-base', 'HEAD', ref], {
     cwd: root, env, allowFailure: true
   });
@@ -279,7 +282,7 @@ function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
     : null;
   return {
     remote: sanitizeRemote(remote), branch, targetBranch: CONFIGURATION_BRANCH,
-    targetCommit, proposalCommit, proposalBase, mergeBase, merged,
+    targetCommit, proposalCommit, proposalBase, proposalCreatedAt, mergeBase, merged,
     valid: changed.names.length > 0 && invalidFiles.length === 0,
     invalidFiles, changedFiles: changed.statuses,
     workflows: workflowChanges(root, reviewBase, ref, env),

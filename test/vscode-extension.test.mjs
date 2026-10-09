@@ -1725,6 +1725,14 @@ test('no CLI anywhere fails with both places named', () => {
   }
 });
 
+test('configuration recreation preview and apply use the remote transaction budget, not the two-minute UI timer', () => {
+  const client = new SingularityFlowClient({ location: { executable: 'node', cli: '/cli.mjs', source: 'setting' }, repository: '/repo' });
+  assert.equal(client.timeoutFor(['configuration', 'recreate-sync', '--json']), 15 * 60_000);
+  assert.equal(client.timeoutFor(['configuration', 'recreate-sync', '--apply', '--json']), 15 * 60_000);
+  assert.equal(commandClass(['configuration', 'recreate-sync', '--json']), 'read');
+  assert.equal(commandClass(['configuration', 'recreate-sync', '--apply', '--json']), 'mutation');
+});
+
 test('large remote operations and lifecycle submissions get operation-appropriate long timeouts', async () => {
   const timeouts = [];
   const client = new SingularityFlowClient({
@@ -5961,7 +5969,7 @@ test('a Story is the one shape that asks how it will be judged done', () => {
     '--description', 'One retry with backoff',
     '--work-type', 'feature',
     '--isolated-worktree',
-    '--readiness-baseline', 'reuse', '--test-execution-mode', 'changed-and-affected',
+    '--readiness-baseline', 'reuse', '--gate-mode', 'hard', '--test-execution-mode', 'changed-and-affected',
     '--from-branch', 'main',
     '--acceptance-criteria', 'Retries once\nGives up after that'
   ]);
@@ -5979,16 +5987,20 @@ test('a Story is the one shape that asks how it will be judged done', () => {
     'workspace', 'branches', '--json', '--intake', '--preflight-story', 'checkout-retry',
     '--isolated-worktree',
     '--from-branch', 'main', '--selected-base-only',
-    '--readiness-baseline', 'reuse', '--test-execution-mode', 'changed-and-affected',
-    '--work-type', 'feature', '--mint-intake-receipt'
+    '--readiness-baseline', 'reuse', '--gate-mode', 'hard', '--work-type', 'feature', '--mint-intake-receipt',
+    '--test-baseline-disposition', 'fix',
+    '--test-execution-mode', 'changed-and-affected', '--test-baseline-scope', 'reuse',
   ]);
   // The receipt binds the exact request, so complete reference rows ride along; incomplete ones do not.
-  assert.deepEqual(storyPreflightCommand({
+  const withReferences = storyPreflightCommand({
     ...form,
     referenceRepositories: [
       { id: 'docs', repository: 'https://example.test/docs.git', branch: 'main', status: 'idle' }
     ]
-  }).slice(-4), [
+  });
+  const referenceIndex = withReferences.indexOf('--reference-repository');
+  assert.ok(referenceIndex >= 0);
+  assert.deepEqual(withReferences.slice(referenceIndex, referenceIndex + 4), [
     '--reference-repository', 'docs=https://example.test/docs.git', '--reference-branch', 'docs=main'
   ]);
   assert.ok(!storyPreflightCommand({
@@ -6316,7 +6328,7 @@ test('a tracked Story is fetched by key', () => {
   assert.deepEqual(intakeCommand(form), [
     'story', 'start', 'ENG-142', '--json', '--fetch', '--work-type', 'feature',
     '--isolated-worktree',
-    '--readiness-baseline', 'reuse', '--test-execution-mode', 'changed-and-affected',
+    '--readiness-baseline', 'reuse', '--gate-mode', 'hard', '--test-execution-mode', 'changed-and-affected',
     '--from-branch', 'main'
   ]);
 });
@@ -6340,7 +6352,8 @@ test('Story intake refuses to fall through to an interactive workflow prompt', (
     'workspace', 'branches', '--json', '--intake', '--preflight-story', 'checkout-retry',
     '--isolated-worktree',
     '--from-branch', 'main', '--selected-base-only',
-    '--readiness-baseline', 'reuse', '--test-execution-mode', 'changed-and-affected'
+    '--readiness-baseline', 'reuse', '--gate-mode', 'hard', '--test-baseline-disposition', 'fix',
+    '--test-execution-mode', 'changed-and-affected', '--test-baseline-scope', 'reuse'
   ], 'the selected base can recover its exact workflow catalog without a launch-checkout choice');
 
   const selected = { ...missing, storyWorkflows: INTAKE_CHOICES.storyWorkflows,

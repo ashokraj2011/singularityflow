@@ -5,11 +5,14 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, link, u
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import {
   createWorkflowDraftRecoveryStore, WORKFLOW_DRAFT_RECOVERY_MAX_TEXT_BYTES,
   WORKFLOW_DRAFT_RECOVERY_MAX_ENVELOPE_BYTES
 } from '../apps/vscode/src/views/workflow-drafts-recovery.ts';
+import { nodeTypeScriptFlags } from '../scripts/typescript-runtime.mjs';
 
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const moduleUrl = new URL('../apps/vscode/src/views/workflow-drafts-recovery.ts', import.meta.url).href;
 const scope = { repository: path.resolve('/fixture-only/repository'), authority: 'https://approved.example.test/config.git', draftId: 'WFD-ABC123' };
 const head = 'a'.repeat(40);
@@ -256,7 +259,7 @@ try { let expected=request.expected??null;
 }catch(e){process.stdout.write(JSON.stringify({status:'refused',code:e.code}));}
 `;
 function worker(request) {
-  const child = spawn(process.execPath, ['--input-type=module', '-e', workerCode], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', workerCode], { stdio: ['pipe', 'pipe', 'pipe'] });
   let output = ''; let errors = '';
   child.stdout.on('data', (chunk) => { output += chunk; }); child.stderr.on('data', (chunk) => { errors += chunk; });
   const result = new Promise((resolve, reject) => {

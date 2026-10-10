@@ -6,9 +6,12 @@ import { mkdtemp, readFile, readdir, realpath, writeFile } from 'node:fs/promise
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { createWorkflowDraftRecoveryStore } from '../apps/vscode/src/views/workflow-drafts-recovery.ts';
 import { removeTemporaryTree } from '../src/util.mjs';
+import { nodeTypeScriptFlags } from '../scripts/typescript-runtime.mjs';
 
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const moduleUrl = new URL('../apps/vscode/src/views/workflow-drafts-recovery.ts', import.meta.url).href;
 const hash = (value) => createHash('sha256').update(value).digest('hex');
 const scopeHash = (scope) => hash(JSON.stringify([scope.repository, scope.authority, scope.draftId]));
@@ -47,7 +50,7 @@ const workerSource = `
   catch(error){process.stdout.write(JSON.stringify({status:'refused',code:error.code}));}
 `;
 async function worker(t, request) {
-  const child = spawn(process.execPath, ['--input-type=module', '-e', workerSource], { shell: false, windowsHide: true,
+  const child = spawn(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', workerSource], { shell: false, windowsHide: true,
     stdio: ['pipe', 'pipe', 'pipe'] });
   let output = ''; let errors = ''; let closed = false;
   const closure = new Promise((resolve) => child.once('close', () => { closed = true; resolve(); }));

@@ -14,7 +14,6 @@ import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
 import { identity } from '../git.mjs';
-import { effectiveGroundingMode } from '../world-model-policy.mjs';
 import { setAgentSession } from '../session.mjs';
 import { storyLineageLines } from '../story-base-lineage.mjs';
 import { currentPhase } from '../state-stores.mjs';
@@ -29,20 +28,12 @@ import { resolveStoryExecutionCatalog } from '../story-execution-context.mjs';
  */
 export const STORY_LINEAGE_PROPERTY = 'com.singularity.flow.lineage';
 
-/** The grounding mode in effect, or null when it cannot be told without the Story's configuration. */
-function shownGroundingMode(workflow, definition) {
-  if (definition) return effectiveGroundingMode(definition, workflow);
-  return (workflow.resolution?.worldModelGrounding ?? 'off') === 'off' ? 'off' : null;
-}
-
 /** The one-screen answer to "where is this work item". */
-export function summary(workflow, definition = null) {
+export function summary(workflow) {
   const active = currentPhase(workflow);
   console.log(`\n${workflow.workItem.id} — ${workflow.workItem.title}`);
   console.log(`Branch: ${workflow.workItem.branch}`);
   for (const line of storyLineageLines(workflow)) console.log(line);
-  const grounding = shownGroundingMode(workflow, definition);
-  if (grounding) console.log(`World-model grounding: ${grounding}`);
   console.log(`Status: ${workflow.status}`);
   console.log(`Current phase: ${active ? `${active.id} (${active.status})` : 'none'}`);
   if (active) {

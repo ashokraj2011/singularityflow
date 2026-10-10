@@ -22,12 +22,10 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import YAML from 'yaml';
 import { seededWorkflowCatalogs, seededWorkflowProtection, assertSeededWorkflowsUnchanged } from './seeded-workflow-protection.mjs';
-import { PORTFOLIO_PATH, validatePortfolio, validatePortfolioWorldModelViews } from './initiative-config.mjs';
+import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { assertPlannedClaimsReady, resolveWorkType, WORKFLOW_PATH, validateDefinition } from './config.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
-import { isRetiredWorldModelView, LEGACY_WORLD_MODEL_VIEW_SUCCESSORS, worldModelAssignmentViews } from './world-model-views.mjs';
-import { retiredWorldModelFormatError } from './world-model-format.mjs';
 
 /**
  * The two places a workflow can live.
@@ -47,7 +45,7 @@ export const STORES = Object.freeze({
     // A Story phase produces one artifact at a known path; an Initiative phase produces a set of
     // named outputs. Same idea, genuinely different record, so each store scaffolds its own rather
     // than one shape being bent to fit both.
-    scaffold: ({ id, label, worldModelViews, agents, approvalAuthorities, approvalMinimum, task }) => ({
+    scaffold: ({ id, label, agents, approvalAuthorities, approvalMinimum, task }) => ({
       label,
       ...(agents.length ? { agents } : {}),
       artifact: { path: `artifacts/${id}/${id}.md`, kind: id, minimumBytes: 200 },
@@ -56,7 +54,6 @@ export const STORES = Object.freeze({
       defaultTemplate: `common/${id}.md`,
       writeScope: 'artifact-only',
       ...(task ? { generation: task === 'none' ? { requirement: 'none' } : { task } } : {}),
-      ...(worldModelViews.length ? { worldModel: { views: worldModelViews, depth: 'quick' } } : {}),
       ...(approvalAuthorities.length
         ? { approval: { authorities: approvalAuthorities, minimum: approvalMinimum } }
         : {})
@@ -68,11 +65,10 @@ export const STORES = Object.freeze({
     workflows: 'initiativeProfiles',
     phases: 'initiativePhases',
     validate: validatePortfolio,
-    scaffold: ({ label, worldModelViews, lanes, agents, approvalAuthorities, approvalMinimum }) => ({
+    scaffold: ({ label, lanes, agents, approvalAuthorities, approvalMinimum }) => ({
       label,
       ...(lanes.length ? { lanes } : {}),
       ...(agents.length ? { agents } : {}),
-      worldModelViews,
       outputs: [],
       checklist: [],
       ...(approvalAuthorities.length
@@ -145,11 +141,6 @@ async function saveIn(file, document, store, beforeWrite = null) {
     for (const [side, definition] of Object.entries(STORES)) values[side] =
       (await loadIn(root, definition).catch(() => null))?.document.toJS() ?? {};
     const candidate = { ...values, [store.governs]: document.toJS() };
-    // Validate the two files together before either authoring route writes. A structurally valid
-    // portfolio can otherwise install legacy/unknown views which only fail at phase execution.
-    if (candidate.story.worldModel && candidate.initiative.initiativePhases) {
-      validatePortfolioWorldModelViews(candidate.initiative, candidate.story);
-    }
     assertSeededWorkflowsUnchanged(await seededWorkflowProtection(values.story, values.initiative), values, candidate);
   }
   if (beforeWrite) await beforeWrite();
@@ -408,7 +399,7 @@ export async function editWorkflow(root, workflowId, changes = {}) {
 /**
  * Add a phase.
  *
- * Deliberately minimal: a label, the world-model views it needs, its lanes, the agents it expects
+ * Deliberately minimal: a label, its lanes, the agents it expects
  * and the approval that closes it. Outputs and checklists are where the real detail lives and they
  * are left to the file, because a phase with three outputs is a paragraph of YAML and a form
  * pretending otherwise just hides the shape.
@@ -416,20 +407,8 @@ export async function editWorkflow(root, workflowId, changes = {}) {
  * A new phase runs nowhere until a workflow lists it, which is the right default: adding a stage to
  * every workflow at once is not what anybody means by adding a stage.
  */
-/**
- * A configuration that already names a retired legacy-v3 view keeps working without it; a phase is
- * not written with one, so the author learns the registered successor instead.
- */
-function assertNoRetiredViews(id, views) {
-  const retired = worldModelAssignmentViews(views).filter(isRetiredWorldModelView);
-  if (!retired.length) return;
-  throw retiredWorldModelFormatError(`phase '${id}' would name retired view${retired.length === 1 ? '' : 's'} `
-    + retired.map((view) => LEGACY_WORLD_MODEL_VIEW_SUCCESSORS[view] ? `${view} (use ${LEGACY_WORLD_MODEL_VIEW_SUCCESSORS[view]})` : view).join(', '));
-}
-
 export async function addPhase(root, phaseId, {
   label = null,
-  worldModelViews = [],
   lanes = [],
   agents = [],
   approvalAuthorities = [],
@@ -452,7 +431,6 @@ export async function addPhase(root, phaseId, {
       + `Configured: ${authorities.join(', ') || 'none'}.`);
   }
   await assertAgentsExist(root, agents, id);
-  assertNoRetiredViews(id, worldModelViews);
   if (task != null && store.governs !== 'story') {
     throw new SingularityFlowError('--task applies only to Story phases.');
   }
@@ -464,7 +442,7 @@ export async function addPhase(root, phaseId, {
   // `agents` is on both shapes: the agents a stage expects are part of its contract whatever the
   // stage governs.
   document.setIn([store.phases, id], document.createNode(store.scaffold({
-    id, label: label ?? id, worldModelViews, lanes, agents, approvalAuthorities, approvalMinimum, task
+    id, label: label ?? id, lanes, agents, approvalAuthorities, approvalMinimum, task
   })));
   if (store.governs === 'story') {
     const { discoverAgents, validateAgentCatalog } = await import('./agents.mjs');
@@ -501,7 +479,6 @@ export async function editPhase(root, phaseId, changes = {}, { governs = null } 
   if (!content[store.phases]?.[id]) throw new SingularityFlowError(`Unknown phase '${id}'.`);
 
   if (changes.agents !== undefined) await assertAgentsExist(root, changes.agents, id);
-  if (changes.worldModelViews !== undefined) assertNoRetiredViews(id, changes.worldModelViews);
   if (changes.task !== undefined) {
     if (store.governs !== 'story') throw new SingularityFlowError('--task applies only to Story phases.');
     if (!['code', 'analyze', 'none'].includes(changes.task)) {
@@ -538,13 +515,6 @@ export async function editPhase(root, phaseId, changes = {}, { governs = null } 
     }));
   }
   if (changes.label !== undefined) document.setIn([store.phases, id, 'label'], changes.label);
-  if (changes.worldModelViews !== undefined) {
-    const modelPath = store.governs === 'story'
-      ? [store.phases, id, 'worldModel', 'views']
-      : [store.phases, id, 'worldModelViews'];
-    if (!changes.worldModelViews.length) document.deleteIn(modelPath);
-    else document.setIn(modelPath, changes.worldModelViews);
-  }
   for (const field of ['lanes', 'agents']) {
     if (changes[field] === undefined) continue;
     if (!changes[field].length) document.deleteIn([store.phases, id, field]);

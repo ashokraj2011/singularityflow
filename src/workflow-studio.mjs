@@ -48,7 +48,6 @@ import {
 } from './code-delivery-policy.mjs';
 import { AUTHORING_SKILL_ID, authoringSkillCatalog, authoringSkillEntry } from './authoring-skills.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
-import { dropRetiredWorldModelReferences, worldModelViewCatalog, WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
 import { KNOWLEDGE_READER_RULES, knowledgePromptPolicy } from './knowledge/render.mjs';
 import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
@@ -106,12 +105,9 @@ export const AGENT_ROLES = Object.freeze([
 ]);
 
 /** Presets are authoring suggestions, never aliases or permission to add undeclared contracts. */
-export function agentRolePresets(definition) {
-  const { views } = definition?.worldModel ?? {};
-  // The display catalog also lists referenced-but-undeclared views for diagnostics. Presets must
-  // use only the approved enabled catalog, even while an invalid draft is open in the Studio.
-  const catalog = new Set(worldModelViewCatalog({ worldModel: { views } }));
-  return AGENT_ROLES.map((role) => ({ ...role, views: role.views.filter((view) => catalog.has(view)) }));
+export function agentRolePresets() {
+  // The registered World Model these views named was removed; presets carry none.
+  return AGENT_ROLES.map((role) => ({ ...role, views: [] }));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -388,10 +384,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
   let definition = null;
   try { definition = await loadDefinition(root); }
   catch (error) { problems.push({ code: error?.code ?? 'CONFIGURATION_INVALID', message: error.message }); }
-  // The World Model choices read the configuration as the engine does: retired legacy-v3 view names
-  // are dropped (all of them dropped means the registered defaults), and the Studio names them.
   const current = structuredClone(raw);
-  const retiredViews = [...new Set(dropRetiredWorldModelReferences(current).filter((entry) => !entry.source.startsWith('worldModel.format') && !entry.source.startsWith('worldModel.v4')).map((entry) => entry.value))];
   const discovered = (await discoverAgents(root)).filter((agent) => agent.scope !== 'plugin');
   const library = await loadSkillLibrary(configRoot);
   const instructionLibrary = await loadInstructionLibrary(configRoot);
@@ -547,8 +540,9 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       outputs: STEP_OUTPUTS,
       authoringSkills: await authoringSkillChoices(),
       clarification: CLARIFICATION_MODES,
-      views: worldModelViewCatalog(definition ?? current),
-      retiredViews,
+      // The registered World Model was removed: there are no views to choose.
+      views: [],
+      retiredViews: [],
       knowledge: { ...knowledgePromptPolicy(definition ?? current), readers: KNOWLEDGE_READER_RULES.map((rule) => ({ ...rule })) },
       tools: [...new Set([...Object.keys(TOOL_LABELS), ...discovered.flatMap((agent) => agent.tools ?? [])])]
         .map((id) => ({ id, label: TOOL_LABELS[id] ?? id })),
@@ -1276,7 +1270,7 @@ class StudioCandidate {
   }
   epicList(values, name, what) {
     const views = what === 'knowledge views';
-    const pattern = views ? WORLD_MODEL_VIEW_ID : /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+    const pattern = views ? /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u : /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
     if (!Array.isArray(values) || values.some((value) => typeof value !== 'string' || !pattern.test(value))) {
       throw new SingularityFlowError(`The ${what} of ${name} are a list of lower-case ${views ? 'logical view IDs (for example dev.impact)' : 'kebab-case names'}.`, { code: 'STUDIO_EPIC_STEP_INVALID' });
     }
@@ -2036,8 +2030,7 @@ class StudioCandidate {
     // Absent or null leaves a list as it is, as in phase.update: a new step has none, a copy keeps its source's.
     const inputList = changeList(inputs, `The inputs of ${name}`, 'STUDIO_PHASE_UNKNOWN');
     if (inputList) this.document.setIn(['phases', phaseId, 'inputs'], this.document.createNode(this.inputEntries(inputList, node.inputs ?? [])));
-    const viewList = changeList(views, `The knowledge views of ${name}`, 'STUDIO_VIEWS_INVALID');
-    if (viewList) this.document.setIn(['phases', phaseId, 'worldModel'], this.document.createNode({ depth: 'quick', ...(node.worldModel ?? {}), views: [...viewList] }));
+    // Step World Model views belonged to the removed registered World Model; nothing is written.
     if (copyOf && approval != null) {
       const current = approvalSummary(node.approval);
       const unchanged = approval === 'none' ? current.mode === 'none'
@@ -2145,12 +2138,7 @@ class StudioCandidate {
       this.document.setIn([...scope, 'approval'], this.document.createNode(this.approvalNode(approval, existing === 'none' ? null : existing)));
       changed.push('sign-off');
     }
-    const viewList = changeList(views, `The knowledge views of ${name}`, 'STUDIO_VIEWS_INVALID');
-    if (viewList) {
-      if (viewList.length) this.document.setIn(['phases', phaseId, 'worldModel', 'views'], this.document.createNode([...viewList]));
-      else if (this.document.hasIn(['phases', phaseId, 'worldModel', 'views'])) this.document.deleteIn(['phases', phaseId, 'worldModel', 'views']);
-      changed.push('knowledge');
-    }
+    // Step World Model views belonged to the removed registered World Model; nothing is written.
     if (authoringSkill !== undefined) {
       // The drafting skill is per workflow on a shared step, like sign-off and inputs.
       const scope = scopeFor('authoringSkill');

@@ -20,9 +20,7 @@ import { modelFreedomSnapshot, modelFreedomText } from './model-freedom.mjs';
 import { operationContext } from './operation-context.mjs';
 import { repositoryPerformanceSnapshot } from './performance-doctor.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
-import { registeredWorldModelOn, retiredWorldModelBlockingSettings } from './world-model-policy.mjs';
 import { removedSettings } from './removed-features.mjs';
-import { retiredWorldModelReferences } from './world-model-views.mjs';
 import { schemaCensus, schemaCensusText } from './schema-census.mjs';
 import { resolveModelProvider } from './model-runner.mjs';
 import { probeModelPromptTransport } from './model-provider-capability.mjs';
@@ -203,21 +201,10 @@ export async function doctorSnapshot(root, {
     // nested diagnostic. Standalone doctor remains a live-configuration diagnostic by default.
     definition = execution?.definition ?? await loadDefinition(root);
     checks.push(check('configuration', 'pass', `${WORKFLOW_PATH} is valid (${Object.keys(definition.workTypes).length} workflows, ${Object.keys(definition.agents).length} agents).`));
-    // View names and blocking settings matter only while the registered World Model is on.
-    const registeredOn = registeredWorldModelOn(definition);
-    const retiredViews = registeredOn ? retiredWorldModelReferences(definition) : [];
-    if (retiredViews.length) checks.push(check('world-model-views', 'warn',
-      `${retiredViews.length} retired legacy-v3 World Model reference(s) are ignored, so those phases and agents run without World Model guidance: `
-        + `${retiredViews.slice(0, 8).map((entry) => `${entry.source}=${entry.value}`).join('; ')}${retiredViews.length > 8 ? '; …' : ''}.`,
-      'Preview the rewrite to registered views with: singularity-flow wm migrate-views --dry-run'));
     const removed = removedSettings(definition);
     if (removed.length) checks.push(check('removed-settings', 'warn',
-      `${removed.length} setting(s) of removed features are ignored: ${removed.join(', ')}.`,
+      `${removed.length} setting(s) of removed features are ignored: ${removed.slice(0, 12).join(', ')}${removed.length > 12 ? ', …' : ''}.`,
       `Remove them from ${WORKFLOW_PATH}; nothing reads them.`));
-    const retiredBlocking = registeredOn ? retiredWorldModelBlockingSettings(definition) : [];
-    if (retiredBlocking.length) checks.push(check('world-model-guidance', 'warn',
-      `${retiredBlocking.join(', ')} no longer block: the World Model is guidance and these settings only warn.`,
-      `Set worldModel.grounding and worldModel.staleness to warn in ${WORKFLOW_PATH} to say what runs.`));
   } catch (error) {
     checks.push(check('configuration', 'fail', error.message, `Repair ${WORKFLOW_PATH} or restore it from version control.`));
     if (performance) performanceReport = await appendPerformanceCheck(checks, root);

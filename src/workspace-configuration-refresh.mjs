@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { retiredWorldModelFormatError } from './world-model-format.mjs';
+import { removedWorldModelError } from './removed-features.mjs';
 import {
   chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile
 } from 'node:fs/promises';
@@ -1426,7 +1426,7 @@ export async function refreshPackagedConfiguration(root, {
   let worldModelMigration = null;
   let capabilityEdit = null;
   // The legacy-v3 → registered-v4 configuration migration was removed with legacy-v3 itself.
-  if (migrateWorldModel) throw retiredWorldModelFormatError('workspace reinitialize --migrate-world-model');
+  if (migrateWorldModel) throw removedWorldModelError('workspace reinitialize --migrate-world-model');
   // Exact framework legacy role fields have been migrated above. Repository-created legacy role
   // fields are refused rather than rewritten. Defer only the live Agent Markdown reference lookup;
   // the complete post-write loadDefinition below validates the restored agent catalog and tools.

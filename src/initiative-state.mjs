@@ -10,10 +10,7 @@ import {
   branch, exactRemoteBranchObservationAsync, fileAtRef, head, identity,
   localBranches, publicationPushOutcome, pushCommitToBranchAsync, remoteBranches
 } from './git.mjs';
-import {
-  loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution,
-  validatePortfolioWorldModelViews
-} from './initiative-config.mjs';
+import { loadPortfolio, resolveInitiativeProfile, snapshotInitiativeResolution } from './initiative-config.mjs';
 import { ensureRepositoryTemplates, loadDefinition } from './config.mjs';
 import { renderInitiativeGenerator } from './initiative-generators.mjs';
 import { initiativeOutputRequired } from './initiative-policy.mjs';
@@ -230,7 +227,6 @@ export async function initiativeStartPreflight(root, {
 } = {}) {
   const portfolio = await loadPortfolio(root);
   const definition = await loadDefinition(root);
-  validatePortfolioWorldModelViews(portfolio, definition);
   const resolved = resolveInitiativeProfile(portfolio, profile, {
     idAuthority,
     workflowDefinition: definition
@@ -740,7 +736,6 @@ export async function restartInitiative(root, id = branch(root), { reason = null
   const { portfolio, initiative } = await loadInitiative(root, id);
   if (branch(root) !== id) throw new SingularityFlowError(`Current branch ${branch(root)} must be ${id} to restart it. Run singularity-flow initiative resume ${id} first.`);
   const definition = await loadDefinition(root);
-  validatePortfolioWorldModelViews(portfolio, definition);
   const resolved = resolveInitiativeProfile(portfolio, initiative.initiative.profile, {
     workflowDefinition: definition
   });

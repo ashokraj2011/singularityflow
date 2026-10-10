@@ -17,8 +17,6 @@ import {
 import { repositoryGitPath } from './git-directory.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { isRetiredWorldModelView, WORLD_MODEL_VIEW_ID } from './world-model-views.mjs';
-import { BUILTIN_VIEW_IDS } from './world-model/registry/views.mjs';
 import { COPILOT_AGENT_MAPPING_NAME_RULE, validCopilotAgentMappingName } from './copilot-agent-names.mjs';
 
 export { fetchRemoteMarkdown, isPublicRemoteAddress, resolvePublicRemoteHost } from './remote-fetch.mjs';
@@ -160,12 +158,12 @@ export function parseAgentDependencies(text, { source = 'agent.md', agentId = nu
   for (const [key, value] of Object.entries(metadata)) if (typeof value !== 'string') throw new SingularityFlowError(`Agent '${id}' metadata '${key}' must be a string.`);
   const phases = metadataList(metadata, 'sflow-phases');
   const defaultFor = metadataList(metadata, 'sflow-default-for');
+  // Read and kept as recorded; the registered World Model these views named was removed.
   const worldModelViews = metadataList(metadata, 'sflow-world-model-views');
   const tools = frontmatter.tools ?? [];
   if (!Array.isArray(tools) || tools.some((tool) => typeof tool !== 'string' || !tool.trim())) throw new SingularityFlowError(`Agent '${id}' tools must be an array of non-empty tool names.`);
   if (new Set(tools).size !== tools.length) throw new SingularityFlowError(`Agent '${id}' tools must not contain duplicates.`);
   for (const phase of [...phases, ...defaultFor]) if (!idPattern(phase)) throw new SingularityFlowError(`Agent '${id}' references invalid phase '${phase}'.`);
-  for (const view of worldModelViews) if (!WORLD_MODEL_VIEW_ID.test(view)) throw new SingularityFlowError(`Agent '${id}' references invalid world-model view '${view}'.`);
   for (const phase of defaultFor) if (phases.length && !phases.includes(phase)) throw new SingularityFlowError(`Agent '${id}' defaults phase '${phase}' without supporting it.`);
   const skillRows = rowsForHeading(text, 'Remote skills', ['ID', 'URL', 'Phases', 'Optional', 'Max bytes']);
   const templateRows = rowsForHeading(text, 'Remote artifact templates', ['ID', 'URL', 'Phases', 'Optional', 'Max bytes']);
@@ -295,8 +293,6 @@ export function validateAgentCatalog(agents, definition) {
     displayNames.set(name, agent.id);
   }
   const phaseIds = new Set(Object.keys(definition.phases ?? {}));
-  const declaredViews = definition.worldModel?.views ?? BUILTIN_VIEW_IDS;
-  const viewIds = new Set(declaredViews.map((view) => view.replace(/@[1-9][0-9]*$/, '')));
   for (const agent of agents) {
     if (['read-only', 'read-only-review'].includes(agent.metadata?.['sflow-mode'])
         && agent.defaultFor.some((id) => phaseIds.has(id))) {
@@ -339,10 +335,6 @@ export function validateAgentCatalog(agents, definition) {
           }
         );
       }
-    }
-    // A retired legacy-v3 view name gives the agent no World Model for it; it is never a refusal.
-    for (const view of agent.worldModelViews) {
-      if (!viewIds.has(view) && !isRetiredWorldModelView(view)) throw new SingularityFlowError(`Agent '${agent.id}' references undeclared world-model view '${view}'.`);
     }
   }
   for (const phaseId of phaseIds) {

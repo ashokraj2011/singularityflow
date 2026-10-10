@@ -3499,7 +3499,7 @@ export async function startCommand(positionals, options) {
     ]
   });
   if (!optionBoolean(options, 'json')) {
-    summary(workflow, config);
+    summary(workflow);
     console.log(`Story-start readiness: ${startReadiness.status} · configuration, workflow agents, and Git publication verified.`);
     for (const warning of startReadiness.warnings ?? []) console.log(`Readiness advisory: ${warning.message}`);
     if (sealedTestPolicy?.capability?.status === 'not-checked' || sealedTestPolicy?.capability?.modules?.length) {
@@ -3680,7 +3680,7 @@ async function resumeCommand(positionals, options) {
     console.warn(`Warning: Story '${resolved.workId}' resumed, but its active-workspace selection was not updated: ${error.message}`);
   }
   if (!json) {
-    summary(workflow, config);
+    summary(workflow);
     console.log(`Active governed agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
   }
   const active = currentPhase(workflow);
@@ -3829,7 +3829,7 @@ async function returnCommand(positionals, options) {
   );
   const json = optionBoolean(options, 'json');
   if (!json) {
-    summary(workflow, config);
+    summary(workflow);
     console.log(`Returned from ${plan.freshness} evidence at ${plan.sourceCommit.slice(0, 12)}.`);
     console.log(`Active governed agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
   }
@@ -3892,7 +3892,7 @@ export async function statusCommand(positionals, options) {
     console.log(JSON.stringify({ ...workflow, welStatus: wel, authoringRoutes: workflowAuthoringRoutes(workflow) }, null, 2));
     return;
   }
-  summary(workflow, config);
+  summary(workflow);
   console.log(`WEL: ${wel.classification} · ${wel.mode}${wel.reason ? ` · ${wel.reason}` : ''}`);
   console.log(`\n${table(workflow.phaseOrder.map((id, index) => {
     const phase = workflow.phases[id];
@@ -10805,7 +10805,6 @@ async function workflowCommand(positionals, options) {
     if (action === 'add') {
       const input = {
         label: optionString(options, 'label'),
-        worldModelViews: list('views'),
         lanes: list('lanes'),
         agents: list('agents'),
         approvalAuthorities: list('authorities'),
@@ -10829,7 +10828,6 @@ async function workflowCommand(positionals, options) {
     if (action === 'edit') {
       const changes = {};
       if (optionString(options, 'label') != null) changes.label = optionString(options, 'label');
-      if (optionString(options, 'views') != null) changes.worldModelViews = list('views');
       if (optionString(options, 'lanes') != null) changes.lanes = list('lanes');
       if (optionString(options, 'agents') != null) changes.agents = list('agents');
       if (optionString(options, 'task') != null) changes.task = optionString(options, 'task');
@@ -15841,8 +15839,8 @@ async function workspaceCommand(positionals, options) {
   if (subcommand === 'reinitialize') {
     // The legacy-v3 → registered-v4 configuration migration was removed with legacy-v3 itself.
     if (optionBoolean(options, 'migrate-world-model')) {
-      const { retiredWorldModelFormatError } = await import('./world-model-format.mjs');
-      throw retiredWorldModelFormatError('workspace reinitialize --migrate-world-model');
+      const { removedWorldModelError } = await import('./removed-features.mjs');
+      throw removedWorldModelError('workspace reinitialize --migrate-world-model');
     }
     const result = await reinitializeWorkspaces({
       registryFile: registry,

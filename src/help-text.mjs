@@ -377,11 +377,11 @@ Usage:
     [--resolve KIND:ID=rename:NAME]...                    independent copy with renamed editable dependencies;
                                                         compiled skill / canonical Epic steps remain shared and read-only
     Seeded workflows and their shared dependencies are read-only. Duplicate before customizing.
-  singularity-flow workflow phase add <ID> [--label TEXT] [--views a,b] [--lanes a,b]
+  singularity-flow workflow phase add <ID> [--label TEXT] [--lanes a,b]
     [--agents a,b] [--task code|analyze|none] [--authorities group-a,group-b] [--minimum N]
     [--governs story|initiative] [--propose]    defaults to Story; a new Story phase needs a default governed agent
     (a phase runs nowhere until a workflow lists it)
-  singularity-flow workflow phase edit <ID> [--label TEXT] [--views a,b] [--agents a,b]
+  singularity-flow workflow phase edit <ID> [--label TEXT] [--agents a,b]
     [--task code|analyze|none] [--authorities group-a,group-b] [--minimum N] [--propose]
     (--governs is inferred from where the phases already live, and rarely needed)
   singularity-flow workflow phase output add <PHASE> <OUTPUT> --label TEXT --kind markdown --path FILE --template FILE

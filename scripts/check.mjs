@@ -14,9 +14,8 @@ import { canonicalCommand, COMMAND_REGISTRY } from '../src/command-registry.mjs'
 import { COMMAND_SKILLS } from '../src/command-skills.mjs';
 import { BOOLEAN_OPTIONS, defaultTimeoutFor, run } from '../src/util.mjs';
 import { SOURCE_LINE_BUDGETS, sourceSizeFailures } from './source-size-policy.mjs';
-import { validatePortfolio, validatePortfolioWorldModelViews } from '../src/initiative-config.mjs';
+import { validatePortfolio } from '../src/initiative-config.mjs';
 import { auditSkillPolicy } from './skill-policy.mjs';
-import { auditReviewedImplementationSourceManifest } from './world-model-implementation-manifest-lint.mjs';
 import { validateNarrationMigrationStatus } from '../src/narration/migration-status.mjs';
 import { currentSchemaVersion, migrationRegistrySnapshot } from '../src/schema-migrations.mjs';
 import { MCP_SCAFFOLD_VERSIONS } from '../src/mcp-host.mjs';
@@ -30,11 +29,6 @@ import {
   CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256,
   isKnownPackagedWorkflowValue, packagedWorkflowValueSha256
 } from '../src/packaged-workflow-history.mjs';
-import {
-  ASSURANCE_LEVELS, DERIVATION_STATUSES, EVIDENCE_KINDS, FACT_STATUSES, FACT_TYPES,
-  MODEL_MODES, SECTION_KINDS, SUBJECT_KINDS, SCOPE_SUBJECT_KINDS,
-  UNAVAILABLE_REASON_CODES, VIEW_STATUSES
-} from '../src/world-model/vocabularies.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
@@ -69,22 +63,6 @@ try {
 
 function fail(message) {
   failures.push(message);
-}
-
-try {
-  const {
-    PERSISTED_OVERVIEW_RENDERER_V1_SOURCE_MANIFEST,
-    PERSISTED_OVERVIEW_VALIDATOR_V1_SOURCE_MANIFEST
-  } = await import('../src/world-model/history/persisted-view-source-manifests.mjs');
-  for (const manifest of [
-    PERSISTED_OVERVIEW_RENDERER_V1_SOURCE_MANIFEST,
-    PERSISTED_OVERVIEW_VALIDATOR_V1_SOURCE_MANIFEST
-  ]) {
-    auditReviewedImplementationSourceManifest(manifest, { packageRoot: root });
-    checked.push(`exact implementation closure ${manifest.id}`);
-  }
-} catch (error) {
-  fail(`Persisted-view implementation manifest audit failed: ${error.message}`);
 }
 
 function repositoryFiles() {
@@ -605,27 +583,6 @@ function validateAutoAuthorizationSchema(schema, schemaFile) {
   validateLocalSchemaReferences(schema, schemaFile);
 }
 
-function schemaNode(schema, segments, schemaFile) {
-  let current = schema;
-  for (const segment of segments) {
-    current = current?.[segment];
-    if (current == null) {
-      fail(`${schemaFile}: missing governed schema node ${segments.join('.')}`);
-      return null;
-    }
-  }
-  return current;
-}
-
-function requireExactSchemaValues(schema, segments, expected, schemaFile) {
-  const node = schemaNode(schema, segments, schemaFile);
-  if (!node) return;
-  const received = node.enum ?? (Object.hasOwn(node, 'const') ? [node.const] : null);
-  if (!Array.isArray(received) || JSON.stringify(received) !== JSON.stringify(expected)) {
-    fail(`${schemaFile}: ${segments.join('.')} must match the closed runtime vocabulary (${expected.join(', ')})`);
-  }
-}
-
 function compileWorldModelSchemaGraph(schema, schemaFile) {
   const validTypes = new Set(['null', 'boolean', 'object', 'array', 'number', 'string', 'integer']);
   const visit = (node, location = '$') => {
@@ -706,79 +663,6 @@ function compileWorldModelSchemaGraph(schema, schemaFile) {
 }
 
 /** WMB schemas are compiled/consumed elsewhere; this bounded check validates their meta-contract. */
-function validateWorldModelContractSchema(schema, schemaFile) {
-  if (schema.$schema !== 'https://json-schema.org/draft/2020-12/schema') {
-    fail(`${schemaFile}: must declare JSON Schema draft 2020-12`);
-  }
-  if (schema.type !== 'object' || schema.additionalProperties !== false) {
-    fail(`${schemaFile}: WMB durable record must be a closed top-level object schema`);
-  }
-  const properties = schema.properties ?? {};
-  for (const required of schema.required ?? []) {
-    if (!Object.hasOwn(properties, required)) {
-      fail(`${schemaFile}: requires undeclared property '${required}'`);
-    }
-  }
-  const kind = properties.kind?.const;
-  if (typeof kind !== 'string' || !kind.startsWith('world-model-')) {
-    fail(`${schemaFile}: must bind one world-model record kind`);
-  } else {
-    let registeredVersion = null;
-    try { registeredVersion = currentSchemaVersion(kind); }
-    catch (error) { fail(`${schemaFile}: kind '${kind}' has no migration-registry family (${error.message})`); }
-    if (registeredVersion != null && properties.schemaVersion?.const !== registeredVersion) {
-      fail(`${schemaFile}: schemaVersion must equal migration-registry version ${registeredVersion}`);
-    }
-  }
-  validateLocalSchemaReferences(schema, schemaFile);
-  compileWorldModelSchemaGraph(schema, schemaFile);
-
-  const closedBindings = {
-    'world-model-derivation.schema.json': [
-      [['properties', 'status'], DERIVATION_STATUSES]
-    ],
-    'world-model-evidence-catalog.schema.json': [
-      [['properties', 'items', 'items', 'properties', 'kind'], EVIDENCE_KINDS]
-    ],
-    'world-model-extractor-manifest.schema.json': [
-      [['$defs', 'evidenceKind'], EVIDENCE_KINDS],
-      [['$defs', 'factType'], FACT_TYPES]
-    ],
-    'world-model-fact-ledger.schema.json': [
-      [['$defs', 'factType'], FACT_TYPES],
-      [['$defs', 'fact', 'properties', 'status'], FACT_STATUSES],
-      [['$defs', 'fact', 'properties', 'assurance'], ASSURANCE_LEVELS],
-      [['$defs', 'fact', 'properties', 'subject', 'properties', 'kind'], SUBJECT_KINDS],
-      [['$defs', 'fact', 'properties', 'reason', 'properties', 'code'], UNAVAILABLE_REASON_CODES]
-    ],
-    'world-model-query-index.schema.json': [
-      [['$defs', 'factType'], FACT_TYPES],
-      [['$defs', 'evidenceKind'], EVIDENCE_KINDS],
-      [['properties', 'facts', 'items', 'properties', 'status'], FACT_STATUSES],
-      [['properties', 'facts', 'items', 'properties', 'assurance'], ASSURANCE_LEVELS],
-      [['properties', 'facts', 'items', 'properties', 'subjectKind'], SUBJECT_KINDS]
-    ],
-    'world-model-scope-manifest.schema.json': [
-      [['properties', 'allowedSubjects', 'items'], SCOPE_SUBJECT_KINDS]
-    ],
-    'world-model-view-contract.schema.json': [
-      [['$defs', 'factType'], FACT_TYPES],
-      [['properties', 'factPolicy', 'properties', 'allowedStatus'], FACT_STATUSES.filter((entry) => entry !== 'stale')],
-      [['properties', 'factPolicy', 'properties', 'allowedAssurance'], ASSURANCE_LEVELS],
-      [['properties', 'sections', 'items', 'properties', 'sectionKind'], SECTION_KINDS],
-      [['properties', 'model', 'properties', 'mode'], MODEL_MODES],
-      [['properties', 'validity', 'properties', 'status'], VIEW_STATUSES]
-    ]
-  };
-  const name = path.posix.basename(schemaFile);
-  for (const [segments, expected] of closedBindings[name] ?? []) {
-    // Array-valued View Contract properties place the closed vocabulary under `items`.
-    const node = schemaNode(schema, segments, schemaFile);
-    const effective = node?.items?.enum ? [...segments, 'items'] : segments;
-    requireExactSchemaValues(schema, effective, expected, schemaFile);
-  }
-}
-
 /**
  * The Story history pin is a discriminated union embedded in the lifecycle state rather than a
  * standalone `world-model-*` record. Keep its two branches just as closed and version-bound as
@@ -981,14 +865,11 @@ const baselineSchemaFiles = [
   'schemas/token-reduction-composition.schema.json',
   'schemas/sgos-contract.schema.json'
 ];
-const worldModelSchemaFiles = (await readdir(path.join(root, 'schemas')))
-  .filter((name) => /^world-model-.+\.schema\.json$/.test(name))
-  .sort().map((name) => `schemas/${name}`);
 const revisionSchemaFiles = (await readdir(path.join(root, 'schemas')))
   .filter((name) => /^revision-.+\.schema\.json$/.test(name))
   .sort().map((name) => `schemas/${name}`);
 for (const schemaFile of [...new Set([
-  ...baselineSchemaFiles, ...worldModelSchemaFiles, ...revisionSchemaFiles
+  ...baselineSchemaFiles, ...revisionSchemaFiles
 ])]) {
   const schema = JSON.parse(await readFile(path.join(root, schemaFile), 'utf8'));
   if (schemaFile === 'schemas/sgos-contract.schema.json') validateSgosContractSchema(schema, schemaFile);
@@ -1002,9 +883,6 @@ for (const schemaFile of [...new Set([
       && schema.properties?.checks?.properties?.exactPackageLocalStart
         ?.properties?.packageVersion?.const !== MCP_SCAFFOLD_VERSIONS.playwright) {
     fail(`${schemaFile} must pin the packaged Playwright MCP version ${MCP_SCAFFOLD_VERSIONS.playwright}.`);
-  }
-  if (schemaFile.startsWith('schemas/world-model-')) {
-    validateWorldModelContractSchema(schema, schemaFile);
   }
   if (schemaFile.startsWith('schemas/revision-')) {
     validateRevisionDurableContractSchema(schema, schemaFile);
@@ -1141,7 +1019,6 @@ if (workflowSchema.$defs?.tokenEconomy?.properties?.mode?.default !== 'observe')
 checked.push('templates/workflow.yml');
 
 const portfolioTemplate = validatePortfolio(YAML.parse(await readFile(path.join(root, 'templates', 'portfolio.yml'), 'utf8')));
-validatePortfolioWorldModelViews(portfolioTemplate, workflowTemplate);
 if (!portfolioTemplate.initiativeProfiles?.['initiative-lite'] || !portfolioTemplate.initiativeProfiles?.['enterprise-delivery']) fail('portfolio template must include initiative-lite and enterprise-delivery profiles');
 if (!portfolioTemplate.initiativeProfiles?.['epic-planning']) fail('portfolio template must include the epic-planning profile');
 if (portfolioTemplate.initiativeProfiles['initiative-lite'].phases.length !== 4) fail('initiative-lite must contain four phases');

@@ -14,8 +14,14 @@ const DROPPED = new WeakMap();
 /** The top-level settings that belong only to removed features. */
 const REMOVED_TOP_LEVEL = Object.freeze(['architectureIntent']);
 
-/** The `worldModel.*` settings that belong only to removed features. */
-const REMOVED_WORLD_MODEL = Object.freeze(['projections']);
+/**
+ * The `worldModel.*` settings still read: the Repository brief (`knowledge`), the source scope the
+ * brief and capabilities share, and the state-branch aliases the ledger honours. Every other
+ * `worldModel` setting belonged to the removed registered World Model.
+ */
+const KEPT_WORLD_MODEL = Object.freeze(new Set([
+  'knowledge', 'sourceRoots', 'sharedRoots', 'excludedRoots', 'stateBranch', 'remote'
+]));
 
 function record(definition, name) {
   if (!DROPPED.has(definition)) DROPPED.set(definition, []);
@@ -33,13 +39,23 @@ export function dropRemovedSettings(definition) {
   }
   const worldModel = definition.worldModel;
   if (worldModel && typeof worldModel === 'object' && !Array.isArray(worldModel)) {
-    for (const key of REMOVED_WORLD_MODEL) {
-      if (Object.hasOwn(worldModel, key)) {
-        delete worldModel[key];
-        record(definition, `worldModel.${key}`);
-      }
+    for (const key of Object.keys(worldModel)) {
+      if (KEPT_WORLD_MODEL.has(key)) continue;
+      delete worldModel[key];
+      record(definition, `worldModel.${key}`);
     }
   }
+  // Phase World Model views and depth, in the shared phases and in workflow phase overrides.
+  let phaseSettings = 0;
+  for (const phase of Object.values(definition.phases ?? {})) {
+    if (phase && typeof phase === 'object' && Object.hasOwn(phase, 'worldModel')) { delete phase.worldModel; phaseSettings += 1; }
+  }
+  for (const workType of Object.values(definition.workTypes ?? {})) {
+    for (const override of Object.values(workType?.phaseOverrides ?? {})) {
+      if (override && typeof override === 'object' && Object.hasOwn(override, 'worldModel')) { delete override.worldModel; phaseSettings += 1; }
+    }
+  }
+  if (phaseSettings) record(definition, `World Model views on ${phaseSettings} phase(s)`);
   return removedSettings(definition);
 }
 

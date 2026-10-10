@@ -842,9 +842,9 @@
     },
     "src/governance.mjs": {
       "counts": {
-        "command-run": 12
+        "command-run": 10
       },
-      "digest": "d7471fae96c340adc2f9841ea9b18348013073f7f31a319681a4a7c4c6a6454b"
+      "digest": "376128d13b6d1675b28386f19cca20a00bc5329193a50ed14927befea63cc271"
     },
     "src/governed-goals.mjs": {
       "counts": {
@@ -855,9 +855,9 @@
     },
     "src/grounding.mjs": {
       "counts": {
-        "command-run": 9
+        "command-run": 7
       },
-      "digest": "232932003b16a5c1a30936f3d7d70962bc54757414955032638762b57c709852"
+      "digest": "69106ab156a5ffcbe237dfc82510a1871a75c6b1c57d8dbbd82d81e603b54aac"
     },
     "src/harness-imports.mjs": {
       "counts": {
@@ -1365,57 +1365,11 @@
       },
       "digest": "2ed8be49365d2f3c805e80828f9e12498d08e65490ca8f79c273a561bfa9a555"
     },
-    "src/world-model/authority-refresh.mjs": {
-      "counts": {
-        "command-git-literal": 3,
-        "command-run": 1
-      },
-      "digest": "54763bc8b5271d901862399899cbaa26e32fb6851e56352f991ff368a202185b"
-    },
-    "src/world-model/extract/adapters/change-region.mjs": {
-      "counts": {
-        "command-git": 2,
-        "command-run": 1
-      },
-      "digest": "4532716eae62f0352eb859070a845d2afba7b9176bb8388a8723d8531f720221"
-    },
-    "src/world-model/history/git-read.mjs": {
-      "counts": {
-        "command-runCommand": 1
-      },
-      "digest": "ed43375f5048bc045427feb2348eec3eca79aa54ce9c086090131130d7f813f6"
-    },
-    "src/world-model/projections/calm/validator.mjs": {
-      "counts": {
-        "command-runCommand": 1
-      },
-      "digest": "0289cba7418811c9fc0f4026e1fb7f78069911ec31bb3c8835a11fea44567d27"
-    },
-    "src/world-model/recovery.mjs": {
-      "counts": {
-        "command-git": 18,
-        "command-run": 1
-      },
-      "digest": "1006d668d44dfcb720921298a4cc387d3ee7674bcd042a201b9dc32455da2098"
-    },
-    "src/world-model/source/snapshot.mjs": {
-      "counts": {
-        "command-git": 19,
-        "command-run": 1
-      },
-      "digest": "c8f3620b0325c710672ca61b0fc47589fdeb7d720aacd4d7ccc6cde268536ac6"
-    },
-    "src/world-model/store.mjs": {
-      "counts": {
-        "command-run": 6
-      },
-      "digest": "8fb75ec1e35736896cb4a5b8d0f9611687773308b04398c7c012b65fb872dd29"
-    },
     "src/worldmodel.mjs": {
       "counts": {
-        "command-run": 13
+        "command-run": 1
       },
-      "digest": "d3b608a8e0d76cd0a89f960783ffcc32a72526a052bd33b883f75c2e19da4604"
+      "digest": "155f93effe6b3bea4faa532d1a6056fb87d1e9c8a23062f02a735ebc192129e5"
     },
     "package.json": {
       "counts": {

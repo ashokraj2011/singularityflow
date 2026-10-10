@@ -6,8 +6,6 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import { activeEpicSourceIdentities, jiraSnapshotSource, verifyEpicSources } from './epic-sources.mjs';
 import { loadDefinition } from './config.mjs';
-import { isRetiredWorldModelView, worldModelAssignmentViews } from './world-model-views.mjs';
-import { validatePortfolioWorldModelViews } from './initiative-config.mjs';
 import {
   loadInitiative,
   secureInitiativePath,
@@ -230,19 +228,14 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
 } = {}) {
   const { portfolio, initiative } = await loadInitiative(root, initiativeId);
   const definition = await loadDefinition(root);
-  validatePortfolioWorldModelViews(portfolio, definition);
   const phaseId = requestedPhase ?? initiative.currentPhase;
   if (!phaseId || phaseId !== initiative.currentPhase) {
     throw new SingularityFlowError(`Current initiative phase is '${initiative.currentPhase ?? 'complete'}'; cannot compose '${phaseId ?? 'none'}'.`);
   }
   const pinnedPhase = initiative.resolution.phases.find((candidate) => candidate.id === phaseId);
   if (!pinnedPhase) throw new SingularityFlowError(`Unknown initiative phase '${phaseId}'.`);
-  // A resolution pinned before the legacy-v3 World Model was removed may still name its views; they
-  // are dropped before any grounding or capability reader sees them, so the phase has no World Model.
-  validatePortfolioWorldModelViews({ initiativePhases: { [phaseId]: pinnedPhase } }, definition);
   const phase = {
-    ...pinnedPhase,
-    worldModelViews: worldModelAssignmentViews(pinnedPhase.worldModelViews).filter((view) => !isRetiredWorldModelView(view))
+    ...pinnedPhase
   };
   const session = await loadSession(root, { required: false });
   const sessionAgentApplies = Boolean(

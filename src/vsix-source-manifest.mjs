@@ -52,7 +52,6 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/repository-test-command-inference.mjs',
   'src/story-test-readiness-document.mjs',
   'src/test-baseline-risk.mjs',
-  'src/world-model/history/story-grounding-activation.mjs',
   'schemas/repository-test-baseline.schema.json',
   'schemas/preexisting-test-risk-acceptance.schema.json',
   'schemas/skill-version-adoption-decision.schema.json',

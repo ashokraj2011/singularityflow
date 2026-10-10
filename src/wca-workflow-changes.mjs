@@ -3,12 +3,12 @@ import { createHash } from 'node:crypto';
 import { types } from 'node:util';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { isPortableRepositoryPathComponent, SingularityFlowError } from './util.mjs';
-import { resolveWorkType, validateDefinition, validateArtifactTemplateText,
-  validateCapturedAgentBriefHeadingContracts, validateWorldModelPromptReferences } from './config.mjs';
+import {
+  resolveWorkType, validateDefinition, validateArtifactTemplateText, validateCapturedAgentBriefHeadingContracts
+} from './config.mjs';
 import { parseAgentDependencies } from './agents.mjs';
 import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
 import { normalizeTemplateCatalog } from './template-catalog.mjs';
-import { markdownWorldModelViews } from './world-model-views.mjs';
 import { compileSkillPhaseProposal } from './skp-contract.mjs';
 import { sharedSkillContractCatalog } from './wca-skill-contract-review.mjs';
 
@@ -714,14 +714,9 @@ function textContracts(definition, templates, changedTexts, changedTemplates) {
   try {
     for (const { content } of changedTemplates) validateArtifactTemplateText(content);
     validateCapturedAgentBriefHeadingContracts(definition, templates);
-    const references = new Map();
-    for (const entry of changedTexts) for (const view of markdownWorldModelViews(entry.content)) {
-      const paths = references.get(view) ?? []; paths.push(entry.path); references.set(view, paths);
-    }
-    validateWorldModelPromptReferences(definition, references);
   } catch (error) {
     fail(error?.code?.startsWith('SKP_') ? 'WCA_SHARED_CONTENT_SKP_RECOMPILE_REQUIRED' : 'WCA_SHARED_CONTENT_CONTRACT_INVALID',
-      'The prospective exact text violates an existing template, preserved-heading or world-model view contract.');
+      'The prospective exact text violates an existing template or preserved-heading contract.');
   }
 }
 

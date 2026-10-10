@@ -48,9 +48,7 @@ const VERSION_BRANCH_HOME = new Set([
 // Immutable historical executables must interpret their own frozen wire version without routing
 // through today's migration registry. Keep this list exact and versioned: active/current readers
 // never belong here, and a successor implementation receives a new immutable entrypoint.
-const HISTORICAL_VERSION_READERS = new Set([
-  'src/world-model/materialize/persisted-overview-renderer-v1.mjs'
-]);
+const HISTORICAL_VERSION_READERS = new Set([]);
 
 const DURABLE_WRITE_CALLS = new Set([
   'appendFile', 'atomicJson', 'writeAtomic', 'writeFile', 'writeJson', 'writeText'

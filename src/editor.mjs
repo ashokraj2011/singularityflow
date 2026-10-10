@@ -16,7 +16,7 @@ import {
 } from './git.mjs';
 import { createTransportIntent, retryTransportIntent } from './transport-intents.mjs';
 import {
-  DEFAULT_PLANNING_PROMPT, ensureRepositoryTemplates, ensureRepositoryWorldModelViews, loadDefinition, normalizePlanning, resolveWorkType, validateDefinition, withDefinitionCache, WORKFLOW_PATH
+  DEFAULT_PLANNING_PROMPT, ensureRepositoryTemplates, loadDefinition, normalizePlanning, resolveWorkType, validateDefinition, withDefinitionCache, WORKFLOW_PATH
 } from './config.mjs';
 import { MODEL_TASKS } from './model-tasks.mjs';
 import { templateReferences } from './template-catalog.mjs';
@@ -56,11 +56,7 @@ import { doctorSnapshot } from './doctor.mjs';
 import { simulateWorkflow } from './workflow-catalog.mjs';
 import { deriveReport } from './report.mjs';
 import { copilotTelemetryStatus } from './telemetry.mjs';
-import {
-  loadPortfolio, PORTFOLIO_PATH, validatePortfolio,
-  validatePortfolioWorldModelViews,
-  portfolioWorldModelViews
-} from './initiative-config.mjs';
+import { loadPortfolio, PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import {
   initiativeProgress, listInitiatives, secureInitiativePath
 } from './state-stores.mjs';
@@ -1422,10 +1418,6 @@ export async function bootstrapWorkspacePortfolio(root, {
   replaceEmptyStarter = false
 } = {}) {
   const target = path.join(root, PORTFOLIO_PATH);
-  // Repositories initialized before Agent Markdown owned world-model views can temporarily have
-  // no worldModel block. Repair the repository-level agent and phase requirements before using
-  // the strict loader; portfolio-specific views are merged below once the profile is known.
-  await ensureRepositoryWorldModelViews(root);
   const definition = await loadDefinition(root);
   const targetExists = await exists(target);
   let repairedEmptyStarter = false;
@@ -1505,15 +1497,8 @@ export async function bootstrapWorkspacePortfolio(root, {
   // file, which would otherwise gain a hundred lines nobody wrote on its first repair.
   const portfolio = validatePortfolio(structuredClone(starter));
   // Self-heal: install any packaged templates the portfolio's phases reference (the initiatives/
-  // subtree is absent from repositories initialized before it shipped), then declare the
-  // world-model views the portfolio needs so validation cannot fail on a fresh onboarding.
+  // subtree is absent from repositories initialized before it shipped).
   await ensureRepositoryTemplates(root, definition, { templatesRoot: portfolio.templatesRoot });
-  const declaredViews = await ensureRepositoryWorldModelViews(
-    root,
-    portfolioWorldModelViews(portfolio)
-  );
-  const validatedDefinition = declaredViews ? await loadDefinition(root) : definition;
-  validatePortfolioWorldModelViews(portfolio, validatedDefinition);
   await writeText(target, renderDataPreservingFormatting(starterText, starter));
   return {
     path: PORTFOLIO_PATH,
@@ -1790,7 +1775,6 @@ export async function validateConfigurationCandidates(root, candidates, definiti
       await loadImpactDefinition(validationRoot, { required: true });
     }
     const updatedPortfolio = await loadPortfolio(validationRoot, { required: false });
-    if (updatedPortfolio) validatePortfolioWorldModelViews(updatedPortfolio, updatedDefinition);
     assertEditorConfigurationPathAuthority(
       editorConfigurationPathAuthority(root, updatedDefinition, updatedPortfolio)
     );
@@ -2039,7 +2023,6 @@ export async function validateEditorConfiguration(root, { baselineDefinition = n
   assertEditorConfigurationPathAuthority(
     editorConfigurationPathAuthority(root, definition, portfolio)
   );
-  if (portfolio) validatePortfolioWorldModelViews(portfolio, definition);
   const agents = await discoverAgents(root);
   await loadAgentMappings(root, { agents });
   const environmentDeclaration = await validateEnvironmentConfiguration(root, definition);

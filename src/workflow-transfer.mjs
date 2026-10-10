@@ -48,9 +48,7 @@ import {
   transferCatalog, setTransferCatalog
 } from './workflow-transfer-resolution.mjs';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import {
-  PORTFOLIO_PATH, validatePortfolio, validatePortfolioWorldModelViews
-} from './initiative-config.mjs';
+import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { recordSha256 } from './records.mjs';
 import { isTemplateReference, parseTemplateReference } from './template-catalog.mjs';
@@ -2416,7 +2414,6 @@ async function importPlan(root, destination, original, chosen) {
     try {
       const storyCandidate = storyImportCandidate(candidates.story, agentCatalog);
       const portfolioCandidate = validatePortfolio(clone(candidates.initiative));
-      validatePortfolioWorldModelViews(portfolioCandidate, storyCandidate);
     } catch (error) {
       open.push(entry('initiative.configuration', STORE.initiative.file, {
         reason: error?.message ?? String(error), code: error?.code ?? 'WORKFLOW_CONFIGURATION_INVALID'
@@ -2665,7 +2662,6 @@ export async function applyWorkflowImport(root, bundleOrPath, {
   if (incomingConfiguration.initiative) {
     const portfolioCandidate = validatePortfolio(clone(candidateValues.initiative));
     const storyCandidate = storyImportCandidate(candidateValues.story, agentCatalog);
-    validatePortfolioWorldModelViews(portfolioCandidate, storyCandidate);
   }
   for (const governs of ['story', 'initiative']) {
     const candidate = candidateDocuments[governs];

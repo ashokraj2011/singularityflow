@@ -1,14 +1,11 @@
 /**
- * The repository brief a phase prompt receives: one section in place of the registered World Model
- * view files and the knowledge slice.
+ * The repository brief a phase prompt receives.
  *
  * It is built without a model from what already exists: repository knowledge (rules with their
- * messages and statuses, endpoints, data shapes, flows, impact, history), README and docs
- * statements, and what the registered views say once their hashes, JSON and boilerplate are set
- * aside (see view-brief.mjs). Items are ranked by the Story's own words and changed
- * files, ordered for the phase's reader, and cut to a small per-phase budget. Every bullet names its
- * source as a file and line; what could not be determined is one closing "Not known" line. Evidence
- * stays where it is stored; the prompt receipt binds the view files it read.
+ * messages and statuses, endpoints, data shapes, flows, impact, history) and README and docs
+ * statements. Items are ranked by the Story's own words and changed files, ordered for the phase's
+ * reader, and cut to a small per-phase budget. Every bullet names its source as a file and line;
+ * what could not be determined is one closing "Not known" line.
  */
 import path from 'node:path';
 
@@ -91,16 +88,15 @@ function collapseNotKnown(entries) {
 
 /**
  * Render the brief. `template` is `templateBrief(briefEvidence(…))` (null when knowledge is off or
- * unavailable); `registered` are view projections; `explanations` are accepted plain-language
+ * unavailable); `explanations` are accepted plain-language
  * sentences. The text never exceeds `profile.budget` bytes except for its header and closing lines.
  */
 export function renderPhaseBrief({
-  repository = 'repository', commit = null, profile, focus = null, template = null, registered = [],
-  explanations = [], notKnown = [], modelCommit = null, phase = null, rules = null, questions = null, contracts = null,
+  repository = 'repository', commit = null, profile, focus = null, template = null,
+  explanations = [], notKnown = [], phase = null, rules = null, questions = null, contracts = null,
   flows = null, impact = null, risks = null
 }) {
   const focusWords = words(focus);
-  const relevance = (text) => [...words(text)].filter((word) => focusWords.has(word)).length;
   const sections = new Map(Object.keys(SECTION_TITLES).map((id) => [id, []]));
   const shown = new Set();
   const push = (section, text, source) => {
@@ -137,26 +133,13 @@ export function renderPhaseBrief({
       push(id, statement.text, source ? { path: source.path, line: source.line ?? null, heading } : null);
     }
   }
-  // A registered line adds what knowledge lacks: skip one whose leading name a knowledge line already uses.
-  for (const projection of registered) {
-    // A registered impact view describes the last commit; the Story's own impact records replace it.
-    if (projection.section === 'impact' && impact?.length) continue;
-    const known = (sections.get(projection.section) ?? []).map((entry) => entry.text.toLowerCase()).join('\n');
-    const ranked = projection.lines.map((line, index) => ({ line, index, score: relevance(line.text) }))
-      .sort((a, b) => b.score - a.score || a.index - b.index);
-    for (const { line } of ranked) {
-      const name = /^([A-Za-z_$][\w$]*)[:\s]/u.exec(line.text)?.[1]?.toLowerCase();
-      if (name && new RegExp(`\\b${name}\\b`, 'u').test(known)) continue;
-      push(projection.section, line.text, line.source);
-    }
-  }
   const order = profile.reader === 'product' ? profile.order : profile.order.filter((id) => id !== 'questions');
   const label = sourceLabeler([...sections.values()].flat().map((entry) => entry.source));
   const header = `# Repository brief: ${repository}${commit ? ` at ${String(commit).slice(0, 12)}` : ''} (for ${profile.id}${focusWords.size ? ', focused on this Story' : ''})`;
   const unknown = collapseNotKnown(notKnown);
   const footer = [
     ...(unknown.length ? [`Not known: ${unknown.join('; ')}.`] : []),
-    `Read without a model from the committed source${modelCommit ? ` and the registered World Model at ${String(modelCommit).slice(0, 12)}` : ''}. Open the cited lines before relying on a detail.`
+    'Read without a model from the committed source. Open the cited lines before relying on a detail.'
   ];
   const body = [];
   const pointer = (count) => `- … ${count} more: singularity-flow wm brief${phase ? ` --phase ${phase}` : ''}`;

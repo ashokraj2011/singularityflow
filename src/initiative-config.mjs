@@ -8,8 +8,6 @@ import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
 import { isInitiativeGenerator } from './initiative-generators.mjs';
 import { secureRepositoryPath, SingularityFlowError, posix, snapshot } from './util.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
-import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/registry/views.mjs';
-import { isRetiredWorldModelView, worldModelAssignmentViews, worldModelViewIdentity } from './world-model-views.mjs';
 import { assertCredentialFreeRemote } from './git-remote-diagnostics.mjs';
 
 export { usesEpicPlanningLifecycle };
@@ -419,7 +417,7 @@ function normalizePhase(phase, id) {
     label: phase.label ?? id.replaceAll('-', ' '),
     lanes: [...(phase.lanes ?? [])],
     // A retired legacy-v3 view name is dropped (`wm migrate-views` rewrites it), never refused.
-    worldModelViews: [...(phase.worldModelViews ?? [])].filter((view) => !isRetiredWorldModelView(view)),
+    worldModelViews: [...(phase.worldModelViews ?? [])],
     agents,
     outputs,
     checklist,
@@ -602,7 +600,6 @@ export function validatePortfolio(value) {
       const label = `Initiative profile '${id}' phaseOverrides '${phaseId}'`;
       object(override, label);
       if (!position.has(phaseId)) throw new SingularityFlowError(`${label} references inactive phase '${phaseId}'.`);
-      if (Array.isArray(override.worldModelViews)) override.worldModelViews = override.worldModelViews.filter((view) => !isRetiredWorldModelView(view));
       if (override.bundleApproval != null) {
         override.bundleApproval = normalizedApproval(override.bundleApproval, `${label} bundle approval`);
         for (const authority of override.bundleApproval.authorities) {
@@ -674,54 +671,6 @@ export async function loadPortfolio(root, { required = true } = {}) {
   return portfolio;
 }
 
-export function validatePortfolioWorldModelViews(portfolio, workflowDefinition) {
-  const logical = (view) => normalizeBuiltInViewReference(view).viewId;
-  const configured = workflowDefinition.worldModel?.views ?? BUILTIN_VIEW_IDS;
-  const declared = new Set(configured.map(logical));
-  const unknown = [];
-  const assignments = Object.entries(portfolio.initiativePhases ?? {}).map(([phaseId, phase]) => ({
-    key: phaseId,
-    label: `Initiative phase '${phaseId}' World-Model assignment`,
-    views: phase.worldModelViews ?? []
-  }));
-  for (const [profileId, profile] of Object.entries(portfolio.initiativeProfiles ?? {})) {
-    for (const [phaseId, override] of Object.entries(profile.phaseOverrides ?? {})) {
-      if (override.worldModelViews == null) continue;
-      assignments.push({
-        key: `${profileId}/${phaseId}`,
-        label: `Initiative profile '${profileId}' phase '${phaseId}' World-Model assignment`,
-        views: override.worldModelViews
-      });
-    }
-  }
-  for (const assignment of assignments) {
-    for (const view of worldModelAssignmentViews(assignment.views)) {
-      // An Initiative resolved before the legacy-v3 views were retired may still name one: no World Model for it.
-      if (isRetiredWorldModelView(view)) continue;
-      const id = worldModelViewIdentity(workflowDefinition, view)?.id;
-      if (!id || !declared.has(id)) unknown.push(`${assignment.key}:${view}`);
-    }
-  }
-  if (unknown.length) throw new SingularityFlowError(
-    `Initiative phases reference undeclared repository world-model views: ${unknown.join(', ')}.`,
-    { code: 'WMB_VIEW_UNKNOWN', details: { assignments: unknown } }
-  );
-  return true;
-}
-
-// The sorted union of every base/profile-override view the portfolio can route context to.
-export function portfolioWorldModelViews(portfolio) {
-  const views = new Set();
-  const include = (assigned) => { for (const view of worldModelAssignmentViews(assigned)) views.add(view); };
-  for (const phase of Object.values(portfolio.initiativePhases ?? {})) include(phase.worldModelViews);
-  for (const profile of Object.values(portfolio.initiativeProfiles ?? {})) {
-    for (const override of Object.values(profile.phaseOverrides ?? {})) {
-      if (override.worldModelViews != null) include(override.worldModelViews);
-    }
-  }
-  return [...views].sort();
-}
-
 // Layer a profile's overrides over the shared phase definition. Mirrors resolveWorkType on the story
 // side: the override supplies only the keys it changes, and nested policy objects merge rather than
 // replace, so narrowing one output's `required` does not silently drop the rest of its definition.
@@ -744,7 +693,7 @@ function resolveProfilePhase(portfolio, profileId, profile, phaseId, order, work
     ...override,
     id: phaseId,
     label: override.label ?? phase.label,
-    worldModelViews: (override.worldModelViews ?? phase.worldModelViews ?? []).filter((view) => !isRetiredWorldModelView(view)),
+    worldModelViews: [...(override.worldModelViews ?? phase.worldModelViews ?? [])],
     agents: override.agents ?? phase.agents,
     bundleApproval: override.bundleApproval ?? phase.bundleApproval,
     outputs,
@@ -759,7 +708,6 @@ export function resolveInitiativeProfile(portfolio, profileId, {
 } = {}) {
   const profile = portfolio.initiativeProfiles[profileId];
   if (!profile) throw new SingularityFlowError(`Unknown initiative profile '${profileId}'.`);
-  if (workflowDefinition) validatePortfolioWorldModelViews(portfolio, workflowDefinition);
   const phases = profile.phases.map((id, order) => (
     resolveProfilePhase(portfolio, profileId, profile, id, order, workflowDefinition)
   ));

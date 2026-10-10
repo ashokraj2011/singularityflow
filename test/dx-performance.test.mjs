@@ -684,8 +684,10 @@ test('the read model does not shell out to the network, or ask git the same ques
     'the read model resolves the GitHub login a second way; identity() already returns it');
 
   const git = await readFile(path.join(root, 'src/git.mjs'), 'utf8');
-  assert.match(git, /repoRootCache\.has\(cwd\)/, 'repoRoot() re-asks git where the repository is');
-  assert.match(git, /gitDirCache\.has\(root\)/, 'gitDir() re-asks git where the Git directory is');
+  // The basic location reads live in git-execution.mjs, so light modules can import them without git.mjs.
+  const execution = await readFile(path.join(root, 'src/git-execution.mjs'), 'utf8');
+  assert.match(execution, /repoRootCache\.has\(cwd\)/, 'repoRoot() re-asks git where the repository is');
+  assert.match(execution, /gitDirCache\.has\(root\)/, 'gitDir() re-asks git where the Git directory is');
   assert.match(git, /GITHUB_ACCOUNT_TTL_MS/, 'the gh account lookup is not cached across processes');
 
   /**
@@ -698,8 +700,10 @@ test('the read model does not shell out to the network, or ask git the same ques
    * identity, and an unauthorized Git email stopped being refused. A caching bug there is an
    * authorization bug. The expense was never the git-config reads; it was `gh`, cached above.
    */
-  assert.doesNotMatch(git, /headCache|branchCache|identityCache/,
-    'a value that changes mid-process is memoized; see the note in git.mjs on why that is unsafe');
+  for (const source of [git, execution]) {
+    assert.doesNotMatch(source, /headCache|branchCache|identityCache/,
+      'a value that changes mid-process is memoized; see the notes in git.mjs and git-execution.mjs on why that is unsafe');
+  }
 });
 
 test('a read may reuse one parsed definition; a write may never be handed a stale one', async () => {

@@ -14,7 +14,7 @@ related:
   - model-independence
   - assignments-and-watchlists
   - skill-master
-version: 4
+version: 5
 ---
 Phase activation selects a governed agent from pinned policy. Human approval authority remains separate from agent selection, and explicit overrides are local and audited.
 
@@ -23,6 +23,15 @@ concrete model for each isolated ACP invocation. SFlow still owns the task mappi
 budgets, and audit receipt. A repository may govern a concrete model in
 `singularity/modelTiers.yml`, and an explicit command override remains available where documented;
 both are recorded and fail closed if the provider substitutes another model.
+
+A tier may also carry `params.effort` (Copilot reasoning effort: none, minimal, low, medium,
+high, xhigh or max) and `params.autoTier` (the Auto routing profile, such as efficiency). Which
+tiers send them is configurable with `sendParameters` in `singularity/modelTiers.yml`: `none`,
+`all`, or a list of tasks. The bundled map sends only `summarize` (`autoTier: efficiency`,
+`effort: low`), which repository briefs, explanations, narration and PR polish route through;
+`all` also sends `reason` `effort: high`, which raises the cost of code generation and Auto. Every
+tier's params are recorded on each invocation receipt, with the ones sent under
+`routing.sentParameters`, and the Configuration Center Model routing tab marks them.
 
 An agent can attach skills from the skill master, each for some of its steps and with a line on
 when to use it; in those steps the skills' instructions are part of its prompt. Any agent, a

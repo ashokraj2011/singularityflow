@@ -40,7 +40,7 @@ const RESERVED_OPTIONS = Object.freeze([
   '--allow-all-tools', '--allow-all', '--allow-all-paths', '--allow-all-urls', '--yolo',
   '--add-dir', '--deny-tool', '--excluded-tools', '--additional-mcp-config',
   '--enable-all-github-mcp-tools', '--add-github-mcp-tool', '--add-github-mcp-toolset',
-  '--plugin-dir', '--acp', '--stdio', '--max-ai-credits'
+  '--plugin-dir', '--acp', '--stdio', '--max-ai-credits', '--reasoning-effort', '--auto-tier'
 ]);
 
 const ACP_BOUNDARY_OPTIONS = Object.freeze([
@@ -126,6 +126,18 @@ function copilotAiCreditArguments(limits = {}) {
     );
   }
   return ['--max-ai-credits', String(credits)];
+}
+
+/**
+ * The tier's reasoning effort and Auto routing profile, when the model mapping sends them. The Auto
+ * profile only steers `auto`; a pinned model ignores it, so it is not passed there.
+ */
+export function copilotModelParameterArguments(parameters, requestedModel) {
+  if (!parameters) return [];
+  const args = [];
+  if (typeof parameters.effort === 'string') args.push('--reasoning-effort', parameters.effort);
+  if (typeof parameters.autoTier === 'string' && requestedModel === 'auto') args.push('--auto-tier', parameters.autoTier);
+  return args;
 }
 
 function boundedDiagnostic(value) {
@@ -624,6 +636,7 @@ async function openCopilotAcp(request, runtimeOverrides = {}) {
   // Passing it makes each isolated ACP session ask Copilot to choose the appropriate model.
   const requestedModel = request.model ?? configured.model ?? 'auto';
   args.push('--model', requestedModel);
+  args.push(...copilotModelParameterArguments(request.modelParameters, requestedModel));
   args.push(...copilotAiCreditArguments(request.limits));
   const diagnosticLimit = request.limits.outputBytes;
   if (request.telemetry) await recordTelemetryLaunch(request.telemetry, { state: 'started' }).catch(() => {});
@@ -1285,6 +1298,7 @@ async function invokeCopilotAttachment(request, runtimeOverrides = {}) {
   args.push(...copilotToolArguments(request.tools));
   const requestedModel = request.model ?? configured.model ?? 'auto';
   args.push('--model', requestedModel);
+  args.push(...copilotModelParameterArguments(request.modelParameters, requestedModel));
   args.push(...copilotAiCreditArguments(request.limits));
   const timeoutMs = request.limits.timeoutMs;
   const outputLimit = request.limits.outputBytes;

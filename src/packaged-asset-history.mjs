@@ -375,7 +375,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   '.github/agents/scenario-tester.agent.md': '3f9ea64bd093f5fd63c7d7c5837313deff922feae22c5a5b5e76bed6a131d3be',
   'singularity/agent-mappings.yml': '1b39a4f4caa3242749889a291e2259a361c815712bd762abde3db3cbe9f8a688',
   'singularity/impact.yml': 'e91000c4f19ba8f8c08812ebea1d3e825919f5b31dadd1f3e22f1749e3b05313',
-  'singularity/modelTiers.yml': '9c829dea6676d1ad6066197a582125ec049a7e42c62300736ec83cb2ba563449',
+  'singularity/modelTiers.yml': 'da16ef4023221a14aba0b5a87fd80b395d3ea7d48b0ecf65481c291180aec23a',
   'singularity/prompts/copilot-planning.md': '4128acc6930949e4ba1e50e8b8c7c4f7beb23f4361c2e8428475b081712b77db',
   'singularity/templates/benchmark/conformance.md': '6a767297e22cab241d2dfff38c6c5b3fe8298e21c65399825c657f014411ced8',
   'singularity/templates/benchmark/design.md': 'fe3cdb987ebbe39d1e42464cf176f437e45287b589ffc66456c7ba4438bc025d',

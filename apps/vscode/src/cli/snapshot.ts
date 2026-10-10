@@ -679,6 +679,8 @@ export interface ModelRoutingTask {
   /** The tier this one borrowed, or null when it names its own model. */
   aliasOf: string | null;
   params: Record<string, unknown> | null;
+  /** The params sent to Copilot (effort, Auto profile); null when this tier sends none. */
+  sentParams?: Record<string, unknown> | null;
   /** Phases whose generation declares this task. Empty is normal, not a fault. */
   phases: string[];
 }
@@ -690,6 +692,8 @@ export interface ModelRoutingProjection {
   error: string | null;
   path: string;
   revision: string | null;
+  /** Which tiers' effort and Auto profile are sent to Copilot: all, none, or the tasks listed. */
+  sendParameters?: 'all' | 'none' | string[];
   tasks: ModelRoutingTask[];
 }
 

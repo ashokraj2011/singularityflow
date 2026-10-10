@@ -150,6 +150,13 @@ function autoMode(view: ConfigurationCenterView): string {
  * `task: code` and never says what that is; the mapping says what `code` is and never says who uses
  * it. This is the join.
  */
+/** Which tiers' effort and Auto profile the mapping sends to Copilot, in words. */
+function sendParametersText(value: 'all' | 'none' | string[] | undefined): string {
+  if (value === 'all') return 'every tier\'s effort and Auto profile';
+  if (Array.isArray(value) && value.length) return `the effort and Auto profile of ${value.map((task) => `<code>${escape(task)}</code>`).join(', ')}`;
+  return 'nothing (no tier\'s effort or Auto profile)';
+}
+
 function modelRouting(view: ConfigurationCenterView): string {
   const routing = view.modelRouting;
   const heading = `<div class="section-heading"><div><h2>${icon('agent')}Model routing</h2>
@@ -173,8 +180,9 @@ function modelRouting(view: ConfigurationCenterView): string {
     const fallback = entry.fallback.length
       ? `<code>${entry.fallback.map((name) => escape(name)).join('</code> → <code>')}</code>`
       : '<span class="muted">none</span>';
+    // Sent params go to Copilot; the rest are recorded on the receipt only (see sendParameters).
     const params = entry.params
-      ? Object.entries(entry.params).map(([key, value]) => `<code>${escape(key)}=${escape(String(value))}</code>`).join(' ')
+      ? Object.entries(entry.params).map(([key, value]) => `<code>${escape(key)}=${escape(String(value))}</code>${entry.sentParams && Object.hasOwn(entry.sentParams, key) ? ' <span class="pill">sent</span>' : ''}`).join(' ')
       : '<span class="muted">—</span>';
     // An empty phase list is the normal case for tasks a workflow never declares, so it reads as
     // "nothing routes by this yet" rather than as a gap someone forgot to fill.
@@ -189,6 +197,7 @@ function modelRouting(view: ConfigurationCenterView): string {
     <div class="editor-card">
       <table class="rows"><thead><tr><th>Task</th><th>Model</th><th>Fallback</th><th>Parameters</th><th>Routed by</th></tr></thead>
         <tbody>${rows}</tbody></table>
+      <p class="muted">Sent to Copilot: ${sendParametersText(routing.sendParameters)}. Set <code>sendParameters</code> in the tier mapping to <code>none</code>, <code>all</code> or a list of tasks; params not sent are recorded on each invocation receipt only.</p>
       <p class="muted">Mapping revision <code>${escape((routing.revision ?? '').slice(0, 12))}</code> — pinned per story alongside the task, so a model retired mid-story changes what runs without changing what the story was governed by.</p>
     </div></section>`;
 }

@@ -470,7 +470,9 @@ async function resolveRouting(normalized, root) {
     hops: [],
     aliasOf: ladder.aliasOf,
     params: ladder.params,
-    paramsDigest: ladder.paramsDigest
+    paramsDigest: ladder.paramsDigest,
+    // The effort and Auto routing profile the mapping's sendParameters lets reach the provider.
+    sentParameters: ladder.sentParams
   };
 }
 
@@ -522,9 +524,9 @@ export function createModelSession({ maxTurns = 6 } = {}) {
 }
 
 /** What must stay the same for prompts to share one provider session. */
-function sessionShape(normalized, providerId, adapterId, model, transport) {
+function sessionShape(normalized, providerId, adapterId, model, transport, modelParameters = null) {
   return sha256(canonicalJson({
-    provider: providerId, adapterId, transport, model: model ?? null,
+    provider: providerId, adapterId, transport, model: model ?? null, modelParameters,
     providerConfig: normalized.providerConfig ?? null, cwd: normalized.cwd,
     allowedRoots: [...normalized.allowedRoots].sort(),
     tools: { mode: normalized.tools.mode, names: [...normalized.tools.names].sort() }
@@ -556,14 +558,15 @@ export async function invokeModel(request) {
   }
   const openSession = session && promptTransport === 'acp-stdio' ? modelProviderSession(adapterId) : null;
   const sessionModel = routing?.available?.[0] ?? normalized.model ?? normalized.providerConfig?.model ?? null;
-  const shape = openSession ? sessionShape(normalized, providerId, adapterId, sessionModel, promptTransport) : null;
+  const modelParameters = routing?.sentParameters ?? null;
+  const shape = openSession ? sessionShape(normalized, providerId, adapterId, sessionModel, promptTransport, modelParameters) : null;
   if (openSession) {
     // Refused before any audit record or provider process exists.
     if (session.closed) {
       throw new SingularityFlowError('This model session is closed; start a new one.', { code: 'MODEL_SESSION_CLOSED' });
     }
     if (session.shape && session.shape !== shape) {
-      throw new SingularityFlowError('A model session carries prompts with one provider, model, folder and tool policy; this prompt differs.', {
+      throw new SingularityFlowError('A model session carries prompts with one provider, model and model settings, folder and tool policy; this prompt differs.', {
         code: 'MODEL_SESSION_INCOMPATIBLE'
       });
     }
@@ -616,7 +619,8 @@ export async function invokeModel(request) {
         aliasOf: routing.aliasOf,
         available: routing.available,
         fallbackHops: routing.hops,
-        paramsDigest: routing.paramsDigest
+        paramsDigest: routing.paramsDigest,
+        sentParameters: routing.sentParameters ?? null
       }
       : null,
     promptSha256: staged.sha256,
@@ -732,6 +736,7 @@ export async function invokeModel(request) {
         }),
         promptTransport,
         ...(candidate ? { model: candidate } : {}),
+        ...(modelParameters ? { modelParameters } : {}),
         ...(telemetry ? { telemetry } : {})
       });
       providerStartedAt = Date.now();

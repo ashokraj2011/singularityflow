@@ -1045,6 +1045,7 @@ async function modelRoutingProjection(root, definition) {
     error: null,
     path: MODEL_TIERS_PATH,
     revision: mapping.revision,
+    sendParameters: mapping.sendParameters,
     tasks: MODEL_TASKS.map((task) => {
       const ladder = tierLadder(mapping, task);
       return {
@@ -1053,6 +1054,7 @@ async function modelRoutingProjection(root, definition) {
         fallback: ladder.models.slice(1),
         aliasOf: ladder.aliasOf,
         params: ladder.params,
+        sentParams: ladder.sentParams,
         phases: phases.get(task) ?? []
       };
     })

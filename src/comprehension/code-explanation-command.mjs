@@ -4,6 +4,7 @@ import path from 'node:path';
 import { loadDefinition } from '../config.mjs';
 import { repoRoot } from '../git.mjs';
 import { resolveModelProvider, invokeModel } from '../model-runner.mjs';
+import { summarizingRoute } from '../model-tiers.mjs';
 import {
   action, commandResult, noEffects, succeeded
 } from '../narration/command-result.mjs';
@@ -84,8 +85,7 @@ async function optionalNarrative(root, explanation, {
     const invocation = await invokeModel({
       provider: provider.provider,
       providerConfig: provider.providerConfig,
-      model: provider.model,
-      task: 'summarize',
+      ...(await summarizingRoute(root, provider.model)),
       cwd: root,
       allowedRoots: [root],
       prompt: { text: prompt },

@@ -38,7 +38,17 @@ export function isRetiredBundledModelTierRevision(value) {
 }
 
 /** Parameters a tier may carry. Anything else is refused rather than passed to a provider unread. */
-const ALLOWED_PARAMS = Object.freeze(['effort', 'temperature', 'maxOutputTokens', 'thinkingBudget']);
+const ALLOWED_PARAMS = Object.freeze(['effort', 'autoTier', 'temperature', 'maxOutputTokens', 'thinkingBudget']);
+
+/** The reasoning-effort levels Copilot CLI accepts for `--reasoning-effort`. */
+export const MODEL_EFFORT_LEVELS = Object.freeze(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+
+/**
+ * The parameters that can reach the provider: reasoning effort and, for an `auto` model, the Auto
+ * routing profile (`efficiency`, `balance` or `intelligence`, which Copilot validates against its
+ * catalog). The others are recorded for the receipt only.
+ */
+export const SENDABLE_PARAMS = Object.freeze(['effort', 'autoTier']);
 
 function assertModelName(value, label) {
   if (typeof value !== 'string' || !value.trim()) {
@@ -59,6 +69,18 @@ function normalizeParams(value, label) {
         { code: 'MODEL_TIER_INVALID' }
       );
     }
+  }
+  if (value.effort != null && !MODEL_EFFORT_LEVELS.includes(value.effort)) {
+    throw new SingularityFlowError(
+      `${label} params.effort must be one of ${MODEL_EFFORT_LEVELS.join(', ')}; got '${value.effort}'.`,
+      { code: 'MODEL_TIER_INVALID' }
+    );
+  }
+  if (value.autoTier != null && (typeof value.autoTier !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/u.test(value.autoTier))) {
+    throw new SingularityFlowError(
+      `${label} params.autoTier must be an Auto routing profile such as efficiency, balance or intelligence.`,
+      { code: 'MODEL_TIER_INVALID' }
+    );
   }
   return Object.freeze({ ...value });
 }
@@ -141,10 +163,40 @@ function resolveAliases(tiers) {
  * Content-addressed over the normalized mapping rather than the file bytes, so reformatting or
  * reordering does not read as a policy change while a changed model or effort does.
  */
-export function tierMappingRevision(tiers) {
+export function tierMappingRevision(tiers, sendParameters = null) {
   const canonical = [...tiers.entries()].sort(([a], [b]) => a.localeCompare(b))
     .map(([task, tier]) => [task, { model: tier.model, fallback: [...tier.fallback], params: tier.params ?? null }]);
-  return createHash('sha256').update(canonicalJson(canonical)).digest('hex');
+  // Which tiers reach the provider is policy too. A mapping that does not declare it keeps the
+  // revision it always had, so existing Story pins still match.
+  const identity = sendParameters == null ? canonical : { tiers: canonical, sendParameters };
+  return createHash('sha256').update(canonicalJson(identity)).digest('hex');
+}
+
+/**
+ * Which tiers' effort and Auto routing profile are sent to the provider. `[ADP:REQ-021]`
+ *
+ * `none` (the default when the mapping says nothing) records them on every receipt and sends none,
+ * as every release before this one did. `all` sends every tier's as written, which raises the cost of
+ * any tier that asks for high effort. A list sends only the tiers it names, matched by the task a
+ * call asks for or by the tier that task aliases.
+ */
+function normalizeSendParameters(value, label) {
+  if (value == null) return null;
+  if (value === 'all' || value === 'none') return value;
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== 'string')) {
+    throw new SingularityFlowError(`${label} sendParameters must be all, none or a list of tasks.`, { code: 'MODEL_TIER_INVALID' });
+  }
+  const tasks = value.map((task) => assertModelTask(task, `${label} sendParameters entry`));
+  if (new Set(tasks).size !== tasks.length) {
+    throw new SingularityFlowError(`${label} sendParameters repeats a task.`, { code: 'MODEL_TIER_INVALID' });
+  }
+  return Object.freeze([...tasks].sort());
+}
+
+function sendsParameters(sendParameters, task, aliasOf) {
+  if (sendParameters === 'all') return true;
+  if (!Array.isArray(sendParameters)) return false;
+  return sendParameters.includes(task) || (aliasOf != null && sendParameters.includes(aliasOf));
 }
 
 /** The digest of one tier's parameters, recorded on every invocation `[ADP:REQ-040]`. */
@@ -154,6 +206,7 @@ export function paramsDigest(params) {
 
 export function normalizeModelTiers(raw, { label = MODEL_TIERS_PATH } = {}) {
   const source = raw?.modelTiers ?? raw;
+  const sendParameters = raw?.modelTiers ? normalizeSendParameters(raw.sendParameters, label) : null;
   if (!source || typeof source !== 'object' || Array.isArray(source)) {
     throw new SingularityFlowError(`${label} must declare a modelTiers object.`, { code: 'MODEL_TIER_INVALID' });
   }
@@ -169,7 +222,10 @@ export function normalizeModelTiers(raw, { label = MODEL_TIERS_PATH } = {}) {
     );
   }
   const resolved = resolveAliases(declared);
-  return Object.freeze({ tiers: resolved, revision: tierMappingRevision(resolved) });
+  return Object.freeze({
+    tiers: resolved, sendParameters: sendParameters ?? 'none',
+    revision: tierMappingRevision(resolved, sendParameters)
+  });
 }
 
 /** Read and normalize the mapping. Absent is a first-class answer: routing is opt-in. */
@@ -194,6 +250,16 @@ export async function loadModelTiers(root) {
 }
 
 /**
+ * How a summarizing call (brief, explanation, narration, PR polish) names its model: the `summarize`
+ * task when the repository has a mapping and nobody chose a model, otherwise the chosen model. Routing
+ * by task is what lets the mapping's `sendParameters` send that tier's effort and Auto profile.
+ */
+export async function summarizingRoute(root, model = null) {
+  if (model) return { model };
+  return (await loadModelTiers(root)) ? { task: 'summarize' } : { model: null };
+}
+
+/**
  * The models a task may use, preferred first. `[ADP:REQ-031]`
  *
  * The ladder is returned whole rather than one rung at a time, because the caller records every hop
@@ -207,12 +273,17 @@ export function tierLadder(mapping, task) {
   if (!tier) {
     throw new SingularityFlowError(`No tier is mapped for task '${task}'.`, { code: 'MODEL_TIER_MISSING', details: { task } });
   }
+  const sent = sendsParameters(mapping.sendParameters, task, tier.aliasOf)
+    ? Object.fromEntries(SENDABLE_PARAMS.filter((key) => tier.params?.[key] != null).map((key) => [key, tier.params[key]]))
+    : {};
   return Object.freeze({
     task,
     aliasOf: tier.aliasOf,
     models: Object.freeze([tier.model, ...tier.fallback]),
     params: tier.params,
-    paramsDigest: paramsDigest(tier.params)
+    paramsDigest: paramsDigest(tier.params),
+    // What reaches the provider: a subset of params, or null when this tier sends nothing.
+    sentParams: Object.keys(sent).length ? Object.freeze(sent) : null
   });
 }
 

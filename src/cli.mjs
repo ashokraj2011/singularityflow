@@ -96,6 +96,7 @@ import { operationContext } from './operation-context.mjs';
 import {
   invokeModel, listModelInvocationAudits, listModelInvocations, resolveModelProvider
 } from './model-runner.mjs';
+import { summarizingRoute } from './model-tiers.mjs';
 import { contextPacketTelemetryRecords } from './context-packet-telemetry.mjs';
 import {
   dailyTokenLedgerPeriod, dailyTokenLedgerProjection
@@ -7067,7 +7068,7 @@ async function pullRequestCommand(positionals, options) {
       const response = await invokeModel({
         provider,
         providerConfig,
-        model: providerConfig?.model ?? null,
+        ...(await summarizingRoute(root, providerConfig?.model ?? null)),
         cwd: root,
         allowedRoots: [root],
         channel: 'pr-description-polish',

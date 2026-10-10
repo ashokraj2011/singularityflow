@@ -92,6 +92,9 @@ export function textBounds(text) {
       bounds.push({ op: negative ? INVERSE[op] : op, value: number });
     }
   }
+  // Sign words: "non-negative" is at least 0, "must be positive" more than 0.
+  if (/\bnon-?negative\b/iu.test(value)) bounds.push({ op: '>=', value: 0 });
+  else if (/\b(?:be|is|are|must be|only)\s+positive\b|\bpositive (?:number|amount|value|integer)s?\b/iu.test(value)) bounds.push({ op: '>', value: 0 });
   return bounds;
 }
 

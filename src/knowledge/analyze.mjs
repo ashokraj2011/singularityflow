@@ -18,8 +18,9 @@ import {
   pathAliases, resolvedImports, testCases, typeShapes
 } from './producers.mjs';
 import { clauseEndLine, textTerms, wordMatches } from './requirements.mjs';
+import { validatedTypes, validationConstraints } from './validation.mjs';
 
-export const KNOWLEDGE_ANALYZER_VERSION = 1;
+export const KNOWLEDGE_ANALYZER_VERSION = 2;
 const PRODUCER = `knowledge-analyzer@${KNOWLEDGE_ANALYZER_VERSION}`;
 const AREA_TARGET_FILES = 150;
 const MAXIMUM_AREAS = 80;
@@ -410,6 +411,19 @@ export function analyzeKnowledge(source, { churn = null, commits = null, resolve
       });
     }
     item.statement.usedIn = uses.slice(0, 12);
+  }
+  // Validation constraints on request and data types. A Bean Validation constraint is enforced only
+  // where an endpoint validates its type; other frameworks validate when the value is parsed.
+  const validated = new Set(files.flatMap((file) => validatedTypes(file)));
+  for (const file of files) {
+    for (const field of validationConstraints(file)) {
+      add({ kind: 'validation', key: `${file.path}:${field.type}.${field.field}`, grain: 'unit', subject: { symbol: `${field.type}.${field.field}`, path: file.path },
+        statement: {
+          type: field.type, field: field.field, fieldType: field.fieldType ?? null, constraints: field.constraints, message: field.message,
+          framework: field.framework, validated: field.framework === 'bean-validation' ? validated.has(field.type) : null
+        },
+        citations: [citation(file, field.line)], area: areaOf(file.path) });
+    }
   }
   const configuration = [];
   for (const manifest of source.manifests) {

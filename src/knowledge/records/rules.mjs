@@ -15,6 +15,7 @@
  */
 import { createHash } from 'node:crypto';
 
+import { constraintText } from '../validation.mjs';
 import { normalizeMessage, statusNumber, subjectWords, textAnchors } from './anchors.mjs';
 
 const RULE_KINDS = new Set(['refusal', 'threshold', 'calculation', 'cap', 'comparison', 'match', 'message']);
@@ -74,6 +75,23 @@ function ruleLine(item, status) {
   return `${item.subject?.symbol ?? 'The code'}: ${[condition, outcome].filter(Boolean).join(' → ')}${status ? ` (HTTP ${status})` : ''}`;
 }
 
+const CONSTRAINT_OP = Object.freeze({ min: (entry) => (entry.inclusive === false ? '>' : '>='), max: (entry) => (entry.inclusive === false ? '<' : '<='), 'length-min': () => '>=', 'length-max': () => '<=' });
+
+/** A validated field read like a code rule: its names, bounds, message and whether it is required. */
+function validationAnchors(item) {
+  const statement = item.statement ?? {};
+  const required = (statement.constraints ?? []).some((entry) => entry.kind === 'required');
+  const names = [statement.field, statement.type].filter(Boolean).map((name) => name.toLowerCase());
+  return {
+    message: statement.message ? normalizeMessage(statement.message) : null, status: null,
+    identifiers: new Set(names), quoted: new Set(), nullChecked: new Set(required ? [String(statement.field).toLowerCase()] : []),
+    values: new Set(), constants: new Set(),
+    bounds: (statement.constraints ?? []).filter((entry) => CONSTRAINT_OP[entry.kind] && Number.isFinite(entry.value))
+      .map((entry) => ({ op: CONSTRAINT_OP[entry.kind](entry), value: entry.value })),
+    words: subjectWords(`${statement.type} ${statement.field} ${statement.message ?? ''}`)
+  };
+}
+
 function codeAnchors(item, statusByMessage, limitValues) {
   const statement = item.statement ?? {};
   const then = statement.then ?? null;
@@ -105,7 +123,7 @@ function codeAnchors(item, statusByMessage, limitValues) {
       ...(String(then?.text ?? '').match(/\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/gu) ?? []).map((name) => limitValues.get(name))
     ].map((value) => Number(String(value ?? '').replace(/[^\d.-]/gu, ''))).filter((value) => Number.isFinite(value) && value !== 0)),
     constants: new Set([...(statement.values?.constants ?? []).map((entry) => entry.name), ...(String(then?.text ?? '').match(/\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/gu) ?? [])]),
-    bound: codeRuleBound(statement),
+    bounds: [codeRuleBound(statement)].filter(Boolean),
     words: subjectWords([...(statement.when ?? []), method, then?.text ?? ''].join(' '))
   };
 }
@@ -133,9 +151,10 @@ function compare(doc, code, weight) {
   if (code.status && doc.statuses.has(code.status)) score += 1;
   let disagreement = null;
   for (const bound of doc.bounds) {
-    if (!code.bound || family(bound.op) !== family(code.bound.op)) continue;
-    if (bound.value === code.bound.value) score += 3;
-    else if (shared >= 2 || strong) disagreement = { docs: bound, code: code.bound };
+    const same = code.bounds.filter((candidate) => family(candidate.op) === family(bound.op));
+    if (!same.length) continue;
+    if (same.some((candidate) => candidate.value === bound.value)) score += 3;
+    else if (shared >= 2 || strong || named.length) disagreement = { docs: bound, code: same[0] };
   }
   const statuses = [...doc.statuses].filter((code) => code >= 400);
   if ((strong || score >= 4) && code.status && statuses.length && !statuses.includes(code.status)) disagreement = { docsStatus: statuses, codeStatus: code.status };
@@ -180,7 +199,8 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
       seenRules.add(key);
       return true;
     })
-    .map((item) => ({ item, anchors: codeAnchors(item, statusByMessage, limitValues) }));
+    .map((item) => ({ item, anchors: codeAnchors(item, statusByMessage, limitValues) }))
+    .concat(items.filter((item) => item.kind === 'validation').map((item) => ({ item, anchors: validationAnchors(item) })));
 
   // Specificity: a name or word in one code rule is a strong hint, one in many is not.
   const frequency = (pick) => {
@@ -218,6 +238,23 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
     const conflicts = links.filter((link) => link.disagreement);
     const documented = links.length > 0;
     if (item.statement?.kind === 'guard' && !documented) continue;
+    if (item.kind === 'validation') {
+      const statement = item.statement;
+      const enforced = statement.validated !== false;
+      const citation = item.citations?.[0];
+      records.push({
+        id: recordId(item.id), kind: 'rule', origin: 'validation',
+        text: `${statement.type}.${statement.field}: ${constraintText(statement.constraints)}${statement.message ? ` ("${statement.message}")` : ''}`,
+        status: conflicts.length ? 'conflict' : documented ? 'agreed' : 'enforced-only',
+        documented, enforced, tested: null, declaredOnly: !enforced, framework: statement.framework,
+        conflict: conflicts.length ? conflictText(conflicts[0].disagreement) : null,
+        parts: { field: statement.field, type: statement.type, constraints: statement.constraints, bound: anchors.bounds[0] ?? null, message: anchors.message },
+        sources: { code: citation ? [{ path: citation.path, line: citation.lines?.[0] ?? null, symbol: item.subject?.symbol ?? null }] : [], docs: links.map((link) => link.doc.source), tests: [] },
+        weight: 4,
+        words: new Set([...anchors.words, ...links.flatMap((link) => [...link.doc.anchors.words])])
+      });
+      continue;
+    }
     const tests = (item.relations ?? []).filter((relation) => relation.type === 'tested-by' || relation.type === 'tested-through').map((relation) => relation.label).filter(Boolean);
     const citation = item.citations?.[0];
     records.push({
@@ -268,7 +305,9 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
 export function ruleStatusWords(record) {
   if (record.status === 'conflict') return `Conflict: ${record.conflict}.`;
   if (record.status === 'documented-only') return 'Documented; no code enforcing it was found.';
-  const parts = [record.documented ? 'Documented' : 'Not documented', 'enforced', record.tested ? 'tested' : 'no test reaches it'];
+  if (record.declaredOnly) return `${record.documented ? 'Documented' : 'Not documented'}; declared on ${record.parts.type}, but no endpoint validates it (@Valid is missing).`;
+  const parts = [record.documented ? 'Documented' : 'Not documented', record.origin === 'validation' ? `enforced by ${record.framework}` : 'enforced',
+    ...(record.tested == null ? [] : [record.tested ? 'tested' : 'no test reaches it'])];
   return `${parts.join(', ')}.`;
 }
 
@@ -285,6 +324,7 @@ export function ruleQuestions(records, { limit = 4 } = {}) {
     if (questions.length >= limit) break;
     const source = [...record.sources.code, ...record.sources.docs];
     if (record.status === 'conflict') questions.push({ text: `Docs and code disagree on ${subject(record)}: ${record.conflict}. Which is right?`, source });
+    else if (record.declaredOnly) questions.push({ text: `${record.parts.type}.${record.parts.field} is declared ${constraintText(record.parts.constraints)}, but no endpoint validates ${record.parts.type}. Should it be validated (@Valid)?`, source });
     else if (record.status === 'documented-only' && record.parts.bound) questions.push({ text: `The docs say ${subject(record)}, but no code enforcing it was found. Is it still required?`, source });
     else if (record.status === 'enforced-only' && !record.tested && record.parts.outcome?.kind === 'refuses') questions.push({ text: `The code refuses ${subject(record)}, but the docs do not state it and no test reaches it. Is it still required?`, source });
   }

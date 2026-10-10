@@ -11,7 +11,6 @@ import {
 import {
   environmentWorldModelExcludedRoots, loadEnvironmentDeclarationSync
 } from '../src/environment-declaration.mjs';
-import { configuredWorldModelV4ScopeOptions } from '../src/world-model/scope/configuration.mjs';
 
 function git(root, args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -114,20 +113,12 @@ test('whole-index secret admission reads the indexed blob without replacement su
   });
 });
 
-test('registered-v4 scope excludes every declared environment-local path', async () => {
+test('the World Model source scope excludes every declared environment-local path', async () => {
   const root = await repository();
-  const resolved = configuredWorldModelV4ScopeOptions(root, {
-    definition: { worldModel: {
-      excludedRoots: environmentWorldModelExcludedRoots(
-        loadEnvironmentDeclarationSync(root, { optional: true })
-      )
-    } },
-    repositoryCapability: { id: 'environment-gate' }
-  });
-  assert.ok(resolved.excludedPaths.includes('.env*'));
-  assert.ok(resolved.excludedPaths.includes('**/*.local.yml'));
-  assert.ok(resolved.excludedPaths.includes('config/qa.private.yml'));
-  assert.notEqual(resolved.policySnapshotSha256, null);
+  const excludedRoots = environmentWorldModelExcludedRoots(loadEnvironmentDeclarationSync(root, { optional: true }));
+  assert.ok(excludedRoots.includes('.env*'));
+  assert.ok(excludedRoots.includes('**/*.local.yml'));
+  assert.ok(excludedRoots.includes('config/qa.private.yml'));
 });
 
 test('index commits enforce the staged declaration rather than mutable worktree YAML', async () => {

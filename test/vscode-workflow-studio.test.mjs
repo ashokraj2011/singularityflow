@@ -579,14 +579,14 @@ test('copied step drafts retain effective workflow policy and save explicit auto
   const apply = (changes) => planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes }, { write: true });
   await apply([
     { op: 'phase.create', id: 'copy-input', label: 'Copy input', agent: 'architect', approval: 'none' },
-    { op: 'phase.create', id: 'copy-source', label: 'Copy source', agent: 'architect', approval: 'none', inputs: ['copy-input'], views: ['biz.rules'], authoringSkill: 'sf-design' },
+    { op: 'phase.create', id: 'copy-source', label: 'Copy source', agent: 'architect', approval: 'none', inputs: ['copy-input'], authoringSkill: 'sf-design' },
     ...['copy-one', 'copy-two'].map((id) => ({ op: 'workflow.create', id, label: id, phases: ['copy-input', 'copy-source'] }))
   ]);
   const file = path.join(root, 'singularity/workflow.yml');
   const configuration = YAML.parse(await readFile(file, 'utf8'));
   configuration.workTypes['copy-one'].phaseOverrides = { 'copy-source': {
     authoringSkill: null, generation: { task: 'analyze' }, clarification: { mode: 'required' },
-    worldModel: { views: ['arch.contracts'], depth: 'deep' }, artifact: { minimumBytes: 345 },
+    artifact: { minimumBytes: 345 },
     approval: { authorities: ['architecture-reviewers', 'product-approvers'], minimum: 1 }
   } };
   configuration.workTypes['copy-one'].templateOverrides = { 'copy-source': 'common/copy-input.md' };
@@ -595,12 +595,11 @@ test('copied step drafts retain effective workflow policy and save explicit auto
   const { logic } = studioLogic();
   const draft = logic.initialDraft(model);
   draft.phases['copy-result'] = logic.copiedPhaseDraft(model, draft, 'copy-one', 'copy-source', 'copy-result');
-  assert.deepEqual([draft.phases['copy-result'].output, draft.phases['copy-result'].views, draft.phases['copy-result'].clarification], ['analysis', ['arch.contracts'], 'required']);
+  assert.deepEqual([draft.phases['copy-result'].output, draft.phases['copy-result'].clarification], ['analysis', 'required']);
   draft.workflows['copy-one'].phases = ['copy-input', 'copy-result'];
   draft.steps['copy-one']['copy-result'] = { ...structuredClone(draft.steps['copy-one']['copy-source']), inputs: [], authoringSkill: null };
   delete draft.steps['copy-one']['copy-source'];
   draft.phases['copy-result'].output = 'document';
-  draft.phases['copy-result'].views = [];
   draft.phases['copy-result'].clarification = 'off';
   const changeSet = logic.changeSetFrom(model, draft);
   const created = changeSet.changes.find((change) => change.op === 'phase.create');
@@ -610,10 +609,10 @@ test('copied step drafts retain effective workflow policy and save explicit auto
   await planStudioChangeSet(root, changeSet, { write: true });
   const after = await buildStudioModel(root);
   const copied = after.workflows.find((workflow) => workflow.id === 'copy-one').steps.find((phase) => phase.id === 'copy-result');
-  assert.deepEqual([copied.output, copied.inputs, copied.authoringSkill, copied.clarification, copied.views], ['document', [], null, 'off', []]);
+  assert.deepEqual([copied.output, copied.inputs, copied.authoringSkill, copied.clarification], ['document', [], null, 'off']);
   const saved = YAML.parse(await readFile(file, 'utf8'));
   assert.equal(saved.phases['copy-result'].artifact.minimumBytes, 345, 'unshown effective artifact policy survives');
-  assert.equal(saved.phases['copy-result'].worldModel.depth, 'deep', 'clearing views preserves other world-model policy');
+  assert.equal(Object.hasOwn(saved.phases['copy-result'], 'worldModel'), false, 'a copied step writes no World Model views');
   assert.equal(saved.phases['copy-result'].defaultTemplate, 'common/copy-input.md');
   assert.deepEqual(saved.phases['copy-result'].approval.authorities, ['architecture-reviewers', 'product-approvers'], 'the unchanged sign-off picker does not discard additional authorities');
   assert.equal(saved.phases['copy-source'].authoringSkill, 'sf-design', 'the shared source remains unchanged');
@@ -802,7 +801,6 @@ test('a Story started after the copies runs each as the step it replaces: scope,
   const roles = await import(path.join(packageRoot, 'src/phase-roles.mjs'));
   const root = await repository({ edit: (document) => {
     document.setIn(['git', 'publish'], 'off');
-    document.setIn(['worldModel', 'grounding'], 'off');
     document.setIn(['repositoryReadiness', 'requiredBeforeStory'], false);
   } });
   const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
@@ -1698,7 +1696,7 @@ test('Epic workflows edited in the Studio become portfolio changes the engine ac
   assert.ok(epics.workflows['repo-initiative-lite'] && epics.steps.define, 'the draft carries the Epic workflows and their steps');
   assert.deepEqual(logic.changeSetFrom(model, state.draft).changes, [], 'loading changes nothing');
 
-  epics.steps['vendor-review'] = { id: 'vendor-review', label: 'Vendor review', agents: ['product-owner'], lanes: ['business-product'], views: ['biz.rules'],
+  epics.steps['vendor-review'] = { id: 'vendor-review', label: 'Vendor review', agents: ['product-owner'], lanes: ['business-product'], views: [],
     approval: { on: true, groups: ['product-approvers'], minimum: 1, chain: false }, outputs: [
       { id: 'vendor-brief', label: 'Vendor brief', kind: 'markdown', path: 'vendor-brief.md', template: 'initiatives/generic-output.md', required: true, consumes: ['define/business-case'], generator: null, ownApproval: false }
     ], checklist: 0, isNew: true };
@@ -1880,39 +1878,36 @@ test('a skill from a link for a seeded agent is added to the skill master and at
   assert.equal(check(root, scopedChanges).valid, true);
 });
 
-test('a new step shows its World Model: its agent\'s views ticked, the repository knowledge it gets, and retired view names to migrate', async () => {
+test('a step\'s World Model is the Repository brief: the reader it is written for, and no views to choose', async () => {
   const { buildStudioModel } = await import('../src/workflow-studio.mjs');
   const { roleForPhase } = await import('../src/knowledge/render.mjs');
-  const retired = ['business', 'architecture', 'development', 'testing', 'release', 'operations', 'security'];
-  const root = await repository({ edit: (document) => document.setIn(['worldModel', 'views'], retired) });
+  // A stale view list in workflow.yml is dropped at load; it neither offers views nor asks for a migration.
+  const root = await repository({ edit: (document) => document.setIn(['worldModel', 'views'], ['business', 'arch.contracts']) });
   const model = await buildStudioModel(root);
-  assert.deepEqual(model.choices.views, ['arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'], 'only retired names leaves the registered defaults');
-  assert.deepEqual(model.choices.retiredViews, retired);
+  assert.deepEqual([model.choices.views, model.choices.retiredViews], [[], []], 'there are no views to choose or migrate');
   assert.deepEqual({ prompt: model.choices.knowledge.prompt, maxBytes: model.choices.knowledge.maxBytes }, { prompt: 'slice', maxBytes: 8192 });
 
   const element = (tag) => ({ tag, attributes: {}, children: [], style: {}, textContent: '', setAttribute(name, value) { this.attributes[name] = value; }, appendChild(child) { this.children.push(child); return child; }, addEventListener() {} });
   const page = loadedStudio(model, { getElementById: () => null, createElement: element, createTextNode: (text) => ({ text }) });
   const text = (node) => [node.textContent ?? node.text ?? '', ...(node.children ?? []).map(text)].join(' ');
+  const all = (node) => [node, ...(node.children ?? []).flatMap(all)];
   const state = page.state();
-  const architect = (state.draft.agents.architect?.views ?? []).map((view) => view.replace(/@\d+$/u, '')).filter((view) => model.choices.views.includes(view));
-  assert.equal(page.newStepWorldModelHint('architect', 'Security review'), 'World Model: starts with arch.contracts (what this agent reads), plus repository knowledge for the developer reader. Change the views after creating it.');
-  assert.equal(page.newStepWorldModelHint('product-owner', 'Requirements check'), 'World Model: starts with biz.rules (what this agent reads), plus repository knowledge for the product reader. Change the views after creating it.');
-  assert.match(page.newStepWorldModelHint('', ''), /^World Model: the step starts with the views its agent reads/u);
+  assert.equal(page.newStepWorldModelHint('architect', 'Security review'), 'World Model: the step gets the Repository brief for the developer reader.');
+  assert.equal(page.newStepWorldModelHint('product-owner', 'Requirements check'), 'World Model: the step gets the Repository brief for the product reader.');
   const id = page.createStep('repo-feature', 'Security review', 'document', 'architect', 'intake');
-  assert.deepEqual(architect, ['arch.contracts']);
-  assert.deepEqual(state.draft.phases[id].views, architect, "a new step starts with its agent's views");
+  assert.deepEqual(state.draft.phases[id].views, [], 'a new step starts with no views');
 
   const fresh = page.worldModelSection('repo-feature', id, state.draft.phases[id]);
   assert.equal(fresh.children[0].children[0].attributes['aria-expanded'], 'true', "a new step's World Model is open");
   const shown = text(fresh);
   assert.match(shown, /World Model/u);
-  assert.match(shown, /Repository knowledge \(rules, flows, tests and risks read from the committed code\) is added to this step's prompt for the developer reader, up to 8 KB\./u);
-  assert.match(shown, /workflow\.yml still names retired views \(business, architecture, development, testing, release, operations, security\)\. They are ignored; run singularity-flow wm migrate-views/u);
-  for (const view of model.choices.views) assert.match(shown, new RegExp(view.replace('.', '\\.'), 'u'));
+  assert.match(shown, /The Repository brief \(the rules, contracts, flows, the Story's change and the risky places, read from the source\) is added to this step's prompt for the developer reader, up to 8 KB\. Nothing to set here\./u);
+  assert.doesNotMatch(shown, /retired views|migrate-views|arch\.contracts/u);
+  assert.ok(!all(fresh).some((node) => node.tag === 'input' && node.attributes.type === 'checkbox'), 'there are no view checkboxes');
 
   const existing = page.worldModelSection('repo-feature', 'design', state.draft.phases.design);
   assert.equal(existing.children[0].children[0].attributes['aria-expanded'], 'false', "an existing step's World Model starts closed");
-  assert.match(text(existing), /repository knowledge/u, 'the closed summary still says it gets knowledge');
+  assert.match(text(existing), /Repository brief/u, 'the closed summary still says it gets the brief');
   for (const phase of ['intake', 'requirements', 'design', 'implementation', 'security-review', 'acceptance-testing', 'release']) {
     assert.equal(page.knowledgeReader(phase), roleForPhase(phase), `the page and the engine agree on ${phase}`);
   }
@@ -1947,8 +1942,8 @@ test('a seeded workflow opens on a read-only canvas: its structure without editi
   const shown = text(details);
   for (const label of ['Produces', 'Drafted by', 'Drafted with', 'Reads', 'Sign-off', 'Then', 'Clarifying questions', 'World Model']) assert.match(shown, new RegExp(label, 'u'));
   assert.match(shown, /The Story itself/u, 'the first step reads the Story');
-  assert.match(shown, /Views: |No World Model views/u);
-  assert.ok(!all(details).some((node) => node.tag === 'input' && node.attributes.type === 'checkbox' && String(node.attributes['data-key'] ?? '').startsWith('view-')), 'views are shown, not edited');
+  assert.match(shown, /The Repository brief .* is added to this step's prompt/u);
+  assert.ok(!all(details).some((node) => node.tag === 'input' && node.attributes.type === 'checkbox' && String(node.attributes['data-key'] ?? '').startsWith('view-')), 'there are no view checkboxes');
   assert.match(WORKFLOW_STUDIO_SCRIPT, /fixed \? null : el\('div', \{ class: 'node-tools' \}/, 'nodes have no move or remove tools');
   assert.match(WORKFLOW_STUDIO_SCRIPT, /draggable: fixed \? null : 'true'/, 'nodes cannot be dragged');
   const ask = { id: 'go-on', after: first, kind: 'ask', label: 'Go on?', routes: [{ id: 'yes', label: 'Yes', to: 'next' }, { id: 'stop', label: 'Stop', to: 'finish' }] };

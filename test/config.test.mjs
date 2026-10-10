@@ -24,7 +24,6 @@ import {
   snapshotResolution,
   validateDefinition
 } from '../src/config.mjs';
-import { groundingMode } from '../src/grounding.mjs';
 import { isConvergencePhase } from '../src/phase-roles.mjs';
 import {
   contextBoundaryHandoff, normalizeContextPolicy
@@ -36,7 +35,6 @@ import {
   authoredArtifactFingerprint, inspectArtifactContent
 } from '../src/publication-preflight.mjs';
 import { normalizeTokenEconomy } from '../src/token-economy.mjs';
-import { retiredWorldModelReferences, WORLD_MODEL_VIEW_REFERENCE } from '../src/world-model-views.mjs';
 import { run } from '../src/util.mjs';
 
 test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agents', async () => {
@@ -51,9 +49,8 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
   assert.deepEqual(feature.contextPolicy, { onApproval: 'new', onRejection: 'keep', phaseOverrides: {} });
   assert.match(await agentPrompt(root, definition, 'architect'), /boundaries, contracts/);
   assert.equal(definition.inputsMode, 'enforce');
-  // The shipped default reports rather than blocks: a repository with no world model yet, or no
-  // model provider at all, must still be able to run its lifecycle.
-  assert.equal(definition.worldModel.grounding, 'warn');
+  // The registered World Model's grounding setting was removed: the shipped default has none.
+  assert.equal(Object.hasOwn(definition.worldModel, 'grounding'), false);
   assert.deepEqual(definition.session, { workItemSelection: 'prompt', requireBeforeTools: false });
   assert.equal(feature.sequenceGates.phaseStatus, 'soft');
   assert.equal(feature.sequenceGates.documentPhase, 'soft');
@@ -85,9 +82,7 @@ test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agen
     inventoryDigest: 'optional'
   });
   const figmaSnapshot = await snapshotResolution(root, definition, figmaMobile);
-  assert.deepEqual(figmaSnapshot.worldModelMaterialization, {
-    mode: 'explicit', publish: 'governed', lookahead: 'none', depth: 'phase', confirmation: 'prompt'
-  });
+  assert.equal(figmaSnapshot.worldModelMaterialization, null, 'the registered World Model is never materialized');
   assert.deepEqual(figmaSnapshot.designSources, figmaMobile.designSources);
   assert.match(await agentPrompt(root, definition, 'product-designer'), /hash-pinned exports/i);
   assert.match(await readFile(path.join(root, 'singularity/templates/figma-mobile/visual-verification.md'), 'utf8'), /Screen comparison/);
@@ -242,50 +237,6 @@ test('the shipped workflow schema stays in parity with token economy and code-de
     schema.properties.models.properties.providers.additionalProperties.properties.promptTransport,
     { enum: ['auto', 'acp-stdio', 'attachment'], default: 'auto' }
   );
-  assert.deepEqual(
-    schema.properties.worldModel.properties.v4.properties.legacyAssignments.enum,
-    ['strict'],
-    'the retired inherit-configured bridge is not a schema value'
-  );
-  const worldModelViewPattern = schema.properties.worldModel.properties.views.items.pattern;
-  assert.equal(worldModelViewPattern, WORLD_MODEL_VIEW_REFERENCE.source);
-  assert.match('dev.impact@4', new RegExp(worldModelViewPattern));
-  assert.doesNotMatch('dev.impact@0', new RegExp(worldModelViewPattern));
-  const exactRegisteredView = structuredClone(template);
-  exactRegisteredView.worldModel.format = 'registered-v4';
-  exactRegisteredView.worldModel.views = ['dev.impact@4'];
-  for (const phase of Object.values(exactRegisteredView.phases ?? {})) {
-    if (phase.worldModel?.views?.length) phase.worldModel.views = ['dev.impact'];
-  }
-  for (const agent of Object.values(exactRegisteredView.agents ?? {})) {
-    if (agent.worldModelViews?.length) agent.worldModelViews = ['dev.impact'];
-  }
-  for (const workType of Object.values(exactRegisteredView.workTypes ?? {})) {
-    for (const override of Object.values(workType.phaseOverrides ?? {})) {
-      if (override.worldModel?.views?.length) override.worldModel.views = ['dev.impact'];
-    }
-  }
-  for (const rule of exactRegisteredView.worldModel.injection?.rules ?? []) {
-    rule.include = (rule.include ?? []).map((entry) => (
-      String(entry).startsWith('views/') ? 'views/dev.impact.md' : entry
-    ));
-  }
-  assert.doesNotThrow(() => validateDefinition(exactRegisteredView));
-  const invalidRegisteredView = structuredClone(exactRegisteredView);
-  invalidRegisteredView.worldModel.views = ['dev.impact@3', 'telepathy.view'];
-  assert.throws(
-    () => validateDefinition(invalidRegisteredView),
-    (error) => error.code === 'WMB_VIEW_VERSION_UNSUPPORTED'
-      && /worldModel\.views\[0\]=dev\.impact@3/.test(error.message)
-      && /worldModel\.views\[1\]=telepathy\.view/.test(error.message)
-      && error.details.views.join(',') === 'dev.impact@3,telepathy.view'
-      && error.details.invalidEntries.length === 2
-      && error.details.invalidEntries[0].source === 'worldModel.views[0]'
-      && error.details.invalidEntries[0].sourceKind === 'repository-catalog'
-      && error.details.invalidEntries[0].code === 'WMB_VIEW_VERSION_UNSUPPORTED'
-      && error.details.invalidEntries[1].source === 'worldModel.views[1]'
-      && error.details.invalidEntries[1].code === 'WMB_VIEW_UNKNOWN'
-  );
   assert.equal(
     schema.properties.workTypes.additionalProperties.properties.plannedClaims.$ref,
     '#/$defs/plannedClaimsPolicy'
@@ -328,42 +279,6 @@ test('the shipped workflow schema stays in parity with token economy and code-de
   legacyProfile.profiles.standard.maxInputTokens = 18000;
   assert.doesNotThrow(() => normalizeTokenEconomy(legacyProfile));
   assert.equal(template.codeDelivery.tests.minimumPassed, 1);
-});
-
-test('a retired legacy-v3 World Model setting is dropped with a record, and an omitted format means registered-v4', async () => {
-  const template = YAML.parse(await readFile(path.join(process.cwd(), 'templates/workflow.yml'), 'utf8'));
-  const omitted = structuredClone(template);
-  delete omitted.worldModel.format;
-  assert.equal(validateDefinition(omitted).worldModel.format, 'registered-v4');
-  const absent = structuredClone(template);
-  delete absent.worldModel;
-  assert.equal(validateDefinition(absent).worldModel.format, 'registered-v4');
-  assert.deepEqual(retiredWorldModelReferences(absent), []);
-
-  // The World Model is guidance: none of these refuses the configuration.
-  const legacyFormat = structuredClone(template);
-  legacyFormat.worldModel.format = 'legacy-v3';
-  assert.equal(validateDefinition(legacyFormat).worldModel.format, 'registered-v4');
-  assert.deepEqual(retiredWorldModelReferences(legacyFormat), [{ source: 'worldModel.format', value: 'legacy-v3' }]);
-  const legacyViews = structuredClone(template);
-  legacyViews.worldModel.views = ['arch.contracts@4', 'architecture', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'];
-  assert.deepEqual(validateDefinition(legacyViews).worldModel.views, ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4']);
-  assert.deepEqual(retiredWorldModelReferences(legacyViews), [{ source: 'worldModel.views', value: 'architecture' }]);
-  const legacyPhase = structuredClone(template);
-  legacyPhase.phases.design.worldModel.views = ['architecture'];
-  assert.deepEqual(validateDefinition(legacyPhase).phases.design.worldModel.views, [], 'the phase runs without the World Model');
-  assert.deepEqual(retiredWorldModelReferences(legacyPhase), [{ source: "phase 'design'", value: 'architecture' }]);
-  const bridge = structuredClone(template);
-  bridge.worldModel.v4.legacyAssignments = 'inherit-configured';
-  assert.equal(validateDefinition(bridge).worldModel.v4.legacyAssignments, 'strict');
-  assert.deepEqual(retiredWorldModelReferences(bridge), [{ source: 'worldModel.v4.legacyAssignments', value: 'inherit-configured' }]);
-  const strict = structuredClone(template);
-  strict.worldModel.v4.legacyAssignments = 'strict';
-  assert.doesNotThrow(() => validateDefinition(strict), 'the retired strict value is accepted and ignored');
-  // An unknown view is still refused: only the retired vocabulary is forgiven.
-  const unknown = structuredClone(template);
-  unknown.phases.design.worldModel.views = ['ops.runbooks'];
-  assert.throws(() => validateDefinition(unknown), /installed active view contracts/);
 });
 
 test('every shipped workflow profile resolves an explicit safe code-delivery contract', async () => {
@@ -504,9 +419,6 @@ function renameStep(definition, from, to) {
   };
   renamed.phases = rekey(renamed.phases);
   Object.values(renamed.phases).forEach(references);
-  for (const key of ['allowedPhases', 'blockRequiredUnfulfilledAt']) {
-    if (Array.isArray(renamed.architectureIntent?.[key])) renamed.architectureIntent[key] = renamed.architectureIntent[key].map(id);
-  }
   for (const workType of Object.values(renamed.workTypes)) {
     workType.phases = workType.phases.map(id);
     workType.templateOverrides = rekey(workType.templateOverrides);
@@ -632,50 +544,6 @@ test('legacy implementation contracts are upgraded to code and unsafe scopes fai
   assert.throws(
     () => resolveWorkType(definition, 'feature'),
     /document-only implementation is forbidden/
-  );
-});
-
-test('world-model on-demand policy permits automatic deterministic light builds only', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-world-model-materialization-config-'));
-  await initializeDefinition(root);
-  const definition = await loadDefinition(root);
-  definition.worldModel.materialization = {
-    mode: 'on-demand', publish: 'governed', lookahead: 'none', depth: 'light', confirmation: 'automatic'
-  };
-  assert.doesNotThrow(() => validateDefinition(definition));
-  const resolution = await snapshotResolution(root, definition, resolveWorkType(definition, 'feature'));
-  assert.deepEqual(resolution.worldModelMaterialization, definition.worldModel.materialization);
-
-  definition.worldModel.materialization.depth = 'phase';
-  assert.throws(
-    () => validateDefinition(definition),
-    /automatic.*requires depth 'light'/
-  );
-});
-
-test('world-model immutable history root is portable and disjoint from the current projection', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-world-model-history-config-'));
-  await initializeDefinition(root);
-  const definition = await loadDefinition(root);
-  assert.equal(definition.worldModel.historyDir, 'singularity/world-model-history');
-  definition.worldModel.format = 'registered-v4';
-  definition.worldModel.historyDir = 'singularity/world-model/history';
-  assert.throws(
-    () => validateDefinition(definition),
-    (error) => error.code === 'WMP_HISTORY_ROOT_OVERLAP'
-  );
-  definition.worldModel.historyDir = 'C:\\world-model-history';
-  assert.throws(
-    () => validateDefinition(definition),
-    (error) => error.code === 'WMP_HISTORY_PATH_INVALID'
-  );
-
-  // A current projection that contains the history root is refused on every repository.
-  definition.worldModel.outputDir = 'singularity';
-  definition.worldModel.historyDir = 'singularity/world-model-history';
-  assert.throws(
-    () => validateDefinition(definition),
-    (error) => error.code === 'WMP_HISTORY_ROOT_OVERLAP'
   );
 });
 
@@ -834,59 +702,6 @@ test('fault repair policy is bounded, legacy-safe, and pinned into work types', 
   const unknown = structuredClone(definition);
   unknown.faultRepair.unknown = true;
   assert.throws(() => validateDefinition(unknown), /unknown field 'unknown'/);
-});
-
-test('world-model grounding is configurable and legacy-safe', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-grounding-config-')); await initializeDefinition(root);
-  const definition = await loadDefinition(root);
-  definition.worldModel.grounding = 'warn';
-  assert.equal(validateDefinition(definition).worldModel.grounding, 'warn');
-  assert.equal(groundingMode(definition, { resolution: {} }), 'off');
-  // A Story pinned `enforce` acts as `warn`: the World Model is guidance, never authority.
-  assert.equal(groundingMode(definition, { resolution: { worldModelGrounding: 'enforce' } }), 'warn');
-  definition.worldModel.grounding = 'enforce';
-  assert.equal(validateDefinition(definition).worldModel.grounding, 'enforce', 'still accepted in configuration');
-  assert.equal(groundingMode(definition), 'warn');
-  delete definition.worldModel.grounding;
-  assert.doesNotThrow(() => validateDefinition(definition));
-  definition.worldModel.grounding = 'sometimes';
-  assert.throws(() => validateDefinition(definition), /worldModel\.grounding must be off, warn, or enforce/);
-  delete definition.worldModel.grounding;
-  // staleness only ever matched 'fail' and 'warn' at the call sites, so a typo used to disarm the
-  // freshness guard in silence. The accepted set must match schemas/workflow-definition.schema.json.
-  for (const mode of ['warn', 'fail', 'ignore']) {
-    definition.worldModel.staleness = mode;
-    assert.doesNotThrow(() => validateDefinition(definition), `expected staleness '${mode}' to be accepted`);
-  }
-  delete definition.worldModel.staleness;
-  assert.doesNotThrow(() => validateDefinition(definition));
-  definition.worldModel.staleness = 'Fail';
-  assert.throws(() => validateDefinition(definition), /worldModel\.staleness must be 'warn', 'fail', or 'ignore'/);
-});
-
-test('world-model parallel generation policy is bounded and view-scoped', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-world-model-generation-'));
-  await initializeDefinition(root);
-  const definition = await loadDefinition(root);
-  assert.deepEqual(definition.worldModel.generation, { parallel: true, maxWorkers: 4 });
-  definition.worldModel.generation.maxWorkers = 17;
-  assert.throws(() => validateDefinition(definition), /maxWorkers must be an integer from 1 through 16/);
-  definition.worldModel.generation.maxWorkers = 2;
-  // The legacy-v3 synthesis keys are retired and ignored, but still accepted only with their
-  // former values so an old configuration cannot carry a silently different intent.
-  Object.assign(definition.worldModel.generation, {
-    strategy: 'view', maximumDiscoveryPacketBytes: 24576,
-    maximumSynthesisInputTokens: 24000, synthesisOverflow: 'summarize-or-refuse'
-  });
-  assert.doesNotThrow(() => validateDefinition(definition));
-  definition.worldModel.generation.strategy = 'component';
-  assert.throws(() => validateDefinition(definition), /strategy must be 'view'/);
-  definition.worldModel.generation.strategy = 'view';
-  definition.worldModel.generation.maximumSynthesisInputTokens = 1024;
-  assert.throws(() => validateDefinition(definition), /maximumSynthesisInputTokens/);
-  definition.worldModel.generation.maximumSynthesisInputTokens = 24000;
-  definition.worldModel.generation.synthesisOverflow = 'truncate';
-  assert.throws(() => validateDefinition(definition), /synthesisOverflow/);
 });
 
 test('sequence gates default safely to hard and support work-type overrides', async () => {
@@ -1221,14 +1036,13 @@ test('witnessed-clause configuration is normalized into the resolved phase polic
   assert.throws(() => validateDefinition(definition), /unknown field 'unbounded'/);
 });
 
-test('work-type phase overrides merge world model, quality, comparison, and approval policy', async () => {
+test('work-type phase overrides merge quality, comparison, and approval policy', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-overrides-')); await initializeDefinition(root);
   const definition = await loadDefinition(root);
   definition.workTypes.feature.phaseOverrides = { design: {
-    worldModel: { depth: 'deep' }, qualityCommands: ['npm test'], comparison: { requireFiles: true }, approval: { minimum: 2 }
+    qualityCommands: ['npm test'], comparison: { requireFiles: true }, approval: { minimum: 2 }
   } };
   const design = resolveWorkType(definition, 'feature').phases.find((phase) => phase.id === 'design');
-  assert.equal(design.worldModel.depth, 'deep'); assert.deepEqual(design.worldModel.views, ['arch.contracts']);
   assert.deepEqual(design.qualityCommands, ['npm test']); assert.equal(design.comparison.requireFiles, true);
   assert.equal(design.approval.minimum, 2); assert.deepEqual(design.approval.authorities, ['architecture-reviewers']);
 });

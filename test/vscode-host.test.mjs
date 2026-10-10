@@ -457,7 +457,7 @@ function loadExtension(api) {
   // otherwise static panel state and the intercepted `vscode` API leak from the preceding host.
   for (const name of [
     'extension.cjs', 'gateway-context-runtime.cjs', 'gateway-runtime.cjs', 'gateway-status-worker.cjs',
-    'help-runtime.cjs', 'lazy-panels-runtime.cjs', 'support-runtime.cjs', 'world-model-build.cjs'
+    'help-runtime.cjs', 'lazy-panels-runtime.cjs', 'support-runtime.cjs'
   ]) {
     const target = path.join(packageRoot, 'apps', 'vscode', 'dist', name);
     if (existsSync(target)) delete hostRequire.cache[hostRequire.resolve(target)];
@@ -466,10 +466,7 @@ function loadExtension(api) {
 }
 
 /** A real repository with an enterprise-delivery Epic, generated artifacts, and Stories. */
-async function demoRepository({
-  registeredWorldModel = false,
-  approvedWorldModelAuthority = false
-} = {}) {
+async function demoRepository({ approvedConfigurationAuthority = false } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-host-'));
   const child = async (name) => {
     const dir = path.join(base, name);
@@ -505,50 +502,19 @@ async function demoRepository({
     mobile: { url: mobile, defaultBranch: 'main', required: true, lead: true },
     api: { url: api, defaultBranch: 'main', required: true }
   };
-  if (registeredWorldModel) {
-    for (const phase of Object.values(portfolio.initiativePhases ?? {})) {
-      if (phase.worldModelViews?.length) phase.worldModelViews = ['dev.impact'];
-    }
-  }
   portfolio.git = { ...(portfolio.git ?? {}), publish: 'off' };
   await writeFile(portfolioFile, YAML.stringify(portfolio));
 
   const workflowFile = path.join(root, 'singularity/workflow.yml');
+  // Round-trip as before, so the committed workflow stays the normalized YAML the tests expect.
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
-  workflow.worldModel.grounding = 'off';
-  if (registeredWorldModel) {
-    workflow.worldModel.format = 'registered-v4';
-    workflow.worldModel.promptSource = 'builtin';
-    workflow.worldModel.views = ['arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'];
-    workflow.worldModel.sourceRoots = ['README.md'];
-    workflow.worldModel.sharedRoots = [];
-    workflow.worldModel.generation.parallel = false;
-    workflow.worldModel.generation.maxWorkers = 7;
-    workflow.worldModel.v4 = {
-      composer: 'deterministic', consumer: 'architect', cachePolicy: 'reuse-valid',
-      totalMaximumOutputTokens: 5600
-    };
-    for (const phase of Object.values(workflow.phases)) {
-      if (phase.worldModel?.views?.length) phase.worldModel.views = ['dev.impact'];
-    }
-    const agentsRoot = path.join(root, '.github', 'agents');
-    for (const name of await readdir(agentsRoot)) {
-      if (!name.endsWith('.agent.md')) continue;
-      const agentPath = path.join(agentsRoot, name);
-      const agent = await readFile(agentPath, 'utf8');
-      await writeFile(agentPath, agent.replace(
-        /sflow-world-model-views: "[^"]*"/,
-        'sflow-world-model-views: "dev.impact"'
-      ));
-    }
-  }
   await writeFile(workflowFile, YAML.stringify(workflow));
 
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize'], { cwd: root });
   run('git', ['remote', 'add', 'origin', lead], { cwd: root });
   run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
-  if (approvedWorldModelAuthority) {
+  if (approvedConfigurationAuthority) {
     run('git', ['push', 'origin', 'main:refs/heads/sflow/config'], { cwd: root });
   }
   run('git', ['switch', '-c', 'INIT-CHECKOUT'], { cwd: root });
@@ -2110,74 +2076,6 @@ test('Auto card controls only prefill the exact selected command and never execu
     'button dispatch prepared the command but did not mutate the flight');
 });
 
-test('World Model visual explorer uses the read-only slice in the shipped extension without mutation', async (t) => {
-  if (!requireBundle(t)) return;
-  const { root, registered } = await activated({ registeredWorldModel: true, approvedWorldModelAuthority: true });
-  const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout;
-  const beforeStatus = run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout;
-  const beforeRefs = run('git', ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads/state', 'refs/remotes/origin/state'], { cwd: root }).stdout;
-  await registered.commands.get('singularityFlow.configureWorldModel')();
-  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
-  assert.ok(panel);
-  assert.match(panel.webview.html, /data-wm-graphs=/);
-  assert.match(panel.webview.html, /World Model &amp; CALM/);
-  assert.match(panel.webview.html, /id="wm-visual-svg"/);
-  assert.match(panel.webview.html, /\.wm-visual-node:focus-visible/);
-  assert.match(panel.webview.html, /CALM provenance, controls, flows &amp; evidence gaps/);
-  for (const [, script] of panel.webview.html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) new Function(script);
-  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout, beforeHead);
-  assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout, beforeStatus);
-  assert.equal(run('git', ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads/state', 'refs/remotes/origin/state'], { cwd: root }).stdout, beforeRefs);
-  assert.equal(registered.executedCommands.some((entry) => entry.id === 'workbench.action.chat.open'), false);
-});
-
-test('Configuration Center prepares world-model generation for review and never executes it', async (t) => {
-  if (!requireBundle(t)) return;
-  const { root, registered } = await activated({
-    registeredWorldModel: true,
-    approvedWorldModelAuthority: true
-  });
-  const beforeHead = run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
-  const beforeStatus = run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout;
-  const beforeStateRefs = run('git', [
-    'for-each-ref', '--format=%(refname) %(objectname)',
-    'refs/heads/state', 'refs/remotes/origin/state'
-  ], { cwd: root }).stdout;
-
-  await registered.commands.get('singularityFlow.configureWorldModel')();
-  const panel = registered.panels.find((entry) => entry.id === 'singularityFlow.configurationCenter');
-  assert.ok(panel, 'the World Model tab opened');
-  assert.match(panel.webview.html, /data-action="build-world-model"/);
-  await panel.post({ type: 'action', action: 'build-world-model' });
-
-  assert.equal(registered.executedCommands.some((entry) => (
-    entry.id === 'workbench.action.chat.open'
-  )), false, 'the native build review no longer hands authority to a Copilot prefill');
-  assert.deepEqual(registered.quickPicks.slice(-3).map((entry) => entry.options.title), [
-    'World Model · exact governed build', 'World Model complexity for this capability', 'World Model composer'
-  ]);
-  assert.deepEqual(
-    registered.quickPicks.at(-3).items.map((entry) => entry.label),
-    ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'],
-    'the editor reviews exact installed contract versions rather than lossy display IDs'
-  );
-  const reviewIndex = registered.warnings.findIndex((message) => (
-    message === 'Run this exact World Model build and atomically publish it to the governed state branch?'
-  ));
-  assert.notEqual(reviewIndex, -1, 'the native exact Plan reached its guarded modal review');
-  assert.deepEqual(registered.warningActions[reviewIndex], ['Build & publish exact Plan', 'View details']);
-  assert.equal(registered.infos.some((message) => /World Model published/.test(message)), false,
-    'dismissing review does not report a completed publication');
-  assert.equal(registered.terminals.length, 0, 'native review does not open or run a terminal command');
-  assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim(), beforeHead);
-  assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: root }).stdout, beforeStatus);
-  assert.equal(run('git', [
-    'for-each-ref', '--format=%(refname) %(objectname)',
-    'refs/heads/state', 'refs/remotes/origin/state'
-  ], { cwd: root }).stdout, beforeStateRefs,
-  'cancelling exact review creates or advances no local/tracking state authority');
-});
-
 test('AST Intelligence edits every policy layer through one guarded VS Code surface', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();
@@ -2239,7 +2137,8 @@ test('AST Intelligence edits every policy layer through one guarded VS Code surf
     languages: { typescript: { mode: 'auto', minimumAssurance: 'text' } },
     predicates: [{ id: 'entrypoint', mode: 'advisory', type: 'path-exists', path: 'README.md', minimumAssurance: 'text' }]
   });
-  assert.equal(workflow.worldModel.grounding, 'off', 'guided AST saving preserves unrelated world-model policy');
+  assert.deepEqual(workflow.worldModel.knowledge, { prompt: 'slice' },
+    'guided AST saving preserves unrelated world-model policy');
   await settle();
 
   await panel.post(scoped({ type: 'run-scope', operation: 'context', mode: 'auto', paths: ['README.md'], all: false, maxFiles: 10 }));
@@ -2321,7 +2220,7 @@ test('AST Intelligence selects one repository from a multi-repository workspace 
 
 test('configuration sub-editors propose approved-overlay changes without touching a divergent checkout', async (t) => {
   if (!requireBundle(t)) return;
-  const root = await demoRepository({ approvedWorldModelAuthority: true });
+  const root = await demoRepository({ approvedConfigurationAuthority: true });
   const remote = run('git', ['remote', 'get-url', 'origin'], { cwd: root }).stdout.trim();
   const workflowPath = path.join(root, 'singularity', 'workflow.yml');
   const impactPath = path.join(root, 'singularity', 'impact.yml');
@@ -3019,7 +2918,6 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
     .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
-  workflow.worldModel.grounding = 'off';
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize'], { cwd: root });
@@ -3104,7 +3002,6 @@ test('Story readiness is checked once typing the identifier pauses, and the blur
     .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
-  workflow.worldModel.grounding = 'off';
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize'], { cwd: root });
@@ -3172,7 +3069,6 @@ test('a second Start Work paints the cached catalog at once, then revalidates wi
     .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
-  workflow.worldModel.grounding = 'off';
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize'], { cwd: root });
@@ -3245,7 +3141,6 @@ test('a started Story opens in the window even when its selection write is follo
     .replace(/members: \[\]/g, `members: [{ name: Initiative Owner, email: ${EMAIL} }]`));
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
-  workflow.worldModel.grounding = 'off';
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-m', 'Initialize'], { cwd: root });
@@ -3365,7 +3260,6 @@ test('a Story started from the form confirms its readiness check in one pass, an
   assert.equal(initialized.status, 0, initialized.stderr);
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
-  workflow.worldModel.grounding = 'off';
   for (const authority of Object.values(workflow.approvalAuthorities ?? {})) {
     authority.members = [{ name: 'Initiative Owner', email: EMAIL }];
   }
@@ -3513,7 +3407,6 @@ test('the packaged POC release candidate journey survives publication, review, C
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(workflowFile, 'utf8'));
   for (const authority of Object.values(definition.approvalAuthorities ?? {})) authority.members = members;
-  definition.worldModel.grounding = 'off';
   // The product default is attainable by one automatically enrolled developer. This hardened
   // fixture opts into two independent functions and proves that stricter organization policy
   // remains supported without making the packaged default deadlock for a lone developer.
@@ -3523,10 +3416,6 @@ test('the packaged POC release candidate journey survives publication, review, C
     requiredAuthorities: ['quality-reviewers', 'engineering-reviewers'],
     minimum: 2
   };
-  // Keep this release smoke model-independent. The structural POC tests below the gate hold the
-  // shipped standard/deep policy; this journey needs a deterministic repository inventory so it
-  // can prove the native Copilot handoff without invoking a provider or spending tokens.
-  definition.phases['poc-impact-analysis'].worldModel.depth = 'light';
   // This packaged lifecycle test is deterministic and offline. Structural MCP tests in the same
   // release gate hold the shipped Playwright requirements; here we prove every state transition
   // through completion without depending on a browser or public registry.
@@ -6155,8 +6044,6 @@ test('clicking an ahead local Story opens its checkout and resumes Copilot there
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
-  workflow.worldModel.grounding = 'off';
-  workflow.phases.intake.worldModel.depth = 'light';
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-qm', 'Initialize governed Story click fixture'], { cwd: root });
@@ -6271,8 +6158,6 @@ test('Inbox opens another Story while the selected workspace points at a managed
   const workflowFile = path.join(source, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
-  workflow.worldModel.grounding = 'off';
-  workflow.phases.intake.worldModel.depth = 'light';
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: source });
   run('git', ['commit', '-qm', 'Initialize Story workspace fixture'], { cwd: source });
@@ -6373,8 +6258,6 @@ test('clicking a remote Story without a local checkout attaches it and opens Cop
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
-  workflow.worldModel.grounding = 'off';
-  workflow.phases.intake.worldModel.depth = 'light';
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-qm', 'Initialize remote Story fixture'], { cwd: root });
@@ -6542,7 +6425,6 @@ test('a pending Copilot handoff resumes in a fresh chat after the repository win
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
-  workflow.phases.intake.worldModel.depth = 'light';
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', workflowFile], { cwd: root });
   run('git', ['commit', '-m', 'Use local publication for handoff test'], { cwd: root });
@@ -6623,7 +6505,6 @@ async function publishedStoryHandoffFixture(t) {
   await initializeDefinition(checkout);
   const workflowFile = path.join(checkout, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
-  workflow.worldModel.grounding = 'off';
   workflow.approvalSecurity.autoEnrollNewIdentities = false;
   for (const authority of Object.values(workflow.approvalAuthorities)) {
     authority.members = [{ name: 'Initiative Owner', email: EMAIL }];

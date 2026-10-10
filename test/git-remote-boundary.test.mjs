@@ -101,9 +101,6 @@ test('interactive onboarding, configuration, and recovery never use synchronous 
     'src/state.mjs',
     'src/workspace-bootstrap.mjs',
     'src/workspace-configuration-refresh.mjs',
-    'src/world-model/authority-refresh.mjs',
-    'src/world-model/publication-authority.mjs',
-    'src/world-model/recovery.mjs',
     'src/worldmodel.mjs'
   ]) {
     const source = await readFile(path.join(root, relative), 'utf8');

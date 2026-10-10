@@ -21,7 +21,6 @@ import { gatewayRegistry } from '../src/gateway/operations.mjs';
 import { checklistSummary, noEffects, preservedAll, sflowResult } from '../src/gateway/result.mjs';
 import { workContinueResult } from '../src/gateway/planners/work-continue.mjs';
 import { workReadinessResult } from '../src/gateway/planners/work-readiness.mjs';
-import { WORLD_MODEL_RECOMMENDATION_OPERATIONS } from '../src/gateway/planners/world-model.mjs';
 
 const GATEWAY = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'gateway');
 
@@ -58,8 +57,7 @@ test('every literal code in the gateway is in the catalog', async () => {
     // The kernel operation a registry entry maps a UI action onto; an operation name, not a code.
     ...registry.operations.flatMap((operation) =>
       [operation.kernelOperation, operation.gateway?.kernelOperation]).filter(Boolean),
-    ...KERNEL_OPERATIONS, ...BROAD_GOALS, ...KERNEL_MESSAGES, ...RESOLUTION_MESSAGES,
-    ...WORLD_MODEL_RECOMMENDATION_OPERATIONS
+    ...KERNEL_OPERATIONS, ...BROAD_GOALS, ...KERNEL_MESSAGES, ...RESOLUTION_MESSAGES
   ]);
   const pattern = /'([a-z][a-zA-Z0-9-]*\.[a-zA-Z0-9.-]+)'/g;
   const missing = [];

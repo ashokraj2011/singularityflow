@@ -1,17 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import YAML from 'yaml';
-import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
-import {
-  ensureConfigurationBranch, loadStoryConfigurationSnapshot, materializeConfigurationSnapshot,
-  resolveRemoteStoryConfigurationAuthority
-} from '../src/configuration-branch.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { canonicalJson } from '../src/records.mjs';
 import { buildGenerationAuthorship, importManualArtifact, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
@@ -22,211 +16,13 @@ import {
   submitPhase, storyWelEnrollmentStatus, validateWorkflow
 } from '../src/state.mjs';
 import { finalizeDraftWorkflowSnapshot } from '../src/workflow-snapshots.mjs';
-import { verifyGroundingRecord } from '../src/grounding.mjs';
-import { composePhasePrompt, worldModelCommand } from '../src/worldmodel.mjs';
-import {
-  resolveWorldModelRepositoryIdentityAuthority
-} from '../src/world-model/history/repository-identity-authority.mjs';
-import { buildAndPublishWorldModelV4 } from '../src/world-model/service.mjs';
+import { composePhasePrompt } from '../src/worldmodel.mjs';
 import { removeTemporaryTree } from '../src/util.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(result.stderr || `git ${args.join(' ')} failed`);
   return result.stdout.trim();
-}
-
-async function quiet(operation) {
-  const original = { log: console.log, error: console.error, warn: console.warn };
-  console.log = () => {};
-  console.error = () => {};
-  console.warn = () => {};
-  try { return await operation(); }
-  finally { Object.assign(console, original); }
-}
-
-async function activePersistedStoryFixture(t) {
-  const transport = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmp-publish-'));
-  t.after(() => removeTemporaryTree(transport));
-  const root = path.join(transport, 'application');
-  const remote = path.join(transport, 'application.git');
-  await mkdir(root, { recursive: true });
-  git(root, 'init', '-b', 'main');
-  git(root, 'config', 'user.name', 'Persisted WMP Publisher');
-  git(root, 'config', 'user.email', 'persisted-wmp@example.invalid');
-  git(root, 'init', '--bare', '-b', 'main', remote);
-  git(root, 'remote', 'add', 'origin', remote);
-  await initializeDefinition(root);
-  const definitionPath = path.join(root, 'singularity', 'workflow.yml');
-  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
-  definition.git.publish = 'off';
-  definition.worldModel.format = 'registered-v4';
-  definition.worldModel.grounding = 'enforce';
-  definition.worldModel.promptSource = 'builtin';
-  definition.worldModel.views = ['dev.impact'];
-  definition.worldModel.v4 = {
-    composer: 'deterministic', consumer: 'developer', cachePolicy: 'reuse-valid',
-    totalMaximumOutputTokens: 1400
-  };
-  for (const phase of Object.values(definition.phases)) {
-    if (phase.worldModel?.views?.length) phase.worldModel.views = ['dev.impact'];
-  }
-  await writeFile(definitionPath, YAML.stringify(definition));
-  for (const name of await readdir(path.join(root, '.github', 'agents'))) {
-    if (!name.endsWith('.agent.md')) continue;
-    const agentPath = path.join(root, '.github', 'agents', name);
-    await writeFile(agentPath, (await readFile(agentPath, 'utf8')).replace(
-      /sflow-world-model-views: "[^"]*"/,
-      'sflow-world-model-views: "dev.impact"'
-    ));
-  }
-  await writeFile(path.join(root, 'application.mjs'), 'export const value = 1;\n');
-  await writeFile(path.join(root, 'singularity', 'portfolio.yml'), YAML.stringify({
-    version: 1,
-    repositories: { application: { url: remote, defaultBranch: 'main' } }
-  }));
-  await writeFile(path.join(root, 'singularity', 'capabilities.yml'), YAML.stringify({
-    version: 1,
-    capabilities: {
-      application: {
-        name: 'Application', kind: 'delivery', parent: null, repository: 'application',
-        sourceRoots: ['application.mjs'], policy: { gitPublication: 'off' }
-      }
-    }
-  }));
-  git(root, 'add', '.');
-  git(root, 'commit', '-m', 'initialize governed persisted WMP fixture');
-  git(root, 'push', '-u', 'origin', 'main');
-  await ensureConfigurationBranch(remote);
-  const built = await withApprovedConfigurationRead(root, () => quiet(() => worldModelCommand(
-    root, ['wm', 'build'], {
-      format: 'registered-v4', views: 'dev.impact', capability: 'application'
-    }
-  )), {
-    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
-  });
-  assert.equal(built.status, 'completed', JSON.stringify(built));
-  const approved = await withApprovedConfigurationRead(root, () => (
-    resolveWorldModelRepositoryIdentityAuthority(root, { capabilityId: 'application' })
-  ), {
-    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
-  });
-  await withApprovedConfigurationRead(root, () => buildAndPublishWorldModelV4(root, {
-    outputDir: 'singularity/world-model',
-    ledgerConfig: {
-      enabled: true, branch: 'state', remote: 'origin', behind: 'block',
-      enforcement: 'shadow', signing: 'off', trustTier: 'T0', maxRetries: 3
-    },
-    views: ['dev.impact'], composer: 'deterministic',
-    capabilityId: approved.scopeManifest.capabilityId,
-    allowedPaths: approved.scopeManifest.allowedPaths,
-    sharedPaths: approved.scopeManifest.sharedPaths,
-    excludedPaths: approved.scopeManifest.excludedPaths,
-    allowedSubjects: approved.scopeManifest.allowedSubjects,
-    maximumTraversalDepth: approved.scopeManifest.maximumTraversalDepth,
-    policySnapshotSha256: approved.scopeManifest.policySourceSha256,
-    persistedHistory: {
-      savedViews: { views: ['development'], variants: ['brief', 'full'], format: 'md' }
-    }
-  }), {
-    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
-  });
-  assert.match(
-    git(root, 'ls-tree', '-r', '--name-only', 'refs/remotes/origin/state'),
-    /singularity\/world-model-history\/models\//u
-  );
-
-  const workId = 'WMP-PUBLISH-1';
-  git(root, 'switch', '-c', workId);
-  const approvedConfigurationAuthority = await resolveRemoteStoryConfigurationAuthority(remote);
-  const approvedConfigurationSnapshot = await loadStoryConfigurationSnapshot(
-    approvedConfigurationAuthority
-  );
-  await materializeConfigurationSnapshot(root, {
-    authority: approvedConfigurationAuthority, snapshot: approvedConfigurationSnapshot
-  });
-  const config = await loadConfig(root);
-  config.git.publish = 'off';
-  const resolved = resolveWorkType(config, 'feature');
-  resolved.phases = [{
-    ...resolved.phases[0], order: 0,
-    clarification: { mode: 'off', maxQuestions: 5, topics: [], markers: { mode: 'block' } },
-    approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['intake'] }
-  }];
-  const actor = {
-    name: 'Persisted WMP Publisher', email: 'persisted-wmp@example.invalid', login: null
-  };
-  await setAgentSession(root, config, actor, 'product-owner', workId, {
-    phaseId: 'intake', source: 'test'
-  });
-  const workflow = await createWorkflow(root, config, {
-    id: workId, title: 'Publish exact persisted Story grounding',
-    source: {
-      type: 'manual', key: workId, title: 'Publish exact persisted Story grounding',
-      description: 'Prove the lifecycle consumes the immutable persisted grounding receipt.',
-      acceptanceCriteria: ['Publication accepts only the exact persisted grounding receipt.']
-    },
-    baseBranch: 'main', workType: 'feature', agent: 'product-owner',
-    capabilityId: 'application', resolved, approvedConfigurationSnapshot
-  });
-  assert.equal(workflow.resolution.worldModelHistoryPin.status, 'active',
-    JSON.stringify(workflow.resolution.worldModelHistoryPin));
-  git(root, 'add', '-A');
-  git(root, 'commit', '-m', 'accept persisted grounding Story');
-
-  const composed = await composePhasePrompt(root, {
-    workId, phase: 'intake', agent: 'product-owner'
-  });
-  assert.match(composed, /Active Story phase contract/u);
-  const phase = workflow.phases.intake;
-  const target = path.join(root, config.workItemRoot, workId, phase.requiredArtifact.path);
-  const source = path.join(root, 'persisted-wmp-intake.md');
-  await writeFile(source, [
-    '# Intake', '', '## Problem', '',
-    'A governed publication must consume the exact persisted Story grounding receipt.', '',
-    '## Outcome', '',
-    'The lifecycle refuses missing or substituted receipts and accepts the original bytes.', '',
-    '## Acceptance criteria', '',
-    '- Missing persisted grounding is refused before lifecycle mutation.',
-    '- Tampered persisted grounding is refused before lifecycle mutation.',
-    '- Exact persisted grounding publishes generation one.', ''
-  ].join('\n'));
-  const imported = await importManualArtifact({
-    sourcePath: source, targetPath: target, contract: phase.requiredArtifact
-  });
-  await rm(source);
-  const authorship = buildGenerationAuthorship({
-    options: normalizeAuthorshipOptions({
-      producer: 'governed-agent', channel: 'copilot-host', imported: true,
-      externalAiUse: 'assisted'
-    }),
-    actor, governedAgentContext: 'product-owner', source: imported
-  });
-  const recordPath = path.join(root, config.workItemRoot, workId, 'context', 'intake-gen1.json');
-  assert.ok(JSON.parse(await readFile(recordPath, 'utf8')).persistedGrounding);
-  return { root, config, workflow, phase, target, authorship, recordPath };
-}
-
-async function publishFixtureGeneration(fixture) {
-  const { root, config, workflow, phase, target, authorship } = fixture;
-  return commitAndPublish(
-    root, config, workflow,
-    { type: 'artifact-generated', phaseId: phase.id, generation: 1 },
-    `[${workflow.workItem.id}][phase:${phase.id}][generated:1] publish exact grounding`,
-    [path.relative(root, target).replaceAll(path.sep, '/')],
-    {
-      beforeStateWrite: (publicationEvent, transactionContext) => publishGeneration(
-        root, config, workflow, {
-          phaseId: phase.id, authorship, persist: false,
-          publicationTransaction: {
-            publicationEvent,
-            transactionId: transactionContext.transactionId,
-            expectedHead: transactionContext.expectedHead
-          }
-        }
-      )
-    }
-  );
 }
 
 test('a migrated pre-anchor Story is not reported as policy tampering', async (t) => {
@@ -404,36 +200,6 @@ test('an honestly anchored v3 Story survives the deterministic convergence polic
   validation.errors.join('\n'));
 });
 
-test('governed publication verifies the persisted Story grounding receipt and only warns about it', async (t) => {
-  const fixture = await activePersistedStoryFixture(t);
-  const exactRecordText = await readFile(fixture.recordPath, 'utf8');
-  const verify = () => verifyGroundingRecord(fixture.root, fixture.config, fixture.workflow, fixture.phase);
-
-  // The World Model is guidance: a missing or tampered persisted receipt is reported, never an error.
-  const missing = JSON.parse(exactRecordText);
-  missing.persistedGrounding = null;
-  await writeFile(fixture.recordPath, `${JSON.stringify(missing, null, 2)}\n`);
-  const missingCheck = await verify();
-  assert.deepEqual(missingCheck.errors, []);
-  assert.match(missingCheck.warnings.join('\n'), /requires a persisted grounding receipt/u);
-
-  const tampered = JSON.parse(exactRecordText);
-  tampered.persistedGrounding.groundingSha256 = `sha256:${'0'.repeat(64)}`;
-  await writeFile(fixture.recordPath, `${JSON.stringify(tampered, null, 2)}\n`);
-  const tamperedCheck = await verify();
-  assert.deepEqual(tamperedCheck.errors, []);
-  assert.match(tamperedCheck.warnings.join('\n'), /persisted Story grounding verification failed/u);
-
-  await writeFile(fixture.recordPath, exactRecordText);
-  const exactCheck = await verify();
-  assert.deepEqual(exactCheck.warnings, []);
-  assert.ok(exactCheck.passes.some((entry) => /persisted Story grounding authority/.test(entry)));
-  await publishFixtureGeneration(fixture);
-  assert.equal(fixture.workflow.phases.intake.generation, 1);
-  assert.equal(fixture.workflow.phases.intake.generationPublications.length, 1);
-  assert.equal(fixture.workflow.phases.intake.authorship.at(-1).producer, 'governed-agent');
-});
-
 test('an enrolled v7 WFA Story loads, saves, validates, and publishes without policy drift', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-v7-wfa-policy-'));
   t.after(() => removeTemporaryTree(root));
@@ -505,9 +271,8 @@ test('an enrolled v7 WFA Story loads, saves, validates, and publishes without po
       /immutable creation commit|snapshot policy/.test(message)), false,
     validation.errors.join('\n'));
 
-    // Exercise the ordinary governed-agent prompt path as well as the lifecycle write. A migrated
-    // Story with no optional persisted-history pin must retain legacy projection grounding; it must
-    // not be forced into the exact-history verifier or rely on the human-authorship bypass.
+    // Exercise the ordinary governed-agent prompt path as well as the lifecycle write. The receipt
+    // records no persisted grounding, and publication does not rely on the human-authorship bypass.
     const composed = await composePhasePrompt(root, {
       workId: 'WFA-V7-1', phase: 'intake', agent: 'developer'
     });

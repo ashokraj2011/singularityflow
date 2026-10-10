@@ -14,7 +14,6 @@ import { fileURLToPath } from 'node:url';
 import { codeOccurrences } from './source-text.mjs';
 import { storyPublicationPreflightError } from '../src/story-publication-preflight.mjs';
 import { refusalEnvelope } from '../src/refusal-remediation.mjs';
-import { assertWorldModelV4BuildCompleted } from '../src/world-model/service.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const view = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name);
@@ -146,7 +145,7 @@ test('an error with no structured result claims nothing about preservation', () 
   assert.match(fidelityNote(fidelity), /no statement here about what was preserved/);
 });
 
-test('a native World Model authority error keeps safe diagnostics and omits raw provider details', () => {
+test('a native authority error keeps safe diagnostics and omits raw provider details', () => {
   const error = Object.assign(new Error(
     'Cannot read Story configuration authority. Run workspace doctor --network and inspect Git access outside SFlow before retrying.'
   ), {
@@ -158,17 +157,17 @@ test('a native World Model authority error keeps safe diagnostics and omits raw 
       diagnostic: 'https://credential-user:office-secret@example.invalid/private.git'
     }
   });
-  const { view: card, fidelity } = refusalFor(error, { headline: 'Could not build the World Model' });
+  const { view: card, fidelity } = refusalFor(error, { headline: 'Could not read the Story configuration authority' });
   assert.equal(fidelity, 'message-only');
-  assert.equal(card.headline, 'Could not build the World Model');
+  assert.equal(card.headline, 'Could not read the Story configuration authority');
   assert.deepEqual(card.preserved, []);
   assert.deepEqual(card.actions.map(({ command, copilotCommand }) => ({ command, copilotCommand })), [
     {
       command: 'singularity-flow workspace doctor --network --repository https://example.invalid/RuleEngineUI.git --json',
       copilotCommand: '/sf-workspace-bootstrap'
-    },
-    { command: 'singularity-flow wm doctor --json', copilotCommand: '/sf-worldmodel doctor --json' }
+    }
   ]);
+  assert.doesNotMatch(JSON.stringify(card.actions), /wm doctor/);
   assert.equal(card.rest, null);
   assert.equal(card.details.code, 'REMOTE_UNKNOWN');
   assert.equal(card.details.classification, 'unknown');
@@ -177,7 +176,7 @@ test('a native World Model authority error keeps safe diagnostics and omits raw 
   assert.doesNotMatch(resultCardHtml(card), /There is no step you can take here right now/);
 });
 
-test('World Model recovery remains bound to the exact repository when copied from VS Code', () => {
+test('authority recovery remains bound to the exact repository when copied from VS Code', () => {
   const error = Object.assign(new Error(
     'Cannot read Story configuration authority. Inspect the exact authority and retry.'
   ), {
@@ -193,8 +192,7 @@ test('World Model recovery remains bound to the exact repository when copied fro
     terminalCommand(repositoryRoot, [
       'workspace', 'doctor', '--network', '--repository',
       'https://example.invalid/RuleEngineUI.git', '--json'
-    ]),
-    terminalCommand(repositoryRoot, ['wm', 'doctor', '--json'])
+    ])
   ]);
   assert.match(card.actions[0].detail, /exact repository/);
   assert.match(card.actions[0].detail, new RegExp(repositoryRoot.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')));
@@ -228,115 +226,66 @@ test('a credential-shaped authority is never copied into exact recovery guidance
   assert.doesNotMatch(JSON.stringify(card), /office-secret|credential-user/);
 });
 
-test('a local registered-v4 validation error leads with local diagnosis and bounds native metadata', () => {
-  const error = Object.assign(new Error('Registered-v4 World Model rejected an unsupported view.'), {
-    code: 'WMB_VIEW_UNKNOWN',
-    details: { classification: 'office-secret-class', retryable: true }
-  });
-  const { view: card } = refusalFor(error);
-  assert.deepEqual(card.actions.map(({ command }) => command), [
-    'singularity-flow wm doctor --format registered-v4 --json',
-    'singularity-flow recommend --json'
-  ]);
-  assert.equal(card.details.code, 'WMB_VIEW_UNKNOWN');
-  assert.equal(card.details.classification, undefined);
-  assert.doesNotMatch(JSON.stringify(card), /office-secret-class/);
+test('a World Model failure offers the Repository brief, never wm doctor, and bounds native metadata', () => {
+  const failures = [
+    Object.assign(new Error('World Model rejected an unsupported view.'), {
+      code: 'WMB_VIEW_UNKNOWN',
+      details: { classification: 'office-secret-class', retryable: true }
+    }),
+    Object.assign(new Error(
+      "World-model view 'arch.contracts' was refused: Model execution requires a registered Singularity Flow operation context."
+    ), { code: 'MODEL_CONTEXT_MISSING' })
+  ];
+  for (const error of failures) {
+    const { view: card } = refusalFor(error, { headline: 'Could not read the World Model' });
+    assert.deepEqual(card.actions.map(({ command }) => command), [
+      'singularity-flow wm brief --phase <phase>',
+      'singularity-flow recommend --json'
+    ], error.message);
+    assert.doesNotMatch(JSON.stringify(card.actions), /wm doctor|registered-v4/);
+    assert.equal(card.details.classification, undefined);
+    assert.doesNotMatch(JSON.stringify(card), /office-secret-class/);
+  }
+  assert.equal(refusalFor(failures[0]).view.details.code, 'WMB_VIEW_UNKNOWN');
+  const repositoryRoot = '/Users/example/RuleEngineUI';
+  assert.deepEqual(refusalFor(failures[0], { repositoryRoot }).view.actions.map(({ command }) => command), [
+    terminalCommand(repositoryRoot, ['wm', 'brief', '--phase', '<phase>']),
+    terminalCommand(repositoryRoot, ['recommend', '--json'])
+  ], 'the brief is copied bound to the exact repository');
 });
 
-test('a registered-view model-boundary refusal retains registered-v4 diagnosis', () => {
+function modelBudgetRefusal(modelBudget) {
   const error = Object.assign(new Error(
-    "World-model view 'arch.contracts' was refused: Model execution requires a registered Singularity Flow operation context."
-  ), { code: 'MODEL_CONTEXT_MISSING' });
-  const { view: card } = refusalFor(error, { headline: 'Could not build the World Model' });
-  assert.deepEqual(card.actions.map(({ command }) => command), [
-    'singularity-flow wm doctor --format registered-v4 --json',
-    'singularity-flow recommend --json'
-  ]);
-});
-
-test('native model composition refusal supplies exact contract review and keeps the Model route', () => {
-  assert.throws(() => assertWorldModelV4BuildCompleted({
-    status: 'refused', refusals: [{
-      code: 'WMB_VIEW_VALIDATION_FAILED', view: 'arch.contracts',
-      failures: [{ code: 'WMB_FACT_REFERENCE_UNKNOWN',
-        reason: 'Fact references are permitted only once at the end of a factual unit.',
-        details: { providerTranscript: 'office-secret', unit: 'private source prose' } }]
-    }]
-  }), (error) => {
-    const { view: card, fidelity } = refusalFor(error, { repositoryRoot: '/Users/example/calc' });
-    assert.equal(fidelity, 'refusal-plan-v1');
-    assert.match(card.actions[0].command, /'wm' 'view-contract' 'arch.contracts'/);
-    assert.equal(card.actions[0].copilotCommand,
-      '/sf-worldmodel view-contract arch.contracts --format registered-v4 --json');
-    assert.match(card.warnings[0].label, /keep the Model composer.*fresh exact Plan/);
-    assert.ok(card.actions.every((action) => action.executable === false));
-    assert.doesNotMatch(JSON.stringify(card), /office-secret|private source prose/);
-    assert.deepEqual(card.preserved, []);
-    assert.doesNotMatch(JSON.stringify(card.actions), /recommend|doctor/);
-    return true;
-  });
-});
-
-function worldModelBudgetRefusal(modes = ['optional']) {
-  return {
-    status: 'refused',
-    runtime: { planned: { requestedViews: modes.map(mode => ({ contract: { model: { mode } } })) } },
-    refusals: [{
-      code: 'WMB_VIEW_VALIDATION_FAILED', view: 'arch.contracts',
-      failures: [{
-        code: 'MODEL_TOKEN_BUDGET_EXCEEDED', reason: 'Provider reported 64001 total tokens, exceeding its 64000-token invocation budget.',
-        details: {
-          logicalPromptTokensEstimate: 7426, maximumPromptTokensEstimate: 8000,
-          maximumOutputBytes: 5600, maximumTotalTokens: 64000, observedTotalTokens: 64001,
-          usage: { inputTokens: 63000, outputTokens: 1001, totalTokens: 64001 },
-          providerTranscript: 'office-secret', providerOverheadTokens: 55555
-        }
-      }]
-    }]
-  };
+    'Provider reported 64001 total tokens, exceeding its 64000-token invocation budget.'
+  ), { code: 'MODEL_TOKEN_BUDGET_EXCEEDED', details: { modelBudget } });
+  return Object.assign(cliError(error.message), { result: refusalEnvelope(error, ['wm', 'brief', '--phase', 'design']) });
 }
 
-test('native World Model budget refusal shows actual usage and reviewed model-free recovery', () => {
-  assert.throws(() => assertWorldModelV4BuildCompleted(worldModelBudgetRefusal()), error => {
-    const { view: card, fidelity } = refusalFor(error, { repositoryRoot: '/Users/example/calc' });
-    assert.equal(fidelity, 'refusal-plan-v1');
-    assert.equal(card.details.observedTotalTokens, 64001);
-    assert.equal(card.details.maximumTotalTokens, 64000);
-    assert.equal(card.details.providerInputTokens, 63000);
-    assert.equal(card.details.providerOutputTokens, 1001);
-    assert.equal(card.details.logicalPromptTokensEstimate, 7426);
-    assert.equal(card.details.maximumOutputBytes, 5600);
-    assert.match(card.warnings[0].label, /choose the deterministic composer.*new exact build Plan/);
-    assert.ok(card.actions.every(action => action.executable === false));
-    assert.match(card.actions[0].command, /cd '\/Users\/example\/calc'.*'wm' 'doctor' '--format' 'registered-v4'/);
-    assert.deepEqual(card.preserved, []);
-    assert.doesNotMatch(JSON.stringify(card), /office-secret|55555|providerOverheadTokens/);
-    assert.doesNotMatch(JSON.stringify(card.actions), /recommend|start/);
-    return true;
-  });
-});
-
-test('model-budget recovery never downgrades required-model or unknown view policies', () => {
-  for (const modes of [['required'], ['optional', 'required'], [], ['unknown']]) {
-    assert.throws(() => assertWorldModelV4BuildCompleted(worldModelBudgetRefusal(modes)), error => {
-      const { view: card } = refusalFor(error);
-      assert.match(card.warnings[0].label, /model-free retry is not verified.*configuration authority/);
-      assert.doesNotMatch(JSON.stringify(card), /choose the deterministic composer/);
-      return true;
-    });
-  }
+test('a model-budget refusal plan shows actual usage and omits raw provider details', () => {
+  const { view: card, fidelity } = refusalFor(modelBudgetRefusal({
+    logicalPromptTokensEstimate: 7426, maximumPromptTokensEstimate: 8000,
+    maximumOutputBytes: 5600, maximumTotalTokens: 64000, observedTotalTokens: 64001,
+    providerInputTokens: 63000, providerOutputTokens: 1001,
+    providerTranscript: 'office-secret', providerOverheadTokens: 55555
+  }), { repositoryRoot: '/Users/example/calc' });
+  assert.equal(fidelity, 'refusal-plan-v1');
+  assert.equal(card.details.observedTotalTokens, 64001);
+  assert.equal(card.details.maximumTotalTokens, 64000);
+  assert.equal(card.details.providerInputTokens, 63000);
+  assert.equal(card.details.providerOutputTokens, 1001);
+  assert.equal(card.details.logicalPromptTokensEstimate, 7426);
+  assert.equal(card.details.maximumOutputBytes, 5600);
+  assert.ok(card.actions.every(action => action.executable === false));
+  assert.deepEqual(card.preserved, []);
+  assert.doesNotMatch(JSON.stringify(card), /office-secret|55555|providerOverheadTokens/);
 });
 
 test('unavailable provider usage stays absent rather than becoming zero or inferred overhead', () => {
-  const result = worldModelBudgetRefusal();
-  result.refusals[0].failures[0].details = {};
-  assert.throws(() => assertWorldModelV4BuildCompleted(result), error => {
-    const { view: card } = refusalFor(error);
-    assert.equal(card.details.observedTotalTokens, undefined);
-    assert.equal(card.details.providerInputTokens, undefined);
-    assert.equal(card.details.maximumTotalTokens, undefined);
-    return true;
-  });
+  const { view: card } = refusalFor(modelBudgetRefusal({ providerTranscript: 'office-secret' }));
+  assert.equal(card.details.observedTotalTokens, undefined);
+  assert.equal(card.details.providerInputTokens, undefined);
+  assert.equal(card.details.maximumTotalTokens, undefined);
+  assert.doesNotMatch(JSON.stringify(card), /office-secret/);
 });
 
 test('a deterministic refusal plan becomes safe reviewable VS Code actions', () => {

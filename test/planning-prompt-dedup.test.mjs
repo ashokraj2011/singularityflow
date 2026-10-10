@@ -8,9 +8,8 @@ import test, { after } from 'node:test';
 import YAML from 'yaml';
 
 import { initializeDefinition } from '../src/config.mjs';
-import { injectAgentPrompt } from '../src/inject.mjs';
 import { applyInputsBlock, collectInputs, renderInputsBlock } from '../src/inputs.mjs';
-import { createPlanningContext, renderPlanningWorldModelContext } from '../src/planning.mjs';
+import { createPlanningContext } from '../src/planning.mjs';
 import { snapshot } from '../src/util.mjs';
 
 const machineRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-planning-dedup-machine-'));
@@ -135,29 +134,4 @@ test('planning projects a prepared draft before budgeting without changing raw s
   assert.equal(await readFile(path.join(root, targetPath), 'utf8'), prepared);
   assert.equal(git(root, ['rev-parse', 'HEAD']), beforeHead);
   assert.equal(git(root, ['status', '--short']), '');
-});
-
-test('planning grounding carries each World Model file once, since agent prompts inject none', async (t) => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-planning-grounding-dedup-'));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const relative = 'singularity/world-model/views/architecture.md';
-  const content = '# Architecture\n\nPREFIX-ARCHITECTURE-EVIDENCE\n\nTAIL-REQUIRED-FULL-EVIDENCE\n';
-  const file = {
-    path: relative, sha256: digest(content), bytes: Buffer.byteLength(content),
-    reason: 'primary phase view', content
-  };
-  // A legacy rule set in an old configuration no longer injects anything into the agent.
-  const definition = {
-    agents: { architect: { prompt: '# Architect\n\nInspect the approved design.\n\n{{WORLD_MODEL}}' } },
-    worldModel: { outputDir: 'singularity/world-model', injection: {
-      mode: 'append', maxBytes: 32768,
-      rules: [{ when: { agent: 'architect' }, include: ['views/architecture.md'] }]
-    } }
-  };
-  const agent = await injectAgentPrompt(root, definition, 'architect');
-  assert.equal(agent.injection.applied, false);
-  assert.doesNotMatch(agent.text, /\{\{WORLD_MODEL\}\}/);
-  const grounding = renderPlanningWorldModelContext([file]);
-  assert.equal(occurrences(`${agent.text}\n${grounding}`, 'TAIL-REQUIRED-FULL-EVIDENCE'), 1);
-  assert.match(grounding, new RegExp(`sha256=${file.sha256} reason=primary phase view`));
 });

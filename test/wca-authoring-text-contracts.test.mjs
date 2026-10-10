@@ -5,15 +5,14 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { validateDefinition, resolveWorkType, validateAgentBriefHeadingContracts,
-  validateCapturedAgentBriefHeadingContracts, validateArtifactTemplateText, renderArtifactTemplate,
-  validateWorldModelPromptReferences } from '../src/config.mjs';
+  validateCapturedAgentBriefHeadingContracts, validateArtifactTemplateText, renderArtifactTemplate } from '../src/config.mjs';
 import { normalizeTemplateCatalog, resolveTemplate } from '../src/template-catalog.mjs';
 
 function definition() {
   const phase = (id) => ({ label: id, artifact: { path: `artifacts/${id}.md` }, inputs: [], defaultTemplate: 'template:shared', approval: { mode: 'none' }, generation: { task: 'analyze' } });
   const value = { version: 2, templatesRoot: 'singularity/templates', templates: { shared: 'common/shared.md' },
     phases: { intake: phase('intake'), review: phase('review') }, workTypes: { main: { label: 'Main', phases: ['intake', 'review'] } },
-    approvalSecurity: { profile: 'team' }, harnessImports: { mode: 'record' }, worldModel: { views: ['arch.contracts@4'] } };
+    approvalSecurity: { profile: 'team' }, harnessImports: { mode: 'record' } };
   value.phases.review.inputs = [{ phase: 'intake', projection: 'approved-summary', preserve: ['Findings'] }];
   return validateDefinition(value);
 }
@@ -57,10 +56,4 @@ test('pure token admission preserves renderer compatibility and refuses unsuppor
   const sha256 = createHash('sha256').update(bad).digest('hex');
   await assert.rejects(renderArtifactTemplate('/unused-private-fixture', config, phase, { templateSnapshot: { sha256 },
     retainedTemplate: { logicalId: 'template:intake', sha256, bytes: Buffer.byteLength(bad), text: bad } }), /unsupported token/);
-});
-
-test('captured prompt references obey the same declared view owner without creating permission', () => {
-  const config = definition(); const references = new Map([['arch.contracts', ['exact-template.md']]]);
-  assert.equal(validateWorldModelPromptReferences(config, references), references);
-  assert.throws(() => validateWorldModelPromptReferences(config, new Map([['unapproved', ['exact-template.md']]])), /not declared/);
 });

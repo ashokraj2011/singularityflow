@@ -20,7 +20,6 @@ import {
   validateTkrContractSet
 } from '../src/token-reduction/contracts.mjs';
 import { canonicalJson, sealRecord } from '../src/canonical-json.mjs';
-import { WMP_RECORD_FAMILIES } from '../src/world-model/history/contracts.mjs';
 import {
   createTkrRuntimeRendererRegistration,
   validateTkrRuntimeRendererClosure,
@@ -149,11 +148,19 @@ test('TKR M0 families are frozen immutable identities and do not change WMP fami
     assert.equal(family.immutable, true, familyId);
     assert.equal(family.migrationPolicy, 'frozen-identity', familyId);
   }
-  assert.deepEqual(WMP_RECORD_FAMILIES, [
+  // The registered World Model was removed, but its record families stay registered so old
+  // records still classify, and no TKR family takes one of their identities.
+  for (const familyId of [
     'world-model-model-binding', 'world-model-view-inputs', 'world-model-view-binding',
     'world-model-grounding-reference', 'world-model-grounding-packet', 'world-model-handoff',
     'world-model-source-adoption'
-  ]);
+  ]) {
+    const family = schemaFamily(familyId);
+    assert.equal(family.currentVersion, 1, familyId);
+    assert.equal(family.immutable, true, familyId);
+    assert.equal(family.migrationPolicy, 'frozen-identity', familyId);
+    assert.equal(TKR_CONTRACT_FAMILIES.includes(familyId), false, familyId);
+  }
   assert.deepEqual(TKR_ERROR_CODES, [
     'TKR_ALIAS_INVALID', 'TKR_CONTRACT_UNSUPPORTED', 'TKR_COVERAGE_UNPROVEN',
     'TKR_LIMIT_EXCEEDED', 'TKR_PROTECTED_CONTENT_CHANGED', 'TKR_RENDER_CONFLICT'

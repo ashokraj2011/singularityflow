@@ -1745,7 +1745,7 @@ test('large remote operations and lifecycle submissions get operation-appropriat
   const original = globalThis.setTimeout;
   globalThis.setTimeout = (fn, ms, ...rest) => { timeouts.push(ms); return original(fn, 1, ...rest); };
   try {
-    await client.run(['wm', 'build']).catch(() => {});
+    await client.run(['wm', 'knowledge', 'brief']).catch(() => {});
     await client.run(['capability', 'map', 'payments']).catch(() => {});
     await client.run(['capability', 'activate', 'proposal']).catch(() => {});
     await client.run([
@@ -1794,6 +1794,11 @@ test('large remote operations and lifecycle submissions get operation-appropriat
   assert.equal(timeouts[14], 120_000);
   assert.equal(timeouts.length, 15,
     'cancellable machine-wide reinitialization and destructive reset apply have no host kill timer');
+  // Only a model-written brief or explanation and workspace impact analysis get the long read deadline.
+  for (const args of [['wm', 'knowledge', 'explain'], ['wm', 'knowledge', 'calls'], ['workspace', 'impact', 'analyze']]) {
+    assert.equal(client.timeoutFor(args), 15 * 60_000, args.join(' '));
+  }
+  assert.equal(client.timeoutFor(['wm', 'build']), 120_000, 'the removed World Model build has no long deadline');
 });
 
 test('Story description enhancement leaves cleanup headroom beyond its model deadline', () => {
@@ -2158,16 +2163,12 @@ test('a reference-driven Story shows immutable reference health and explicit rec
       id: 'java-rule-engine', status: 'ready', required: true,
       localPath: '.singularity-flow/reference-repositories/java-rule-engine',
       requestedBranch: 'release/2026-q3', commit: 'a'.repeat(40), tree: 'b'.repeat(40),
-      projectMarkers: ['pom.xml'], sourceRoots: ['src'],
-      reusableWorldModel: {
-        path: '.singularity-flow/reference-repositories/java-rule-engine/singularity/world-model/manifest.json',
-        sha256: `sha256:${'c'.repeat(64)}`
-      }
+      projectMarkers: ['pom.xml'], sourceRoots: ['src']
     }, {
       id: 'shared-contracts', status: 'missing', required: true,
       localPath: '.singularity-flow/reference-repositories/shared-contracts',
       requestedBranch: 'main', commit: 'd'.repeat(40),
-      projectMarkers: [], sourceRoots: [], reusableWorldModel: null
+      projectMarkers: [], sourceRoots: []
     }],
     nextAction: 'singularity-flow story references materialize --work-id <WORK-ID>'
   };
@@ -2175,24 +2176,16 @@ test('a reference-driven Story shows immutable reference health and explicit rec
   const group = find(tree, 'story:reference-repositories');
   assert.equal(group.description, '1/2 ready · immutable inputs');
   assert.match(find(tree, 'story:reference:java-rule-engine').tooltip, /pom\.xml/);
-  assert.match(find(tree, 'story:reference:java-rule-engine:world-model').description,
-    /never regenerated/);
-  assert.match(find(tree, 'story:reference:shared-contracts:grounding').description,
-    /model-free/);
+  for (const id of ['java-rule-engine', 'shared-contracts']) {
+    assert.match(find(tree, `story:reference:${id}:grounding`).description, /model-free/);
+    assert.doesNotMatch(find(tree, `story:reference:${id}`).tooltip, /World Model/,
+      'reference repositories show no reusable World Model rows');
+  }
+  assert.equal(find(tree, 'story:reference:java-rule-engine:world-model'), undefined);
   assert.deepEqual(find(tree, 'story:reference-repositories:verify').command,
     ['story', 'references', 'verify', '--work-id', 'STORY-42', '--json']);
   assert.deepEqual(find(tree, 'story:reference-repositories:materialize').command,
     ['story', 'references', 'materialize', '--work-id', 'STORY-42', '--json']);
-
-  active.referenceRepositories.repositories[1].status = 'ready';
-  active.referenceRepositories.repositories[1].worldModelStatus = {
-    status: 'not-inspected', reason: 'local-status-projection'
-  };
-  const lightweight = buildTree(active);
-  assert.match(find(lightweight, 'story:reference:shared-contracts').tooltip,
-    /checked during generation composition/);
-  assert.match(find(lightweight, 'story:reference:shared-contracts:world-model-check').description,
-    /validated at generation composition/);
 });
 
 test('an open stakeholder change request is visible beside the reopened Story', () => {
@@ -5414,8 +5407,7 @@ test('the capability screen opens with a portfolio dashboard above the editable 
     workItems: [{ id: 'PAY-1', status: 'in_progress' }],
     initiatives: [{ id: 'PAY-EPIC', status: 'complete' }],
     approvalInbox: { count: 2, fetched: true },
-    diagnostics: { healthy: true },
-    worldModel: { root: 'singularity/world-model', generatedAt: '2026-08-04T00:00:00.000Z', rebuildReason: null, views: [] }
+    diagnostics: { healthy: true }
   });
   assert.deepEqual({
     capabilities: dashboard.capabilities,
@@ -5425,9 +5417,11 @@ test('the capability screen opens with a portfolio dashboard above the editable 
     openWork: dashboard.openWork,
     approvals: dashboard.approvals
   }, { capabilities: 3, delivery: 1, repositories: 1, jiraRoutes: 1, openWork: 1, approvals: 2 });
+  assert.equal(Object.hasOwn(dashboard, 'worldModel'), false, 'the dashboard has no World Model field');
 
   const html = capabilitiesHtml(capabilityFixture, null, null, dashboard);
   assert.match(html, /Capability portfolio/);
+  assert.doesNotMatch(html, /Repository grounding/);
   assert.match(html, /Organisation at a glance/);
   assert.match(html, /open governed work/);
   assert.match(html, /awaiting approvals/);
@@ -6919,9 +6913,9 @@ test('workspace details show its directory, capabilities, repositories and Jira 
       id: 'platform', role: 'lead', absolutePath: '/work/commerce/repos/platform',
       state: 'ready', branch: 'KAN-8', dirty: false,
       metadata: { appId: 'APP-1001', name: 'Commerce Platform' },
-      jira: { projectKey: 'KAN' }, worldModel: { state: 'available' }
+      jira: { projectKey: 'KAN' }
     }],
-    counts: { repositories: 1, ready: 1, dirty: 0, worldModels: 1 },
+    counts: { repositories: 1, ready: 1, dirty: 0 },
     warnings: [],
     archiveReadiness: {
       eligible: false, checkedAt: '2026-08-05T00:00:00.000Z', fetched: false,
@@ -6944,7 +6938,8 @@ test('workspace details show its directory, capabilities, repositories and Jira 
   assert.match(html, /KAN-8/);
   assert.match(html, /APP-1001/);
   assert.match(html, /projectKey/);
-  assert.match(html, /available/);
+  assert.match(html, /1 of 1 ready\s+· 0 with local changes<\/p>/);
+  assert.doesNotMatch(html, /World model|world models/, 'the workspace page has no World model column or count');
   assert.match(html, /Active work is protected/);
   assert.match(html, /PAY-123/);
   assert.match(html, /data-archive="\/work\/commerce" disabled/);
@@ -7194,7 +7189,7 @@ test('capabilities are the tree they already are, and say what ships', () => {
   assert.match(payments.tooltip, /Teams: Payments squad/);
 });
 
-test('a capability shows the repositories it ships from and where its world model is', () => {
+test('a capability shows the repositories it ships from and what describes it', () => {
   // Both were in the map and in the engine's readiness answer, and neither reached this tree: a
   // capability rendered as a name with a repository in grey and nothing about whether it could
   // actually be worked in.
@@ -7209,9 +7204,9 @@ test('a capability shows the repositories it ships from and where its world mode
   const readiness = {
     'commerce-api': {
       url: 'git@github:acme/commerce-api.git',
-      stateBranch: 'state', hasStateBranch: true, worldModel: 'state-branch'
+      stateBranch: 'state', hasStateBranch: true
     },
-    'commerce-web': { url: 'git@github:acme/commerce-web.git', hasStateBranch: false, worldModel: null }
+    'commerce-web': { url: 'git@github:acme/commerce-web.git', hasStateBranch: false }
   };
   const [commerce] = buildCapabilityTree({ capabilityMap: { capabilities } }, null, readiness);
 
@@ -7227,9 +7222,8 @@ test('a capability shows the repositories it ships from and where its world mode
   assert.equal(web.description, 'no state branch');
   assert.equal(web.icon, 'statusWarning', 'a repository with nowhere to record governance is a problem');
 
-  const model = beneath(commerce).find((row) => row.label === 'World model');
-  assert.equal(model.description, 'on state-branch');
-  assert.match(model.tooltip, /state branch first/);
+  assert.equal(beneath(commerce).some((row) => row.label === 'World model'), false,
+    'the capability tree has no World model row');
 
   // Whatever describes the capability, and whatever it runs on, as the map records them.
   const links = beneath(commerce).filter((row) => row.contextValue === 'sflow.capability.link');
@@ -7247,29 +7241,7 @@ test('unasked is not the same as absent in the capability tree', () => {
   const [commerce] = buildCapabilityTree({ capabilityMap: { capabilities } });
   assert.equal(beneath(commerce)[0].description, 'lead · not checked');
   assert.equal(beneath(commerce)[0].icon, 'delivery', 'not a warning: nothing is known to be wrong');
-  assert.equal(beneath(commerce).find((row) => row.label === 'World model').description, 'not checked');
-});
-
-test('a grouping capability composes its world model from what is beneath it', () => {
-  // A grouping has no repository to hold a model, so what it has is the union of its children's —
-  // composed on read and stored nowhere. Saying "not built" would be false; saying nothing would
-  // hide that half its capabilities cannot ground anything.
-  const capabilities = [{
-    id: 'commerce', name: 'Commerce', kind: 'collection', repositories: [], children: [
-      { id: 'checkout', name: 'Checkout', kind: 'delivery', repositories: ['checkout'], leadRepository: 'checkout', children: [] },
-      { id: 'catalog', name: 'Catalog', kind: 'delivery', repositories: ['catalog'], leadRepository: 'catalog', children: [] }
-    ]
-  }];
-  const readiness = {
-    checkout: { hasStateBranch: true, stateBranch: 'state', worldModel: 'state-branch' },
-    catalog: { hasStateBranch: true, stateBranch: 'state', worldModel: null }
-  };
-  const [commerce] = buildCapabilityTree({ capabilityMap: { capabilities } }, null, readiness);
-  const model = beneath(commerce).find((row) => row.label === 'World model');
-  assert.equal(model.description, '1/2 of its capabilities');
-  assert.match(model.tooltip, /stored nowhere/);
-  // The hierarchy is still the hierarchy: the composed row does not replace what is beneath.
-  assert.deepEqual(capabilitiesUnder(commerce).map((row) => row.label), ['Checkout', 'Catalog']);
+  assert.equal(beneath(commerce).some((row) => row.label === 'World model'), false);
 });
 
 test('the capability tree says why it is empty rather than being empty', () => {
@@ -7299,7 +7271,7 @@ test('a tree node resolves back to the thing it stands for', () => {
   // A capability's own rows sit under its id with a further segment. They are not capabilities, and
   // handing one to an edit command opens a screen on something that does not exist.
   assert.equal(capabilityIdOf({ id: 'capability:commerce:repository:commerce-api' }), null);
-  assert.equal(capabilityIdOf({ id: 'capability:commerce:world-model' }), null);
+  assert.equal(capabilityIdOf({ id: 'capability:commerce:link:Charter' }), null);
   assert.equal(capabilityIdOf({ id: 'capability:' }), null);
 
   const [workspace] = buildWorkspaceTree(REGISTRY);
@@ -7316,7 +7288,7 @@ const DIAGNOSTICS = {
   checks: [
     { id: 'node', status: 'pass', message: 'Node.js 22.14.0', fix: null },
     { id: 'git', status: 'pass', message: 'git 2.43', fix: null },
-    { id: 'world-model', status: 'warn', message: 'No world model has been built.', fix: 'singularity-flow wm build' },
+    { id: 'removed-settings', status: 'warn', message: 'singularity/workflow.yml carries settings of removed features.', fix: 'Remove them from singularity/workflow.yml' },
     { id: 'approvers', status: 'fail', message: 'No approval authority has a member.', fix: 'Edit singularity/portfolio.yml' },
     { id: 'jira', status: 'skip', message: 'Jira is not configured.', fix: null }
   ]
@@ -7326,7 +7298,7 @@ test('the dashboard leads with what would stop work, worst first', () => {
   // A dashboard that opens with a row of counts teaches people to skim past the one line that
   // mattered. Failures come first, and passing checks are a number rather than a list.
   const dashboard = buildDashboard({ ...snapshot, diagnostics: DIAGNOSTICS });
-  assert.deepEqual(dashboard.failing.map((check) => check.id), ['approvers', 'world-model', 'jira']);
+  assert.deepEqual(dashboard.failing.map((check) => check.id), ['approvers', 'removed-settings', 'jira']);
   assert.equal(dashboard.passing, 2);
   assert.equal(dashboard.repository, '/work/platform');
   assert.equal(dashboardHealth(dashboard), 'fail');
@@ -7494,12 +7466,10 @@ test('the instruction designer browser script is valid JavaScript', () => {
 test('the instruction designer separates agents, prompts, repository skills and packaged prompt packs', () => {
   const instructionSnapshot = {
     definition: {
-      phases: { design: { label: 'Design', agents: ['architect'], worldModel: { views: ['arch.contracts'] } } },
-      planning: { promptSource: 'singularity/prompts/planning.md' },
-      worldModel: { views: ['arch.contracts', 'biz.rules'] }
+      phases: { design: { label: 'Design', agents: ['architect'] } },
+      planning: { promptSource: 'singularity/prompts/planning.md' }
     },
     portfolio: { initiativePhases: {} },
-    worldModel: { views: [{ id: 'dev.impact', references: [] }] },
     agents: [{ id: 'architect', scope: 'repository', path: '.github/agents/architect.agent.md', editable: true,
       content: `---\nname: architect\ndescription: Designs systems.\ntools: [read, search]\nmetadata:\n  sflow-label: "Architect"\n  sflow-phases: "design"\n  sflow-default-for: "design"\n  sflow-world-model-views: "arch.contracts,biz.rules"\n---\n\n# Architect\n\nUse evidence.\n\n## Remote skills\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n| security-guide | https://docs.example.test/security.md | design | false | 4096 |\n\n## Remote artifact templates\n\n| ID | URL | Phases | Optional | Max bytes |\n|---|---|---|---|---|\n| design-template | https://docs.example.test/design.md | design | false | - |\n\n## Remote generated artifacts\n\n| ID | URL template | Phase | Target | Optional | Max bytes |\n|---|---|---|---|---|---|\n| external-review | https://docs.example.test/{workId}/review.md | design | artifacts/design/external-review.md | true | - |` }],
     agentMappings: { path: 'singularity/agent-mappings.yml', exists: true,
@@ -7521,28 +7491,14 @@ test('the instruction designer separates agents, prompts, repository skills and 
   assert.equal(catalog.packs.length, 1);
   assert.equal(catalog.mappingContent, instructionSnapshot.agentMappings.content,
     'the mapping form retains the exact authority bytes it rendered for destination-bound CAS');
-  assert.deepEqual(catalog.worldModelViews, ['arch.contracts', 'biz.rules', 'dev.impact'],
-    'approved repository order is retained before inferred generated views');
-  const registeredCatalog = instructionCatalog({
-    ...instructionSnapshot,
-    definition: {
-      ...instructionSnapshot.definition,
-      worldModel: {
-        ...instructionSnapshot.definition.worldModel,
-        format: 'registered-v4', views: ['dev.impact@4']
-      },
-      phases: { design: { label: 'Design', worldModel: { views: ['dev.impact'] } } }
-    },
-    worldModel: { views: [{ id: 'dev.impact', references: [] }] }
-  });
-  assert.deepEqual(registeredCatalog.worldModelViews, ['dev.impact']);
-  assert.ok(!registeredCatalog.worldModelViews.some((view) => view.includes('@')),
-    'the agent Markdown designer must never offer exact contract references');
+  assert.equal(Object.hasOwn(catalog, 'worldModelViews'), false, 'the designer offers no World Model views');
   assert.deepEqual(catalog.promptUsage['singularity/prompts/planning.md'], ['Copilot planning']);
 
   const parsed = parseAgent(catalog.agents[0].content, 'architect');
   assert.deepEqual(parsed.phases, ['design']);
-  assert.deepEqual(parsed.worldModelViews, ['arch.contracts', 'biz.rules']);
+  assert.equal(Object.hasOwn(parsed, 'worldModelViews'), false);
+  assert.match(renderAgent(parsed, catalog.agents[0].content), /sflow-world-model-views: "arch\.contracts,biz\.rules"/,
+    'an authored views header is left untouched as authored');
   assert.equal(parsed.remoteSkills[0].id, 'security-guide');
   assert.equal(parsed.remoteTemplates[0].id, 'design-template');
   assert.equal(parsed.remoteOutputs[0].target, 'artifacts/design/external-review.md');
@@ -7573,7 +7529,8 @@ test('the instruction designer separates agents, prompts, repository skills and 
   assert.match(html, /Agents, prompts &amp; skills/);
   assert.match(html, /Prompt composition/);
   assert.match(html, /Phase contract/);
-  assert.match(html, /Repository world-model views/);
+  assert.match(html, /Repository brief/);
+  assert.doesNotMatch(html, /Repository world-model views|data-agent-views|agent-views/);
 
   const delivery = instructionDesignerHtml(catalog, {
     tab: 'delivery', selected: null, agent: null, prompt: null, skill: null, errors: [], notice: null,

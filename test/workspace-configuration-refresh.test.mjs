@@ -256,14 +256,14 @@ test('hard cutover retires old Story records without migrating or changing their
   assert.ok(!census.unreadable.some(finding => finding.path.includes('/OLD-1/')));
 });
 
-test('the retired World Model migration refuses before any local candidate write', async t => {
+test('the removed World Model migration is refused by name before any local candidate write', async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-wm-migration-retired-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await initializeFixture(root);
   const workflowBefore = await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8');
   const capabilitiesBefore = await readFile(path.join(root, 'singularity/capabilities.yml'), 'utf8');
   await assert.rejects(refreshPackagedConfiguration(root, { restorePackagedSeeds: true, migrateWorldModel: true }),
-    error => error.code === 'WMB_FORMAT_RETIRED' && /--migrate-world-model/.test(error.message));
+    error => error.code === 'WMB_REMOVED' && /--migrate-world-model/.test(error.message));
   assert.equal(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'), workflowBefore);
   assert.equal(await readFile(path.join(root, 'singularity/capabilities.yml'), 'utf8'), capabilitiesBefore);
 });
@@ -893,12 +893,12 @@ test('explicit workflow replacement also replaces its shared phase contract', as
   // Keep the shared phase a code-delivery phase: other installed work types now bind their test
   // evidence to it, so changing its task to analyze would make the entire fixture invalid before
   // installWorkflow can perform the replacement this test exercises.
-  workflow.phases.implementation.worldModel.depth = 'deep';
+  workflow.phases.implementation.clarification.maxQuestions = 7;
   await writeFile(workflowFile, YAML.stringify(workflow));
 
   await installWorkflow(root, 'feature', { replace: true });
   const replaced = YAML.parse(await readFile(workflowFile, 'utf8'));
-  assert.equal(replaced.phases.implementation.worldModel.depth, 'standard');
+  assert.equal(replaced.phases.implementation.clarification.maxQuestions, 3);
   assert.equal(replaced.phases.implementation.generation.task, 'code');
 });
 
@@ -1208,11 +1208,8 @@ test('seeded reinitialization migrates authentic v1 role fields and retains repo
     },
     metadata: { owner: 'company-platform', retention: 'seven-years' }
   };
-  // The World Model migration was retired with legacy-v3, so this repository has already replaced
-  // its legacy view names with registered IDs (as WMB_FORMAT_RETIRED instructs). That isolates the
-  // role-field migration under test; framework phases still carry exact historical package bytes.
-  legacy.worldModel.views = ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'];
-  legacy.phases['company-intake'].worldModel = { views: ['biz.rules'], depth: 'quick' };
+  // The legacy World Model views this repository still names belong to a removed feature: they are
+  // dropped when the configuration loads, so they do not stand in the way of the role-field migration.
   // Repository-owned phases must bind a governed Agent Markdown file directly in v2. Keeping a
   // legacy suggestion here would be ambiguous and is covered by the refusal regression below.
   delete legacy.phases['company-intake'].suggestedPersonas;
@@ -1322,16 +1319,9 @@ test('seeded reinitialization retires an exact registered v1 prompt with histori
   const packagedLegacy = YAML.parse(await readFile(path.join(
     ROOT, 'test/fixtures/workflow-v1-ba513.yml'
   ), 'utf8'));
-  // The World Model migration was retired with legacy-v3, so this repository has already replaced
-  // its legacy view names with registered IDs (as WMB_FORMAT_RETIRED instructs). That isolates the
-  // role-field migration under test; framework phases still carry exact historical package bytes.
-  await writeFile(path.join(root, 'singularity/workflow.yml'), YAML.stringify({
-    ...packagedLegacy,
-    worldModel: {
-      ...packagedLegacy.worldModel,
-      views: ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4']
-    }
-  }));
+  // Framework phases carry exact historical package bytes; the legacy World Model views they name
+  // belong to a removed feature and are dropped when the configuration loads.
+  await writeFile(path.join(root, 'singularity/workflow.yml'), YAML.stringify(packagedLegacy));
   const retiredPromptRelative = 'singularity/personas/developer.md';
   const retiredPromptFile = path.join(root, retiredPromptRelative);
   const retiredPromptBytes = await readFile(path.join(

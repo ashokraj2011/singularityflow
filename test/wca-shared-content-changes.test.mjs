@@ -13,7 +13,7 @@ function fixture() {
   const phase = (id, template = 'template:shared') => ({ label: id,
     artifact: { path: `artifacts/${id}/${id}.md`, minimumBytes: 20, maximumBytes: 16384 },
     inputs: [], defaultTemplate: template, approval: { mode: 'none' }, writeScope: 'artifact-only', generation: { task: 'analyze' } });
-  const approvedDefinition = { version: 2, templatesRoot: 'singularity/templates', worldModel: { views: ['arch.contracts@4'] },
+  const approvedDefinition = { version: 2, templatesRoot: 'singularity/templates',
     templates: { shared: { path: 'common/shared.md', label: 'Shared', kind: 'note', description: 'Exact source' },
       alias: 'common/shared.md', alternate: { path: 'common/alternate.md' } },
     phases: { intake: phase('intake'), review: phase('review', 'template:alias'), auxiliary: phase('auxiliary', 'common/shared.md'),
@@ -117,8 +117,6 @@ test('agent parent is exact text including whitespace, source must be repository
     const input = agentInput(); Object.assign(input.agents[0], patch); blocked(planSharedAgentChanges, input, 'WCA_SHARED_CONTENT_SOURCE_UNAVAILABLE');
   }
   const mismatch = agentInput(); mismatch.agents[0].tools = ['shell/*']; blocked(planSharedAgentChanges, mismatch, 'WCA_SHARED_CONTENT_SOURCE_INVALID');
-  const views = agentInput(); views.changes[0].replacement.text += 'Read views/undeclared.md.\n';
-  blocked(planSharedAgentChanges, views, 'WCA_SHARED_CONTENT_CONTRACT_INVALID');
 });
 
 test('template content edit includes aliases, legacy paths, transitive headings and masked overrides', () => {
@@ -145,9 +143,9 @@ test('named template label/description may change but paths, kinds, unknown fiel
   blocked(planSharedTemplateChanges, alias, 'WCA_CHANGE_INVALID');
 });
 
-test('template candidate validates preserved-heading/tokens/view contracts rather than just JSON structure', () => {
+test('template candidate validates preserved-heading/token contracts rather than just JSON structure', () => {
   for (const content of ['# Missing\n', '# Note\n## Findings\n## Findings\n', '# Note\n<!-- unclosed\n## Findings\n',
-    '# Note {{shell.command}}\n## Findings\n', '# Note\n## Findings\nRead views/undeclared.md.\n']) {
+    '# Note {{shell.command}}\n## Findings\n']) {
     const input = templateInput(); input.changes[0].replacement.content = content;
     blocked(planSharedTemplateChanges, input, 'WCA_SHARED_CONTENT_CONTRACT_INVALID');
   }

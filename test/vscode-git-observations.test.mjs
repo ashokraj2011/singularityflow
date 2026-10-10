@@ -17,12 +17,9 @@ const failed = (status, stderr = '') => ({
   status, stdout: Buffer.alloc(0), stderr, failure: null
 });
 
-test('VS Code early and World Model Git probes do not bypass the async Git adapter', async () => {
+test('VS Code early Git probes do not bypass the async Git adapter', async () => {
   const extension = await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8');
-  const worldModel = await readFile(path.join(root, 'apps/vscode/src/world-model-build.ts'), 'utf8');
   assert.doesNotMatch(extension, /promisify\(execFile\)\(\s*['"]git['"]/u);
-  assert.doesNotMatch(worldModel, /\b(?:execFileSync|spawnSync|execFile|spawn)\s*\(/u);
-  assert.match(worldModel, /await hasConfiguredGitRemote\(active\.root, /u);
 });
 
 test('VS Code early Git observations use the bounded async runner with closed argv', async () => {

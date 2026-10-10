@@ -39,7 +39,9 @@ test('starter configuration ships comparable Benchmark A and Benchmark B workflo
   assert.deepEqual(generic.intelligence, {
     worldModel: 'off', ast: 'off', agentBriefs: 'off'
   });
-  assert.equal(governed.worldModelGrounding, 'warn');
+  // The registered World Model was removed: both arms pin its grounding off, and intelligence.worldModel
+  // now turns only the Repository brief on or off.
+  assert.equal(governed.worldModelGrounding, 'off');
   assert.equal(generic.worldModelGrounding, 'off');
 
   for (const id of PHASES) {
@@ -55,7 +57,9 @@ test('starter configuration ships comparable Benchmark A and Benchmark B workflo
     phase.inputs.some((input) => input.projection === 'approved-summary')));
   assert.ok(generic.phases.slice(1).every((phase) =>
     phase.inputs.every((input) => input.projection === undefined)));
-  assert.ok(generic.phases.every((phase) => phase.worldModel.views.length === 0));
+  // Phases no longer carry registered World Model views in either arm.
+  assert.ok(governed.phases.every((phase) => !phase.worldModel?.views?.length));
+  assert.ok(generic.phases.every((phase) => !phase.worldModel?.views?.length));
 
   const capabilityBoundGeneric = applyCapabilityPolicyToWorkResolution(generic, {
     id: 'benchmark-capability', sourceScope: { sourceRoots: ['src'], sharedRoots: [] },
@@ -68,7 +72,7 @@ test('starter configuration ships comparable Benchmark A and Benchmark B workflo
   const genericSnapshot = await snapshotResolution(root, definition, generic);
   assert.deepEqual(governedSnapshot.intelligence, governed.intelligence);
   assert.deepEqual(genericSnapshot.intelligence, generic.intelligence);
-  assert.equal(governedSnapshot.worldModelGrounding, 'warn');
+  assert.equal(governedSnapshot.worldModelGrounding, 'off');
   assert.equal(genericSnapshot.worldModelGrounding, 'off');
 });
 

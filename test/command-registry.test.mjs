@@ -4,6 +4,7 @@ import {
   canonicalCommand, COMMAND_REGISTRY, operationCatalog, RESOLVER_SUBCOMMANDS, resolveOperation,
   validateCommandHandlers
 } from '../src/command-registry.mjs';
+import { REMOVED_WORLD_MODEL_SUBCOMMANDS } from '../src/removed-features.mjs';
 import { SGOS_CLI_OPTIONS, validateSgosCliOptions } from '../src/sgos/cli-options.mjs';
 
 test('command registry resolves compatibility aliases without duplicating handlers', () => {
@@ -12,6 +13,14 @@ test('command registry resolves compatibility aliases without duplicating handle
   assert.equal(canonicalCommand('next-steps'), 'nextsteps');
   assert.equal(canonicalCommand('ledger'), 'ledger');
   assert.throws(() => canonicalCommand('not-a-command'), /Unknown command/);
+  // A command of a removed feature is refused by name, saying what replaced it.
+  assert.throws(() => canonicalCommand('architecture'), (error) => {
+    assert.equal(error.code, 'COMMAND_REMOVED');
+    assert.match(error.message, /'architecture' was removed\./);
+    assert.match(error.message, /wm brief --phase PHASE/);
+    return true;
+  });
+  assert.equal(COMMAND_REGISTRY.some((entry) => entry.name === 'architecture'), false);
   assert.equal(new Set(COMMAND_REGISTRY.map((entry) => entry.name)).size, COMMAND_REGISTRY.length);
   for (const entry of COMMAND_REGISTRY) {
     assert.match(entry.modulePath, /^\.\//);
@@ -284,23 +293,25 @@ test('mixed deterministic commands classify their actual operation rather than t
     assert.equal(operation.classification, classification);
     assert.equal(operation.modelPolicy, 'never');
   }
-  // registered-v4 is the only World Model: no depth reroutes a build or an ensure to a legacy-v3
-  // light build, and the retired subcommands and format override are refused during resolution.
-  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'], options: { depth: 'light' } }).id, 'wm.build.deterministic');
-  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'], options: { depth: 'light' } }).id, 'wm.ensure.registered-v4');
-  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'ensure'], options: {} }).id, 'wm.ensure.registered-v4');
-  const modelBuild = resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'build'], options: { composer: 'model-required' } });
-  assert.equal(modelBuild.modelPolicy, 'required');
-  assert.equal(modelBuild.fallback, null);
-  for (const retired of ['light', 'init', 'budget', 'prompt']) {
-    assert.throws(() => resolveOperation({ requestedCommand: 'wm', positionals: ['wm', retired] }),
-      { code: 'WMB_FORMAT_RETIRED' }, `wm ${retired}`);
+  // The registered (v4) and legacy-v3 World Models were removed: every one of their subcommands, and
+  // the format override on any remaining one, is refused by name during resolution, before a handler loads.
+  for (const removed of REMOVED_WORLD_MODEL_SUBCOMMANDS) {
+    assert.throws(() => resolveOperation({ requestedCommand: 'wm', positionals: ['wm', removed], options: {} }),
+      { code: 'WMB_REMOVED' }, `wm ${removed}`);
   }
-  for (const subcommand of ['build', 'status', 'ensure']) {
+  for (const subcommand of ['build', 'light']) {
     assert.throws(() => resolveOperation({
-      requestedCommand: 'wm', positionals: ['wm', subcommand], options: { format: 'legacy-v3' }
-    }), { code: 'WMB_FORMAT_RETIRED' }, `wm ${subcommand} --format legacy-v3`);
+      requestedCommand: 'wm', positionals: ['wm', subcommand], options: { depth: 'light', composer: 'model-required' }
+    }), { code: 'WMB_REMOVED' }, `wm ${subcommand} with build options`);
   }
+  assert.throws(() => resolveOperation({
+    requestedCommand: 'wm', positionals: ['wm', 'brief'], options: { format: 'legacy-v3' }
+  }), { code: 'WMB_REMOVED' }, 'wm brief --format legacy-v3');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'brief'], options: {} }).id, 'wm.brief');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'brief'], options: {} }).classification, 'read');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'knowledge', 'status'], options: {} }).id, 'wm.knowledge.status');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'knowledge', 'status'], options: {} }).classification, 'read');
+  assert.equal(resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'knowledge', 'confirm'], options: {} }).classification, 'mutation');
   const promptPreview = resolveOperation({
     requestedCommand: 'wm', positionals: ['wm', 'show-prompt'], options: {}
   });
@@ -363,8 +374,8 @@ test('a mistyped subcommand is told what it typed, what was meant, and what work
   // The near miss is named, the same way an unknown top-level command already does it.
   assert.throws(() => resolveOperation({ requestedCommand: 'spec', positionals: ['spec', 'analyse'] }),
     /Did you mean 'analyze'\?/);
-  assert.throws(() => resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'biuld'] }),
-    /Did you mean 'build'\?/);
+  assert.throws(() => resolveOperation({ requestedCommand: 'wm', positionals: ['wm', 'breif'] }),
+    /Did you mean 'brief'\?/);
 
   // Nested slots say which slot they mean rather than calling a third positional a subcommand.
   assert.throws(() => resolveOperation({ requestedCommand: 'story', positionals: ['story', 'interval', 'nope'] }),
@@ -401,8 +412,8 @@ test('every deterministic preview has its own cataloged never-model operation', 
     'copilot.preview',
     'workspace.copilot.preview',
     'workspace.impact.analyze.preview',
-    'wm.build.deterministic',
-    'wm.ensure.registered-v4',
+    'wm.knowledge.brief.deterministic',
+    'wm.knowledge.explain.deterministic',
     'program.approve.plan',
     'task.retry.plan',
     'revise.preview',
@@ -414,7 +425,9 @@ test('every deterministic preview has its own cataloged never-model operation', 
     assert.equal(catalog.get(id)?.modelPolicy, 'never', id);
     assert.ok(catalog.get(id)?.noModelFixture, id);
   }
-  assert.equal(catalog.has('wm.light'), false, 'the retired legacy-v3 light build is not cataloged');
+  for (const removed of ['wm.light', 'wm.build', 'wm.build.deterministic', 'wm.ensure.registered-v4', 'wm.migrate', 'wm.regenerate']) {
+    assert.equal(catalog.has(removed), false, `the removed World Model operation ${removed} is not cataloged`);
+  }
 });
 
 test('model-enabled SGOS dispatch has distinct required-model catalog entries', () => {

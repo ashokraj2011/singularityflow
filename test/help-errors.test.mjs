@@ -15,10 +15,8 @@ test('stable error identifiers resolve to reviewed help without carrying transcr
   assert.equal(helpTopicForError({ code: 'WFA_DEPENDENCY_UNAVAILABLE' }), 'repository-state-and-snapshots');
   assert.equal(helpTopicForError({ code: 'GIT_READ_UNAVAILABLE' }), 'repository-state-and-snapshots');
   assert.equal(helpTopicForError({ code: 'WFA_RUNTIME_INCOMPATIBLE' }), 'repository-state-and-snapshots');
-  assert.equal(helpTopicForError({ code: 'WMC_INTENT_REPORT_MISMATCH' }), 'calm-architecture');
-  assert.equal(helpTopicForError({ code: 'WMC_INTENT_REVISION_CONFLICT' }), 'calm-architecture');
-  assert.equal(helpTopicForError({ code: 'WMB_SOURCE_SNAPSHOT_REQUIRED' }), 'world-model');
-  assert.equal(helpTopicForError({ code: 'WMB_CACHE_INPUT_INVALID' }), 'world-model');
+  assert.equal(helpTopicForError({ code: 'WMB_REMOVED' }), 'world-model');
+  assert.equal(helpTopicForError({ code: 'COMMAND_REMOVED' }), 'help-and-docs');
   assert.equal(helpTopicForError({ message: 'Missing singularity/workflow.yml. Run init.' }), 'installation-and-upgrades');
   assert.equal(helpTopicForError({ message: 'unrelated application exception' }), null);
 });

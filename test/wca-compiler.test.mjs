@@ -114,7 +114,7 @@ async function fixture(t, configure = () => {}, approvedSkills = []) {
   git(base, 'init', '--bare', remote); git(root, 'init', '-b', 'main'); git(root, 'config', 'user.name', 'Compiler Fixture'); git(root, 'config', 'user.email', 'compiler@example.test');
   // The first and last steps are recognised by what they produce, so the fixture declares it.
   const phase = (key) => ({ label: key, artifact: { path: `artifacts/${key}/${key}.md`, ...({ intake: { kind: 'intake' }, conformance: { kind: 'conformance-report' } }[key] ?? {}), minimumBytes: 20, maximumBytes: 16_384 }, defaultTemplate: 'common/empty.md', inputs: [], approval: { mode: 'none' }, writeScope: 'artifact-only', generation: { requirement: 'optional', defaultProducer: 'human', allowedProducers: ['human'], task: 'analyze' } });
-  const definition = { version: 2, templatesRoot: 'singularity/templates', worldModel: { views: ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'] }, workTypes: { baseline: { label: 'Baseline', phases: ['intake', 'conformance'], omits: OMITS } }, phases: { intake: phase('intake'), conformance: phase('conformance') }, approvalSecurity: { profile: 'team' }, approvalAuthorities: { reviewers: { label: 'Reviewers', members: [{ name: 'Reviewer', email: 'reviewer@example.test' }] } } };
+  const definition = { version: 2, templatesRoot: 'singularity/templates', workTypes: { baseline: { label: 'Baseline', phases: ['intake', 'conformance'], omits: OMITS } }, phases: { intake: phase('intake'), conformance: phase('conformance') }, approvalSecurity: { profile: 'team' }, approvalAuthorities: { reviewers: { label: 'Reviewers', members: [{ name: 'Reviewer', email: 'reviewer@example.test' }] } } };
   const environmentDeclaration = configure(definition);
   await mkdir(path.join(root, definition.templatesRoot, 'common'), { recursive: true }); await mkdir(path.join(root, 'singularity'), { recursive: true }); await mkdir(path.join(root, '.github/agents'), { recursive: true });
   await writeFile(path.join(root, 'singularity/workflow.yml'), YAML.stringify(definition)); await writeFile(path.join(root, definition.templatesRoot, 'common/empty.md'), '# Exact approved template\n');
@@ -687,14 +687,13 @@ test('shared template review preserves the existing owner exception for untouche
   assert.deepEqual(refused.assets, []); assert.deepEqual(refused.fileOperations, []);
 });
 
-test('shared content metadata/effect/mixed-profile/stale-byte/undeclared-view proposals refuse without files', async (t) => {
+test('shared content metadata/effect/mixed-profile/stale-byte proposals refuse without files', async (t) => {
   for (const [kind, name, mutate, code] of [
     ['agent', 'frontmatter', (r) => { r.definitions.agents[0].text = r.definitions.agents[0].text.replace('tools: []', 'tools: ["shell/*"]'); }, 'WCA_SHARED_AGENT_EFFECT_CHANGE_UNSUPPORTED'],
     ['agent', 'stale', (r) => { r.changes[0].expectedTextSha256 = `sha256:${'0'.repeat(64)}`; }, 'WCA_CHANGE_PARENT_STALE'],
     ['agent', 'mixed', (r) => { r.definitions.templates = [{ id: 'new', content: '# Inert' }]; }, 'WCA_SHARED_CONTENT_UNSUPPORTED'],
     ['agent', 'no-profile', (r) => { delete r.changes[0].profile; }, 'WCA_CHANGE_SHARED_OBJECT_UNSUPPORTED'],
     ['template', 'token', (r) => { r.definitions.templates[0].content += '{{native.command}}\n'; }, 'WCA_SHARED_CONTENT_CONTRACT_INVALID'],
-    ['template', 'view', (r) => { r.definitions.templates[0].content += 'Read views/unapproved-view.md.\n'; }, 'WCA_SHARED_CONTENT_CONTRACT_INVALID'],
     ['template', 'stale', (r) => { r.changes[0].expectedContentSha256 = `sha256:${'0'.repeat(64)}`; }, 'WCA_CHANGE_PARENT_STALE']
   ]) await t.test(`${kind}:${name}`, async (child) => {
     const f = await fixture(child); const request = kind === 'agent' ? await sharedAgentRequest(f) : await sharedTemplateRequest(f); mutate(request);
@@ -1125,7 +1124,7 @@ test('catalog choices are bounded source-pinned navigation, not reviewer members
 });
 
 test('custom managed roots retain only the exact approved asset policy in immutable preview and proposal captures', async (t) => {
-  const f = await fixture(t, (definition) => { definition.templatesRoot = 'company/templates'; definition.worldModel.outputDir = 'company/templates/generated'; });
+  const f = await fixture(t, (definition) => { definition.templatesRoot = 'company/templates'; });
   // A mutable application projection is not permission to add another transport root.
   const live = structuredClone(f.definition); live.templatesRoot = 'unapproved/templates';
   await writeFile(path.join(f.root, 'singularity/workflow.yml'), YAML.stringify(live));

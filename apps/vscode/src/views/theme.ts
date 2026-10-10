@@ -151,7 +151,8 @@ export const THEME_STYLE = `${CALM_PALETTE_STYLE}
   .summary-card { border-color: transparent; padding: 1rem; }
   .summary-card.important { border-color: var(--sf-accent-line); }
   body.vscode-high-contrast .summary-card, body.vscode-high-contrast-light .summary-card { border-color: var(--sf-border-color); }
-  @media (max-width: 900px) { .configuration-shell { grid-template-columns: minmax(0, 1fr); gap: 1.25rem; } }
+  /* One column: the navigation scrolls away with the page instead of sticking over the content. */
+  @media (max-width: 900px) { .configuration-shell { grid-template-columns: minmax(0, 1fr); gap: 1.25rem; } .configuration-sidebar { position: static; } }
   button.secondary { background: transparent; color: var(--sf-text); border-color: var(--sf-border-strong); }
   button.secondary:hover:not(:disabled) { background: var(--sf-accent-quiet); border-color: var(--sf-accent-line); }
   /* A filled button that cannot act yet is grey, not a dim green that still reads as the next step. */

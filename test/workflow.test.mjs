@@ -27,7 +27,7 @@ async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'singularity-flow-v2-test-'));
   execute('git', ['init', '-b', 'main'], root); execute('git', ['config', 'user.name', 'Singularity Flow Test'], root); execute('git', ['config', 'user.email', 'singularity-flow@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Test\n'); flow(root, ['init']);
-  const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off'; config.worldModel.grounding = 'off';
+  const configPath = path.join(root, 'singularity/workflow.yml'); const config = YAML.parse(await readFile(configPath, 'utf8')); config.git.publish = 'off';
   // The shipped team profile is intentionally closed until an administrator lists members. This
   // lifecycle fixture explicitly exercises the POC profile's open/self-approval behavior.
   config.approvalSecurity = { profile: 'poc' };
@@ -633,126 +633,6 @@ test('next executes one valid lifecycle action at a time', async () => {
   assert.equal(execute('git', ['log', '-1', '--format=%s'], root).stdout.trim(), `[${workId}][phase:intake][approve] product-approvers`);
 });
 
-test('next never launches a missing world-model agent unattended and still prepares the phase', async () => {
-  const root = await repository();
-  const definitionPath = path.join(root, 'singularity/workflow.yml');
-  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
-  definition.worldModel.grounding = 'enforce';
-  await writeFile(definitionPath, YAML.stringify(definition));
-  execute('git', ['add', 'singularity/workflow.yml'], root);
-  execute('git', ['commit', '-m', 'enforce grounding'], root);
-  execute('git', ['push', 'origin', 'main'], root);
-  flow(root, ['start', 'NEXT-CONSENT-1', '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Consent test', '--description', 'Do not run a model unattended.']);
-
-  const result = flow(root, ['next', '--task', 'Consent test'], { allowFailure: true });
-  assert.equal(result.status, 0);
-  assert.match(result.stderr, /Continuing phase 'intake' without repository world-model context/);
-  assert.match(result.stderr, /Optional recovery: singularity-flow wm ensure --phase intake/);
-  assert.match(result.stdout, /Next step prepared: generate 'intake'/);
-  assert.equal(execute('git', ['worktree', 'list', '--porcelain'], root).stdout.match(/^worktree /gm)?.length, 1);
-  assert.doesNotMatch(execute('git', ['status', '--short'], root).stdout, /singularity\/world-model/,
-    'continuing without intelligence must not create a World Model implicitly');
-  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/NEXT-CONSENT-1/workflow.json'), 'utf8'));
-  assert.equal(workflow.phases.intake.generation, 0);
-  const receipt = JSON.parse(await readFile(
-    path.join(root, 'singularity/work-items/NEXT-CONSENT-1/context/intake-gen1.json'), 'utf8'
-  ));
-  assert.equal(receipt.groundingAvailability.status, 'unavailable');
-  assert.equal(receipt.worldModelCommit, null);
-});
-
-test('automatic lifecycle materialization never replaces an existing stale world model', async () => {
-  const root = await repository();
-  const definitionPath = path.join(root, 'singularity/workflow.yml');
-  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
-  definition.worldModel.grounding = 'enforce';
-  definition.worldModel.staleness = 'fail';
-  definition.worldModel.materialization = {
-    mode: 'on-demand', publish: 'governed', lookahead: 'none', depth: 'light', confirmation: 'automatic'
-  };
-  await writeFile(definitionPath, YAML.stringify(definition));
-  execute('git', ['add', 'singularity/workflow.yml'], root);
-  execute('git', ['commit', '-m', 'configure preserve-existing grounding'], root);
-  execute('git', ['push', 'origin', 'main'], root);
-
-  flow(root, ['wm', 'build', '--phase', 'intake']);
-  execute('git', ['push', 'origin', 'main'], root);
-  const stateBeforeSourceChange = execute('git', ['rev-parse', 'refs/heads/state'], root).stdout.trim();
-  await writeFile(path.join(root, 'README.md'), '# Test\n\nsource changed after the shared model was built\n');
-  execute('git', ['add', 'README.md'], root);
-  execute('git', ['commit', '-m', 'change application source'], root);
-  execute('git', ['push', 'origin', 'main'], root);
-
-  const workId = 'NEXT-PRESERVE-WM-1';
-  flow(root, [
-    'start', workId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner',
-    '--title', 'Preserve the existing world model',
-    '--description', 'A stale governed snapshot must require an explicit refresh instead of automatic replacement.'
-  ]);
-  const next = flow(root, ['next']);
-  assert.match(next.stderr, /automatic world-model recreation is disabled/);
-  assert.match(next.stderr, /Continuing phase 'intake' without repository world-model context/);
-  assert.match(next.stdout, /Next step prepared: generate 'intake'/);
-  assert.doesNotMatch(next.stdout, /Automatically building/);
-  assert.equal(execute('git', ['rev-parse', 'refs/heads/state'], root).stdout.trim(), stateBeforeSourceChange);
-  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'workflow.json'), 'utf8'));
-  assert.equal(workflow.phases.intake.generation, 0);
-  const receipt = JSON.parse(await readFile(
-    path.join(root, 'singularity/work-items', workId, 'context/intake-gen1.json'), 'utf8'
-  ));
-  assert.equal(receipt.groundingAvailability.status, 'unavailable');
-});
-
-test('prompted on-demand world-model materialization is skipped without consent and work continues', async () => {
-  const root = await repository();
-  const definitionPath = path.join(root, 'singularity/workflow.yml');
-  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
-  definition.worldModel.grounding = 'enforce';
-  definition.worldModel.materialization = {
-    mode: 'on-demand', publish: 'governed', lookahead: 'none', depth: 'light', confirmation: 'prompt'
-  };
-  await writeFile(definitionPath, YAML.stringify(definition));
-  execute('git', ['add', 'singularity/workflow.yml'], root);
-  execute('git', ['commit', '-m', 'prompt before deterministic grounding'], root);
-  execute('git', ['push', 'origin', 'main'], root);
-  flow(root, ['start', 'NEXT-LIGHT-PROMPT-1', '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Prompted light grounding', '--description', 'Require an explicit host decision before deterministic grounding.']);
-
-  const result = flow(root, ['next', '--task', 'Prompted light grounding'], { allowFailure: true });
-  assert.equal(result.status, 0);
-  assert.match(result.stderr, /requires a separate explicit choice/);
-  assert.match(result.stderr, /Continuing phase 'intake' without repository world-model context/);
-  assert.match(result.stdout, /Next step prepared: generate 'intake'/);
-  assert.equal(execute('git', ['worktree', 'list', '--porcelain'], root).stdout.match(/^worktree /gm)?.length, 1);
-  const receipt = JSON.parse(await readFile(
-    path.join(root, 'singularity/work-items/NEXT-LIGHT-PROMPT-1/context/intake-gen1.json'), 'utf8'
-  ));
-  assert.equal(receipt.groundingAvailability.status, 'unavailable');
-});
-
-test('advisory world-model grounding warns and continues without launching a model', async () => {
-  const root = await repository();
-  const definitionPath = path.join(root, 'singularity/workflow.yml');
-  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
-  definition.worldModel.grounding = 'warn';
-  await writeFile(definitionPath, YAML.stringify(definition));
-  execute('git', ['add', 'singularity/workflow.yml'], root);
-  execute('git', ['commit', '-m', 'make grounding advisory'], root);
-  execute('git', ['push', 'origin', 'main'], root);
-  const workId = 'NEXT-WARN-1';
-  flow(root, ['start', workId, '--from-branch', 'main', '--work-type', 'feature', '--agent', 'product-owner', '--title', 'Advisory grounding', '--description', 'Continue without an available world model.']);
-
-  const nextsteps = flow(root, ['nextsteps', workId, '--json']);
-  const plan = JSON.parse(nextsteps.stdout);
-  assert.equal(plan.actions.some((action) => action.command.includes('wm ensure') && action.timing === 'optional'), true);
-  const continued = flow(root, ['next', '--task', 'Advisory grounding']);
-  assert.match(continued.stderr, /Grounding warning:/);
-  assert.match(continued.stdout, /Next step prepared: generate 'intake'/);
-  assert.equal(execute('git', ['worktree', 'list', '--porcelain'], root).stdout.match(/^worktree /gm)?.length, 1);
-  const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items', workId, 'workflow.json'), 'utf8'));
-  assert.equal(workflow.phases.intake.generation, 0);
-  assert.equal(await readFile(path.join(root, 'singularity/work-items', workId, 'artifacts/intake/intake.md'), 'utf8').then(Boolean), true);
-});
-
 test('required planned claims refuse a zero-clause definition before code work can start', async () => {
   const root = await repository();
   const workId = 'CLAUSE-SOURCE-1';
@@ -795,19 +675,11 @@ test('feature profile publishes generations, records tokens, approvals, and conf
   const root = await repository(); const workId = 'FEATURE-101';
   const definitionPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
-  for (const phase of Object.values(definition.phases)) {
-    if (phase.worldModel) phase.worldModel.depth = 'light';
-  }
-  // This lifecycle fixture supplies synthetic usage rather than a model-invocation audit. Pin the
-  // lowest accepted assurance explicitly; the default observed tier is exercised by the assurance
-  // refusal tests and must not be forged from this usage record.
-  definition.codeDelivery.model.minimumAssurance = 'unavailable';
-  await writeFile(definitionPath, YAML.stringify(definition));
-  execute('git', ['add', 'singularity/workflow.yml'], root);
-  execute('git', ['commit', '-m', 'Use light grounding for lifecycle fixture'], root);
-  execute('git', ['push', 'origin', 'main'], root);
+  // This lifecycle fixture supplies synthetic usage rather than a model-invocation audit, so it
+  // relies on the lowest accepted assurance, which the packaged workflow already pins; the observed
+  // tier is exercised by the assurance refusal tests and must not be forged from this usage record.
+  assert.equal(definition.codeDelivery.model.minimumAssurance, 'unavailable');
   flow(root, ['start', workId, '--from-branch', 'main', '--title', 'Configurable workflow'], { selection: selection('feature', 'product-owner') });
-  flow(root, ['wm', 'build']);
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const agents = { intake: 'product-owner', requirements: 'product-owner', design: 'architect', 'implementation-spec': 'architect', implementation: 'developer', verification: 'qa', conformance: 'qa' };
   for (const phaseId of ['intake', 'requirements', 'design', 'implementation-spec', 'implementation', 'verification', 'conformance']) {
@@ -827,9 +699,6 @@ test('feature profile publishes generations, records tokens, approvals, and conf
 | \`${workId}:IFC-001\` | \`src/feature.mjs\` | \`tests/feature.test.mjs\` |
 | \`${workId}:REQ-001\` | \`src/feature.mjs\` | \`tests/feature.test.mjs\` |
 `);
-    }
-    if (phaseId === 'verification') {
-      flow(root, ['wm', 'build']);
     }
     flow(root, ['wm', 'compose', '--phase', phaseId]);
     workflow = JSON.parse(await readFile(workflowFile, 'utf8'));

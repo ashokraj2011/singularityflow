@@ -1051,18 +1051,6 @@ test('no lifecycle module retains a direct commit, ref-advance, or push authorit
     `parallel lifecycle publication authority remains outside Candidate boundary:\n${violations.join('\n')}`);
 });
 
-test('world-model transport recovery cannot overwrite lifecycle pending-publication authority', async () => {
-  // The command module routes to the registered-v4 builder, whose service publishes the state.
-  const source = (await Promise.all(['worldmodel.mjs', 'world-model/service.mjs']
-    .map((relative) => readFile(path.join(packageRoot, 'src', relative), 'utf8')))).join('\n');
-  assert.doesNotMatch(source, /writeJson\(pendingPublicationPath\(/,
-    'world-model failure still writes an incompatible raw Story pending marker');
-  assert.doesNotMatch(source, /recoveryCommand:\s*['"]singularity-flow sync['"]/,
-    'world-model failure still routes a non-lifecycle commit through Story sync');
-  assert.match(source, /singularity-flow wm recovery publish/,
-    'world-model failure has no dedicated exact recovery surface');
-});
-
 /** Every call of `name` in `source`, arguments included, skipping its own declaration. */
 function sourceCalls(source, name) {
   const calls = [];

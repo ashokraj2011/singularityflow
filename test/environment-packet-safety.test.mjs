@@ -11,24 +11,9 @@ import { buildAutoPlanPacket } from '../src/auto/auto-plan-packet.mjs';
 import {
   bindEnvironment, environmentBindingStatus, resolveEnvironmentBinding
 } from '../src/environment-bindings.mjs';
-import {
-  environmentWorldModelExcludedRoots, loadEnvironmentDeclarationSync,
-  parseEnvironmentDeclaration
-} from '../src/environment-declaration.mjs';
+import { parseEnvironmentDeclaration } from '../src/environment-declaration.mjs';
 import { normalizeExternalCommand } from '../src/external-command-policy.mjs';
 import { environmentQualityCommandBlock } from '../src/state.mjs';
-import {
-  assembleWmbV4Prompt
-} from '../src/world-model/compose/pinned-core.mjs';
-import { renderDeterministicCandidate } from '../src/world-model/compose/candidate.mjs';
-import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
-import {
-  createWorldModelConsumerProfile, createWorldModelOutputBudget,
-  createWorldModelViewOutputBudget
-} from '../src/world-model/plan.mjs';
-import { resolveBuiltInViewContract } from '../src/world-model/registry/views.mjs';
-import { configuredWorldModelV4ScopeOptions } from '../src/world-model/scope/configuration.mjs';
-import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -120,76 +105,6 @@ test('Auto Plan packet lists only names-only environment prerequisites', () => {
   assert.equal(Object.hasOwn(buildAutoPlanPacket(
     legacy, { validationSha256: `sha256:${'b'.repeat(64)}` }
   ).execution, 'requiredEnvironments'), false, 'historical packet identities remain unchanged');
-});
-
-test('registered-v4 composition packets and rendered candidates exclude environment-local bytes', async (t) => {
-  const root = await repository(t, DECLARATION);
-  const secret = 'packet-local-secret-value';
-  await mkdir(path.join(root, 'src'), { recursive: true });
-  await mkdir(path.join(root, 'config'), { recursive: true });
-  await writeFile(path.join(root, 'src', 'service.mjs'), [
-    'export function total(left, right) {',
-    '  return left + right;',
-    '}',
-    ''
-  ].join('\n'));
-  await writeFile(path.join(root, '.env.qa'), `API_TOKEN=${secret}\n`);
-  await writeFile(path.join(root, 'config', 'qa.local.yml'), `token: ${secret}\n`);
-  // Raw Git represents a legacy repository which tracked these files before ENV admission existed.
-  git(root, 'add', '-f', '.');
-  git(root, 'commit', '-qm', 'legacy environment-local fixture');
-  await writeFile(path.join(root, 'src', 'service.mjs'), [
-    'export function total(left, right) {',
-    '  return Number(left) + Number(right);',
-    '}',
-    ''
-  ].join('\n'));
-  git(root, 'add', 'src/service.mjs');
-  git(root, 'commit', '-qm', 'change application source');
-
-  const scopeManifest = createScopeManifest(configuredWorldModelV4ScopeOptions(root, {
-    definition: { worldModel: {
-      excludedRoots: environmentWorldModelExcludedRoots(
-        loadEnvironmentDeclarationSync(root, { optional: true })
-      )
-    } },
-    repositoryCapability: { id: 'packet-safety' }
-  }));
-  const registration = runDeterministicRegistration({
-    root, scopeManifest, requestedViews: ['dev.impact@4']
-  });
-  const contract = resolveBuiltInViewContract('dev.impact@4');
-  const outputBudget = createWorldModelViewOutputBudget(
-    createWorldModelOutputBudget([contract]), contract
-  );
-  const assembled = await assembleWmbV4Prompt({
-    viewContract: contract,
-    scopeManifest,
-    viewFactLedger: registration.viewFactLedgers[0],
-    evidenceCatalog: registration.evidenceCatalog,
-    consumerProfile: createWorldModelConsumerProfile(),
-    outputBudget
-  });
-  const factPacket = assembled.regions.find((region) => region.id === 'composition-fact-packet');
-  assert.ok(factPacket, 'composition must expose one bounded Fact packet');
-  const candidate = renderDeterministicCandidate(contract, registration.viewFactLedgers[0]);
-  const serialized = JSON.stringify({
-    packet: factPacket.text,
-    contextManifest: assembled.contextManifest,
-    evidence: assembled.regions.find((region) => region.id === 'evidence-catalog')?.text,
-    candidate,
-    registrationFacts: registration.viewFactLedgers[0]
-  });
-  for (const forbidden of [
-    '.env.qa', 'config/qa.local.yml', secret, sha256(secret)
-  ]) assert.doesNotMatch(serialized, new RegExp(forbidden.replaceAll('.', '\\.')));
-  assert.doesNotMatch(assembled.prompt, new RegExp(secret));
-  assert.match(
-    assembled.regions.find((region) => region.id === 'scope-manifest')?.text ?? '',
-    /config\/qa\.local\.yml/,
-    'the model sees the exclusion rule, never bytes or evidence from the excluded file'
-  );
-  assert.match(serialized, /src\/service\.mjs/);
 });
 
 test('public environment projections and quality receipts omit values, hashes, and references', async (t) => {

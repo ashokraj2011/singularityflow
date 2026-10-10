@@ -17,7 +17,7 @@ import YAML from 'yaml';
 import { run } from '../src/util.mjs';
 import {
   bootstrapBranchPatterns, bootstrapRepository, describeRepository, repositoryIdFromUrl,
-  setDefaultBaseBranch, setGroundingMode
+  setDefaultBaseBranch
 } from '../src/bootstrap.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import { changedLines, foldYamlFile } from './helpers/folded-yaml.mjs';
@@ -274,10 +274,8 @@ test('describing a repository changes only the lines it writes, in files folded 
     ]));
 
     await setDefaultBaseBranch(root, 'develop');
-    await setGroundingMode(root, 'off');
     assert.equal(await readFile(workflowFile, 'utf8'), workflowAfter
-      .replace('\ndefaultBaseBranch: main\n', '\ndefaultBaseBranch: develop\n')
-      .replace('\n  grounding: warn\n', '\n  grounding: off\n'));
+      .replace('\ndefaultBaseBranch: main\n', '\ndefaultBaseBranch: develop\n'));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

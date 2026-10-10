@@ -191,7 +191,7 @@ test('a step copied for one workflow keeps every input setting it has there, so 
   // step after it name the copy.
   const file = await changeSet(root, [
     { op: 'phase.create', id: 'design-decide-demo', label: 'Architecture and design (Decision demo)', output: 'document', inputs: ['intake', 'requirements'],
-      approval: { group: 'architecture-reviewers', minimum: 1 }, views: before.phases.design.worldModel.views, clarification: before.phases.design.clarification.mode,
+      approval: { group: 'architecture-reviewers', minimum: 1 }, clarification: before.phases.design.clarification.mode,
       agent: 'architect', copyOf: 'design', copyFromWorkflow: 'decide-demo' },
     { op: 'workflow.update', id: 'decide-demo', phases: ['intake', 'requirements', 'design-decide-demo', 'implementation-spec'],
       decisions: [{ ...demo.decisions[0], routes: [demo.decisions[0].routes[0], { ...demo.decisions[0].routes[1], to: 'design-decide-demo' }] }] },
@@ -210,7 +210,6 @@ test('a step copied for one workflow keeps every input setting it has there, so 
     'a step reading the copy keeps its summary projection and preserved headings');
   assert.equal(after.workTypes['decide-demo'].phaseOverrides.design, undefined, "the workflow's settings for the step moved into the copy");
   assert.deepEqual(copy.approval.rejectTo, before.phases.design.approval.rejectTo.map((id) => (id === 'design' ? 'design-decide-demo' : id)), 'the copy can be sent back to itself');
-  assert.deepEqual(copy.worldModel, before.phases.design.worldModel, 'the copy keeps its knowledge depth, not only its views');
   assert.deepEqual(copy.clarification, before.phases.design.clarification, 'and every clarifying-question setting');
   assert.deepEqual(after.phases.design, before.phases.design, 'the shared step is unchanged');
   assert.deepEqual(after.workTypes['repo-feature'], before.workTypes['repo-feature'], 'other workflows are unchanged');
@@ -669,28 +668,24 @@ test('a change leaves a null list as it is and refuses a list that is not one', 
   const root = await repository();
   const check = (changes) => planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes });
   // Null means not given, as in phase.update: a new step reads nothing, a copy keeps its source's lists.
-  for (const field of ['inputs', 'views']) {
-    const plan = await check([{ op: 'phase.create', id: `null-${field}`, label: `Null ${field}`, agent: 'architect', approval: 'none', [field]: null }]);
-    assert.equal(plan.valid, true, JSON.stringify(plan.problems));
-  }
+  const unlisted = await check([{ op: 'phase.create', id: 'null-inputs', label: 'Null inputs', agent: 'architect', approval: 'none', inputs: null }]);
+  assert.equal(unlisted.valid, true, JSON.stringify(unlisted.problems));
   await planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes: [
-    { op: 'phase.create', id: 'listed', label: 'Listed', agent: 'architect', approval: 'none', inputs: ['intake'], views: ['biz.rules'] },
+    { op: 'phase.create', id: 'listed', label: 'Listed', agent: 'architect', approval: 'none', inputs: ['intake'] },
     { op: 'workflow.create', id: 'listed-flow', label: 'Listed flow', phases: ['intake', 'listed'] }
   ] }, { write: true });
   const copy = { schema: 'sflow-studio-change-set@1', changes: [
-    { op: 'phase.create', id: 'listed-copy', label: 'Listed copy', copyOf: 'listed', inputs: null, views: null },
+    { op: 'phase.create', id: 'listed-copy', label: 'Listed copy', copyOf: 'listed', inputs: null },
     { op: 'workflow.create', id: 'copy-flow', label: 'Copy flow', phases: ['intake', 'listed-copy'] }
   ] };
   assert.equal((await planStudioChangeSet(root, copy)).valid, true);
   await planStudioChangeSet(root, copy, { write: true });
   const saved = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
-  assert.deepEqual([saved.phases['listed-copy'].inputs, saved.phases['listed-copy'].worldModel.views], [['intake'], ['biz.rules']]);
+  assert.deepEqual(saved.phases['listed-copy'].inputs, ['intake']);
   // Anything else that is not a list is refused with the Studio's own code, never a TypeError.
   for (const [change, code] of [
     [{ op: 'phase.create', id: 'text-inputs', label: 'Text inputs', agent: 'architect', approval: 'none', inputs: 'intake' }, 'STUDIO_PHASE_UNKNOWN'],
-    [{ op: 'phase.create', id: 'text-views', label: 'Text views', agent: 'architect', approval: 'none', views: 'business' }, 'STUDIO_VIEWS_INVALID'],
-    [{ op: 'phase.update', id: 'design', inputs: 'intake' }, 'STUDIO_PHASE_UNKNOWN'],
-    [{ op: 'phase.update', id: 'design', views: 'business' }, 'STUDIO_VIEWS_INVALID']
+    [{ op: 'phase.update', id: 'design', inputs: 'intake' }, 'STUDIO_PHASE_UNKNOWN']
   ]) {
     const plan = await check([change]);
     assert.deepEqual(plan.problems.map((problem) => problem.code), [code], JSON.stringify(plan.problems));

@@ -16,8 +16,11 @@ const retainedObjectDigestHex = 'b'.repeat(64);
 const unreadableBindingDigestHex = 'c'.repeat(64);
 const checkoutOnlyBindingDigestHex = 'd'.repeat(64);
 const customHistoryDir = '.sflow/immutable-world-models';
+// worldModel.historyDir was removed with the registered World Model: records persisted earlier stay
+// where it put them by default, and census still classifies them there.
+const historyDir = 'singularity/world-model-history';
 
-async function repositoryFixture(t, { historyDir = customHistoryDir } = {}) {
+async function repositoryFixture(t) {
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-wmp-custom-history-'));
   t.after(() => rm(temporary, { recursive: true, force: true }));
   const workspaceRoot = path.join(temporary, 'workspace');
@@ -27,12 +30,6 @@ async function repositoryFixture(t, { historyDir = customHistoryDir } = {}) {
   execFileSync('git', ['config', 'user.name', 'WMP Test'], { cwd: repositoryRoot });
   execFileSync('git', ['config', 'user.email', 'wmp@example.test'], { cwd: repositoryRoot });
   await initializeDefinition(repositoryRoot);
-  const definition = await loadDefinition(repositoryRoot);
-  definition.worldModel.historyDir = historyDir;
-  await writeFile(
-    path.join(repositoryRoot, 'singularity', 'workflow.yml'),
-    YAML.stringify(definition)
-  );
   const modelDirectory = path.join(repositoryRoot, historyDir, 'models');
   await mkdir(modelDirectory, { recursive: true });
   await writeFile(
@@ -82,10 +79,10 @@ async function repositoryFixture(t, { historyDir = customHistoryDir } = {}) {
     name: workspace.name,
     openedAt: '2026-09-12T00:00:00.000Z'
   }], null, 2)}\n`);
-  return { historyDir, registryFile, repositoryRoot };
+  return { registryFile, repositoryRoot };
 }
 
-async function installUnreadableRemoteStateBinding(repositoryRoot, historyDir = customHistoryDir) {
+async function installUnreadableRemoteStateBinding(repositoryRoot) {
   execFileSync('git', ['add', '.'], { cwd: repositoryRoot });
   execFileSync('git', ['commit', '-qm', 'application fixture'], { cwd: repositoryRoot });
   execFileSync('git', ['switch', '-q', '-c', 'state-fixture'], { cwd: repositoryRoot });
@@ -133,7 +130,7 @@ test('custom WMP history roots route immutable bindings to their registered fami
   assert.equal(familyForStoredPath(`${customHistoryDir}-other/models/${digestHex}.json`, roots), null);
 });
 
-test('schema census scans and validates a configured WMP history root outside singularity', async (t) => {
+test('schema census scans and validates persisted WMP history at its default root', async (t) => {
   const { repositoryRoot } = await repositoryFixture(t);
   const census = await schemaCensus(repositoryRoot);
   const modelBindings = census.families.find((entry) =>
@@ -177,19 +174,13 @@ test('legacy v3 World Model manifests are migration advisories, not corrupt v4 r
 test('schema census can bind configuration and state to an exact approved checkout', async (t) => {
   const { repositoryRoot } = await repositoryFixture(t);
   const authorityRoot = path.resolve(repositoryRoot, '../../../approved-authority');
-  const approvedHistoryDir = '.approved/world-model-history';
   await mkdir(authorityRoot, { recursive: true });
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: authorityRoot });
   execFileSync('git', ['config', 'user.name', 'WMP Authority Test'], { cwd: authorityRoot });
   execFileSync('git', ['config', 'user.email', 'authority@example.test'], { cwd: authorityRoot });
   await initializeDefinition(authorityRoot);
-  const approved = await loadDefinition(authorityRoot);
-  approved.worldModel.historyDir = approvedHistoryDir;
-  await writeFile(
-    path.join(authorityRoot, 'singularity', 'workflow.yml'), YAML.stringify(approved)
-  );
-  await mkdir(path.join(authorityRoot, approvedHistoryDir, 'models'), { recursive: true });
-  await installUnreadableRemoteStateBinding(authorityRoot, approvedHistoryDir);
+  await mkdir(path.join(authorityRoot, historyDir, 'models'), { recursive: true });
+  await installUnreadableRemoteStateBinding(authorityRoot);
 
   const census = await schemaCensus(repositoryRoot, {
     configurationRoot: authorityRoot,
@@ -198,9 +189,8 @@ test('schema census can bind configuration and state to an exact approved checko
   assert.equal(census.healthy, false);
   assert.equal(census.totals.unreadable, 1);
   assert.equal(census.unreadable[0].path,
-    `$state/${approvedHistoryDir}/models/${unreadableBindingDigestHex}.json`);
-  assert.ok(census.roots.includes(`$state/${approvedHistoryDir}/`));
-  assert.equal(census.roots.includes(`$state/${customHistoryDir}/`), false);
+    `$state/${historyDir}/models/${unreadableBindingDigestHex}.json`);
+  assert.ok(census.roots.includes(`$state/${historyDir}/`));
 });
 
 test('schema census fails closed when an explicit approved configuration cannot be loaded', async (t) => {
@@ -220,7 +210,7 @@ test('schema census fails closed when an explicit approved configuration cannot 
   );
 });
 
-test('workspace reinitialize includes configured WMP history in its schema-readiness census', async (t) => {
+test('workspace reinitialize includes persisted WMP history in its schema-readiness census', async (t) => {
   const { registryFile } = await repositoryFixture(t);
   let customHistoryObserved = false;
   const refreshWorkspaceConfigurations = async ({ dryRun }) => ({
@@ -267,7 +257,7 @@ test('state-authority WMP bindings participate in census and block reinitialize 
   const { registryFile, repositoryRoot } = await repositoryFixture(t);
   const stateCommit = await installUnreadableRemoteStateBinding(repositoryRoot);
   await writeFile(path.join(
-    repositoryRoot, customHistoryDir, 'models', `${checkoutOnlyBindingDigestHex}.json`
+    repositoryRoot, historyDir, 'models', `${checkoutOnlyBindingDigestHex}.json`
   ), '{"schemaVersion":\n');
   const before = {
     head: execFileSync('git', ['rev-parse', 'HEAD'], {
@@ -290,11 +280,11 @@ test('state-authority WMP bindings participate in census and block reinitialize 
   assert.equal(census.totals.unregistered, 0,
     'extensionless retained objects stay inert without an owning ObjectRef');
   assert.deepEqual(census.unreadable[0], {
-    path: `$state/${customHistoryDir}/models/${unreadableBindingDigestHex}.json`,
+    path: `$state/${historyDir}/models/${unreadableBindingDigestHex}.json`,
     code: 'SCHEMA_CENSUS_JSON_INVALID',
     reason: 'record is not valid JSON'
   });
-  assert.ok(census.roots.includes(`$state/${customHistoryDir}/`));
+  assert.ok(census.roots.includes(`$state/${historyDir}/`));
   const modelBindings = census.families.find((entry) =>
     entry.family === 'world-model-model-binding');
   assert.equal(modelBindings.records, 1,
@@ -347,42 +337,15 @@ test('state-authority WMP bindings participate in census and block reinitialize 
   assert.equal(after.state, stateCommit);
 });
 
-test('an authoritative state ref excludes a checkout history root selected as .sdlc', async (t) => {
-  const historyDir = '.sdlc';
-  const { repositoryRoot } = await repositoryFixture(t, { historyDir });
-  await installUnreadableRemoteStateBinding(repositoryRoot, historyDir);
-  await writeFile(path.join(
-    repositoryRoot, historyDir, 'models', `${checkoutOnlyBindingDigestHex}.json`
-  ), '{"schemaVersion":\n');
-  const lifecycleDirectory = path.join(repositoryRoot, '.sdlc', 'work-items', 'WMP-CENSUS');
-  await mkdir(lifecycleDirectory, { recursive: true });
-  await writeFile(
-    path.join(lifecycleDirectory, 'workflow.json'),
-    '{"schemaVersion":99}\n'
-  );
-
-  const census = await schemaCensus(repositoryRoot);
-  assert.equal(census.totals.unreadable, 1);
-  assert.equal(census.totals.outsideRange, 1,
-    'unrelated .sdlc lifecycle records must remain in migration readiness');
-  assert.equal(census.unreadable[0].path,
-    `$state/${historyDir}/models/${unreadableBindingDigestHex}.json`);
-  assert.equal(census.families.find((entry) =>
-    entry.family === 'world-model-model-binding').records, 1,
-    'the selected .sdlc scan root must not re-enter checkout history beneath state authority');
-  assert.equal(census.families.find((entry) =>
-    entry.family === 'story-workflow').outsideRange.length, 1);
-});
-
 test('configured remote authority never falls back to an unpublished local state branch', async (t) => {
   const { repositoryRoot } = await repositoryFixture(t);
   execFileSync('git', ['add', '.'], { cwd: repositoryRoot });
   execFileSync('git', ['commit', '-qm', 'application fixture'], { cwd: repositoryRoot });
   execFileSync('git', ['switch', '-q', '-c', 'state'], { cwd: repositoryRoot });
   await writeFile(path.join(
-    repositoryRoot, customHistoryDir, 'models', `${unreadableBindingDigestHex}.json`
+    repositoryRoot, historyDir, 'models', `${unreadableBindingDigestHex}.json`
   ), '{"schemaVersion":\n');
-  execFileSync('git', ['add', customHistoryDir], { cwd: repositoryRoot });
+  execFileSync('git', ['add', historyDir], { cwd: repositoryRoot });
   execFileSync('git', ['commit', '-qm', 'unpublished unreadable local binding'], {
     cwd: repositoryRoot
   });
@@ -394,83 +357,10 @@ test('configured remote authority never falls back to an unpublished local state
   const census = await schemaCensus(repositoryRoot);
   assert.equal(census.healthy, true);
   assert.equal(census.totals.unreadable, 0);
-  assert.equal(census.roots.includes(`$state/${customHistoryDir}/`), false);
+  assert.equal(census.roots.includes(`$state/${historyDir}/`), false);
   assert.equal(census.families.find((entry) =>
     entry.family === 'world-model-model-binding').records, 1,
     'the legacy checkout record remains visible while unpublished local state is not authority');
-});
-
-test('registered-v4 census requires its configured state authority to be materialized', async (t) => {
-  const { repositoryRoot } = await repositoryFixture(t);
-  const definition = await loadDefinition(repositoryRoot);
-  definition.worldModel.format = 'registered-v4';
-  definition.worldModel.views = ['dev.impact@4'];
-  definition.worldModel.promptSource = 'builtin';
-  await writeFile(
-    path.join(repositoryRoot, 'singularity', 'prompts', 'worldmodel-builder.md'),
-    '# Registered-v4 census fixture\n'
-  );
-  const agentViewPattern = /sflow-world-model-views:\s*(?:"[^"\r\n]*"|[^\r\n]*)/g;
-  for (const phase of Object.values(definition.phases ?? {})) {
-    if (phase.worldModel?.views) phase.worldModel.views = ['dev.impact'];
-  }
-  for (const agent of Object.values(definition.agents ?? {})) {
-    if (agent.worldModelViews) agent.worldModelViews = ['dev.impact'];
-    if (agent.file && agent.text) {
-      const relativeAgentFile = path.relative(repositoryRoot, agent.file);
-      const fixtureOwned = relativeAgentFile !== '..'
-        && !relativeAgentFile.startsWith(`..${path.sep}`)
-        && !path.isAbsolute(relativeAgentFile);
-      if (fixtureOwned) {
-        await writeFile(agent.file, agent.text.replace(
-          agentViewPattern, 'sflow-world-model-views: dev.impact'
-        ));
-      }
-    }
-  }
-  for (const workType of Object.values(definition.workTypes ?? {})) {
-    for (const override of Object.values(workType.phaseOverrides ?? {})) {
-      if (override.worldModel?.views) override.worldModel.views = ['dev.impact'];
-    }
-  }
-  const rewriteEmbeddedAgentViews = (value) => {
-    if (Array.isArray(value)) {
-      value.forEach(rewriteEmbeddedAgentViews);
-      return;
-    }
-    if (!value || typeof value !== 'object') return;
-    for (const [key, nested] of Object.entries(value)) {
-      if (key === 'worldModelViews') value[key] = ['dev.impact'];
-      else if (key === 'sflow-world-model-views') value[key] = 'dev.impact';
-      else rewriteEmbeddedAgentViews(nested);
-    }
-  };
-  rewriteEmbeddedAgentViews(definition.agents);
-  if (definition.worldModel.injection?.rules) definition.worldModel.injection.rules = [];
-  const registeredDefinition = YAML.stringify(definition).replace(
-    agentViewPattern,
-    'sflow-world-model-views: dev.impact'
-  );
-  await writeFile(
-    path.join(repositoryRoot, 'singularity', 'workflow.yml'),
-    registeredDefinition
-  );
-  execFileSync('git', [
-    'remote', 'add', 'origin', 'https://network-must-not-be-used.invalid/application.git'
-  ], { cwd: repositoryRoot });
-  assert.equal((await loadDefinition(repositoryRoot)).worldModel.format, 'registered-v4');
-
-  const census = await schemaCensus(repositoryRoot);
-  assert.equal(census.healthy, false);
-  assert.equal(census.totals.unreadable, 1);
-  assert.deepEqual(census.unreadable[0], {
-    path: `$state/${customHistoryDir}/`,
-    code: 'SCHEMA_CENSUS_STATE_AUTHORITY_REFRESH_REQUIRED',
-    reason: 'registered-v4 state authority is not materialized locally; refresh it before migration readiness is evaluated'
-  });
-  assert.equal(census.families.some((entry) =>
-    entry.family === 'world-model-model-binding'), false,
-  'checkout history must not substitute for missing registered-v4 authority');
 });
 
 test('reinitialization census finds non-current local and remote-tracking lifecycle records once', async (t) => {

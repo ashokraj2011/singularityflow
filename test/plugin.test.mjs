@@ -650,7 +650,7 @@ test('Epic command parity skills cover navigation, review decisions, checks, dri
     'sflow-story-checks': /singularity-flow story checks/,
     'sflow-agents': /singularity-flow agents lock/,
     'sflow-telemetry': /singularity-flow telemetry status/,
-    'sflow-worldmodel': /singularity-flow wm build/
+    'sflow-worldmodel': /singularity-flow wm brief --phase/
   };
   for (const [name, pattern] of Object.entries(expectations)) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
@@ -1137,26 +1137,30 @@ test('guided run and world-model skills preserve consent and crash-recovery boun
   assert.match(run, /If the next action is submission, ask whether to submit/);
 
   const worldModel = await readFile(path.join(pluginRoot, 'skills', 'sflow-worldmodel', 'SKILL.md'), 'utf8');
-  assert.match(worldModel, /singularity-flow wm cleanup --json/);
-  assert.match(worldModel, /stale, process-owned temporary worktrees/i);
-  assert.match(worldModel, /--force/);
-  assert.match(worldModel, /wm recovery publish <ID> --confirm <ID>/);
   assert.match(worldModel, /--max-facts 50 --max-output-bytes 32768/);
   assert.match(worldModel, /Symbol gates require explicit syntax policy/);
   assert.match(worldModel, /Bare `\/sf-worldmodel` is read-only/);
-  assert.match(worldModel, /wm status --json/);
-  assert.match(worldModel, /Never infer mutation consent/);
+  // Bare reads show the Repository brief a phase receives, or the repository knowledge and AST status.
+  assert.match(worldModel, /singularity-flow wm brief --phase <current phase> --json/);
+  assert.match(worldModel, /singularity-flow wm knowledge show --json/);
+  assert.match(worldModel, /singularity-flow wm ast status --json/);
+  assert.match(worldModel, /never infer mutation consent/i);
   assert.match(worldModel, /No active Story is valid/);
-  assert.match(worldModel, /private rehearsal and is not reusable from the shared state branch/);
+  // The registered World Model was removed: the skill relays its refusal and never builds, cleans up or migrates.
+  assert.match(worldModel, /refuse with `WMB_REMOVED` or `COMMAND_REMOVED`/);
+  assert.match(worldModel, /never offer a build or migration/);
+  assert.doesNotMatch(worldModel, /singularity-flow wm (?:build|cleanup|status|ensure|regenerate|recovery|migrate|migrate-views|history)\b/);
+  assert.doesNotMatch(worldModel, /singularity-flow architecture\b/);
 });
 
 test('World Model and review skills dispatch exact operations and return lifecycle handoffs', async () => {
   const read = name => readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
   const wm = await read('sflow-worldmodel');
-  assert.match(wm, /Explicit arguments select the exact `wm` operation, not status/);
-  assert.match(wm, /\/sf-worldmodel compose --phase implementation/);
-  assert.match(wm, /Before mutation.*confirm/);
-  assert.match(wm, /never rebuilds or approves/);
+  assert.match(wm, /Explicit arguments select the exact `wm` operation/);
+  assert.match(wm, /\/sf-worldmodel compose --phase implementation` → `singularity-flow wm compose --phase implementation`/);
+  assert.match(wm, /Knowledge reviews \(`confirm\|correct\|reject`\) write `docs\/knowledge\/confirmations\.yml`.*show the change and confirm/);
+  assert.match(wm, /may call a model when model use is on: say so and confirm first/);
+  assert.match(wm, /Compose writes the phase prompt\/receipt unless previewed, never approves/);
   const review = await read('sflow-review');
   assert.match(review, /review <phase> --format json/);
   assert.match(review, /verified effective authoring skill `\/sf-review`/);

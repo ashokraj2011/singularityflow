@@ -338,7 +338,7 @@ test('a new agent created in the designer gets the block frontmatter packaged ag
   });
   const created = '---\nname: security-reviewer\ndescription: "Reviews changes: threats first"\ntools: [read, search]\n'
     + 'metadata:\n  sflow-label: "Security reviewer"\n  sflow-phases: "design"\n  sflow-default-for: "design"\n'
-    + '  sflow-world-model-views: ""\n---\n\n# Security reviewer\n\nName the threat before the fix.\n';
+    + '---\n\n# Security reviewer\n\nName the threat before the fix.\n';
   assert.equal(designer.saves[0].path, '.github/agents/security-reviewer.agent.md');
   assert.equal(designer.saves[0].content, created);
   const parsed = parseAgentDependencies(created, { source: designer.saves[0].path });
@@ -365,9 +365,20 @@ test('an agent whose metadata key has no value is edited like one with empty met
   const saved = parseAgentDependencies(designer.saves[0].content, { source: designer.saves[0].path });
   assert.deepEqual({ label: saved.label, phases: saved.phases }, { label: 'Bare lead', phases: ['design'] });
 
-  const draft = { ...parseAgent(bare, 'bare-reviewer'), defaultFor: ['design'], phases: ['design'], worldModelViews: ['arch.contracts'] };
+  const draft = { ...parseAgent(bare, 'bare-reviewer'), defaultFor: ['design'], phases: ['design'] };
   const rendered = parseAgentDependencies(renderAgent(draft, bare), { source: designer.saves[0].path });
-  assert.deepEqual({ defaultFor: rendered.defaultFor, worldModelViews: rendered.worldModelViews }, { defaultFor: ['design'], worldModelViews: ['arch.contracts'] });
+  assert.deepEqual({ defaultFor: rendered.defaultFor, phases: rendered.phases }, { defaultFor: ['design'], phases: ['design'] });
+});
+
+test('an authored World Model views header is never read or written, so it stays as authored', () => {
+  const authored = '---\nname: views-reviewer\ndescription: Reviews.\ntools: [read]\nmetadata:\n'
+    + '  sflow-label: "Views reviewer"\n  sflow-world-model-views: "arch.contracts"\n---\n\n# Views reviewer\n\nUse evidence.\n';
+  const parsed = parseAgent(authored, 'views-reviewer');
+  assert.equal(Object.hasOwn(parsed, 'worldModelViews'), false, 'the designer does not read the header');
+  const output = renderAgent({ ...parsed, label: 'Views lead', defaultFor: ['design'] }, authored);
+  assert.equal(output, authored.replace('sflow-label: "Views reviewer"', 'sflow-label: "Views lead"')
+    .replace('  sflow-world-model-views: "arch.contracts"\n',
+      '  sflow-world-model-views: "arch.contracts"\n  sflow-default-for: "design"\n'));
 });
 
 test('a designer message that fails is reported on the page instead of vanishing', async (t) => {

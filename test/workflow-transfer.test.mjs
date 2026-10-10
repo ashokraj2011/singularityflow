@@ -64,23 +64,6 @@ async function initializedRepository(t, prefix) {
   return root;
 }
 
-// Narrow a repository to a registered subset: drop one view from its catalog and from every
-// packaged assignment that names it, so the remaining configuration still loads.
-async function withoutRegisteredView(root, view) {
-  const name = view.replace('.', '\\.');
-  const reference = new RegExp(`, ?${name}(?:@4)?\\b|\\b${name}(?:@4)?, ?`, 'g');
-  const agents = (await readdir(path.join(root, '.github/agents')))
-    .filter((entry) => entry.endsWith('.md')).map((entry) => path.join('.github/agents', entry));
-  for (const relative of ['singularity/workflow.yml', 'singularity/portfolio.yml', ...agents]) {
-    const file = path.join(root, relative);
-    const text = await readFile(file, 'utf8');
-    if (reference.test(text)) await writeFile(file, text.replace(reference, ''));
-    reference.lastIndex = 0;
-  }
-  const definition = await loadDefinition(root);
-  assert.equal(definition.worldModel.views.some((entry) => entry.startsWith(`${view}@`)), false);
-}
-
 async function workflowConfiguration(root) {
   return YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
 }
@@ -278,7 +261,8 @@ test('workflow export captures a deduplicated multi-workflow dependency closure'
     && asset.reference === 'common/implementation.md'));
   assert.ok(bundle.assets.some((asset) => asset.kind === 'template'
     && asset.reference === 'spec-driven/spec.md'));
-  assert.ok(bundle.requirements.worldModelViews.includes('arch.contracts'));
+  // Packaged workflows and agents name no World Model views any more; the bundle still carries the list.
+  assert.deepEqual(bundle.requirements.worldModelViews, []);
 
   await assert.rejects(
     () => exportWorkflowBundle(root, ['feature'], output),
@@ -750,41 +734,6 @@ test('Initiative shared-agent MCP scope retains auxiliary Story phases in the St
   assert.equal(imported.phases['extra-note'].label, 'extra-note');
   assert.equal(importedPortfolio.initiativePhases['extra-note'].label, 'Same-named Initiative intake');
   assert.deepEqual(imported.mcpServers['initiative-shared-server'].phases, ['extra-note']);
-});
-
-test('Initiative import refuses view assignments absent from the target Story catalog', async (t) => {
-  const source = await initializedRepository(t, 'sflow-workflow-view-source-');
-  const target = await initializedRepository(t, 'sflow-workflow-view-target-');
-  // Both catalogs are registered-v4; the target deliberately declares a narrower subset.
-  await withoutRegisteredView(target, 'dev.hotspots');
-
-  const sourcePortfolio = await portfolioConfiguration(source);
-  const profile = structuredClone(sourcePortfolio.initiativeProfiles['epic-planning']);
-  profile.label = 'Hotspot view initiative';
-  profile.phaseOverrides = {
-    ...(profile.phaseOverrides ?? {}),
-    [profile.phases[0]]: {
-      ...(profile.phaseOverrides?.[profile.phases[0]] ?? {}),
-      worldModelViews: ['dev.hotspots']
-    }
-  };
-  sourcePortfolio.initiativeProfiles['hotspot-view'] = profile;
-  await writePortfolioConfiguration(source, sourcePortfolio);
-
-  const bundle = await exportWorkflowBundle(source, ['initiative:hotspot-view']);
-  const workflowBefore = await readFile(path.join(target, 'singularity/workflow.yml'), 'utf8');
-  const portfolioBefore = await readFile(path.join(target, 'singularity/portfolio.yml'), 'utf8');
-  const plan = await planWorkflowImport(target, bundle);
-  assert.equal(plan.status, 'blocked');
-  assert.ok(plan.conflicts.some((item) => item.kind === 'initiative.configuration'
-    && /undeclared repository world-model views/.test(item.reason)
-    && /dev\.hotspots/.test(item.reason)));
-  await assert.rejects(
-    () => applyWorkflowImport(target, bundle, { expectedPlanSha256: plan.planSha256 }),
-    (error) => error.code === 'WORKFLOW_IMPORT_CONFLICT'
-  );
-  assert.equal(await readFile(path.join(target, 'singularity/workflow.yml'), 'utf8'), workflowBefore);
-  assert.equal(await readFile(path.join(target, 'singularity/portfolio.yml'), 'utf8'), portfolioBefore);
 });
 
 test('workflow bundle rejects content tampering and non-portable asset paths', async (t) => {

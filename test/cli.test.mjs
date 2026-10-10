@@ -59,7 +59,9 @@ test('--help --all prints the complete usage reference', () => {
     assert.match(result.stdout, /singularity-flow factory-reset \[--dry-run\]/);
     assert.match(result.stdout, /sflow reset-all \[--yes\]/);
     assert.match(result.stdout, /singularity-flow fresh-install \[--checkout DIRECTORY\]/);
-    assert.match(result.stdout, /singularity-flow wm cleanup \[--force\]/);
+    assert.match(result.stdout, /singularity-flow wm brief \[--phase ID\] \[--work-id ID\] \[--json\]/);
+    assert.doesNotMatch(result.stdout, /singularity-flow wm (cleanup|build|regenerate|migrate-views)\b/,
+      'the usage reference must not list commands of the removed registered World Model');
   }
 });
 

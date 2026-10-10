@@ -358,7 +358,7 @@ export function terminalEquivalent(command, values) {
     if (value === undefined || value === null || value === '') continue;
     const flag = flagFor(name);
     // Lists use repeated flags because that is the one representation `parseArgs` returns as an
-    // array. Joining with commas would change the registered argument into one invalid view ID.
+    // array. Joining with commas would change the registered argument into one invalid value.
     if (Array.isArray(value)) {
       for (const entry of value) parts.push(`${flag} ${shellQuote(entry)}`);
       continue;

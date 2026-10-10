@@ -127,15 +127,6 @@ test('the installed VS Code CLI carries the canonical Help manual', async () => 
   ], { cwd: staged, encoding: 'utf8' });
   assert.equal(providerImport.status, 0,
     `the staged CLI cannot load its locked ACP production dependency closure: ${providerImport.stderr}`);
-  const sourceDigestImport = spawnSync(process.execPath, [
-    '--input-type=module', '-e', [
-      'const value = await import("./src/world-model/source-digest.mjs");',
-      'process.stdout.write(value.WMB_V4_KERNEL_SOURCE_SHA256);'
-    ].join('')
-  ], { cwd: staged, encoding: 'utf8' });
-  assert.equal(sourceDigestImport.status, 0,
-    `the staged CLI cannot hash its installed WMB implementation bytes: ${sourceDigestImport.stderr}`);
-  assert.match(sourceDigestImport.stdout, /^sha256:[a-f0-9]{64}$/);
   assert.equal(existsSync(path.join(staged, 'node_modules', 'singularity-flow-vscode')), false,
     'the staged production closure must exclude npm workspace links');
   assert.equal(existsSync(path.join(staged, 'node_modules', '@types', 'node')), false,
@@ -175,7 +166,6 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     mkdir(path.join(repository, 'src', 'revision'), { recursive: true }),
     mkdir(path.join(repository, 'src', 'evidence'), { recursive: true }),
     mkdir(path.join(repository, 'src', 'commands'), { recursive: true }),
-    mkdir(path.join(repository, 'src', 'world-model', 'history'), { recursive: true }),
     mkdir(path.join(repository, 'schemas'), { recursive: true }),
     mkdir(path.join(repository, 'plugin', 'agents'), { recursive: true }),
     mkdir(path.join(repository, 'plugin', 'skills', 'sflow-review-source'), { recursive: true }),
@@ -259,9 +249,6 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'evidence', 'responsibilities.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'evidence', 'terminal.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'evidence', 'vocabulary.mjs'), '// fixture\n'),
-    writeFile(path.join(
-      repository, 'src', 'world-model', 'history', 'story-grounding-activation.mjs'
-    ), '// fixture\n'),
     writeFile(path.join(
       repository, 'schemas', 'story-world-model-history-pin.schema.json'
     ), '{}\n'),
@@ -359,7 +346,6 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     'src/commands/integrations.mjs',
     ...['applicability', 'command', 'evaluate', 'gate-refusal', 'graph', 'labels', 'matrix', 'obligation-compiler', 'refusal-memory', 'responsibilities', 'terminal', 'vocabulary']
       .map((name) => `src/evidence/${name}.mjs`),
-    'src/world-model/history/story-grounding-activation.mjs',
     'schemas/story-world-model-history-pin.schema.json',
     'schemas/skill-version-adoption-decision.schema.json',
     'schemas/repository-test-baseline.schema.json',
@@ -472,14 +458,14 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
 
   // A newly authored runtime module that was not added to Git used to disappear from a dirty
   // developer VSIX and fail only when a user ran the installed CLI. Refuse at staging instead.
-  runGit(['rm', '--cached', 'src/world-model/history/story-grounding-activation.mjs']);
+  runGit(['rm', '--cached', 'src/wel-lifecycle.mjs']);
   await assert.rejects(
     stageCli({ rootDir: repository, extensionDir: path.join(repository, 'extension') }),
-    /Staged CLI is missing required runtime file: src\/world-model\/history\/story-grounding-activation\.mjs.*Add the file to the Git index/
+    /Staged CLI is missing required runtime file: src\/wel-lifecycle\.mjs.*Add the file to the Git index/
   );
   assert.equal(existsSync(path.join(repository, 'extension', 'cli')), false);
 
-  runGit(['add', 'src/world-model/history/story-grounding-activation.mjs']);
+  runGit(['add', 'src/wel-lifecycle.mjs']);
   runGit(['rm', '--cached', 'src/source-review-policy.mjs']);
   await assert.rejects(
     stageCli({ rootDir: repository, extensionDir: path.join(repository, 'extension') }),
@@ -1003,7 +989,7 @@ test('the extension package contains every explicit lazy runtime used by the act
   const built = spawnSync(process.execPath, ['esbuild.mjs'], { cwd: extension, encoding: 'utf8' });
   assert.equal(built.status, 0, `${built.stdout}${built.stderr}`);
   const manifest = JSON.parse(await readFile(path.join(extension, 'package.json'), 'utf8'));
-  const [bundle, gatewayContext, gateway, help, panels, worker, support, worldModel,
+  const [bundle, gatewayContext, gateway, help, panels, worker, support,
     extensionSourceMap, helpSourceMap, panelSourceMap] = await Promise.all([
     readFile(path.join(extension, 'dist', 'extension.cjs'), 'utf8'),
     readFile(path.join(extension, 'dist', 'gateway-context-runtime.cjs'), 'utf8'),
@@ -1012,7 +998,6 @@ test('the extension package contains every explicit lazy runtime used by the act
     readFile(path.join(extension, 'dist', 'lazy-panels-runtime.cjs'), 'utf8'),
     readFile(path.join(extension, 'dist', 'gateway-status-worker.cjs'), 'utf8'),
     readFile(path.join(extension, 'dist', 'support-runtime.cjs'), 'utf8'),
-    readFile(path.join(extension, 'dist', 'world-model-build.cjs'), 'utf8'),
     readFile(path.join(extension, 'dist', 'extension.cjs.map'), 'utf8'),
     readFile(path.join(extension, 'dist', 'help-runtime.cjs.map'), 'utf8'),
     readFile(path.join(extension, 'dist', 'lazy-panels-runtime.cjs.map'), 'utf8')
@@ -1023,7 +1008,7 @@ test('the extension package contains every explicit lazy runtime used by the act
   assert.match(bundle, /lazy-panels-runtime\.cjs/);
   assert.match(bundle, /gateway-status-worker\.cjs/);
   assert.match(bundle, /support-runtime\.cjs/);
-  assert.match(bundle, /world-model-build\.cjs/);
+  assert.doesNotMatch(bundle, /world-model-build\.cjs/, 'the World Model build bundle was removed');
   assert.match(gatewayContext, /gateway-runtime\.cjs/);
   assert.match(gatewayContext, /\bfunction\s+activeRepositoryContext\s*\(/u,
     'the shared lightweight entry owns repository routing for every lazy bundle');
@@ -1047,7 +1032,6 @@ test('the extension package contains every explicit lazy runtime used by the act
   'opening a panel must not load durable-record migrations just to stamp a frozen v1 contract');
   assert.match(worker, /\bprocess\s*\.\s*on\s*\(\s*["']message["']/u);
   assert.match(support, /recordHelpMetric/);
-  assert.match(worldModel, /showGovernedWorldModelBuild/);
 });
 
 test('VS Code packaging pins one Artifactory-compatible MSAL dependency graph', () => {

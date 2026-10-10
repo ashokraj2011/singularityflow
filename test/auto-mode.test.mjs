@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -8,7 +8,6 @@ import test, { after } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import YAML from 'yaml';
 
-import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
 import { autoPlanHash, createAutoPlan, ratifyAutoPlan, readAutoPlan } from '../src/auto/auto-plan.mjs';
 import { buildAutoPlanPacket } from '../src/auto/auto-plan-packet.mjs';
 import {
@@ -37,10 +36,6 @@ import { withOperationContext } from '../src/operation-context.mjs';
 import { invokeModel } from '../src/model-runner.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { withSubjectLock } from '../src/subject-lock.mjs';
-import {
-  resolveWorldModelRepositoryIdentityAuthority
-} from '../src/world-model/history/repository-identity-authority.mjs';
-import { buildAndPublishWorldModelV4 } from '../src/world-model/service.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
 const autoTestMachineState = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-machine-'));
@@ -323,66 +318,6 @@ for await (const line of lines) {
   return root;
 }
 
-async function registeredV4AutoRepository(grounding) {
-  const root = await executableRepository();
-  const workflowPath = path.join(root, 'singularity/workflow.yml');
-  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
-  workflow.worldModel.format = 'registered-v4';
-  workflow.worldModel.grounding = grounding;
-  workflow.worldModel.promptSource = 'builtin';
-  workflow.worldModel.views = ['dev.impact'];
-  workflow.worldModel.v4 = {
-    composer: 'deterministic', consumer: 'developer', cachePolicy: 'reuse-valid',
-    totalMaximumOutputTokens: 1400
-  };
-  workflow.worldModel.materialization = {
-    mode: 'on-demand', publish: 'governed', lookahead: 'none',
-    depth: 'light', confirmation: 'automatic'
-  };
-  for (const phase of Object.values(workflow.phases)) {
-    if (phase.worldModel?.views?.length) phase.worldModel.views = ['dev.impact'];
-  }
-  workflow.workTypes['quick-fix'].intelligence = {
-    worldModel: 'inherit', ast: 'off', agentBriefs: 'off'
-  };
-  await writeFile(workflowPath, YAML.stringify(workflow));
-  const agentsRoot = path.join(root, '.github', 'agents');
-  for (const name of await readdir(agentsRoot)) {
-    if (!name.endsWith('.agent.md')) continue;
-    const agentPath = path.join(agentsRoot, name);
-    const agent = await readFile(agentPath, 'utf8');
-    await writeFile(agentPath, agent.replace(
-      /sflow-world-model-views: "[^"]*"/,
-      'sflow-world-model-views: "dev.impact"'
-    ));
-  }
-  run('git', ['add', 'singularity/workflow.yml', '.github/agents'], root);
-  run('git', ['commit', '-m', `configure missing registered-v4 ${grounding} grounding`], root);
-  run('git', ['push', 'origin', 'main'], root);
-  return root;
-}
-
-async function removeRegisteredV4Projection(root) {
-  run(process.execPath, [
-    cli, '--no-model', 'wm', 'build', '--format', 'registered-v4',
-    '--phase', 'implement', '--composer', 'deterministic'
-  ], root);
-  const worktree = await mkdtemp(path.join(os.tmpdir(), 'sflow-auto-v4-removed-'));
-  run('git', ['worktree', 'add', '--detach', '--', worktree, 'state'], root);
-  try {
-    run('git', ['rm', '-qr', '--', 'singularity/world-model'], worktree);
-    run('git', ['commit', '-m', 'intentionally remove registered world model'], worktree);
-    const removedCommit = run('git', ['rev-parse', 'HEAD'], worktree).stdout.trim();
-    run('git', ['push', 'origin', 'HEAD:state'], worktree);
-    run('git', ['update-ref', 'refs/heads/state', removedCommit], root);
-    run('git', ['update-ref', 'refs/remotes/origin/state', removedCommit], root);
-    return removedCommit;
-  } finally {
-    run('git', ['worktree', 'remove', '--force', worktree], root, { allowFailure: true });
-    await rm(worktree, { recursive: true, force: true });
-  }
-}
-
 async function configurationFreeExecutableRepository() {
   const root = await executableRepository();
   const remote = run('git', ['remote', 'get-url', 'origin'], root).stdout.trim();
@@ -446,21 +381,16 @@ test('Auto uses model-routing tasks for authoring but never creates Story-specif
   );
 });
 
-test('Auto uses the shared format-aware grounding boundary and never asks ensure to build registered-v4', async () => {
+test('Auto never builds or verifies a World Model before authoring and records no World-Model reference', async () => {
   const source = await readFile(path.resolve('src/auto/auto-executor.mjs'), 'utf8');
-  assert.match(source, /inspectWorkflowGrounding\(worktree, workflow, phase\.id/);
-  assert.match(source, /workflowGroundingMaterializationPlan\(readiness/);
-  assert.match(source, /runLifecycle\(worktree, materialization\.argv\)/);
   assert.doesNotMatch(source, /groundingMode === 'enforce'/,
     'the World Model is guidance: no grounding mode lets it stop Auto');
   assert.doesNotMatch(source, /Auto grounding authority is not ready/,
-    'grounding findings are recorded with the reference, never a refusal');
-  assert.match(source, /Optional intelligence must never stop Auto/);
-  assert.doesNotMatch(
-    source,
-    /runLifecycle\(worktree, \['wm', 'ensure'/,
-    'Auto must execute the format-aware materialization plan rather than hard-code legacy ensure'
-  );
+    'grounding findings are never a refusal');
+  assert.doesNotMatch(source, /runLifecycle\(worktree, \['wm'/,
+    'Auto runs no World Model command: the Repository brief needs no build');
+  assert.match(source, /worldModelReference = null;/,
+    'an Auto flight records no World-Model reference');
 });
 
 async function withRetriedSubjectLock(root, subject, callback, timeoutMs = 2_000) {
@@ -496,302 +426,6 @@ const proposal = {
   acceptanceCriteria: ['The exported value reflects the requested behavior.'],
   suggestedUntil: 'first-human-boundary'
 };
-
-test('Auto carries a pre-existing exact persisted WMP reference without rebuilding state', async () => {
-  const root = await registeredV4AutoRepository('enforce');
-  const remote = run('git', ['remote', 'get-url', 'origin'], root).stdout.trim();
-  const portfolioPath = path.join(root, 'singularity/portfolio.yml');
-  const portfolio = YAML.parse(await readFile(portfolioPath, 'utf8'));
-  portfolio.repositories['auto-fixture'] = { url: remote, defaultBranch: 'main' };
-  const capabilitiesPath = path.join(root, 'singularity/capabilities.yml');
-  const capabilities = YAML.parse(await readFile(capabilitiesPath, 'utf8'));
-  capabilities.capabilities['auto-fixture'] = {
-    ...capabilities.capabilities['auto-fixture'],
-    sourceRoots: ['app.mjs', 'test'], policy: { gitPublication: 'off' }
-  };
-  const workflowPath = path.join(root, 'singularity/workflow.yml');
-  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
-  workflow.phases.implement.generation = {
-    requirement: 'required', defaultProducer: 'governed-agent',
-    allowedProducers: ['governed-agent']
-  };
-  await writeFile(portfolioPath, YAML.stringify(portfolio));
-  await writeFile(capabilitiesPath, YAML.stringify(capabilities));
-  await writeFile(workflowPath, YAML.stringify(workflow));
-  run('git', [
-    'add', 'singularity/portfolio.yml', 'singularity/capabilities.yml',
-    'singularity/workflow.yml'
-  ], root);
-  run('git', ['commit', '-m', 'map exact Auto WMP repository authority'], root);
-  run('git', ['push', 'origin', 'main'], root);
-  await ensureConfigurationBranch(remote);
-  // Seed the configured state endpoint; the following reviewed publication adds the immutable
-  // model/view history to that authority in one ordinary state CAS.
-  run(process.execPath, [
-    cli, '--no-model', 'wm', 'build', '--format', 'registered-v4',
-    '--phase', 'implement', '--composer', 'deterministic'
-  ], root);
-  const approved = await withApprovedConfigurationRead(root, () => (
-    resolveWorldModelRepositoryIdentityAuthority(root, { capabilityId: 'auto-fixture' })
-  ), {
-    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
-  });
-  await withApprovedConfigurationRead(root, () => buildAndPublishWorldModelV4(root, {
-    outputDir: 'singularity/world-model',
-    ledgerConfig: {
-      enabled: true, branch: 'state', remote: 'origin', behind: 'block',
-      enforcement: 'shadow', signing: 'off', trustTier: 'T0', maxRetries: 3
-    },
-    views: ['dev.impact'], composer: 'deterministic',
-    capabilityId: approved.scopeManifest.capabilityId,
-    allowedPaths: approved.scopeManifest.allowedPaths,
-    sharedPaths: approved.scopeManifest.sharedPaths,
-    excludedPaths: approved.scopeManifest.excludedPaths,
-    allowedSubjects: approved.scopeManifest.allowedSubjects,
-    maximumTraversalDepth: approved.scopeManifest.maximumTraversalDepth,
-    policySnapshotSha256: approved.scopeManifest.policySourceSha256,
-    persistedHistory: {
-      savedViews: { views: ['development'], variants: ['brief', 'full'], format: 'md' }
-    }
-  }), {
-    preferAuthority: true, refreshAuthority: true, requireAuthorityRefresh: true
-  });
-  run('git', ['switch', 'main'], root);
-  const stateBefore = run(
-    'git', ['rev-parse', 'refs/remotes/origin/state'], root
-  ).stdout.trim();
-  const workId = 'AUT-V4-PERSISTED-ACTIVE';
-  const plan = await createAutoPlan(root, 'Use exact persisted grounding, then change the value.', {
-    ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
-    suggestedUntil: 'phase-complete:implement'
-  }, {
-    workId, workType: 'quick-fix', capabilityId: 'auto-fixture', fromBranch: 'main'
-  });
-  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
-  const acceptedWorkflowPath = path.join(
-    started.story.worktree, 'singularity/work-items', workId, 'workflow.json'
-  );
-  const accepted = JSON.parse(await readFile(acceptedWorkflowPath, 'utf8'));
-  assert.equal(accepted.resolution.worldModelHistoryPin.status, 'active',
-    JSON.stringify({
-      pin: accepted.resolution.worldModelHistoryPin,
-      phases: accepted.resolution.phases,
-      agents: accepted.resolution.agents
-    }));
-  assert.equal(accepted.resolution.worldModelHistoryPin.authority.authorityCommit, stateBefore);
-
-  const lifecycleCommands = [];
-  const observeLifecycle = async (cwd, args, options = {}) => {
-    lifecycleCommands.push([...args]);
-    const result = run(process.execPath, [cli, ...args], cwd, { env: options.env ?? {} });
-    return {
-      status: result.status, stdout: result.stdout, stderr: result.stderr, signal: result.signal
-    };
-  };
-  const final = await runFlightStep(root, {
-    ...started.flight, worktree: started.story.worktree
-  }, { childLifecycle: observeLifecycle });
-  if (final.status === 'halted') {
-    assert.fail(`${final.stopReason}: ${final.lastError?.message ?? final.nextAction}`);
-  }
-  const grounding = JSON.parse(await readFile(path.join(
-    final.worktree, 'singularity/work-items', workId, 'context/implement-gen1.json'
-  ), 'utf8'));
-  assert.ok(grounding.persistedGrounding, 'Auto must retain the verified exact-history receipt');
-  assert.equal(grounding.manifestSha256, null,
-    'the regression must exercise the exact-history compatibility path, not legacy projection provenance');
-  assert.equal(grounding.modelSourceTreeSha256, null);
-  assert.equal(grounding.persistedGrounding.authority.authorityCommit, stateBefore);
-  assert.equal(grounding.persistedGrounding.pinSha256,
-    accepted.resolution.worldModelHistoryPin.pinSha256);
-  for (const identity of [
-    grounding.persistedGrounding.packetRef.sha256,
-    grounding.persistedGrounding.pinSha256,
-    grounding.persistedGrounding.groundingSha256
-  ]) assert.match(identity, /^sha256:[a-f0-9]{64}$/u);
-  assert.deepEqual(final.worldModelReference, {
-    protocol: 'auto-world-model-reference-v1',
-    path: `singularity/work-items/${workId}/context/implement-gen1.json`,
-    workId, phase: 'implement', generation: 1, agent: 'developer',
-    worldModelCommit: stateBefore,
-    manifestSha256: grounding.persistedGrounding.packetRef.sha256,
-    renderedSha256: `sha256:${grounding.renderedSha256}`,
-    modelSourceTreeSha256: grounding.persistedGrounding.pinSha256,
-    composedSourceTreeSha256: grounding.persistedGrounding.groundingSha256,
-    fresh: true
-  });
-  assert.equal(lifecycleCommands.some((args) => args[0] === 'wm' && args[1] === 'build'), false,
-    `Auto unexpectedly requested World-Model materialization: ${JSON.stringify(lifecycleCommands)}`);
-  const stateAfter = run(
-    'git', ['rev-parse', 'refs/remotes/origin/state'], root
-  ).stdout.trim();
-  assert.equal(run(
-    'git', ['merge-base', '--is-ancestor', stateBefore, stateAfter], root, { allowFailure: true }
-  ).status, 0, 'ordinary Story state publication must retain the selected WMP authority cut');
-  assert.equal(run(
-    'git', [
-      'diff', '--quiet', stateBefore, stateAfter, '--',
-      'singularity/world-model-history', 'singularity/world-model'
-    ], root, { allowFailure: true }
-  ).status, 0, 'Auto rebuilt or republished an already exact WMP model');
-});
-
-test('Auto treats missing registered-v4 grounding as advisory without rebuilding or invoking twice', async () => {
-  const root = await registeredV4AutoRepository('warn');
-  const workId = 'AUT-V4-WARN-MISSING';
-  const plan = await createAutoPlan(root, 'Change the value with advisory registered grounding.', {
-    ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
-    suggestedUntil: 'phase-complete:implement'
-  }, { workId, workType: 'quick-fix', fromBranch: 'main' });
-  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
-  const final = await runFlightStep(root, { ...started.flight, worktree: started.story.worktree });
-  assert.notEqual(final.status, 'halted', final.lastError?.message ?? final.nextAction);
-  assert.equal(final.counters.modelInvocations, 1,
-    'advisory grounding must not cause a world-model invocation or repeat authoring');
-  assert.equal(final.worldModelReference ?? null, null,
-    'an advisory no-model composition must not invent a world-model authority receipt');
-  assert.notEqual(final.stopReason, 'world-model-grounding-required');
-  assert.notEqual(run('git', [
-    'cat-file', '-e', 'state:singularity/world-model/manifest.json'
-  ], root, { allowFailure: true }).status, 0,
-  'ambiguous missing v4 authority must not be automatically recreated');
-});
-
-test('Auto continues with zero World-Model bytes when enforced registered-v4 authority is missing', async () => {
-  const root = await registeredV4AutoRepository('enforce');
-  const workId = 'AUT-V4-ENFORCE-MISSING';
-  const plan = await createAutoPlan(root, 'Refuse authoring without enforced registered grounding.', {
-    ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
-    suggestedUntil: 'phase-complete:implement'
-  }, { workId, workType: 'quick-fix', fromBranch: 'main' });
-  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
-  const final = await runFlightStep(root, { ...started.flight, worktree: started.story.worktree });
-  assert.notEqual(final.status, 'waiting-human');
-  assert.notEqual(final.stopReason, 'world-model-grounding-required');
-  assert.equal(final.counters.modelInvocations, 1,
-    'only phase authoring may invoke a model; missing repository intelligence must not add one');
-  assert.equal(final.worldModelReference ?? null, null);
-  assert.notEqual(run('git', [
-    'cat-file', '-e', 'state:singularity/world-model/manifest.json'
-  ], root, { allowFailure: true }).status, 0,
-    'an absent or intentionally removed state projection must not be rebuilt automatically');
-});
-
-test('Auto honors local-only registered-v4 publication for enforced and advisory grounding', async (t) => {
-  for (const grounding of ['enforce', 'warn']) {
-    await t.test(grounding, async () => {
-      const root = await registeredV4AutoRepository(grounding);
-      const workflowPath = path.join(root, 'singularity/workflow.yml');
-      const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
-      workflow.worldModel.materialization.publish = 'local';
-      await writeFile(workflowPath, YAML.stringify(workflow));
-      run('git', ['add', 'singularity/workflow.yml'], root);
-      run('git', ['commit', '-m', 'limit registered world-model materialization to rehearsal'], root);
-      run('git', ['push', 'origin', 'main'], root);
-
-      const workId = `AUT-V4-LOCAL-${grounding.toUpperCase()}`;
-      const plan = await createAutoPlan(root, 'Respect local-only grounding publication.', {
-        ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
-        suggestedUntil: 'phase-complete:implement'
-      }, { workId, workType: 'quick-fix', fromBranch: 'main' });
-      const started = await startAutoFlight(root, plan.planId, confirmation(plan));
-      const final = await runFlightStep(root, {
-        ...started.flight, worktree: started.story.worktree
-      });
-
-      assert.notEqual(run('git', [
-        'cat-file', '-e', 'state:singularity/world-model/manifest.json'
-      ], root, { allowFailure: true }).status, 0,
-      'unattended lifecycle materialization must not publish state under a local-only policy');
-      assert.notEqual(final.stopReason, 'world-model-grounding-required');
-      assert.equal(final.counters.modelInvocations, 1,
-        'phase authoring runs once without invoking a World-Model provider');
-      assert.equal(final.worldModelReference ?? null, null);
-    });
-  }
-});
-
-test('Auto preserves an intentionally removed registered-v4 projection and continues without it', async () => {
-  const root = await registeredV4AutoRepository('enforce');
-  const removedCommit = await removeRegisteredV4Projection(root);
-  const workId = 'AUT-V4-REMOVED';
-  const plan = await createAutoPlan(root, 'Do not recreate intentionally removed grounding.', {
-    ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
-    suggestedUntil: 'phase-complete:implement'
-  }, { workId, workType: 'quick-fix', fromBranch: 'main' });
-  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
-  const final = await runFlightStep(root, { ...started.flight, worktree: started.story.worktree });
-  assert.notEqual(final.status, 'waiting-human');
-  assert.notEqual(final.stopReason, 'world-model-grounding-required');
-  assert.equal(final.counters.modelInvocations, 1);
-  assert.equal(final.worldModelReference ?? null, null);
-  assert.equal(run('git', ['rev-parse', 'state'], root).stdout.trim(), removedCommit,
-    'Auto must not advance state after an explicit projection deletion');
-  assert.notEqual(run('git', [
-    'cat-file', '-e', 'state:singularity/world-model/manifest.json'
-  ], root, { allowFailure: true }).status, 0,
-  'Auto must preserve the exact removed projection rather than recreating it');
-});
-
-test('Auto extends exact same-source registered-v4 grounding with a zero-model quick view', async () => {
-  const root = await registeredV4AutoRepository('enforce');
-  const workflowPath = path.join(root, 'singularity/workflow.yml');
-  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
-  workflow.worldModel.views = ['dev.impact', 'biz.rules'];
-  workflow.worldModel.v4.totalMaximumOutputTokens = 2800;
-  workflow.phases.implement.worldModel.views = ['biz.rules'];
-  await writeFile(workflowPath, YAML.stringify(workflow));
-  run('git', ['add', 'singularity/workflow.yml'], root);
-  run('git', ['commit', '-m', 'require a progressive business grounding view'], root);
-  run('git', ['push', 'origin', 'main'], root);
-
-  run(process.execPath, [
-    cli, '--no-model', 'wm', 'build', '--format', 'registered-v4',
-    '--views', 'dev.impact', '--composer', 'deterministic', '--depth', 'quick'
-  ], root);
-  const developmentBefore = run('git', [
-    'show', 'state:singularity/world-model/views/dev.impact.md'
-  ], root).stdout;
-
-  const workId = 'AUT-V4-EXTEND';
-  const plan = await createAutoPlan(root, 'Extend exact registered grounding, then change the value.', {
-    ...proposal, workType: 'quick-fix', predictedPaths: ['app.mjs', 'test/app.test.mjs'],
-    suggestedUntil: 'phase-complete:implement'
-  }, { workId, workType: 'quick-fix', fromBranch: 'main' });
-  const started = await startAutoFlight(root, plan.planId, confirmation(plan));
-  const stopAfterGrounding = async (cwd, args, options = {}) => {
-    if (args[0] === 'prepare') {
-      const error = new Error('Stop the fixture after registered grounding is ready.');
-      error.code = 'AUTO_TEST_GROUNDING_READY';
-      throw error;
-    }
-    const result = run(process.execPath, [cli, ...args], cwd, { env: options.env ?? {} });
-    return {
-      status: result.status, stdout: result.stdout, stderr: result.stderr, signal: result.signal
-    };
-  };
-  const final = await runFlightStep(
-    root, { ...started.flight, worktree: started.story.worktree },
-    { childLifecycle: stopAfterGrounding }
-  );
-
-  assert.notEqual(final.stopReason, 'world-model-grounding-required',
-    final.lastError?.message ?? final.nextAction);
-  assert.equal(final.counters.modelInvocations, 0,
-    'the registered grounding extension completes before any governed authoring model runs');
-  assert.equal(run('git', [
-    'show', 'state:singularity/world-model/views/dev.impact.md'
-  ], root).stdout, developmentBefore, 'Auto must retain the existing development view byte-for-byte');
-  const manifest = JSON.parse(run('git', [
-    'show', 'state:singularity/world-model/manifest.json'
-  ], root).stdout);
-  assert.deepEqual(manifest.views.map((entry) => entry.viewId).sort(), ['biz.rules', 'dev.impact']);
-  const usage = JSON.parse(run('git', [
-    'show', 'state:singularity/world-model/usage/biz.rules.json'
-  ], root).stdout);
-  assert.equal(usage.providerInputTokens, null);
-  assert.equal(usage.providerOutputTokens, null);
-});
 
 test('Auto planning creates no lifecycle state, ref, or worktree before exact hash ratification', async () => {
   const root = await repository();

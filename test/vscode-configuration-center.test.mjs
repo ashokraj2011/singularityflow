@@ -10,14 +10,12 @@ const source = (name) => path.join(root, 'apps', 'vscode', 'src', 'views', name)
 const {
   authorityWithMember,
   configurationCenterView,
-  configurationPathTarget,
   configurationPendingProposalStatus,
   pendingConfigurationProposal,
   configurationRefreshDecision,
   configurationSaveDisposition,
   configurationSavePlan,
   configurationSavePlanCliArgs,
-  prepareWorldModelDraftForSave,
   updateApprovalSecurityProfileYaml,
   updateAutoYaml,
   updateAuthorityYaml,
@@ -27,11 +25,9 @@ const {
   validateAutoDraft,
   validateMcpDraft,
   validateWorldModelDraft,
-  validateWorldModelDraftShape,
-  worldModelWorkflowUsage
+  validateWorldModelDraftShape
 } = await import(source('configuration-center-model.ts'));
 const { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } = await import(source('configuration-center-page.ts'));
-const { worldModelWorkflowViewUsage } = await import(path.join(root, 'src', 'world-model-views.mjs'));
 
 const snapshot = {
   identities: {
@@ -41,11 +37,7 @@ const snapshot = {
   definition: {
     approvalSecurity: { profile: 'team' },
     phases: { intake: { label: 'Intake' }, verification: { label: 'Verification' } },
-    worldModel: {
-      views: ['arch.contracts@4', 'biz.rules@4'], grounding: 'warn', staleness: 'fail',
-      materialization: { mode: 'on-demand', publish: 'governed', lookahead: 'next-phase', depth: 'light', confirmation: 'automatic' },
-      injection: { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 16384, rules: [{ when: { phase: 'intake' }, include: ['briefs/business.md'] }] }
-    },
+    worldModel: { sourceRoots: ['apps/payments'], sharedRoots: ['libs/contracts'] },
     approvalAuthorities: {
       'quality-reviewers': {
         label: 'Quality reviewers',
@@ -203,85 +195,88 @@ test('Configuration Center exposes the complete three-layer Auto policy path', a
   assert.ok(manifest.contributes.commands.some((entry) => entry.command === 'singularityFlow.configureAuto'));
 });
 
-test('configuration center exposes guided world-model policy, generation, and injection settings', () => {
+test('the World Model tab is the Repository brief plus the source scope it reads', async () => {
   const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
-  assert.equal(view.worldModel.format, 'registered-v4');
-  assert.equal(view.worldModel.v4.composer, 'deterministic');
-  assert.deepEqual(view.worldModel.views, ['arch.contracts@4', 'biz.rules@4']);
-  assert.equal(view.worldModel.materialization.confirmation, 'automatic');
-  assert.equal(view.worldModel.materialization.depth, 'light');
-  assert.equal(view.worldModel.injection.rulesCount, 1);
+  assert.deepEqual(view.worldModel, { sourceRoots: ['apps/payments'], sharedRoots: ['libs/contracts'] });
   const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
-  assert.match(html, /World-model behavior/);
-  assert.match(html, /Grounding policy/);
-  assert.match(html, /On demand — prepare when required/);
-  assert.match(html, /Light — deterministic, zero model tokens/);
-  assert.match(html, /Disabled — no automatic materialization; explicit builds remain available/);
-  assert.match(html, /Prompt injection/);
-  assert.match(html, /name="stateFetchTimeoutMs" type="number" min="250" max="60000" step="1" value="10000" required/);
-  assert.match(html, /name="injectionMaxBytes" type="number" min="1" step="1" value="16384" required/);
-  assert.match(html, /Registered v4 builder/);
-  assert.match(html, /Deterministic — zero model calls/);
-  assert.match(html, /v4 total output-token budget/);
-  assert.match(html, /Save world-model settings/);
-  assert.match(html, /Build \/ refresh effective model/);
-  assert.match(html, /data-action="rebuild-world-model">Rebuild capability &amp; push to Git/);
-  assert.match(html, /Quick, Standard, or Deep complexity/);
-  assert.match(html, /approved repository configuration, or the accepted Story's pinned execution configuration/);
-  assert.match(html, /Editor source: approved effective configuration · Current built-model format: <code>not built<\/code>/);
-  assert.doesNotMatch(html, /name="format"|name="promptSource"|v4LegacyAssignments|Legacy v3|Builder prompt/,
-    'registered-v4 is the only format; retired controls are not offered');
-  assert.doesNotMatch(CONFIGURATION_CENTER_SCRIPT, /data\.get\('format'\)|promptSource|legacyAssignments|strategy:/,
-    'the form never submits retired World Model keys');
-  assert.match(CONFIGURATION_CENTER_SCRIPT, /totalMaximumOutputTokens: Number\(data\.get\('v4TotalMaximumOutputTokens'\)\)/);
+  assert.match(html, /Repository brief/);
+  assert.match(html, /<button class="secondary" data-action="repository-brief">Open Repository Brief<\/button>/);
+  assert.match(html, /Source scope/);
+  assert.match(html, /name="sourceRoots" type="text" value="apps\/payments"/);
+  assert.match(html, /name="sharedRoots" type="text" value="libs\/contracts"/);
+  assert.match(html, /Save source scope/);
+  assert.match(html, /singularity-flow wm brief --phase PHASE/);
+  assert.doesNotMatch(html,
+    /data-action="(?:build|rebuild)-world-model"|data-open-world-model-ref|World Model Explorer|Grounding policy|Registered v4|System architecture|name="views"/,
+    'the registered World Model, its explorer, CALM section and build actions are gone');
+  assert.match(CONFIGURATION_CENTER_SCRIPT,
+    /type: 'save-world-model', sourceRoots: csv\(data\.get\('sourceRoots'\)\), sharedRoots: csv\(data\.get\('sharedRoots'\)\)/);
+  assert.doesNotMatch(CONFIGURATION_CENTER_SCRIPT, /open-world-model-ref|registeredWorldModel/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /if \(savingForm\) return/);
+  assert.match(CONFIGURATION_CENTER_SCRIPT, /configuration-save-busy/);
+  const extension = await readFile(path.join(root, 'apps', 'vscode', 'src', 'extension.ts'), 'utf8');
+  assert.match(extension,
+    /message\.action === 'repository-brief'\) await vscode\.commands\.executeCommand\('singularityFlow\.openRepositoryKnowledge'\)/);
+  assert.match(extension, /'singularityFlow\.configureWorldModel': \(\) => openConfigurationCenter\('world-model'\)/);
+  assert.doesNotMatch(extension, /message\.type === 'open-world-model-ref'/);
+  const manifestText = await readFile(path.join(root, 'apps', 'vscode', 'package.json'), 'utf8');
+  const manifest = JSON.parse(manifestText);
+  assert.equal(manifest.contributes.commands.find((entry) => entry.command === 'singularityFlow.configureWorldModel')?.title,
+    'Singularity Flow: World Model Settings');
+  for (const removed of ['buildWorldModel', 'rebuildWorldModel', 'migrateWorldModelViews']) {
+    assert.doesNotMatch(manifestText, new RegExp(`singularityFlow\\.${removed}\\b`), removed);
+    assert.doesNotMatch(extension, new RegExp(`'singularityFlow\\.${removed}'`), removed);
+  }
+  assert.doesNotMatch(manifestText, /singularityFlow\.registeredWorldModel/, 'no palette clause reads the removed context key');
+  const panel = await readFile(source('configuration-center.ts'), 'utf8');
+  assert.doesNotMatch(panel, /open-world-model-ref|DEFAULT_WORLD_MODEL_SLICE_LEASE_MS|'worldModel'/,
+    'the tab holds no World Model slice lease');
 });
 
-test('configuration center distinguishes staged checkout edits from the effective model', () => {
+test('the World Model navigation item is the only World Model entry', () => {
+  const html = configurationCenterHtml(configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' }),
+    'overview', null, null, null, []);
+  assert.match(html, /data-tab="world-model"/);
+  assert.doesNotMatch(html, /Rebuild capability World Model/);
+});
+
+test('configuration center reports staged checkout edits awaiting publication', () => {
   const staged = {
     ...snapshot,
-    repository: { configurationChanges: ['singularity/workflow.yml'] },
-    worldModel: { root: 'singularity/world-model', format: 'registered-v4', views: [] }
+    repository: { configurationChanges: ['singularity/workflow.yml'] }
   };
   const view = configurationCenterView(staged, { name: 'Ashok', role: 'architect' });
   const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
-  assert.match(html, /Editor source: approved effective configuration · Current built-model format: <code>registered-v4<\/code>/);
-  assert.match(html, /local configuration change.*awaiting publication/);
-  assert.match(html, /existing Story retains its pin/);
+  assert.match(html, /1 local configuration change awaiting publication/);
+  assert.match(html, /Saving writes a validated local draft; review and publish it before it takes effect/);
 });
 
-test('configuration center reloads a valid candidate and keeps the built-model format visible', () => {
+test('configuration center reloads a valid candidate', () => {
   const candidate = {
     ...snapshot,
     definition: {
       ...snapshot.definition,
-      worldModel: {
-        ...snapshot.definition.worldModel,
-        format: 'registered-v4',
-        views: ['arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'],
-        v4: { composer: 'model-optional' }
-      }
+      worldModel: { sourceRoots: ['apps/payments', 'apps/checkout'], sharedRoots: [] }
     },
     configurationSource: {
       editor: 'candidate',
       effective: {
         kind: 'approved-configuration-ref', ref: 'refs/remotes/origin/sflow/config',
-        commit: 'a'.repeat(40), sha256: 'b'.repeat(64), worldModelFormat: 'registered-v4'
+        commit: 'a'.repeat(40), sha256: 'b'.repeat(64)
       },
       candidate: {
         status: 'valid', error: null, changes: ['singularity/workflow.yml'],
-        sha256: 'c'.repeat(64), worldModelFormat: 'registered-v4'
+        sha256: 'c'.repeat(64)
       }
     },
-    repository: { configurationChanges: ['singularity/workflow.yml'] },
-    worldModel: { root: 'singularity/world-model', format: 'wmb-v4', views: [] }
+    repository: { configurationChanges: ['singularity/workflow.yml'] }
   };
   const view = configurationCenterView(candidate, { name: 'Ashok', role: 'architect' });
-  assert.equal(view.worldModel.format, 'registered-v4');
-  assert.equal(view.worldModel.v4.composer, 'model-optional');
+  assert.deepEqual(view.worldModel.sourceRoots, ['apps/payments', 'apps/checkout']);
   assert.equal(view.configurationState.editor, 'candidate');
   const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
   assert.match(html, /Validated local configuration candidate/);
-  assert.match(html, /Editor source: validated local candidate · Current built-model format: <code>wmb-v4<\/code>/);
+  assert.match(html, /Saving creates a review proposal from the exact approved authority/);
 });
 
 test('configuration center exposes an invalid candidate and keeps approved fields fail closed', () => {
@@ -291,84 +286,31 @@ test('configuration center exposes an invalid candidate and keeps approved field
       editor: 'effective',
       effective: {
         kind: 'approved-configuration-ref', ref: 'refs/remotes/origin/sflow/config',
-        commit: 'a'.repeat(40), sha256: 'b'.repeat(64), worldModelFormat: 'registered-v4'
+        commit: 'a'.repeat(40), sha256: 'b'.repeat(64)
       },
       candidate: {
         status: 'invalid', error: 'Workflow configuration cannot be parsed at line 7.',
-        changes: ['singularity/workflow.yml'], sha256: 'c'.repeat(64), worldModelFormat: null
+        changes: ['singularity/workflow.yml'], sha256: 'c'.repeat(64)
       }
     }
   };
   const view = configurationCenterView(invalid, { name: 'Ashok', role: 'architect' });
-  assert.equal(view.worldModel.format, 'registered-v4');
+  assert.deepEqual(view.worldModel, { sourceRoots: ['apps/payments'], sharedRoots: ['libs/contracts'] });
   const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
   assert.match(html, /Local configuration candidate was not loaded/);
   assert.match(html, /continues to show approved effective configuration/);
   assert.match(html, /Workflow configuration cannot be parsed at line 7/);
 });
 
-test('world-model save refuses retired legacy view names and writes only registered-v4 policy', () => {
-  const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
-  const legacy = { ...view.worldModel, views: ['business', 'architecture'] };
-  assert.ok(validateWorldModelDraft(legacy).some((entry) => /installed active contracts/.test(entry)));
-  const retired = 'version: 2\nworldModel:\n  format: legacy-v3\n  views: [business, architecture]\n';
-  assert.throws(() => updateWorldModelYaml(retired, legacy), /unsupported: business, architecture/,
-    'legacy view names are refused, never migrated to a guessed v4 catalog');
-  const saved = updateWorldModelYaml(retired, view.worldModel);
-  const parsed = YAML.parse(saved);
-  assert.equal(parsed.worldModel.format, 'registered-v4');
-  assert.deepEqual(parsed.worldModel.views, ['arch.contracts@4', 'biz.rules@4']);
-  assert.doesNotMatch(saved, /legacyAssignments|promptSource|strategy/,
-    'retired World Model keys are never written');
-  const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
-  assert.match(html, /Registered-v4 accepts the installed contracts/);
-  assert.doesNotMatch(html, /atomically replaces|Legacy assignment migration|world-model-format/);
-  assert.doesNotMatch(CONFIGURATION_CENTER_SCRIPT, /world-model-format|migration bridge|registeredWorldModel/);
-  assert.match(CONFIGURATION_CENTER_SCRIPT, /if \(savingForm\) return/);
-  assert.match(CONFIGURATION_CENTER_SCRIPT, /configuration-save-busy/);
-});
-
-test('world-model save validates the merged v4 policy a draft omits', () => {
-  const base = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' }).worldModel;
-  const current = `version: 2
-worldModel:
-  format: registered-v4
-  views: [arch.contracts@4]
-  v4:
-    composer: model-optional
-    totalMaximumOutputTokens: 7200
-`;
-  const older = { ...base, v4: undefined, views: ['arch.contracts@4'] };
-  const prepared = prepareWorldModelDraftForSave(current, older);
-  assert.equal(prepared.v4.composer, 'model-optional');
-  assert.equal(prepared.v4.totalMaximumOutputTokens, 7200);
-  assert.deepEqual(prepared.views, ['arch.contracts@4']);
-  assert.deepEqual(YAML.parse(updateWorldModelYaml(current, older)).worldModel.v4, {
-    composer: 'model-optional', totalMaximumOutputTokens: 7200
-  });
-  assert.throws(() => updateWorldModelYaml(current.replace('model-optional', 'model-sometimes'), older),
-    /Unknown registered-v4 composer 'model-sometimes'/,
-    'an omitted control is validated with the value that will actually remain');
-
-  assert.throws(() => updateWorldModelYaml(current, { ...base, views: ['architecture'] }), /unsupported: architecture/i);
-  assert.throws(() => updateWorldModelYaml(current, { ...base, views: ['architecture', 'dev.impact@4'] }),
-    /unsupported: architecture\./i, 'a mixed catalog is refused, never partially repaired');
-  assert.throws(() => updateWorldModelYaml(current, { ...base, views: ['architecturre'] }), /unsupported: architecturre/i);
-});
-
 test('world-model save rejects malformed retained-webview payloads without dereferencing them', () => {
-  assert.deepEqual(validateWorldModelDraftShape(null), [
-    'World-model settings are incomplete. Reload Configuration Center and try again.'
-  ]);
-  assert.deepEqual(validateWorldModelDraftShape({ views: ['arch.contracts@4'] }), [
-    'World-model settings are incomplete. Reload Configuration Center and try again.'
-  ]);
-  assert.deepEqual(validateWorldModelDraftShape({
-    ...configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' }).worldModel,
-    projections: {}
-  }), ['World-model settings are incomplete. Reload Configuration Center and try again.']);
+  const incomplete = ['Source scope settings are incomplete. Reload Configuration Center and try again.'];
+  assert.deepEqual(validateWorldModelDraftShape(null), incomplete);
+  assert.deepEqual(validateWorldModelDraftShape({ sourceRoots: ['src'] }), incomplete);
+  assert.deepEqual(validateWorldModelDraftShape({ sourceRoots: 'src', sharedRoots: [] }), incomplete);
+  assert.deepEqual(validateWorldModelDraftShape({ sourceRoots: [1], sharedRoots: [] }), incomplete);
+  assert.deepEqual(validateWorldModelDraft(null), incomplete);
   assert.throws(
-    () => prepareWorldModelDraftForSave('version: 2\nworldModel: {}\n', { views: null }),
+    () => updateWorldModelYaml('version: 2\nworldModel: {}\n', { sourceRoots: null }),
     /settings are incomplete/i
   );
 });
@@ -382,125 +324,6 @@ test('configuration center serializes every configuration mutation through one h
   assert.match(host, /try \{ await this\.receiveReady\(message\); \}\s*finally \{[\s\S]{0,300}this\.saving = false;[\s\S]{0,300}this\.storeChanged\(\);/);
   assert.doesNotMatch(host, /private save[\s\S]{0,300}this\.saving = true/,
     'the mutex must cover the whole mutation, not only the eventual CLI write');
-});
-
-test('enabling CALM needs no format choice because registered-v4 is the only format', () => {
-  const view = configurationCenterView(snapshot, { name: 'Ashok', role: 'architect' });
-  const draft = {
-    ...view.worldModel,
-    projections: {
-      ...view.worldModel.projections,
-      archCalm: { ...view.worldModel.projections.archCalm, enabled: true }
-    }
-  };
-  assert.deepEqual(validateWorldModelDraft(draft), []);
-  assert.equal(YAML.parse(updateWorldModelYaml('version: 2\nworldModel: {}\n', draft))
-    .worldModel.projections['arch.calm'].enabled, true);
-  assert.doesNotMatch(CONFIGURATION_CENTER_SCRIPT, /CALM requires Registered v4/);
-});
-
-test('configuration center joins exact registered contracts to logical phase and generated views', () => {
-  const definition = {
-    ...snapshot.definition,
-    worldModel: { ...snapshot.definition.worldModel, format: 'registered-v4', views: ['dev.impact@4'] },
-    phases: { implementation: { label: 'Implementation', worldModel: { views: ['dev.impact'] } } },
-    workTypes: { feature: { label: 'Feature', phases: ['implementation'] } }
-  };
-  const view = configurationCenterView({
-    ...snapshot,
-    definition,
-    worldModel: {
-      root: 'singularity/world-model', generatedAt: '2026-01-01T00:00:00Z',
-      views: [{ id: 'dev.impact', references: ["phase 'implementation'"] }],
-      workflows: worldModelWorkflowViewUsage(definition)
-    }
-  }, { name: 'Ashok', role: 'architect' });
-  assert.equal(view.worldModelStatus.views.length, 1);
-  assert.deepEqual(view.worldModelStatus.views[0], {
-    ...view.worldModelStatus.views[0], id: 'dev.impact', reference: 'dev.impact@4',
-    workflowCount: 1, phaseCount: 1
-  });
-  const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
-  assert.match(html, /dev\.impact@4/);
-});
-
-test('configuration center uses active exact contracts when registered-v4 omits a view list', () => {
-  // An omitted format is registered-v4; there is no other default catalog.
-  for (const worldModel of [
-    { format: 'registered-v4', grounding: 'warn', staleness: 'warn' },
-    { grounding: 'warn', staleness: 'warn' }
-  ]) {
-    const view = configurationCenterView({
-      ...snapshot,
-      definition: { ...snapshot.definition, worldModel }
-    }, { name: 'Ashok', role: 'architect' });
-    assert.equal(view.worldModel.format, 'registered-v4');
-    assert.deepEqual(view.worldModel.views, [
-      'arch.contracts@4', 'biz.rules@4', 'dev.hotspots@4', 'dev.impact@4'
-    ]);
-    assert.deepEqual(view.worldModelStatus.views.map((entry) => entry.id), [
-      'arch.contracts', 'biz.rules', 'dev.hotspots', 'dev.impact'
-    ]);
-    assert.doesNotMatch(configurationCenterHtml(view, 'world-model', null, null, null, []),
-      /value="business, architecture/);
-  }
-});
-
-test('world-model explorer joins views to phases across workflows and respects overrides and off mode', () => {
-  const scopedDefinition = {
-    ...snapshot.definition,
-    phases: {
-      intake: { label: 'Intake', worldModel: { views: ['biz.rules'], depth: 'quick' } },
-      implementation: { label: 'Implementation', worldModel: { views: ['dev.impact', 'dev.hotspots'], depth: 'standard' } }
-    },
-    workTypes: {
-      feature: { label: 'Feature', phases: ['intake', 'implementation'] },
-      secure: {
-        label: 'Secure change', phases: ['intake', 'implementation'],
-        phaseOverrides: {
-          intake: { worldModel: { views: [] } },
-          implementation: { worldModel: { views: ['arch.contracts'], depth: 'deep' } }
-        }
-      },
-      generic: {
-        label: 'Generic context', phases: ['intake', 'implementation'],
-        intelligence: { worldModel: 'off' }
-      }
-    }
-  };
-  const scoped = {
-    ...snapshot,
-    definition: scopedDefinition,
-    worldModel: {
-      root: 'singularity/world-model', generatedAt: '2026-01-01T00:00:00Z', rebuildReason: null,
-      views: [
-        { id: 'biz.rules', references: ["phase 'intake'"] },
-        { id: 'dev.impact', references: ["phase 'implementation'"] },
-        { id: 'dev.hotspots', references: ["phase 'implementation'"] },
-        { id: 'arch.contracts', references: ["workflow 'secure' phase 'implementation' override"] }
-      ],
-      workflows: worldModelWorkflowViewUsage(scopedDefinition)
-    }
-  };
-  const workflows = worldModelWorkflowUsage(scoped);
-  assert.deepEqual(workflows.find((entry) => entry.id === 'feature').phases.map((phase) => phase.views), [
-    ['biz.rules'], ['dev.impact', 'dev.hotspots']
-  ]);
-  assert.deepEqual(workflows.find((entry) => entry.id === 'secure').phases.map((phase) => phase.views), [[], ['arch.contracts']]);
-  assert.equal(workflows.find((entry) => entry.id === 'secure').phases[1].source, 'workflow-override');
-  assert.deepEqual(workflows.find((entry) => entry.id === 'generic').phases.map((phase) => phase.views), [[], []]);
-
-  const view = configurationCenterView(scoped, { name: 'Ashok', role: 'architect' });
-  assert.equal(view.worldModelStatus.views.find((entry) => entry.id === 'arch.contracts').workflowCount, 1);
-  assert.equal(view.worldModelStatus.views.find((entry) => entry.id === 'dev.impact').phaseCount, 1);
-  const html = configurationCenterHtml(view, 'world-model', null, null, null, []);
-  assert.match(html, /World Model Explorer/);
-  assert.match(html, /Workflow coverage/);
-  assert.match(html, /Secure change/);
-  assert.match(html, /title="Implementation · deep depth · workflow override"/);
-  assert.match(html, /Behavior &amp; generation settings/);
-  assert.match(CONFIGURATION_CENTER_SCRIPT, /applyWorldModelFilters/);
-  assert.match(CONFIGURATION_CENTER_SCRIPT, /data-wm-view-column/);
 });
 
 test('configuration refresh preserves dirty forms and detects repository conflicts', () => {
@@ -674,66 +497,32 @@ test('configuration center marks an unmerged proposal read-only', () => {
   assert.match(CONFIGURATION_CENTER_SCRIPT, /resume-approved-baseline/);
 });
 
-test('world-model editor preserves comments, advanced context, and injection rules', () => {
-  const input = `version: 2\n# keep this policy note\nworldModel:\n  format: registered-v4\n  v4:\n    composer: model-required\n    consumer: architect\n    cachePolicy: rebuild\n    totalMaximumOutputTokens: 7200\n  context:\n    memoize: true\n  injection:\n    rules:\n      - when: { phase: intake }\n        include: [briefs/business.md]\n`;
-  const output = updateWorldModelYaml(input, {
-    views: ['arch.contracts@4', 'biz.rules@4'], outputDir: 'singularity/world-model',
-    stateFetchTimeoutMs: 10000,
-    generation: { parallel: true, maxWorkers: 3 },
-    materialization: { mode: 'on-demand', publish: 'governed', lookahead: 'none', depth: 'light', confirmation: 'automatic' },
-    grounding: 'warn', staleness: 'warn',
-    injection: { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 32768 }
-  });
+test('source scope editor writes only the roots and preserves comments and every other World Model setting', () => {
+  const input = `version: 2\n# keep this policy note\nworldModel:\n  sourceRoots: [old]\n  context:\n    memoize: true\n  injection:\n    rules:\n      - when: { phase: intake }\n        include: [briefs/business.md]\n`;
+  const output = updateWorldModelYaml(input, { sourceRoots: ['apps/payments'], sharedRoots: ['libs/contracts'] });
   assert.match(output, /# keep this policy note/);
-  assert.doesNotMatch(output, /promptSource|strategy|legacyAssignments/);
   const parsed = YAML.parse(output);
-  assert.equal(parsed.worldModel.format, 'registered-v4');
+  assert.deepEqual(parsed.worldModel.sourceRoots, ['apps/payments']);
+  assert.deepEqual(parsed.worldModel.sharedRoots, ['libs/contracts']);
   assert.equal(parsed.worldModel.context.memoize, true);
   assert.equal(parsed.worldModel.injection.rules[0].when.phase, 'intake');
-  assert.equal(parsed.worldModel.materialization.mode, 'on-demand');
-  assert.equal(parsed.worldModel.materialization.depth, 'light');
-  assert.equal(parsed.worldModel.generation.maxWorkers, 3);
-  assert.deepEqual(parsed.worldModel.v4, {
-    composer: 'model-required', consumer: 'architect', cachePolicy: 'rebuild',
-    totalMaximumOutputTokens: 7200
-  }, 'an older draft preserves v4 policy it does not know about');
+  assert.deepEqual(Object.keys(parsed.worldModel).sort(), ['context', 'injection', 'sharedRoots', 'sourceRoots']);
+  // An empty list is a deliberate whole-repository choice, so it is written rather than dropped.
+  const whole = YAML.parse(updateWorldModelYaml('version: 2\nworldModel: {}\n', { sourceRoots: [], sharedRoots: [] }));
+  assert.deepEqual(whole.worldModel, { sourceRoots: [], sharedRoots: [] });
 });
 
-test('world-model editor accepts dotted registered views and persists every v4 control', () => {
-  const draft = {
-    v4: {
-      composer: 'model-optional', consumer: 'tester', cachePolicy: 'reuse-valid',
-      totalMaximumOutputTokens: 4200
-    },
-    views: ['dev.impact@4', 'arch.contracts'], sourceRoots: ['src'], sharedRoots: ['packages/contracts'],
-    outputDir: 'singularity/world-model', stateFetchTimeoutMs: 10000,
-    generation: { parallel: false, maxWorkers: 4 },
-    materialization: { mode: 'explicit', publish: 'governed', lookahead: 'none', depth: 'phase', confirmation: 'prompt' },
-    grounding: 'warn', staleness: 'fail',
-    injection: { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 32768 }
-  };
-  assert.deepEqual(validateWorldModelDraft(draft), []);
-  const parsed = YAML.parse(updateWorldModelYaml('version: 2\nworldModel: {}\n', draft));
-  assert.equal(parsed.worldModel.format, 'registered-v4');
-  assert.deepEqual(parsed.worldModel.views, ['dev.impact@4', 'arch.contracts']);
-  assert.deepEqual(parsed.worldModel.v4, draft.v4);
-  assert.equal(parsed.worldModel.generation.parallel, false);
-});
-
-test('world-model editor rejects unsafe paths and unconfirmed model-driven automation', () => {
-  const base = {
-    views: ['dev.impact'], outputDir: 'singularity/world-model',
-    stateFetchTimeoutMs: 10000, generation: { parallel: true, maxWorkers: 4 },
-    materialization: { mode: 'on-demand', publish: 'governed', lookahead: 'none', depth: 'phase', confirmation: 'automatic' },
-    grounding: 'warn', staleness: 'warn',
-    injection: { placeholder: '{{WORLD_MODEL}}', mode: 'append', maxBytes: 32768 }
-  };
-  assert.match(validateWorldModelDraft(base).join(' '), /Automatic materialization requires deterministic light depth/);
-  assert.match(validateWorldModelDraft({ ...base, materialization: { ...base.materialization, confirmation: 'prompt' }, outputDir: '../outside' }).join(' '), /repository-relative path/);
-  assert.match(validateWorldModelDraft({ ...base, materialization: { ...base.materialization, confirmation: 'prompt' }, views: ['Business View'] }).join(' '), /installed active contracts.*unsupported: Business View/);
-  assert.match(validateWorldModelDraft({ ...base, materialization: { ...base.materialization, confirmation: 'prompt' }, views: ['business'] }).join(' '), /unsupported: business/);
-  assert.deepEqual(validateWorldModelDraft({ ...base, materialization: { ...base.materialization, confirmation: 'prompt' }, views: ['dev.impact'] }), []);
-  assert.match(validateWorldModelDraft({ ...base, materialization: { ...base.materialization, confirmation: 'prompt' }, v4: { totalMaximumOutputTokens: 0 } }).join(' '), /1 through 1000000/);
+test('source scope editor rejects unsafe, duplicate and glob roots', () => {
+  assert.deepEqual(validateWorldModelDraft({ sourceRoots: ['src', 'apps/payments'], sharedRoots: ['packages/contracts'] }), []);
+  assert.deepEqual(validateWorldModelDraft({ sourceRoots: [], sharedRoots: [] }), []);
+  for (const bad of ['../outside', '/etc', 'C:\\repo', 'src\\main', 'src/*', '.', ' ']) {
+    assert.match(validateWorldModelDraft({ sourceRoots: [bad], sharedRoots: [] }).join(' '),
+      /Source roots entry .* must be a repository-relative directory without '\.\.' or glob characters/, bad);
+  }
+  assert.match(validateWorldModelDraft({ sourceRoots: [], sharedRoots: ['libs', 'libs'] }).join(' '),
+    /Shared roots must not contain duplicates/);
+  assert.throws(() => updateWorldModelYaml('version: 2\n', { sourceRoots: ['../outside'], sharedRoots: [] }),
+    /repository-relative directory/);
 });
 
 test('MCP editor changes only the governed server registry and preserves YAML comments', () => {
@@ -889,246 +678,6 @@ test('the Center says whether workflow progress is recorded, and where', () => {
   const on = { ...snapshot, definition: { ...snapshot.definition, ledger: { enabled: true, branch: 'state' } } };
   assert.equal(configurationCenterView(on).ledger.summary, 'state on state');
   assert.match(centerHtml(on), /orphan branch &#39;state&#39;/);
-});
-
-test('the world model shows its current state, not only its policy', () => {
-  const built = {
-    ...snapshot,
-    worldModel: {
-      root: 'singularity/world-model', generatedAt: '2026-01-01T00:00:00Z', rebuildReason: null,
-      views: [{ id: 'arch.contracts', references: ['a', 'b'] }, { id: 'biz.rules', references: [] }],
-      files: [{ path: 'singularity/world-model/views/arch.contracts.md', content: '# Contracts\n' }]
-    }
-  };
-  const html = centerHtml(built, 'world-model');
-  assert.match(html, /data-open-path="singularity\/world-model\/views\/arch\.contracts\.md"/);
-  assert.doesNotMatch(html, /data-open-path="singularity\/world-model\/views\/biz\.rules\.md"/,
-    'a view without exact captured content is never offered as a file');
-  assert.match(html, /no references/);
-  assert.match(html, /data-action="build-world-model">Build \/ refresh/,
-    'an already-built model keeps an explicit, reviewed refresh path');
-});
-
-test('a pinned legacy model cannot make the approved v4 catalog appear materialized', () => {
-  const mixed = {
-    ...snapshot,
-    definition: {
-      ...snapshot.definition,
-      worldModel: { format: 'registered-v4', views: ['arch.contracts@4', 'dev.impact@4'] }
-    },
-    worldModel: {
-      kind: 'world-model-ide-slice', format: 'legacy-v3', status: 'ready',
-      root: 'singularity/world-model', generatedAt: '2026-10-08T04:46:11.663Z',
-      readiness: { ready: true, source: 'state-branch' },
-      views: [{ id: 'architecture', status: 'available', path: 'singularity/world-model/views/architecture.brief.md' }]
-    }
-  };
-  const view = configurationCenterView(mixed);
-  assert.equal(view.worldModelStatus.built, true);
-  assert.ok(view.worldModelStatus.views.every((entry) => !entry.generated && !entry.canOpenPath));
-  const html = centerHtml(mixed, 'world-model');
-  assert.doesNotMatch(html, /data-open-path="singularity\/world-model\/views\/arch\.contracts\.md"/);
-  assert.match(html, /does not contain the configured registered-v4 views/);
-  assert.match(html, /Select the workspace repository checkout/);
-  assert.equal(configurationPathTarget(mixed, 'singularity/world-model/views/arch.contracts.md').kind, 'unavailable');
-});
-
-test('a built model with no matching view records never offers invented file links', () => {
-  const missing = {
-    ...snapshot,
-    worldModel: {
-      kind: 'world-model-ide-slice', root: 'singularity/world-model', status: 'ready',
-      generatedAt: '2026-10-08T04:46:11.663Z', views: []
-    }
-  };
-  assert.ok(configurationCenterView(missing).worldModelStatus.views.every((entry) => !entry.generated));
-  assert.doesNotMatch(centerHtml(missing, 'world-model'), /data-open-path=/);
-});
-
-test('available registered views without exact content never fall back to a checkout file', () => {
-  const declared = {
-    ...snapshot,
-    definition: { ...snapshot.definition, worldModel: { format: 'registered-v4', views: ['arch.contracts@4'] } },
-    worldModel: {
-      kind: 'world-model-ide-slice', format: 'wmb-v4', status: 'ready', root: 'knowledge',
-      views: [{ id: 'arch.contracts', status: 'available', path: 'views/arch.contracts.md', expansion: [] }]
-    }
-  };
-  const view = configurationCenterView(declared).worldModelStatus.views[0];
-  assert.equal(view.path, 'knowledge/views/arch.contracts.md');
-  assert.equal(view.generated, true);
-  assert.equal(view.canOpenPath, false);
-  assert.doesNotMatch(centerHtml(declared, 'world-model'), /data-open-path=/);
-  assert.equal(configurationPathTarget(declared, view.path).kind, 'unavailable');
-  const content = '# Registered contracts\n';
-  const captured = { ...declared, worldModel: { ...declared.worldModel, files: [{ path: view.path, content }] } };
-  assert.deepEqual(configurationPathTarget(captured, view.path), { kind: 'captured', path: view.path, content });
-  assert.equal(configurationPathTarget(captured, '../../secret.txt').kind, 'unavailable');
-  assert.match(centerHtml(captured, 'world-model'), /data-open-path="knowledge\/views\/arch\.contracts\.md"/);
-});
-
-test('a verified model with unavailable source comparison is not rendered as never built', () => {
-  const digest = `sha256:${'b'.repeat(64)}`;
-  const unavailable = {
-    ...snapshot,
-    worldModel: {
-      kind: 'world-model-ide-slice', format: 'wmb-v4', status: 'ready',
-      root: 'singularity/world-model', generatedAt: null,
-      authority: { ref: 'refs/remotes/origin/state', commit: 'a'.repeat(40), manifestSha256: digest },
-      source: {
-        sourceManifestSha256: digest, scopeManifestSha256: digest,
-        status: 'unavailable', fresh: false, currentSourceManifestSha256: null,
-        reason: 'WMB_SOURCE_SNAPSHOT_REQUIRED'
-      },
-      rebuildReason: 'The current source cannot be compared safely.',
-      readiness: {
-        status: 'unavailable', ready: false, source: 'state-branch',
-        command: 'singularity-flow wm snapshot --format registered-v4'
-      },
-      views: [], projections: [], expansion: []
-    }
-  };
-  const view = configurationCenterView(unavailable);
-  assert.equal(view.worldModelStatus.built, true);
-  const html = centerHtml(unavailable, 'world-model');
-  assert.match(html, /governed state branch/);
-  assert.doesNotMatch(html, /has no world model yet/);
-});
-
-test('registered-v4 Explorer opens exact state references and keeps full catalogs on demand', () => {
-  const digest = `sha256:${'a'.repeat(64)}`;
-  const viewRef = `sfref:world-model:view:dev.impact:${'a'.repeat(64)}`;
-  const factsRef = `sfref:world-model:facts:all:${'a'.repeat(64)}`;
-  const registered = {
-    ...snapshot,
-    architectureIntent: {
-      workId: 'WRK-CALM', enabled: true, present: true, status: 'approved',
-      phase: 'planning', generation: 2, approved: true, reasons: [],
-      fulfilment: {
-        status: 'recorded-blocking', blocking: true, reportSha256: digest, baseAfterSha256: digest,
-        counts: { fulfilled: 2, missing: 1, unplanned: 1 }
-      }
-    },
-    worldModel: {
-      kind: 'world-model-ide-slice', format: 'wmb-v4', status: 'ready',
-      root: 'singularity/world-model', generatedAt: null, rebuildReason: null,
-      readiness: { status: 'fresh', ready: true, source: 'state-branch', command: null },
-      summary: {
-        views: 1, facts: 12, evidence: 9, derivations: 4,
-        unavailable: 2, contradictions: 1, cacheHits: 1
-      },
-      expansion: [
-        { kind: 'facts', id: 'all', sha256: digest, path: 'catalogs/facts.json', ref: factsRef },
-        ...['unavailable', 'contradictions', 'staleness', 'economics'].map((kind) => ({
-          kind, id: 'all', sha256: digest,
-          ref: `sfref:world-model:${kind}:all:${'a'.repeat(64)}`
-        }))
-      ],
-      projections: [{
-        id: 'arch.calm', version: 1, required: false, status: 'available',
-        path: 'projections/arch.calm.json', sha256: digest,
-        receiptSha256: digest, toolchainLockSha256: digest,
-        counts: { nodes: 2, interfaces: 1, relationships: 1, controls: 1, unavailable: 0, contradictions: 0 },
-        nodes: [
-          { id: 'payments', name: 'Payments', type: 'service', layer: 'delivery', status: 'confirmed',
-            sources: [{ kind: 'capability', reference: 'singularity/capabilities.yml', assurance: 'human-confirmed' }], sourceCount: 1 },
-          { id: 'ledger', name: 'Ledger', type: 'database', layer: 'delivery', status: 'confirmed' }
-        ],
-        relationships: [{
-          id: 'payments-ledger', kind: 'connects', source: 'payments', destinations: ['ledger'], status: 'confirmed'
-        }],
-        controls: [{ id: 'protected-configuration', description: 'Protected policy', mode: 'hard', paths: 3 }],
-        truncated: { nodes: false, relationships: false, controls: false },
-        expansion: {
-          kind: 'projection', id: 'arch.calm', sha256: digest,
-          path: 'projections/arch.calm.json',
-          ref: `sfref:world-model:projection:arch.calm:${'a'.repeat(64)}`
-        }
-      }],
-      views: [{
-        id: 'dev.impact', viewId: 'dev.impact', viewVersion: 4, status: 'available',
-        required: true, path: 'views/dev.impact.md', viewSha256: digest, cache: 'hit',
-        references: [], counts: {
-          total: 12, available: 8, partial: 1, unavailable: 2, contradicted: 1, stale: 0
-        },
-        preview: { text: '# Impact', bytes: 8, truncated: false },
-        expansion: [{ kind: 'view', id: 'dev.impact', sha256: digest, path: 'views/dev.impact.md', ref: viewRef }]
-      }]
-    }
-  };
-  const html = centerHtml(registered, 'world-model');
-  assert.match(html, new RegExp(`data-open-world-model-ref="${viewRef.replaceAll('.', '\\.')}"`));
-  assert.match(html, new RegExp(`data-open-world-model-ref="${factsRef.replaceAll('.', '\\.')}"`));
-  assert.match(html, /Open exact view/);
-  assert.match(html, /evidence \/ derivations/);
-  assert.match(html, /unavailable \/ contradicted/);
-  assert.match(html, /view cache reuse/);
-  assert.match(html, /Unavailable analysis/);
-  assert.match(html, /Contradictions/);
-  assert.match(html, /Staleness receipts/);
-  assert.match(html, /Cache &amp; economics/);
-  assert.match(html, /System architecture/);
-  assert.match(html, /Payments/);
-  assert.match(html, /payments-ledger/);
-  assert.match(html, /wm-architecture-layer-filter/);
-  assert.match(html, /wm-architecture-status-filter/);
-  assert.match(html, /singularity\/capabilities\.yml/);
-  assert.match(html, /Exact provenance/);
-  assert.match(html, /official CALM CLI · strict · offline/);
-  assert.match(html, /Open exact CALM JSON/);
-  assert.match(html, /Story plan/);
-  assert.match(html, /approved Story-local architecture overlay/);
-  assert.match(html, /Active Story architecture · <code>WRK-CALM<\/code>/);
-  assert.match(html, /Fulfilment: <strong>blocking<\/strong>/);
-  assert.match(html, /fulfilled 2 · missing 1 · unplanned 1/);
-  assert.match(html, /Prepare export/);
-  assert.match(html, /Compare/);
-  assert.match(html, /Ordered flows/);
-  assert.match(html, /Evidence gaps and contradictions/);
-  assert.match(CONFIGURATION_CENTER_SCRIPT, /type: 'open-world-model-ref'/);
-  assert.match(extensionSource, /message\.type === 'open-world-model-ref'/);
-  assert.match(extensionSource, /show registered world model/);
-  assert.match(extensionSource, /Buffer\.from\(page\.content, 'base64'\)/);
-  assert.match(extensionSource, /architecture-export/);
-  assert.match(extensionSource, /architecture-planned/);
-  assert.match(extensionSource, /approved planned architecture for the active Story/);
-  assert.match(extensionSource, /isPartialQuery: true/);
-});
-
-test('a stale world model offers the rebuild the engine asked for, in its own words', () => {
-  const stale = {
-    ...snapshot,
-    worldModel: {
-      root: 'singularity/world-model', generatedAt: '2026-01-01T00:00:00Z',
-      rebuildReason: '12 files changed since the world model was built.', views: []
-    }
-  };
-  const html = centerHtml(stale, 'world-model');
-  assert.match(html, /12 files changed since the world model was built\./);
-  assert.match(html, /data-action="build-world-model"/);
-});
-
-test('a governed state-branch model is shown as built without a worktree manifest', () => {
-  const governed = {
-    ...snapshot,
-    worldModel: {
-      root: 'singularity/world-model', generatedAt: null, rebuildReason: null,
-      readiness: { status: 'ready', ready: true, source: 'state-branch', command: 'singularity-flow wm ensure --phase intake' },
-      views: []
-    }
-  };
-  const view = configurationCenterView(governed);
-  assert.equal(view.worldModelStatus.built, true);
-  assert.doesNotMatch(configurationCenterHtml(view, 'world-model', null, null, null, []), /has no world model yet/);
-});
-
-test('a repository with no world model is told so, not shown an empty list', () => {
-  const none = { ...snapshot, worldModel: undefined };
-  const view = configurationCenterView(none);
-  assert.equal(view.worldModelStatus.built, false);
-  const html = centerHtml(none, 'world-model');
-  assert.match(html, /no world model yet/);
-  assert.match(html, /data-action="build-world-model"/);
 });
 
 test('model independence is reported with whatever is blocking it', () => {

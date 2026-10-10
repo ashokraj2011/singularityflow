@@ -233,7 +233,8 @@ test('no-model fallback keeps human authorship in the publication command and re
   const preview = await phasePrepublish(f.root, f.config, f.workflow, f.phase, { modelEnabled: false });
   assert.equal(preview.status, 'ready');
   assert.equal(preview.producer, 'human');
-  assert.equal(preview.grounding.status, 'not-applicable');
+  // An old Story pinned enforce: the removed registered World Model grounding check reports off.
+  assert.equal(preview.grounding.status, 'off');
   assert.equal(preview.commands.publish, 'singularity-flow phase publish planning --authored human --channel manual-in-place --no-model');
   for (const key of ['recover', 'recheck', 'draftCheck']) assert.match(preview.commands[key], / --no-model$/);
   await assertPhasePublicationReadiness(f.root, f.config, f.workflow, f.phase, { modelEnabled: false });

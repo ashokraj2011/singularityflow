@@ -60,9 +60,6 @@ async function repository() {
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.git.publish = 'off';
   workflow.ledger.enabled = false;
-  workflow.worldModel.grounding = 'enforce';
-  workflow.worldModel.staleness = 'warn';
-  workflow.worldModel.materialization.publish = 'governed';
   await writeFile(workflowFile, YAML.stringify(workflow));
 
   const portfolioFile = path.join(root, 'singularity/portfolio.yml');

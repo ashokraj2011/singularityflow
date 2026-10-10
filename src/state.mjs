@@ -110,11 +110,8 @@ import { compareRepositoryIdentity } from './repository-change-set.mjs';
 import {
   applyCapabilityPolicyToWorkResolution,
   assertCapabilitySource,
-  capabilityWorldModelGrounding,
-  materializeCapabilityWorldModelPack,
   resolveLifecycleCapability
 } from './capability-context.mjs';
-import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { verifyGateRecoveryReopenPlan } from './gate-recovery.mjs';
 import {
@@ -219,9 +216,6 @@ import {
   verifyWorkflowSnapshot, verifyRejectedSkillVersionReviews
 } from './workflow-snapshots.mjs';
 import {
-  prepareStoryWorldModelHistoryPin
-} from './world-model/history/story-grounding-activation.mjs';
-import {
   referenceRepositoryContextMarkdown, storyReferenceRepositories, verifyReferenceRepositories,
   writeReferenceRepositoryManifest
 } from './reference-repositories.mjs';
@@ -266,7 +260,6 @@ import { diagnoseSkillHostReadiness } from './skp-host-readiness.mjs';
 import { gateRefusal } from './evidence/gate-refusal.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
 import { obligationId } from './evidence/vocabulary.mjs';
-import { registeredWorldModelOn } from './world-model-policy.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -1000,7 +993,6 @@ export async function createWorkflow(root, config, {
   readinessRepositories = [],
   testRecoveryPlan = null,
   executionOrigin = null,
-  worldModelAuthorityRefreshes = {},
   approvedConfigurationSnapshot = null,
   baselineFailures = null
 } = {}) {
@@ -1160,11 +1152,8 @@ export async function createWorkflow(root, config, {
     assertApprovalPolicyAttainable(pinnedApprovalAuthorities, phase.approval, phase.id);
   }
   snapshotState.configurationSource = await readConfigurationSource(root, { verify: true });
-  // Benchmark B is an explicit generic control. A stricter capability policy must not silently
-  // re-introduce world-model context into that arm; every other work type retains normal merging.
-  snapshotState.worldModelGrounding = resolution.intelligence?.worldModel === 'off'
-    ? 'off'
-    : capabilityWorldModelGrounding(snapshotState.worldModelGrounding, capability);
+  // The registered World Model was removed; every Story pins its grounding off.
+  snapshotState.worldModelGrounding = 'off';
   snapshotState.worldModelStaleness = resolution.worldModelStaleness ?? config.worldModel?.staleness ?? 'warn';
   snapshotState.storage = structuredClone(resolution.storage ?? null);
   snapshotState.capability = capability;
@@ -1338,16 +1327,6 @@ export async function createWorkflow(root, config, {
     codeDelivery: workflow.resolution.codeDelivery,
     configurationSource: workflow.resolution.configurationSource
   });
-  if (capability && !worldModelDisabledForWorkflow(workflow)) {
-    await mkdir(workDir(root, config, id), { recursive: true });
-    const context = await materializeCapabilityWorldModelPack(root, capability, {
-      itemDirectory: workDir(root, config, id),
-      itemRelative: workDirRelative(config, id),
-      views: [...new Set(resolution.phases.flatMap((phase) => phase.worldModel?.views ?? []))],
-      authorityRefreshes: worldModelAuthorityRefreshes
-    });
-    workflow.resolution.capability = { ...capability, context };
-  }
   const referenceManifest = await writeReferenceRepositoryManifest(
     root, config, id, workflow.resolution.referenceRepositories ?? []
   );
@@ -1359,18 +1338,6 @@ export async function createWorkflow(root, config, {
     template.path = posix(path.relative(root, destination)); delete template.cachePath;
     workflow.resolution.phases.find((phase) => phase.id === phaseId).templateSnapshot = { ...template };
   }
-  // Select one exact, already-published WMP history cut before WFA seals the Story policy. This is
-  // deliberately read-only: an absent model/view remains an explicit unavailable pin and never
-  // triggers extraction, rendering, model use, cache writes, or publication during Story start.
-  // Once captured below, every phase re-resolves these exact keys and proves the pinned commit is
-  // still admitted by the configured state authority; advancing the state tip cannot repin a Story.
-  // While the registered World Model is off the Story records an explicit "not configured" pin and
-  // nothing is read from the state branch.
-  workflow.resolution.worldModelHistoryPin = await prepareStoryWorldModelHistoryPin(root, {
-    definition: registeredWorldModelOn(config) ? config : { ...config, worldModel: { ...config.worldModel, format: null } },
-    workflow,
-    approvedConfigurationSnapshot
-  });
   // Capture before accepted Story state is written. This rewrites phase-template references to
   // immutable blobs and stamps the exact resulting effective-policy digest.
   workflow.workflowSnapshot = await captureWorkflowSnapshot(root, config, workflow, {

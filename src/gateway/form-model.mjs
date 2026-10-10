@@ -43,12 +43,6 @@ const CONTROLS = Object.freeze({
   'opaque-cursor': 'line',
   'context-handle': 'line',
   /**
-   * Registered world-model views are a bounded list, not a comma-delimited command fragment.
-   * A textarea preserves that boundary visibly: one exact `view.id[@version]` per line. The form
-   * adapter below turns those lines into the array the operation schema owns.
-   */
-  'world-model-views': 'multiline',
-  /**
    * Two path types, two different pickers `[UXH:REQ-070]`.
    *
    * `relative-path` is inside the repository and gets the workspace-relative picker the spec asks
@@ -201,14 +195,6 @@ export function coerceForm(schemaId, values) {
       coerced[name] = Number(value.trim());
     } else if (type === 'boolean' && (value === 'true' || value === 'false')) {
       coerced[name] = value === 'true';
-    } else if (type === 'world-model-views' && typeof value === 'string') {
-      // Newlines are the only list syntax the form introduces. Commas remain ordinary invalid
-      // characters, so a pasted shell fragment can never be reinterpreted as multiple views.
-      coerced[name] = value.split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
-    } else if (type === 'world-model-views' && Array.isArray(value)) {
-      // Repeated CLI flags arrive as an array. Preserve order and duplicates here; normalization
-      // belongs to the authoritative argument validator, not to presentation coercion.
-      coerced[name] = value.map((entry) => typeof entry === 'string' ? entry.trim() : entry);
     } else {
       coerced[name] = value;
     }

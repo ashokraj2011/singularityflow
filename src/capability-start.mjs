@@ -11,7 +11,6 @@
  * VS Code surface can show what would happen before anything is fetched.
  */
 import readline from 'node:readline/promises';
-import { registeredWorldModelOn } from './world-model-policy.mjs';
 import { stdin as input, stdout as output } from 'node:process';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -37,7 +36,6 @@ import {
 } from './workspace-context.mjs';
 import { resolveLifecycleCapability } from './capability-context.mjs';
 import { loadDefinition } from './config.mjs';
-import { refreshWorldModelV4Authority } from './world-model/authority-refresh.mjs';
 import { worldModelStateAuthority } from './state-authority.mjs';
 import {
   resolveApprovedConfigurationCapability, resolveStoryConfigurationAuthority,
@@ -71,73 +69,11 @@ export function capabilityPublicationWorkers(total, requested = DEFAULT_REMOTE_W
     Math.max(1, total)));
 }
 
-function registeredWorldModelConfig(definition) {
-  // A repository still configured for the retired legacy-v3 World Model has no registered model to start from.
-  if (!definition || definition.worldModel?.format === 'legacy-v3') return null;
-  // Nothing to prefetch while the registered World Model is off.
-  if (!registeredWorldModelOn(definition)) return null;
+/** The state branch (the ledger) a candidate repository publishes to, for fetch-reuse checks. */
+function stateBranchAuthority(definition) {
+  if (!definition) return null;
   const authority = worldModelStateAuthority(definition);
-  return {
-    definition: { ...definition, worldModel: { ...(definition.worldModel ?? {}), format: 'registered-v4' } },
-    outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
-    stateBranch: authority.branch,
-    remote: authority.remote
-  };
-}
-
-async function prefetchRegisteredWorldModelAuthority(root, definition, storyRemote) {
-  const config = registeredWorldModelConfig(definition);
-  if (!config) return null;
-  const remoteRef = `refs/remotes/${config.remote}/${config.stateBranch}`;
-  // Story preflight has just prune-fetched this remote, or freshly proved that the operation-local
-  // launch fetch still names the exact base/state/destination tips. Reuse that proof rather than
-  // issuing a second state fetch. An absent tracking ref is positive evidence only at this boundary.
-  if (config.remote === storyRemote) {
-    const commit = refHead(root, remoteRef);
-    return Object.freeze({
-      attempted: true,
-      status: commit ? 'refreshed' : 'remote-absent',
-      remote: config.remote,
-      stateBranch: config.stateBranch,
-      commit: commit ?? null,
-      reusable: true
-    });
-  }
-  try {
-    const refreshed = await refreshWorldModelV4Authority(root, config, { refreshRemote: true });
-    return Object.freeze({
-      attempted: true,
-      status: refreshed.status,
-      remote: config.remote,
-      stateBranch: config.stateBranch,
-      commit: refreshed.commit
-        ?? refHead(root, `refs/remotes/${config.remote}/${config.stateBranch}`)
-        ?? null,
-      // The attempt itself belongs outside the Story transaction. A verified cached result keeps
-      // its existing semantics; an unavailable result becomes a bounded advisory without retrying.
-      reusable: true
-    });
-  } catch (error) {
-    // World-model availability is advisory for Story creation. Carry the bounded failure into the
-    // materializer so it can report the gap without retrying network I/O inside the transaction.
-    return Object.freeze({
-      attempted: true,
-      status: 'unavailable',
-      remote: config.remote,
-      stateBranch: config.stateBranch,
-      commit: null,
-      reusable: true,
-      errorCode: error?.code ?? 'WMB_STATE_AUTHORITY_REFRESH_FAILED',
-      errorMessage: error?.message ?? 'Registered World-Model authority refresh failed.'
-    });
-  }
-}
-
-/** Exact registered-v4 authority observations safe to reuse during Story materialization. */
-export function preflightWorldModelAuthorityRefreshes(preflight = []) {
-  return Object.fromEntries((preflight ?? [])
-    .filter((entry) => entry?.worldModelAuthorityRefresh?.attempted)
-    .map((entry) => [entry.repository, structuredClone(entry.worldModelAuthorityRefresh)]));
+  return { stateBranch: authority.branch, remote: authority.remote };
 }
 
 /**
@@ -166,7 +102,7 @@ async function reusableLaunchFetch(candidate, remote, baseBranch, storyBranch, p
   const storyRef = `refs/remotes/${remote}/${storyBranch}`;
   const remoteBaseRef = `refs/heads/${baseBranch}`;
   const remoteStoryRef = `refs/heads/${storyBranch}`;
-  const config = registeredWorldModelConfig(candidate.worldModelDefinition);
+  const config = stateBranchAuthority(candidate.worldModelDefinition);
   const state = config?.remote === remote ? config : null;
   if (state && (proof.stateBranch !== state.stateBranch
       || (proof.stateCommit !== null
@@ -219,7 +155,7 @@ function observedTipsCurrent(candidate, remote, baseBranch, storyBranch, tips) {
   const remoteBase = observed.refs.get(baseRef);
   if (!remoteBase || refHead(candidate.root, `refs/remotes/${remote}/${baseBranch}`) !== remoteBase) return false;
   if (observed.refs.has(storyRef) || refHead(candidate.root, `refs/remotes/${remote}/${storyBranch}`) !== null) return false;
-  const config = registeredWorldModelConfig(candidate.worldModelDefinition);
+  const config = stateBranchAuthority(candidate.worldModelDefinition);
   const state = config?.remote === remote ? config : null;
   if (!state) return true;
   const stateRef = `refs/heads/${state.stateBranch}`;
@@ -907,18 +843,12 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
         env: transport.env
       });
     }
-    const worldModelAuthorityRefresh = processResultSucceeded(result)
-      ? await prefetchRegisteredWorldModelAuthority(
-          candidate.root, candidate.worldModelDefinition, remote
-        )
-      : null;
     return {
       ...candidate,
       // Bind the fetch to the exact URL captured above. The explicit destination refspec retains
       // the normal remote-tracking layout without letting a concurrent `remote set-url` redirect it.
       result,
-      fetchReused,
-      worldModelAuthorityRefresh
+      fetchReused
     };
   });
   const failedFetch = fetched.find((entry) => !processResultSucceeded(entry.result));
@@ -931,7 +861,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   }
 
   const candidatesToProbe = [];
-  for (const { repository, root, pushAuthority, worldModelAuthorityRefresh, fetchReused } of fetched) {
+  for (const { repository, root, pushAuthority, fetchReused } of fetched) {
     const base = plan.resolution.resolved[repository.id];
     const sourceRef = `refs/remotes/${remote}/${base.branch}`;
     if (!refExists(root, sourceRef)) {
@@ -964,7 +894,6 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       remoteFingerprint: pushAuthority?.fingerprint ?? null,
       transportRemote: pushAuthority?.url ?? null,
       publicationAuthority: pushAuthority,
-      worldModelAuthorityRefresh,
       fetchReused,
       publishRequired
     });

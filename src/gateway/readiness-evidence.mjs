@@ -7,7 +7,6 @@ import { loadDefinition } from '../config.mjs';
 import { evaluateAstLifecycleGate, verifyAstLifecycleReceipt } from '../ast-lifecycle.mjs';
 import { verifyClarificationRecord } from '../clarifications.mjs';
 import { normalizeExternalCommand } from '../external-command-policy.mjs';
-import { verifyGroundingRecord } from '../grounding.mjs';
 import { head } from '../git.mjs';
 import { buildRepositorySubjectIndex } from '../repository-subject-index.mjs';
 import {
@@ -92,14 +91,12 @@ async function clarificationsRow(root, config, workflow, phase) {
   if (authorship?.producer !== 'governed-agent') {
     return row('clarifications', 'met', 'lifecycle', `authorship:${authorship?.producer ?? 'unknown'}`, { required: 'false' });
   }
-  const grounding = await verifyGroundingRecord(root, config, workflow, phase, { generation });
   const verified = await verifyClarificationRecord(root, config, workflow, phase, {
-    generation, groundingRecord: grounding.record
+    generation, groundingRecord: null
   });
-  // A `when-needed` policy with no record is an explicit pass from the verifier, not missing
-  // evidence. Conversely, a broken grounding record must not be hidden by a clarification pass.
-  const errors = [...(grounding.errors ?? []), ...(verified.errors ?? [])];
-  const warnings = [...(grounding.warnings ?? []), ...(verified.warnings ?? [])];
+  // A `when-needed` policy with no record is an explicit pass from the verifier, not missing evidence.
+  const errors = [...(verified.errors ?? [])];
+  const warnings = [...(verified.warnings ?? [])];
   const state = errors.length ? 'unmet' : 'met';
   return row('clarifications', state, 'evidence',
     verified.record ? `${verified.path}:${verified.sha256}` : null,

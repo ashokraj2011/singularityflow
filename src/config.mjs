@@ -22,7 +22,6 @@ import { renderPreservingFormatting } from './yaml-formatting.mjs';
 import { scopedRead, withReadScope } from './read-scope.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { assertAttachedLibrarySkills } from './skill-library.mjs';
-import { groundingMode } from './grounding.mjs';
 import { assertRegisteredWorldModelMode, guidanceGroundingMode } from './world-model-policy.mjs';
 import {
   discoverAgents,
@@ -79,7 +78,7 @@ import {
 import { AUTHORING_SKILL_ID, authoringSkillCatalog } from './authoring-skills.mjs';
 import { normalizeIntegrations, normalizeStepActions, pinStepActions } from './step-actions.mjs';
 import {
-  normalizeWorkTypeIntelligence, worldModelModeForIntelligence
+  normalizeWorkTypeIntelligence
 } from './intelligence-policy.mjs';
 import { normalizeTokenEconomy } from './token-economy.mjs';
 import { normalizeAutoPolicy, normalizeAutoWorkTypePolicy } from './auto/auto-policy.mjs';
@@ -87,7 +86,7 @@ import { normalizeAdhocPolicy } from './adhoc/policy.mjs';
 import { normalizeSourceRoots, worldModelSourceScope } from './source-scope.mjs';
 import { validateConfiguredSkillPhase } from './skp-contract.mjs';
 import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/registry/views.mjs';
-import { disabledArchitectureIntent, dropRemovedSettings } from './removed-settings.mjs';
+import { disabledArchitectureIntent, dropRemovedSettings } from './removed-features.mjs';
 import { worldModelStateAuthority } from './state-authority.mjs';
 import {
   DEFAULT_WORLD_MODEL_HISTORY_DIR, validateWorldModelHistoryRoots
@@ -2258,7 +2257,8 @@ export function resolveWorkType(definition, workTypeId) {
     referenceRepositoryPolicy: normalizeReferenceRepositoryPolicy(
       workType.references, `Work type '${workTypeId}' references`
     ),
-    worldModelGrounding: worldModelModeForIntelligence(groundingMode(definition), intelligence),
+    // The registered World Model was removed; Stories keep pinning its grounding, off.
+    worldModelGrounding: 'off',
     // Architecture intent was removed; Stories keep pinning it, disabled, so their policy shape is unchanged.
     architectureIntent: disabledArchitectureIntent(),
     ledger: normalizeLedgerConfig(definition.ledger ?? {}),
@@ -2337,8 +2337,8 @@ export async function snapshotResolution(root, definition, resolved) {
     worldModelOutputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
     governedRoots: [...(definition.governedRoots ?? GOVERNED_ROOTS)],
     inputsMode: resolved.inputsMode ?? configuredInputsMode(definition),
-    worldModelGrounding: resolved.worldModelGrounding ?? groundingMode(definition),
-    worldModelMaterialization: materializationPolicy(definition),
+    worldModelGrounding: resolved.worldModelGrounding ?? 'off',
+    worldModelMaterialization: null,
     // Prompt assembly is Story policy, not a live repository preference. Capture injection,
     // context, view, and agent-view semantics so a later configuration refresh cannot rewrite an
     // in-flight Story's instructions. Machine provider credentials remain outside this object.

@@ -1,5 +1,5 @@
 import { didYouMean, nearestNames, optionBoolean, optionString, SingularityFlowError } from './util.mjs';
-import { retiredWorldModelFormatError } from './world-model-format.mjs';
+import { REMOVED_WORLD_MODEL_SUBCOMMANDS, removedWorldModelError } from './removed-features.mjs';
 
 const READ_ONLY = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'about', 'help', 'show', 'why', 'choices', 'inbox', 'home', 'recommend', 'status', 'approvals', 'progress', 'receipt', 'guide', 'logs', 'doctor', 'nextsteps', 'snapshot', 'validate', 'explain', 'comprehension', 'precheck']);
 const STRUCTURED = new Set(['specify', 'plan', 'implement', 'verify', 'converge', 'start', 'resume', 'return', 'home', 'recommend', 'status', 'approvals', 'progress', 'report', 'receipt', 'impact', 'telemetry', 'context', 'tokens', 'help-metrics', 'doctor', 'inputs', 'reinstall', 'snapshot', 'validate', 'gate', 'clarification', 'explain', 'why', 'fault', 'fix', 'repair', 'recover', 'goal', 'journal', 'integrations', 'run', 'auto', 'adhoc', 'land', 'intent', 'program', 'process', 'policy', 'task', 'request', 'evidence', 'comprehension', 'change', 'proof', 'delivery', 'init', 'precheck', 'configuration', 'onboard', 'authority', 'cache', 'revision', 'revise', 'env', 'skill', 'product', 'review-source']);
@@ -169,35 +169,16 @@ export function commandDefinition(name) {
   return COMMAND_REGISTRY.find((entry) => entry.name === normalized);
 }
 
-const WM_MODEL_OPERATIONS = new Set(['build']);
+// `wm` composes prompts and reads repository knowledge, AST context and code-graph views. The
+// registered (v4) and legacy-v3 World Model subcommands were removed and are refused by name before
+// any handler loads (see removed-features.mjs).
 const WM_NEVER_OPERATIONS = new Set([
-  'inject', 'compose', 'show-prompt', 'brief', 'cleanup', 'context',
-  'facts', 'check', 'cache', 'availability', 'status', 'design-inventory',
-  'read', 'read-views', 'read-contract', 'migrate-views'
+  'inject', 'compose', 'show-prompt', 'brief', 'cache', 'design-inventory',
+  'read', 'read-views', 'read-contract'
 ]);
-// Subcommands of the legacy-v3 World Model, removed in a hard cutover. They are refused by name
-// before any handler loads, so a script that still calls one learns what replaced it.
-const WM_RETIRED_OPERATIONS = new Set(['init', 'prompt', 'budget', 'light']);
-// The registered-v4 dispatcher has its own closed public surface. Keep it here as well as in the
-// handler: command admission happens before that handler is imported, so an omitted entry makes a
-// fully implemented command unreachable from the CLI. The registry test compares this vocabulary
-// with the public WMB command set and the operation catalog, preventing that split-brain state.
-const WMB_V4_READ_OPERATIONS = new Set([
-  'plan', 'status', 'availability', 'ensure', 'manifest', 'show', 'facts', 'evidence',
-  'derivation', 'validate', 'check', 'validate-view', 'verify-cache', 'views',
-  'view-contract', 'extractors', 'doctor', 'context'
-]);
-const WMB_V4_EXECUTION_OPERATIONS = new Set(['build', 'regenerate', 'migrate']);
-const WMB_V4_MODEL_FREE_MUTATIONS = new Set(['snapshot', 'refresh-authority']);
-const WMB_V4_HISTORY_ACTIONS = Object.freeze(['list', 'show']);
-const WMB_V4_OPERATIONS = new Set([
-  ...WMB_V4_READ_OPERATIONS, ...WMB_V4_EXECUTION_OPERATIONS, ...WMB_V4_MODEL_FREE_MUTATIONS
-]);
-const WMB_V4_MODEL_COMPOSERS = new Set(['model', 'model-required']);
 const WM_AST_READ_ACTIONS = new Set(['doctor', 'status', 'context', 'query', 'gate']);
 const WM_AST_MUTATION_ACTIONS = new Set(['build', 'warm']);
 const WM_AST_ACTIONS = Object.freeze([...WM_AST_READ_ACTIONS, ...WM_AST_MUTATION_ACTIONS, 'cache', 'evidence', 'pack', 'preference']);
-const WM_RECOVERY_ACTIONS = Object.freeze(['list', 'inspect', 'publish']);
 // Repository knowledge reads the committed tree and writes only its machine-local cache; no model, no governed state.
 const WM_KNOWLEDGE_ACTIONS = Object.freeze(['build', 'show', 'slice', 'status', 'items', 'eval', 'explain', 'brief', 'calls', 'areas', 'confirm', 'correct', 'reject']);
 // Reviews write docs/knowledge/confirmations.yml in the working tree (committed by the person, with the code).
@@ -222,8 +203,7 @@ const WORKSPACE_READ_OPERATIONS = new Set([
   'migrate-schemas'
 ]);
 const WM_READ_OPERATIONS = new Set([
-  'show-prompt', 'brief', 'context', 'facts', 'check', 'availability', 'status',
-  'design-inventory', 'read', 'read-views', 'read-contract'
+  'show-prompt', 'brief', 'design-inventory', 'read', 'read-views', 'read-contract'
 ]);
 const WORKSPACE_IMPACT_READ_OPERATIONS = new Set(['list', 'show']);
 /** Scanning for credentials is pattern matching. A model in this path would be both slower and a way to leak the thing being looked for. */
@@ -487,10 +467,7 @@ export const RESOLVER_SUBCOMMANDS = Object.freeze({
   product: PRODUCT_SUBCOMMANDS,
   ...Object.fromEntries(Object.entries(SGOS_SUBCOMMANDS)
     .map(([name, actions]) => [name, Object.freeze([...actions.read, ...actions.mutation])])),
-  wm: Object.freeze([...new Set([
-    ...WM_MODEL_OPERATIONS, ...WM_NEVER_OPERATIONS, ...WMB_V4_OPERATIONS,
-    'ensure', 'ast', 'recovery', 'history'
-  ])]),
+  wm: Object.freeze([...new Set([...WM_NEVER_OPERATIONS, 'ast', 'knowledge'])]),
   workspace: Object.freeze([
     'copilot', 'impact', 'bootstrap', 'refresh-configuration', 'reinitialize',
     ...WORKSPACE_NEVER_OPERATIONS, ...WORKSPACE_SUBCOMMAND_ALIASES.keys()
@@ -1080,19 +1057,8 @@ function unclassified(id) {
 }
 
 /** registered-v4 is the only World Model; asking for any other format is refused before a handler loads. */
-function assertRegisteredWorldModelRequest(options) {
-  const requested = optionString(options, 'format');
-  if (requested && !['v4', 'wmb-v4', 'registered-v4'].includes(requested)) {
-    throw retiredWorldModelFormatError(`--format ${requested}`);
-  }
-}
-
-function registeredV4Composer(options, context) {
-  return optionString(options, 'composer') ?? context?.worldModel?.composer ?? 'deterministic';
-}
-
-function resolveWorldModelOperation(definition, positionals, options, context = {}) {
-  const subcommand = positionals[1] ?? 'check';
+function resolveWorldModelOperation(definition, positionals, options) {
+  const subcommand = positionals[1] ?? '';
   if (subcommand === 'ast') {
     const action = positionals[2] ?? 'status';
     if (WM_AST_READ_ACTIONS.has(action)) return never(`wm.ast.${action}`, definition, 'read');
@@ -1132,20 +1098,8 @@ function resolveWorldModelOperation(definition, positionals, options, context = 
     if (action === 'brief') return optional('wm.knowledge.brief', 'wm.knowledge.brief.deterministic', { ...definition, classification: 'read' });
     return never(`wm.knowledge.${action}`, definition, WM_KNOWLEDGE_REVIEW_ACTIONS.has(action) ? 'mutation' : 'read');
   }
-  if (subcommand === 'recovery') {
-    const action = positionals[2] ?? 'list';
-    if (!WM_RECOVERY_ACTIONS.includes(action)) return unknownSubcommand('wm recovery', action, WM_RECOVERY_ACTIONS, 'action');
-    return never(`wm.recovery.${action}`, definition, action === 'publish' ? 'mutation' : 'read');
-  }
-  if (subcommand === 'history') {
-    const action = positionals[2] ?? 'list';
-    if (!WMB_V4_HISTORY_ACTIONS.includes(action)) {
-      return unknownSubcommand('wm history', action, WMB_V4_HISTORY_ACTIONS, 'action');
-    }
-    return never(`wm.history.${action}`, definition, 'read');
-  }
-  if (WM_RETIRED_OPERATIONS.has(subcommand)) throw retiredWorldModelFormatError(`wm ${subcommand}`);
-  assertRegisteredWorldModelRequest(options);
+  if (REMOVED_WORLD_MODEL_SUBCOMMANDS.has(subcommand)) throw removedWorldModelError(`wm ${subcommand}`);
+  if (optionBoolean(options, 'state-only') || optionString(options, 'format')) throw removedWorldModelError('wm --format');
   const id = `wm.${subcommand}`;
   // Rendering a handoff is observational, but --record-audit deliberately creates the immutable
   // generation prompt/receipt and appends the exact VS Code handoff to prompt audit. Give that
@@ -1154,22 +1108,6 @@ function resolveWorldModelOperation(definition, positionals, options, context = 
   if (subcommand === 'show-prompt' && optionBoolean(options, 'record-audit')) {
     return never('wm.show-prompt.record-audit', definition, 'mutation');
   }
-  if (subcommand === 'ensure') return never('wm.ensure.registered-v4', definition, 'read');
-  if (WM_MODEL_OPERATIONS.has(subcommand)) {
-    if (!WMB_V4_MODEL_COMPOSERS.has(registeredV4Composer(options, context))) {
-      return never('wm.build.deterministic', definition, 'mutation');
-    }
-    return required(id);
-  }
-  if (WMB_V4_EXECUTION_OPERATIONS.has(subcommand)) {
-    return WMB_V4_MODEL_COMPOSERS.has(registeredV4Composer(options, context))
-      ? required(id)
-      : never(`${id}.deterministic`, definition, 'mutation');
-  }
-  if (WMB_V4_MODEL_FREE_MUTATIONS.has(subcommand)) {
-    return never(id, definition, 'mutation');
-  }
-  if (WMB_V4_READ_OPERATIONS.has(subcommand)) return never(id, definition, 'read');
   if (WM_NEVER_OPERATIONS.has(subcommand)) return never(id, definition, WM_READ_OPERATIONS.has(subcommand) ? 'read' : 'mutation');
   return unknownSubcommand('wm', subcommand, RESOLVER_SUBCOMMANDS.wm);
 }
@@ -1481,7 +1419,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
       ? never('precheck.run.execute', definition, 'mutation')
       : never('precheck.run.plan', definition, 'read');
   }
-  if (definition.name === 'wm') return resolveWorldModelOperation(definition, positionals, options, context);
+  if (definition.name === 'wm') return resolveWorldModelOperation(definition, positionals, options);
   if (definition.name === 'next') return resolveNextOperation(definition);
   if (definition.name === 'workspace') return resolveWorkspaceOperation(definition, positionals, options);
   if (definition.name === 'pr') return resolvePullRequestOperation(definition, positionals, options);
@@ -1537,21 +1475,9 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
 export function operationCatalog() {
   const direct = COMMAND_REGISTRY.flatMap((entry) => entry.operation ? [entry.operation] : []);
   const wmDefinition = commandDefinition('wm');
-  const v4ExclusiveReads = [...WMB_V4_READ_OPERATIONS]
-    .filter((name) => !WM_NEVER_OPERATIONS.has(name) && name !== 'ensure');
   const wm = [...WM_NEVER_OPERATIONS]
     .map((name) => never(`wm.${name}`, wmDefinition, WM_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))
     .concat([never('wm.show-prompt.record-audit', wmDefinition, 'mutation')])
-    .concat([...WM_MODEL_OPERATIONS].map((name) => required(`wm.${name}`)))
-    .concat([never('wm.ensure.registered-v4', wmDefinition, 'read')])
-    .concat(v4ExclusiveReads.map((name) => never(`wm.${name}`, wmDefinition, 'read')))
-    .concat([...WMB_V4_MODEL_FREE_MUTATIONS].map((name) => never(
-      `wm.${name}`, wmDefinition, 'mutation'
-    )))
-    .concat([...WMB_V4_EXECUTION_OPERATIONS].flatMap((name) => [
-      ...(name === 'build' ? [] : [required(`wm.${name}`)]),
-      never(`wm.${name}.deterministic`, wmDefinition, 'mutation')
-    ]))
     .concat([...WM_AST_READ_ACTIONS].map((name) => never(`wm.ast.${name}`, commandDefinition('wm'), 'read')))
     .concat([...WM_AST_MUTATION_ACTIONS].map((name) => never(`wm.ast.${name}`, commandDefinition('wm'), 'mutation')))
     .concat(['symbol', 'references', 'hierarchy', 'module'].map((name) => never(`wm.ast.${name}`, commandDefinition('wm'), 'read')))
@@ -1566,12 +1492,6 @@ export function operationCatalog() {
   wm.push(never('wm.knowledge.explain.deterministic', commandDefinition('wm'), 'read'));
   wm.push(optional('wm.knowledge.brief', 'wm.knowledge.brief.deterministic', { ...commandDefinition('wm'), classification: 'read' }));
   wm.push(never('wm.knowledge.brief.deterministic', commandDefinition('wm'), 'read'));
-  wm.push(...WM_RECOVERY_ACTIONS.map((name) => never(
-    `wm.recovery.${name}`, commandDefinition('wm'), name === 'publish' ? 'mutation' : 'read'
-  )));
-  wm.push(...WMB_V4_HISTORY_ACTIONS.map((name) => never(
-    `wm.history.${name}`, commandDefinition('wm'), 'read'
-  )));
   const workspace = [...WORKSPACE_NEVER_OPERATIONS]
     .map((name) => never(`workspace.${name}`, commandDefinition('workspace'), WORKSPACE_READ_OPERATIONS.has(name) ? 'read' : 'mutation'))
     .concat([required('workspace.copilot'), never('workspace.copilot.preview', commandDefinition('workspace'), 'read')])

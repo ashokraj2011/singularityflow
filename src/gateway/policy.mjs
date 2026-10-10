@@ -79,10 +79,6 @@ export const DEFAULT_GATEWAY_POLICY = Object.freeze({
     'watch.list': 'none',
     'review.packet': 'none',
     'help.explain': 'none',
-    'world-model.inspect': 'none',
-    'world-model.next': 'none',
-    'world-model.explain': 'none',
-    'world-model.build': 'exact-confirm',
 
     'impact.quick.assisted': 'host-confirm',
     'impact.what-if.assisted': 'host-confirm',

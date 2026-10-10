@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { requireApprovalAuthority } from './approval-authority.mjs';
-import { applyCapabilityPolicyToWorkResolution, capabilityWorldModelGrounding } from './capability-context.mjs';
+import { applyCapabilityPolicyToWorkResolution } from './capability-context.mjs';
 import { captureTerminalActionAuthorization } from './action-authorization.mjs';
 import { approvedStoryApprovalAuthorities, resolveApprovedStoryWorkType } from './configuration-branch.mjs';
 import { isTestQualityCommand, phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
@@ -67,8 +67,8 @@ export function testCommandAmendmentPolicy(workflow, candidateResolution, candid
   if (candidateGlobals.obligationGraph) candidateGlobals.obligationGraph = pinnedObligationGraph(candidateGlobals.obligationGraph);
   const retained = workflow.resolution;
   const capability = retained.capability;
-  if (Object.hasOwn(candidateGlobals, 'worldModelGrounding')) candidateGlobals.worldModelGrounding = candidateGlobals.intelligence?.worldModel === 'off'
-    ? 'off' : capabilityWorldModelGrounding(candidateGlobals.worldModelGrounding, capability);
+  // The registered World Model was removed: its pinned grounding is never a policy change.
+  if (Object.hasOwn(candidateGlobals, 'worldModelGrounding')) candidateGlobals.worldModelGrounding = retained.worldModelGrounding;
   if (Object.hasOwn(candidateGlobals, 'worldModelStaleness')) candidateGlobals.worldModelStaleness ??= retained.worldModelPolicy?.staleness ?? 'warn';
   if (capability?.policy?.maxDocumentBytes && candidateGlobals.documents) {
     candidateGlobals.documents.maxFileBytes = Math.min(candidateGlobals.documents.maxFileBytes

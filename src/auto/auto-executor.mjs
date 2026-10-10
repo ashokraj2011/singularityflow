@@ -8,7 +8,6 @@ import { verifyClarificationRecord } from '../clarifications.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
 import { head } from '../git.mjs';
-import { groundingMode as storyGroundingMode, verifyGroundingRecord } from '../grounding.mjs';
 import { readPromptGeneration } from '../inject.mjs';
 import { generationTaskForPhase } from '../model-tasks.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
@@ -16,12 +15,7 @@ import { loadStoryAggregate } from '../state-stores.mjs';
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { tryWindowsTaskkill } from '../platform-process.mjs';
-import {
-  composePhasePrompt, inspectWorkflowGrounding, workflowGroundingMaterializationPlan
-} from '../worldmodel.mjs';
-import {
-  automaticMaterializationDecision, effectiveMaterializationPolicy
-} from '../world-model-materialization.mjs';
+import { composePhasePrompt } from '../worldmodel.mjs';
 import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
 import { evaluateStoryProtectedPaths } from '../configuration-materialization.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from '../work-intervals.mjs';
@@ -78,40 +72,6 @@ function tokenObservation(usage) {
   return { assurance: available ? 'exact' : 'unavailable', totalTokens: available ? total : null };
 }
 
-function autoWorldModelReference(grounding) {
-  const record = grounding?.record;
-  if (!record?.worldModelCommit) return null;
-  const persisted = record.persistedGrounding ?? null;
-  // Exact Story-pinned WMP does not use the mutable projection manifest/source-tree envelope.
-  // Preserve the existing Auto reference protocol by binding its three provenance slots to the
-  // corresponding exact-history owners: packet, accepted Story pin, and composed grounding.
-  // verifyGroundingRecord has already replayed these bytes and re-proved the authority cut before
-  // this adapter runs, so accepting them here does not create a second trust path.
-  const manifestSha256 = persisted
-    ? persisted.packetRef?.sha256 ?? null
-    : record.manifestSha256 ? `sha256:${record.manifestSha256}` : null;
-  const modelSourceTreeSha256 = persisted
-    ? persisted.pinSha256 ?? null
-    : record.modelSourceTreeSha256 ?? null;
-  const composedSourceTreeSha256 = persisted
-    ? persisted.groundingSha256 ?? null
-    : record.composedSourceTreeSha256 ?? null;
-  if (!manifestSha256 || !modelSourceTreeSha256 || !composedSourceTreeSha256) return null;
-  return Object.freeze({
-    protocol: 'auto-world-model-reference-v1',
-    path: grounding.path,
-    workId: record.workId,
-    phase: record.phase,
-    generation: record.generation,
-    agent: record.agent,
-    worldModelCommit: record.worldModelCommit,
-    manifestSha256,
-    renderedSha256: `sha256:${record.renderedSha256}`,
-    modelSourceTreeSha256,
-    composedSourceTreeSha256,
-    fresh: record.fresh === true && record.stale !== true
-  });
-}
 
 function candidateRecoveryAuthority(state, phase, disposition) {
   const baseCheckpointSha256 = state.boundaryCheckpoint?.checkpointSha256 ?? null;
@@ -1084,35 +1044,6 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       }
       const deterministicProducer = phase.generationPolicy?.producer === 'deterministic'
         && !phaseRequiresCodeDelivery(phase);
-      const groundingMode = storyGroundingMode(definition, workflow);
-      if (!deterministicProducer && groundingMode !== 'off') {
-        let readiness = await inspectWorkflowGrounding(worktree, workflow, phase.id, {
-          agent: phase.defaultAgent,
-          refreshRemote: true
-        });
-        if (!readiness.availability.ready) {
-          const policy = effectiveMaterializationPolicy(readiness.config, workflow);
-          const preservation = automaticMaterializationDecision(readiness.availability);
-          const materialization = workflowGroundingMaterializationPlan(readiness, {
-            phaseId: phase.id,
-            automatic: true,
-            publication: policy.publish
-          });
-          if (policy.mode === 'on-demand' && policy.confirmation === 'automatic'
-              && preservation.allowed && materialization.allowed) {
-            try {
-              await runLifecycle(worktree, materialization.argv);
-              readiness = await inspectWorkflowGrounding(worktree, workflow, phase.id, {
-                agent: phase.defaultAgent,
-                refreshRemote: true
-              });
-            } catch {
-              // Optional intelligence must never stop Auto. Prompt composition records an exact
-              // unavailable receipt and authoring continues through ordinary repository access.
-            }
-          }
-        }
-      }
       if (!repairAttempt) {
         await runLifecycle(worktree, ['prepare', phase.id]);
         await assertActive(root, flightId, state.checkpointSha256);
@@ -1207,11 +1138,8 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         composed = await composePhasePrompt(worktree, {
           workId: state.story.workId, phase: phase.id, agent: phase.defaultAgent
         });
-        // Grounding findings are guidance; Auto records the reference and keeps going.
-        const grounding = await verifyGroundingRecord(
-          worktree, definition, workflow, phase, { agent: phase.defaultAgent }
-        );
-        worldModelReference = autoWorldModelReference(grounding);
+        // The registered World Model was removed; Auto flights record no World-Model reference.
+        worldModelReference = null;
         const generationPrompt = await readPromptGeneration(worktree, workflow, phase, {
           workDir: path.join(
             worktree, definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id

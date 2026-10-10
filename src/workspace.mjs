@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { registeredWorldModelOn } from './world-model-policy.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, lstatSync, realpathSync, rmSync } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
@@ -4076,130 +4075,6 @@ export async function createWorkspace(options, {
   };
 }
 
-async function repositoryWorldModelStatus(root) {
-  const defaultOutputDirectory = 'singularity/world-model';
-  const canonicalRoot = await realpath(root);
-  async function regularRepositoryFile(relative) {
-    const absolute = path.resolve(root, relative);
-    if (!absolute.startsWith(`${path.resolve(root)}${path.sep}`)) return { state: 'outside', absolute };
-    const info = await lstat(absolute).catch(() => null);
-    if (!info) return { state: 'missing', absolute };
-    if (!info.isFile() || info.isSymbolicLink()) return { state: 'invalid', absolute };
-    const canonical = await realpath(absolute);
-    if (!canonical.startsWith(`${canonicalRoot}${path.sep}`)) return { state: 'outside', absolute };
-    return { state: 'file', absolute };
-  }
-
-  let outputDirectory = defaultOutputDirectory;
-  let registeredOn = false;
-  const workflow = await regularRepositoryFile('singularity/workflow.yml');
-  if (workflow.state === 'file') {
-    try {
-      const definition = YAML.parse(await readFile(workflow.absolute, 'utf8'));
-      outputDirectory = String(definition?.worldModel?.outputDir ?? defaultOutputDirectory).trim() || defaultOutputDirectory;
-      registeredOn = registeredWorldModelOn(definition);
-    } catch {
-      // Workspace creation must not turn workflow parsing into a world-model gate. The normal
-      // repository validator will report malformed configuration after the clone is opened.
-      outputDirectory = defaultOutputDirectory;
-    }
-  }
-
-  // A repository that has not turned the registered World Model on has none to look for.
-  if (!registeredOn) {
-    return { state: 'off', exists: false, outputDirectory, manifestPath: null, generatedAt: null, warning: null };
-  }
-  const normalizedOutput = outputDirectory.replaceAll('\\', '/').replace(/\/+$/, '');
-  if (!normalizedOutput || path.isAbsolute(normalizedOutput) || normalizedOutput.split('/').includes('..')) {
-    return {
-      state: 'invalid',
-      exists: false,
-      outputDirectory: normalizedOutput || outputDirectory,
-      manifestPath: null,
-      warning: `The configured world-model directory '${outputDirectory}' is not repository-relative.`
-    };
-  }
-  const manifestPath = `${normalizedOutput}/manifest.json`;
-  const manifest = await regularRepositoryFile(manifestPath);
-  if (manifest.state === 'outside') {
-    return {
-      state: 'invalid',
-      exists: false,
-      outputDirectory: normalizedOutput,
-      manifestPath,
-      warning: `The configured world-model manifest escapes the repository: ${manifestPath}.`
-    };
-  }
-  if (manifest.state === 'missing') {
-    // Repository models are normally governed on the state branch and may intentionally be absent
-    // from the application checkout. Resolve that authority before describing the repository as
-    // ungrounded; workspace status is read-only, so it uses already-fetched refs and never triggers
-    // a network request or a rebuild.
-    try {
-      // The same format-aware readiness read every lifecycle surface uses, from cached authority.
-      const { inspectConfiguredGrounding, loadWorldModelConfig } = await import('./worldmodel.mjs');
-      const config = await loadWorldModelConfig(root);
-      const inspected = await inspectConfiguredGrounding(root, config, null, { refreshRemote: false });
-      if (!inspected.availability.ready) throw new SingularityFlowError(inspected.reason ?? 'the registered World Model is not ready');
-      return {
-        state: 'available',
-        exists: true,
-        source: inspected.availability.source,
-        authority: null,
-        historical: false,
-        outputDirectory: normalizedOutput,
-        manifestPath: `${normalizedOutput}/manifest.json`,
-        snapshotRef: inspected.availability.located?.commit ?? inspected.availability.selected?.commit ?? null,
-        generatedAt: inspected.availability.selected?.manifest?.generatedAt ?? null,
-        warning: null
-      };
-    } catch (error) {
-      return {
-        // Preserve the public compatibility value consumed by workspace automation. The more
-        // precise projection diagnosis is additive rather than a silent state-enum replacement.
-        state: 'missing',
-        projectionStatus: 'not-projected',
-        exists: false,
-        source: 'application-projection',
-        outputDirectory: normalizedOutput,
-        manifestPath,
-        generatedAt: null,
-        warning: `No world model is projected into the checked-out application branch at ${manifestPath}; governed state was not available for this read (${error.message}).`
-      };
-    }
-  }
-  if (manifest.state !== 'file') {
-    return {
-      state: 'invalid',
-      exists: false,
-      outputDirectory: normalizedOutput,
-      manifestPath,
-      generatedAt: null,
-      warning: `The repository world-model manifest is not a regular file: ${manifestPath}.`
-    };
-  }
-  try {
-    const definition = JSON.parse(await readFile(manifest.absolute, 'utf8'));
-    return {
-      state: 'available',
-      exists: true,
-      outputDirectory: normalizedOutput,
-      manifestPath,
-      generatedAt: definition.generated_at ?? definition.generatedAt ?? null,
-      warning: null
-    };
-  } catch {
-    return {
-      state: 'invalid',
-      exists: true,
-      outputDirectory: normalizedOutput,
-      manifestPath,
-      generatedAt: null,
-      warning: `The repository world-model manifest is not valid JSON: ${manifestPath}.`
-    };
-  }
-}
-
 async function referenceRepositoryGitProjection(absolute, { level, env }) {
   const readinessOnly = level === 'readiness';
   const [statusText, branch, remote, head] = await Promise.all([
@@ -4319,7 +4194,8 @@ async function repositoryStatus(root, repository, {
     branch,
     remote: sanitizeRemote(remote),
     head: headCommit,
-    worldModel: level === 'full' ? await repositoryWorldModelStatus(absolute) : null
+    // The registered World Model was removed; a repository has none to report.
+    worldModel: null
   };
 }
 
@@ -4368,13 +4244,7 @@ export async function workspaceStatus(workspacePath, {
     }
   );
   const staged = level === 'full' ? await listWorkspaceDocuments(workspace.path) : [];
-  const warnings = repositories
-    .filter((repository) => repository.state === 'ready' && repository.worldModel?.warning)
-    .map((repository) => ({
-      code: repository.worldModel.state === 'missing' ? 'world-model-missing' : 'world-model-invalid',
-      repository: repository.id,
-      message: `${repository.metadata?.name ?? repository.id}: ${repository.worldModel.warning}`
-    }));
+  const warnings = [];
   warnings.push(...repositories.filter((repository) => repository.pathAlias).map((repository) => ({
     code: 'repository-path-alias',
     repository: repository.id,
@@ -4393,8 +4263,7 @@ export async function workspaceStatus(workspacePath, {
       repositories: repositories.length,
       ready: repositories.filter((repository) => repository.state === 'ready').length,
       dirty: repositories.filter((repository) => repository.dirty).length,
-      stagedDocuments: staged.length,
-      worldModels: repositories.filter((repository) => repository.worldModel?.state === 'available').length
+      stagedDocuments: staged.length
     }
   };
 }

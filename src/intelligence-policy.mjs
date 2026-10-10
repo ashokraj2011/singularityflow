@@ -34,13 +34,6 @@ export function normalizeWorkTypeIntelligence(value = null, label = 'Work type i
   return Object.freeze({ worldModel, ast, agentBriefs });
 }
 
-export function worldModelModeForIntelligence(configuredMode, intelligence) {
-  // `required` turns grounding on. The World Model is guidance, so it warns rather than enforces.
-  if (intelligence?.worldModel === 'required') return 'warn';
-  if (intelligence?.worldModel === 'off') return 'off';
-  return configuredMode;
-}
-
 export function astContextRequired(workflow) {
   return astContextRequested(workflow);
 }

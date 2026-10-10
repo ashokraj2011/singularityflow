@@ -21,7 +21,7 @@ import {
   assertApprovedCapabilityRepositoryPlan, assertStoryBaseSharesHistory, capabilityPublicationPlan,
   preflightStoryRepositories, prepareCapabilityRepositories,
   preflightIncludesRepository, preflightPublicationAuthority,
-  preflightWorldModelAuthorityRefreshes, storyBaseForRepository
+  storyBaseForRepository
 } from './capability-start.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import { storyPublicationPreflightError } from './story-publication-preflight.mjs';
@@ -808,7 +808,6 @@ export async function startStory(root, {
         capabilityMapSha256: configurationSnapshot?.files?.['singularity/capabilities.yml']
           ?? legacyCapabilityEvidence?.mapSha256 ?? null,
         executionOrigin: auto?.executionOrigin ?? null,
-        worldModelAuthorityRefreshes: preflightWorldModelAuthorityRefreshes(capabilityPreflight),
         // Keep the verified operation snapshot alive through pre-accept WMP activation. The Story
         // aggregate and workflow snapshot do not exist yet, so the normal lifecycle pin proof is
         // intentionally unavailable at this exact boundary.

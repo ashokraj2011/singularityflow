@@ -3,7 +3,7 @@ import path from 'node:path';
 import { existsSync } from 'node:fs';
 import { loadDefinition } from './config.mjs';
 import { ledgerStatus } from './ledger.mjs';
-import { renderCapabilityWorldModelPack, resolveLifecycleCapability } from './capability-context.mjs';
+import { resolveLifecycleCapability } from './capability-context.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { secureRepositoryPath, snapshot } from './util.mjs';
 import { executeGitQuery } from './git-query.mjs';
@@ -75,17 +75,6 @@ export async function capabilityDoctor(root, { capabilityId = null, offline = fa
       checks.push(localMap.sha256 === capability.map.sha256
         ? check('map-pin', 'pass', 'Capability map hash matches the lifecycle binding.')
         : check('map-pin', 'fail', 'Capability map changed after resolution.'));
-    }
-    const context = capability.context;
-    if (!context) checks.push(check('world-model-pack', 'warn', 'No lifecycle capability world-model pack has been pinned yet.'));
-    else {
-      try {
-        const rendered = await renderCapabilityWorldModelPack(root, capability);
-        checks.push(check('world-model-pack', 'pass', `${rendered.files.length} cross-repository world-model file(s) verify.`, context.sha256));
-        rendered.warnings.forEach((warning, index) => checks.push(check(`world-model-warning-${index + 1}`, 'warn', warning)));
-      } catch (error) {
-        checks.push(check('world-model-pack', 'fail', error.message));
-      }
     }
   }
 

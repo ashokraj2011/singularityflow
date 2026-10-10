@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, readdir, rm, unlink } from 'node:fs/promises';
+import {
+  mkdir, readFile, readdir, rm
+} from 'node:fs/promises';
 import path from 'node:path';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { existsSync } from 'node:fs';
@@ -15,7 +17,6 @@ import {
 import { ensureRepositoryTemplates, loadDefinition } from './config.mjs';
 import { renderInitiativeGenerator } from './initiative-generators.mjs';
 import { initiativeOutputRequired } from './initiative-policy.mjs';
-import { groundingMode } from './grounding.mjs';
 import { normalizeContextPolicy } from './context-policy.mjs';
 import {
   secureRepositoryPath, SingularityFlowError, nowIso, posix, readJson, run, snapshot, stateFingerprint, writeJson, writeText
@@ -23,11 +24,7 @@ import {
 import { createLedgerIntent, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import {
-  applyCapabilityPolicyToInitiativeResolution,
-  assertCapabilitySource,
-  capabilityWorldModelGrounding,
-  materializeCapabilityWorldModelPack,
-  resolveLifecycleCapability
+  applyCapabilityPolicyToInitiativeResolution, assertCapabilitySource, resolveLifecycleCapability
 } from './capability-context.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import {
@@ -366,22 +363,11 @@ export async function createInitiative(root, {
   resolution.capability = capability;
   resolution.worldModelSourceScope = structuredClone(resolved.worldModelSourceScope ?? null);
   resolution.worldModelTiming = usesEpicPlanningLifecycle(resolved) ? 'story-intake' : 'initiative';
-  resolution.worldModelGrounding = capabilityWorldModelGrounding(
-    resolution.worldModelTiming === 'story-intake' ? 'off' : groundingMode(definition),
-    capability
-  );
+  // The registered World Model was removed; Initiatives pin its grounding off.
+  resolution.worldModelGrounding = 'off';
   resolution.worldModelOutputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
   resolution.worldModelStaleness = resolved.worldModelStaleness ?? definition.worldModel?.staleness ?? 'warn';
   resolution.ledger = normalizeLedgerConfig(definition.ledger ?? {});
-  if (capability) {
-    await mkdir(directory.absolute, { recursive: true });
-    const context = await materializeCapabilityWorldModelPack(root, capability, {
-      itemDirectory: directory.absolute,
-      itemRelative: initiativeRelative(portfolio, id),
-      views: [...new Set(resolved.phases.flatMap((phase) => phase.worldModelViews ?? []))]
-    });
-    resolution.capability = { ...capability, context };
-  }
   resolution.resolutionSha256 = createHash('sha256').update(JSON.stringify({
     profileResolutionSha256: resolution.resolutionSha256,
     worldModelTiming: resolution.worldModelTiming,
@@ -761,9 +747,7 @@ export async function restartInitiative(root, id = branch(root), { reason = null
   await healInitiativeTemplates(root, portfolio);
   const resolution = await snapshotInitiativeResolution(root, portfolio, resolved);
   resolution.worldModelTiming = usesEpicPlanningLifecycle(resolved) ? 'story-intake' : 'initiative';
-  resolution.worldModelGrounding = resolution.worldModelTiming === 'story-intake'
-    ? 'off'
-    : groundingMode(definition);
+  resolution.worldModelGrounding = 'off';
   resolution.worldModelOutputDir = definition.worldModel?.outputDir ?? 'singularity/world-model';
   resolution.ledger = normalizeLedgerConfig(definition.ledger ?? {});
   resolution.resolutionSha256 = createHash('sha256').update(JSON.stringify({

@@ -6,14 +6,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import { activeEpicSourceIdentities, jiraSnapshotSource, verifyEpicSources } from './epic-sources.mjs';
 import { loadDefinition } from './config.mjs';
-import {
-  groundingMode
-} from './grounding.mjs';
-import { resolveGroundingPlan } from './world-model-selection.mjs';
 import { isRetiredWorldModelView, worldModelAssignmentViews } from './world-model-views.mjs';
-import { materializationPolicy } from './world-model-materialization.mjs';
-import { effectiveGroundingMode, guidanceGroundingMode, registeredWorldModelOn, worldModelStalenessDecision } from './world-model-policy.mjs';
-import { inspectConfiguredGrounding, resolveInspectedGrounding } from './worldmodel.mjs';
 import { validatePortfolioWorldModelViews } from './initiative-config.mjs';
 import {
   loadInitiative,
@@ -23,10 +16,6 @@ import {
 import { initiativeCheckRequirement, initiativeOutputRequired } from './initiative-policy.mjs';
 import { readKnowledge, recallKnowledge } from './knowledge.mjs';
 import { loadSession } from './session.mjs';
-import { renderCapabilityWorldModelPack } from './capability-context.mjs';
-import { withWorldModelSourceScope } from './source-scope.mjs';
-import { worldModelStateAuthority } from './state-authority.mjs';
-import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 import {
   secureRepositoryPath,
   SingularityFlowError,
@@ -235,126 +224,6 @@ async function knowledgeSections(root, definition, initiative) {
   return { included, total: all.length, matched: ordered.length, truncated, text };
 }
 
-async function repositoryGrounding(
-  root, definition, phase, agent, mode, profilePhases = [], staleness = null,
-  capability = null
-) {
-  const warnings = [];
-  // Epic planning deliberately runs before repository-specific Story branches exist.
-  // In that lifecycle, `off` means "deferred to Story intake", not a degraded prompt,
-  // so it must remain quiet rather than showing a warning on every Epic phase.
-  if (mode === 'off') {
-    return { text: '', files: [], warnings, record: { mode, available: false } };
-  }
-  const plan = resolveGroundingPlan({
-    phase: phase.id,
-    phaseViews: phase.worldModelViews ?? [],
-    agentViews: definition.agents[agent]?.worldModelViews ?? [],
-    agentViewMode: definition.worldModel?.agentViews ?? 'fallback',
-    depth: phase.worldModelDepth ?? phase.worldModel?.depth ?? 'standard',
-    evidence: false,
-    context: definition.worldModel?.context ?? {}
-  });
-  const requiredViews = plan.views.map((entry) => entry.view);
-  const stateAuthority = worldModelStateAuthority(definition);
-  const config = {
-    definition,
-    ...(capability ? { workflow: { resolution: { capability } } } : {}),
-    outputDir: definition.worldModel?.outputDir ?? 'singularity/world-model',
-    materialization: materializationPolicy(definition),
-    stateBranch: stateAuthority.branch,
-    remote: stateAuthority.remote,
-    grounding: mode,
-    staleness: staleness ?? definition.worldModel?.staleness ?? 'warn',
-    context: definition.worldModel?.context ?? { includeDomains: 'matched', includeEvidence: false },
-    phases: { [phase.id]: {
-      views: requiredViews, declaredViews: requiredViews, depth: 'standard', evidence: false
-    } }
-  };
-  try {
-    const inspected = await inspectConfiguredGrounding(root, config, phase.id, {
-      plan, refreshRemote: true
-    });
-    if (!inspected.availability.ready) {
-      throw new SingularityFlowError(
-        `Repository grounding is not ready. ${inspected.reason}\nRun: ${inspected.command}`, {
-          code: inspected.availability.error?.code ?? 'WORLD_MODEL_GROUNDING_UNAVAILABLE',
-          details: { command: inspected.command, availability: inspected.availability }
-        }
-      );
-    }
-    const resolved = await resolveInspectedGrounding(root, inspected, phase.id);
-    const commit = resolved.located?.commit ?? null;
-    const issues = [];
-    if (!commit) issues.push('repository world model is not committed');
-    const stalenessDecision = worldModelStalenessDecision(config.staleness, resolved.freshness.fresh);
-    if (issues.length) {
-      warnings.push(...issues);
-      return {
-        text: '',
-        files: [],
-        warnings,
-        record: {
-          mode,
-          available: false,
-          fresh: resolved.freshness.fresh,
-          requiredViews,
-          requiredSelections: inspected.plan.selections
-        }
-      };
-    }
-    if (stalenessDecision.warns) warnings.push(stalenessDecision.message);
-    const files = [];
-    for (const item of resolved.selected) {
-      const content = item.body ?? await readFile(item.absolute, 'utf8');
-      files.push({
-        // A state-branch extraction is disposable. Record the stable repository path plus the
-        // immutable source commit so another laptop can verify the same bytes with `git show`.
-        path: posix(path.join(config.outputDir, item.relative)),
-        sha256: item.sha256,
-        bytes: item.size,
-        reason: item.reason,
-        commit,
-        source: resolved.located?.source ?? null,
-        content
-      });
-    }
-    const text = files.map((file) => [
-      `## Repository world model: ${file.path}`,
-      '',
-      `<!-- sha256=${file.sha256} reason=${file.reason} -->`,
-      '',
-      file.content.trim()
-    ].join('\n')).join('\n\n');
-    return {
-      text,
-      files: files.map(({ content, ...file }) => file),
-      warnings,
-      record: {
-        mode,
-        available: true,
-        commit,
-        format: inspected.format,
-        sourceTreeSha256: resolved.sourceManifestSha256
-          ?? resolved.manifest.source_tree_sha256 ?? null,
-        fresh: resolved.freshness.fresh,
-        requiredViews,
-        requiredSelections: inspected.plan.selections
-      }
-    };
-  } catch (error) {
-    // Initiative work obeys the same guidance-only contract as Story work. Never consume a failed
-    // candidate, and never require the contributor to build one before continuing.
-    warnings.push(
-      `Repository world model ${isWorldModelAvailabilityError(error) ? 'unavailable' : 'invalid'}: ${error.message}`
-    );
-    return {
-      text: '', files: [], warnings,
-      record: { mode, available: false, requiredViews, requiredSelections: plan.selections }
-    };
-  }
-}
-
 export async function composeInitiativeContext(root, initiativeId, requestedPhase = null, {
   agent = null,
   dryRun = false
@@ -430,20 +299,9 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const inputs = await approvedInputSections(root, portfolio, initiative, phase);
   const epicSources = await epicSourceSections(root, initiative, phase);
   const knowledge = await knowledgeSections(root, definition, initiative);
-  const mode = registeredWorldModelOn(definition)
-    ? guidanceGroundingMode(initiative.resolution.worldModelGrounding ?? groundingMode(definition))
-    : 'off';
-  const groundingDefinition = withWorldModelSourceScope(
-    definition,
-    initiative.resolution?.worldModelSourceScope ?? initiative.resolution?.capability?.sourceScope ?? null
-  );
-  const grounding = await repositoryGrounding(root, groundingDefinition, phase, selectedAgent, mode,
-    Object.values(initiative.resolution?.phases ?? {}),
-    initiative.resolution?.worldModelStaleness,
-    initiative.resolution?.capability ?? null);
-  const capability = await renderCapabilityWorldModelPack(root, initiative.resolution?.capability, {
-    views: phase.worldModelViews ?? [], grounding: mode
-  });
+  // The registered World Model was removed: the record keeps its fields and says so, exactly as an
+  // Initiative composed with World-Model grounding off always did.
+  const grounding = { warnings: [], record: { mode: 'off', available: false }, files: [] };
   const pseudoWorkflow = {
     workItem: { id: initiativeId, workType: `initiative:${initiative.initiative.profile}` },
     currentPhase: phaseId
@@ -509,8 +367,6 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     `<!-- path=${agentProfile.source} sha256=${agentProfile.sha256} -->`,
     '',
     agentText.trim(),
-    grounding.text,
-    capability.text,
     remote.text,
     knowledge.text,
     sourceText,
@@ -535,7 +391,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
     capabilityWorldModel: {
       capabilityId: initiative.resolution?.capability?.id ?? null,
       contextSha256: initiative.resolution?.capability?.context?.sha256 ?? null,
-      files: capability.files
+      files: []
     },
     inputs: inputs.map(({ content, ...input }) => input),
     epicSources: epicSources.sections,
@@ -556,7 +412,7 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
       itemDirectory.relative,
       promptRelative(initiative, phaseId, generation)
     )),
-    warnings: [...grounding.warnings, ...capability.warnings, ...remote.warnings, ...epicSources.warnings, ...agentWarnings],
+    warnings: [...grounding.warnings, ...remote.warnings, ...epicSources.warnings, ...agentWarnings],
     recordedAt: nowIso()
   };
   if (!dryRun) {
@@ -585,8 +441,7 @@ export async function verifyInitiativeContext(root, portfolio, initiative, phase
     type: 'file'
   });
   // Context findings are guidance about the prompt, so every one of them is a warning.
-  const pinned = guidanceGroundingMode(initiative.resolution.worldModelGrounding ?? 'off');
-  const mode = pinned === 'off' ? 'off' : effectiveGroundingMode(await loadDefinition(root), initiative);
+  const mode = 'off';
   const errors = [];
   const warnings = [];
   if (!recordTarget.exists) {
@@ -668,7 +523,8 @@ export async function verifyInitiativeContext(root, portfolio, initiative, phase
     const current = await snapshot(target.absolute);
     if (!current.exists || current.sha256 !== file.sha256) errors.push(`initiative capability world-model context changed: ${file.path}`);
   }
-  if (!worldModelAvailable || !record.worldModel?.fresh) {
+  // A record composed with World-Model grounding off (every record since its removal) says nothing about it.
+  if (record.worldModel?.mode !== 'off' && (!worldModelAvailable || !record.worldModel?.fresh)) {
     warnings.push(`initiative world-model grounding is unavailable or stale for ${phaseId}; work may continue without it`);
   }
   if (worldModelAvailable && !/^[0-9a-f]{40}$/.test(worldModelCommit ?? '')) {

@@ -32,7 +32,6 @@ import {
   loadConfig, loadStoryAggregate, storyWelEnrollmentStatus
 } from './state-stores.mjs';
 import { run, secureRepositoryPath, SingularityFlowError } from './util.mjs';
-import { inspectWorkflowGrounding, resolveInspectedGrounding } from './worldmodel.mjs';
 
 export const EVIDENCE_PACKET_SLICES = Object.freeze([
   'brief', 'impact', 'world-model', 'ast', 'evidence', 'history', 'knowledge', 'observation'
@@ -332,36 +331,6 @@ async function briefCandidates(root, definition, workflow) {
   return candidates;
 }
 
-async function worldModelCandidates(root, workflow, unavailable) {
-  if (!workflow?.currentPhase) return [];
-  try {
-    const inspected = await inspectWorkflowGrounding(root, workflow, workflow.currentPhase, { refreshRemote: false });
-    if (!inspected.availability?.ready) throw Object.assign(new Error(inspected.reason ?? 'World model is unavailable.'), { code: 'EPC_WORLD_MODEL_UNAVAILABLE' });
-    const resolved = await resolveInspectedGrounding(root, inspected, workflow.currentPhase);
-    const candidates = [];
-    for (const selection of resolved.selected.slice(0, 12)) {
-      const content = boundedText(
-        selection.body ?? await readFile(selection.absolute, 'utf8'), 2048
-      );
-      candidates.push({
-        kind: 'world-model-context', subject: selection.relative,
-        classification: 'proven', representation: 'bounded-source', content,
-        relationship: selection.reason ?? 'capability-context',
-        reason: { code: 'general.capability-context', findingIds: [] },
-        source: { type: 'world-model', reference: selection.relative, sha256: selection.sha256 },
-        expansion: null, sourceMaterial: true
-      });
-    }
-    return candidates;
-  } catch (error) {
-    unavailable.push({
-      code: 'EPC_WORLD_MODEL_UNAVAILABLE', subject: 'world-model', reason: error.code ?? error.message,
-      nextAction: 'Continue with Flight Plan and path evidence, or restore the world-model view and refresh.'
-    });
-    return [];
-  }
-}
-
 function historyCandidates(analogues) {
   return analogues.map((analogue) => ({
     kind: 'historical-analogue', subject: analogue.workId,
@@ -647,9 +616,6 @@ export async function compileEvidencePacket(root, request = {}) {
       code: 'EPC_SOURCE_UNAVAILABLE', subject: 'approved-agent-briefs', reason: 'No approved brief is available for the current phase.',
       nextAction: 'Continue with governed Flight Plan context or prepare the phase brief.'
     });
-  }
-  if (requested(slices, 'world-model') && workflow) {
-    candidates.push(...await worldModelCandidates(root, workflow, unavailable));
   }
   let analogues = [];
   if (requested(slices, 'history')) {

@@ -1,9 +1,12 @@
+import { SingularityFlowError } from './util.mjs';
+
 /**
- * Settings of removed features: the registered World Model (WMB v4 views, its state-branch
+ * Settings and commands of removed features: the registered World Model (WMB v4 views, its state-branch
  * publication and the Story history pins), the CALM architecture projection and architecture
  * intent. A configuration that still carries them loads unchanged: they are dropped when it is
  * validated, `doctor` names them, and nothing reads them. Removing them from
- * `singularity/workflow.yml` silences doctor.
+ * `singularity/workflow.yml` silences doctor. Their commands are refused by name, saying what
+ * replaced them, so a script learns it instead of failing on an unknown command.
  */
 
 const DROPPED = new WeakMap();
@@ -48,4 +51,21 @@ export function removedSettings(definition) {
 /** Architecture intent as every Story pins it now: the removed feature, disabled. */
 export function disabledArchitectureIntent() {
   return { enabled: false, allowedPhases: [], blockRequiredUnfulfilledAt: [] };
+}
+
+/** `wm` subcommands of the removed registered (v4) and legacy-v3 World Models. */
+export const REMOVED_WORLD_MODEL_SUBCOMMANDS = Object.freeze(new Set([
+  'plan', 'snapshot', 'build', 'status', 'availability', 'ensure', 'refresh-authority', 'manifest', 'show', 'facts', 'evidence',
+  'derivation', 'validate', 'check', 'validate-view', 'verify-cache', 'regenerate', 'views', 'view-contract', 'extractors',
+  'doctor', 'context', 'migrate', 'history', 'recovery', 'cleanup', 'migrate-views', 'init', 'prompt', 'budget', 'light'
+]));
+
+/** The refusal for a command of the removed World Models. */
+export function removedWorldModelError(source) {
+  return new SingularityFlowError(
+    `The registered World Model was removed, so ${source} no longer exists. Phase prompts get the Repository brief, `
+    + 'read from the source with no build and no model: see what a phase receives with singularity-flow wm brief --phase PHASE, '
+    + 'or read the repository with singularity-flow wm knowledge brief.',
+    { code: 'WMB_REMOVED', details: { source } }
+  );
 }

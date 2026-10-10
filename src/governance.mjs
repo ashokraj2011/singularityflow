@@ -11,7 +11,6 @@ import { exists, gitHeadIsUnborn, gitReadOutput, posix, snapshot, run } from './
 import { verifyInputsIntegrity } from './inputs.mjs';
 import { verifyAgentIntegrity } from './agents.mjs';
 import { matchApprovalAuthority, remainingRequiredAuthorities } from './approval-authority.mjs';
-import { verifyGroundingRecord } from './grounding.mjs';
 import { verifyClarificationRecord } from './clarifications.mjs';
 import { verifyPhaseTelemetry } from './telemetry.mjs';
 import { verifyMcpEvidence } from './mcp.mjs';
@@ -384,20 +383,6 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
         const remoteRef = `refs/remotes/${config.git.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}`;
         const published = run('git', ['merge-base', '--is-ancestor', found[0], remoteRef], { cwd: root, allowFailure: true });
         if (published.status !== 0) refuse('gate.publication.remote-missing', `${phaseId} generation ${generation} is not present on the remote branch`, { phase: phaseId });
-      }
-      let grounding = { errors: [], warnings: [], passes: [], record: null, path: null };
-      if (generationRequiresGrounding(phase, generation)) {
-        grounding = await verifyGroundingRecord(root, config, workflow, phase, {
-          generation, superseded: generation < Number(phase.generation ?? 0)
-        });
-        warnings.push(...grounding.warnings); passes.push(...grounding.passes);
-        if (grounding.path && await exists(path.join(root, grounding.path)) && found) {
-          if (run('git', ['cat-file', '-e', `${found[0]}:${grounding.path}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.grounding.uncommitted', `grounding composition was not committed with ${phaseId} generation ${generation}`, { phase: phaseId });
-          else passes.push(`grounding audit committed: ${phaseId} generation ${generation}`);
-          if (grounding.record?.promptPath && run('git', ['cat-file', '-e', `${found[0]}:${grounding.record.promptPath}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.grounding.uncommitted', `grounding prompt snapshot was not committed with ${phaseId} generation ${generation}`, { phase: phaseId });
-        }
-      } else {
-        passes.push(`grounding not applicable: ${phaseId} generation ${generation} was ${generationAuthorship(phase, generation).producer}`);
       }
       // Historical receipts are checked as immutable evidence at their generation commit. A later
       // phase may legitimately change a previously evaluated source file; only the active

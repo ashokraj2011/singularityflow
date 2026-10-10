@@ -12,9 +12,6 @@ import { familyForStoredPath, migrationRegistrySnapshot, readRecord } from './sc
 import { loadDefinition } from './config.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { worldModelStateAuthority } from './state-authority.mjs';
-import {
-  classifyWorldModelInput, LEGACY_WORLD_MODEL_CLASSIFICATION
-} from './world-model/migration/v3-reader.mjs';
 
 const MAXIMUM_STATE_AUTHORITY_CENSUS_BYTES = 64 * 1024 * 1024;
 const MAXIMUM_LIFECYCLE_REF_CENSUS_BYTES = 64 * 1024 * 1024;
@@ -141,8 +138,9 @@ function escapeRegExp(value) {
  */
 function localWorldModelStateAuthority(root, definition) {
   const { branch, remote } = worldModelStateAuthority(definition ?? {});
-  // A repository with a definition uses the registered World Model (an omitted format means it).
-  const required = Boolean(definition) && definition.worldModel?.format !== 'legacy-v3';
+  // The registered World Model was removed: history already on the state branch is still counted
+  // when present, but its absence is no longer a gap.
+  const required = false;
   const explicitRef = String(branch).startsWith('refs/');
   const remoteConfigured = !explicitRef && configuredRemoteIdentity(root, remote, {
     direction: 'fetch'
@@ -759,7 +757,7 @@ export async function schemaCensus(root, {
     if (family?.id === 'world-model-manifest'
         && record && typeof record === 'object' && !Array.isArray(record)
         && record.schemaVersion == null
-        && classifyWorldModelInput(record).classification === LEGACY_WORLD_MODEL_CLASSIFICATION) {
+        && !(record.kind === 'world-model-manifest' && record.format === 'wmb-v4')) {
       unregistered.push({
         path: filePath,
         schemaVersion: null,

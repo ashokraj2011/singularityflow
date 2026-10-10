@@ -14,7 +14,6 @@ import { recordSha256 } from './records.mjs';
 import { withWorldModelSourceScope, worldModelSourceScope } from './source-scope.mjs';
 import { loadConfig, loadStoryAggregate } from './state-stores.mjs';
 import { secureRepositoryPath } from './util.mjs';
-import { inspectWorkflowGrounding, resolveInspectedGrounding } from './worldmodel.mjs';
 
 export const CONTEXT_BRIEF_RESULT_VERSION = 1; // schema-transient: bounded gateway result, never persisted
 export const LEGACY_CONTEXT_BRIEF_SLICES = Object.freeze(['brief', 'world-model', 'ast', 'evidence']);
@@ -79,50 +78,10 @@ async function readBriefs(root, workflow, phaseId, budget) {
   return { records: selected, bytes: budget - remaining };
 }
 
-async function worldModelSlice(root, workflow, phaseId, budget) {
-  try {
-    const inspected = await inspectWorkflowGrounding(root, workflow, phaseId, { refreshRemote: false });
-    if (!inspected.availability?.ready) {
-      return { status: 'unavailable', reason: inspected.reason, selections: [], bytes: 0 };
-    }
-    const resolved = await resolveInspectedGrounding(root, inspected, phaseId);
-    const selections = [];
-    let remaining = budget;
-    for (const selected of resolved.selected) {
-      const metadata = {
-        path: selected.relative,
-        sha256: selected.sha256,
-        sourceBytes: selected.size,
-        level: selected.level,
-        reason: selected.reason
-      };
-      if (remaining <= 0) {
-        selections.push({ ...metadata, content: null, omission: 'budget' });
-        continue;
-      }
-      const content = selected.body ?? await readFile(selected.absolute, 'utf8');
-      const bounded = utf8Prefix(content, remaining);
-      remaining -= bounded.bytes;
-      selections.push({ ...metadata, content: bounded.text, bytes: bounded.bytes, truncated: bounded.truncated });
-    }
-    const complete = selections.every((selection) => (
-      selection.content != null && selection.omission == null && selection.truncated !== true
-    ));
-    return {
-      // `status` describes the bytes returned by this bounded slice. Freshness is a separate
-      // property of the reusable model: an immutable, digest-verified state-branch view does not
-      // become partial merely because the application repository moved after it was published.
-      status: complete ? 'exact' : 'partial',
-      fresh: resolved.freshness?.fresh === true,
-      freshnessReason: resolved.freshness?.reason ?? null,
-      source: resolved.located?.source ?? null,
-      commit: resolved.located?.commit ?? null,
-      selections,
-      bytes: budget - remaining
-    };
-  } catch (error) {
-    return { status: 'unavailable', reason: error.code ?? error.message, selections: [], bytes: 0 };
-  }
+async function worldModelSlice() {
+  // The registered World Model was removed; its views are no longer read. The brief slice and the
+  // phase prompt's Repository brief carry what the code says instead.
+  return { status: 'unavailable', reason: 'The registered World Model was removed.', selections: [], bytes: 0 };
 }
 
 function evidenceSlice(workflow) {

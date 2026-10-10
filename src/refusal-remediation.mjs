@@ -261,34 +261,16 @@ const UPGRADE_KNOWN = Object.freeze({
       'The record predates every schema this build reads. Inspect it; read it with the archival reader of its release.',
       'singularity-flow doctor --json')
   ],
-  WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE: () => [
-    step('rebuild-world-model',
-      'The World Model was published by an earlier build this build cannot verify. Rebuild it; grounding continues without it until then.',
-      'singularity-flow world-model build', 'remediation')
-  ],
-  WMB_MIGRATION_REQUIRED: () => [
-    step('inspect-legacy-world-model', 'Inspect the legacy projection before replacing it.',
-      'singularity-flow wm doctor --format registered-v4'),
-    step('rebuild-registered-world-model', 'Build the registered model; it replaces the legacy projection without trusting it.',
-      'singularity-flow wm build --format registered-v4', 'remediation')
-  ],
-  WMB_SEED_VIEWS_UNDECLARED: () => [
-    step('review-registered-views', 'Compare the views the agents use with worldModel.views, then declare the missing ones.',
-      'singularity-flow wm views')
-  ],
-  WMB_FORMAT_RETIRED: () => [
-    step('read-repository-brief', 'Phase prompts get the repository brief read from the source; see what a phase receives.',
-      'singularity-flow wm brief --phase PHASE')
-  ],
-  WMB_REGISTERED_OFF: () => [
-    step('read-repository-brief', 'Phase prompts get the repository brief read from the source; see what a phase receives.',
+  // The registered (v4) and legacy-v3 World Models were removed; their commands and settings say so.
+  WMB_REMOVED: () => [
+    step('read-repository-brief', 'Phase prompts get the Repository brief read from the source; see what a phase receives.',
       'singularity-flow wm brief --phase PHASE'),
     step('read-repository-knowledge', 'Read the repository itself: rules, contracts, flows and risks, with no model.',
       'singularity-flow wm knowledge brief')
   ],
-  WMB_VIEW_VERSION_UNSUPPORTED: () => [
-    step('review-registered-views', 'Compare the requested view version with the installed registered views.',
-      'singularity-flow wm views')
+  COMMAND_REMOVED: () => [
+    step('read-repository-brief', 'Phase prompts get the Repository brief read from the source; see what a phase receives.',
+      'singularity-flow wm brief --phase PHASE')
   ],
   WFA_RUNTIME_INCOMPATIBLE: () => [
     step('inspect-snapshot-runtime',

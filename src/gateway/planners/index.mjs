@@ -39,19 +39,6 @@ import {
   repositoryOpenGuide, workspaceBootstrapStatus, workspaceDoctorGuide, workspaceExploreGuide,
   workspacePrepareGuide
 } from './workspace-reliability-surface.mjs';
-import { worldModelBuildPlanDescriptor } from './world-model-run.mjs';
-
-/** Keep the verified state/catalog reader off Home and every non-WMB gateway turn. */
-const loadWorldModelPlanner = () => import('./world-model.mjs');
-export const worldModelInspect = (request) => loadWorldModelPlanner()
-  .then((module) => module.worldModelInspect(request));
-export const worldModelNext = (request) => loadWorldModelPlanner()
-  .then((module) => module.worldModelNext(request));
-export const worldModelExplain = (request) => loadWorldModelPlanner()
-  .then((module) => module.worldModelExplain(request));
-export const worldModelBuildPlan = (request) => worldModelBuildPlanDescriptor({
-  ...request, defaults: request.context?.worldModelBuildDefaults ?? {}
-});
 
 export function gatewayPlanners(overrides = {}) {
   return new Map(Object.entries({
@@ -92,10 +79,6 @@ export function gatewayPlanners(overrides = {}) {
     'repository-open-guide': repositoryOpenGuide,
     'workspace-doctor-guide': workspaceDoctorGuide,
     'workspace-explore-guide': workspaceExploreGuide,
-    'world-model-inspect': worldModelInspect,
-    'world-model-next': worldModelNext,
-    'world-model-explain': worldModelExplain,
-    'world-model-build': worldModelBuildPlan,
     ...overrides
   }));
 }

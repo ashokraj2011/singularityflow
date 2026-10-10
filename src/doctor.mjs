@@ -21,7 +21,7 @@ import { operationContext } from './operation-context.mjs';
 import { repositoryPerformanceSnapshot } from './performance-doctor.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
 import { registeredWorldModelOn, retiredWorldModelBlockingSettings } from './world-model-policy.mjs';
-import { removedSettings } from './removed-settings.mjs';
+import { removedSettings } from './removed-features.mjs';
 import { retiredWorldModelReferences } from './world-model-views.mjs';
 import { schemaCensus, schemaCensusText } from './schema-census.mjs';
 import { resolveModelProvider } from './model-runner.mjs';

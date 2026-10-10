@@ -1,8 +1,6 @@
 import { SKILL_LIBRARY_ROOT } from './skill-library.mjs';
-import { registeredWorldModelOn } from './world-model-policy.mjs';
 import { INSTRUCTION_LIBRARY_ROOT } from './instruction-library.mjs';
 import { isConfigurationStatePath } from './configuration-state-contract.mjs';
-import { retiredWorldModelError, selectsRetiredWorldModel } from './world-model-format.mjs';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { assertPhaseTopology, phaseTopologyFindings } from './phase-semantics.mjs';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, unlink } from 'node:fs/promises';
@@ -18,16 +16,7 @@ import {
 } from './git.mjs';
 import { createTransportIntent, retryTransportIntent } from './transport-intents.mjs';
 import {
-  DEFAULT_PLANNING_PROMPT,
-  ensureRepositoryTemplates,
-  ensureRepositoryWorldModelViews,
-  loadDefinition,
-  normalizePlanning,
-  resolveWorkType,
-  validateDefinition,
-  withDefinitionCache,
-  worldModelPromptViewReferences,
-  WORKFLOW_PATH
+  DEFAULT_PLANNING_PROMPT, ensureRepositoryTemplates, ensureRepositoryWorldModelViews, loadDefinition, normalizePlanning, resolveWorkType, validateDefinition, withDefinitionCache, WORKFLOW_PATH
 } from './config.mjs';
 import { MODEL_TASKS } from './model-tasks.mjs';
 import { templateReferences } from './template-catalog.mjs';
@@ -62,9 +51,6 @@ import { readConfigurationSource } from './configuration-branch.mjs';
 import {
   configuredRemoteAuthority, configuredRemoteIdentity, redactDiagnosticText, remoteFingerprint
 } from './git-remote-diagnostics.mjs';
-import {
-  structuredWorldModelViewReferences, worldModelViewCatalog, worldModelWorkflowViewUsage
-} from './world-model-views.mjs';
 import { createReviewBundle, reviewMarkdown } from './review.mjs';
 import { doctorSnapshot } from './doctor.mjs';
 import { simulateWorkflow } from './workflow-catalog.mjs';
@@ -120,10 +106,7 @@ import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
 import { loadSgosCommandCenter } from './sgos/command-center.mjs';
 import { workflowCodeGeneration } from './code-delivery-policy.mjs';
-import {
-  captureEnvironmentDeclaration, ENVIRONMENT_DECLARATION_PATH, loadEnvironmentDeclaration,
-  validateEnvironmentQualityCommandCatalog
-} from './environment-declaration.mjs';
+import { captureEnvironmentDeclaration, ENVIRONMENT_DECLARATION_PATH, validateEnvironmentQualityCommandCatalog } from './environment-declaration.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { portableFilesystemPathIdentity } from './configuration-assets.mjs';
 
@@ -324,15 +307,6 @@ async function textFiles(root, relativeRoot, { extensions = null, excludePaths =
 }
 
 /** Explorer files come from the resolved registered views, never from a checked-out projection. */
-function editorWorldModelFiles(modelRoot, inspected = null) {
-  if (!inspected?.resolved) return [];
-  return inspected.resolved.selected.map((file) => ({
-    path: posix(path.join(modelRoot, file.relative)),
-    name: file.relative,
-    content: file.body,
-    bytes: file.size
-  })).sort((left, right) => left.name.localeCompare(right.name));
-}
 
 function skillFrontmatter(content, fallbackId) {
   const match = String(content).match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
@@ -657,36 +631,6 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
   const referenceRepositories = await storyReferenceRepositoryStatus(root, definition, workflow);
   const submission = await storySubmissionReadiness(root, definition, workflow, changes);
   const activeSession = await loadSession(root, { required: false });
-  let worldModelReadiness = null;
-  if (workflow?.currentPhase && selectedStory?.branches.includes(currentBranch)) {
-    try {
-      const { inspectWorkflowGrounding } = await import('./worldmodel.mjs');
-      worldModelReadiness = await inspectWorkflowGrounding(root, workflow, workflow.currentPhase, {
-        agent: activeSession?.agent ?? null,
-        // A navigation refresh is a local read. The cached state ref is enough to disclose
-        // readiness; explicit world-model refresh/ensure operations own network reconciliation.
-        refreshRemote: false
-      });
-    } catch (error) {
-      worldModelReadiness = { reason: `The pinned phase grounding plan could not be inspected: ${error.message}` };
-    }
-  } else {
-    try {
-      const {
-        inspectConfiguredGrounding, loadWorldModelConfig
-      } = await import('./worldmodel.mjs');
-      worldModelReadiness = await inspectConfiguredGrounding(
-        root,
-        await loadWorldModelConfig(root),
-        null,
-        { refreshRemote: false }
-      );
-    } catch (error) {
-      worldModelReadiness = {
-        reason: `The registered repository World Model could not be inspected: ${error.message}`
-      };
-    }
-  }
   // The full compatibility projection doubles as a Story surface. When a Story is selected its
   // runnable choices come from the verified accepted closure; Configuration Center has a separate
   // current-authority slice and intentionally continues to discover live agents there.
@@ -714,8 +658,6 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     label: 'Copilot agent mapping file',
     type: 'file'
   });
-  const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
-  const worldModelManifest = worldModelReadiness?.availability?.selected?.manifest ?? null;
   const plannerPrompt = await planningPrompt(root, definition);
   /**
    * The same login, from the call we already have to make.
@@ -727,9 +669,6 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
    */
   const gitIdentity = identity(root, { offline: true });
   const github = gitIdentity.login;
-  const promptViewReferences = await worldModelPromptViewReferences(root, definition);
-  const structuredViewReferences = structuredWorldModelViewReferences(definition);
-  const viewCatalog = worldModelViewCatalog(definition, promptViewReferences.keys());
   const portfolioFile = portfolio ? await secureRepositoryPath(root, PORTFOLIO_PATH, {
     label: 'Portfolio configuration', type: 'file', mustExist: true
   }) : null;
@@ -826,40 +765,6 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
       config: normalizePlanning(definition.planning ?? {}),
       prompt: plannerPrompt
     },
-    worldModel: {
-      root: modelRoot,
-      // Off unless the repository sets worldModel.registered: on; the IDE then offers no build.
-      registered: registeredWorldModelOn(definition) ? 'on' : 'off',
-      repositoryOwned: true,
-      timing: 'story-intake',
-      generatedAt: worldModelReadiness?.availability?.selected?.manifest?.generated_at
-        ?? worldModelManifest?.generated_at
-        ?? null,
-      // Main and Epic branches stay quiet. Grounding is requested only after Story intake has
-      // created and checked out the canonical Story branch that will own the generated model.
-      // A stale snapshot under `warn` remains usable, but the UI must still disclose the pinned
-      // staleness decision. `reason` is null for fresh and explicitly ignored snapshots.
-      rebuildReason: worldModelReadiness?.reason ?? null,
-      readiness: worldModelReadiness?.availability ? {
-        status: worldModelReadiness.availability.status,
-        ready: worldModelReadiness.availability.ready,
-        source: worldModelReadiness.availability.source,
-        historical: worldModelReadiness.availability.selected?.historical === true,
-        staleness: worldModelReadiness.availability.staleness,
-        command: worldModelReadiness.command
-      } : null,
-      views: viewCatalog.map((id) => ({
-        id,
-        structuredReferences: structuredViewReferences.get(id) ?? [],
-        promptReferences: promptViewReferences.get(id) ?? [],
-        references: [
-          ...(structuredViewReferences.get(id) ?? []),
-          ...(promptViewReferences.get(id) ?? []).map((file) => `Markdown '${file}'`)
-        ]
-      })),
-      workflows: worldModelWorkflowViewUsage(definition),
-      files: editorWorldModelFiles(modelRoot, worldModelReadiness)
-    },
     agents: agents.map((agent) => ({
       id: agent.id,
       scope: agent.scope,
@@ -930,7 +835,6 @@ const SNAPSHOT_SLICES = new Set([
   'integrations',
   'diagnostics',
   'sgos',
-  'worldModel',
   'comprehension'
 ]);
 
@@ -1196,8 +1100,6 @@ async function configurationSlice(root) {
   });
   const agents = await discoverAgents(root);
   const mappingStatus = await agentMappingStatus(root);
-  const modelRoot = posix(definition.worldModel?.outputDir ?? 'singularity/world-model');
-  // World Model data has its own on-demand leased slice; opening People, MCP, or Templates never reads it.
   const templatesRoot = typeof definition.templatesRoot === 'string'
     ? definition.templatesRoot
     : 'singularity/templates';
@@ -1433,75 +1335,6 @@ async function sgosSlice(root) {
   return loadSgosCommandCenter(root);
 }
 
-/**
- * WMB v4 is a dedicated heavy slice: the core snapshot never reads the state branch or retains
- * view prose. The projection contains bounded previews and content-addressed expansion handles,
- * while full Facts/Evidence/Derivations remain behind explicit reads.
- */
-async function worldModelSlice(root, requestedWorkId = null) {
-  let accepted = null;
-  try {
-    accepted = await loadAcceptedStoryExecution(root, requestedWorkId ?? branch(root));
-  } catch (error) {
-    if (requestedWorkId || error?.code !== 'STORY_NOT_FOUND') throw error;
-  }
-  if (accepted) return worldModelSliceInConfigurationScope(root, requestedWorkId);
-  // Match the repository-level native build's authority. A materialized checkout may still carry
-  // pre-migration YAML; it must not make a successfully upgraded v4 build appear to be legacy.
-  // This diagnostic read uses only locally retained approved refs and never fetches or publishes.
-  return withApprovedConfigurationRead(root, () => withDefinitionCache(
-    () => worldModelSliceInConfigurationScope(root, requestedWorkId)
-  ), { preferAuthority: true, refreshAuthority: false });
-}
-
-async function worldModelSliceInConfigurationScope(root, requestedWorkId = null) {
-  const [
-    { loadWorldModelConfig },
-    { worldModelV4StoreOptions },
-    { loadWorldModelIdeSlice }
-  ] = await Promise.all([
-    import('./worldmodel.mjs'),
-    import('./world-model/commands.mjs'),
-    import('./world-model/ide/slice.mjs')
-  ]);
-  // Normalize once at the editor operation boundary. This keeps an accepted Story on its saved
-  // execution definition while repository-level reads use current approved configuration, exactly
-  // like CLI WMB v4 reads. Both normalization and slice loading are local, read-only operations.
-  const config = await loadWorldModelConfig(root, requestedWorkId ? { workId: requestedWorkId } : {});
-  const definition = config.definition;
-  const outputDir = posix(config.outputDir ?? definition.worldModel?.outputDir ?? 'singularity/world-model');
-  if (!registeredWorldModelOn(definition)) {
-    // The registered World Model is off: there is nothing to read, and nothing to build.
-    return {
-      schemaVersion: 1, kind: 'world-model-ide-slice', format: 'registered-v4', registered: 'off',
-      status: 'off', reason: 'WMB_REGISTERED_OFF', root: outputDir, generatedAt: null,
-      rebuildReason: null, readiness: { status: 'off', ready: false, source: null, historical: false, command: null },
-      source: { status: 'off', fresh: false, currentSourceManifestSha256: null, reason: null },
-      summary: { views: 0, facts: 0, evidence: 0, derivations: 0, unavailable: 0, contradictions: 0, cacheHits: 0 },
-      views: [], projections: [], expansion: [], workflows: worldModelWorkflowViewUsage(definition)
-    };
-  }
-  if (selectsRetiredWorldModel(definition)) {
-    // A Story pinned before the legacy-v3 World Model was removed has no readable model.
-    const reason = retiredWorldModelError(definition).message;
-    return {
-      schemaVersion: 1, kind: 'world-model-ide-slice', format: 'registered-v4',
-      status: 'unavailable', reason: 'WMB_FORMAT_RETIRED', root: outputDir, generatedAt: null,
-      rebuildReason: reason, readiness: { status: 'unavailable', ready: false, source: null, historical: false, command: null },
-      source: { status: 'unavailable', fresh: false, currentSourceManifestSha256: null, reason },
-      summary: { views: 0, facts: 0, evidence: 0, derivations: 0, unavailable: 0, contradictions: 0, cacheHits: 0 },
-      views: [], projections: [], expansion: []
-    };
-  }
-  const slice = loadWorldModelIdeSlice(root, worldModelV4StoreOptions(root, config));
-  return {
-    ...slice,
-    // Policy-to-phase usage is configuration metadata, not authority content. It joins only after
-    // the dedicated slice is leased so other Configuration Center tabs never retain this payload.
-    workflows: worldModelWorkflowViewUsage(definition)
-  };
-}
-
 /** CMP is paid for only while its read-only Center is open. */
 async function comprehensionSlice(root) {
   const { loadComprehensionIdeSlice } = await import('./comprehension/ide-slice.mjs');
@@ -1575,7 +1408,6 @@ async function repositorySnapshotInScope(root, requestedWorkId, requestedInitiat
       workId: requestedWorkId, offline: true, probeModelProvider: false
     });
     else if (slice === 'sgos') result.sgos = await sgosSlice(root);
-    else if (slice === 'worldModel') result.worldModel = await worldModelSlice(root, requestedWorkId);
     else if (slice === 'comprehension') result.comprehension = await comprehensionSlice(root);
   }
   return result;

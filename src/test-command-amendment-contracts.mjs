@@ -3,7 +3,6 @@ import { canonicalJson, recordSha256 } from './records.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { capabilityWorldModelGrounding } from './capability-context.mjs';
 import { isTestQualityCommand } from './delivery-evidence.mjs';
 import { normalizeRequiredTestCommand } from './code-delivery-tests.mjs';
 import { pinnedObligationGraph } from './evidence/obligation-compiler.mjs';
@@ -183,8 +182,8 @@ export function assertTestCommandCandidateGlobalScope(retained, candidate) {
   // A Story pins the obligation graph without the catalog's findings; compare like with like.
   if (projected.obligationGraph) projected.obligationGraph = pinnedObligationGraph(projected.obligationGraph);
   const capability = retained.capability;
-  if (Object.hasOwn(projected, 'worldModelGrounding')) projected.worldModelGrounding = projected.intelligence?.worldModel === 'off'
-    ? 'off' : capabilityWorldModelGrounding(projected.worldModelGrounding, capability);
+  // The registered World Model was removed: its pinned grounding is never a policy change.
+  if (Object.hasOwn(projected, 'worldModelGrounding')) projected.worldModelGrounding = retained.worldModelGrounding;
   if (Object.hasOwn(projected, 'worldModelStaleness')) projected.worldModelStaleness ??= retained.worldModelPolicy?.staleness ?? 'warn';
   if (capability?.policy?.maxDocumentBytes && projected.documents) {
     projected.documents.maxFileBytes = Math.min(projected.documents.maxFileBytes

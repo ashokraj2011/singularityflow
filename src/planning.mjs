@@ -15,16 +15,8 @@ import {
 } from './config.mjs';
 import { renderActiveStoryEvidence } from './evidence-context.mjs';
 import { gitDir, branch, head, identity } from './git.mjs';
-import {
-  groundingMode
-} from './grounding.mjs';
-import { resolveGroundingPlan } from './world-model-selection.mjs';
-import { materializationPolicy } from './world-model-materialization.mjs';
-import { worldModelStalenessDecision } from './world-model-policy.mjs';
-import { inspectConfiguredGrounding, resolveInspectedGrounding } from './worldmodel.mjs';
 import { injectAgentPrompt } from './inject.mjs';
 import { composeInitiativeContext } from './initiative-context.mjs';
-import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import { initiativeBreakdownDocument, validateInitiativeBreakdown } from './initiative-repositories.mjs';
 import { assignLocalStoryIds } from './local-identity.mjs';
 import {
@@ -60,16 +52,10 @@ import {
   writeText
 } from './util.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
-import { withWorldModelSourceScope } from './source-scope.mjs';
-import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
-import { worldModelStateAuthority } from './state-authority.mjs';
 import { phasePublicationCommand } from './manual-authorship.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { artifactContentContractLines, authoredArtifactText } from './publication-preflight.mjs';
-import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
-import {
-  resolveStoryExecutionCatalog, resolveStoryExecutionContext
-} from './story-execution-context.mjs';
+import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 
 const SESSION_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
@@ -416,119 +402,6 @@ async function initiativePlanningParts(root, definition, { id, phaseId, agent, t
   };
 }
 
-/** The grounding files, each once: agent prompts carry no World Model text of their own. */
-export function renderPlanningWorldModelContext(files) {
-  return files.map((file) => (
-    `## Repository world model: ${file.path}\n\n<!-- sha256=${file.sha256} reason=${file.reason} -->\n\n${file.content.trim()}`
-  )).join('\n\n');
-}
-
-async function workItemWorldModel(root, definition, workflow, phase, agent) {
-  const scopedDefinition = withWorldModelSourceScope(
-    definition,
-    workflow.resolution?.worldModelSourceScope ?? workflow.resolution?.capability?.sourceScope ?? null
-  );
-  const mode = groundingMode(definition, workflow.resolution?.worldModelGrounding ? workflow : null);
-  if (mode === 'off') return {
-    sections: [], files: [], directory: null, validatedModelFiles: [], validatedManifest: null,
-    warnings: [], record: { mode, available: false }
-  };
-  const plan = resolveGroundingPlan({
-    phase: phase.id,
-    phaseViews: phase.worldModel?.views ?? [],
-    agentViews: scopedDefinition.agents[agent]?.worldModelViews ?? [],
-    agentViewMode: scopedDefinition.worldModel?.agentViews ?? 'fallback',
-    depth: phase.worldModel?.depth ?? 'standard',
-    evidence: phase.worldModel?.evidence ?? false,
-    context: scopedDefinition.worldModel?.context ?? {}
-  });
-  const requiredViews = plan.views.map((entry) => entry.view);
-  const stateAuthority = worldModelStateAuthority(scopedDefinition);
-  const config = {
-    definition: scopedDefinition,
-    // Preserve the Story's pinned capability identity at every alternate composition boundary.
-    // Without it, registered-v4 scope fell back to the checkout basename and rejected the exact
-    // storyless model that the same repository had already published.
-    workflow,
-    outputDir: scopedDefinition.worldModel?.outputDir ?? 'singularity/world-model',
-    materialization: materializationPolicy(scopedDefinition),
-    stateBranch: stateAuthority.branch,
-    remote: stateAuthority.remote,
-    grounding: mode,
-    staleness: workflow.resolution?.worldModelStaleness ?? scopedDefinition.worldModel?.staleness ?? 'warn',
-    context: scopedDefinition.worldModel?.context ?? { includeDomains: 'matched', includeEvidence: phase.worldModel?.evidence ?? false },
-    phases: { [phase.id]: {
-      views: requiredViews,
-      declaredViews: requiredViews,
-      depth: phase.worldModel?.depth ?? 'standard',
-      evidence: phase.worldModel?.evidence ?? false
-    } }
-  };
-  try {
-    const inspected = await inspectConfiguredGrounding(root, config, phase.id, {
-      plan, refreshRemote: true
-    });
-    if (!inspected.availability.ready) {
-      throw new SingularityFlowError(`${inspected.reason} Run: ${inspected.command}`, {
-        code: inspected.availability.error?.code ?? 'WORLD_MODEL_GROUNDING_UNAVAILABLE'
-      });
-    }
-    const resolved = await resolveInspectedGrounding(root, inspected, phase.id, {
-      evidence: phase.worldModel?.evidence ?? false
-    });
-    const staleness = worldModelStalenessDecision(config.staleness, resolved.freshness.fresh);
-    const commit = resolved.located?.commit ?? null;
-    if (!commit) {
-      const reason = 'repository world model is not committed';
-      return {
-        sections: [], files: [], directory: null, validatedModelFiles: [], validatedManifest: null,
-        warnings: [`Repository world model unavailable: ${reason}; work may continue without it.`],
-        record: {
-          mode, available: false, fresh: resolved.freshness.fresh,
-          requiredViews, requiredSelections: inspected.plan.selections
-        }
-      };
-    }
-    const files = [];
-    for (const item of resolved.selected) {
-      const content = item.body ?? await readFile(item.absolute, 'utf8');
-      // State-backed models are materialized in a temporary directory. Durable planning receipts
-      // must name the canonical Git path, never that machine-local extraction path, and bind the
-      // bytes to the exact commit that supplied them.
-      const itemPath = posix(path.join(config.outputDir, item.relative));
-      files.push({
-        path: itemPath, sha256: item.sha256, bytes: item.size, reason: item.reason,
-        commit, source: resolved.located?.source ?? null, content
-      });
-    }
-    return {
-      sections: files,
-      files: files.map(({ content, ...file }) => file),
-      directory: resolved.directory,
-      validatedModelFiles: resolved.validatedModelFiles,
-      validatedManifest: resolved.manifest,
-      warnings: staleness.warns ? [staleness.message] : [],
-      record: {
-        mode, available: true, fresh: resolved.freshness.fresh,
-        commit,
-        format: inspected.format,
-        requiredViews, requiredSelections: inspected.plan.selections
-      }
-    };
-  } catch (error) {
-    // The World Model is guidance: planning works without it on a new or offline laptop, for a
-    // repository without a supported model, and when a candidate fails integrity checks. A failed
-    // candidate is omitted in full.
-    return {
-      sections: [], files: [], warnings: [
-        `Repository world model ${isWorldModelAvailabilityError(error) ? 'unavailable' : 'invalid'}: ${error.message}`
-      ],
-      directory: null, validatedModelFiles: [], validatedManifest: null,
-      record: { mode, available: false, requiredViews, requiredSelections: plan.selections }
-    };
-  }
-}
-
 async function workItemPlanningParts(root, definition, {
   id, phaseId, agent, targetId, workflow = null, executionContext = null
 }) {
@@ -547,7 +420,6 @@ async function workItemPlanningParts(root, definition, {
     agentId: agent,
     agentSha256: definition.agents?.[agent]?.sha256 ?? null
   });
-  let world = await workItemWorldModel(root, definition, workflow, phase, agent);
   const signals = {
     agent,
     phase: phase.id,
@@ -558,11 +430,6 @@ async function workItemPlanningParts(root, definition, {
     promptOverride: promptStudy,
     resolvedAgent: executionContext?.agent ?? null
   });
-  const capability = worldModelDisabledForWorkflow(workflow)
-    ? { text: '', files: [], warnings: [] }
-    : await renderCapabilityWorldModelPack(root, workflow.resolution?.capability, {
-      views: phase.worldModel?.views ?? [], grounding: world.record.mode
-    });
   const structural = await requiredStructuralPromptContext(root, workflow);
   const inputs = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
   if (inputs.errors.length) throw new SingularityFlowError(`Planning inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
@@ -586,8 +453,6 @@ async function workItemPlanningParts(root, definition, {
   const governed = [
     `# Governed story context — ${id}/${selectedPhase}`,
     `## Selected governed agent\n\n${agentResult.text.trim()}`,
-    renderPlanningWorldModelContext(world.sections),
-    capability.text,
     structural.text,
     remote.text,
     story ? `## Work-item source\n\n<!-- path=${posix(path.relative(root, storyPath))} -->\n\n${story.trim()}` : '',
@@ -612,8 +477,6 @@ async function workItemPlanningParts(root, definition, {
         kind: 'prompt-study-variant', path: promptStudy.path, sha256: promptStudy.sha256,
         bytes: promptStudy.bytes, studyRunId: promptStudy.studyRunId, variant: promptStudy.variant.id
       }] : []),
-      ...world.files.map((file) => ({ kind: 'world-model', ...file })),
-      ...capability.files.map((file) => ({ kind: 'capability-world-model', ...file })),
       ...(structural.record ? [{ kind: 'ast-context', ...structural.record }] : []),
       ...inputs.records.filter((entry) => entry.status === 'captured').map((entry) => ({ kind: 'approved-input', path: posix(path.join(itemRelative, entry.path)), sha256: entry.sha256, bytes: entry.bytes })),
       ...remote.skills.map((skill) => ({ kind: 'remote-skill', path: `agent:${session?.agent}/${skill.id}`, sha256: skill.sha256, bytes: skill.size })),
@@ -621,7 +484,7 @@ async function workItemPlanningParts(root, definition, {
       ...(storyInfo ? [{ kind: 'work-item-source', path: posix(path.relative(root, storyPath)), sha256: storyInfo.sha256, bytes: storyInfo.size }] : []),
       ...(currentInfo ? [{ kind: 'current-draft', path: posix(path.relative(root, target)), sha256: currentInfo.sha256, bytes: currentInfo.size }] : [])
     ],
-    warnings: [...world.warnings, ...capability.warnings, ...structural.warnings, ...remote.warnings, ...inputs.warnings],
+    warnings: [...structural.warnings, ...remote.warnings, ...inputs.warnings],
     generation: nextPhaseGeneration(phase),
     profile: workflow.workItem.workType,
     repositoryPath: itemRelative

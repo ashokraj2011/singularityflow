@@ -206,26 +206,18 @@ export function validateInitiativeBreakdown(value, portfolio) {
 // source evidence. The generated answer still needs deterministic checking: every repository
 // named must exist in the portfolio. Custom profiles may additionally name world-model views, and
 // those references must exist whenever a manifest is available.
-export function validateImpactMap(portfolio, manifest, repositoryMap) {
+export function validateImpactMap(portfolio, repositoryMap) {
   const problems = [];
-  const declaredViews = new Set(Array.isArray(manifest?.views)
-    ? manifest.views.map((entry) => entry?.viewId).filter(Boolean)
-    : Object.keys(manifest?.views ?? {}));
   const repositories = repositoryMap?.repositories ?? {};
   if (repositories && typeof repositories === 'object' && !Array.isArray(repositories)) {
-    for (const [id, entry] of Object.entries(repositories)) {
+    for (const id of Object.keys(repositories)) {
       if (!portfolio.repositories?.[id]) problems.push(`impact map names unknown repository '${id}'`);
-      const views = entry?.worldModelViews ?? entry?.views ?? [];
-      if (!Array.isArray(views)) { problems.push(`impact map repository '${id}' views must be a list`); continue; }
-      for (const view of views) {
-        if (!declaredViews.has(view)) problems.push(`impact map repository '${id}' references undeclared world-model view '${view}'`);
-      }
     }
   } else if (repositories !== undefined && Object.keys(repositories ?? {}).length) {
     problems.push('impact map repositories must be a mapping of repository ID to impact');
   }
-
-  // Checked against the World Model, so the findings are guidance: warnings, never refusals.
+  // World-model view names an impact map may carry are no longer checked: that model was removed.
+  // The findings are guidance: warnings, never refusals.
   return { errors: [], warnings: problems };
 }
 

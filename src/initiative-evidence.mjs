@@ -1,10 +1,8 @@
 import { createHash } from 'node:crypto';
-import { registeredWorldModelOn } from './world-model-policy.mjs';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { EPIC_TRACEABILITY_CHECKS, isEpicPlanningPhase, isEpicRequirementsPhase } from './initiative-phase-roles.mjs';
 import YAML from 'yaml';
-import { loadDefinition } from './config.mjs';
 import {
   EVIDENCE_ASSURANCE
 } from './initiative-config.mjs';
@@ -30,12 +28,6 @@ import { harvestInitiativeKnowledge } from './knowledge.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { repositoryCaseInsensitivePaths } from './repository-change-set.mjs';
-import { withWorldModelSourceScope } from './source-scope.mjs';
-import { resolveWorldModelV4Grounding } from './world-model/commands.mjs';
-import {
-  cachedWorldModelV4AuthorityPresent, refreshWorldModelV4Authority
-} from './world-model/authority-refresh.mjs';
-import { worldModelStateAuthority } from './state-authority.mjs';
 import {
   artifactPlaceholderFindings, authoredArtifactFingerprint
 } from './publication-preflight.mjs';
@@ -844,8 +836,8 @@ export async function evaluateInitiativePhase(root, portfolio, initiative, phase
 }
 
 // A phase that publishes an impact map (the repository/world-model areas an epic touches) has it
-// checked against ground truth before it can be approved: repositories must exist in the portfolio
-// and views must exist in the committed world model. Phases without such an output are unaffected.
+// checked before it can be approved: its repositories must exist in the portfolio. Phases without
+// such an output are unaffected.
 async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
   const definition = phaseDefinition(initiative, phaseId).outputs.find((output) => ['repository-map', 'impact-analysis'].includes(output.id));
   if (!definition) return { errors: [], warnings: [] };
@@ -861,74 +853,7 @@ async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
   catch (error) { return { errors: [`impact map ${output.path} is not valid YAML: ${error.message}`], warnings: [] }; }
   if (!impact.repositories || !Object.keys(impact.repositories).length) return { errors: [], warnings: [] };
 
-  const outputDir = initiative.resolution?.worldModelOutputDir ?? 'singularity/world-model';
-  let manifest = null;
-  let modelDiagnostic = null;
-  try {
-    const definition = withWorldModelSourceScope(
-      await loadDefinition(root),
-      initiative.resolution?.worldModelSourceScope ?? null
-    );
-    // Views are not used while the registered World Model is off, so there is nothing to check them against.
-    if (!registeredWorldModelOn(definition)) return { errors: [], warnings: [] };
-    const ledger = initiative.resolution?.ledger ?? definition.ledger ?? {};
-    const stateAuthority = worldModelStateAuthority({
-      ...definition,
-      ledger: {
-        ...(definition.ledger ?? {}),
-        ...ledger
-      }
-    });
-    const config = {
-      definition,
-      ...(initiative.resolution?.capability
-        ? { workflow: { resolution: { capability: initiative.resolution.capability } } }
-        : {}),
-      outputDir,
-      stateBranch: stateAuthority.branch,
-      remote: stateAuthority.remote,
-      staleness: 'warn',
-      phases: {
-        'initiative-impact': {
-          views: definition.worldModel?.views ?? [],
-          declaredViews: definition.worldModel?.views ?? [],
-          depth: 'standard',
-          evidence: false
-        }
-      }
-    };
-    const authority = await refreshWorldModelV4Authority(root, config, { refreshRemote: true });
-    if (authority.status === 'remote-absent') {
-      throw new SingularityFlowError(
-        'The configured remote state branch has no registered World-Model projection.',
-        { code: 'WMB_MANIFEST_MISSING', details: { refresh: authority.status } }
-      );
-    }
-    if (['offline-cached', 'timeout-cached', 'unavailable'].includes(authority.status)
-        && !cachedWorldModelV4AuthorityPresent(root, config)) {
-      throw new SingularityFlowError(
-        'The registered World-Model authority could not be refreshed and has no verified cache.',
-        { code: 'WMB_STATE_AUTHORITY_UNAVAILABLE', details: { refresh: authority.status } }
-      );
-    }
-    const resolved = resolveWorldModelV4Grounding(root, config, {
-      phase: 'initiative-impact'
-    });
-    if (!resolved.freshness.fresh) {
-      modelDiagnostic = `the preserved registered World Model is stale (${resolved.freshness.reason ?? 'source changed'})`;
-    } else {
-      manifest = resolved.manifest;
-    }
-  } catch (error) {
-    modelDiagnostic = error.message;
-  }
-  if (!manifest) {
-    // The World Model is guidance: an impact map is never refused because no model can confirm it.
-    const message = `impact map references world-model views, but no exact-source validated model is available from governed state or the application projection (${outputDir}): ${modelDiagnostic ?? 'model authority is unavailable'}`;
-    const referencesViews = Object.values(impact.repositories).some((entry) => (entry?.worldModelViews ?? entry?.views ?? []).length);
-    return { errors: [], warnings: referencesViews ? [message] : [] };
-  }
-  return validateImpactMap(portfolio, manifest, impact);
+  return validateImpactMap(portfolio, impact);
 }
 
 /**

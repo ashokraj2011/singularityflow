@@ -10,7 +10,6 @@ import { validateAgentEntryRequest } from '../agent-entry-options.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { effectivePhasePublicationProducer } from '../manual-authorship.mjs';
-import { phaseNeedsGeneration } from '../sequence.mjs';
 import { storyRequiresStepActions } from '../step-actions.mjs';
 import { requiresProspectivePhaseInspection } from '../code-submission-evidence.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
@@ -94,43 +93,6 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
     reason: 'Select the governed agent that will remain active for this terminal session before generation.'
   });
 
-  // The lifecycle's own freshness rule: a phase reopened as downstream rework or by a skill
-  // amendment needs a new generation (and its grounding) as much as a never-published one.
-  const generationRequired = Boolean(active) && phaseNeedsGeneration(workflow, active);
-  // A Story pinned off needs nothing more; otherwise the registered World Model must also be on.
-  const pinnedGrounding = workflow.resolution?.worldModelGrounding ?? 'off';
-  if (pinnedGrounding !== 'off') definition ??= await (await import('../config.mjs')).loadDefinition(root);
-  const groundingMode = pinnedGrounding === 'off' ? 'off' : (await import('../grounding.mjs')).groundingMode(definition, workflow);
-  if (active?.status === 'in_progress' && generationRequired
-      && groundingMode !== 'off' && !deterministicConvergence) {
-    const { loadDefinition } = await import('../config.mjs');
-    const { verifyGroundingRecord } = await import('../grounding.mjs');
-    const { inspectWorkflowGrounding } = await import('../worldmodel.mjs');
-    definition ??= await loadDefinition(root);
-    const readiness = await inspectWorkflowGrounding(root, workflow, active.id, {
-      agent: activeAgent
-    });
-    if (!readiness.availability.ready) {
-      prerequisites.push({
-        timing: 'optional',
-        skill: '/sf-worldmodel', command: readiness.command,
-        reason: `${readiness.reason} World-model recovery is optional and does not block phase work.`
-      });
-    } else {
-      if (readiness.availability.staleness?.warns) prerequisites.push({
-        timing: 'optional', skill: '/sf-worldmodel', command: readiness.command,
-        reason: readiness.availability.staleness.message
-      });
-      const grounding = await verifyGroundingRecord(root, definition, workflow, active, {
-        agent: activeAgent
-      });
-      if (grounding.warnings.length) prerequisites.push({
-        timing: 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
-        route: 'grounding-composition',
-        reason: 'Create or refresh the required grounding record and exact prompt snapshot before publishing this generation.'
-      });
-    }
-  }
   if (authoring && activeSessionAgent && !deterministicConvergence) {
     const { agentStatus, remoteOutputConflicts } = await import('../agents.mjs');
     // Accepted agents execute their verified closure, not today's mutable live catalog.

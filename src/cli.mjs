@@ -88,14 +88,9 @@ import {
 } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { gateRecoveryReopenPlan } from './gate-recovery.mjs';
-import {
-  inspectWorkflowGrounding, workflowGroundingMaterializationPlan, worldModelCommand
-} from './worldmodel.mjs';
+import { worldModelCommand } from './worldmodel.mjs';
 import { runDraftTransaction } from './draft-unit-of-work.mjs';
 import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
-import {
-  automaticMaterializationDecision, effectiveMaterializationPolicy
-} from './world-model-materialization.mjs';
 import { launchHostSession } from './host-session-launcher.mjs';
 import { operationContext, runOperation } from './operation-context.mjs';
 import {
@@ -157,7 +152,6 @@ import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { compareVisualArtifacts, listVisualComparisons } from './visual-compare.mjs';
 import { bootstrapWorkspacePortfolio, deleteConfigurationFile, deleteConfigurationTemplate, exportConfigurationBundle, repositorySnapshot, publishEditorConfiguration, readConfigurationFile, saveConfigurationFile, selectEditorAgent, validateEditorConfiguration } from './editor.mjs';
 import { automaticEnrollmentMayPublish, publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
-import { groundingMode, verifyGroundingRecord } from './grounding.mjs';
 import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, redactCommandArgv, repositoryLogger, resolveLogging } from './logging.mjs';
 import { collectWorkspaceLogs } from './workspace-logs.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
@@ -2443,8 +2437,7 @@ export async function startCommand(positionals, options) {
   const {
     assertApprovedCapabilityRepositoryPlan, assertStoryBaseSharesHistory, storyBaseForRepository, preflightStoryRepositories,
     capabilityPublicationPlan, prepareCapabilityRepositories, printCapabilityBase,
-    preflightIncludesRepository, preflightPublicationAuthority,
-    preflightWorldModelAuthorityRefreshes
+    preflightIncludesRepository, preflightPublicationAuthority
   } = await import('./capability-start.mjs');
   if (materializedSeed && requestedBase.length
     && requestedBase.some((value) => value !== materializedSeed.parentBranch)) {
@@ -3304,7 +3297,6 @@ export async function startCommand(positionals, options) {
           capabilityMapSha256: configurationSnapshot?.files?.[CAPABILITIES_PATH]
             ?? legacyCapabilityEvidence?.mapSha256 ?? null,
           referenceRepositories,
-          worldModelAuthorityRefreshes: preflightWorldModelAuthorityRefreshes(capabilityPreflight),
           baselineFailures: optionString(options, 'baseline-failures') ?? null
         }));
         returnLocator = await writeReturnLocator(root, config, workflow);
@@ -4525,68 +4517,6 @@ async function actionCommand(positionals, options) {
   };
 }
 
-async function materializeWorldModelForNext(root, config, workflow, phase, options, readiness) {
-  const policy = effectiveMaterializationPolicy(config, workflow);
-  if (policy.mode !== 'on-demand') return { materialized: false, policy, reason: `materialization mode is ${policy.mode}` };
-
-  if (policy.confirmation === 'automatic') {
-    const decision = automaticMaterializationDecision(readiness?.availability);
-    if (!decision.allowed) {
-      return {
-        materialized: false,
-        policy,
-        preservation: decision,
-        reason: `${decision.reason}; automatic world-model recreation is disabled`
-      };
-    }
-  }
-
-  const buildPlan = workflowGroundingMaterializationPlan(readiness, {
-    phaseId: phase.id,
-    automatic: policy.confirmation === 'automatic',
-    publication: policy.publish
-  });
-  if (!buildPlan.allowed) {
-    return {
-      materialized: false, policy, preservation: buildPlan,
-      reason: buildPlan.reason
-    };
-  }
-  const description = buildPlan.modelFree
-    ? `the deterministic world model for phase '${phase.id}' (zero model tokens)`
-    : `the configured phase-depth world model for phase '${phase.id}' (may invoke the configured model provider)`;
-  const authorized = policy.confirmation === 'automatic'
-    || optionBoolean(options, 'yes')
-    || await confirmYesNo(`Repository grounding is missing or stale. Build ${description} now?`);
-  if (!authorized) return { materialized: false, policy, declined: true, reason: 'the user declined materialization' };
-
-  console.log(`${policy.confirmation === 'automatic' ? 'Automatically building' : 'Building'} ${description}...`);
-  const operation = operationById(buildPlan.operationId);
-  if (!operation) throw new SingularityFlowError(`Registered operation '${buildPlan.operationId}' is unavailable.`);
-  const materializePhase = (phaseId) => runOperation(operation, () => worldModelCommand(
-    root,
-    buildPlan.positionals,
-    { ...buildPlan.options, phase: phaseId }
-  ));
-  await materializePhase(phase.id);
-
-  let lookahead = null;
-  if (policy.lookahead === 'next-phase') {
-    const index = (workflow.phaseOrder ?? []).indexOf(phase.id);
-    // After a decision the next phase is known only once its values are recorded.
-    const ahead = upcomingDecision(workflow, phase);
-    const nextPhaseId = ahead
-      ? (['next', 'forward'].includes(ahead.outcome?.kind) ? ahead.outcome.target : null)
-      : index >= 0 ? workflow.phaseOrder?.[index + 1] ?? null : null;
-    if (nextPhaseId && workflow.phases?.[nextPhaseId]) {
-      console.log(`Preparing configured next-phase grounding for '${nextPhaseId}'...`);
-      await materializePhase(nextPhaseId);
-      lookahead = { phase: nextPhaseId, materialized: true };
-    }
-  }
-  return { materialized: true, policy, lookahead };
-}
-
 async function nextCommand(options) {
   const root = repoRoot();
   const accepted = await loadAcceptedStoryExecution(root);
@@ -4644,71 +4574,14 @@ async function nextCommand(options) {
   // repository-owned evidence directly and must not be blocked by an agent or world model.
   if (!deterministicConvergence) await activateWorkItemSession(root, config, workflow);
 
-  // Lifecycle grounding consumes the repository model, whose durable identity is the scoped
-  // source snapshot. Story context is already supplied by the governed workflow prompt. Adding a
-  // Story title as a task-guide requirement would make every Story look like a missing model and
-  // could launch another expensive build even though the shared repository model is unchanged.
-  // Keep accepting --task for command-line compatibility; only direct `wm ensure/compose --task`
-  // explicitly requests an ad-hoc task guide.
-  const requestedTask = optionString(options, 'task');
-  if (requestedTask) {
-    console.warn('Ignoring --task for lifecycle grounding; the repository world model is shared across Stories and Story context comes from the governed phase. Use an explicit wm ensure/compose --task command only to request an ad-hoc task guide.');
+  // `next` composes the governed phase prompt: the Story's contract and inputs, its supporting
+  // documents and the Repository brief read from the source. --task is accepted and ignored.
+  if (optionString(options, 'task')) {
+    console.warn('Ignoring --task: Story context comes from the governed phase. Use wm compose --task to request an ad-hoc task guide.');
   }
-  const grounding = groundingMode(config, workflow);
-  if (grounding !== 'off' && !deterministicConvergence) {
-    const readiness = await inspectWorkflowGrounding(root, workflow, phase.id, {
-      agent: (await loadSession(root, { required: false }))?.agent ?? null,
-      // `next` is an authoring orchestrator, unlike the read-only nextsteps/status surfaces. Refresh
-      // the state authority here before any materialization or prompt composition decision.
-      refreshRemote: true
-    });
-    if (!readiness.availability.ready) {
-      const policy = effectiveMaterializationPolicy(config, workflow);
-      let materialization = {
-        materialized: false,
-        policy,
-        reason: policy.confirmation === 'prompt' && !optionBoolean(options, 'yes')
-          ? 'world-model construction requires a separate explicit choice'
-          : null
-      };
-      // Lifecycle progress must never wait on optional intelligence. Preserve the configured
-      // zero-model automatic warm-up and an explicit --yes request, but contain every failure and
-      // compose a truthful no-model receipt instead of returning before phase preparation.
-      if (policy.confirmation === 'automatic' || optionBoolean(options, 'yes')) {
-        try {
-          materialization = await materializeWorldModelForNext(
-            root, config, workflow, phase, options, readiness
-          );
-        } catch (error) {
-          materialization = {
-            materialized: false, policy,
-            reason: `optional materialization failed: ${error.message}`
-          };
-        }
-      }
-      console.warn(`Grounding warning: ${readiness.reason}`);
-      if (materialization.reason) console.warn(`World-model note: ${materialization.reason}.`);
-      console.warn(`Continuing phase '${phase.id}' without repository world-model context.`);
-      console.warn(`Optional recovery: ${readiness.command}`);
-      await worldModelCommand(root, ['wm', 'compose'], {
-        phase: phase.id, evidence: phase.worldModel?.evidence === true
-      });
-    } else {
-      await worldModelCommand(root, ['wm', 'compose'], {
-        phase: phase.id, evidence: phase.worldModel?.evidence === true
-      });
-    }
-    // Composition records governed context and refreshes workflow.json. Continue from that exact
-    // aggregate revision; otherwise the draft transaction correctly sees the pre-composition copy
-    // as stale and refuses to prepare, turning a successful automatic world-model build into a
-    // false concurrency failure.
-    workflow = await loadStoryAggregate(root, config, workflow.workItem.id);
-    phase = workflow.phases[phase.id];
-  } else if (!deterministicConvergence
-      && (await documentCatalog(root, config, workflow, { phaseId: phase.id })).some((record) => ['file', 'url'].includes(record.type))) {
-    // Without world-model grounding there is no repository context to compose, but the phase is
-    // still offered supporting documents, and only the governed prompt delivers them to the author.
-    await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id, evidence: phase.worldModel?.evidence === true });
+  if (!deterministicConvergence) {
+    await worldModelCommand(root, ['wm', 'compose'], { phase: phase.id });
+    // Composition records the prompt and refreshes workflow.json; continue from that exact revision.
     workflow = await loadStoryAggregate(root, config, workflow.workItem.id);
     phase = workflow.phases[phase.id];
   }

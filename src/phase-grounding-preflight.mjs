@@ -1,57 +1,13 @@
-import path from 'node:path';
-import { verifyGroundingRecord } from './grounding.mjs';
-import { exists } from './util.mjs';
-
-/** Read the same grounding contract as publication, without composing or replacing a prompt. */
-export async function phaseGroundingPreflight(root, config, workflow, phase, draft) {
-  // Missing session ownership changes who may repair the draft, not what publication verifies.
-  if (!['governed-agent', 'legacy-unspecified'].includes(draft.configuredProducer ?? draft.producer)) {
-    return { blockers: [], actions: [], check: { errors: [], warnings: [], record: null },
-      projection: { status: 'not-applicable', warnings: [] } };
-  }
-  let check;
-  try {
-    check = await verifyGroundingRecord(root, config, workflow, phase, {
-      agent: draft.ownership.proven ? draft.ownership.agent : null, generation: draft.generation
-    });
-  } catch (error) {
-    // Grounding is World-Model guidance; even an unreadable record only warns.
-    check = { errors: [], warnings: [error.message], path: null };
-  }
-  const missing = check.path && !(await exists(path.join(root, check.path)));
-  const blockers = check.errors.map((message) => ({
-    code: missing ? 'phase.grounding.required' : 'phase.grounding.not-ready',
-    category: 'grounding', path: check.path, line: null, message
-  }));
-  // An intact pending legacy prompt may carry the wrong tier from an older resolver. The
-  // composer can archive that pair and record a corrected one; the v4 doctor cannot diagnose it.
-  // Do not offer this route when another integrity error is present or the phase is published.
-  const pendingSelectionDrift = !missing
-    && workflow.phases?.[phase.id]?.status === 'in_progress'
-    && check.errors.length > 0
-    && check.errors.every((message) => /grounding composition omitted required selection '[^']+' for /.test(message));
+/**
+ * Publication readiness used to verify the registered World Model's grounding receipt here. That
+ * model was removed; a phase prompt carries only the Repository brief, which needs no receipt
+ * check, so this preflight reports the grounding check as off.
+ */
+export async function phaseGroundingPreflight() {
   return {
-    check,
-    blockers,
-    actions: blockers.length ? [{
-      command: missing ? `singularity-flow wm compose --phase ${phase.id}`
-        : pendingSelectionDrift
-          ? `singularity-flow wm compose --phase ${phase.id} --work-id ${workflow.workItem.id}`
-          : 'singularity-flow wm doctor --json',
-      skill: '/sf-worldmodel',
-      detail: missing
-        ? 'Compose the governed phase prompt, then rerun prepublish. No prompt has been recorded for this generation.'
-        : pendingSelectionDrift
-          ? 'Recompose the pending prompt from the pinned phase plan. Singularity Flow keeps the old pair in superseded history; review the authored artifact against the new prompt before publication.'
-        : 'Inspect the grounding diagnostics before retrying. Preserve the saved generation prompt and receipt; '
-          + 'rebuilding a World Model does not replace context already used for generation. '
-          + 'Use governed recovery if a new generation is needed; never edit receipt hashes or freshness flags.'
-    }] : [],
-    projection: {
-      status: blockers.length ? 'blocked' : check.mode === 'off' ? 'off'
-        : check.warnings.length ? 'warning' : 'ready',
-      mode: check.mode ?? null, path: check.path,
-      staleness: check.staleness ?? null, warnings: check.warnings
-    }
+    check: { mode: 'off', errors: [], warnings: [], record: null, path: null },
+    blockers: [],
+    actions: [],
+    projection: { status: 'off', mode: 'off', path: null, staleness: null, warnings: [] }
   };
 }

@@ -380,12 +380,6 @@
       },
       "digest": "c91012ae9530f34461ef034bdac3299fe1a40f8de029291bbd1ce6733f02e087"
     },
-    "src/architecture-intent-service.mjs": {
-      "counts": {
-        "command-run": 6
-      },
-      "digest": "d3a892cd1cd940d95bf67f3a254aa2f2511120e8ae3f8ce2720171748dd92767"
-    },
     "src/ast-intelligence.mjs": {
       "counts": {
         "command-run": 8

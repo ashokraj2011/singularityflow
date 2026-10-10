@@ -18,7 +18,6 @@ import {
 import {
   canonicalJson as canonicalWorldModelJson, sha256 as worldModelSha256
 } from './canonical-json.mjs';
-import { validateArchitectureIntent } from './world-model/projections/calm/projection.mjs';
 
 const SHA = /^[0-9a-f]{40,64}$/i;
 
@@ -163,7 +162,8 @@ function verifyArchitectureIntentBindingAtCommit(root, commit, recordPath, bindi
     return { valid: false, reason: 'architecture intent is absent from its generation commit' };
   }
   try {
-    const intent = validateArchitectureIntent(JSON.parse(shown.stdout));
+    // Architecture intent was removed; a binding recorded before then is still checked byte for byte.
+    const intent = JSON.parse(shown.stdout);
     const canonicalBytes = canonicalWorldModelJson(intent);
     if (shown.stdout !== canonicalBytes
         || binding.intentSha256 !== intent.intentSha256

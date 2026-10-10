@@ -24,8 +24,6 @@ import { canonicalJson } from './records.mjs';
 import {
   canonicalJson as canonicalWorldModelJson, sha256 as worldModelSha256
 } from './canonical-json.mjs';
-import { validateArchitectureIntent } from './world-model/projections/calm/projection.mjs';
-import { publishedArchitectureIntentBinding } from './architecture-intent-service.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
 import {
   validateAutoCandidateBinding, validateAutoCandidateVerification
@@ -122,7 +120,8 @@ function validateSubmittedArchitectureIntent(root, config, workflow, packet, evi
     cwd: root, allowFailure: true
   });
   if (shown.status !== 0) throw new Error('architecture intent is absent');
-  const intent = validateArchitectureIntent(JSON.parse(shown.stdout));
+  // Architecture intent was removed; a binding recorded before then is still checked byte for byte.
+  const intent = JSON.parse(shown.stdout);
   const canonicalBytes = canonicalWorldModelJson(intent);
   if (shown.stdout !== canonicalBytes
       || binding.intentSha256 !== intent.intentSha256
@@ -417,7 +416,7 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
   const submissionEvidence = {
     ...(documentChecks.length ? { documentChecks } : {}),
     architectureIntent: structuredClone(
-      publishedArchitectureIntentBinding(phase, phase.generation)
+      (phase?.generationPublications ?? []).find((entry) => Number(entry.generation) === Number(phase.generation))?.architectureIntent ?? null
     ),
     architectureDecision: structuredClone(
       Number(phase.submissionArchitectureDecision?.generation) === Number(phase.generation)

@@ -65,12 +65,6 @@ import {
   resolvedSpecificationQualityPolicy
 } from './specification-gate.mjs';
 import {
-  architectureIntentGateIdentity, evaluateArchitectureIntentGate
-} from './architecture-intent-gate.mjs';
-import {
-  publishedArchitectureIntentBinding, resolveArchitectureIntentPublicationBinding
-} from './architecture-intent-service.mjs';
-import {
   beginTelemetryCapture, collectCopilotUsage, phaseTelemetrySummary, recordPhaseTelemetry, telemetryCaptureGap
 } from './telemetry.mjs';
 import { retainUnchangedPhases } from './phase-retention.mjs';
@@ -3524,8 +3518,7 @@ async function assertRequiredArtifactSetPublishable(root, phase, catalog) {
 }
 
 export async function publishGeneration(root, config, workflow, {
-  phaseId, usage: rawUsage, authorship = null, persist = true, publicationTransaction = null,
-  architectureCandidateSnapshot = null
+  phaseId, usage: rawUsage, authorship = null, persist = true, publicationTransaction = null
 } = {}) {
   assertStoryNotArchived(root, workflow);
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
@@ -3775,13 +3768,6 @@ export async function publishGeneration(root, config, workflow, {
       + `Answer each question and record it with singularity-flow clarification record ${phase.id} --marker "<question>" --answer "..." before regenerating.`
     );
   }
-  const architectureGate = await evaluateArchitectureIntentGate(
-    root, config, workflow, phase.id,
-    { candidateSnapshot: architectureCandidateSnapshot }
-  );
-  const acceptedArchitectureGateIdentity = architectureIntentGateIdentity(architectureGate);
-  architectureGate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-
   /**
    * Constitution citations `[SPK:REQ-101]`.
    *
@@ -3861,21 +3847,10 @@ export async function publishGeneration(root, config, workflow, {
     }
   }
   const targetGeneration = nextPhaseGeneration(phase);
-  const architectureIntentBinding = await resolveArchitectureIntentPublicationBinding(
-    root, config, workflow, phase, targetGeneration
-  );
-  const currentArchitectureGate = await evaluateArchitectureIntentGate(
-    root, config, workflow, phase.id,
-    { candidateSnapshot: architectureCandidateSnapshot }
-  );
-  if (architectureIntentGateIdentity(currentArchitectureGate)
-      !== acceptedArchitectureGateIdentity) {
-    throw new SingularityFlowError(
-      'Architecture intent evidence changed while generation publication was being validated. Nothing was published; retry against the current evidence.',
-      { code: 'WMC_INTENT_STATE_CHANGED' }
-    );
-  }
-  const architectureDecision = architectureGate.architectureDecision ?? null;
+  // Architecture intent was removed with the registered World Model; publications record no
+  // intent binding or decision, exactly as when it was disabled.
+  const architectureIntentBinding = null;
+  const architectureDecision = null;
   phase.generation = targetGeneration; phase.generatedBy = session.actor;
   phase.submissionArchitectureDecision = null;
   phase.generatedAgent = effectiveAuthorship.producer === 'governed-agent' ? session.agent : null;
@@ -5016,7 +4991,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
 
 async function submitPhaseTransition(root, config, workflow, {
   phaseId, runChecks = true, persist = true, submissionContext = null,
-  architectureCandidateSnapshot = null, actor = null, agent = undefined, decisionValues = null
+  actor = null, agent = undefined, decisionValues = null
 } = {}) {
   assertStoryNotArchived(root, workflow);
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
@@ -5116,13 +5091,6 @@ async function submitPhaseTransition(root, config, workflow, {
   if (gate.errors.length) {
     throw new SingularityFlowError(`Phase ${phase.id} cannot be submitted for approval:\n- ${gate.errors.join('\n- ')}`);
   }
-  const architectureGate = await evaluateArchitectureIntentGate(
-    root, config, workflow, phase.id,
-    { candidateSnapshot: architectureCandidateSnapshot }
-  );
-  const acceptedArchitectureGateIdentity = architectureIntentGateIdentity(architectureGate);
-  architectureGate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-
   // Legacy AST receipts are observed diagnostically. Their absence or invalidity cannot prevent
   // submission because normal repository file access is the permanent fallback.
   await requireAstLifecycleReceipt(root, config, workflow, phase, { generation: phase.generation });
@@ -5594,17 +5562,6 @@ async function submitPhaseTransition(root, config, workflow, {
       && (phase.approvalPolicy.mode === 'none' || phase.approvalPolicy.mode === 'policy')) {
     await assertPlannedSpecificationClaims(root, config, workflow, automaticUpcoming);
   }
-  const currentArchitectureGate = await evaluateArchitectureIntentGate(
-    root, config, workflow, phase.id,
-    { candidateSnapshot: architectureCandidateSnapshot }
-  );
-  if (architectureIntentGateIdentity(currentArchitectureGate)
-      !== acceptedArchitectureGateIdentity) {
-    throw new SingularityFlowError(
-      'Architecture intent evidence changed while submission was being validated. Nothing was submitted; retry against the current evidence.',
-      { code: 'WMC_INTENT_STATE_CHANGED' }
-    );
-  }
   // Do not let the last phase enter human review when approval still could not complete the Story.
   // Run this only after ordinary submission validation has refreshed tests, observed claim maps,
   // conformance and interval evidence; running it earlier can mistake not-yet-recorded fresh test
@@ -5614,10 +5571,7 @@ async function submitPhaseTransition(root, config, workflow, {
     const { assertTerminalReadiness } = await import('./evidence/terminal.mjs');
     await assertTerminalReadiness(root, config, workflow);
   }
-  phase.submissionArchitectureDecision = architectureGate.architectureDecision ? {
-    generation: phase.generation,
-    identity: structuredClone(architectureGate.architectureDecision)
-  } : null;
+  phase.submissionArchitectureDecision = null;
   phase.submittedAt = nowIso();
   // Waive only under a policy the gate can replay; any other policy leaves the phase to people.
   const waiverPolicy = supportedWaiverPolicy(phase.approvalPolicy);
@@ -5725,7 +5679,7 @@ export async function submitPhase(root, config, workflow, options = {}) {
  */
 export async function submitConfirmedConvergencePhase(root, config, workflow, {
   confirmation, phaseId = null, runChecks = true, persist = true,
-  architectureCandidateSnapshot = null, actor = identity(root), agent = null
+  actor = identity(root), agent = null
 } = {}) {
   assertStoryNotArchived(root, workflow);
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
@@ -5736,7 +5690,6 @@ export async function submitConfirmedConvergencePhase(root, config, workflow, {
     phaseId: phase.id,
     runChecks,
     persist,
-    architectureCandidateSnapshot,
     actor,
     agent,
     submissionContext: CONFIRMED_CONVERGENCE_SUBMISSION
@@ -5760,7 +5713,6 @@ export async function approvePhase(root, config, workflow, {
   checklist = [],
   witnessMappings = [],
   bindingDecisions = [],
-  architectureCandidateSnapshot = null,
   actor: decisionActor = null,
   agent: decisionAgent = undefined,
   persist = true
@@ -5959,18 +5911,9 @@ export async function approvePhase(root, config, workflow, {
       }
     );
   }
-  const architectureIntentBinding = publishedArchitectureIntentBinding(phase, phase.generation);
-  const currentArchitectureIntentBinding = architectureIntentBinding
-    ? await resolveArchitectureIntentPublicationBinding(
-      root, config, workflow, phase, phase.generation
-    ) : null;
-  if (canonicalJson(currentArchitectureIntentBinding)
-      !== canonicalJson(architectureIntentBinding)) {
-    throw new SingularityFlowError(
-      `Phase '${phase.id}' architecture intent changed after generation ${phase.generation} was published. Reopen and revise it for the next generation.`,
-      { code: 'STORY_REVIEW_EVIDENCE_STALE' }
-    );
-  }
+  // Architecture intent was removed; a binding recorded before then is compared as recorded, never re-resolved.
+  const architectureIntentBinding = (phase?.generationPublications ?? []).find((entry) =>
+    Number(entry.generation) === Number(phase.generation))?.architectureIntent ?? null;
   if (canonicalJson(submittedReview.submissionEvidence?.architectureIntent ?? null)
       !== canonicalJson(architectureIntentBinding)) {
     throw new SingularityFlowError(
@@ -5986,32 +5929,6 @@ export async function approvePhase(root, config, workflow, {
     throw new SingularityFlowError(
       `Phase '${phase.id}' review packet does not bind the architecture decision checked at submission. Submit again.`,
       { code: 'STORY_REVIEW_EVIDENCE_STALE' }
-    );
-  }
-  // Submission records what the reviewer was asked to approve, but state/source authority can move
-  // after that commit and before the approval command begins. A commit stability guard only proves
-  // that the observation made at the start of *this* approval stays stable; it must not turn an
-  // already-stale or already-blocking observation into authority. Recompute through the shared gate,
-  // require success, and bind the current decision to the exact submitted identity before making any
-  // approval mutation. The publication guard still repeats this observation around the commit.
-  const currentArchitectureGate = await evaluateArchitectureIntentGate(
-    root, config, workflow, phase.id,
-    { candidateSnapshot: architectureCandidateSnapshot }
-  );
-  if (currentArchitectureGate.errors.length) {
-    throw new SingularityFlowError(
-      `Phase '${phase.id}' architecture evidence changed after submission and is not approvable:\n- ${currentArchitectureGate.errors.join('\n- ')}`,
-      {
-        code: currentArchitectureGate.code ?? 'WMC_INTENT_UNFULFILLED',
-        details: { reasonCodes: currentArchitectureGate.reasonCodes ?? [] }
-      }
-    );
-  }
-  if (canonicalJson(currentArchitectureGate.architectureDecision ?? null)
-      !== canonicalJson(submittedArchitectureDecision)) {
-    throw new SingularityFlowError(
-      `Phase '${phase.id}' architecture decision changed after submission. Submit a fresh immutable review packet before approval.`,
-      { code: 'WMC_INTENT_STATE_CHANGED' }
     );
   }
   const currentArtifacts = [];
@@ -7555,9 +7472,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   await writeBytes(specificationFile, Buffer.from(proposedText, 'utf8'));
   const priorGeneration = Number(specification.generation ?? 0);
   const amendmentGeneration = nextPhaseGeneration(specification);
-  const amendmentArchitectureIntent = await resolveArchitectureIntentPublicationBinding(
-    root, config, workflow, specification, amendmentGeneration
-  );
+  const amendmentArchitectureIntent = null;
   specification.approvals.forEach((approval) => {
     if (!approval.invalidatedAt) approval.invalidatedAt = at;
   });

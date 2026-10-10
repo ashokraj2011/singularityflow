@@ -21,6 +21,7 @@ import { operationContext } from './operation-context.mjs';
 import { repositoryPerformanceSnapshot } from './performance-doctor.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
 import { registeredWorldModelOn, retiredWorldModelBlockingSettings } from './world-model-policy.mjs';
+import { removedSettings } from './removed-settings.mjs';
 import { retiredWorldModelReferences } from './world-model-views.mjs';
 import { schemaCensus, schemaCensusText } from './schema-census.mjs';
 import { resolveModelProvider } from './model-runner.mjs';
@@ -209,6 +210,10 @@ export async function doctorSnapshot(root, {
       `${retiredViews.length} retired legacy-v3 World Model reference(s) are ignored, so those phases and agents run without World Model guidance: `
         + `${retiredViews.slice(0, 8).map((entry) => `${entry.source}=${entry.value}`).join('; ')}${retiredViews.length > 8 ? '; …' : ''}.`,
       'Preview the rewrite to registered views with: singularity-flow wm migrate-views --dry-run'));
+    const removed = removedSettings(definition);
+    if (removed.length) checks.push(check('removed-settings', 'warn',
+      `${removed.length} setting(s) of removed features are ignored: ${removed.join(', ')}.`,
+      `Remove them from ${WORKFLOW_PATH}; nothing reads them.`));
     const retiredBlocking = registeredOn ? retiredWorldModelBlockingSettings(definition) : [];
     if (retiredBlocking.length) checks.push(check('world-model-guidance', 'warn',
       `${retiredBlocking.join(', ')} no longer block: the World Model is guidance and these settings only warn.`,

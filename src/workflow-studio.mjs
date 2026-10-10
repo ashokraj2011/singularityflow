@@ -2471,7 +2471,6 @@ class StudioCandidate {
     for (const [serverId, server] of Object.entries(content.mcpServers ?? {})) add(['mcpServers', serverId, 'phases'], server?.phases, 'MCP servers');
     // A workflow that lists its own document steps does not read the shared list.
     if (!Array.isArray(content.workTypes?.[workflowId]?.documents?.allowedPhases)) add(['documents', 'allowedPhases'], content.documents?.allowedPhases, 'document uploads');
-    for (const field of ['allowedPhases', 'blockRequiredUnfulfilledAt']) add(['architectureIntent', field], content.architectureIntent?.[field], 'architecture intent');
     const context = content.contextPolicy?.phaseOverrides;
     if (isObject(context) && Object.hasOwn(context, from) && !Object.hasOwn(context, to)) {
       this.document.setIn(['contextPolicy', 'phaseOverrides', to], this.document.createNode(structuredClone(context[from])));

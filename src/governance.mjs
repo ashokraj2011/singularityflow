@@ -49,7 +49,6 @@ import { classifyStoryGateFailures } from './gate-recovery.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { configuredRemoteIdentity, frozenRemoteTransport, safeGitDiagnosticReference } from './git-remote-diagnostics.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
-import { evaluateArchitectureIntentGate } from './architecture-intent-gate.mjs';
 import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
 import { verifyPhaseApprovalWaiver } from './approval-waiver.mjs';
 
@@ -708,16 +707,6 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     }
     for (const id of required) if (!bound.has(id)) refuse('gate.acceptance-criteria.unbound', `AC coverage: ${id} has no module test-source binding`);
     if (required.size && [...required].every((id) => bound.has(id))) passes.push(`acceptance coverage: ${required.size} namespaced criteria mapped`);
-  }
-
-  if (terminal) {
-    const configuredArchitectureGates = workflow.resolution?.architectureIntent?.blockRequiredUnfulfilledAt
-      ?? config.architectureIntent?.blockRequiredUnfulfilledAt ?? [];
-    for (const phaseId of configuredArchitectureGates) {
-      const result = await evaluateArchitectureIntentGate(root, config, workflow, phaseId);
-      warnings.push(...result.warnings.map((message) => `${phaseId}: ${message}`));
-      passes.push(...result.passes);
-    }
   }
 
   // Every conformance report is governed alike, whatever its step is called [E2G-001]: its rows,

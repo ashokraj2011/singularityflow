@@ -1471,44 +1471,6 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['phase', 'doctor', 'capability']
   },
-  architecture: {
-    summary: 'Read, explain, validate, plan, and export the deterministic FINOS CALM architecture projection.',
-    description: [
-      'The CALM document is computed from the exact published WMB v4 fact ledger plus approved',
-      'capability and configuration authority. It is derived evidence, never an editable source.',
-      'Generation is deterministic, offline, and consumes zero model tokens.',
-      '',
-      'A Story may carry a clause-bearing architecture intent. --planned renders that delta over',
-      'the exact base projection without changing the shared repository world model. Intent files',
-      'are still approved through the normal Story lifecycle.',
-      '',
-      'An omitted candidate generation means the owning phase\'s next publication (P+1). Init makes',
-      'only a draft. Replacement is an exact-digest compare-and-swap with `intent revise`; the actual',
-      'governed order is phase publish, submit, then approve. A saved fulfilment report is recomputed',
-      'at enforcement; `WMC_INTENT_REPORT_MISMATCH` requires another explicit intent verification,',
-      'not a hand edit or an inferred approval.'
-    ],
-    options: [
-      ['--work-id ID', 'Select the Story that owns an architecture intent.'],
-      ['--planned', 'Read the selected Story planned overlay instead of shared base reality.'],
-      ['--from FILE', 'Reviewed repository-relative JSON candidate used to initialize Story intent.'],
-      ['--expect-intent SHA256', 'For revision, require the exact current intent digest; reload after a conflict instead of substituting a newer digest.'],
-      ['--candidate-snapshot SHA256', 'For intent verification or a lifecycle gate, bind the exact reviewed Candidate Snapshot to the current source. A historical Candidate that no longer matches is refused.'],
-      ['--format calm', 'Export the exact CALM document without adding target-specific fields.'],
-      ['--out FILE', 'New repository-relative export destination outside World-Model authority.'],
-      ['--json', 'Emit structured output; show includes the complete CALM document.']
-    ],
-    examples: [
-      ['singularity-flow architecture show', 'Show bounded counts and top-level architecture.'],
-      ['singularity-flow architecture explain payments', 'Show exact provenance and where to make a change.'],
-      ['singularity-flow architecture show --work-id PAY-142 --planned', 'Show one Story-scoped future projection.'],
-      ['singularity-flow architecture intent init --work-id PAY-142 --from design/architecture-intent.json', 'Create an unapproved draft for the owning phase next publication.'],
-      ['singularity-flow architecture intent revise --work-id PAY-142 --from design/revised-intent.json --expect-intent sha256:<DIGEST>', 'Replace only the exact current draft under the Story lock.'],
-      ['singularity-flow architecture intent verify --work-id PAY-142 --candidate-snapshot sha256:<DIGEST>', 'Verify against one explicitly reviewed Candidate only when it still exactly matches the current source.'],
-      ['singularity-flow architecture export --format calm --out dist/architecture/system.json', 'Preview the exact destination and digest; rerun with the returned --confirm digest to copy without changing authority.']
-    ],
-    seeAlso: ['wm', 'capability', 'phase']
-  },
   revision: {
     summary: 'Inspect, preview, and recover a bounded revision of the exact active code Candidate.',
     description: [

@@ -19,7 +19,6 @@ import { runRemoteGitAsync } from './git-execution.mjs';
 import {
   assertCredentialFreeRemote, configuredRemoteIdentity, frozenRemoteTransport
 } from './git-remote-diagnostics.mjs';
-import { createArchitectureIntentStabilityGuard } from './architecture-intent-gate.mjs';
 import {
   DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
 } from './work-item-location.mjs';
@@ -263,16 +262,6 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
     selected.workflow.workItem.id
   );
   const workflowBeforeDecision = structuredClone(selected.workflow);
-  const architectureApprovalStabilityGuard = decision === 'approve'
-    ? await createArchitectureIntentStabilityGuard(
-      selected.clone,
-      selected.config,
-      workflowBeforeDecision,
-      workflowBeforeDecision.phases[preview.phase],
-      workflowBeforeDecision.phases[preview.phase].generation,
-      { operation: 'the Epic review approval commit' }
-    )
-    : null;
   // Both decisions begin only after the publication unit has opened its journal and acquired the
   // Story lock. Approval mutates the aggregate even with `persist: false`; performing it before
   // remote/revision preflight left a long-lived caller holding an approval that was never committed
@@ -288,7 +277,6 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
     [],
     {
       rollbackWorkflow: workflowBeforeDecision,
-      stabilityGuard: architectureApprovalStabilityGuard,
       beforeStateWrite: async () => {
         if (decision === 'approve') {
           outcome = await approvePhase(selected.clone, selected.config, selected.workflow, {

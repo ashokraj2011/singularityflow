@@ -184,9 +184,6 @@ import {
   resolveReferenceRepositoryPins
 } from './reference-repositories.mjs';
 import {
-  architectureIntentStabilityIdentity, createArchitectureIntentStabilityGuard
-} from './architecture-intent-gate.mjs';
-import {
   resolveStoryExecutionCatalog, resolveStoryExecutionContext
 } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
@@ -7003,7 +7000,6 @@ async function phaseCommand(positionals, options) {
           phaseId,
           usage,
           authorship,
-          architectureCandidateSnapshot: optionString(options, 'candidate-snapshot'),
           persist: false,
           publicationTransaction: {
             publicationEvent,
@@ -7024,10 +7020,6 @@ async function phaseCommand(positionals, options) {
         const expectedApplicationDigest = phase.deliveryEvidence?.changeSet
           ? applicationChangeSetProjection(phase.deliveryEvidence.changeSet, pathContext).digest
           : null;
-        const expectedArchitectureIdentity = await architectureIntentStabilityIdentity(
-          root, config, workflow, phase, phase.generation,
-          { candidateSnapshot: optionString(options, 'candidate-snapshot') }
-        );
         publicationStabilityGuard = async () => {
           const artifact = await inspectPublicationArtifact(targetPath);
           if (artifact.sha256 !== expectedArtifactSha256) {
@@ -7087,17 +7079,7 @@ async function phaseCommand(positionals, options) {
             assertAutoCandidateMatches(candidate, observation);
             autoCandidateDigest = `${candidate.bindingSha256}:${observation.applicationResourceDigest}`;
           }
-          const currentArchitectureIdentity = await architectureIntentStabilityIdentity(
-            root, config, workflow, phase, phase.generation,
-            { candidateSnapshot: optionString(options, 'candidate-snapshot') }
-          );
-          if (currentArchitectureIdentity !== expectedArchitectureIdentity) {
-            throw new SingularityFlowError(
-              'Architecture intent evidence changed after validation and before the governed commit. Nothing was committed; retry against the current evidence.',
-              { code: 'PUBLICATION_SNAPSHOT_CHANGED' }
-            );
-          }
-          return `${expectedArtifactSha256}:${applicationDigest ?? 'artifact-only'}:${autoCandidateDigest ?? 'manual'}:${createHash('sha256').update(currentArchitectureIdentity).digest('hex')}`;
+          return `${expectedArtifactSha256}:${applicationDigest ?? 'artifact-only'}:${autoCandidateDigest ?? 'manual'}`;
         };
       },
       worktreeGuard: async () => {
@@ -7511,10 +7493,6 @@ async function runSubmitCommand(positionals, options, submitContext) {
   const expectedConvergenceSnapshotSha256 = isConvergencePhase(requested)
     ? (await assertConvergencePublicationReady(root, config, workflow, requested)).snapshotSha256
     : null;
-  const expectedSubmissionArchitectureIdentity = await architectureIntentStabilityIdentity(
-    root, config, workflow, requested, requested.generation,
-    { candidateSnapshot: optionString(options, 'candidate-snapshot') }
-  );
   const submissionStabilityGuard = async () => {
         let convergenceIdentity = 'not-convergence';
         if (expectedConvergenceSnapshotSha256) {
@@ -7533,17 +7511,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
         }
         convergenceIdentity = current.snapshotSha256;
         }
-        const currentArchitectureIdentity = await architectureIntentStabilityIdentity(
-          root, config, workflow, requested, requested.generation,
-          { candidateSnapshot: optionString(options, 'candidate-snapshot') }
-        );
-        if (currentArchitectureIdentity !== expectedSubmissionArchitectureIdentity) {
-          throw new SingularityFlowError(
-            'Architecture intent evidence changed after validation and before the submission commit. Nothing was committed; retry against the current evidence.',
-            { code: 'PUBLICATION_SNAPSHOT_CHANGED' }
-          );
-        }
-        return `${convergenceIdentity}:${createHash('sha256').update(currentArchitectureIdentity).digest('hex')}`;
+        return convergenceIdentity;
       };
   const publication = await withRefusalMemory(root, {
     operation: 'submit', workId: workflow.workItem.id, phase: requested.id, actor: actorKey(actionActor(root)),
@@ -7565,7 +7533,6 @@ async function runSubmitCommand(positionals, options, submitContext) {
         phase = await submit(root, config, workflow, {
           phaseId: requested.id,
           runChecks: !optionBoolean(options, 'skip-checks'),
-          architectureCandidateSnapshot: optionString(options, 'candidate-snapshot'),
           persist: false,
           decisionValues,
           ...(deterministicSubmission ? { actor: actionActor(root), agent: null } : {}),
@@ -8164,15 +8131,10 @@ async function approveCommand(positionals, options) {
   const checklist = await checklistDecisions(options);
   const witnessMappings = witnessMappingDecisions(options);
   const bindingDecisions = implementationBindingDecisions(options);
-  // Freeze every architecture-sensitive input before the approval transition. The transition mutates
-  // the aggregate in place, so both this guard and the convergence guard use an immutable pre-decision
-  // projection while rereading external files/refs at the isolated-commit boundary.
+  // The transition mutates the aggregate in place, so the convergence guard uses an immutable
+  // pre-decision projection while rereading external files/refs at the isolated-commit boundary.
   const approvalStabilityWorkflow = structuredClone(workflow);
   const approvalStabilityPhase = approvalStabilityWorkflow.phases[phase.id];
-  const architectureApprovalStabilityGuard = await createArchitectureIntentStabilityGuard(
-    root, config, approvalStabilityWorkflow, approvalStabilityPhase, phase.generation,
-    { candidateSnapshot: optionString(options, 'candidate-snapshot'), operation: 'the approval commit' }
-  );
   const expectedConvergenceApprovalSnapshot = isConvergencePhase(phase)
     ? (await assertConvergencePublicationReady(
         root, config, approvalStabilityWorkflow, approvalStabilityPhase
@@ -8192,8 +8154,7 @@ async function approveCommand(positionals, options) {
       }
       convergenceIdentity = current.snapshotSha256;
     }
-    const architectureIdentity = await architectureApprovalStabilityGuard();
-    return `${convergenceIdentity}:${createHash('sha256').update(architectureIdentity).digest('hex')}`;
+    return convergenceIdentity;
   };
   const { value: result, publication } = await withRefusalMemory(root, {
     operation: 'approve', workId: workflow.workItem.id, phase: phase.id, actor: actorKey(session.actor),
@@ -8218,7 +8179,6 @@ async function approveCommand(positionals, options) {
       checklist,
       witnessMappings,
       bindingDecisions,
-      architectureCandidateSnapshot: optionString(options, 'candidate-snapshot'),
       actor: session.actor,
       agent: session.agent,
       persist: false
@@ -18743,7 +18703,6 @@ async function dispatch(command, positionals, options) {
     knowledge: () => knowledgeCommand(positionals, options),
     capability: () => capabilityCommand(positionals, options),
     repositories: async () => (await import('./commands/repositories.mjs')).run(argv, { positionals, options }),
-    architecture: async () => (await import('./commands/architecture.mjs')).run(argv, { positionals, options }),
     revision: async () => (await import('./commands/revision.mjs')).run(argv, { positionals, options }),
     revise: async () => (await import('./commands/revise.mjs')).run(argv, { positionals, options }),
     epic: () => epicCommand(positionals, options),

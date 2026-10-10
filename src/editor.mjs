@@ -113,7 +113,6 @@ import {
 import { operationContext } from './operation-context.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { renderDataPreservingFormatting } from './yaml-formatting.mjs';
-import { projectArchitectureIntentStatus } from './architecture-intent-gate.mjs';
 import { submissionReadiness } from './submission-readiness.mjs';
 import { storyDecisionView } from './workflow-decisions.mjs';
 import { storyApprovalView } from './approval-authority.mjs';
@@ -903,7 +902,6 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     referenceRepositories,
     progress,
     report,
-    architectureIntent: await projectArchitectureIntentStatus(root, definition, workflow),
     documents,
     detachedDocuments,
     review,
@@ -1015,7 +1013,6 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
     referenceRepositories,
     progress,
     report,
-    architectureIntent: await projectArchitectureIntentStatus(root, definition, workflow),
     documents,
     detachedDocuments,
     review,

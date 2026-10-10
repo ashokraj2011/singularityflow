@@ -87,9 +87,7 @@ import { normalizeAdhocPolicy } from './adhoc/policy.mjs';
 import { normalizeSourceRoots, worldModelSourceScope } from './source-scope.mjs';
 import { validateConfiguredSkillPhase } from './skp-contract.mjs';
 import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/registry/views.mjs';
-import {
-  BUILTIN_PROJECTION_REGISTRY, resolveProjectionContract
-} from './world-model/registry/projections.mjs';
+import { disabledArchitectureIntent, dropRemovedSettings } from './removed-settings.mjs';
 import { worldModelStateAuthority } from './state-authority.mjs';
 import {
   DEFAULT_WORLD_MODEL_HISTORY_DIR, validateWorldModelHistoryRoots
@@ -133,7 +131,6 @@ const REPOSITORY_READINESS_MODES = new Set(['off', 'when-detected', 'required'])
 const STRUCTURED_TEST_READINESS_MODES = new Set([
   'off', 'when-detected', 'required-for-code', 'required'
 ]);
-const ARCHITECTURE_PROJECTION_IDS = new Set(['arch.calm']);
 // A v2 phase is template-backed. Until SKP has a versioned contract compiler and retained
 // execution binding, producer declarations must never ride through the phase spread in
 // `resolveWorkType` and masquerade as an ordinary template phase. Keep this guard narrow:
@@ -228,110 +225,6 @@ function assertKnownKeys(value, allowed, label) {
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) throw new SingularityFlowError(`${label} contains unknown field '${key}'.`);
   }
-}
-
-function normalizeWorldModelProjections(value) {
-  if (value == null) return undefined;
-  assertKnownKeys(value, ARCHITECTURE_PROJECTION_IDS, 'worldModel.projections');
-  const result = {};
-  for (const [id, raw] of Object.entries(value)) {
-    assertKnownKeys(raw, new Set(['enabled', 'required', 'contract', 'calm', 'profile', 'budgets']),
-      `worldModel.projections.${id}`);
-    const contractReference = raw.contract ?? `${id}@1`;
-    try { resolveProjectionContract(BUILTIN_PROJECTION_REGISTRY, contractReference); }
-    catch (error) {
-      throw new SingularityFlowError(error.message, {
-        code: error.code ?? 'WMC_PROJECTION_NOT_CONFIGURED', cause: error
-      });
-    }
-    if (raw.enabled != null && typeof raw.enabled !== 'boolean') {
-      throw new SingularityFlowError(`worldModel.projections.${id}.enabled must be boolean.`);
-    }
-    if (raw.required != null && typeof raw.required !== 'boolean') {
-      throw new SingularityFlowError(`worldModel.projections.${id}.required must be boolean.`);
-    }
-    if (raw.required === true && raw.enabled !== true) {
-      throw new SingularityFlowError(
-        `worldModel.projections.${id} must be enabled before it can be required.`
-      );
-    }
-    const calm = raw.calm ?? {};
-    assertKnownKeys(calm, new Set(['schemaRelease', 'strict']), `worldModel.projections.${id}.calm`);
-    if (calm.schemaRelease != null && calm.schemaRelease !== '1.2') {
-      throw new SingularityFlowError(`worldModel.projections.${id}.calm.schemaRelease must be '1.2'.`);
-    }
-    if (calm.strict != null && typeof calm.strict !== 'boolean') {
-      throw new SingularityFlowError(`worldModel.projections.${id}.calm.strict must be boolean.`);
-    }
-    const profile = raw.profile ?? {};
-    assertKnownKeys(profile, new Set([
-      'includeGovernanceActors', 'includeControls', 'includeFlows', 'includeExternalDependencies'
-    ]), `worldModel.projections.${id}.profile`);
-    for (const field of ['includeGovernanceActors', 'includeControls', 'includeFlows']) {
-      if (profile[field] != null && typeof profile[field] !== 'boolean') {
-        throw new SingularityFlowError(`worldModel.projections.${id}.profile.${field} must be boolean.`);
-      }
-    }
-    if (profile.includeExternalDependencies != null
-        && !['off', 'direct-architecture-only'].includes(profile.includeExternalDependencies)) {
-      throw new SingularityFlowError(
-        `worldModel.projections.${id}.profile.includeExternalDependencies must be off or direct-architecture-only.`
-      );
-    }
-    const budgets = raw.budgets ?? {};
-    const budgetFields = new Set([
-      'maximumNodes', 'maximumRelationships', 'maximumInterfaces', 'maximumControls', 'maximumBytes'
-    ]);
-    assertKnownKeys(budgets, budgetFields, `worldModel.projections.${id}.budgets`);
-    for (const [field, budget] of Object.entries(budgets)) {
-      if (!Number.isSafeInteger(budget) || budget < 1) {
-        throw new SingularityFlowError(`worldModel.projections.${id}.budgets.${field} must be a positive integer.`);
-      }
-    }
-    result[id] = {
-      enabled: raw.enabled === true,
-      required: raw.required === true,
-      contract: contractReference,
-      calm: { schemaRelease: calm.schemaRelease ?? '1.2', strict: calm.strict !== false },
-      profile: {
-        includeGovernanceActors: profile.includeGovernanceActors !== false,
-        includeControls: profile.includeControls !== false,
-        includeFlows: profile.includeFlows !== false,
-        includeExternalDependencies: profile.includeExternalDependencies ?? 'direct-architecture-only'
-      },
-      budgets: { ...budgets }
-    };
-  }
-  return result;
-}
-
-function normalizeArchitectureIntent(value, phases) {
-  if (value == null) return undefined;
-  assertKnownKeys(value, new Set(['enabled', 'allowedPhases', 'blockRequiredUnfulfilledAt']),
-    'architectureIntent');
-  if (value.enabled != null && typeof value.enabled !== 'boolean') {
-    throw new SingularityFlowError('architectureIntent.enabled must be boolean.');
-  }
-  const normalizePhases = (entries, field) => {
-    if (entries == null) return [];
-    if (!Array.isArray(entries) || entries.some((entry) => typeof entry !== 'string' || !entry.trim())) {
-      throw new SingularityFlowError(`architectureIntent.${field} must be an array of phase IDs.`);
-    }
-    if (new Set(entries).size !== entries.length) {
-      throw new SingularityFlowError(`architectureIntent.${field} must not contain duplicates.`);
-    }
-    for (const phase of entries) if (!phases[phase]) {
-      throw new SingularityFlowError(`architectureIntent.${field} references unknown phase '${phase}'.`);
-    }
-    return [...entries];
-  };
-  return {
-    enabled: value.enabled === true,
-    allowedPhases: normalizePhases(value.allowedPhases, 'allowedPhases'),
-    blockRequiredUnfulfilledAt: normalizePhases(
-      value.blockRequiredUnfulfilledAt, 'blockRequiredUnfulfilledAt'
-    )
-  };
 }
 
 export function normalizeReferenceRepositoryPolicy(value = null, label = 'Reference repository policy') {
@@ -1026,6 +919,8 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   // The World Model is guidance: retired legacy-v3 view names are dropped (doctor names them and
   // `wm migrate-views` rewrites them), never a reason to refuse the configuration.
   dropRetiredWorldModelReferences(definition);
+  // Settings of removed features (CALM architecture intent and projection) load and are ignored.
+  dropRemovedSettings(definition);
   // Integration targets first: every step's after-step actions are checked against them.
   definition.integrations = normalizeIntegrations(definition.integrations);
   for (const [phaseId, phase] of Object.entries(definition.phases)) {
@@ -1164,7 +1059,6 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   }
   if (definition.worldModel != null) {
     const worldModel = definition.worldModel;
-    worldModel.projections = normalizeWorldModelProjections(worldModel.projections);
     // registered-v4 is the only World Model. An omitted format means it; a retired legacy-v3 format
     // was dropped above.
     if (worldModel.format != null && worldModel.format !== WORLD_MODEL_FORMAT) {
@@ -1282,9 +1176,6 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
       }
     }
   }
-  definition.architectureIntent = normalizeArchitectureIntent(
-    definition.architectureIntent, definition.phases
-  );
   if (definition.worldModel?.generation != null) {
     const generation = definition.worldModel.generation;
     if (!generation || typeof generation !== 'object' || Array.isArray(generation)) throw new SingularityFlowError('worldModel.generation must be an object.');
@@ -2368,9 +2259,8 @@ export function resolveWorkType(definition, workTypeId) {
       workType.references, `Work type '${workTypeId}' references`
     ),
     worldModelGrounding: worldModelModeForIntelligence(groundingMode(definition), intelligence),
-    architectureIntent: structuredClone(definition.architectureIntent ?? {
-      enabled: false, allowedPhases: [], blockRequiredUnfulfilledAt: []
-    }),
+    // Architecture intent was removed; Stories keep pinning it, disabled, so their policy shape is unchanged.
+    architectureIntent: disabledArchitectureIntent(),
     ledger: normalizeLedgerConfig(definition.ledger ?? {}),
     // Pinned into the Story's resolution like every other policy `[SPK:REQ-110]`, so a later edit to
     // the shared set cannot change what an in-flight Story owes.
@@ -2454,9 +2344,7 @@ export async function snapshotResolution(root, definition, resolved) {
     // in-flight Story's instructions. Machine provider credentials remain outside this object.
     worldModelPolicy: structuredClone(definition.worldModel ?? {}),
     planning: structuredClone(normalizePlanning(definition.planning ?? {})),
-    architectureIntent: structuredClone(resolved.architectureIntent
-      ?? definition.architectureIntent
-      ?? { enabled: false, allowedPhases: [], blockRequiredUnfulfilledAt: [] }),
+    architectureIntent: structuredClone(resolved.architectureIntent ?? disabledArchitectureIntent()),
     worldModelSourceScope: structuredClone(resolved.worldModelSourceScope ?? null),
     approvalSecurity: structuredClone(resolved.approvalSecurity ?? definition.approvalSecurity),
     approvalAuthorities: structuredClone(resolved.approvalAuthorities

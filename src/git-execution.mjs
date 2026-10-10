@@ -19,12 +19,13 @@ import { StringDecoder } from 'node:string_decoder';
 import { resolvePlatformProcess, withoutAutomaticGitMaintenance, withoutInteractiveGitPrompts } from './platform-process.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
+import { scopedReadSync } from './read-scope.mjs';
 import { localReadDeadlineAt, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
 import {
   inheritEnterpriseGitEnvironment, remoteGitEnvironment
 } from './git-enterprise-environment.mjs';
 import {
-  networkDisabled, recordSubprocessTiming, run, signalProcessTree, SingularityFlowError
+  gitReadOutput, invariant, networkDisabled, recordSubprocessTiming, run, signalProcessTree, SingularityFlowError
 } from './util.mjs';
 
 const positive = (value, fallback) => {
@@ -65,6 +66,102 @@ export function gitRemoteProbeTimeout(remote, env = process.env) {
  * must either use the configured credential helper without interaction or fail with a classified,
  * actionable result. The caller's proxy and CA environment is otherwise preserved byte-for-byte.
  */
+/*
+ * The basic local reads below (root, Git directories, branch, HEAD, display name) live here rather
+ * than in git.mjs, which re-exports them, so a surface that only needs to know where it is (help,
+ * support, VS Code activation) does not load git.mjs's commit admission, secret scanning and YAML
+ * parser. A repository root and its Git directories do not move under a running process, so they
+ * are cached; HEAD changes mid-process and is never cached; the branch is memoized per read scope.
+ */
+const repoRootCache = new Map();
+const gitDirCache = new Map();
+const gitCommonDirCache = new Map();
+
+export function repoRoot(cwd = process.cwd()) {
+  if (repoRootCache.has(cwd)) return repoRootCache.get(cwd);
+  const result = run('git', ['rev-parse', '--show-toplevel'], { cwd, allowFailure: true });
+  // Only a success is cached: a failure is a thrown error, and a later call from a different cwd
+  // inside a repository must still be able to succeed.
+  if (result.status !== 0) throw new SingularityFlowError('Run Singularity Flow from inside a Git repository.');
+  const resolved = path.resolve(result.stdout.trim());
+  repoRootCache.set(cwd, resolved);
+  return resolved;
+}
+
+/**
+ * The checked-out branch, read once per read scope. `[UXH:REQ-120]`
+ *
+ * Measured at 9–11 calls per `snapshot --json`, unmemoized, while `repoRoot` and `gitDir` beside it
+ * have had module-level caches for as long as they have existed. The asymmetry is not an oversight:
+ * a repository root does not move under a running process and **a branch does** — `start`, `publish`
+ * and `resume` all check one out mid-run, and a module-level memo here would hand them the branch
+ * they left rather than the one they are on. That is a correctness bug, not a stale number.
+ *
+ * The read scope is what makes it safe. It is opened only by operations that declare themselves
+ * read-only, so nothing that can switch a branch is ever inside one, and outside a scope this is
+ * the plain Git call it always was.
+ */
+export function branch(root) {
+  return scopedReadSync(`git.branch:${root}`, () => {
+    const value = run('git', ['branch', '--show-current'], { cwd: root }).stdout.trim();
+    invariant(value, 'Detached HEAD is not supported.');
+    return value;
+  });
+}
+
+export function head(root) {
+  return run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+}
+
+/**
+ * Repository-wide Git storage shared by the main checkout and every linked worktree.
+ *
+ * `--absolute-git-dir` intentionally points at a worktree-private directory. Durable control-plane
+ * records and mutation locks are repository concerns, so putting them there makes the same repair
+ * disappear when a command is run from its isolated worktree. Resolve `--git-common-dir` and make
+ * relative answers absolute against the caller's checkout.
+ */
+export function gitCommonDir(root) {
+  if (gitCommonDirCache.has(root)) return gitCommonDirCache.get(root);
+  const value = run('git', ['rev-parse', '--git-common-dir'], { cwd: root }).stdout.trim();
+  invariant(value, 'Unable to resolve the repository common Git directory.');
+  const resolved = path.resolve(root, value);
+  gitCommonDirCache.set(root, resolved);
+  return resolved;
+}
+
+/** The commit a ref resolves to, or null when it resolves to none. */
+export function refHead(root, ref, { env = process.env } = {}) {
+  const result = run('git', ['rev-parse', '--verify', ref], { cwd: root, env, allowFailure: true });
+  return result.status === 0 ? result.stdout.trim() : null;
+}
+
+/** The repository's own Git directory (`--absolute-git-dir`, worktree-private). */
+export function gitDir(root) {
+  if (gitDirCache.has(root)) return gitDirCache.get(root);
+  const value = run('git', ['rev-parse', '--absolute-git-dir'], { cwd: root }).stdout.trim();
+  invariant(value, 'Unable to resolve the repository Git directory.');
+  const resolved = path.resolve(value);
+  gitDirCache.set(root, resolved);
+  return resolved;
+}
+
+/** Tests recreate repositories at the same temporary path; see resetGitProcessCaches in git.mjs. */
+export function resetGitDirCache() {
+  repoRootCache.clear();
+  gitDirCache.clear();
+}
+
+/**
+ * The local Git `user.name`, or null when none is configured. A presentation read with no network.
+ * It lives here rather than in git.mjs so a surface that only greets a person by name (VS Code
+ * activation, chat personalization) does not load git.mjs's commit admission and its YAML parser.
+ */
+export function localGitDisplayName(root, { env = process.env } = {}) {
+  const result = run('git', ['config', '--get', 'user.name'], { cwd: root, env, allowFailure: true });
+  return (gitReadOutput(result, 'Git user.name', { absentStatus: 1 }) ?? '').trim() || null;
+}
+
 export function nonInteractiveGitEnvironment(env = process.env) {
   const nonInteractive = withoutInteractiveGitPrompts(env);
   // This helper is routinely applied before the final executor. Preserve the private attestation

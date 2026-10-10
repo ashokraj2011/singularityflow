@@ -59,7 +59,8 @@ import {
   workflowImportResolveArgs, type WorkflowImportChoice, type WorkflowMutationPreview
 } from './views/workflow-transfer-presentation.ts';
 import type { ConfigurationCenterMessage, ConfigurationCenterReply } from './views/configuration-center.ts';
-import { configurationPathTarget, type ConfigurationTab } from './views/configuration-center-model.ts';
+import type { ConfigurationTab } from './views/configuration-center-model.ts';
+import { configurationPathTarget } from './views/configuration-path-target.ts';
 import { configurationSaveDisposition, configurationSavePlanCliArgs } from './views/configuration-save.ts';
 import type { HelpDocument } from './views/help-page.ts';
 import type { WorkspacesMessage } from './views/workspaces-panel.ts';

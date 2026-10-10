@@ -3,12 +3,12 @@
   "kind": "sflow-vscode-bundle-budgets",
   "totalJavaScriptBytes": { "maximum": 28900000 },
   "entries": {
-    "extension.cjs": { "maximumBytes": 1390000, "maximumModules": 160 },
+    "extension.cjs": { "maximumBytes": 1350000, "maximumModules": 137 },
     "gateway-context-runtime.cjs": { "maximumBytes": 8192, "maximumModules": 4 },
-    "gateway-runtime.cjs": { "maximumBytes": 8925000, "maximumModules": 730 },
+    "gateway-runtime.cjs": { "maximumBytes": 7140000, "maximumModules": 656 },
     "gateway-status-worker.cjs": { "maximumBytes": 200000, "maximumModules": 30 },
-    "help-runtime.cjs": { "maximumBytes": 630000, "maximumModules": 130 },
-    "lazy-panels-runtime.cjs": { "maximumBytes": 2540000, "maximumModules": 220 },
-    "support-runtime.cjs": { "maximumBytes": 430000, "maximumModules": 109 }
+    "help-runtime.cjs": { "maximumBytes": 635000, "maximumModules": 126 },
+    "lazy-panels-runtime.cjs": { "maximumBytes": 2925000, "maximumModules": 242 },
+    "support-runtime.cjs": { "maximumBytes": 430000, "maximumModules": 103 }
   }
 }

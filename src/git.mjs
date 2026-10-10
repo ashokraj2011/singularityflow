@@ -12,7 +12,10 @@ import { processResultCompleted, processResultSucceeded } from './process-result
 import { gitEmptyConfigPath, gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { repositoryGitPath } from './git-directory.mjs';
-import { runRemoteGitAsync } from './git-execution.mjs';
+import {
+  branch, gitCommonDir, gitDir, head, localGitDisplayName, refHead, repoRoot, resetGitDirCache,
+  runRemoteGitAsync
+} from './git-execution.mjs';
 import { probeStoryBranchPublication } from './story-publication-preflight.mjs';
 import { observePublicationHookEffects } from './git-hook-effects.mjs';
 import {
@@ -65,53 +68,9 @@ function immutableLocalGitEnvironment(source = process.env, { indexFile = null }
   return env;
 }
 
-/**
- * Where the repository is, and where its Git directory is — asked once per process.
- *
- * Neither can change while a process runs: a repository does not move out from under a command, and
- * if it did, every path already resolved would be wrong anyway. They were being recomputed
- * constantly — one `snapshot --json` spent 148 ms on 20 subprocesses re-answering these two
- * questions (15 × `--absolute-git-dir`, 5 × `--show-toplevel`).
- *
- * Deliberately NOT applied to `head()`: HEAD genuinely changes mid-process, because the write paths
- * read it before and after committing. Caching that would make a publication report the commit it
- * replaced.
- */
-const repoRootCache = new Map();
-const gitDirCache = new Map();
-const gitCommonDirCache = new Map();
-
-export function repoRoot(cwd = process.cwd()) {
-  if (repoRootCache.has(cwd)) return repoRootCache.get(cwd);
-  const result = git(['rev-parse', '--show-toplevel'], { cwd, allowFailure: true });
-  // Only a success is cached: a failure is a thrown error, and a later call from a different cwd
-  // inside a repository must still be able to succeed.
-  if (result.status !== 0) throw new SingularityFlowError('Run Singularity Flow from inside a Git repository.');
-  const resolved = path.resolve(result.stdout.trim());
-  repoRootCache.set(cwd, resolved);
-  return resolved;
-}
-
-/**
- * The checked-out branch, read once per read scope. `[UXH:REQ-120]`
- *
- * Measured at 9–11 calls per `snapshot --json`, unmemoized, while `repoRoot` and `gitDir` beside it
- * have had module-level caches for as long as they have existed. The asymmetry is not an oversight:
- * a repository root does not move under a running process and **a branch does** — `start`, `publish`
- * and `resume` all check one out mid-run, and a module-level memo here would hand them the branch
- * they left rather than the one they are on. That is a correctness bug, not a stale number.
- *
- * The read scope is what makes it safe. It is opened only by operations that declare themselves
- * read-only, so nothing that can switch a branch is ever inside one, and outside a scope this is
- * the plain Git call it always was.
- */
-export function branch(root) {
-  return scopedReadSync(`git.branch:${root}`, () => {
-    const value = git(['branch', '--show-current'], { cwd: root }).stdout.trim();
-    invariant(value, 'Detached HEAD is not supported.');
-    return value;
-  });
-}
+// The basic local reads (root, Git directories, branch, HEAD, display name) live in
+// git-execution.mjs so light surfaces need not load this module; they are re-exported here.
+export { branch, gitCommonDir, head, repoRoot };
 
 /** Branch names that are an application integration target in essentially every repository. */
 export const RESERVED_APPLICATION_BRANCHES = Object.freeze(['main', 'master']);
@@ -167,9 +126,6 @@ export function assertNotDefaultBranch(root, config = {}, action = 'This operati
   return current;
 }
 
-export function head(root) {
-  return git(['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
-}
 
 /** The commit a branch, tag or commit name points at, or null when there is none by that name. */
 export function commitOfRef(root, ref) {
@@ -228,31 +184,7 @@ export function fetchMissingBlobs(root, commit, wanted, { limit = 20000 } = {}) 
   return { fetched: missing.length, remote };
 }
 
-export function gitDir(root) {
-  if (gitDirCache.has(root)) return gitDirCache.get(root);
-  const value = git(['rev-parse', '--absolute-git-dir'], { cwd: root }).stdout.trim();
-  invariant(value, 'Unable to resolve the repository Git directory.');
-  const resolved = path.resolve(value);
-  gitDirCache.set(root, resolved);
-  return resolved;
-}
-
-/**
- * Repository-wide Git storage shared by the main checkout and every linked worktree.
- *
- * `--absolute-git-dir` intentionally points at a worktree-private directory. Durable control-plane
- * records and mutation locks are repository concerns, so putting them there makes the same repair
- * disappear when a command is run from its isolated worktree. Resolve `--git-common-dir` and make
- * relative answers absolute against the caller's checkout.
- */
-export function gitCommonDir(root) {
-  if (gitCommonDirCache.has(root)) return gitCommonDirCache.get(root);
-  const value = git(['rev-parse', '--git-common-dir'], { cwd: root }).stdout.trim();
-  invariant(value, 'Unable to resolve the repository common Git directory.');
-  const resolved = path.resolve(root, value);
-  gitCommonDirCache.set(root, resolved);
-  return resolved;
-}
+export { gitDir };
 
 /**
  * How long a resolved GitHub account is reused from disk. `[perf]`
@@ -328,9 +260,7 @@ function cachedGithubAccount(root, { cacheOnly = false, env = process.env } = {}
 }
 
 /** The repository's configured presentation name, without account or environment fallbacks. */
-export function localGitDisplayName(root, { env = process.env } = {}) {
-  return gitAnswer(['config', '--get', 'user.name'], { cwd: root, env }, 'Git user.name', { absentStatus: 1 }).trim() || null;
-}
+export { localGitDisplayName };
 
 /**
  * The identity Git will put on a commit, without consulting GitHub or any other network service.
@@ -800,8 +730,7 @@ export function identity(root, { offline = false, env = process.env } = {}) {
  * where a path-keyed memo would hand back the previous repository's answer.
  */
 export function resetGitProcessCaches() {
-  repoRootCache.clear();
-  gitDirCache.clear();
+  resetGitDirCache();
 }
 
 export function validBranch(root, name) {
@@ -1115,10 +1044,7 @@ export function localRefHeads(root, refs) {
   return observed;
 }
 
-export function refHead(root, ref, { env = process.env } = {}) {
-  const result = git(['rev-parse', '--verify', ref], { cwd: root, env, allowFailure: true });
-  return result.status === 0 ? result.stdout.trim() : null;
-}
+export { refHead };
 
 /** The commit a ref names, or null when it names none (`rev-parse --verify --quiet` answers 1). */
 export function refCommit(root, ref, { env = process.env } = {}) {

@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspaceRegistryFile
 } from './workspace-context.mjs';
-import { gitDir } from './git.mjs';
+import { gitDir } from './git-execution.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 

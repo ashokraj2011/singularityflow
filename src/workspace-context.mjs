@@ -6,7 +6,7 @@ import YAML from 'yaml';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from './repository-subject-index.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { branch, gitCommonDir, gitDir, head, repoRoot } from './git.mjs';
+import { branch, gitCommonDir, gitDir, head, repoRoot } from './git-execution.mjs';
 import { configuredRemoteIdentity, sanitizeRemote } from './git-remote-diagnostics.mjs';
 import { workspaceRepositoryPathAliases } from './workspace-repository-paths.mjs';
 

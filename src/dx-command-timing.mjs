@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { appendFile, chmod, mkdir, readdir, rename, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { gitDir } from './git.mjs';
+import { gitDir } from './git-execution.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 export {
   incrementCommandCounter, markCommandFeedback, measureCommandSpan, withCommandTiming

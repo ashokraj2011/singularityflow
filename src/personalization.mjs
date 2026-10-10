@@ -10,7 +10,7 @@ import { lstat, mkdir, rename, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { localGitDisplayName } from './git.mjs';
+import { localGitDisplayName } from './git-execution.mjs';
 import { withRegistryFileLease } from './file-lease.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 

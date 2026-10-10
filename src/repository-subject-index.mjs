@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { readdir } from 'node:fs/promises';
 import YAML from 'yaml';
-import { refHead } from './git.mjs';
+import { refHead } from './git-execution.mjs';
 import { readRefTreeResult } from './git-ref-tree.mjs';
 import { SingularityFlowError, exists, readJson, run } from './util.mjs';
 import { readRecord } from './schema-migrations.mjs';

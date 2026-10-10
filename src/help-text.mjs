@@ -546,7 +546,7 @@ Usage:
   singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]
   singularity-flow recover [WORK-ID] [--phase PHASE] [--fetch] [--apply --confirm PLAN-HASH] [--json]
   singularity-flow inputs [PHASE] [--dry-run]
-  singularity-flow spec analyze [--phase PHASE] [--work-id ID] [--assisted [--model NAME]] [--json]
+  singularity-flow spec analyze [--phase PHASE] [--work-id ID] [--assisted [--model NAME] [--refresh]] [--json]
   singularity-flow spec index [ARTIFACT] [--phase PHASE] [--work-id ID] [--dry-run] [--json]
   singularity-flow spec claims planned --file JSON_OR_YAML [--phase PHASE] [--json]
   singularity-flow spec coverage [--base REF] [--target REF] [--json]
@@ -881,7 +881,7 @@ Usage:
     reconcile [--json]                          (deterministic local baseline/spec comparison)
     escalate [--to WORK-TYPE] [--json]          (non-destructive plan; immutable work type is preserved)
   singularity-flow story submit
-  singularity-flow story converge [--work-id ID] [--assisted [--model NAME]] [--json]
+  singularity-flow story converge [--work-id ID] [--assisted [--model NAME] [--refresh]] [--json]
   singularity-flow story adjudicate <ITEM-ID> [--item ITEM-ID]...
     --disposition rework|update-intent|accepted-deviation|dismissed|deferred [--reason TEXT]
     [--classification missing|partial|contradicts|unplanned] [--clause ID]... [--json]

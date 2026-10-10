@@ -28,7 +28,7 @@ import {
   resolveWorkspaceExecutionContext, resolveWorkspaceReference, workspacePromptLabel
 } from '../src/workspace-context.mjs';
 import {
-  activeWorkspaceRepositoryRoot, ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS,
+  activeWorkspaceRepositoryRoot, ACTIVE_WORKSPACE_ROUTING_EXCLUSIONS, readsOpenedRepository,
   explicitRepositoryMutationRoots, hasLocalGovernanceAuthority,
   withExplicitRepositoryMutationLeases
 } from '../src/cli-entry.mjs';
@@ -222,6 +222,21 @@ test('repository commands can route through the explicitly selected workspace', 
     'native v4 reports missing state authority, not the legacy-v3 conflict projection');
   assert.match(worldModelStatus.error.message, /origin\/state.*singularity\/world-model\/manifest.json/,
     'the rootless command reached the selected repository policy, not repository discovery');
+
+  // Repository knowledge and code explanation read the repository they are run in, even one with no
+  // Singularity Flow configuration: the selection stands in only when no repository is open.
+  const plain = path.join(root, 'plain-repository');
+  await mkdir(plain);
+  run('git', ['init', '-q', '-b', 'main'], { cwd: plain });
+  await writeFile(path.join(plain, 'index.js'), 'export function total(a, b) { return a + b; }\n');
+  run('git', ['add', '-A'], { cwd: plain });
+  run('git', ['-c', 'user.name=Plain', '-c', 'user.email=plain@example.com', 'commit', '-qm', 'plain'], { cwd: plain });
+  const plainHead = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: plain, encoding: 'utf8' }).stdout.trim();
+  const knowledge = spawnSync(process.execPath, [cli, 'wm', 'knowledge', 'status', '--json'], { cwd: plain, env, encoding: 'utf8' });
+  assert.equal(knowledge.status, 0, knowledge.stderr || knowledge.stdout);
+  assert.equal(JSON.parse(knowledge.stdout).commit, plainHead, 'wm knowledge read the plain repository it was run in');
+  assert.ok(readsOpenedRepository('wm', 'knowledge') && readsOpenedRepository('explain', 'code'));
+  assert.ok(!readsOpenedRepository('status') && !readsOpenedRepository('wm', 'status'));
 });
 
 test('workspace checkout mutations lease their explicit repositories rather than unrelated cwd', async (t) => {

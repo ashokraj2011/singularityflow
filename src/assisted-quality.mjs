@@ -23,7 +23,7 @@ import path from 'node:path';
 
 import { canonicalJson } from './records.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
-import { currentSchemaVersion } from './schema-migrations.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 export const ASSISTED_RECORD_SCHEMA_VERSION = currentSchemaVersion('assisted-quality');
 
@@ -247,6 +247,24 @@ export function buildAssistedRecord({
     disclaimer: 'Assisted candidates are observations for a human reviewer. They are not deterministic '
       + 'findings, they change no deterministic finding, and no gate reads them.'
   };
+}
+
+/**
+ * The record an earlier assisted pass wrote for this exact prompt (artifact, findings and rules
+ * byte for byte), provider and requested model, or null. Asking again would pay for the same
+ * answer; `spec analyze --assisted --refresh` asks regardless.
+ */
+export function reusableAssistedRecord(text, { prompt, provider, model = null }) {
+  let record;
+  try {
+    const read = readRecord('assisted-quality', text);
+    // Only a record stored in the current shape is reused as is; anything older is asked again.
+    record = read.migratedThrough.length ? null : read.record;
+  } catch { return null; }
+  if (record?.resultType !== 'specification-quality-assisted') return null;
+  if (record.promptSha256 !== createHash('sha256').update(String(prompt), 'utf8').digest('hex')) return null;
+  if (record.model?.provider !== provider || (model && record.model?.model !== model)) return null;
+  return Array.isArray(record.candidates) ? record : null;
 }
 
 /** Canonical bytes, so an unchanged record rewrites identically. */

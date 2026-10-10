@@ -19,7 +19,7 @@ import { readRefTreeResult } from '../git-ref-tree.mjs';
 import { repositoryGitPath } from '../git-directory.mjs';
 import { scanText } from '../secrets.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { groundedTokens } from './explain.mjs';
+import { EXPLANATION_SHAPE, groundedTokens } from './explain.mjs';
 import { roleForPhase } from './render.mjs';
 
 export const BRIEF_PROMPT_VERSION = 1;
@@ -379,7 +379,26 @@ export function buildBriefPrompt(knowledge, evidence, { focus = null, limits = B
   return { text, sha256: digest(text) };
 }
 
-function parseBriefOutput(output) {
+/**
+ * The brief prompt with the repository explanation task added, so one model call writes both and
+ * Copilot's fixed per-call prompt (~11,400 tokens) is paid once. The brief and the explanations are
+ * still checked and cached separately, each against its own evidence and under its own prompt.
+ */
+export function briefWithExplanationsPrompt(briefPrompt, explanationPrompt) {
+  const text = [
+    briefPrompt.text.trimEnd(),
+    '',
+    'Second task, in the same JSON object: add the key "explanations", which explains the repository, subject by subject, to someone who has never seen it.',
+    `Its shape: ${EXPLANATION_SHAPE}`,
+    'Its rules apply to "explanations" only, and it cites the K- item ids listed under its subjects, never the E evidence IDs above:',
+    ...explanationPrompt.rules,
+    '',
+    explanationPrompt.subjectsText.trimEnd()
+  ].join('\n');
+  return { text: `${text}\n`, sha256: digest(`${text}\n`) };
+}
+
+export function parseBriefOutput(output) {
   if (output && typeof output === 'object') return output;
   const text = String(output ?? '').trim();
   const fenced = /```(?:json)?\s*([\s\S]*?)```/u.exec(text);

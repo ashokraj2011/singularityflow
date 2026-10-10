@@ -340,7 +340,7 @@ import { analyzeRegression, regressionReportMarkdown } from './regression-analys
 import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, isSpecificationDefinitionPhase, loadActiveSpecRecords, mergePlannedClaimRecords, normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance, specificationSourceTreeHash, traceClause, traceCsv } from './specifications.mjs';
 import { evaluateSpecificationGate } from './specification-gate.mjs';
 import { advisoryTaskPath, approvedSource, deriveAdvisoryTasks, renderAdvisoryTasks } from './advisory-tasks.mjs';
-import { assistedPrompt, assistedRecordRelative, buildAssistedRecord, parseAssistedCandidates, serializeAssistedRecord, unknownCitations } from './assisted-quality.mjs';
+import { assistedPrompt, assistedRecordRelative, buildAssistedRecord, parseAssistedCandidates, reusableAssistedRecord, serializeAssistedRecord, unknownCitations } from './assisted-quality.mjs';
 
 import { buildConstitutionException, constitutionIndex, constitutionPolicy, generateConstitution, loadConstitution } from './constitution.mjs';
 
@@ -5667,10 +5667,14 @@ async function inputsCommand(positionals, options) {
  * provider, model, prompt hash, usage, invocation id — `invokeModel` already records, and the record
  * written here binds those to the deterministic report they accompany.
  */
-async function runAssistedAnalysis(root, config, workflow, phase, { report, itemRelative, generation, namespace, model = null }) {
+async function runAssistedAnalysis(root, config, workflow, phase, { report, itemRelative, generation, namespace, model = null, refresh = false }) {
   const markdown = await readFile(path.join(root, report.binding.artifactPath), 'utf8');
   const prompt = assistedPrompt({ report, markdown, namespace });
   const provider = resolveModelProvider(config);
+  const relative = assistedRecordRelative(itemRelative, phase.id, generation);
+  // The candidates already recorded for this exact prompt are the answer a second call would buy.
+  const saved = refresh ? null : reusableAssistedRecord(await readFile(path.join(root, relative), 'utf8').catch(() => ''), { prompt, provider: provider.provider, model: model ?? provider.model });
+  if (saved) return { record: saved, path: relative, reused: true };
   const execution = await resolveStoryExecutionContext(root, config, workflow, {
     agentId: phase.defaultAgent ?? null,
     phaseId: phase.id
@@ -5698,7 +5702,6 @@ async function runAssistedAnalysis(root, config, workflow, phase, { report, item
     unknownClauseIds: unknownCitations(candidates, report.clauseIds ?? []),
     generatedAt: invocation.completedAt ?? new Date().toISOString()
   });
-  const relative = assistedRecordRelative(itemRelative, phase.id, generation);
   await writeText(path.join(root, relative), serializeAssistedRecord(record));
   return { record, path: relative };
 }
@@ -5903,7 +5906,7 @@ async function specCommand(positionals, options) {
      */
     const assisted = optionBoolean(options, 'assisted')
       ? await runAssistedAnalysis(root, config, workflow, phase, {
-        report: gate.report, itemRelative, generation, namespace: policy?.namespace ?? null, model: optionString(options, 'model')
+        report: gate.report, itemRelative, generation, namespace: policy?.namespace ?? null, model: optionString(options, 'model'), refresh: optionBoolean(options, 'refresh')
       })
       : null;
 
@@ -5932,7 +5935,7 @@ async function specCommand(positionals, options) {
       for (const finding of gate.report.findings) console.log(`  ${finding.kind}: ${finding.message}`);
     }
     if (assisted) {
-      console.log(`\nAssisted candidates — ${assisted.record.model.provider}${assisted.record.model.model ? ` / ${assisted.record.model.model}` : ''}`);
+      console.log(`\nAssisted candidates — ${assisted.record.model.provider}${assisted.record.model.model ? ` / ${assisted.record.model.model}` : ''}${assisted.reused ? ' (recorded earlier for this exact prompt; no model call — add --refresh to ask again)' : ''}`);
       if (!assisted.record.candidates.length) console.log('  The model raised no semantic concerns.');
       for (const candidate of assisted.record.candidates) {
         console.log(`  ${candidate.concern}${candidate.clauseIds.length ? ` (${candidate.clauseIds.join(', ')})` : ''}: ${candidate.text}`);

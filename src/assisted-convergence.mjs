@@ -22,7 +22,7 @@ import path from 'node:path';
 import { itemId } from './convergence.mjs';
 import { canonicalJson, recordSha256 as hashRecord } from './records.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
-import { currentSchemaVersion } from './schema-migrations.mjs';
+import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 export const ASSISTED_CONVERGENCE_SCHEMA_VERSION = currentSchemaVersion('assisted-convergence');
 
@@ -42,6 +42,29 @@ export function assertAssistedConvergenceIntegrity(record) {
     );
   }
   return record;
+}
+
+/**
+ * A candidate record an earlier assisted pass wrote for this iteration from the exact same prompt,
+ * deterministic bindings and facts, by this provider (and the requested model, when one is named),
+ * with its provenance hash intact; otherwise null. `story converge --assisted --refresh` asks again.
+ */
+export function reusableConvergenceRecord(text, { prompt, bindings, facts = [], provider, model = null }) {
+  let record;
+  try {
+    const read = readRecord('assisted-convergence', text);
+    // Only a record stored in the current shape, with its provenance hash intact, is reused as is.
+    record = read.migratedThrough.length ? null : assertAssistedConvergenceIntegrity(read.record);
+  } catch { return null; }
+  if (record?.resultType !== 'convergence-candidates') return null;
+  if (record.iteration !== bindings.iteration) return null;
+  if (record.promptSha256 !== createHash('sha256').update(String(prompt), 'utf8').digest('hex')) return null;
+  const bound = record.deterministic ?? {};
+  const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  if (!same(bound.reconciliationSha256, bindings.reconciliation?.sha256) || !same(bound.sourceTargetCommit, bindings.sourceTargetCommit)
+    || !same(bound.clauseIndexSha256, bindings.clauseIndexSha256) || !same(bound.factIds, facts.map((item) => item.id))) return null;
+  if (record.model?.provider !== provider || (model && record.model?.model !== model)) return null;
+  return Array.isArray(record.candidates) ? record : null;
 }
 
 /** What a candidate may claim `[SPK:REQ-076]`. */

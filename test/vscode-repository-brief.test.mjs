@@ -9,7 +9,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { BRIEF_TABS, repositoryBriefBody } = await import(path.join(root, 'apps', 'vscode', 'src', 'views', 'repository-brief-page.ts'));
+const { BRIEF_TABS, REPOSITORY_BRIEF_SCRIPT, repositoryBriefBody } = await import(path.join(root, 'apps', 'vscode', 'src', 'views', 'repository-brief-page.ts'));
 
 const brief = {
   repository: 'orders', commit: '0123456789abcdef', phase: 'intake',
@@ -63,6 +63,16 @@ test('the sources tab lists documents, docs statements and what the checks dropp
   assert.match(busy, /Writing the brief with the model/u);
   assert.match(busy, /role="alert">The model is off\./u);
   assert.match(busy, /data-message="generate" disabled/u);
+});
+
+test('a model-written brief offers Write again; otherwise Write with model, which reuses a saved brief', () => {
+  const written = repositoryBriefBody(brief, { tab: 'overview', phase: 'all', loading: null, error: null });
+  assert.match(written, /data-message="regenerate"[^>]*>Write again</u);
+  assert.doesNotMatch(written, /data-message="generate"/u);
+  const template = repositoryBriefBody({ ...brief, mode: 'template', model: null }, { tab: 'overview', phase: 'all', loading: null, error: null });
+  assert.match(template, /data-message="generate">Write with model</u);
+  assert.doesNotMatch(template, /data-message="regenerate"/u);
+  assert.match(REPOSITORY_BRIEF_SCRIPT, /type: 'regenerate'/u);
 });
 
 test('a brief read from another branch says so, and the branch picker lists the branches', () => {

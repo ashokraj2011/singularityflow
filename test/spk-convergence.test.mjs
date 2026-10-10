@@ -18,7 +18,7 @@ import {
 } from '../src/convergence.mjs';
 import {
   CANDIDATE_KINDS, assistedConvergencePrompt, buildAssistedConvergenceRecord,
-  parseConvergenceCandidates, unknownReferences
+  parseConvergenceCandidates, reusableConvergenceRecord, serializeAssistedConvergence, unknownReferences
 } from '../src/assisted-convergence.mjs';
 import { unwrapProviderLineBreaks } from '../src/assisted-quality.mjs';
 
@@ -379,6 +379,26 @@ test('assisted candidates reference the deterministic facts and cannot become th
   });
   assert.throws(() => parseConvergenceCandidates('{"candidates":[{"kind":"probably","text":"x"}]}', { unwrap: unwrapProviderLineBreaks }), /expected one of/);
   assert.throws(() => parseConvergenceCandidates('not json', { unwrap: unwrapProviderLineBreaks }), /did not return the requested JSON/);
+});
+
+test('candidates recorded for the same prompt, bindings and facts are reused; anything changed asks again', () => {
+  const facts = convergenceFacts({ reconciliation: RECONCILIATION, indexes: INDEXES, observed: OBSERVED });
+  const prompt = assistedConvergencePrompt({ clauses: INDEXES[0].clauses, observedClaims: OBSERVED[0].claims, changedPaths: RECONCILIATION.findings, facts, namespace: 'D' });
+  const bindings = bind();
+  const record = buildAssistedConvergenceRecord({
+    workId: 'D-1', bindings, facts, candidates: [], prompt, generatedAt: '2026-01-01T00:00:00.000Z',
+    invocation: { provider: 'copilot-cli', model: 'gpt-5', invocationId: 'inv-1', usage: { status: 'exact' } }
+  });
+  const text = serializeAssistedConvergence(record);
+  const match = { prompt, bindings, facts, provider: 'copilot-cli' };
+  assert.equal(reusableConvergenceRecord(text, match)?.recordSha256, record.recordSha256);
+  assert.equal(reusableConvergenceRecord(text, { ...match, prompt: `${prompt} ` }), null, 'another prompt');
+  assert.equal(reusableConvergenceRecord(text, { ...match, facts: facts.slice(1) }), null, 'other facts');
+  assert.equal(reusableConvergenceRecord(text, { ...match, bindings: { ...bindings, sourceTargetCommit: 'd'.repeat(40) } }), null, 'another source commit');
+  assert.equal(reusableConvergenceRecord(text, { ...match, bindings: { ...bindings, iteration: bindings.iteration + 1 } }), null, 'another iteration');
+  assert.equal(reusableConvergenceRecord(text, { ...match, model: 'another-model' }), null, 'another requested model');
+  const tampered = JSON.stringify({ ...JSON.parse(text), candidates: [{ id: 'CC-000000000000', kind: 'missing', text: 'x' }] });
+  assert.equal(reusableConvergenceRecord(tampered, match), null, 'a record whose provenance hash no longer matches is never reused');
 });
 
 test('the agent that runs convergence cannot approve, reopen or advance', async () => {

@@ -105,6 +105,15 @@ export function excludesActiveWorkspaceRouting(
     || (command === 'evidence' && subcommand === 'verify');
 }
 
+/**
+ * Commands that read whichever Git repository they are run in, governed or not: repository
+ * knowledge (the brief, calls, explanations) and code explanation. The selected workspace stands in
+ * only when no repository is open; otherwise a plain repository would be answered from another one.
+ */
+export function readsOpenedRepository(command, subcommand = null) {
+  return (command === 'wm' && subcommand === 'knowledge') || (command === 'explain' && subcommand === 'code');
+}
+
 function rootIfAvailable(cwd = process.cwd()) {
   try { return repoRoot(cwd); } catch { return null; }
 }
@@ -680,7 +689,8 @@ async function runMain(argv) {
     definition.name, subcommand, options, action
   );
   await withCommandTiming(timer, async () => {
-    if (!routingExcluded && (!root || !hasLocalGovernanceAuthority(root))) {
+    const opened = Boolean(root) && readsOpenedRepository(definition.name, subcommand);
+    if (!routingExcluded && !opened && (!root || !hasLocalGovernanceAuthority(root))) {
       const selectedRoot = await activeWorkspaceRepositoryRoot(definition.name, {
         subcommand, action, options
       });

@@ -147,7 +147,9 @@ export function repositoryBriefBody(brief: RepositoryBrief | null, state: BriefP
       ${branchPicker(brief, state)}
       <label class="meta" for="brief-phase">Phase</label>
       <select id="brief-phase" data-message="phase">${phaseOptions}</select>
-      <button type="button" data-message="generate"${state.loading ? ' disabled' : ''}>Write with model</button>
+      ${brief?.mode === 'model'
+    ? `<button type="button" data-message="regenerate" title="Ask the model again, even though this evidence already has a brief"${state.loading ? ' disabled' : ''}>Write again</button>`
+    : `<button type="button" data-message="generate"${state.loading ? ' disabled' : ''}>Write with model</button>`}
       <button type="button" class="secondary" data-message="refresh"${state.loading ? ' disabled' : ''}>Refresh</button>
     </div>
   </header>`;
@@ -197,6 +199,7 @@ export const REPOSITORY_BRIEF_SCRIPT = `
     const tab = event.target.closest('[data-message="tab"]');
     if (tab) return vscode.postMessage({ type: 'tab', tab: tab.dataset.tab });
     if (event.target.closest('[data-message="generate"]')) return vscode.postMessage({ type: 'generate' });
+    if (event.target.closest('[data-message="regenerate"]')) return vscode.postMessage({ type: 'regenerate' });
     if (event.target.closest('[data-message="refresh"]')) return vscode.postMessage({ type: 'refresh' });
     const file = event.target.closest('[data-open-file]');
     if (file) vscode.postMessage({ type: 'open-file', path: file.dataset.openFile, line: Number(file.dataset.openLine || 0) });

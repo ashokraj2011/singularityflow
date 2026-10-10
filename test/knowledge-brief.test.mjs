@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -172,6 +172,74 @@ test('the model writes the brief in a repository with no Singularity Flow config
   assert.equal(brief.model, 'copilot-cli');
   assert.deepEqual(brief.views.contracts.map((statement) => [statement.text, statement.origin]), [['Orders arrive at POST /orders.', 'model']]);
   assert.deepEqual(brief.rejections.map((entry) => entry.reason), ['names what its evidence does not contain: 99999']);
+  assert.equal(git(repository, 'status', '--porcelain'), '', 'nothing is written to the working tree');
+});
+
+// A Copilot CLI stand-in that logs every prompt it is sent, and answers whichever task it finds:
+// the brief (with the explanations when the prompt carries that second task) or the explanations alone.
+// The log sits beside the script: the provider does not pass the test's environment through.
+const COUNTING_COPILOT = `#!/usr/bin/env node
+import readline from 'node:readline';
+import { appendFileSync } from 'node:fs';
+if (process.argv.includes('--help')) { console.log('Usage: copilot --acp'); process.exit(0); }
+const send = (value) => process.stdout.write(JSON.stringify(value) + '\\n');
+for await (const line of readline.createInterface({ input: process.stdin })) {
+  const message = JSON.parse(line);
+  if (message.method === 'initialize') send({ jsonrpc: '2.0', id: message.id, result: { protocolVersion: message.params.protocolVersion, agentCapabilities: {} } });
+  else if (message.method === 'session/new') send({ jsonrpc: '2.0', id: message.id, result: { sessionId: 'counting', configOptions: [] } });
+  else if (message.method === 'session/prompt') {
+    const prompt = message.params.prompt[0].text;
+    appendFileSync(new URL("prompts.jsonl", import.meta.url), JSON.stringify({ brief: prompt.startsWith('You write a short repository brief'), combined: prompt.includes('Second task') }) + '\\n');
+    const item = prompt.match(/^## Subject repository\\n[\\s\\S]*?^- (K-[a-z-]+-[0-9a-f]{16}):/mu)?.[1];
+    const explanations = [{ subject: 'repository', sentences: [{ text: 'This repository takes and stores orders.', cites: [item] }] }];
+    const answer = prompt.startsWith('You write a short repository brief')
+      ? { views: { contracts: [{ text: 'Orders arrive at POST /orders.', cites: [prompt.match(/^(E\\d+) \\[entry-point\\] POST \\/orders/mu)[1]] }] }, ...(prompt.includes('Second task') ? { explanations } : {}) }
+      : { explanations };
+    send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'counting', update: { sessionUpdate: 'agent_message_chunk', messageId: 'm', content: { type: 'text', text: JSON.stringify(answer) } } } });
+    send({ jsonrpc: '2.0', id: message.id, result: { stopReason: 'end_turn' } });
+  }
+}
+`;
+
+test('one model call writes the brief and the missing explanations, and neither is paid for twice', async (t) => {
+  const repository = await ordersRepository(t);
+  const bin = await mkdtemp(path.join(os.tmpdir(), 'sflow-brief-count-'));
+  t.after(() => rm(bin, { recursive: true, force: true }));
+  await writeFile(path.join(bin, 'copilot'), COUNTING_COPILOT, { mode: 0o755 });
+  await symlink(process.execPath, path.join(bin, 'node'));
+  await symlink(await realpath(spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim()), path.join(bin, 'git'));
+  const log = path.join(bin, 'prompts.jsonl');
+  await writeFile(log, '');
+  const env = { ...process.env, PATH: `${bin}:/usr/bin:/bin` };
+  delete env.SINGULARITY_FLOW_NO_MODEL;
+  const sflow = (...args) => {
+    const run = spawnSync(process.execPath, [path.join(root, 'bin', 'singularity-flow.mjs'), 'wm', 'knowledge', ...args, '--json'], { cwd: repository, env, encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr || run.stdout);
+    return JSON.parse(run.stdout);
+  };
+  const prompts = async () => (await readFile(log, 'utf8')).split('\n').filter(Boolean).map((line) => JSON.parse(line));
+
+  const first = sflow('brief');
+  assert.equal(first.mode, 'model', first.reason);
+  assert.deepEqual(first.explanations, { status: 'written', accepted: 1, rejected: 0 });
+  assert.deepEqual(await prompts(), [{ brief: true, combined: true }], 'one call carried both tasks');
+
+  const again = sflow('brief');
+  assert.equal(again.cached, true, 'the brief written for this evidence is shown, not written again');
+  const explained = sflow('explain');
+  assert.deepEqual([explained.status, explained.cached, explained.accepted], ['ok', true, 1], 'explain reuses what the brief call wrote');
+  const shown = spawnSync(process.execPath, [path.join(root, 'bin', 'singularity-flow.mjs'), 'wm', 'knowledge', 'show', 'overview'], { cwd: repository, env, encoding: 'utf8' });
+  assert.match(shown.stdout, /This repository takes and stores orders\./u);
+  assert.equal((await prompts()).length, 1, 'nothing was asked twice');
+
+  const asked = sflow('explain', '--refresh');
+  assert.equal(asked.cached, false);
+  const rewritten = sflow('brief', '--refresh');
+  assert.equal(rewritten.mode, 'model', rewritten.reason);
+  assert.equal(rewritten.cached, false);
+  assert.deepEqual(rewritten.explanations, { status: 'saved-already' });
+  assert.deepEqual((await prompts()).slice(1), [{ brief: false, combined: false }, { brief: true, combined: false }],
+    '--refresh asks again, and a brief whose explanations are saved sends the brief task alone');
   assert.equal(git(repository, 'status', '--porcelain'), '', 'nothing is written to the working tree');
 });
 

@@ -23,7 +23,7 @@ import YAML from 'yaml';
 
 import { amendmentChurn, amendmentRecap, blastRadius, clauseDiff } from '../amendment.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
-import { assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord, parseConvergenceCandidates, serializeAssistedConvergence, unknownReferences } from '../assisted-convergence.mjs';
+import { assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord, parseConvergenceCandidates, reusableConvergenceRecord, serializeAssistedConvergence, unknownReferences } from '../assisted-convergence.mjs';
 import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';
 import { CAPABILITIES_PATH } from '../capabilities.mjs';
 import { resolveLifecycleCapability } from '../capability-context.mjs';
@@ -81,7 +81,7 @@ import {
 import { acknowledgeAmendment, createLocalCheckpoint, escalationPlan, reconcileWorkInterval } from '../work-intervals.mjs';
 import { existsSync } from 'node:fs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
-import { mkdir, readFile, realpath } from 'node:fs/promises';
+import { mkdir, readdir, readFile, realpath } from 'node:fs/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import { extractInputsBlock } from '../inputs.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
@@ -1149,7 +1149,7 @@ async function convergenceSubject(root, config, workflow) {
  * be re-deriving what reconciliation already owns, at a different altitude, with nothing recording
  * what it looked at — and `[SPK:CON-034]` would have no way to hold.
  */
-async function runAssistedConvergence(root, config, workflow, subject, { facts, bindings, model = null }) {
+async function runAssistedConvergence(root, config, workflow, subject, { facts, bindings, model = null, refresh = false }) {
   const clauses = subject.records.indexes.flatMap((index) => index.clauses ?? []);
   // Convergence can span multiple implementation intervals. A later partial record must not erase
   // exact paths, tests, or verdict evidence established by an earlier interval for the same clause.
@@ -1163,6 +1163,10 @@ async function runAssistedConvergence(root, config, workflow, subject, { facts, 
     namespace: subject.policy?.namespace ?? null
   });
   const provider = resolveModelProvider(config);
+  const saved = refresh ? null : await savedConvergenceCandidates(root, subject.itemRelative, {
+    prompt, bindings, facts, provider: provider.provider, model: model ?? provider.model
+  });
+  if (saved) return saved;
   const phase = workflow.phases?.[workflow.currentPhase] ?? null;
   const execution = await resolveStoryExecutionContext(root, config, workflow, {
     agentId: phase?.defaultAgent ?? null,
@@ -1199,6 +1203,23 @@ async function runAssistedConvergence(root, config, workflow, subject, { facts, 
   for (const id of record.unknownReferences.factIds) console.warn(`Warning: a candidate cites deterministic fact '${id}', which this iteration does not contain.`);
   for (const id of record.unknownReferences.clauseIds) console.warn(`Warning: a candidate cites clause '${id}', which the approved specification does not contain.`);
   return { record, path: relative };
+}
+
+/**
+ * The newest candidate record this iteration already has for the exact same prompt, bindings and
+ * facts: asking the model again would pay for the same answer.
+ */
+async function savedConvergenceCandidates(root, itemRelative, match) {
+  const directory = posix(path.join(itemRelative, 'context', 'convergence'));
+  const prefix = `candidates-iter${match.bindings.iteration}`;
+  const names = (await readdir(path.join(root, directory)).catch(() => []))
+    .filter((name) => name === `${prefix}.json` || (name.startsWith(`${prefix}-`) && name.endsWith('.json')));
+  const found = [];
+  for (const name of names) {
+    const record = reusableConvergenceRecord(await readFile(path.join(root, directory, name), 'utf8').catch(() => ''), match);
+    if (record) found.push({ record, path: posix(path.join(directory, name)), reused: true });
+  }
+  return found.sort((a, b) => String(b.record.generatedAt).localeCompare(String(a.record.generatedAt)))[0] ?? null;
 }
 
 function convergenceRecordRelative(itemRelative, iteration) {
@@ -1418,7 +1439,7 @@ async function withConvergenceDraft(root, config, requestedWorkId, operation, wr
  * document that never consumed the kernel-owned convergence facts.
  */
 export async function prepareDeterministicConvergence(root, config, workId = null, {
-  assisted = false, model = null, migrateLegacy = false, legacyConfirmation = null
+  assisted = false, model = null, refresh = false, migrateLegacy = false, legacyConfirmation = null
 } = {}) {
   return withConvergenceDraft(
     root,
@@ -1485,7 +1506,7 @@ export async function prepareDeterministicConvergence(root, config, workId = nul
 
       const assistedResult = assisted
         ? await runAssistedConvergence(root, config, workflow, subject, {
-          facts, bindings, model
+          facts, bindings, model, refresh
         })
         : null;
       const candidates = assistedResult?.record.candidates ?? previous?.candidateSnapshot ?? [];
@@ -1547,6 +1568,7 @@ export async function storyConvergeCommand(positionals, options) {
   const result = await prepareDeterministicConvergence(root, accepted.definition, requestedWorkId, {
     assisted: optionBoolean(options, 'assisted'),
     model: optionString(options, 'model'),
+    refresh: optionBoolean(options, 'refresh'),
     migrateLegacy: optionBoolean(options, 'migrate-legacy'),
     legacyConfirmation: optionString(options, 'confirm')
   });
@@ -1558,7 +1580,7 @@ export async function storyConvergeCommand(positionals, options) {
   console.log(`  facts:    ${facts.length}`);
   for (const item of facts) console.log(`    ${item.id} ${item.kind}: ${item.detail}`);
   if (assisted) {
-    console.log(`  candidates: ${assisted.record.candidates.length} (${assisted.path})`);
+    console.log(`  candidates: ${assisted.record.candidates.length} (${assisted.path})${assisted.reused ? ' — recorded earlier for this exact prompt; no model call (add --refresh to ask again)' : ''}`);
     for (const candidate of assisted.record.candidates) console.log(`    ${candidate.id} ${candidate.classification}${candidate.clauseIds.length ? ` (${candidate.clauseIds.join(', ')})` : ''}: ${candidate.text}`);
   }
   console.log(`  findings: ${projection.findings.length} recorded, ${projection.unresolvedBlockers.length} blocking`);

@@ -39,7 +39,7 @@ singularity-flow wm knowledge show [overview|business|rules|journeys|entities|te
 singularity-flow wm knowledge slice [--role developer|tester|architect|product | --phase PHASE] [--focus TEXT] [--max-bytes N]
 singularity-flow wm knowledge items [--kind KIND] [--json]
 singularity-flow wm knowledge eval --expected FILE [--json]
-singularity-flow wm knowledge explain [--dry-run] [--json]
+singularity-flow wm knowledge explain [--refresh] [--dry-run] [--json]
 singularity-flow wm knowledge brief [--ref BRANCH] [--phase PHASE] [--focus TEXT] [--refresh] [--cached] [--dry-run] [--json]
 singularity-flow wm knowledge calls [--path PREFIX] [--json]   # each call, with where both ends are defined
 singularity-flow wm knowledge areas [--json]
@@ -123,24 +123,30 @@ Knowledge** picks an item and records the same confirm, correct or reject review
   Each statement must cite evidence IDs, and it is kept only if every code name, number and quoted
   text in it appears in what it cites; statements that cite nothing, cite unknown evidence or judge
   the code are dropped and listed. A view the model leaves empty shows its evidence instead. The
-  result is cached on this machine for the same evidence, prompt and model; `--refresh` writes it
-  again.
+  result is cached on this machine for the same evidence, prompt and model, and shown instead of
+  asking again; `--refresh` writes it again. When this knowledge has no plain-language explanations
+  yet, the same model call writes them too (see below), so Copilot's fixed per-call prompt of about
+  11,400 tokens is paid once for both. Each is still checked against its own evidence and cached
+  separately; `--refresh` rewrites only the brief.
 - **Without a model** (or with `--cached`), a brief the model wrote earlier for the same
   evidence is shown; otherwise the evidence itself, with fixed sentences. Questions then come from
   rules no test reaches, documented HTTP statuses no code rule returns, and documented names the
   code never uses.
 - `--phase` orders the views for that phase's reader (product, architect, developer or tester).
-  `--dry-run` prints the exact prompt.
+  `--dry-run` prints the exact prompt, including the explanation task when it would be added.
 - It reads the checked-out commit. When that commit has no code, it reads the most recently
   committed local or remote branch that has code instead, and says which; `--ref BRANCH` names one.
   Another branch is read from Git's objects: nothing is checked out or cloned; in a partial clone the
   files it reads are downloaded into `.git` first. Singularity Flow's own branches (`sflow/*`, the
   state ledger) are never offered. A commit with no code and no rule-like docs is not sent to the model.
-- It works in any Git repository. Without `singularity/workflow.yml` the model is Copilot CLI
+- It works in any Git repository, and reads the one it is run in even when a Singularity Flow
+  workspace is selected (the selection is used only when no repository is open). Without `singularity/workflow.yml` the model is Copilot CLI
   (`copilot` on PATH) choosing its own model; a configured provider and model are used when present.
   Nothing is written to the working tree: the cache and the model audit live under `.git`.
 - In VS Code, **Singularity Flow: Repository Brief** shows every view as a tab, with branch and phase pickers,
-  **Write with model**, and buttons that open each source at its line.
+  **Write with model** (which shows a brief already written for the same evidence instead of paying
+  for it again), **Write again** once the model has written it, and buttons that open each source at
+  its line.
 
 ## Plain-language explanations
 
@@ -152,8 +158,10 @@ items or their excerpts; sentences that cite nothing, cite outside their subject
 ("correct", "secure") or exceed six per subject are rejected and listed. Kept sentences are
 `inferred`: they appear under "In plain words" in views and phase slices with that label, are cached
 on this machine with the exact knowledge they were checked against, and are never counted as
-verified grounding. Composing a prompt never calls a model for them. Without a model the command
-says so and changes nothing; `--dry-run` prints the exact prompt.
+verified grounding. Composing a prompt never calls a model for them. Explanations already saved for
+the same knowledge, prompt and model (by an earlier `explain` or by a model-written brief) are shown
+without asking again; `--refresh` asks the model again. Without a model and nothing saved the
+command says so and changes nothing; `--dry-run` prints the exact prompt.
 
 ## In phase prompts
 

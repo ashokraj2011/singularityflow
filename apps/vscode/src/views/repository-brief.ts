@@ -51,16 +51,17 @@ export class RepositoryBriefPanel {
       },
       phase: (message) => {
         const phase = enumField(message, 'phase', BRIEF_PHASES);
-        if (phase && phase !== this.state.phase) { this.state = { ...this.state, phase }; void this.load(false); }
+        if (phase && phase !== this.state.phase) { this.state = { ...this.state, phase }; void this.load('read'); }
       },
       ref: (message) => {
         // Empty means "let the engine choose"; any other value must be a branch the brief listed.
         const ref = stringField(message, 'ref');
         if (ref && !(this.brief?.branches ?? []).includes(ref)) return;
-        if (ref !== (this.state.ref ?? null)) { this.state = { ...this.state, ref }; void this.load(false); }
+        if (ref !== (this.state.ref ?? null)) { this.state = { ...this.state, ref }; void this.load('read'); }
       },
-      generate: () => void this.load(true),
-      refresh: () => void this.load(false),
+      generate: () => void this.load('write'),
+      regenerate: () => void this.load('rewrite'),
+      refresh: () => void this.load('read'),
       'open-file': (message) => {
         const file = stringField(message, 'path');
         const line = integerField(message, 'line');
@@ -70,18 +71,24 @@ export class RepositoryBriefPanel {
     panel.webview.onDidReceiveMessage((raw) => router.route(raw));
     panel.onDidDispose(() => this.dispose());
     this.render();
-    void this.load(false);
+    void this.load('read');
   }
 
-  /** Ask the engine for the brief: written by the model when `generate`, otherwise cached or built from the evidence. */
-  private async load(generate: boolean): Promise<void> {
+  /**
+   * Ask the engine for the brief. `read` shows a saved model brief or the evidence-built one;
+   * `write` has the model write it unless one is saved for this exact evidence (no second payment);
+   * `rewrite` asks the model again regardless.
+   */
+  private async load(mode: 'read' | 'write' | 'rewrite'): Promise<void> {
     const request = ++this.request;
+    const generate = mode !== 'read';
     this.state = { ...this.state, loading: generate ? 'generate' : 'read', error: null };
     this.render();
     const args = ['wm', 'knowledge', 'brief', '--json'];
     if (this.state.phase !== 'all') args.push('--phase', this.state.phase);
     if (this.state.ref) args.push('--ref', this.state.ref);
-    args.push(generate ? '--refresh' : '--cached');
+    if (mode === 'read') args.push('--cached');
+    if (mode === 'rewrite') args.push('--refresh');
     try {
       const brief = await this.client.run<RepositoryBrief>(args);
       if (request !== this.request || this.disposed) return;

@@ -9,11 +9,12 @@
  *   eval    --expected FILE [--area PATH] [--json]                    score against expectations
  *   confirm|correct|reject ID [--note TEXT]                           review an item (writes docs/knowledge/confirmations.yml)
  *   areas   [--json]                                                  the areas a large repository is built in
- *   explain [--area PATH] [--dry-run] [--json]                        plain-language explanations, citation-checked (needs a model; --dry-run shows the prompt)
+ *   explain [--area PATH] [--refresh] [--dry-run] [--json]            plain-language explanations, citation-checked (needs a model; reuses saved ones; --dry-run shows the prompt)
  *   calls   [--path PREFIX] [--json]                                   calls found in the code, with where each end is defined
  *   brief   [--ref BRANCH] [--phase PHASE] [--focus TEXT] [--refresh] [--cached] [--dry-run] [--json]
  *                                                                     business rules, contracts, flows, impact, risks and questions;
- *                                                                     written by the model when one is on, checked against its evidence
+ *                                                                     written by the model when one is on, checked against its evidence;
+ *                                                                     the same call writes the explanations when they are missing
  *
  * Read-only for the repository: it reads the committed tree and writes only its machine-local cache.
  */
@@ -27,10 +28,12 @@ import { loadModelTiers } from '../model-tiers.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { optionBoolean, optionNumber, optionString, SingularityFlowError } from '../util.mjs';
 import { applyReviews, readConfirmations, recordReview } from './confirm.mjs';
-import { buildExplanationPrompt, explanationSubjects, readExplanations, validateExplanations, writeExplanations } from './explain.mjs';
 import {
-  BRIEF_VIEWS, briefEvidence, briefKey, briefNotKnown, briefOrder, buildBriefPrompt, isDocumentationPath, readCachedBrief, readDocumentation,
-  renderBriefMarkdown, templateBrief, validateBrief, writeCachedBrief
+  buildExplanationPrompt, explanationSubjects, readExplanations, reusableExplanations, validateExplanations, writeExplanations
+} from './explain.mjs';
+import {
+  BRIEF_VIEWS, briefEvidence, briefKey, briefNotKnown, briefOrder, briefWithExplanationsPrompt, buildBriefPrompt, isDocumentationPath,
+  parseBriefOutput, readCachedBrief, readDocumentation, renderBriefMarkdown, templateBrief, validateBrief, writeCachedBrief
 } from './brief.mjs';
 import { parseKnowledgeExpectations, scoreKnowledge } from './benchmark.mjs';
 import { KNOWLEDGE_KINDS } from './items.mjs';
@@ -173,13 +176,17 @@ async function explainCommand(root, result, options) {
     else console.log(prompt.text);
     return { status: 'dry-run' };
   }
+  const provider = await knowledgeModel(root);
+  // Explanations already saved for this exact knowledge, prompt and model (by an earlier explain or
+  // a model-written brief) are the answer the model would be paid to give again.
+  const saved = optionBoolean(options, 'refresh') ? null : reusableExplanations(await readExplanations(root, result.key), prompt, provider.model ?? null);
+  if (saved) return explanationSummary(saved, { json, cached: true });
   if (operationContext()?.operation?.id !== 'wm.knowledge.explain') {
     const message = 'Explanations need a model, and model execution is off for this command. The deterministic knowledge is unchanged; run with --dry-run to see what would be sent.';
     if (json) console.log(JSON.stringify({ status: 'unavailable', reason: 'model-disabled', message }, null, 2));
     else console.log(message);
     return { status: 'unavailable' };
   }
-  const provider = await knowledgeModel(root);
   const invocation = await invokeModel({
     ...provider.request,
     cwd: root,
@@ -196,12 +203,48 @@ async function explainCommand(root, result, options) {
     accepted: checked.accepted, rejected: checked.rejected
   };
   await writeExplanations(root, result.key, record);
-  const summary = { status: 'ok', accepted: checked.accepted.length, rejected: checked.rejected.length, rejections: checked.rejected };
+  return explanationSummary(record, { json, cached: false });
+}
+
+function explanationSummary(record, { json, cached }) {
+  const rejected = record.rejected ?? [];
+  const summary = { status: 'ok', cached, accepted: record.accepted.length, rejected: rejected.length, rejections: rejected };
   if (json) { console.log(JSON.stringify(summary, null, 2)); return summary; }
-  console.log(`Kept ${checked.accepted.length} sentence${checked.accepted.length === 1 ? '' : 's'} that match their cited code; rejected ${checked.rejected.length}.`);
-  for (const entry of checked.rejected.slice(0, 10)) console.log(`  rejected: "${entry.text}" (${entry.reason})`);
+  if (cached) console.log(`These explanations were written ${record.combinedWith ? 'with the repository brief' : 'earlier'} for this exact knowledge, so the model was not asked again. Run with --refresh to ask it again.`);
+  console.log(`Kept ${record.accepted.length} sentence${record.accepted.length === 1 ? '' : 's'} that match their cited code; rejected ${rejected.length}.`);
+  for (const entry of rejected.slice(0, 10)) console.log(`  rejected: "${entry.text}" (${entry.reason})`);
   console.log('Read them: singularity-flow wm knowledge show overview');
   return summary;
+}
+
+/**
+ * The explanation task a model-written brief also carries, so one call writes both: null when this
+ * knowledge already has explanations for the current prompt and model, or nothing to explain.
+ */
+async function explanationTask(root, result, target, options, model) {
+  const subjects = explanationSubjects(result.knowledge);
+  if (!subjects.length) return null;
+  const source = await readKnowledgeSource(root, { area: optionString(options, 'area') ?? null, ref: target.commit });
+  const filesByPath = new Map([...source.files, ...source.manifests].map((file) => [file.path, file]));
+  const prompt = buildExplanationPrompt(result.knowledge, subjects, filesByPath);
+  // Writing the brief again (--refresh) keeps explanations that still match; `explain --refresh` rewrites them.
+  const saved = reusableExplanations(await readExplanations(root, result.key), prompt, model);
+  return saved ? null : { subjects, prompt };
+}
+
+/** Check and save the explanations a combined brief answer carried; the brief stands either way. */
+async function saveCombinedExplanations(root, result, task, parsed, model) {
+  if (!Array.isArray(parsed?.explanations)) return { status: 'not-returned', accepted: 0, rejected: 0 };
+  try {
+    const checked = validateExplanations({ explanations: parsed.explanations }, task.subjects, task.prompt.evidence);
+    await writeExplanations(root, result.key, {
+      knowledgeKey: result.key, promptSha256: task.prompt.sha256, model, createdAt: new Date().toISOString(),
+      combinedWith: 'repository-brief', accepted: checked.accepted, rejected: checked.rejected
+    });
+    return { status: 'written', accepted: checked.accepted.length, rejected: checked.rejected.length };
+  } catch (error) {
+    return { status: 'failed', accepted: 0, rejected: 0, reason: error.message };
+  }
 }
 
 /**
@@ -294,12 +337,15 @@ async function briefCommand(root, result, knowledge, options, target) {
   const documentation = readDocumentation(root, { focus, ref: target.commit });
   const evidence = briefEvidence(knowledge, documentation, { focus });
   const prompt = buildBriefPrompt(knowledge, evidence, { focus });
+  const provider = await knowledgeModel(root);
   if (optionBoolean(options, 'dry-run')) {
-    if (json) console.log(JSON.stringify({ status: 'dry-run', evidence: evidence.length, documents: documentation.files.length, promptSha256: prompt.sha256, prompt: prompt.text }, null, 2));
-    else console.log(prompt.text);
+    // What a model-written brief would send: the explanation task rides along when it is missing.
+    const task = await explanationTask(root, result, target, options, provider.model ?? null);
+    const sent = task ? briefWithExplanationsPrompt(prompt, task.prompt) : prompt;
+    if (json) console.log(JSON.stringify({ status: 'dry-run', evidence: evidence.length, documents: documentation.files.length, explanations: Boolean(task), promptSha256: sent.sha256, prompt: sent.text }, null, 2));
+    else console.log(sent.text);
     return { status: 'dry-run' };
   }
-  const provider = await knowledgeModel(root);
   const key = briefKey(result.key, documentation, prompt, provider.model ?? null);
   const template = templateBrief(evidence);
   const modelOn = operationContext()?.operation?.id === 'wm.knowledge.brief' && !optionBoolean(options, 'cached');
@@ -312,25 +358,34 @@ async function briefCommand(root, result, knowledge, options, target) {
   const nothing = !codeFiles && !documentation.statements.length;
   const at = `${branch ? `branch ${branch}` : 'this commit'} (${String(knowledge.repository.commit).slice(0, 12)})`;
   let reason = null;
+  let explained = null;
   if (!written && nothing) {
     reason = target.chosen === 'requested'
       ? `There is nothing to brief at ${at}: it has no code files and its docs state no rules. Name a branch that has code.`
       : `There is nothing to brief at ${at}: it has no code files and its docs state no rules, and no other branch here has code. Fetch the branch that holds the code, or name one with --ref.`;
   } else if (!written && modelOn) {
     try {
+      // Missing explanations are written by the same call: Copilot's fixed per-call prompt is paid once.
+      const task = await explanationTask(root, result, target, options, provider.model ?? null);
+      const sent = task ? briefWithExplanationsPrompt(prompt, task.prompt) : prompt;
       const invocation = await invokeModel({
         ...provider.request,
         cwd: root,
         allowedRoots: [root],
-        prompt: { text: prompt.text },
+        prompt: { text: sent.text },
         channel: 'repository-brief',
         subject: { kind: 'repository-knowledge', id: knowledge.repository.name ?? 'repository' },
         tools: { mode: 'none', names: [] },
-        limits: { timeoutMs: 6 * 60 * 1000, outputBytes: 256 * 1024 }
+        limits: { timeoutMs: (task ? 9 : 6) * 60 * 1000, outputBytes: 256 * 1024 }
       });
-      const checked = validateBrief(invocation.output, evidence);
-      written = { key, model: provider.label, createdAt: new Date().toISOString(), promptSha256: prompt.sha256, views: checked.views, rejected: checked.rejected };
+      const parsed = parseBriefOutput(invocation.output);
+      const checked = validateBrief(parsed, evidence);
+      written = {
+        key, model: provider.label, createdAt: new Date().toISOString(), promptSha256: prompt.sha256,
+        ...(task ? { sentPromptSha256: sent.sha256 } : {}), views: checked.views, rejected: checked.rejected
+      };
       await writeCachedBrief(root, key, written);
+      explained = task ? await saveCombinedExplanations(root, result, task, parsed, provider.model ?? null) : { status: 'saved-already' };
     } catch (error) {
       reason = `The model brief could not be written: ${error.message}`;
     }
@@ -363,6 +418,7 @@ async function briefCommand(root, result, knowledge, options, target) {
     views,
     rejected: written?.rejected?.length ?? 0,
     rejections: (written?.rejected ?? []).slice(0, 12),
+    explanations: explained,
     evidence: { count: evidence.length, codeFiles, documents: documentation.files.map((file) => file.path), documentStatements: documentation.statements.length },
     documented: evidence.filter((entry) => entry.view === 'docs').map((entry) => ({ text: entry.text, path: entry.source.path, line: entry.source.line, heading: entry.heading })),
     notKnown: briefNotKnown(knowledge, documentation)
@@ -371,6 +427,7 @@ async function briefCommand(root, result, knowledge, options, target) {
   else {
     console.log(renderBriefMarkdown(brief));
     if (reason) console.log(reason);
+    if (explained?.status === 'written') console.log(`The same model call wrote ${explained.accepted} repository explanation${explained.accepted === 1 ? '' : 's'} (${explained.rejected} rejected). Read them: singularity-flow wm knowledge show overview`);
   }
   return brief;
 }

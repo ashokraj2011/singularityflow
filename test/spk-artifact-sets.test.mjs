@@ -22,7 +22,7 @@ import {
 } from '../src/advisory-tasks.mjs';
 import {
   CANDIDATE_CONCERNS, assistedPrompt, assistedRecordRelative, buildAssistedRecord,
-  parseAssistedCandidates, unknownCitations, unwrapProviderLineBreaks
+  parseAssistedCandidates, reusableAssistedRecord, serializeAssistedRecord, unknownCitations, unwrapProviderLineBreaks
 } from '../src/assisted-quality.mjs';
 import { withinGenerationWriteScope } from '../src/artifact-sidecar.mjs';
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
@@ -401,6 +401,24 @@ test('an assisted record references the deterministic report and cannot alter it
   assert.equal('findings' in record, false, 'the assisted record carries a copy of the deterministic findings');
   assert.match(record.disclaimer, /not deterministic findings/);
   assert.throws(() => buildAssistedRecord({ report, invocation: {}, candidates: [] }), /missing/);
+});
+
+test('the record for the exact same prompt and model is reused instead of paying for the same answer', () => {
+  const report = {
+    binding: { artifactPath: 'work/artifacts/specification/spec.md', artifactSha256: 'a'.repeat(64), phase: 'specification', generation: 2, policySha256: 'b'.repeat(64) },
+    findings: [], clauseIds: ['D:REQ-001']
+  };
+  const text = serializeAssistedRecord(buildAssistedRecord({
+    report, candidates: [], prompt: 'prompt bytes', workId: 'D-1', generatedAt: '2026-01-01T00:00:00.000Z',
+    invocation: { provider: 'copilot-cli', model: 'gpt-5', invocationId: 'inv-1', usage: { status: 'exact' } }
+  }));
+  assert.equal(reusableAssistedRecord(text, { prompt: 'prompt bytes', provider: 'copilot-cli' })?.model.invocationId, 'inv-1');
+  assert.ok(reusableAssistedRecord(text, { prompt: 'prompt bytes', provider: 'copilot-cli', model: 'gpt-5' }));
+  assert.equal(reusableAssistedRecord(text, { prompt: 'edited spec bytes', provider: 'copilot-cli' }), null,
+    'a changed specification or finding changes the prompt, so the model is asked again');
+  assert.equal(reusableAssistedRecord(text, { prompt: 'prompt bytes', provider: 'copilot-cli', model: 'another-model' }), null);
+  assert.equal(reusableAssistedRecord(text, { prompt: 'prompt bytes', provider: 'another-provider' }), null);
+  assert.equal(reusableAssistedRecord('', { prompt: 'prompt bytes', provider: 'copilot-cli' }), null);
 });
 
 test('an unparseable or out-of-contract reply is refused, not stored', () => {

@@ -12,6 +12,8 @@
  */
 import path from 'node:path';
 
+import { ruleStatusWords } from './records/rules.mjs';
+
 export const PHASE_BRIEF_RENDERER = Object.freeze({ id: 'repository-brief', version: 1 });
 
 /**
@@ -49,19 +51,21 @@ function words(text) {
 /** `(OrderService.java:22)`, or the full path when two cited files share a name. */
 function sourceLabeler(sources) {
   const byName = new Map();
-  for (const source of sources) {
+  for (const source of sources.flat()) {
     if (!source?.path) continue;
     const name = path.posix.basename(source.path);
     if (!byName.has(name)) byName.set(name, new Set());
     byName.get(name).add(source.path);
   }
-  return (source) => {
+  const one = (source) => {
     if (!source?.path) return '';
     const name = path.posix.basename(source.path);
     const shown = byName.get(name)?.size > 1 ? source.path : name;
-    if (source.heading) return `${shown} › ${source.heading}`;
+    if (source.heading) return `${shown} › ${String(source.heading).split(' › ').pop()}`;
     return source.line ? `${shown}:${source.line}` : shown;
   };
+  // A bullet may cite its code and its docs: "(OrderService.java:23; README.md › Business rules)".
+  return (source) => (Array.isArray(source) ? [...new Set(source.map(one).filter(Boolean))].slice(0, 2).join('; ') : one(source));
 }
 
 function clip(text) {
@@ -92,7 +96,7 @@ function collapseNotKnown(entries) {
  */
 export function renderPhaseBrief({
   repository = 'repository', commit = null, profile, focus = null, template = null, registered = [],
-  explanations = [], notKnown = [], modelCommit = null, phase = null
+  explanations = [], notKnown = [], modelCommit = null, phase = null, rules = null, questions = null
 }) {
   const focusWords = words(focus);
   const relevance = (text) => [...words(text)].filter((word) => focusWords.has(word)).length;
@@ -105,7 +109,15 @@ export function renderPhaseBrief({
     shown.add(key);
     sections.get(section)?.push({ text: value, source });
   };
+  // Rule records (docs, code and tests linked, each with its status) replace the template's rules and questions.
+  if (rules) {
+    for (const record of rules) {
+      push('rules', `${record.text.replace(/[.\s]+$/u, '')}. ${ruleStatusWords(record)}`, [...record.sources.code, ...record.sources.docs]);
+    }
+  }
+  for (const question of questions ?? []) push('questions', question.text, question.source);
   for (const id of Object.keys(SECTION_TITLES)) {
+    if ((id === 'rules' && rules) || (id === 'questions' && questions)) continue;
     for (const statement of template?.views?.[id] ?? []) {
       const source = statement.sources?.[0] ?? null;
       const heading = source?.label?.includes(' › ') ? source.label.split(' › ').slice(1).join(' › ') : null;

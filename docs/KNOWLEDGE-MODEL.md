@@ -148,6 +148,30 @@ Knowledge** picks an item and records the same confirm, correct or reject review
   for it again), **Write again** once the model has written it, and buttons that open each source at
   its line.
 
+## Rules: docs, code and tests
+
+`wm knowledge show rules` (and `show business`) ends with every business rule as one record: what
+the docs state (README files, `docs/`, decision records and approved Story requirements), what the
+code enforces, and whether a test reaches it. Records are built without a model and linked by
+anchors: the same message (quoted, or the docs sentence itself), a named constant or a name the
+code's message quotes, the same bound ("at most 20 lines" against `size() > MAX_ITEMS` with
+`MAX_ITEMS = 20`; "Orders under 10.00 are not accepted" reads as at least 10), a value ("5%" against
+`VIP_DISCOUNT_RATE = 0.05`), a null check ("`rule` is null" against `rule == null`), the same HTTP
+status, and the nouns both describe. A name or word that many rules share counts for little. Each
+record has a status:
+
+| Status | Meaning |
+|---|---|
+| agreed | the docs state it and the code enforces it |
+| documented only | the docs state it; no code enforcing it was found |
+| enforced only | the code enforces it; the docs do not state it |
+| conflict | docs and code describe the same rule differently: another bound, or another HTTP status |
+
+and says whether a test reaches the enforcing code ("Documented, enforced, tested."). Conflicts are
+warnings for a person, never refusals. Phase briefs list the Story's rules with their status, and
+intake briefs turn conflicts, documented-only rules and untested refusals into questions for the
+product owner. `--json` adds the records themselves.
+
 ## Plain-language explanations
 
 `wm knowledge explain` asks the configured model to explain the repository, its journeys and its

@@ -36,6 +36,7 @@ import {
   parseBriefOutput, readCachedBrief, readDocumentation, renderBriefMarkdown, templateBrief, validateBrief, writeCachedBrief
 } from './brief.mjs';
 import { parseKnowledgeExpectations, scoreKnowledge } from './benchmark.mjs';
+import { buildRuleRecords, renderRuleRecords } from './records/rules.mjs';
 import { KNOWLEDGE_KINDS } from './items.mjs';
 import { KNOWLEDGE_ROLES, KNOWLEDGE_VIEWS, renderKnowledgeSlice, renderKnowledgeView, roleForPhase } from './render.mjs';
 import { readKnowledgeSource } from './source.mjs';
@@ -100,8 +101,15 @@ export async function knowledgeCommand(root, positionals, options) {
   if (subcommand === 'show') {
     const view = positionals[1] ?? 'overview';
     if (!KNOWLEDGE_VIEWS.includes(view)) throw new SingularityFlowError(`Unknown knowledge view '${view}'. Use one of: ${KNOWLEDGE_VIEWS.join(', ')}.`);
-    const text = renderKnowledgeView(knowledge, view, { maximumBytes, focus, explanations });
-    if (json) console.log(JSON.stringify({ view, bytes: Buffer.byteLength(text), markdown: text }, null, 2));
+    let text = renderKnowledgeView(knowledge, view, { maximumBytes, focus, explanations });
+    let records = null;
+    // The rules and business views also show each rule with its docs, code and tests, and its status.
+    if (view === 'rules' || view === 'business') {
+      records = buildRuleRecords(knowledge, readDocumentation(root, { focus }), { focus });
+      const section = renderRuleRecords(records);
+      if (section) text = `${text.trimEnd()}\n\n${section}\n`;
+    }
+    if (json) console.log(JSON.stringify({ view, bytes: Buffer.byteLength(text), markdown: text, ...(records ? { records } : {}) }, null, 2));
     else console.log(text);
     return { view, markdown: text };
   }

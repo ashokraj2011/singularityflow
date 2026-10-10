@@ -339,6 +339,24 @@ test('wm knowledge brief shows the model brief written earlier, and the template
   assert.match(markdown, /## Contracts \(arch\.contracts\)/u);
 });
 
+test('rules are shown with their docs, code and tests, and the phase brief carries their status and questions', async (t) => {
+  const repository = await ordersRepository(t);
+  const shown = await quiet(() => knowledgeCommand(repository, ['show', 'rules'], {}));
+  assert.match(shown, /## Rules: docs, code and tests \(/u);
+  assert.match(shown, /refuses "An order needs at least one line" \(HTTP 400\)\. Documented, enforced, tested\. \(\S+OrderService\.java:\d+; README\.md › Business rules\)/u);
+  assert.match(shown, /refuses "Orders under 10\.00 are not accepted" \(HTTP 400\)\. Documented, enforced, tested\./u, 'the docs sentence is the code message, unquoted');
+  assert.match(shown, /VIP_DISCOUNT_RATE\)\)`\. Documented, enforced, tested\./u, '5% in the docs meets VIP_DISCOUNT_RATE = 0.05');
+  assert.match(shown, /422 — the order fails validation\. Conflict: the docs promise HTTP 422; the code's refusals return HTTP 400, 409\./u);
+  assert.match(shown, /refuses "Only placed orders can be cancelled" \(HTTP 409\)\. Not documented, enforced, no test reaches it\./u);
+  const json = JSON.parse(await quiet(() => knowledgeCommand(repository, ['show', 'rules'], { json: true })));
+  assert.deepEqual([...new Set(json.records.map((record) => record.status))].sort(), ['agreed', 'conflict', 'enforced-only']);
+  const { repositoryKnowledgePrompt } = await import('../src/knowledge/prompt.mjs');
+  const brief = await repositoryKnowledgePrompt(repository, { definition: {}, phase: 'intake', workflow: { workItem: { title: 'Allow cancelling paid orders' } } });
+  assert.match(brief.text, /## Rules that apply\n- OrderService\.cancel: .+ Not documented, enforced, no test reaches it\./u, 'the Story\'s rule first, with its status');
+  assert.match(brief.text, /## Questions for the product owner\n- /u);
+  assert.match(brief.text, /Docs and code disagree on|The code refuses "Only placed orders can be cancelled"/u);
+});
+
 test('wm knowledge calls lists each call with where both ends are defined, for editors with no call hierarchy', async (t) => {
   const repository = await ordersRepository(t);
   const result = JSON.parse(await quiet(() => knowledgeCommand(repository, ['calls'], { json: true })));

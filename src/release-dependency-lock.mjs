@@ -25,6 +25,77 @@ function same(left, right) {
   return JSON.stringify(ordered(left)) === JSON.stringify(ordered(right));
 }
 
+function resolveLockedDependency(packages, location, name) {
+  let parent = location;
+  for (;;) {
+    if (parent.split('/').at(-1) !== 'node_modules') {
+      const candidate = `${parent ? `${parent}/` : ''}node_modules/${name}`;
+      if (packages[candidate]) return packages[candidate];
+    }
+    if (!parent) return null;
+    parent = parent.includes('/') ? parent.slice(0, parent.lastIndexOf('/')) : '';
+  }
+}
+
+/**
+ * Source installs include workspace development tools, unlike the production-only CLI archive.
+ * Validate their metadata, links and complete dependency graph without using node_modules or the
+ * network. npm ci remains the final authority for semver and peer-resolution compatibility.
+ */
+export function workspaceDependencyLockProblems(manifest, lock, workspaceManifests, {
+  label = 'source install'
+} = {}) {
+  const problems = [];
+  const packages = lock?.packages ?? {};
+  const declared = manifest?.workspaces?.packages ?? manifest?.workspaces ?? [];
+  const supplied = workspaceManifests ?? {};
+  for (const location of declared) {
+    if (!Object.hasOwn(supplied, location)) {
+      problems.push(`${label}: workspace ${location} has no manifest supplied for lock validation`);
+    }
+  }
+  for (const [location, workspace] of Object.entries(supplied)) {
+    if (!declared.includes(location)) {
+      problems.push(`${label}: workspace ${location} is not declared in package.json`);
+    }
+    const locked = packages[location];
+    if (!locked || locked.link) {
+      problems.push(`${label}: package-lock.json is missing workspace ${location}`);
+    } else {
+      for (const field of LOCK_ROOT_FIELDS) {
+        if (!same(workspace[field], locked[field])) {
+          problems.push(`${label}: workspace ${location} ${field} does not exactly match package-lock.json`);
+        }
+      }
+    }
+    const link = packages[`node_modules/${workspace.name}`];
+    if (link?.link !== true || link.resolved !== location) {
+      problems.push(`${label}: package-lock.json is missing the exact workspace link for ${workspace.name} to ${location}`);
+    }
+  }
+
+  // Optional platform packages must also be locked: omitting them can make another host's clean
+  // install fail. Installed packages' own devDependencies are not part of the install closure.
+  const roots = { '': manifest, ...supplied };
+  for (const [location, locked] of Object.entries({ ...packages, ...roots })) {
+    if (locked.link) continue;
+    const fields = Object.hasOwn(roots, location)
+      ? ['dependencies', 'devDependencies', 'optionalDependencies']
+      : ['dependencies', 'optionalDependencies'];
+    for (const field of fields) {
+      for (const [name, requested] of Object.entries(locked[field] ?? {})) {
+        const dependency = resolveLockedDependency(packages, location, name);
+        if (!dependency) {
+          problems.push(`${label}: ${location || 'root'} ${field} ${name} is missing from package-lock.json`);
+        } else if (!dependency.link && EXACT_VERSION.test(requested) && dependency.version !== requested) {
+          problems.push(`${label}: ${location || 'root'} locked ${name} version does not equal '${requested}'`);
+        }
+      }
+    }
+  }
+  return problems;
+}
+
 function dependencyLocations(packages, name) {
   const suffix = `node_modules/${name}`;
   return Object.entries(packages).filter(([location]) =>

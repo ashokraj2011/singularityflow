@@ -19,7 +19,7 @@ import { auditSkillPolicy } from './skill-policy.mjs';
 import { validateNarrationMigrationStatus } from '../src/narration/migration-status.mjs';
 import { currentSchemaVersion, migrationRegistrySnapshot } from '../src/schema-migrations.mjs';
 import { MCP_SCAFFOLD_VERSIONS } from '../src/mcp-host.mjs';
-import { releaseDependencyLockProblems } from '../src/release-dependency-lock.mjs';
+import { releaseDependencyLockProblems, workspaceDependencyLockProblems } from '../src/release-dependency-lock.mjs';
 import { isModelRoutingSource, portableCheckPath, sourceReferenceGrepArgs } from './check-path-policy.mjs';
 import {
   CURRENT_PACKAGED_ASSET_SHA256,
@@ -139,6 +139,9 @@ for (const [name, version] of Object.entries({
     registryEntries: 'all',
     allowedLinks: ['node_modules/singularity-flow-vscode']
   })) fail(problem);
+  for (const problem of workspaceDependencyLockProblems(packageJson, lockJson, {
+    'apps/vscode': vscodeJson
+  })) fail(problem);
   for (const problem of releaseDependencyLockProblems(npmPackPackageJson, npmPackLockJson, {
     label: 'npm-pack toolchain',
     requirePrivate: true,
@@ -149,6 +152,7 @@ for (const [name, version] of Object.entries({
     label: 'VSCE toolchain', requirePrivate: true, registryEntries: 'all', validateOverrides: true
   })) fail(problem);
   checked.push(`offline release dependency closure (${productionDependencies.length} bundled roots)`);
+  checked.push('source-install workspace links and development dependency closure');
   checked.push('exact npm-pack and VSCE packaging toolchain locks');
 }
 if (pluginJson.name !== 'singularity-flow') fail('plugin.json name must be singularity-flow');

@@ -11,6 +11,18 @@ Use `sflow explain installation-and-upgrades` and `sflow explain resets-and-clea
 The retired Electron app is preserved at Git tag `desktop-final-v0.9.0` and branch
 `archive/desktop-app`; it is not built, installed, or supported by current releases.
 
+## Source dependency lock maintenance
+
+The root `package-lock.json` must cover both the CLI runtime and the VS Code workspace's
+development dependencies, workspace link, and optional platform packages. A production-only
+lock is not valid for `./install.sh`, which first runs a full `npm ci`.
+
+After changing dependency manifests, regenerate from the repository root with
+`npm install --package-lock-only --ignore-scripts --include=dev --include=optional`, update
+`src/revision/producer-lock.json` to the exact lockfile SHA-256, and commit both files together.
+Run `npm ci`, `npm run check`, and the dependency-lock tests before shipping. The installer
+deliberately does not fall back to `npm install` or silently rewrite the locked dependencies.
+
 ## Cut a release
 
 The installed product supports Node.js 20 or newer. The locked artifact-building toolchains are

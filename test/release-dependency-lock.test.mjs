@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
-import { releaseDependencyLockProblems } from '../src/release-dependency-lock.mjs';
+import { releaseDependencyLockProblems, workspaceDependencyLockProblems } from '../src/release-dependency-lock.mjs';
+import { resolvePlatformProcess } from '../src/platform-process.mjs';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function fixture() {
   const integrity = `sha512-${Buffer.alloc(64).toString('base64')}`;
@@ -142,4 +150,107 @@ test('release dependency lock validates complete SRI, dev archives, links, and t
   assert.match(releaseDependencyLockProblems(transitive.manifest, transitive.lock, {
     label: 'fixture package', requireBundled: true, registryEntries: 'production'
   }).join('\n'), /production lock entry node_modules\/packer\/node_modules\/nested must be marked inBundle/);
+});
+
+function workspaceFixture() {
+  const input = fixture();
+  input.manifest.workspaces = ['apps/editor'];
+  input.lock.packages[''].workspaces = ['apps/editor'];
+  input.workspaces = {
+    'apps/editor': {
+      name: 'editor-workspace', version: '1.0.0',
+      devDependencies: { compiler: '^2.0.0', packer: '1.2.3' }
+    }
+  };
+  input.lock.packages['apps/editor'] = structuredClone(input.workspaces['apps/editor']);
+  input.lock.packages['node_modules/editor-workspace'] = { link: true, resolved: 'apps/editor' };
+  input.lock.packages['node_modules/compiler'] = {
+    version: '2.0.1', dev: true, dependencies: { types: '~3.0.0' },
+    optionalDependencies: { 'compiler-platform': '2.0.1' }
+  };
+  input.lock.packages['node_modules/types'] = { version: '3.0.2', dev: true };
+  input.lock.packages['node_modules/compiler-platform'] = { version: '2.0.1', dev: true, optional: true };
+  return input;
+}
+
+function workspaceProblems(input) {
+  return workspaceDependencyLockProblems(input.manifest, input.lock, input.workspaces);
+}
+
+test('source lock accepts workspace tools hoisted alongside bundled runtime dependencies', () => {
+  assert.deepEqual(workspaceProblems(workspaceFixture()), []);
+});
+
+test('source lock rejects a production-only lock even when workspace metadata remains', () => {
+  const input = workspaceFixture();
+  for (const location of [
+    'node_modules/editor-workspace', 'node_modules/compiler', 'node_modules/types',
+    'node_modules/compiler-platform'
+  ]) delete input.lock.packages[location];
+  const result = workspaceProblems(input).join('\n');
+  assert.match(result, /missing the exact workspace link/);
+  assert.match(result, /apps\/editor devDependencies compiler is missing/);
+});
+
+test('source lock validates workspace metadata and the exact local link target', () => {
+  const missing = workspaceFixture();
+  delete missing.lock.packages['apps/editor'];
+  assert.match(workspaceProblems(missing).join('\n'), /missing workspace apps\/editor/);
+  const drift = workspaceFixture();
+  drift.lock.packages['apps/editor'].devDependencies.compiler = '^4.0.0';
+  assert.match(workspaceProblems(drift).join('\n'), /devDependencies does not exactly match/);
+  const link = workspaceFixture();
+  link.lock.packages['node_modules/editor-workspace'].resolved = 'apps/other';
+  assert.match(workspaceProblems(link).join('\n'), /exact workspace link/);
+  link.lock.packages['node_modules/editor-workspace'] = { version: '1.0.0' };
+  assert.match(workspaceProblems(link).join('\n'), /exact workspace link/);
+});
+
+test('source lock rejects missing manifests and undeclared workspace manifests', () => {
+  const input = workspaceFixture();
+  assert.match(workspaceDependencyLockProblems(input.manifest, input.lock, {}).join('\n'), /no manifest supplied/);
+  input.manifest.workspaces = [];
+  assert.match(workspaceProblems(input).join('\n'), /is not declared/);
+});
+
+test('source lock rejects missing transitive and optional platform dependencies', () => {
+  const input = workspaceFixture();
+  delete input.lock.packages['node_modules/types'];
+  delete input.lock.packages['node_modules/compiler-platform'];
+  const result = workspaceProblems(input).join('\n');
+  assert.match(result, /node_modules\/compiler dependencies types is missing/);
+  assert.match(result, /optionalDependencies compiler-platform is missing/);
+});
+
+test('source lock resolves workspace-local and nested dependencies and checks exact pins', () => {
+  const input = workspaceFixture();
+  input.lock.packages['apps/editor/node_modules/compiler'] = input.lock.packages['node_modules/compiler'];
+  delete input.lock.packages['node_modules/compiler'];
+  input.lock.packages['apps/editor/node_modules/compiler/node_modules/types'] = input.lock.packages['node_modules/types'];
+  delete input.lock.packages['node_modules/types'];
+  assert.deepEqual(workspaceProblems(input), []);
+  input.lock.packages['node_modules/compiler-platform'].version = '2.0.2';
+  assert.match(workspaceProblems(input).join('\n'), /locked compiler-platform version does not equal '2\.0\.1'/);
+});
+
+test('committed source lock passes npm clean-install validation offline in a fresh directory', async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-source-lock-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await mkdir(path.join(directory, 'apps', 'vscode'), { recursive: true });
+  for (const relative of ['package.json', 'package-lock.json', '.npmrc', 'apps/vscode/package.json']) {
+    await copyFile(path.join(root, relative), path.join(directory, relative));
+  }
+  const before = await readFile(path.join(directory, 'package-lock.json'), 'utf8');
+  const manifest = JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8'));
+  const workspace = JSON.parse(await readFile(path.join(directory, 'apps/vscode/package.json'), 'utf8'));
+  assert.deepEqual(workspaceDependencyLockProblems(manifest, JSON.parse(before), { 'apps/vscode': workspace }), []);
+  const launch = resolvePlatformProcess('npm', [
+    'ci', '--dry-run', '--offline', '--ignore-scripts', '--no-audit', '--no-fund'
+  ]);
+  const result = spawnSync(launch.executable, launch.arguments, {
+    cwd: directory, encoding: 'utf8', timeout: 30_000, ...launch.spawnOptions
+  });
+  assert.equal(result.status, 0, result.error?.message || result.stderr || result.stdout);
+  assert.equal(await readFile(path.join(directory, 'package-lock.json'), 'utf8'), before,
+    'clean installs must consume the committed lock, never repair it implicitly');
 });

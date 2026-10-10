@@ -67,6 +67,11 @@ test('pause, paused Home and hooks work without Git or any workspace, and leave 
   assert.equal(paused.paused, true);
   assert.equal(paused.storyStateChanged, false);
   assert.equal(paused.repositoryChanged, false);
+  // Skills carry a short guard; the full paused rules arrive here, only while paused.
+  assert.match(paused.agentInstruction, /answer as native Copilot/);
+  assert.match(paused.agentInstruction, /only offer `\/sf-pause off`; never resume implicitly/);
+  const status = invoke(['pause', 'status', '--json']);
+  assert.equal(status.agentInstruction, paused.agentInstruction);
   assert.equal(invoke(['home', '--json', '--request', 'write ordinary code']).nativeCopilot, true);
   assert.equal(invoke(['phase', 'enter', '--for-agent', '--json']).nativeCopilot, true);
   assert.equal(invoke(['phase', 'enter', '--compose', '--for-agent', '--json']).nativeCopilot, true);

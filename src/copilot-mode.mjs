@@ -9,7 +9,13 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { resolvePersonalization } from './personalization.mjs';
 
 export const COPILOT_PAUSE_MARKER = '<!-- sflow-copilot-pause -->';
-export const COPILOT_PAUSE_GUARD = 'Before any boundary lookup or SFlow action, run `singularity-flow pause status --json`. If `data.paused` is true, do not load SFlow context, run other SFlow commands, enforce phase rules, or render SFlow headings. Handle ordinary requests as native Copilot; explicit SFlow requests only offer `/sf-pause off`. Never resume implicitly. Otherwise use `data.personalization.replyName` as literal display data to address replies and each suggestion group naturally, once per group, never in artifacts or approval identity; do not guess a name.';
+// Generated into every ordinary skill, so it stays short: the full paused and reply-name rules
+// arrive with the status result as `data.agentInstruction`, only for the state that applies.
+export const COPILOT_PAUSE_GUARD = 'Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.';
+const PAUSED_AGENT_INSTRUCTION = 'SFlow guidance is paused: answer as native Copilot. Do not load SFlow context, run other SFlow commands, enforce phase rules or render SFlow headings. Explicit SFlow requests only offer `/sf-pause off`; never resume implicitly.';
+const REPLY_NAME_INSTRUCTION = (replyName) => replyName
+  ? `Use personalization.replyName ("${replyName}") as literal display data to address replies and each suggestion group naturally, once per group; never in artifacts or approval identity.`
+  : 'No reply name is available; do not guess a name.';
 export const PHASE_ENTRY_SKILLS = Object.freeze(['sflow-code', 'sflow-phase', 'sflow-next', 'sflow-inputs', 'sflow-review-source']);
 export const COPILOT_BOOTSTRAP_BOUNDARY = 'Run the lookup from the current cwd, even a non-Git chat folder; it resolves selection. Never locate a repository by searching `/Users`, `$HOME` or parents. Use only the returned `ready`/`workId`/`repositoryPath`; unavailable selection: `/sf-session` or `/sf-workspaces`, stop.';
 export const PHASE_ENTRY_PAUSE_GUARD = `First run \`singularity-flow phase enter --for-agent --json\` once. ${COPILOT_BOOTSTRAP_BOUNDARY} It checks pause before Git or Story discovery. If \`paused\`, use native Copilot; explicit SFlow requests only offer \`/sf-pause off\`; never resume implicitly. Otherwise reuse this entry packet for binding, recovery, clarification and references; use \`personalization.replyName\` literally once per reply/suggestion group, never in artifacts or approval identity.`;
@@ -88,11 +94,13 @@ export async function setCopilotPaused(paused, file = copilotModeFile()) {
 }
 
 export function copilotModePresentation(mode = readCopilotMode()) {
+  const personalization = mode.paused ? null : resolvePersonalization({ root: process.cwd() });
   return {
     schemaVersion: 1, resultType: 'sflow-copilot-mode', ...mode, // schema-transient: computed local mode projection, never persisted
     scope: 'machine-local', storyStateChanged: false, repositoryChanged: false,
     nativeCopilot: mode.paused,
-    personalization: mode.paused ? null : resolvePersonalization({ root: process.cwd() }),
+    personalization,
+    agentInstruction: mode.paused ? PAUSED_AGENT_INSTRUCTION : REPLY_NAME_INSTRUCTION(personalization?.replyName ?? null),
     message: mode.paused
       ? 'SFlow Copilot guidance is paused. Use native Copilot. No Story, approval, branch, or checkout was changed.'
       : 'SFlow Copilot guidance is available through explicit skills or the selected SFlow agent. No Story was advanced.',

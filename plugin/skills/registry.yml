@@ -160,6 +160,7 @@ skills:
   sflow-fix: { class: interactive }
   sflow-gate: { class: mutation }
   sflow-goal: { class: interactive, executionBoundary: machine }
+  sflow-grounding: { class: conversational, executionBoundary: repository }
   sflow-journal: { class: interactive, executionBoundary: machine }
   sflow-harness: { class: echo, executionBoundary: repository }
   sflow-help: { class: conversational, executionBoundary: machine }

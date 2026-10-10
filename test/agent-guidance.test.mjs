@@ -42,7 +42,7 @@ test('workflow delegation links resolve to the canonical skills they advertise',
   const markdown = await readFile(agentPath, 'utf8');
   const links = [...markdown.matchAll(/\[`(\/sf-[a-z-]+)`\]\((\.\.\/skills\/sflow-[a-z-]+\/SKILL\.md)\)/g)];
   assert.deepEqual(links.map((match) => match[1]).sort(), [
-    '/sf-approve', '/sf-code', '/sf-converge', '/sf-home', '/sf-next', '/sf-phase', '/sf-start', '/sf-submit'
+    '/sf-approve', '/sf-code', '/sf-converge', '/sf-grounding', '/sf-home', '/sf-next', '/sf-phase', '/sf-start', '/sf-submit'
   ]);
   for (const [, route, target] of links) {
     const content = await readFile(path.resolve(path.dirname(agentPath), target), 'utf8');

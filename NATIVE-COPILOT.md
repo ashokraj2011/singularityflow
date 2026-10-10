@@ -28,7 +28,7 @@ sflow wm show-prompt --phase <PHASE>
 ```
 
 That context combines the phase contract and artifact template, the selected governed agent,
-configured prompts/prompt packs, required repository world-model views,
+configured prompts/prompt packs, the Repository brief,
 rule-selected repository files, pinned remote Markdown, approved upstream
 artifacts, and current evidence. The extension passes the composed text to
 native Copilot Chat. The equivalent `/sf-*` and `/sflow-*` skills work in Copilot CLI.
@@ -57,7 +57,7 @@ Install the updated package/plugin and reload the Copilot host to activate chang
 skill instructions. Direct skills alone carry the bootstrap instruction; hook enforcement
 requires the plugin to be loaded by the host.
 
-## Evidence and world model
+## Evidence and the Repository brief
 
 Use `/sf-upload` or `/sflow-upload` to register files, directories, screenshots, exported designs,
 or HTTPS references. The command reports the stable ID, hash, provider/path, commit, and push.
@@ -76,15 +76,15 @@ into a document. PDF/DOCX/image registration is disabled until approved malware 
 parsing exist. The full `/sflow-revise` execution loop and opaque Copilot attachment-byte bridge are not active in
 this slice. Run `sflow explain revision-feedback-attachments` for the exact intake boundary.
 
-World-model generation is a repository operation and can run without an Epic or Story:
+The Repository brief a phase receives is read from the source with no build and no model, so it
+can be read without an Epic or Story:
 
 ```bash
-sflow wm build
-sflow wm status
+sflow wm brief --phase <PHASE>
 ```
 
-The validated manifest and views are published to the configured state branch. VS Code can start the same CLI
-operation and display its progress, but it does not own a separate model backend.
+The brief is guidance; it never blocks or authorizes anything. In VS Code, **World Model Settings**
+shows the brief and its source scope; the extension does not own a separate model backend.
 
 Use `/sf-show-prompt` before authoring to see the complete skill and rendered
 prompt, including file paths and hashes. See the [glossary](docs/GLOSSARY.md) and

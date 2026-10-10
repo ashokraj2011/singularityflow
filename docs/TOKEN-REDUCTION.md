@@ -5,7 +5,7 @@ prompt composer and `observe` remains the default token-economy mode
 
 This document is the implementation companion to `SPEC-token-reduction.md`. It describes only the
 code-local boundary that exists in this repository. It does not claim that Singularity Flow has
-replaced the context sent by every host, completed the persisted World-Model lifecycle, or proved a
+replaced the context sent by every host or proved a
 token saving.
 
 ## Current safety boundary
@@ -58,7 +58,7 @@ merely because it is synchronous. A future delivery adapter must prove both the 
 boundary and what bytes the host actually received.
 Every M1 composer renderer also resolves exactly once through a closed, self-hashed, code-local
 runtime registration. Those registrations prevent ambient or invented renderer selection in the
-preview; they are not durable WMP authority. Persisted renderer registration, migration, and
+preview; they are not durable authority. Persisted renderer registration, migration, and
 cross-laptop replay binding remain part of M2.
 
 ## Milestone status
@@ -67,12 +67,12 @@ cross-laptop replay binding remain part of M2.
 |---|---|---|
 | M0 — contracts and baseline | **Code-local foundation implemented; baseline evidence pending** | Six frozen v1 contract families, closed schemas, canonical-byte parsing, exact owner/version/digest references, finite limits, and the `legacy-v1`/`tkr-v1` policy vocabulary exist. The evaluation kernel can assess declared observations, but no representative paired baseline has been run or accepted. |
 | M1 — bounded composer optimization | **Pure deterministic candidate composer implemented** | The pure composer validates slot, role, ordering, dependencies, required applicability, protected UTF-8, representations, coverage-backed deduplication, aliases, omissions, budgets, and exact output hashes. The adapter can produce an in-memory candidate and section report. No Story phase prompt, grounding record, packet, or model request consumes it. |
-| M2 — WMP lifecycle integration | **First shadow receipt slice implemented; active `tkr-v1` prompt delivery remains gated** | A frozen composition schema/family and exact Story prompt-generation receipt now bind the deterministic candidate to the selected legacy bytes, subject, policy, source, inputs, and composer. Production `tkr-v1` use still requires an active successor grounding/packet binding, exact outbound delivery evidence, expansion succession, in-flight freshness checks, handoff closure, and restart/cross-machine replay coverage. The missing semantic-owner and lifecycle work is tracked in [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md). Existing Story prompt delivery remains operational. |
+| M2 — lifecycle integration | **First shadow receipt slice implemented; active `tkr-v1` prompt delivery remains gated** | A frozen composition schema/family and exact Story prompt-generation receipt now bind the deterministic candidate to the selected legacy bytes, subject, policy, source, inputs, and composer. Production `tkr-v1` use still requires an active successor grounding/packet binding, exact outbound delivery evidence, expansion succession, in-flight freshness checks, handoff closure, and restart/cross-machine replay coverage. The persisted World-Model views this work was planned on were removed with the registered World Model. Existing Story prompt delivery remains operational. |
 | M3 — compact rendering and local reuse | **Cache and generated-framing foundation implemented; compact input renderers pending** | Alias/omission framing is exact and the composer validates caller-supplied representation bytes. No packaged excerpt, deterministic-brief, reference-only, or lossless-encoded input renderer is enabled yet. Derived segment memoization has a complete dependency key, exact integrity checks, conflict refusal, atomic writers, and finite entry/disk ceilings. Production composition integration and AC-009/010/022/023 renderer evidence remain pending. |
 | M4 — representative evaluation and defaults | **Diagnostic evaluation kernel implemented; qualification pending** | The evaluator requires an exact self-hashed provider-usage mapping, deduplicates cumulative snapshots, preserves immutable outcome facts, excludes explicitly linked child observations from inclusive aggregate totals, retains unknown and failed/repaired observations, and computes paired-cohort/quality diagnostics. Results are deeply frozen after sealing. `benchmarkEligible`, `candidateClaimEligible`, and `claimAllowed` remain false at this code-local boundary even when `measurementEligible` and the diagnostic target are true. The required representative paired benchmark, owner-bound execution receipts, adapter/platform qualification, independent review, and any default change have not happened. |
 
 M2 is deliberately not inferred from M0/M1/M3. A smaller deterministic block does not prove that
-the block was delivered, that a persisted WMP selection can be replayed, or that another laptop can
+the block was delivered, that a persisted selection can be replayed, or that another laptop can
 continue the same Story.
 
 ## Derived segment cache
@@ -202,7 +202,7 @@ paired-benchmark evidence.
 
 ## Next eligible work
 
-1. Complete the missing persisted-WMP semantic owners and active successor grounding/packet
+1. Complete the missing semantic owners and active successor grounding/packet
    contract; the immutable shadow composition receipt is now implemented.
 2. Bind the composer contract closure to that active successor and retained packet owner
    while preserving exact legacy replay.

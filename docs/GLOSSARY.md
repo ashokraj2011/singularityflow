@@ -29,12 +29,12 @@ already exist.
 | Workflow | The ordered phase graph and policies applied to a work type | `singularity/workflow.yml`; resolved snapshot in active state | Phase order, templates, inputs, gates, checks, and approval requirements |
 | Phase contract | The instructions and deterministic requirements for one workflow phase | Workflow definition, templates, and generated phase context | What the phase must read, produce, check, and submit |
 | Artifact template | The configurable Markdown structure for a generated deliverable | `singularity/templates/` | Required headings and managed output shape |
-| Governed agent | A software execution contract for Copilot: purpose, instructions, tools, phases, and world-model views | `.github/agents/*.agent.md` | How Copilot approaches the active phase |
+| Governed agent | A software execution contract for Copilot: purpose, instructions, tools, and phases | `.github/agents/*.agent.md` | How Copilot approaches the active phase |
 | Human identity | The real contributor or approver | Git identity, GitHub login, and configured authority groups | Attribution and approval authority |
 | Skill | A user-invoked Copilot playbook such as `/sf-submit`; it calls deterministic CLI commands and explains what Copilot may author | Installed plugin/personal skill directory; optional repository skills | How a named Copilot interaction is carried out |
 | Prompt | A reusable Markdown instruction fragment | `singularity/prompts/` or repository configuration | Additional authoring rules supplied to composition |
 | Prompt pack | A named, ordered bundle of prompts/skills/templates for a particular way of working | Repository configuration or a trust-pinned remote Agent Markdown declaration | Which reusable instruction set is assembled together |
-| World model | A generated, hash-bound description of the current repository | `singularity/world-model/` | Repository facts used to ground impact, design, implementation, and verification |
+| World model | The Repository brief: short, cited facts about the code a Story touches (rules, contracts, flows, what the change touches, risky places), read from the committed source with no build and no model | Composed into each phase prompt; `singularity-flow wm brief --phase PHASE` shows it | Repository facts used to ground impact, design, implementation, and verification; guidance, never a gate |
 | Phase input | An approved artifact from an earlier phase injected into a later phase | Phase definition and per-generation `context/inputs-*.json` | Traceable upstream decisions supplied to generation |
 | Approval authority | A configured group of real identities permitted to approve | `approvalAuthorities` in workflow/portfolio configuration | Whether an approval decision is valid |
 | Capability ledger | Optional append-only proof/mirror of high-value lifecycle events on an orphan `state` branch | Orphan Git branch | Audit proof and reconciliation, never active operational state |
@@ -43,7 +43,7 @@ already exist.
 | Closed vocabulary | Immutable registry that owns finite first-party symbolic members such as lifecycle event types | `src/vocabularies/` and its generated manifest | Whether a producer may create authority using a symbolic member |
 | Publication | The atomic unit of a governed change: take the subject lock, run preflight, write state, commit, push, append to the ledger. Either all of it happens or none of it does | `src/publication-unit-of-work.mjs` | Whether a lifecycle transition actually took effect |
 | Configuration branch | The orphan `sflow/config` branch holding governed configuration, with no shared history with any code branch. A Story pins its hashes at start, so later edits stop it rather than silently change it | Orphan Git branch | What configuration a Story is judged against |
-| Grounding | How a phase handles World-Model context: `off` omits it and `warn` verifies any context consumed, leaves out what fails, and reports findings. The World Model is guidance: nothing about it blocks, and `enforce` is accepted but acts as `warn` | `worldModel.grounding` | Whether repository facts are included and how their provenance is verified |
+| Grounding | The repository context a phase prompt carries: the Repository brief. It is guidance and never blocks; `worldModel.knowledge.prompt: off` leaves it out everywhere, and a work type's `intelligence.worldModel: off` for that work type | `worldModel.knowledge`, `intelligence.worldModel` | Whether repository facts are included |
 | Pinned resolution | The snapshot of configuration hashes a Story takes when it starts | `resolution` in the work item | Why an old Story is unaffected by today's configuration edit |
 | Review packet | The hashed record of exactly what a reviewer was shown when they approved | `singularity/work-items/<ID>/submissions/` | That an approval refers to specific bytes, not to a moving artifact |
 
@@ -55,7 +55,7 @@ When a phase runs, Singularity Flow composes context in this order:
 phase contract and artifact template
 + governed agent instructions
 + configured prompt pack fragments
-+ required repository world-model views
++ the Repository brief for the phase
 + approved upstream phase inputs
 + locked remote Markdown dependencies, if configured
 + verification/conformance evidence, when applicable
@@ -88,8 +88,8 @@ agent's prompt. See `sflow explain skill-master`.
 ### Prompt versus world model
 
 A prompt tells Copilot how to reason or format work. A world model records what is
-currently true about the repository. Prompts are designed; world-model views are
-generated from source and checked for staleness.
+currently true about the repository. Prompts are designed; the Repository brief is
+read from the committed source each time a phase prompt is composed.
 
 ### Workspace versus lifecycle branch
 

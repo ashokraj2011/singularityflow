@@ -416,7 +416,7 @@ function normalizePhase(phase, id) {
     id,
     label: phase.label ?? id.replaceAll('-', ' '),
     lanes: [...(phase.lanes ?? [])],
-    // A retired legacy-v3 view name is dropped (`wm migrate-views` rewrites it), never refused.
+    // Inert since the registered World Model was removed: carried through, never read.
     worldModelViews: [...(phase.worldModelViews ?? [])],
     agents,
     outputs,

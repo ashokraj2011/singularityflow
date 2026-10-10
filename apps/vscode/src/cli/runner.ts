@@ -1763,7 +1763,7 @@ const TIMING_COMMANDS = new Set([
   'task', 'request', 'candidate', 'execution-unit', 'device', 'authority-store', 'learn', 'pack',
   'memory', 'meta-tool', 'delivery', 'intent', 'program', 'process', 'sgos', 'wm', 'goal', 'fault',
   'fix', 'journal', 'why', 'approvals', 'receipt', 'impact', 'context', 'tokens', 'clarification',
-  'architecture', 'local', 'cache', 'repositories', 'policy', 'evidence', 'env', 'skill', 'mcp',
+  'local', 'cache', 'repositories', 'policy', 'evidence', 'env', 'skill', 'mcp',
   'secrets', 'constitution', 'auto', 'adhoc', 'land', 'push', 'next', 'resume', 'return', 'run',
   'reinstall', 'product', 'gate', 'specify', 'plan', 'implement', 'verify'
 ]);

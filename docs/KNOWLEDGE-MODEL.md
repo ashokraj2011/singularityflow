@@ -1,19 +1,18 @@
 # Repository knowledge model
 
 **Implemented boundary:** a deterministic, model-free reading of what a repository's code does,
-built from the committed tree at HEAD and added to phase prompts as a short, cited slice. It sits
-beside the registered-v4 World Model: v4 stays the governed evidence layer (what exists, with
-registered facts and provenance); knowledge says what the code does and means. Nothing here
+built from the committed tree at HEAD and added to every phase prompt as a short, cited
+Repository brief. It is the World Model: it says what the code does and means. Nothing here
 approves, verifies, publishes or gates.
 
 ## Why it exists
 
-A registered-v4 build of a small React shop (a $50 free-shipping threshold, a SAVE10 coupon for
-orders of $30 or more, a VIP20 coupon for members only, a quantity cap of 10) published four views
-with no business rules, export signatures dealt into sections by hash, and a hotspot view that was
-entirely "unavailable". Its extractors read lines with regular expressions, five fact types have no
-producer, and its validator only admits extracted fact sentences. Knowledge reads behaviour: the
-same build finds every one of those rules with the line it is on.
+A build of the registered World Model it replaced, on a small React shop (a $50 free-shipping
+threshold, a SAVE10 coupon for orders of $30 or more, a VIP20 coupon for members only, a quantity
+cap of 10), published four views with no business rules, export signatures dealt into sections by
+hash, and a hotspot view that was entirely "unavailable". Its extractors read lines with regular
+expressions and its validator only admitted extracted fact sentences. Knowledge reads behaviour: it
+finds every one of those rules with the line it is on.
 
 ## Levels
 
@@ -108,14 +107,14 @@ item (a test/code disagreement, coverage, impact) is tied to the lines of the it
 When the reviewed lines change, the review stops applying and the item says to review it again; a
 review whose item no longer exists is listed as a pitfall, never dropped quietly. Rules are
 numbered within their function, so editing a condition keeps the rule's id and its review.
-In VS Code, **Repository Knowledge** opens the current build as a preview and **Review Repository
+In VS Code, **Singularity Flow: Repository Brief** shows the current build and **Review Repository
 Knowledge** picks an item and records the same confirm, correct or reject review.
 
 ## Repository brief
 
 `wm knowledge brief` gives every view a person or a phase needs, each statement with its source:
-**Business rules** (`biz.rules`), **Contracts** (`arch.contracts`), **Flows**, **Change impact**
-(`dev.impact`), **Risks** (`dev.hotspots`) and **Questions for the product owner**.
+**Business rules**, **Contracts**, **Flows**, **Change impact**, **Risks** and **Questions for the
+product owner**.
 
 - **Evidence:** this knowledge (code rules with their messages and HTTP statuses, endpoints, data
   shapes, flows, tests, history, approved requirements) plus rule-like statements from README files,
@@ -252,20 +251,13 @@ command says so and changes nothing; `--dry-run` prints the exact prompt.
 ## In phase prompts
 
 `wm compose` gives every phase one **Repository brief**: a few cited bullets about the code the
-Story touches, built without a model. It replaces both the knowledge slice and the registered World
-Model view files that phases used to receive (World Model v5, milestone M0).
+Story touches, built without a model. It is the phase's only World Model context.
 
-- **Inputs:** this knowledge, README and docs statements, accepted plain-language explanations, and,
-  only where `worldModel.registered: on`, the registered views the phase selects. The registered
-  World Model is off by default: nothing builds, reads or verifies it, and the brief is the phase's
-  only World Model context. A view file is read for its statements only: its hash
-  header, facts JSON, fact IDs and "No registered deterministic producer…" lines stay in the
-  published file. Declarations are folded per type (accessors together), imports per file, and
-  same-file lexical call guesses are left out.
+- **Inputs:** this knowledge, README and docs statements, and accepted plain-language explanations.
 - **Ranking:** items matching the Story's title, description, acceptance criteria and changed files
   come first; an item appears once. "What a change touches" is read from the Story's changed lines
   and planned files (see above); with neither, it lists what depends on the functions the Story
-  names. A registered impact view describes the last commit, so the Story's own records replace it.
+  names.
 - **Format:** short sections with plain bullets, each ending with its source as `(File.java:42)` or
   `(README.md › Heading)`; what could not be determined is one closing "Not known" line. No JSON,
   hashes or fact IDs reach the prompt.
@@ -284,13 +276,9 @@ Model view files that phases used to receive (World Model v5, milestone M0).
 | release | 2 KB | contracts, rules |
 
 `singularity-flow wm brief --phase PHASE [--work-id ID]` prints exactly what a phase receives, without
-recording anything. The prompt receipt still binds each registered view file by its committed hash,
-plus the digest of what was read from it (renderer `repository-brief-view` v1), and grounding
-verification recomputes that digest from the committed bytes. A Story pinned to an exact-history
-packet keeps that packet byte for byte; its brief then carries knowledge only, beside the packet.
-The brief travels in the existing grounding section (or the capability section beside a pinned
-packet), so prompt budgets and token-reduction contracts apply unchanged. Turn knowledge off with
-`worldModel.knowledge.prompt: off`; the registered views are still read into the brief.
+recording anything. The brief travels in the prompt's World Model grounding section, so prompt
+budgets and token-reduction contracts apply unchanged. Turn it off with
+`worldModel.knowledge.prompt: off`, or for one work type with `intelligence.worldModel: off`.
 
 ## Measuring it
 

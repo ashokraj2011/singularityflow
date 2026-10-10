@@ -61,10 +61,8 @@ to understand which document is authoritative for a specific topic.
 | Run without a model or publish human-authored artifacts | [Model independence](MODEL-INDEPENDENCE.md) |
 | Audit model policy for every operation | [Operation model-policy catalog](OPERATION-MODEL-POLICY.md) |
 | Use bounded optional structural intelligence | [AST Intelligence](AST-INTELLIGENCE.md) |
-| Build reusable evidence-bound registered repository views | [Governed World-Model Builder v4](WORLD-MODEL-BUILDER-V4.md) |
-| Review the additive persisted exact-history foundation and its remaining activation work (existing WMB v4 stays operational) | [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md) |
+| Read what the code does and the Repository brief every phase prompt gets | [Repository knowledge model](KNOWLEDGE-MODEL.md) |
 | Evaluate the pure code-local TKR candidate composer, derived cache, and evidence boundary | [Token Reduction preview](TOKEN-REDUCTION.md) |
-| Generate, inspect, and reuse model-free FINOS CALM architecture | [CALM World Model projection](CALM-WORLD-MODEL-PROJECTION.md) |
 | Use versioned model-free structural read contracts with explicit provenance and coverage | [Future-proof world-model read contracts](FUTURE-PROOF-WORLD-MODEL.md) |
 | Capture privacy-safe provider usage for SFlow-owned launches | [Self-provisioning usage telemetry](SELF-PROVISIONING-USAGE-TELEMETRY.md) |
 
@@ -87,7 +85,7 @@ to understand which document is authoritative for a specific topic.
 | Review the corrected, non-runtime GDP contract baseline | [GDP contract vNext](GDP-CONTRACT-VNEXT.md) |
 | Govern Workflow and Outcome delivery through one Candidate and proof system | [Governed Delivery and Proof roadmap](GDP-DELIVERY-ROADMAP.md) |
 | Review the cross-product pending-work dashboard | [Pending-work roadmap](PENDING-WORK-ROADMAP.md) |
-| Track the model-free Token Reduction preview and its WMP/benchmark prerequisites | [Token Reduction preview](TOKEN-REDUCTION.md) |
+| Track the model-free Token Reduction preview and its benchmark prerequisites | [Token Reduction preview](TOKEN-REDUCTION.md) |
 | Track deferred Witnessed Engineering Loop delivery and prerequisites | [WEL pending work](WEL-PENDING-WORK.md) |
 | Capability hierarchy and optional proof ledger | [Capability ledger](../CAPABILITY-LEDGER.md) |
 | Validate an orphan-ledger deployment and trust tier | [Ledger deployment validation](LEDGER-DEPLOYMENT.md) |

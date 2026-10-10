@@ -41,8 +41,7 @@ The optimized paths preserve exact-ref authority and mutation preflights:
 - deferred workspace bootstrap skips delivery-repository probes when the branch is declared;
   it still verifies the selected capability configuration authority. Explicit cloning and branch
   inference retain remote checks, and preflight retains its durable configuration object proof;
-- register-only workspace creation uses readiness status instead of scanning World Model and
-  document details. Guided Start Work prepares its selected checkout before one window reload;
+- register-only workspace creation uses readiness status instead of scanning document details. Guided Start Work prepares its selected checkout before one window reload;
 - delivery-repository capability links use a bounded, machine-private bare object cache keyed by
   credential-free repository identity and observed state-branch commit. The remote ref is still
   observed on every operation; a warm cache never authorizes offline work. Set
@@ -106,7 +105,7 @@ SINGULARITY_FLOW_INTAKE_BENCHMARK=1 node --test --test-name-pattern='a passing p
 ```
 
 This fixture does not certify wall-clock latency on a large monorepo or an office network. Locked
-dependency installation, test execution, AST and World Model builds remain outside ordinary Story
+dependency installation, test execution and AST builds remain outside ordinary Story
 intake. Remote checks, approved configuration validation, worktree creation and initial publication
 still take real time; these optimizations do not bypass them.
 
@@ -123,12 +122,6 @@ Short-lived configuration clones now fetch the one required shallow commit compl
 working tree is consumed, rather than advertising `blob:none` and immediately negotiating the same
 blobs lazily. Read-only proposal inventories use `--no-checkout`. Application workspace clone mode
 remains an explicit approved policy and retains the centralized partial-clone fallback classifier.
-
-Capability Story preflight also refreshes each registered-v4 sibling state authority before the
-Story transaction. Materialization reuses only the exact observed tracking-ref commit; a moved,
-deleted, unavailable, or unmaterialized authority becomes an advisory World-Model gap without a
-second network attempt or stale-cache fallback inside Story creation. Initiative materialization
-keeps its independent refresh boundary.
 
 ## Budgets
 
@@ -361,7 +354,8 @@ node scripts/vscode-bundle-budget.mjs --json --out=/tmp/sflow-vscode-bundles.jso
 At `main@a745a505`, eight entries contain 27,901,673 JavaScript bytes and all byte/module ceilings
 pass. The release script runs this gate even when local tests are skipped in favor of an exact
 signed verification receipt. Bundle and module ceilings may be lowered after accepted evidence;
-they must not be raised merely to admit a regression.
+they must not be raised merely to admit a regression. The `world-model-build.cjs` entry was removed
+with the registered World Model; the earlier measurements below include it.
 
 The Git authority and bounded-transport hardening adds reviewed modules to the shared CLI closure
 used by the extension. Its eight-entry build measures 28,573,333 JavaScript bytes; the revised

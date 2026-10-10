@@ -103,12 +103,8 @@ snapshot without network access. This closes the WFA snapshot-portability founda
 amendment snapshots, cross-machine Story handoff, and external workflow import/export adapters
 remain deliberately deferred because they introduce new authority and dialect semantics.
 
-The deterministic FINOS CALM 1.2 World-Model projection landed at `main@3fd49e98`, was hardened at
-`main@4f9bb1e5`, and completed its governed projection lifecycle at `main@e5f84ae6`. The shared
-state-branch product, packaged offline validator, source maps, architecture commands, Copilot route,
-VS Code views, Story-local planned intent, and fulfilment comparison are code-local implemented
-features. CALM is not pending feature work; only the common signed package/platform evidence and
-any separately proposed future projection contracts remain open.
+The FINOS CALM 1.2 World-Model projection, which landed at `main@3fd49e98`, was later removed with
+the registered World Model; nothing about it is pending.
 
 The privacy-safe CMP real-repository corpus runner landed at `main@ec1b5c88`. Its original v1 form
 remains an explicitly unreviewed performance collector. The 2026-09-21 worktree reconciliation adds
@@ -181,11 +177,11 @@ remains partial only until signed supported-platform receipts are independently 
 
 The 2026-09-06 performance continuation moved branch refresh, ledger status/state publication,
 workflow configuration proposals, approval identity enrollment, approved-configuration fallback
-reads, registered World-Model authority refresh/recovery, CLI workspace authority routing,
+reads, CLI workspace authority routing,
 ledger-deployment inspection, SGOS Git-trusted authority reads, Change Flight Plan recovery, Auto
 Plan validation, Auto checkpoint recovery, Auto Candidate authority, terminal Story gate
 publication checks, lifecycle Candidate publication, Story/capability checkout, configuration
-authority discovery, Initiative/state publication, and confirmed WMB planning onto the bounded
+authority discovery, and Initiative/state publication onto the bounded
 asynchronous Git supervisor through `main@53721b20`. Async Git now participates in the same opt-in
 subprocess timing report as local synchronous commands. These code-local changes keep the event
 loop responsive, consolidate repeated ref reads, and preserve existing exact-SHA and recovery
@@ -406,8 +402,6 @@ signed runner is useful M9 evidence, but it is not an authenticated independent 
 | CAB | CAB v0.2 architecture, adversarial design contract, observe-only pilot, and a closed fail-closed CAB-R2 provider/readiness diagnostic are active. Configuration grants no integration, verifier, authority, evidence consumption, enforcement, or assurance upgrade | Independent R0 ratification plus an approved authenticated sandbox/provider, trust-root lifecycle, result ingestion, evidence CAS, physical containment/platform proof, provider pilots, opt-in enforcement, adequacy, and regulated deployment proof |
 | GDP | M0–M8 implemented; M9 local observe/developer-local signed runner, M10 contracts, and M11 readiness are partial. Existing readiness v1 is preserved; opt-in v2 embeds the strict unavailable CAB-R2 diagnostic | Approved authenticated runner/verifier, provider pilots, enforce enrollment, migration/support-window exercises, completed physical signed package/platform receipts, and GA decision |
 | VS Code UI remediation | Multi-Story navigation, timeout recovery, responsive layout, visual regression contract, native developer-local runner review, and the initial read-only CMP Comprehension Center are complete code-local increments | CMP Center physical-host accessibility/performance evidence and its future authoritative expansion remain product-roadmap work, not defects left in the closed remediation plan |
-| WMB v4 | Build-once exact-Git npm/VSIX artifact authority, consuming platform receipts, merger, copy-only promotion, and refusal gate are implemented at `854380a9`; historical receipts remain readable and unsigned local macOS Node 20/22 aggregates are green | Execute and independently review the physical signed macOS/Linux/Windows by Node 20/22 cells against one retained artifact pair; approve builder-key custody and artifact-store retention |
-| CALM projection | Deterministic `arch.calm@1` projection, packaged offline FINOS CALM 1.2 validation, exact source maps, atomic state-branch publication, CLI/Copilot/VS Code inspection, Story-local planned intent, export, and fulfilment comparison are implemented through `e5f84ae6` | Shared signed npm/VSIX and supported-platform release evidence; any new projection contract requires a separately reviewed increment |
 | Repository discovery | Bounded offline-known and explicitly invoked GitHub/GitHub Enterprise repository catalogs, opaque expiring selections, selected-node revalidation, `/sf-repositories`, and the native VS Code picker are implemented through `baca8ed1` | Physical office proxy/certificate/SSO, cancellation, large-account, and supported-platform evidence; additional provider adapters remain separate increments |
 | Workflow adapters | Immutable bounded Story workflow capture plus model-free `show`, `verify`, and `drift` inspection are implemented through `1c6d172e` | Amendment snapshots, proven cross-machine Story handoff, GitHub Actions proposal import, checks export with round-trip equivalence, and later dialect adapters |
 
@@ -488,8 +482,6 @@ matrix cell.
 | Chat participant (CPT) | The explicit `@sflow` table and local exact-keyword router expose only deterministic zero-model commands. `/next`, `/checks`, `/inputs`, and `/approve` use the narrowed read/preview and guarded-handoff mappings; optional local command metrics are content-free and are not phase TEL | Keep drafting disabled until a supported VS Code 1.90 model-request contract, resident CLI, packet/freeze API, REV execution route, and full participant phase/provider telemetry are implemented and reviewed | [`@sflow` Chat Participant](CPT-CHAT-PARTICIPANT.md) |
 | Git Access Layer | The requested caller migration, approved read cutovers, exact-ref/remote hardening, persistent-object hardening, and acceptance traceability are code-local complete at `fbdc7aea`. The clean macOS cell, 5,359-test aggregate, 943-test VS Code suite, 524-test Git-owner suite, and package checks are implementation evidence only | External release evidence: physical office Windows credentials/proxy/CA, cancellation and descendant cleanup, linked worktrees/filesystem behavior, provider rejection/lost-acknowledgement/partial-clone cases, installed npm/VSIX, supported Node/platform cells, and independent signed review. Optional G0/G2 inventory/barrier expansion remains future engineering | [Git Access Layer status](GIT-ACCESS-LAYER-STATUS.md) |
 | SGOS | Universal Candidate publication, portable authority transport, meta-tool review, replay/live-store SPIs, and advanced-orchestration slices are code-complete. The live mutable Process head uses the implementation-pinned `filesystem-live-v1` profile; exact old-format import, atomic self-hashed cutover, interruption recovery, verified mirror, forged-profile refusal, and the unchanged bounded Store conformance journey are implemented without moving Program or policy authority | Code-local live-store closeout is complete. Remaining release work is independently reviewed signed supported-platform/package evidence, real Secret Broker integration, consented telemetry, independent certification, and separately authorized adapters/protocols/packs | [SGOS pending work](SGOS-PENDING-WORK.md) |
-| World Model Builder v4 | Release receipt generation and enforcement exist; no reviewed six-cell supported-platform aggregate is recorded | `WMB-REL-001` | [WMB v4](WORLD-MODEL-BUILDER-V4.md) |
-| Persisted World-Model exact history | Governed identity, exact-key lookup, build-to-binding staging, owned saved-view publication, byte-only packets, and automatic new-Story exact-history activation are implemented. Registered-v4 Story creation selects exact already-published model/view keys at one immutable authority cut before WFA; phase composition re-proves and replays that cut without hidden model/render/AST work | Collect physical-platform/fresh-clone/race evidence; add IDE/FWM exact-history consumers and portable handoff/adoption. Add a tokenizer owner only if a future variant claims token measurement | [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md) |
 | REV code/test loop | The guarded built-in pilot exposes preview/confirmation, private feedback attachments, exact parent/child Candidate retention, append-only interval lineage, manual IDE capture, deterministic precheck cards, recovery, and a fail-closed exact selected-head bridge into ordinary Code publication. The bridge preserves separate Code and Testing receipts and does not activate autonomous REV. The BRL foundation adds bounded `/sf-revision-checks` capability/plan/status/result reads, fixed-bridge candidate observations, full Story/phase/loop/interval/run/attempt and test-manifest binding, one immutable receipt per run, exact staleness, a private opaque artifact inventory, and a non-authoritative VS Code result-card model. A fixed contract ABI reserved for a future approved runner, signed Candidate-under-test and authenticated-receipt contracts, bounded non-rendering artifact admission, and an immutable private supplement store are implemented but deliberately disconnected. Visual claims, Testing authority, publication eligibility from browser evidence, and executor activation remain false | Approve and wire an isolated executor through SGOS/CAB authority, add the governed cross-clone REV selection receipt/verifier, register the pixel comparator and baseline/finding lifecycle, qualify trusted unsaved-buffer handling, and collect the signed cross-platform witness matrix before autonomous/default activation | [REV delivery status](REV-DELIVERY-STATUS.md), [BRL v0.4](SPEC-BROWSER-VERIFIED-REVISION-LOOP.md) |
 | Witnessed Engineering Loop | The observe-only exact-static adapters, privacy-safe real-repository runner, benchmark paths, and prior portable evidence remain non-authoritative. A signed content-free corpus-review receipt now binds the exact source/tree, runner/profile, runtime, aggregate, and external reviewer trust root into current single-host verification, matrix merge, and release promotion; authenticated testcase claims and enforcement remain unavailable | Execute and independently review both private corpus families, retain their decisions, collect the physical macOS/Linux/Windows by Node 20/22 and office-network cells, then satisfy Candidate/Program/attempt and approved authenticated-runner dependencies | [WEL pending work](WEL-PENDING-WORK.md) |
 | Code Assurance Bridge | CAB-R0 architecture, CAB-R1 observe pilot, and the fail-closed CAB-R2 provider/readiness foundation are active. Its closed credential-free descriptor and status projection grant no integration, verifier, authority, evidence consumption, enforcement, or assurance upgrade | Complete independent CAB-R0 review, approve and operate an authenticated sandbox/provider and trust-root lifecycle, then collect physical containment/platform evidence and provider pilots before any enforcement | [CAB roadmap](CAB-ROADMAP.md) |
@@ -507,10 +499,6 @@ new responsiveness defect belongs in the DXP track below, not in that closed rem
 - **Evidence-only release work:** GAL physical Windows/office and provider exercises, SGOS live-
   store physical-platform/package review, plus the shared signed platform/runtime and installed npm/VSIX
   receipts. This does not require reopening either completed code-local design.
-- **Completed code-local activation boundary:** WMP P0 lifecycle history re-resolution,
-  closure-to-authority-cut proof, immutable Story selection/pinning, and exact phase replay are
-  implemented. Remaining WMP work is consumer expansion and release evidence; v1 is deliberately
-  byte-only, so tokenizer ownership is required only if a future variant claims token measurement.
 - **Guarded activation work:** REV's manual built-in Candidate refinement pilot and fail-closed
   selected-head Code-publication bridge are active. Autonomous execution, browser-result
   promotion, portable full-selection verification, and default activation remain disabled until
@@ -538,17 +526,14 @@ The remaining portfolio work should be completed in this order:
 3. keep the completed GAL caller-migration boundary stable and collect its physical Windows/office,
    provider, supported-runtime, installed-package, and independent-review evidence without
    reopening authority design;
-4. qualify the completed WMP P0 activation boundary on physical supported platforms and fresh
-   clones, then add portable handoff/adoption and IDE/FWM consumers; introduce tokenizer authority
-   only if a future saved-view or grounding variant claims token measurement;
-5. independently run and sign the unchanged SGOS live-store physical-platform/package evidence without
+4. independently run and sign the unchanged SGOS live-store physical-platform/package evidence without
    reopening the implemented Process-head cutover;
-6. qualify the guarded REV pilot, then complete its trusted-editor, approved-runner,
+5. qualify the guarded REV pilot, then complete its trusted-editor, approved-runner,
    governed cross-clone selection receipt, browser-evidence lifecycle, and witness gates before
    autonomous/default activation;
-7. collect the remaining supported-platform and package receipts shared by SGOS, WMB, GDP, DXP,
+6. collect the remaining supported-platform and package receipts shared by SGOS, GDP, DXP,
    WEL, and CAB, and ratify their external trust architecture before enforcement;
-8. reduce steady-state payload, process, and remote-operation cost (`DXP-P1-*`), then take up
+7. reduce steady-state payload, process, and remote-operation cost (`DXP-P1-*`), then take up
    deferred CMP, Auto-SGOS, local-runner UI, advanced SGOS, and provider-adapter work.
 
 Parallel work is allowed only where the detailed items do not share the same activation, Git
@@ -597,7 +582,7 @@ evidence is recorded.
 | Scope | Current code-local outcome | Remaining evidence before `[x]` |
 |---|---|---|
 | `DXP-P0-004` | One reusable sanitized enterprise Git environment preserves reviewed proxy, CA, TLS backend, and credential-helper behavior; endpoint binding and diagnostics remain credential-free | Live Windows GCM/Git Bash, macOS helper, and office proxy/CA exercises |
-| `DXP-P0-005` | Interactive onboarding, configuration refresh/proposals/identity enrollment, approved-configuration reads, branch refresh, ledger/state/lifecycle publication, Story/capability checkout, registered World-Model authority refresh/recovery and WMB planning, CLI routing, SGOS authority reads, Auto authority/recovery, and terminal gate publication checks use the bounded async process-tree supervisor and stable failure taxonomy (`9d44c013` through `53721b20`); ledger bootstrap no longer depends on post-floor `git worktree add --orphan`, and its connected fixture passes under Git 2.39.5/Linux x64 with zero network calls or repository writes | Keep the isolated low-level compatibility API under audit; collect live physical POSIX and Windows descendant-cleanup receipts |
+| `DXP-P0-005` | Interactive onboarding, configuration refresh/proposals/identity enrollment, approved-configuration reads, branch refresh, ledger/state/lifecycle publication, Story/capability checkout, CLI routing, SGOS authority reads, Auto authority/recovery, and terminal gate publication checks use the bounded async process-tree supervisor and stable failure taxonomy (`9d44c013` through `53721b20`); ledger bootstrap no longer depends on post-floor `git worktree add --orphan`, and its connected fixture passes under Git 2.39.5/Linux x64 with zero network calls or repository writes | Keep the isolated low-level compatibility API under audit; collect live physical POSIX and Windows descendant-cleanup receipts |
 | `DXP-P0-006` | One partial-clone classifier retries only explicit filter rejection, recognizes ignored filters, and prevents double clone | Live provider exercises for filter rejection and filter ignored, with stage and transfer evidence |
 | `SGOS-P0-001` | Supported lifecycle publishers route through exact retained Candidate verification, commit binding, and recoverable publication | Signed supported-platform aggregate and artifact binding for the final release commit |
 | `SGOS-P0-004` | Platform-evidence v2 and the existing signed receipt, merge, and promotion path bind distinct software-conversion, hypothesis-analysis, interruption, counterfeit-authority, cross-machine, and reviewed performance evidence | Independently execute and sign all six physical macOS/Linux/Windows by Node 20/22 cells for the final commit and artifact pair |
@@ -634,7 +619,7 @@ All `[~]` DXP entries below share this tracked delivery metadata:
 | `DXP-P0-002`–`003` | real-host activation returns after providers/commands and cache publication instead of awaiting workspace inventory or the fresh snapshot; confirmed-snapshot auxiliary reads, latest-only refresh/validation, one sidebar paint, hidden-panel deferral, an off-host status worker, explicit lazy bundles, and a real 100-event watcher exercise are measured; unchanged selection and absent capability/log scopes no longer launch redundant children; continuous transition measurement localized the post-Help pause and a dedicated Help runtime lowered the code-local event-loop p95 to 43.4 ms | Accepted 10-second real extension-host storms with CPU/RSS/process budgets on minimum and current VS Code |
 | `DXP-P0-004`–`006` | reviewed enterprise proxy/CA/helper parity, bounded process-tree supervisor, and centralized partial-clone fallback | live Windows GCM, Git Bash, macOS helper, office proxy/CA, provider filter, and descendant-cleanup exercises |
 | `DXP-P1-001`–`002` | leased heavy slices, linear bounded output, JSON stdout isolation, lazy workspace/capability startup readers, six-stage host RSS measurement, per-process peak aggregation, load-plus-activation timing, Help runtime timing, and a release-gated byte/module ceiling for every CommonJS entry; current/minimum macOS 30-pair host peaks passed at 215/150 MB p95 | Pinned Linux/Windows peak-RSS and module-load reports |
-| `DXP-P1-003`, `DXP-P2-001` | one operation-scoped remote session, broad inventory reuse, mutation invalidation, exact revalidation, and asynchronous configuration/ledger/WMB/lifecycle authority reads; no product workflow calls the retained synchronous compatibility transport | collect pinned host measurements and remove the compatibility API only in a separately reviewed breaking release |
+| `DXP-P1-003`, `DXP-P2-001` | one operation-scoped remote session, broad inventory reuse, mutation invalidation, exact revalidation, and asynchronous configuration/ledger/lifecycle authority reads; no product workflow calls the retained synchronous compatibility transport | collect pinned host measurements and remove the compatibility API only in a separately reviewed breaking release |
 | `DXP-P1-004` | async/batched local validation, origin-first streaming remote pool, canonical cache identity, repository epochs, and immediate A→B cancellation | live high-ref and A→B→A extension-host runs on Windows plus both supported VS Code versions |
 | `DXP-P1-005` | 10,000-file/40-Story/12-ref scale, dirty tree, ignored-build, clean-submodule, and nested linked-worktree tiers; every measured interactive read has p50/p95 ceilings and 20% accepted-baseline regression checks | establish the reviewed Node 22/Linux relative baseline and collect Windows/macOS platform reports |
 | `DXP-P2-002`–`003` | privacy-safe enterprise source diagnostics, lazy gateway imports, SFlow-only activation markers, dedicated Help runtime, continuous stage-transition event-loop attribution, complete host-memory stages, reviewed release-gated bundle/module ceilings, npm and VSIX packaging | execute the unchanged budgets on minimum/current VS Code and signed supported-platform package hosts |
@@ -932,151 +917,9 @@ See [Token Reduction preview](TOKEN-REDUCTION.md) for the exact boundary and val
 
 ## Persisted World-Model views (WMP)
 
-The W0/W1 persistence foundation, governed repository-identity proof, exact pre-extraction
-key/lookup, build-to-binding staging, exact-manifest terminal extraction outcomes, owned
-pre-scope candidate roster, frozen empty extractor-configuration owner, pure completeness bridge,
-bounded W2 deterministic-view slice, frozen renderer/validator owners, and exact persisted-view
-graph admission are implemented. The normal WMB service now has a
-strictly opt-in bridge that performs lookup-before-extraction, builds only on the typed exact miss,
-derives the view-only coverage overlay without re-reading source, and stages the compatible current
-projection plus immutable model history through one state-branch CAS and recovery envelope.
-Owned saved-view materialization/publication, explicit byte-only measurement, successor packet
-composition/replay, and the production new-Story activation owner are implemented. Before WFA
-capture, a registered-v4 Story derives exact Model/View Keys, reads one already-published authority
-cut, rechecks authority, and stores either a closed self-hashed active pin or a typed unavailable
-pin. Every eligible governed-agent phase re-resolves the exact closure, proves the pinned cut
-remains reachable, and
-injects the packet bytes exactly once. A tokenizer owner is not applicable to byte-only v1 and is
-required only if a future variant claims token measurement. This activation does not disable Story
-creation, phase progression, registered-v4 builds/current projections, or their existing reuse
-mechanisms. The shipped `grounding: warn`
-policy records unavailable intelligence with zero World-Model bytes and lets ordinary repository
-work continue. `grounding: enforce` changes consumed-context integrity handling, not availability;
-a separately required product may retain an independent explicit gate. The
-authoritative amended boundary is
-[Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md).
-
-### Completed foundation and bounded automatic exact-history activation
-
-- [x] register frozen v1 semantic owners and strict validators for repository-domain,
-  extraction-policy, extractor-registry, completeness-record, consumer-profile, output-budget,
-  renderer-contract, validator-contract, and view-validation-receipt records;
-- [x] validate the exact retained model graph across repository/source/scope/policy/registry,
-  profile/completeness, evidence/facts, and derivations, including per-path source digest
-  accounting;
-- [x] derive the parse-schema identity from the complete retained extractor tuple and bind source
-  normalization to an explicit frozen v1 contract; arbitrary semantic digests are refused;
-- [x] cap retained extractor registries at 1,024 entries and index graph lookups so adversarial
-  registries cannot amplify repeated linear scans;
-- [x] provide explicit deterministic terminal-execution capture against exact installed extractor
-  manifests and implementations for every selected source-snapshot path, including successful
-  zero-fact extraction and explicit unsupported, partial, and failed states; ordinary registration
-  leaves this capture off unless an explicit exact-history producer requests it, so large
-  repositories do not retain an unused extractor-by-path matrix merely because a Story starts;
-- [x] construct a frozen completeness record through a pure bridge that verifies selected path
-  coverage/digests, exact extractor identity, global outcomes, and required subject outcomes,
-  and emits excluded outcomes only from the owned pre-scope candidate roster; a sealed extraction
-  receipt binds that bridge to the exact source, scope, registry, executions, View Contracts, and
-  View Fact Ledgers so a self-consistent substituted view roster is refused;
-- [x] retain the complete committed Git candidate roster before scope, reconstruct its exact Git
-  tree, and admit excluded-path completeness only when every selected/excluded classification and
-  owned reason matches the pinned Source Snapshot and Scope Manifest;
-- [x] own the frozen empty extractor configuration once, map it to every exact extractor consumer,
-  validate it alongside the unchanged frozen-v1 parse-schema identity, and refuse configured
-  profiles until a successor byte-to-consumer contract exists;
-- [x] apply model/view graph validation to the pinned combined closure at the state-writer staging
-  boundary before the one-CAS publication path can advance authority.
-- [x] independently recompute and admit the persisted-view graph against the accepted model,
-  base/projection/selected Fact Ledgers, exact scope and candidate digest, installed renderer and
-  validator identities, validation receipt, and configured byte budgets; token-accounting modes
-  remain fail-closed without an applicable tokenizer owner;
-- [x] resolve an explicit governed Capability to a credential-free portable Repository Domain by
-  proving the exact approved configuration or immutable accepted Story WFA pin, Capability-to-repo
-  delivery membership, approved portfolio/configuration cut, and checkout origin; keep that action
-  proof ephemeral and re-resolve it offline before lookup or staged construction rather than
-  retaining old permission as model input;
-- [x] verify the exact committed Source Snapshot, bind its subject to the Capability instead of a
-  checkout basename, retain the exact input closure, and derive the complete Model Key before any
-  application extraction;
-- [x] expose exact pre-extraction lookup as a read-only hit/miss boundary: a hit performs zero
-  registration, extraction, model, AST, cache, network, or publication work; only
-  `WMP_MODEL_MISSING` is a typed miss and every authority/integrity failure stays fail-closed;
-  derive the cut from the approved state branch, bind a remote-backed cut to the approved
-  Repository Domain fingerprint, treat caller ref/commit values only as assertions, disable lazy
-  fetch and credential prompts, and recheck the source, governed scope, repository authority, and
-  state tip after every history read; expose immutable canonical text/records rather than mutable
-  retained buffers;
-- [x] derive the exact Scope Manifest through the same shared policy resolver used by normal WMB
-  commands, including immutable accepted Story policy, refuse wider caller scope, and require every
-  policy coverage extractor in both the selected profile and retained binding graph; frozen v1
-  derives its policy from the exact product-owned default execution roster and refuses caller-
-  authored semantics or reduced/custom rosters;
-- [x] stage a completed registered-v4 execution into exact completeness, Model Binding, validated
-  object closure, and immutable history additions after rechecking the typed miss at the same
-  authority cut, then recheck after registration and adopt only a byte-identical concurrent
-  winner. The adapter is connected only through the explicit opt-in service path below, not
-  automatic Story preparation; existing default WMB publication continues unchanged;
-- [x] connect that boundary to a code-local, opt-in normal-service path: an exact miss registers the
-  view-independent base once, an exact hit performs no base extraction, a pure coverage overlay
-  recreates the current active-view registration byte-for-byte, and current projection plus new
-  history are committed by the existing single-CAS publication/recovery owner.
-
-### P0 — complete truthful WMP exact-history reuse
-
-- [x] add an owned full discovered-candidate roster and bind excluded-path completeness to it;
-- [x] define the frozen empty extraction-configuration owner and refuse every configured profile
-  until a successor exact-byte consumer mapping exists;
-- [x] integrate repository identity, lookup, explicit-miss build, projection derivation, and
-  current-plus-history single-CAS publication behind an opt-in service boundary;
-- [x] retain frozen renderer/validator implementation owners and enforce exact persisted-view graph
-  admission before staged authority can advance;
-- [x] wire the verified history result into public new-Story start and grounding preparation
-  without allowing a typed miss to trigger a hidden build. Story creation derives complete exact
-  keys, selects and rechecks one state-authority cut before WFA, and immutably pins either the
-  accepted closure or a typed unavailable result. Every eligible governed-agent phase re-resolves
-  the exact bytes selected for its phase/agent pair,
-  verifies closure-to-cut and repository authority, permits a reachable fast-forward, refuses
-  rewind/replacement/tampering, and only then reports `authorityProven: true`;
-- [x] add an owned saved-view materialization/publication service that preserves the implemented exact
-  model/base/projection/selected-ledger, scope, candidate-digest, renderer/validator, receipt, and
-  byte-budget admission across existing-plus-staged authority. V1 declares byte-only measurement
-  and rejects every token-measured request until an exact tokenizer owner exists;
-- [x] compose the immutable successor grounding packet and replay its exact original bytes after current
-  source, policy, renderer, or reports change, using a compatible successor to the structural v1
-  preview that binds expansion handles, ordering/separators, and packet-composer identity. This
-  proves packet bytes, not that a caller-supplied authority assertion owns the supplied closure;
-  only the completed lifecycle owner above can prove and activate that authority.
-
-Automatic WMP exact-history **reuse** is active for newly created registered-v4 Stories, while
-automatic history **emission** remains prohibited. Story start never builds a missing model/view:
-absence becomes an immutable unavailable pin, later publication does not silently repin that Story,
-and there is no model, renderer, AST, cache, fetch, or publication fallback. The low-level
-composition primitive still reports a caller-supplied cut as unproven; the lifecycle owner alone
-may re-resolve the exact cut and report `authorityProven: true`. This does not authorize token
-measurement.
-Direct caller-supplied persisted facts are refused at the publication-service boundary. This restriction
-does not turn off the existing WMB v4 services.
-Deferred grounding/handoff/adoption also require publication-receipt, admission-proof,
-source-authority, origin-authority, target-authority, and adoption-authorization owners; no role
-may be satisfied with an unrelated registered record.
-
-### P1 — portable continuation and consumer cutover
-
-- implement verified handoff and foreign Candidate adoption through their source/authority owners,
-  including exact candidate-snapshot revision, authority-scope correlation, and an object-closure
-  digest derived from verified transferred objects;
-- move remaining gate/review, IDE/FWM, and recovery consumers to the exact history service without
-  stale worktree fallback; new-Story phase preparation and prompt composition already use the
-  lifecycle-pinned exact history service;
-- add the native VS Code persisted-model/view explorer over that same read-only service;
-- implement incremental parse/derivation reuse and prove identical output to a full rebuild.
-
-### Release evidence
-
-- qualify race/lost-response, cache-free fresh-clone, historical replay, migration, archive limits,
-  and corruption/security fixtures;
-- retain real Windows/macOS/Linux, linked-worktree, long-path, capacity, and cold/warm performance
-  evidence before advertising full WMP conformance.
+The registered World Model (WMB v4), its persisted exact-history views (WMP) and the CALM
+projection were removed, so none of their work is pending. The Repository brief that phases get
+now is read from the source with no build.
 
 ## Pickup checklist
 
@@ -1095,7 +938,7 @@ For each remaining performance acceptance gate:
   `FOS-IMPLEMENTATION-PLAN.md`,
   `CAPABILITY-AUTHORITY-DISCOVERY-AND-WORKSPACE-PERFORMANCE-PLAN.md`,
   `GDP-DELIVERY-ROADMAP.md`, `SGOS-PENDING-WORK.md`, `WEL-PENDING-WORK.md`, `CAB-ROADMAP.md`,
-  `PERSISTED-WORLD-MODEL-VIEWS.md`, `TOKEN-REDUCTION.md`, or the accepted DX baseline changes.
+  `TOKEN-REDUCTION.md`, or the accepted DX baseline changes.
 - Keep the portfolio dashboard a summary; detailed domain acceptance gates remain authoritative in
   their linked documents.
 - Remove no history. When a track finishes, record its landing commit and move it to a completed

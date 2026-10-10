@@ -10,11 +10,11 @@ commands:
 related:
   - manual-authorship
   - telemetry-and-cost
-version: 4
+version: 5
 ---
 Every operation is classified `never`, `optional` (with a deterministic fallback), or `required`; unclassified operations are rejected, not assumed safe. One chokepoint invokes providers; the effective policy is the most restrictive in the call stack. `SINGULARITY_FLOW_NO_MODEL=1` (or `--no-model`) disables model use — most-restrictive-wins — and model-dependent commands fail fast with the manual alternative.
 
-Deterministic builds and previews retain that guarantee: `wm build` with the default deterministic composer, `wm ensure`, `copilot --dry-run`, `workspace copilot --dry-run`, and `workspace impact analyze --dry-run` all resolve to registered `never` operations. A real launch, or a `wm build` whose composer is `model-optional` or `model-required`, may need a model.
+Deterministic reads and previews retain that guarantee: `wm brief`, `copilot --dry-run`, `workspace copilot --dry-run`, and `workspace impact analyze --dry-run` all resolve to registered `never` operations, and the Repository brief in a phase prompt is read with no model. A real launch may need a model; `wm knowledge brief` and `wm knowledge explain` use one when model use is on and fall back to their deterministic forms when it is off.
 
 ## Purpose and prerequisites
 

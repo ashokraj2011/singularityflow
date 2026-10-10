@@ -73,23 +73,6 @@ Copilot displays selectable profile options. The first initiative phase's govern
 
 The start operation checks the ID and authority groups, creates the exact initiative branch, snapshots all governed configuration and templates, creates `singularity/initiatives/<INIT-ID>/`, then commits and pushes initial state. The phase-default agent remains local in `.git/singularity-flow/session.json`; it is recorded with the next mutation but never treated as approval authority.
 
-### The world model at start
-
-Impact analysis is only as good as the repository world model it reads. After the
-Initiative branch is created and its scaffold committed, Singularity Flow checks
-whether that model is missing, uncommitted, or stale for the current source tree,
-and reports the reason rather than blocking the start. Build it from the CLI or
-the VS Code Lifecycle action:
-
-```bash
-singularity-flow wm build --local     # commit to this branch without pushing
-```
-
-Building on the Initiative branch means the model is committed there and pushed
-with that branch, instead of landing on the default branch. It can also be built
-against any selected branch before a Work ID exists; the CLI records the exact
-repository commit in its manifest.
-
 ### Which branch a story starts from
 
 Starting an initiative does **not** merge anything into `main`. When the initiative branch does not yet exist, Singularity Flow creates it from the lead repository's configured default branch so it inherits the current source baseline and committed `singularity/` configuration. All initiative artifacts, evidence, approvals, and state then remain on the initiative branch.
@@ -140,12 +123,11 @@ Phase preparation records a complete Copilot prompt under `context/prompts/` plu
 ```text
 phase contract
 + phase-default governed Agent Markdown
-+ required repository world-model views
 + locked remote Agent Markdown dependencies
 + approved upstream initiative artifacts
 ```
 
-The world model remains repository-owned. Initiative profile views are validated against `singularity/workflow.yml`, and each generation records the exact world-model commit and file hashes. The World Model is guidance, never authority. A missing or unreachable model produces an explicit unavailable receipt with zero World-Model bytes and does not block Initiative generation or publication. Staleness `warn` or `ignore` may consume an otherwise integrity-verified stale snapshot (`fail` is still accepted and acts as `warn`). Model bytes that are uncommitted, changed, or inconsistent with their recorded provenance are left out of the prompt with a warning; `worldModel.grounding: enforce` is still accepted and acts as `warn`. Build or refresh intelligence only through the exact `singularity-flow wm build --views ...` command shown by the CLI.
+Initiative prompts carry no Repository brief; each Story's phase prompts get one.
 
 Every prepare, publication, evidence record, approval, rejection, materialization, synchronization, and lifecycle transition creates a commit and pushes it. A failed push retains the local commit, records pending publication, and blocks later mutations until `singularity-flow initiative sync` succeeds.
 
@@ -273,21 +255,22 @@ singularity-flow initiative jira-apply --plan <exact-sha256>
 
 The write plan is committed and pushed before application. Apply requires an approved Plan/Elaboration phase, exact plan hash, exact initiative-ID confirmation, effective Jira create/edit permission, and unchanged source issue timestamps. Each completed operation receives a committed receipt. The earlier `jira.write: true` materializer remains compatible for existing configurations, but new profiles should use the reviewed plan path.
 
-## Ground the impact map
+## Check the impact map
 
-The planning phase produces a repository map naming the repositories an initiative touches and the world-model views that justify each one:
+The planning phase produces a repository map naming the repositories an initiative touches and the evidence that justifies each one:
 
 ```yaml
 repositories:
   api:
-    worldModelViews: [arch.contracts, dev.impact]
+    changeType: modify
+    blastRadius: contained
   mobile:
-    worldModelViews: [arch.contracts]
+    changeType: integrate
 ```
 
-Publishing that phase validates the map against committed state: every named repository must exist in `portfolio.repositories`; when a committed World-Model manifest is available, every referenced view must exist in it. This flags an impact analysis that names a repository that is not configured or cites a view absent from available governed evidence, without treating the model as authority.
+Publishing that phase checks the map against committed state: every named repository must exist in `portfolio.repositories`. This flags an impact analysis that names a repository that is not configured.
 
-The `impact-grounded` checklist item carries the result and is recorded on publish. When a committed manifest is available, an unresolvable view reference is a warning; it never blocks publication, because the World Model is guidance. With no available World Model, the view half cannot be checked, so the Initiative records degraded evidence and continues; the impact map is never refused because no model confirms it.
+The `impact-grounded` checklist item carries the result and is recorded on publish. An unknown repository is a warning; it never blocks publication. A `worldModelViews` list in an older map is ignored.
 
 ## Merge stories in dependency order
 
@@ -378,7 +361,7 @@ Reports group every planned story under its epic even before branch materializat
 
 Open the VS Code extension, choose the lead workspace, and use **Lifecycle** for intake, phase progress, checklist evidence, approvals, Story status, and governed documents. Use **Configuration** for portfolio, workflow, agent, prompt, template, integration, and policy design. Jira sign-in is stored through VS Code `SecretStorage`.
 
-After the planning/elaboration phase is approved, **Create Jira & Git stories** previews repositories and story operations, requires the exact Initiative ID, and runs the same resumable materializer as the CLI. **Sync story branches** refreshes the epic dashboard and commits/pushes the aggregate snapshot. Other initiative state, evidence, approvals, contracts, and repository world-model files remain read-only in the designer.
+After the planning/elaboration phase is approved, **Create Jira & Git stories** previews repositories and story operations, requires the exact Initiative ID, and runs the same resumable materializer as the CLI. **Sync story branches** refreshes the epic dashboard and commits/pushes the aggregate snapshot. Other initiative state, evidence, approvals, and contracts remain read-only in the designer.
 
 ## Durable branch layout
 

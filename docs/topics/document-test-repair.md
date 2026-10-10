@@ -8,7 +8,7 @@ questions:
   - Which skills and agents test document-derived scenarios?
 commands: [workflow, start, prepare, phase, submit, approve, decision, mcp]
 related: [workflow-authoring, workflow-decisions, story-lifecycle, approvals]
-version: 1
+version: 2
 ---
 Select **Document-led acceptance & repair** (`document-test-repair`) during Story intake. It is a
 packaged starter. In a minimally onboarded repository, install it with
@@ -55,7 +55,7 @@ Story if it cannot proceed. Never claim an accepted risk is a passing scenario.
 
 ## Playwright or another approved tool
 
-The starter does not require Playwright, a browser, a model service or World Model views. Inspect
+The starter does not require Playwright, a browser or a model service. Inspect
 the repository and agree exact argv/cwd, executable test identities, structured output and allowed
 environment during intake. Other installed repository runners may be used. Missing configuration
 stays pending; `/sf-test-setup` guides a reviewed runner proposal and `/sf-recover` guides adoption

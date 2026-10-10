@@ -524,35 +524,6 @@ export async function withExplicitRepositoryMutationLeases(roots, operationId, c
   return enter(0);
 }
 
-/**
- * Supply the command registry with the small approved policy fragment needed to classify a
- * versioned World-model operation before its handler is loaded.
- *
- * `wm build` is historically model-required, while a registered-v4 build defaults to the
- * deterministic renderer. Looking only at argv therefore rejected `--no-model wm build` for a
- * repository whose approved configuration selected registered-v4. Read only the same governed
- * definition the handler will use; do not mutate argv or make the registry discover a repository.
- */
-async function operationResolutionContext(root, definition, subcommand) {
-  if (definition.name !== 'wm' || !['build', 'ensure'].includes(subcommand)
-      || !root) return {};
-  const { loadDefinition } = await import('./config.mjs');
-  let approved;
-  try {
-    approved = await loadDefinition(root);
-  } catch (error) {
-    // An uninitialised Git checkout has no approved composer; the default (deterministic) applies.
-    // Other configuration failures remain visible.
-    if (/^Missing singularity\/workflow\.yml\. Run: singularity-flow init$/.test(error?.message ?? '')) {
-      return {};
-    }
-    throw error;
-  }
-  return {
-    worldModel: { composer: approved.worldModel?.v4?.composer ?? 'deterministic' }
-  };
-}
-
 export async function main(argv) {
   const uninstall = installFileLeaseSignalHandlers();
   try { return await withCliJsonOutput(optionBoolean(parseArgs(argv).options, 'json'), () => runMain(argv)); }
@@ -712,14 +683,10 @@ async function runMain(argv) {
       { code: 'REPOSITORY_CONTEXT_REQUIRED' }
     );
   }
-  const resolutionContext = await withCommandTiming(timer, () => operationResolutionContext(
-    root, definition, subcommand
-  ));
   const requestedOperation = resolveOperation({
     requestedCommand: requested,
     positionals: [definition.name, ...positionals.slice(1)],
-    options,
-    context: resolutionContext
+    options
   });
   const operation = requestedOperation.modelPolicy === 'optional' && !modelMode.enabled
     ? operationById(requestedOperation.fallback.operationId)

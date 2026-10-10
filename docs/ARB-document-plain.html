@@ -84,7 +84,7 @@
 
   subgraph RUNTIME["Singularity Flow Node.js engine"]
     DISPATCH["Command dispatcher&lt;br/&gt;and CLI runner"]
-    PROMPT_ENG["Prompt composer&lt;br/&gt;and world-model grounding"]
+    PROMPT_ENG["Prompt composer&lt;br/&gt;and Repository brief"]
     GOV["Governance engine&lt;br/&gt;gates, approvals, quality checks"]
   end
 
@@ -150,7 +150,7 @@
     A4[Exactly-once publication and recovery]
   end
   subgraph L4[Knowledge and context]
-    W1[World model - deterministic facts and bounded advisory views]
+    W1[World model - Repository brief read from the source, no model]
     W2[Capability map - ownership, protection, contracts]
     W3[Prompt envelope - bounded context per phase]
   end
@@ -204,7 +204,7 @@
 <tr><td>Deterministic gates and three evidencees</td><td>Ten checks on bytes; structural (AST), behavioral (bound tests), human (signature). No model inside any gate; proven nightly with counterfeit models.</td><td>implemented; test-body-hash binding proposed</td></tr>
 <tr><td>Approvals bound to bytes</td><td>Signature over sha256 under the pinned policy with separation of duties; STALE with cause on any change.</td><td>implemented</td></tr>
 <tr><td>Exactly-once publication and recovery</td><td>Journal, compare-and-swap, <code>doctor</code> — crash at any step completes or aborts exactly once.</td><td>implemented; crash-recovery suite green on a clean Linux clone (Sept 13)</td></tr>
-<tr><td rowspan="3">Knowledge and context</td><td>World model</td><td>Repository facts, views, and projections bound to an exact source snapshot. Deterministic facts are parser-produced; an explicitly selected semantic narrative may use a model but never becomes gate authority.</td><td>operational: registered-v4 build, current projection, state-branch publication, and existing reuse mechanisms; in progress: automatic immutable WMP exact-history binding/reuse</td></tr>
+<tr><td rowspan="3">Knowledge and context</td><td>World model</td><td>The Repository brief: rules, contracts, flows, what a change touches and risky places, read from the committed source with no build and no model. Optional model-written explanations are labelled inferred and never become gate authority.</td><td>operational</td></tr>
 <tr><td>Capability map</td><td>Who owns which paths, what is protected, what is published or depended on; every repo carries the map it is judged by.</td><td>implemented</td></tr>
 <tr><td>Prompt envelope</td><td>What the model is handed per phase: pinned prefix, briefed history, task, explicit obligations, stamp.</td><td>composer implemented; v1 layering proposed</td></tr>
 <tr><td rowspan="4">Record and integration</td><td>Receipts, refusals, events, change record</td><td>The record written as a by-product: what happened, what was refused and the fix, and the portable per-change record.</td><td>implemented; change record naming proposed</td></tr>
@@ -224,7 +224,7 @@
   K->>PO: one batch of clarifying questions
   PO->>K: answers recorded as pins
   Dev->>Agent: draft under phase contract
-  Agent->>K: read verified world model slice when available and propose candidate
+  Agent->>K: read the Repository brief when available and propose candidate
   K->>K: freeze candidate sha256 and run gates on bytes
   K-->>Dev: refusal with smallest fix, or ready
   Dev->>K: request review
@@ -296,61 +296,47 @@
 <p class="note">Purple: AI drafts. Green: computed checks (no model involved). Amber: a person decides. The dotted arrow shows that the AI's own "tests passed" report is not an input to the evidence check.</p>
 
 <h2>5. Repository model (world model) and code parsing</h2>
-<p>SingularityFlow can build a repository model from code, publish the validated current projection to the repository's configured state branch, and reuse it across stories and machines that resolve the same complete governed identity (source, scope, registries, contracts, budgets, and execution profile). The registered-v4 builder is the only format and is operational; the legacy-v3 builder was removed. A separate WMP increment is adding immutable exact-key model/view history so an earlier binding can be found after the current projection moves; that newer optimization is not yet connected to normal Story preparation. The model is organised in three parts:</p>
+<p>The world model is the <b>Repository brief</b> that every phase prompt gets: a few cited bullets about the code the story touches, read from the committed source with no build and no model call. It is built from repository knowledge (rules with their messages and HTTP statuses, endpoints, data shapes, flows, change impact, history) and rule-like statements in README files and <code>docs/</code>. It is guidance: it never blocks, refuses or authorizes anything, and when it cannot be built the prompt goes out without it and a warning says why. The earlier registered World Model (built and published views), its exact-history work and the CALM projection were removed. The model is organised in three parts:</p>
 <table><tr><th>Part</th><th>What it is</th><th>How it is kept honest</th></tr>
-<tr><td><b>Facts</b></td><td>A ledger of facts extracted from the code — files, symbols, signatures, imports and dependency edges, interfaces and schema contracts, test identities — each with its source, its extractor version and a derivation record</td><td>Every fact carries an origin class (parsed, declared, signed, computed), a status (available, partial, unavailable, contradicted) and an assurance level; absence is recorded as a fact, never skipped. No AI is used to produce facts.</td></tr>
-<tr><td><b>Views</b></td><td>The operational WMB v4 catalog contains four registered views: <code>dev.impact</code>, <code>dev.hotspots</code>, <code>biz.rules</code>, and <code>arch.contracts</code>. Five additional model-free WMP overview contracts and pure renderers exist as code-local foundations; normal WMB/Story execution does not yet emit, consume, or replay their persisted view bindings.</td><td>A registered view can only use admitted facts under its contract. Deterministic renderers add no model claims; an explicitly permitted semantic composer remains bounded, validated, and advisory.</td></tr>
-<tr><td><b>Projections</b></td><td>Exports in external formats — today FINOS CALM for the architecture — generated from the fact ledger and the capability map</td><td>Each element is labelled with its provenance (source-exact, structurally-derived, deterministically-derived, human-confirmed, runtime-observed, not-applicable); heuristic or model-advisory content is forbidden; no AI is used.</td></tr></table>
-<p><b>Where it lives and who is the authority.</b> Current World-Model publication writes a manifest-registered set of files to the configured state branch under the existing WMB transaction and authority rules, with staleness receipts that name what changed (source snapshot, scope, capability snapshot). A local cache and model-free query index speed reads; both are rebuildable and never authoritative. The additive <code>singularity/world-model-history</code> contracts and read-only inspection foundation exist, but the new build-to-binding path does not yet emit or reuse those immutable entries through normal Story/WMB execution.</p>
-<p><b>What the AI sees.</b> When verified grounding is available, a story's brief carries the relevant bounded facts and view sections with manifest/hash provenance. When it is unavailable under the shipped <code>worldModel.grounding: warn</code> policy, the phase records a stable unavailable receipt, injects zero World-Model bytes, and ordinary repository access continues. <code>grounding: enforce</code> changes the treatment of consumed-context integrity failures, not availability; a separately required projection or persisted domain may retain its own explicit policy.</p>
-<p><b>Status.</b> Registered-v4 build/read paths, fact extraction, registered views and projections, CALM projection, current state-branch publication, and existing reuse mechanisms are <b>operational</b>. The WMP governed identity, exact-key lookup, build-to-binding staging, history readers, and deterministic view foundation are <b>implemented but not automatically activated</b> by Story start or grounding. No existing Story or World-Model workflow is disabled by that staged boundary. See the <a href="WORLD-MODEL-BUILDER-V4.md">operational WMB v4 guide</a>, the <a href="PERSISTED-WORLD-MODEL-VIEWS.md">WMP exact-history rollout boundary</a>, and the <a href="PENDING-WORK-ROADMAP.md">cross-product roadmap</a>.</p>
+<tr><td><b>Knowledge</b></td><td>A deterministic reading of the committed tree: inventory, structure (areas, data shapes, entry points, imports), behaviour (decision trees, calls, error paths), domain (rules, limits, messages, journeys, tests, approved requirements), system (outbound calls, configuration keys) and change (hotspots, files that change together, impact sets)</td><td>Every observed item cites the exact lines it was read from and a hash of those lines; derived items are computed only from observed items; each level reports ready, thin or insufficient instead of padding. No AI is used to produce knowledge.</td></tr>
+<tr><td><b>Brief</b></td><td>Per phase, the items that match the story's words and changed files, in sections ordered for the phase's reader (product owner, architect, developer or tester) and cut to a small budget of 2 to 4 KB</td><td>Each bullet ends with its source as a file and line; what could not be determined is one closing "Not known" line. People confirm, correct or reject an item, and the review is committed with the code it describes.</td></tr>
+<tr><td><b>Explanations</b></td><td>Optional plain-language sentences a model writes when model use is on (<code>wm knowledge explain</code>, <code>wm knowledge brief</code>)</td><td>A sentence is kept only if every code name, number and quoted text in it appears in what it cites; kept sentences are labelled inferred and never count as verified. Composing a prompt never calls a model for them.</td></tr></table>
+<p><b>Where it lives and who is the authority.</b> Knowledge is cached by content under <code>.git/singularity-flow/knowledge</code> in the shared Git directory, so every story worktree reuses it; a new commit or a new analyzer rebuilds it. The cache is rebuildable and never authoritative. Nothing is published to the state branch; old World Model files already on a state branch stay in Git, unread.</p>
+<p><b>What the AI sees.</b> <code>singularity-flow wm brief --phase PHASE</code> prints exactly what a phase receives. <code>worldModel.knowledge.prompt: off</code> leaves the brief out of every phase prompt, and a work type's <code>intelligence.worldModel: off</code> leaves it out for that work type; ordinary repository access continues either way.</p>
+<p><b>Status.</b> Repository knowledge and the per-phase Repository brief are <b>operational</b>. See the <a href="KNOWLEDGE-MODEL.md">knowledge model guide</a> and the <a href="PENDING-WORK-ROADMAP.md">cross-product roadmap</a>.</p>
 <h3>5a. Types of repository model</h3>
 <table><tr><th>Type</th><th>How it is made</th><th>Model tokens to build</th><th>Tokens to read</th><th>Trust level</th><th>Used for</th><th>Status</th></tr>
-<tr><td><b>Core</b> (AST and registered structural facts)</td><td>Deterministic extractors produce symbols, signatures, imports/calls, and test identities; reusable results bind content and extractor identity</td><td><b>0</b></td><td>a bounded slice of the story's cone</td><td>depends on recorded text, syntax, or semantic assurance</td><td>Build grounding, Verify checks, and impact joins when assurance permits</td><td>operational optional AST and WMB v4 facts; automatic WMP exact-history binding remains pending</td></tr>
-<tr><td><b>Impact</b> (registered-v4 joins)</td><td>Computed from admitted structural edges, clause claims, and the capability map — blast radius, contract consumers, and protected-path intersections</td><td><b>0</b></td><td>only the affected set, on demand</td><td>deterministic with explicit unavailable/partial states</td><td>Plan, Review, amendments, "did we forget"</td><td>operational <code>dev.impact</code> view and blast radius; disposition gate proposed</td></tr>
-<tr><td><b>Declared</b> (capability and architecture intent)</td><td>Written by people: capability ownership, protections, and contracts; optionally projected as CALM</td><td>0</td><td>small, pinned</td><td>authoritative rules, not source observation</td><td>what is allowed and who must sign</td><td>operational; CALM projection includes provenance labels</td></tr>
-<tr><td><b>Semantic</b> (permitted v4 narrative)</td><td>A configured registered-v4 model composer (<code>model-optional</code> or <code>model-required</code>) narrates admitted facts as prose views</td><td>provider-dependent; non-zero</td><td>varies by selected view and budget</td><td>advisory, validated by the view contract, and able to drift</td><td>reader-facing narrative; never deterministic gate authority</td><td>operational only when explicitly requested or configured; model-free alternatives remain available</td></tr></table>
-<p class="note">The first three rows do not invoke a model; their recorded provenance and assurance determine how they may be used. The semantic row consumes provider tokens and remains advisory. Reading an already validated bounded projection is reusable and avoids sending broad repository content to the agent.</p>
+<tr><td><b>Core</b> (optional AST structural facts)</td><td>Parsers and optional semantic packs produce symbols, signatures, imports/calls, and test identities; reusable results bind content and extractor identity</td><td><b>0</b></td><td>a bounded slice of the story's cone</td><td>depends on recorded text, syntax, or semantic assurance</td><td>Build context, call resolution for knowledge, and Verify checks when assurance permits</td><td>operational, optional</td></tr>
+<tr><td><b>Knowledge</b> (Repository brief)</td><td>A deterministic reading of the committed tree, ranked by the story's words and changed lines</td><td><b>0</b></td><td>2 to 4 KB per phase</td><td>cited lines with hashes; explicit "Not known"</td><td>Every phase prompt; what a change touches and where it is risky</td><td>operational</td></tr>
+<tr><td><b>Declared</b> (capability map)</td><td>Written by people: capability ownership, protections, and contracts</td><td>0</td><td>small, pinned</td><td>authoritative rules, not source observation</td><td>what is allowed and who must sign</td><td>operational</td></tr>
+<tr><td><b>Semantic</b> (plain-language explanations)</td><td>A model explains knowledge items in plain words when model use is on</td><td>provider-dependent; non-zero</td><td>a few sentences per subject</td><td>advisory, checked against the cited items, labelled inferred</td><td>reader-facing explanation; never gate authority</td><td>operational only when model use is on; the deterministic brief remains available</td></tr></table>
+<p class="note">The first three rows do not invoke a model; their recorded provenance and assurance determine how they may be used. The semantic row consumes provider tokens and remains advisory. Reading cached knowledge avoids sending broad repository content to the agent.</p>
 
-<h3>5b. Hypothetical values for every repository-model view and projection</h3>
-<p class="note"><b>Illustrative only.</b> Every value in this subsection is invented for a fictional <code>pricing-rule-engine</code> repository. <code>EXAMPLE-*</code> identifiers are not repository evidence, the revision is not a Git hash, and none of these values may satisfy a gate. A real result carries exact fact, evidence, source, extractor, contract, and content hashes. When evidence is missing, SingularityFlow records <b>unavailable</b> rather than inventing a plausible value.</p>
+<h3>5b. A hypothetical Repository brief</h3>
+<p class="note"><b>Illustrative only.</b> Every value in this subsection is invented for a fictional <code>pricing-rule-engine</code> repository; the revision is not a Git hash, and none of these values may satisfy a gate. A real brief cites the files and lines it was read from. When something cannot be determined, the brief says so on its "Not known" line rather than inventing a plausible value.</p>
+<pre class="code"># Repository brief: pricing-rule-engine at EXAMPLE-REV-01 (for implementation, focused on this Story)
 
-<h4>Shared fictional input</h4>
-<table><tr><th>Field</th><th>Hypothetical value</th><th>What a real build would bind</th></tr>
-<tr><td>Repository</td><td><code>pricing-rule-engine</code></td><td>Canonical repository identity and remote authority</td></tr>
-<tr><td>Revision</td><td><code>EXAMPLE-REVISION-01</code></td><td>Exact source commit and source-tree digest</td></tr>
-<tr><td>Capability and scope</td><td><code>pricing-rules</code>; <code>src/main/java</code>, <code>src/test/java</code>, <code>rules</code>, <code>pom.xml</code></td><td>Capability-map revision and admitted path scope</td></tr>
-<tr><td>Observed structure</td><td>312 files, 1,884 symbols, Java and Python sources</td><td>Parser identity, parser version, file digests, assurance, gaps, and contradictions</td></tr></table>
+## What a change touches
+- InterestCalculator.calculate (changed): called by BatchEvaluationService.run and QuoteController.quote;
+  reached from POST /evaluations; tested by InterestCalculatorTest (InterestCalculator.java:41)
 
-<h4>Operational WMB v4 registered views</h4>
-<table><tr><th>Registered view</th><th>Hypothetical values rendered from admitted facts</th><th>Status and trust boundary</th><th>Typical use</th></tr>
-<tr><td><code>arch.contracts@4</code></td><td>Public contract <code>POST /batch-evaluations</code> <code>[F:EXAMPLE-CONTRACT-001]</code>; implementation <code>SparkBatchEvaluator.evaluate</code>; consumers <code>settlement-job</code> and <code>quote-api</code>; contradiction: the declared schema uses a decimal string while one observed implementation uses a floating-point value.</td><td><b>contradicted</b> for that field; runtime SLA <b>unavailable</b>. It does not claim that production traffic or latency was observed.</td><td>Specification, planning, convergence, and contract review</td></tr>
-<tr><td><code>biz.rules@4</code></td><td>Rule <code>EXAMPLE-RULE-APR-001</code>: when tier is Gold and balance exceeds 10,000, outcome is 3.75%; source <code>rules/apr.yml</code> <code>[F:EXAMPLE-RULE-001]</code>.</td><td><b>available</b> as a parsed/declared rule. Intended business meaning and policy-owner confirmation remain <b>unavailable</b> until a human confirms them.</td><td>Specification and acceptance review</td></tr>
-<tr><td><code>dev.hotspots@4</code></td><td><code>RuleEvaluator.evaluate</code> has 42 structural dependents and 18 captured changes in a 90-day history window; <code>RuleParser</code> has dependency degree 27 <code>[F:EXAMPLE-HOTSPOT-001]</code>.</td><td><b>available</b> only for the stated structure/history window. Complexity, incident frequency, runtime load, and ownership are <b>unavailable</b> unless separately evidenced.</td><td>Planning, implementation focus, and review prioritisation</td></tr>
-<tr><td><code>dev.impact@4</code></td><td>Changed symbol <code>InterestCalculator.calculate</code>; dependents <code>BatchEvaluationService</code> and <code>QuoteController</code>; affected contract <code>POST /evaluations</code>; candidate tests <code>InterestCalculatorTest</code> and <code>SparkParityTest</code> <code>[F:EXAMPLE-IMPACT-001]</code>.</td><td><b>partial</b>: structural impact is known; runtime invocation frequency and unobserved dynamic consumers are <b>unavailable</b>.</td><td>Planning, convergence, verification, and blast-radius review</td></tr></table>
-<p>The registered WMB output also carries its exact view/version, TL;DR, contract-defined sections, canonical fact references, used-fact IDs, dependencies, and digests. The four rows above are distinct contracts; labels such as <code>architecture</code> or <code>business</code> are not aliases for these WMB v4 IDs.</p>
+## Rules that apply
+- When tier is Gold and balance exceeds 10,000, the rate is 3.75%; documented, enforced, tested
+  (apr.yml:12; README.md › Rates)
 
-<h4>Model-free WMP overview-view foundations</h4>
-<p>These five <code>@1</code> renderers exist in the code with <code>model.mode=never</code>. They are shown to make the intended projection experience concrete, but normal Story preparation does <b>not yet</b> persist or replay their bindings.</p>
-<table><tr><th>Overview view</th><th>Hypothetical full/brief value</th><th>Required caveat</th></tr>
-<tr><td><code>repository.business@1</code></td><td>Declared purpose: batch price-rule evaluation; documented surface: <code>POST /evaluate</code>; entry point: <code>RulesApplication.main</code>.</td><td>Consumer intent and customer meaning <b>unavailable</b>; this is not the operational <code>biz.rules@4</code> view.</td></tr>
-<tr><td><code>repository.architecture@1</code></td><td>Modules: <code>api</code>, <code>rules-core</code>, <code>spark-runner</code>; observed edge <code>spark-runner → rules-core</code>; contract <code>RuleEvaluationRequest</code>; declared Kafka integration conflicts with no observed client.</td><td>Runtime topology <b>unavailable</b>; the declared/observed mismatch stays visible.</td></tr>
-<tr><td><code>repository.development@1</code></td><td>312 files and 1,884 symbols; Java/Python detected; entry point <code>PaymentsApplication</code>; parser coverage 94% of admitted source files.</td><td>Hotspot importance and runtime frequency <b>unavailable</b>; this is not <code>dev.hotspots@4</code> or <code>dev.impact@4</code>.</td></tr>
-<tr><td><code>repository.security@1</code></td><td>Protected path <code>singularity/workflow.yml</code>; declared maintainer <code>rules-platform</code>; direct structural dependency <code>rules-db</code>; signed scan observation: zero critical findings.</td><td>Not a security verdict. Exploitability and runtime protection guarantees are <b>unavailable</b>.</td></tr>
-<tr><td><code>repository.testing@1</code></td><td>148 test identities; <code>SparkBatchEvaluatorTest</code> relates to <code>SparkBatchEvaluator</code>; <code>AC-003</code> is bound to a signed run reporting 147 passed and 1 skipped with 82% line coverage.</td><td>Performance evidence <b>unavailable</b>; a test name alone never proves that a test passed.</td></tr></table>
+## Contracts
+- POST /batch-evaluations takes BatchRequest and returns BatchResult; refuses with 400 (3 checks); tested
+  (BatchController.java:28)
 
-<h4>External-format projection: <code>arch.calm@1</code></h4>
-<table><tr><th>CALM element</th><th>Hypothetical projected value</th><th>Provenance/status</th></tr>
-<tr><td>Nodes</td><td><code>rule-api</code> (<code>service</code>), <code>spark-batch-engine</code> (<code>service</code>), and <code>rules-store</code> (<code>database</code>)</td><td>Structurally derived and individually source-mapped</td></tr>
-<tr><td>Interface</td><td><code>rule-api-http</code> exposes the admitted evaluation contract</td><td>Source-exact contract; runtime reachability <b>unavailable</b></td></tr>
-<tr><td>Relationships</td><td><code>rule-api → spark-batch-engine → rules-store</code></td><td>Derived from admitted dependency facts; dynamic edges <b>unavailable</b></td></tr>
-<tr><td>Control</td><td><code>protected-rules-config</code></td><td>Human-declared protected scope; enforcement receipt linked separately</td></tr>
-<tr><td>Flow</td><td><code>batch-evaluation</code>, sequence 1 API, 2 Spark engine, 3 rules store</td><td>Deterministically projected; production execution <b>not observed</b></td></tr></table>
-<p>The real CALM JSON uses FINOS CALM 1.2 fields such as <code>unique-id</code>, <code>node-type</code>, <code>relationship-type</code>, and <code>sequence-number</code>, plus SFlow source mapping. Its renderer never copies advisory model prose into architecture evidence.</p>
+## Risks
+- RuleEvaluator.java changed 18 times in 12 months, 6 of them fixes; one person makes most changes
+  (RuleEvaluator.java)
+
+Not known: runtime traffic; calls made through reflection.</pre>
 
 <h3>5c. How the repository model is used in each phase</h3>
 <pre class="mermaid">flowchart LR
-  subgraph SRC[Deterministic fact extraction during a repository-model build - no AI]
+  subgraph SRC[Deterministic reading of the committed source - no AI]
     S1[Parse source into symbols, signatures, imports, test identities]
     S2[Cache by file hash - stamped with commit and parser version]
     S3[Join with capability map and clause claims]
@@ -437,7 +423,7 @@
 <tr><td>Crash safety</td><td>journal PREPARED to FINALIZED; <code>doctor</code> completes or aborts exactly once</td></tr>
 <tr><td>Moving work between people</td><td>a story is a branch: hand off by push; the next person's clone carries the pinned rules, clarifications, candidate and approvals; approvals stale on edit so the record is honest across hands</td></tr>
 <tr><td>Machines</td><td>a second laptop recreates the workspace from the clone; nothing lives only on one machine</td></tr>
-<tr><td>Repository model</td><td>the operational current projection is published on the configured state branch as a manifest-registered set; local cache and query index are rebuildable. Additive exact-key history contracts/readers exist, but automatic WMP history publication and Story lookup are pending</td></tr>
+<tr><td>Repository model</td><td>read from the committed source when a phase prompt is composed; the knowledge cache under <code>.git/singularity-flow</code> is keyed by content and rebuildable; nothing is published</td></tr>
 <tr><td>Audit</td><td><code>sflow audit --offline</code> re-evaluates every check from a bare clone, no network, no model</td></tr></table>
 
 <h2>7. Data overview</h2>
@@ -445,7 +431,7 @@
 <tr><td>Rules (workflows, capabilities, policies, packs)</td><td>yes, hash-pinned</td><td><code>sflow/config</code> branch per repo; derived sections carry authority URL + sha</td><td>internal; repository retention</td></tr>
 <tr><td>Story records: intent, clauses, clarifications, claims</td><td>yes</td><td>work-item branch</td><td>internal; retained with repo</td></tr>
 <tr><td>Candidates, approvals, receipts, refusals, events</td><td>yes</td><td>state branches</td><td>audit evidence; append-only</td></tr>
-<tr><td>Repository model (facts, views, projections) and caches</td><td>current projection published; exact-history optimization staged; caches local</td><td>state branch (<code>singularity/world-model</code> current projection and, after activation, additive <code>singularity/world-model-history</code>) and <code>.git/singularity-flow</code> (cache, query index)</td><td>published model retained with the repository; caches rebuildable and purgeable</td></tr>
+<tr><td>Repository knowledge cache</td><td>local cache only</td><td><code>.git/singularity-flow/knowledge</code></td><td>rebuildable and purgeable; reviews of knowledge items are committed in <code>docs/knowledge/confirmations.yml</code></td></tr>
 <tr><td>Prompt content, model transcripts</td><td><b>no</b> by default (audit ledger opt-in, redacted)</td><td>local</td><td>sensitive; excluded from telemetry</td></tr>
 <tr><td>Per-person productivity metrics</td><td><b>never</b></td><td>—</td><td>house law</td></tr></table>
 
@@ -454,8 +440,7 @@
 sflow/config  (branch)                 law: workflows/ capabilities.yml policies/ agents/ skills/ packs/ knowledge/
                                        derived: {authority, authoritySha} blocks for inherited rules and pinned contracts
 work-items/&lt;STORY&gt;  (branch+worktree)  source.json (pinned intent) · workflow.json (law by hash) · artifacts/&lt;phase&gt;/ · claims
-state/  (branches)                     candidates/ approvals/ receipts/ refusals/ events/ evidence/ world-model/
-                                       world-model-history/ (WMP contracts/read service present; automatic writes pending)
+state/  (branches)                     candidates/ approvals/ receipts/ refusals/ events/ evidence/
 .git/singularity-flow/                 local runtime: journals, derived caches (never authority), recovery buffers</pre>
 
 <div class="part">PART III — OPERATING MODEL</div>
@@ -571,7 +556,7 @@ state/  (branches)                     candidates/ approvals/ receipts/ refusals
 <tr><td>Integrity</td><td>canonical-form hashing; append-only records; derived caches never sole input to a grant; extractor and core engine versions stamped</td></tr></table>
 
 <h2>15. Extensibility and future control-plane integration</h2>
-<p>Everything pluggable is a hash-pinned file: engines (models), units (approved assistant loops or native execution), roles (persona + skills + rules), packs (roles + law), templates, workflows, MCP connectors under core engine-issued permissions. Integration contracts: Jira in/out, Jenkins evidence in, Confluence/SharePoint out, registered event vocabulary with versioned schemas and idempotent outbox to the data lake. The future PDLC control plane subscribes to events and pushes pinned policy; it is never authoritative — delete it and every verdict still resolves from a clone. CALM: generated as a view from governed truth (enforced vs descriptive annotated), round-trip lossless.</p>
+<p>Everything pluggable is a hash-pinned file: engines (models), units (approved assistant loops or native execution), roles (persona + skills + rules), packs (roles + law), templates, workflows, MCP connectors under core engine-issued permissions. Integration contracts: Jira in/out, Jenkins evidence in, Confluence/SharePoint out, registered event vocabulary with versioned schemas and idempotent outbox to the data lake. The future PDLC control plane subscribes to events and pushes pinned policy; it is never authoritative — delete it and every verdict still resolves from a clone.</p>
 
 <h2>15b. Workflow and template configuration, agents, and remote definitions</h2>
 <p>The lifecycle in §10 is not fixed code — it is <b>data a team designs</b>, and everything the lifecycle uses (workflows, artifact templates, agents, skills, packs) can be authored locally or fetched from any approved URL, reviewed once, and hash-pinned. Nothing is ever hot-linked at runtime.</p>

@@ -16,7 +16,7 @@ related:
   - workspaces-and-sessions
   - configuration
   - workflow-authoring
-version: 22
+version: 23
 ---
 Capability changes are proposed, reviewed as an exact diff, and activated through the configuration authority. Collection capabilities organize; delivery capabilities name the repositories that ship.
 
@@ -35,7 +35,7 @@ files remain in World Model scanning when inside its source scope; other exclude
 leave that scan. A separate test-input fingerprint covers both lists and is checked when a quality command runs, when a code generation is
 submitted, and when the review is approved. An excluded directory can therefore reduce World Model
 scanning without making changed test inputs count as unchanged evidence. Do not put runtime source
-directories here merely to suppress a stale-model warning; the reviewer must inspect the exact map.
+directories here merely to shrink the scan; the reviewer must inspect the exact map.
 
 The independent Story-intake choice between **Changed and affected tests** and **All configured
 tests** is described in [Story test policy and recovery](test-recovery.md). That choice requires an

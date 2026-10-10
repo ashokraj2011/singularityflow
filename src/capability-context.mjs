@@ -36,7 +36,6 @@ import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
 import { executeGitQuery } from './git-query.mjs';
 
 const CAPABILITY_CONTEXT_SCHEMA = 1;
-const CAPABILITY_WORLD_MODEL_UNAVAILABLE = 'world_model.capability_unavailable';
 let capabilityMapReadObserverForTests = null;
 
 /** @internal Test-only hook for exercising path replacement at the descriptor boundary. */

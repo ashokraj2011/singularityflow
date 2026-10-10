@@ -19,6 +19,6 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 2. Run `singularity-flow regression analyze --base main [--good <REF>] [--bad <REF>] [--path <PATH>]... --json`.
 3. Present the ranked candidate commits and merge commits. The ranking is triage evidence, not proof.
 4. Inspect the top candidates with read-only Git commands such as `git show --stat <SHA>` and `git show <SHA> -- <PATH>`.
-5. When a repository world model exists, use its architecture, development, and testing views to explain which components, contracts, tests, and callers could be affected.
+5. Use `singularity-flow wm knowledge show` (rules, journeys, tests) to explain which components, contracts, tests, and callers could be affected.
 6. Form explicit hypotheses and distinguish observed facts from inference. Establish causation only with a reproducible failing test, a bisect performed with user consent, or equivalent evidence.
 7. Do not checkout, bisect, revert, edit files, or change Git state unless the user separately asks for that action.

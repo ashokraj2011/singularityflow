@@ -52,7 +52,6 @@ singularity/
 ├── portfolio.yml
 ├── prompts/
 ├── templates/
-├── world-model/
 ├── work-items/
 │   └── WORK-123/
 ├── initiatives/
@@ -68,9 +67,8 @@ The important entries are:
 
 - `workflow.yml`: Story workflow definition.
 - `portfolio.yml`: optional multi-repository Epic and initiative definition.
-- `.github/agents/`: governed execution-role Markdown with phase defaults, tools, instructions, and world-model views.
+- `.github/agents/`: governed execution-role Markdown with phase defaults, tools, and instructions.
 - `templates/`: configurable artifact templates.
-- `world-model/`: generated repository understanding.
 - `work-items/`: Story workflow state, artifacts, approvals, and telemetry.
 - `initiatives/`: Epic requirements, plans, evidence, and Story lineage.
 - `seeds/`: approved Epic context passed into generated Story branches.
@@ -166,7 +164,7 @@ At creation, the CLI resolves and snapshots:
 - Sequence-gate policy.
 - Approval policy and authority registry.
 - Protected paths.
-- World-model grounding requirements.
+- Intelligence policy, including whether phases get the Repository brief.
 
 An active item therefore follows its pinned contract even if the base branch
 configuration changes later.
@@ -192,7 +190,6 @@ Every phase may define:
 
 - Artifact template and required artifact.
 - Approved upstream inputs.
-- Required world-model views.
 - Quality commands.
 - Write scope.
 - Approval authority groups and threshold.
@@ -204,7 +201,7 @@ These definitions are editable in `singularity/workflow.yml`.
 ## 6. Governed agents and human identity
 
 A governed agent is Agent Markdown under `.github/agents/`. Its frontmatter
-declares phase scope, automatic phase defaults, tools, and world-model views;
+declares phase scope, automatic phase defaults, and tools;
 its body supplies the execution instructions. Every configured phase must have
 exactly one default agent.
 
@@ -257,31 +254,26 @@ invoke skills automatically or deny Copilot tools. Lifecycle enforcement remains
 inside the deterministic CLI. The source retains optional command-hook handlers
 for organizations that deliberately add a stricter custom policy.
 
-## 8. Repository world model
+## 8. Repository brief
 
-The world model is a repository-owned description of the codebase. A build reads
-the exact scoped source, registers facts and evidence, renders the registered views
-(`arch.contracts`, `biz.rules`, `dev.hotspots`, `dev.impact`), and publishes them
-with one manifest under `singularity/world-model/` on the configured state branch.
-The default composer makes no model call.
+Every phase prompt gets a Repository brief read from the committed source with no
+build and no model: the rules that apply, contracts, flows, what the Story's change
+touches, and the risky places. The brief is guidance; it never blocks or authorizes
+anything.
 
-Build the views one phase uses:
+See what a phase receives:
 
 ```bash
-singularity-flow wm build --phase design
+singularity-flow wm brief --phase design --work-id WORK-123
 ```
 
-Each build records:
+`singularity-flow wm knowledge show|items|slice|status` reads the same repository
+knowledge directly. `worldModel.knowledge.prompt: off` leaves the brief out of every
+prompt, `worldModel.knowledge.maxBytes` sets its size, and a work type's
+`intelligence.worldModel: off` leaves it out for that work type. In a large
+repository, `worldModel.sourceRoots` and `worldModel.sharedRoots` limit what it reads.
 
-- The exact source snapshot and scope.
-- The registered view contracts and extractor registry.
-- The facts and evidence each view uses.
-- The SHA-256 of each published file.
-
-Views can be built in parallel. The published result is validated against one
-manifest before it becomes governed context.
-
-## 9. How the world model reaches Copilot
+## 9. How the brief reaches Copilot
 
 The phase skill requests:
 
@@ -296,8 +288,7 @@ The composer combines:
 ```text
 Phase contract and artifact template
 + governed Agent Markdown
-+ mandatory phase views
-+ agent-added world-model views
++ Repository brief
 + exact task guide (when requested)
 + locked remote Agent Markdown dependencies
 + approved upstream artifacts
@@ -306,7 +297,7 @@ Phase contract and artifact template
 
 `singularity-flow wm compose` is implemented in JavaScript modules executed by
 Node.js. The selected Markdown is printed as one complete governed prompt, and
-the skill instructs Copilot to use all of it. World-model Markdown is data; it is
+the skill instructs Copilot to use all of it. The Repository brief is data; it is
 not executed as JavaScript.
 
 Inspect the exact effective context without changing state:
@@ -339,17 +330,12 @@ singularity/work-items/WORK-123/context/
 The record includes:
 
 - Phase, generation, work item, governed agent, and human identity.
-- World-model commit and manifest hash.
-- Model source-tree and current source-tree hashes.
-- Required views and every selected file.
-- Per-file SHA-256, size, injected bytes, and truncation.
 - Complete rendered-prompt hash.
-- Freshness and task information.
+- Task information.
 
 Publication reports a warning if the composition is missing, stale, built for the wrong
-governed agent, omits a required view, or differs from the recorded prompt or manifest. The
-World Model is guidance, never authority, so none of these findings blocks publication;
-`worldModel.grounding: enforce` is still accepted and acts as `warn`.
+governed agent, or differs from the recorded prompt. None of these findings blocks
+publication.
 
 ## 11. Approved phase inputs
 
@@ -421,7 +407,7 @@ Publication validates:
 - Placeholder removal.
 - Allowed write scope.
 - Configuration and template hashes.
-- Grounding composition and approved inputs.
+- Prompt composition and approved inputs.
 - Protected files and traceability.
 
 It then creates and pushes a generation commit such as:
@@ -599,8 +585,8 @@ Run the deterministic terminal gate:
 singularity-flow gate --terminal
 ```
 
-The gate recalculates configuration, template, artifact, approval, grounding,
-input, traceability, publication, protected-path, and conformance integrity
+The gate recalculates configuration, template, artifact, approval, input,
+traceability, publication, protected-path, and conformance integrity
 instead of trusting a status label.
 
 ## 19. Telemetry, models, and cost
@@ -713,7 +699,7 @@ repository/capability health; Lifecycle owns intake, workflow choice, active pha
 artifacts and decisions; Inbox owns review attention and the capability portfolio
 dashboard; Configuration owns visual workflow/artifact and
 agent/prompt/skill/prompt-pack designers, capabilities, integrations and
-world-model rules. Secure integration tokens use VS Code `SecretStorage`.
+World Model source scope. Secure integration tokens use VS Code `SecretStorage`.
 Governed generation is handed to native Copilot with the complete rendered prompt.
 See [docs/VS-CODE.md](docs/VS-CODE.md).
 
@@ -774,7 +760,7 @@ The framework enforces these boundaries:
 
 - Governed paths must remain inside their configured directories.
 - Protected inputs reject symbolic links and path traversal.
-- Configuration, templates, prompts, and world-model files are hash-recorded.
+- Configuration, templates, and prompts are hash-recorded.
 - Approvals bind to exact submitted artifact hashes.
 - Git publication uses optimistic head checks and never force-pushes.
 - Soft gates require explicit human confirmation.
@@ -796,8 +782,7 @@ git push -u origin WORK-123
 # Start and bind the Story workflow.
 singularity-flow start WORK-123
 
-# For each active phase. Ensure only when the shared source model is unavailable.
-singularity-flow wm ensure --phase intake
+# For each active phase.
 singularity-flow wm compose --phase intake
 singularity-flow prepare intake
 # Author the artifact.
@@ -812,8 +797,8 @@ singularity-flow report WORK-123
 singularity-flow gate --terminal
 ```
 
-The repository model is shared across Stories. Story context comes from the governed phase
-workflow; add `--task` only when explicitly requesting an ad-hoc task guide.
+Story context comes from the governed phase workflow; add `--task` only when explicitly
+requesting an ad-hoc task guide.
 
 ## Summary
 
@@ -827,7 +812,7 @@ Git-backed, configurable SDLC participant:
 - Human identity controls approvals.
 - Jira supplies optional external issue lineage.
 - VS Code provides the supported visual surface.
-- World-model and input hashes make every generation reproducible and auditable.
+- Prompt and input hashes make every generation reproducible and auditable.
 
 For the executable call chain, prompt vocabulary, Copilot question/receipt
 bridge, and module map, see

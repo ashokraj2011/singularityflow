@@ -10,17 +10,18 @@ structural reads that the current runtime can implement truthfully.
 
 The specification's architecture is compatible with the existing product when
 its stages are treated as release gates rather than as one large replacement.
-Singularity Flow already has two relevant owners:
+Singularity Flow had two relevant owners when it shipped:
 
-- WMB v4 owns governed, reusable, evidence-bound repository view composition and
-  state-branch publication.
+- WMB v4 owned governed, reusable, evidence-bound repository view composition and
+  state-branch publication. It was removed on 2026-10-10; phase prompts now get the
+  Repository brief read from the source.
 - AST Intelligence owns bounded, model-free structural extraction, project
   bindings, cache warming, query cursors, and ordinary-file fallback.
 
 FWM therefore does **not** introduce another repository graph, fact store, or
 world-model publication path. The initial delivery is an additive read-contract
-layer over AST Intelligence. Existing WMB view names, manifests, cache keys,
-publication rules, and lifecycle behavior remain unchanged.
+layer over AST Intelligence. It never changed WMB view names, manifests, cache
+keys, publication rules, or lifecycle behavior.
 
 The reviewed specification is amended as follows for this release:
 
@@ -31,8 +32,8 @@ The reviewed specification is amended as follows for this release:
    `ncg.grep`, `ncg.find`, and `ncg.blast` descriptors are visible as `draft` and
    refuse execution. A name in a roadmap is not treated as an implementation.
 3. FWM semantic identities use a strict, compact canonical-JSON subset with
-   namespace-separated SHA-256. This is separate from WMB v4's established
-   pretty canonical form, avoiding a breaking migration of existing WMB IDs.
+   namespace-separated SHA-256. This was kept separate from WMB v4's pretty
+   canonical form so existing WMB IDs needed no migration.
 4. Structural views remain optional. Disabled, missing, degraded, or unsupported
    AST returns explicit unavailable/partial coverage; it never blocks normal
    lifecycle work and the registered consumer falls back to ordinary files.

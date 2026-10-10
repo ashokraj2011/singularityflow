@@ -590,7 +590,8 @@ function renderAgent(entry) {
   if (!document.has('metadata')) document.set('metadata', metadata);
   for (const [key, value] of [
     ['sflow-label', entry.label], ['sflow-phases', entry.phases.join(',')],
-    ['sflow-default-for', entry.defaultFor.join(',')], ['sflow-world-model-views', entry.views.join(',')]
+    ['sflow-default-for', entry.defaultFor.join(',')]
+    // An old sflow-world-model-views header is left as authored; nothing reads it any more.
   ]) if (document.getIn(['metadata', key]) !== value) document.setIn(['metadata', key], quoted(document, value));
   const text = entry.body != null ? `\n${entry.body.trim()}\n` : body;
   return `---\n${renderPreservingFormatting(header, document)}---\n${text}`;

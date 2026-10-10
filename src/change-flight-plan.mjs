@@ -178,7 +178,7 @@ async function resolvedFlightWorldModel(root, revision) {
     source: projectedText == null ? null : 'application-projection',
     snapshotRef: revision,
     treeSha: null,
-    reason: 'The flight plan does not read registered World Model views; inspect them with singularity-flow wm context.'
+    reason: 'The flight plan reads the repository source; it does not read World Model views.'
   };
 }
 

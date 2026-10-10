@@ -15,15 +15,8 @@ const EXACT_CODES = Object.freeze({
   WFA_DEPENDENCY_UNAVAILABLE: 'repository-state-and-snapshots',
   GIT_READ_UNAVAILABLE: 'repository-state-and-snapshots',
   WFA_RUNTIME_INCOMPATIBLE: 'repository-state-and-snapshots',
-  WMC_INTENT_REPORT_MISMATCH: 'calm-architecture',
-  WMC_INTENT_ALREADY_EXISTS: 'calm-architecture',
-  WMC_INTENT_REVISION_CONFLICT: 'calm-architecture',
-  WMC_INTENT_POLICY_INVALID: 'calm-architecture',
-  WMC_INTENT_GENERATION_STALE: 'calm-architecture',
-  WMC_INTENT_NOT_APPROVED: 'calm-architecture',
-  WMC_INTENT_UNFULFILLED: 'calm-architecture',
-  WMB_SOURCE_SNAPSHOT_REQUIRED: 'world-model',
-  WMB_CACHE_INPUT_INVALID: 'world-model',
+  WMB_REMOVED: 'world-model',
+  COMMAND_REMOVED: 'help-and-docs',
   UNKNOWN_COMMAND: 'help-and-docs'
 });
 

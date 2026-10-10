@@ -254,7 +254,7 @@ Attach or resume the Story before invoking an agent:
 ```
 
 The prompt composition for that turn contains the phase contract, selected agent,
-approved upstream artifacts, selected world-model views, and the effective MCP
+approved upstream artifacts, the Repository brief, and the effective MCP
 policy. Copilot then calls the MCP host normally. Singularity Flow does not place
 credentials in the prompt and does not silently start a server from a read-only
 command.

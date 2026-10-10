@@ -14,7 +14,7 @@ authorities:
    `.github/agents/**` and `singularity/**` paths, plus `configuration/manifest.json` containing the
    configuration commit, product revision, and file hashes.
 
-The state-branch refresh preserves runtime state such as `singularity/world-model/**`. Existing
+The state-branch refresh preserves the other runtime state on that branch. Existing
 Story and Initiative snapshots remain unchanged; newly started work uses the refreshed authority.
 Dirty application checkouts, application branches, indexes, and active Story worktrees are not
 switched, stashed, reset, or edited.
@@ -146,7 +146,7 @@ assets rather than user customizations. Current builds safely migrate those know
 `auto`. Even a one-byte change prevents automatic replacement and keeps the file as a visible local
 choice.
 
-## World-model routing upgrades
+## Model routing upgrades
 
 Older repositories may contain model tiers that pin retired models such as `gpt-4o` and
 `gpt-4o-mini`. A current packaged refresh changes only a recognized historical bundled map to:
@@ -164,21 +164,6 @@ modelTiers:
   code: reason
   analyze: reason
 ```
-
-After refresh, rerun the same world-model command with resume enabled:
-
-```bash
-singularity-flow wm build \
-  --depth deep \
-  --views all \
-  --parallel \
-  --workers 4 \
-  --resume
-```
-
-When the only checkpoint change is the recognized bundled routing migration, completed discovery
-packets are validated and reused. Synthesis runs with Copilot provider-auto selection instead of
-regenerating the completed views. User-authored routing changes remain strict checkpoint boundaries.
 
 ## Protected configuration branches
 
@@ -205,12 +190,9 @@ singularity-flow workspace refresh-configuration \
 ```
 
 Expected repository status is `current`, with both `configurationChanged` and `stateChanged` false.
-For world-model routing, also check:
-
-```bash
-singularity-flow wm status --json
-singularity-flow wm check
-```
+Settings of the removed registered World Model and architecture intent can remain in the refreshed
+`singularity/workflow.yml`; they are ignored, and `singularity-flow doctor` lists them as
+`removed-settings` so you can delete them.
 
 ## Common refusals and recovery
 

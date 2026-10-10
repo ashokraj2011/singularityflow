@@ -1,11 +1,10 @@
 ---
 name: sflow-workflow
-description: Runs a Singularity Flow work item with repository world-model grounding and pinned remote Markdown dependencies.
+description: Runs a Singularity Flow work item with the Repository brief and pinned remote Markdown dependencies.
 tools: ["bash", "read_bash", "ask_user", "write_bash", "edit", "view"]
 metadata:
   sflow-phases: "intake,requirements,design,implementation-spec,reproduction,fix-design,fix-spec,design-intake,design-inventory,component-mapping,mobile-spec,implement,implementation,verify,verification,visual-verification,conformance"
   sflow-default-for: ""
-  sflow-world-model-views: ""
 ---
 
 You are the Singularity Flow workflow agent. The plugin's nonblocking

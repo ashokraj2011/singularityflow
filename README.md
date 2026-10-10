@@ -59,13 +59,8 @@ For bounded work that begins without a Story, follow the
 For a private output Story that has no product repository, follow the
 [local signed-deliverables guide](./docs/LOCAL-SIGNED-DELIVERABLES.md). The L1 profile is model-free,
 publishes a create-only signed archive, and keeps remote delivery and repository adoption disabled.
-For deterministic registered facts, evidence-bound views, exact cache reuse, and atomic state-branch
-publication, see the
-[Governed World-Model Builder v4 guide](./docs/WORLD-MODEL-BUILDER-V4.md).
-The additive [persisted World-Model views roadmap](./docs/PERSISTED-WORLD-MODEL-VIEWS.md) tracks the
-immutable exact-history binding service and its bounded new-Story activation. Activation selects
-only exact already-published history and never turns absence into a hidden build; existing Story
-lifecycles and registered-v4 operation remain compatible.
+For the Repository brief every phase prompt gets and the repository knowledge it is read from, see
+[Repository knowledge](./docs/KNOWLEDGE-MODEL.md).
 For the additive, model-free structural read registry, provenance and coverage contracts, active
 view inventory, and deliberately deferred FWM stages, see
 [Future-proof world-model read contracts](./docs/FUTURE-PROOF-WORLD-MODEL.md).
@@ -83,8 +78,8 @@ selection before it runs.
 
 Singularity Flow is a Git-native SDLC workflow for GitHub Copilot. A
 repository-owned YAML file defines work types, phase sequences, artifact
-templates, governed agents, human approval authority groups, world-model views,
-and publication policy. Generated artifacts and lifecycle decisions are committed
+templates, governed agents, human approval authority groups, and publication
+policy. Generated artifacts and lifecycle decisions are committed
 to a work-item branch and pushed after every operation, so another terminal or VS
 Code session can safely resume from Git. Its preferred direct Copilot skills use
 the short `sf-` prefix.
@@ -105,13 +100,13 @@ scripts and documentation.
 The package contains:
 
 - A deterministic Node.js CLI (`singularity-flow` or `sflow`).
-- Explicit model-independent operation policies, a strict `--no-model` mode, a deterministic `wm build`, and governed manual artifact publication.
+- Explicit model-independent operation policies, a strict `--no-model` mode, and governed manual artifact publication.
 - A VS Code extension for workspaces, intake, workflow configuration, progress, documents, and approvals.
 - A GitHub Copilot plugin with collision-safe skills and a bundled workflow runtime.
 - A canonical searchable help manual shared by the CLI, Copilot, and VS Code.
 - Editable feature, bugfix, chore, and Figma-export-to-mobile profiles.
 - Editable governed-agent prompts and artifact templates.
-- World-model grounding, approval auditing, token accounting, and a final spec-to-code conformance gate.
+- A Repository brief in every phase prompt, approval auditing, token accounting, and a final spec-to-code conformance gate.
 - Opt-in clause-driven specification indexes, claim maps, coverage, acceptance evidence, and a VS Code traceability view.
 - Exact local prompt-composition caching and honest deployment validation for orphan state ledgers.
 - Opt-in Harness Imports for revision-bound `sfref:v1` artifacts, deterministic bounded previews, exact engine conformance evidence, and approved scoped knowledge recall.
@@ -127,7 +122,7 @@ Start with the [documentation map](docs/README.md),
 [pending-work roadmap](docs/PENDING-WORK-ROADMAP.md), and
 [glossary](docs/GLOSSARY.md). The [Git branches and stored state guide](docs/GIT-BRANCH-STORAGE.md)
 explains the application, Story, configuration, review, and orphan state branches and their safe
-retention rules. For a complete explanation of the runtime, prompt composition, world model,
+retention rules. For a complete explanation of the runtime, prompt composition, Repository brief,
 phase lifecycle, Git state transfer, approvals, Epic planning, Jira, workspaces,
 VS Code, telemetry, and security boundaries, read
 [How Singularity Flow works](FRAMEWORK-GUIDE.md). The
@@ -396,8 +391,8 @@ workspace directory or repository clone. Run `singularity-flow workspace prune`
 to see the discarded registrations. Recreate the workspace after resetting its
 lead repository to the bundled version-2 configuration.
 
-This discards uncommitted workflow state, generated artifacts, world-model
-files, templates, prompts, sessions, locks, local telemetry, and pending
+This discards uncommitted workflow state, generated artifacts, templates,
+prompts, sessions, locks, local telemetry, and pending
 publication records in the reset scope. It preserves application source, Git
 history and configuration, workspace clones, the global workspace registry,
 and valid custom `.github/agents` files not supplied by the package. A custom
@@ -487,7 +482,7 @@ Applying it replaces the global `singularity-flow` npm package, both historical
 Copilot plugin identities, marker-owned direct `/sf-*` skills, the VS Code
 extension, and the installer-managed telemetry wrapper. It never runs Git and
 never scans for or changes repository `singularity/`, `.singularity/`,
-`.git/singularity-flow/`, branches, worktrees, artifacts, world models, workspace
+`.git/singularity-flow/`, branches, worktrees, artifacts, workspace
 clones, `~/.singularity-flow` workspace selection, VS Code state, SecretStorage,
 Jira credentials, or personal skills. A receipt is written under
 `~/.singularity-flow/installations/`. A successful full clean reinstall also retains the exact
@@ -573,14 +568,10 @@ Initialization also installs `singularity/portfolio.yml`. It is inert until an i
 The governed Epic and Story pages do not start or embed a Copilot planning session. Requirements
 and Planning show the exact `/sf-*` command to run from the open repository,
 with one-click copy controls. The installed skill composes the selected phase,
-governed agent, repository world model, approved inputs, agent skills, requirements,
+governed agent, Repository brief, approved inputs, agent skills, requirements,
 and templates inside the user’s normal Copilot CLI session. Refresh the VS Code
 Lifecycle view after the skill commits and pushes its result. Epic planning uses pinned Jira and
-uploaded source evidence; it does not require a world model. After Story intake
-creates the canonical Story branch, repository World-Model generation remains an
-explicit CLI/Copilot operation or a separately pinned materialization action.
-A World Model build publishes its current projection to the configured state authority and
-leaves the application branch unchanged.
+uploaded source evidence.
 
 ## Repository discovery before onboarding
 
@@ -981,8 +972,8 @@ Fresh repository setup creates `sflow/config` from installed defaults with an
 exact create lease, without changing the application branch. It falls back to a
 review proposal if remote branch policy rejects direct creation. Restoring or
 migrating existing configuration remains a separate reviewed operation; reusable
-configuration is preserved, while runtime state, evidence, telemetry, and
-world-model output are not imported into shared configuration.
+configuration is preserved, while runtime state, evidence, and telemetry are not
+imported into shared configuration.
 
 Map publication is retry-safe across timeouts and dropped connections. Before any remote write,
 SFlow requires an explicit Git-configured `user.name` and `user.email`; it never attributes a
@@ -1057,12 +1048,10 @@ bypass the cache and contact the remote.
 When a Story or Initiative starts, Flow resolves the owning capability from the
 active workspace (or accepts `--capability <ID>` when a repository participates in
 more than one). It snapshots the capability path, map SHA-256, inherited policy,
-active leases, and sibling-repository world models into the lifecycle branch.
+and active leases into the lifecycle branch.
 That immutable snapshot then tightens phase availability, write scope, checks,
-approval identities and thresholds, self-approval, document/token budgets, and
-required world-model views. Prompt composition reads only the pinned, hash-verified
-views required by the active phase; later capability-map or sibling-model changes
-cannot silently rewrite work already in progress.
+approval identities and thresholds, self-approval, and document/token budgets;
+later capability-map changes cannot silently rewrite work already in progress.
 
 Use one diagnostic from the terminal, Copilot, or the VS Code **Diagnostics**
 command:
@@ -1132,7 +1121,7 @@ workflow for that work, inspect the selected workflow's phases and artifacts,
 run the next action, and make approval decisions. Workflow choices disappear
 from Lifecycle after intake because that choice is then pinned to the active
 work. **Configuration** is where the machinery is created and edited: workflow
-and phase design, gates, world-model rules, `workflow.yml`, `portfolio.yml`,
+and phase design, gates, World Model source scope, `workflow.yml`, `portfolio.yml`,
 artifact templates, governed Agent Markdown and its prompts, skills and prompt
 packs, remote agent resources, mappings, and approval policy. Capabilities are
 not a fourth lifecycle/configuration concept; they are shown as part of the
@@ -1169,7 +1158,7 @@ work is compared with actual changed paths at submission, and unexamined scope e
 Before a Story or Epic exists, **Lifecycle → Explore workspace impact** can call
 Copilot over revision-pinned, disposable copies of every selected workspace
 repository. It needs no Work ID and creates no branch. The local report records the
-repository commits, world-model hashes, staged documents, prompt, summary, and
+repository commits, staged documents, prompt, summary, and
 freshness. Changes to a captured repository HEAD or to the saved prompt/summary
 make the report stale. A useful result can be copied into the workspace document
 inbox and then explicitly selected as governed intake evidence; advisory output is
@@ -1533,7 +1522,7 @@ fingerprint-bound `--clean-reinstall` path never reads or changes a workspace.
 For existing workspaces created by older builds, follow the standalone
 [configuration refresh guide](README-REFRESH-EXISTING-WORKSPACES.md). It covers the VS Code and CLI
 preview/apply flow, plan IDs, conflict choices, protected configuration branches, state projection,
-and reuse of completed world-model packets during bundled routing upgrades.
+and bundled model-routing upgrades.
 
 On Windows, open **Git Bash** in the Singularity Flow checkout and use the Windows wrapper. It
 checks Node.js 20+, updates the checkout safely, confirms that the CRLF Agent Markdown fix is
@@ -1720,10 +1709,10 @@ application branch. See
 
 `singularity/workflow.yml` is the definition for new work items. It contains:
 
-- `workTypes`: profile-specific phase sequences, template overrides, optional `phaseOverrides`, and a pinned `intelligence` contract for world-model, AST, and agent-brief use.
+- `workTypes`: profile-specific phase sequences, template overrides, optional `phaseOverrides`, and a pinned `intelligence` contract for Repository brief (`worldModel`), AST, and agent-brief use.
 - `inputsMode`: backward-compatible `off`, audit-oriented `record`, or blocking `enforce` phase dataflow.
-- `phases`: default templates, approved upstream inputs, artifact paths, write scope, world-model views, clarification checkpoints, quality commands, and approval rules.
-- `agents`: prompt-only governed agents, suggested phases, and additional world-model views.
+- `phases`: default templates, approved upstream inputs, artifact paths, write scope, clarification checkpoints, quality commands, and approval rules.
+- `agents`: prompt-only governed agents and suggested phases.
 - `approvalSecurity`: independently controls self-approval and automatic enrollment of a new Git identity before new work pins its authority groups; both default on outside the regulated profile.
 - `approvalAuthorities`: real-human approval groups matched by Git email or authenticated GitHub login.
 - `documents`: allowed upload phases, maximum file size, and text-preview limit; work types may override this policy.
@@ -1746,10 +1735,10 @@ The bundled profiles are:
 | POC Lite | PLAN → ACT → VERIFY → FINALIZE |
 
 The two benchmark profiles are paired controls. They use the same five phases, artifact templates,
-default agents, write scopes, approvals, and rejection routes. Benchmark A requires a published
-world model, requests one bounded optional AST page, and passes approval-bound agent briefs between phases.
+default agents, write scopes, approvals, and rejection routes. Benchmark A gets the Repository
+brief, requests one bounded optional AST page, and passes approval-bound agent briefs between phases.
 If AST is unavailable, Benchmark A continues through ordinary repository file access. Benchmark B
-disables repository and capability world-model context and AST context, and passes the full approved artifacts instead. The selected profile and intelligence policy
+leaves out the Repository brief and AST context, and passes the full approved artifacts instead. The selected profile and intelligence policy
 are immutable for the Story. Select the two profiles across comparable Stories; do not treat a
 hand-selected pair as randomized evidence. Use Flow Impact receipts when measuring the result.
 
@@ -1771,7 +1760,7 @@ Every new Story first requires an explicit branch published by every required re
 
 For review feedback, Classic Delivery supports an explicit reject-to-Code rework cycle. `/sf-revision-attachments` can stage a local reviewer file against an active Story, but does not run a REV loop or replace Code's committed test receipt. Check `singularity-flow revision activation --json` before assuming REV execution is available; the current build reports it disabled. See [Classic Delivery review and rework](docs/CLASSIC-DELIVERY-REVIEW-AND-REWORK.md) for both Copilot and shell steps.
 
-`poc-lite` is the repository-native, model-free profile. PLAN records the bounded objective, ACT delivers product and executable test changes, VERIFY records the configured repository checks, and FINALIZE stops for one explicit human quality approval. The profile disables world-model, AST, model, agent-brief, and MCP requirements and imposes no external service dependency; use global `--no-model` when invoking it from the CLI.
+`poc-lite` is the repository-native, model-free profile. PLAN records the bounded objective, ACT delivers product and executable test changes, VERIFY records the configured repository checks, and FINALIZE stops for one explicit human quality approval. The profile leaves out the Repository brief, disables AST, model, agent-brief, and MCP requirements, and imposes no external service dependency; use global `--no-model` when invoking it from the CLI.
 
 `poc-workflow` is the enterprise Playwright profile. It requires a hash-bound Playwright host attestation and live browser smoke receipt, governed accessibility/runtime/visual evidence, real TypeScript and Playwright execution, at most two kernel-enforced human-authorized repair generations, and separate quality and engineering decisions at publication. The kernel restricts its generation and repair phases to recognized test-automation paths, so an instruction cannot authorize product-source edits. It never runs an autonomous healing loop or writes the selected base branch. Its phases use separate least-privilege analyst, explorer, test-developer, and validator agents. The first phase activates its default agent; resume activates the current phase's default. The active agent is stored locally in `.git/singularity-flow/session.json`; opening a session does not create a repository commit. It is prompt context, not a real identity or approval credential.
 
@@ -1822,7 +1811,7 @@ contextPolicy:
     implementation: compact
 ```
 
-The boundary is advisory because a child process cannot clear its parent Copilot CLI conversation. After the approval commit and push succeed, the CLI prints the exact next actions. `new` prints `/clear` followed by `/sf-next`, `compact` prints `/compact` followed by `/sf-next`, and `keep` continues directly. The next skill reconstructs its phase prompt from approved Git artifacts, pinned inputs, the selected governed agent, templates, agent Markdown, and required world-model views. Clearing therefore removes conversation history without losing governed state. It reduces tokens sent in later phases but does not refund tokens already consumed. Rejections default to `keep` so the correction conversation retains review feedback. The normalized policy is pinned in work-item and initiative state; configurations without it retain the earlier `keep` behavior.
+The boundary is advisory because a child process cannot clear its parent Copilot CLI conversation. After the approval commit and push succeed, the CLI prints the exact next actions. `new` prints `/clear` followed by `/sf-next`, `compact` prints `/compact` followed by `/sf-next`, and `keep` continues directly. The next skill reconstructs its phase prompt from approved Git artifacts, pinned inputs, the selected governed agent, templates, agent Markdown, and the Repository brief. Clearing therefore removes conversation history without losing governed state. It reduces tokens sent in later phases but does not refund tokens already consumed. Rejections default to `keep` so the correction conversation retains review feedback. The normalized policy is pinned in work-item and initiative state; configurations without it retain the earlier `keep` behavior.
 
 `/sf-session` applies this policy in order. For each new Copilot session it uses an exact work ID or Jira ID explicitly supplied by the contributor, or asks for one when it is absent; lists committed work-item branches from the configured Git remote; fetches the remote; checks out a missing local tracking branch; and fast-forwards to the exact remote head. It then activates the current phase's default agent. `/sf-agent` explicitly overrides that prompt context without changing the human identity or its approval authority.
 
@@ -1954,8 +1943,8 @@ SFlow resolves the branch to an exact SHA before Story mutation, stores that imm
 Story, and materializes a detached, ignored checkout for generation. It never branches, commits, or
 pushes the reference repository. VS Code provides structured ID/URL/branch fields, a provisional
 read-only check, and a Lifecycle health section. Generation receives a bounded model-free navigation
-overlay and reuses a World Model already committed in the reference SHA when present; it never builds
-one for a reference or blocks because one is absent. See
+overlay; it does not read or build a World Model for a reference and never blocks because one is
+absent. See
 [Reference repositories at Story intake](docs/REFERENCE-REPOSITORIES.md).
 
 For a short manual request without a story file:
@@ -2009,7 +1998,7 @@ action's own pair separately. For example, phase generation is `Copilot: /sf-pha
 `singularity-flow next`. A completed action and the remaining next action are also reported under
 separate labels, so a recommendation is never described as something already executed.
 
-The command performs exactly one lifecycle action. It recovers a pending push, prepares and grounds the active generation, submits an already-published generation, opens the normal interactive approval flow, or runs the terminal gate after completion. Lifecycle grounding uses the shared repository world model keyed by its scoped source snapshot; Story context comes from the governed workflow prompt, so starting another Story does not create a task-guide requirement or regenerate unchanged repository grounding. The legacy `--task` flag is accepted for compatibility and ignored by lifecycle grounding; use explicit `wm ensure/compose --task` commands only when intentionally requesting an ad-hoc task guide. Copilot completes and publishes a prepared artifact; it does not silently chain that publication into submission. Approval verifies the real reviewer identity and authority group, activates the phase agent, then requires exact phase confirmation; every approval gets its own commit and push.
+The command performs exactly one lifecycle action. It recovers a pending push, prepares and composes the active generation, submits an already-published generation, opens the normal interactive approval flow, or runs the terminal gate after completion. Story context comes from the governed workflow prompt, so starting another Story does not create a task-guide requirement. The legacy `--task` flag is accepted for compatibility and ignored by lifecycle composition; use an explicit `wm compose --task` command only when intentionally requesting an ad-hoc task guide. Copilot completes and publishes a prepared artifact; it does not silently chain that publication into submission. Approval verifies the real reviewer identity and authority group, activates the phase agent, then requires exact phase confirmation; every approval gets its own commit and push.
 
 ## Progress
 
@@ -2113,11 +2102,10 @@ Copilot users normally invoke the appropriate skill, for example:
 /sf-phase
 ```
 
-The skill combines its phase contract with the active governed agent and verified repository grounding. The equivalent deterministic CLI sequence is:
+The skill combines its phase contract with the active governed agent and the Repository brief. The equivalent deterministic CLI sequence is:
 
 ```bash
 singularity-flow wm compose --phase intake
-# If instructed, first ensure the shared repository model for this phase.
 singularity-flow prepare intake
 # Fill the generated template.
 singularity-flow phase publish intake
@@ -2181,7 +2169,7 @@ their pinned full-input declarations.
 
 ## Human clarification checkpoints
 
-Copilot clarification is configured per phase and is pinned with the work item. It is part of the exact prompt produced by `wm compose`, after the active phase contract and before agent/world-model evidence:
+Copilot clarification is configured per phase and is pinned with the work item. It is part of the exact prompt produced by `wm compose`, after the active phase contract and before agent and repository evidence:
 
 ```yaml
 phases:
@@ -2193,7 +2181,7 @@ phases:
 ```
 
 - `off` adds no interactive checkpoint.
-- `when-needed` asks only when governed sources, approved inputs, and the world model leave a material ambiguity.
+- `when-needed` asks only when governed sources, approved inputs, and the Repository brief leave a material ambiguity.
 - `required` always pauses for at least one human response. If the evidence appears complete, Copilot asks the contributor to confirm its concise interpretation instead of silently continuing.
 
 The starter workflows use `required` from initial intake through Design and specification creation (including bug-fix and mobile-design equivalents), then `when-needed` during implementation, verification, and conformance. Copilot asks one concise batch through `ask_user`, waits, and records the human response against the exact prompt and prospective generation before it authors. It incorporates confirmed answers as artifact decisions and leaves only explicitly deferred, non-blocking items under Open questions. If questions cannot be asked or recorded, the skill prints them and stops. The CLI never guesses an answer.
@@ -2336,54 +2324,32 @@ The deterministic gate checks profile/template snapshots, remote publication, ar
 
 ## World model
 
-Large monorepos do not need a repository-wide world model. In **Configuration
+The World Model is the Repository brief every phase prompt gets, read from the committed source
+with no build and no model: the rules that apply, contracts, flows, what the Story's change
+touches, and the risky places. It is guidance and never blocks or authorizes anything.
+`worldModel.knowledge.prompt: off` leaves it out of every prompt, `worldModel.knowledge.maxBytes`
+sets its size, and a work type's `intelligence.worldModel: off` leaves it out for that work type.
+For the business or product reading of the code, use repository knowledge (see
+[Repository knowledge](./docs/KNOWLEDGE-MODEL.md)).
+
+```bash
+singularity-flow wm brief --phase design --work-id WORK-123
+singularity-flow wm knowledge status
+singularity-flow wm knowledge show business
+```
+
+Large monorepos do not need a repository-wide brief. In **Configuration
 Center → World model**, or in `singularity/workflow.yml`, set repository-relative
 `sourceRoots` plus any `sharedRoots`. A capability may pin a narrower scope;
 child application roots replace the parent scope while shared roots accumulate.
 New lifecycle state pins that resolution so an active Story does not drift when
 the capability map changes.
 
-The registered World Model is off unless a repository sets `worldModel.registered: on`. While it is
-off nothing builds, reads, verifies or asks for it, a Story that pinned it continues without it,
-`wm build` and the other registered commands refuse with `WMB_REGISTERED_OFF` (`wm status` answers
-`off`), and every phase prompt carries the Repository brief read from the source instead
-(`singularity-flow wm brief --phase PHASE`). What follows applies only where it is on.
-
-Registered v4 is the only World Model format; `worldModel.format` may be omitted. In that page
-(or in `singularity/workflow.yml`), declare dotted views such as `dev.impact` and review the
-composer, consumer, cache, and total-token controls. Use `sflow world-model plan --views ...` before
-`sflow world-model build --views ...`. `wm build` is deterministic by default; only
-`worldModel.v4.composer: model-optional` or `model-required` may call a model. Depth is `quick`,
-`standard`, or `deep`. `wm ensure` only verifies readiness, and the gateway exposes read-only
-inspection rather than mutation. The complete command, cache, IDE, and state-publication behavior is
-in the [Governed World-Model Builder v4 guide](./docs/WORLD-MODEL-BUILDER-V4.md).
-
-```bash
-singularity-flow wm views
-singularity-flow wm plan --views dev.impact,arch.contracts
-singularity-flow wm build --views dev.impact,arch.contracts
-singularity-flow wm status --phase design
-singularity-flow wm check
-```
-
-The legacy-v3 World Model was removed. A configuration that still sets `format: legacy-v3` or
-names a legacy view such as `business` or `architecture` still loads, without World Model context
-for those entries; `singularity-flow doctor` lists them and `singularity-flow wm migrate-views`
-rewrites them to registered views.
-For the business or product reading of the code, use repository knowledge:
-`singularity-flow wm knowledge show business` (see [Repository knowledge](./docs/KNOWLEDGE-MODEL.md)).
-
-New Stories that accept `registered-v4` can reuse immutable persisted history without rebuilding
-it. Before WFA seals the Story policy, SFlow derives the complete phase/agent selection, plans exact
-Model/View Keys, reads them at one state-authority commit, rechecks authority, and stores a closed
-self-hashed pin in the Story. An exact miss is pinned as unavailable and does not block ordinary
-work or trigger extraction, rendering, a model, AST, cache writes, fetch, or publication. For an
-active pin, every eligible governed-agent phase re-resolves the exact bytes selected for its
-phase/agent pair and proves the complete pinned closure and cut; state
-fast-forward is accepted while the pinned commit remains an ancestor, while rewind, replacement,
-authority drift, missing/tampered bytes, or closure mismatch fail closed. The phase never falls back
-to a newer mutable projection. See
-[Persisted World-Model views](./docs/PERSISTED-WORLD-MODEL-VIEWS.md).
+The registered World Model (published views on the state branch), the CALM architecture
+projection, and architecture intent were removed. Their settings in an older
+`singularity/workflow.yml` are ignored and `singularity-flow doctor` lists them as
+`removed-settings`; their `wm` commands refuse with `WMB_REMOVED`, and `architecture` refuses with
+`COMMAND_REMOVED`. Old World Model files on a state branch stay in Git and are not read.
 
 For bounded structural references, `singularity-flow wm ast context --paths src --max-facts 50 --max-output-bytes 32768 --json` uses the
 same pinned scope and a selected-cone content binding. Java, Python, Kotlin, and Swift receive
@@ -2438,11 +2404,11 @@ singularity-flow wm compose --phase design --task "Design invoice export"
 singularity-flow wm show-prompt
 ```
 
-`wm compose` is the single phase entry point. It combines the active governed Agent Markdown, mandatory phase and agent-added views, an exact task guide only when explicitly requested with `--task`, applicable evidence, and locked remote agent skills. `wm inject` remains an alias for compatibility. `worldModel.injection.rules` is still accepted in configuration but is ignored.
+`wm compose` is the single phase entry point. It combines the active governed Agent Markdown, the Repository brief, an exact task guide only when explicitly requested with `--task`, applicable evidence, and locked remote agent skills. `wm inject` remains an alias for compatibility.
 
 Use `/sf-show-prompt` at any active Story phase to display the complete
 `/sf-phase` `SKILL.md` followed by the exact rendered governed phase prompt.
-The inspection uses `--render-only`: it does not create a grounding record,
+The inspection uses `--render-only`: it does not create a composition record,
 prepare an artifact, edit workflow state, commit, or push. Pass
 `--skill sflow-design` (or another installed Flow skill ID) to inspect that
 skill contract with the same current-phase prompt.
@@ -2477,7 +2443,7 @@ optional sections and records their hashes; `enforce` does the same but refuses 
 artifacts contribute only their producer-authored bytes—their managed input blocks are never nested
 again—and an exact path/hash match is never injected a second time as a governed reference preview.
 
-Non-dry-run composition writes both a JSON provenance record and the exact rendered prompt under the work item's `context/` directory. The World Model is guidance, never authority. `worldModel.grounding: warn` verifies the committed model, source hash, required views, file hashes, manifest, agent, and prompt snapshot before World-Model bytes are used; malformed or tampered context is left out of the prompt and reported as a warning. A missing or unreachable model instead creates a hash-bound unavailable receipt with zero World-Model bytes, and ordinary repository access continues. If the prompt budget drops the pinned World-Model section, the composition records it as unavailable (`WMP_GROUNDING_OMITTED_BY_BUDGET`). Staleness `warn` or `ignore` may consume an otherwise integrity-verified stale snapshot with the configured visibility. No grounding or staleness finding refuses publication, submission, or completion. `grounding: enforce` and `staleness: fail` are still accepted and act as `warn`. The selected modes are pinned when the work item starts. Use grounding `warn` to report integrity findings, or `off` to omit World-Model handling entirely. Registered durable state is read through pure, deterministic in-memory migration chains; no read rewrites a stored record or changes its hash.
+Non-dry-run composition writes both a JSON provenance record and the exact rendered prompt under the work item's `context/` directory. The Repository brief is guidance, never authority: nothing in it refuses publication, submission, or completion. Registered durable state is read through pure, deterministic in-memory migration chains; no read rewrites a stored record or changes its hash.
 
 ## Fault intake and governed repair
 
@@ -2615,7 +2581,7 @@ skills are then added to the normal prompt composition:
 ```text
 phase contract and template
 + selected governed-agent prompt
-+ repository world model
++ Repository brief
 + active agent skill Markdown
 + approved phase inputs
 ```
@@ -2811,7 +2777,7 @@ evidence workflow.
 | `singularity-flow action plan [STORY-OR-INITIATIVE]` | Create a short-lived action plan bound to subject kind, branch, HEAD, index, working-tree, and lifecycle hashes. |
 | `singularity-flow action authorize <PLAN-ID> --action <ACTION-ID> --confirm <ACTION-ID>` | Record one short-lived, machine-local authorization after reviewing that exact action. |
 | `singularity-flow action execute <PLAN-ID> --action <ACTION-ID> --authorization <TOKEN>` | Revalidate and run one reviewed action directly through the engine. The token is consumed once; read-only actions omit it. |
-| `sflow-next [--task TEXT] [--yes]` | Execute exactly one next valid action; alias for `singularity-flow next`. Lifecycle grounding reuses the source-keyed repository model across Stories; `--task` is retained for compatibility and ignored here. Missing or stale World-Model intelligence is recorded and ordinary phase work continues. An optional build runs only under its separately configured or confirmed materialization policy. |
+| `sflow-next [--task TEXT] [--yes]` | Execute exactly one next valid action; alias for `singularity-flow next`. `--task` is retained for compatibility and ignored here. |
 | `singularity-flow inputs [PHASE] [--dry-run]` | Inspect or render approved phase-input dataflow. |
 | `singularity-flow agents list\|mappings\|lock\|sync\|status\|refresh-output` | Resolve Copilot-agent mappings and trust, materialize, inspect, or refresh remote Markdown agents. |
 | `singularity-flow mcp list\|status\|doctor` | Join governed MCP assignments to host server names and report static readiness without exposing host secrets or making network calls. |
@@ -2825,7 +2791,7 @@ evidence workflow.
 | `singularity-flow mcp record <SERVER> --tool <TOOL> [--kind KIND] [--phase PHASE] [--output PATH]` | Copy and hash a declared MCP result into the active work item; Figma design sources also require file key and version. |
 | `singularity-flow mcp design-sources status` | Verify and display the exact approved design-source set used by downstream prompts. |
 | `singularity-flow mcp design-sources promote <RECORD-ID> --confirm <RECORD-ID>` | Explicitly promote a reviewed candidate, reopen capture, invalidate downstream approvals, and pin it for the next generation. |
-| `singularity-flow capabilities doctor [ID] [--offline]` | Verify capability ownership, inherited lifecycle policy, orphan-state publication, ledger integrity, lifecycle pinning, and cross-repository world-model snapshots. |
+| `singularity-flow capabilities doctor [ID] [--offline]` | Verify capability ownership, inherited lifecycle policy, orphan-state publication, ledger integrity, and lifecycle pinning. |
 | `singularity-flow documents list [ID] [--phase PHASE] [--active\|--all]` | List active uploaded inputs and generated documents, only those one phase uses, or include detached evidence history. |
 | `singularity-flow documents view <ID\|NAME> [--all]` | Display active text content or return the path/URL for a binary/external document; `--all` permits audited detached evidence. |
 | `singularity-flow documents upload <FILE-OR-DIRECTORY...> --name TEXT... [--phases PHASE,...\|all] [--store git\|local]` | Recursively copy, hash, catalog, commit, and push named supporting evidence during configured initial phases; `--store local` commits only its identity. |
@@ -2861,14 +2827,12 @@ evidence workflow.
 | `singularity-flow stack status\|sync [--epic ID]` | Inspect or replicate the enforced Story/PR order to each repository's orphan state branch. |
 | `singularity-flow refresh-branch [--remote origin]` | Fetch and fast-forward only the checked-out clean branch; stop safely when it diverges. |
 | `singularity-flow regression analyze [--good REF] [--bad REF] [--path PATH]` | Rank likely regression commits and merge history without changing the repository. |
-| `singularity-flow wm build [--phase PHASE] [--views LIST] [--depth quick\|standard\|deep] [--composer deterministic\|model-optional\|model-required] [--workers N]` | Build the registered views. The default composer is deterministic and calls no model; exact cached views are reused. |
-| `singularity-flow wm history list [--limit N] [--cursor CURSOR]` / `wm history show <KEY>` with `--authority-commit <FULL-COMMIT>` | Page through exact persisted registered-v4 key paths, or verify a selected binding when every referenced semantic-owner adapter is installed, at one exact locally available state-authority cut. Cursors bind the cut, kind selection, history root, and page size. This read never fetches, builds, invokes a model or AST, writes a cache, or changes Git. |
-| `singularity-flow wm cleanup [--force]` | Prune stale owned worktrees left by interrupted world-model builds; `--force` also removes unowned legacy temporary worktrees after operator review. |
-| `singularity-flow wm recovery list\|inspect <ID>\|publish <ID> --confirm <ID>` | Inspect or republish an immutable retained recovery snapshot after a registered-v4 publication failure. Publication requires the exact recovery ID and rechecks the recorded authority; normal cache reuse is separate. |
+| `singularity-flow wm brief --phase PHASE [--work-id ID]` | Show the Repository brief a phase receives, read from the source with no build and no model. |
+| `singularity-flow wm knowledge show\|items\|slice\|status\|build\|eval\|explain\|brief\|calls\|areas\|confirm\|correct\|reject` | Read, build, or review repository knowledge. `brief` and `explain` can be model-written when model use is on. |
 | `singularity-flow wm ast doctor\|status\|context\|query\|build\|gate\|warm\|pack\|evidence reproduce` | Inspect, build, warm, package, or reproduce bounded structural evidence with explicit assurance and coverage. No model is invoked. |
 | `singularity-flow documents browse --provider <ID> [--path FOLDER]` | List items in a configured OneDrive/SharePoint, Artifactory, S3, or HTTPS provider. |
 | `singularity-flow documents fetch --provider <ID> --ref <ITEM>` | Materialize provider bytes into the work item's inputs, then commit and publish them. |
-| `singularity-flow logs [--level L] [--event P] [--tail N]` | Read the machine-local activity log: commands, hook decisions, and world-model progress, with secrets redacted. |
+| `singularity-flow logs [--level L] [--event P] [--tail N]` | Read the machine-local activity log: commands and hook decisions, with secrets redacted. |
 | `singularity-flow logs path\|level` | Show the log file location, or the effective file and console levels. |
 | `singularity-flow logs workspace [--source all\|activity\|prompt\|telemetry\|workspace] [filters]` | Read a newest-first, read-only timeline across only the active workspace's declared repositories. Use `--json` for the versioned envelope. |
 
@@ -2915,7 +2879,7 @@ The supported visual surface is the VS Code extension:
 - **Inbox** brings generated Markdown, JSON, YAML, registered evidence, review
   packets, and pending decisions into one business-friendly view. Its portfolio
   dashboard summarizes capabilities, repositories, Jira routes, open work,
-  approvals, diagnostics, and world-model health.
+  approvals, and diagnostics.
 - **Lifecycle Analytics** turns the committed Story report into a phase rail and
   business-readable dashboards for completion, elapsed/active/waiting time,
   approval bottlenecks, generations and rework, models, exact-or-unavailable token
@@ -2924,7 +2888,7 @@ The supported visual surface is the VS Code extension:
 - **Configuration** opens Workflow Studio (Story and Epic workflows, artifacts,
   configuration proposals); the governed Agent, Prompt, Skill, and Prompt Pack
   Designer; capability mapping; integrations;
-  approval policy; and world-model rules. Configuration affects future work;
+  approval policy; and World Model source scope. Configuration affects future work;
   active work follows its immutable pinned resolution.
 
 ```bash
@@ -2938,7 +2902,7 @@ The first-run walkthrough configures the local name and menu persona, Jira throu
 VS Code `SecretStorage`, a workspace, and intake. The menu persona only reorders
 the complete Navigator and seeds first-use Favorites; it never hides commands,
 grants authority, or selects an agent. Workflow phases select governed agents. **Open Governed Context in
-Copilot** renders the effective skill, agent instructions, prompt pack, world model,
+Copilot** renders the effective skill, agent instructions, prompt pack, Repository brief,
 approved inputs, artifact template, and phase contract into native Copilot chat.
 Use `/sf-show-prompt` or `sflow wm show-prompt --phase <PHASE>` to inspect the same
 composition before authoring.

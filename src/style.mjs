@@ -199,9 +199,9 @@ function humanDuration(ms) {
 /**
  * Announce a long operation and keep saying it is alive.
  *
- * `wm build` allows twenty minutes and captures the provider's output, so the product's most
- * impressive feature printed nothing at all while it ran: silence meant success and output meant
- * trouble, backwards from every other command. Returns a function to call when the work finishes.
+ * A long model-backed command captures the provider's output, so it used to print nothing at all
+ * while it ran: silence meant success and output meant trouble, backwards from every other command.
+ * Returns a function to call when the work finishes.
  *
  * On a terminal this rewrites one line. Everywhere else — a pipe, CI, the VS Code adapter — it emits
  * a start line and a finish line and nothing in between, so no log ends up full of carriage returns.

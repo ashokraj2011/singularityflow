@@ -86,7 +86,7 @@ performs a fresh store read before replacing a dirty form; it is not a repaint o
 
 **Configuration → Agents & delivery** separates authoring from trust:
 
-- **Agents** edits phase routing, instructions, tools, world-model views, and the
+- **Agents** edits phase routing, instructions, tools, and the
   structured remote skill, artifact-template, and generated-output declarations.
 - **Mappings & remote** maps a native Copilot agent name to a governed Flow agent,
   then shows source drift, dependency hashes, lock state, and local cache readiness.

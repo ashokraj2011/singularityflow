@@ -375,7 +375,7 @@ The composition order remains:
 ```text
 phase contract
 + governed agent
-+ required world-model views
++ Repository brief
 + active approved inputs
 + active supporting evidence
 + scoped approved knowledge

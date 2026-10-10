@@ -54,7 +54,6 @@ import { compilePromptSections } from './prompt-budget.mjs';
 import { tokenEconomyDigest } from './token-economy.mjs';
 import { activeClauseCapsule, CLAUSE_CAPSULE_RENDERER } from './active-clause-capsule.mjs';
 import { stakeholderPromptContext } from './stakeholder-prompt-context.mjs';
-import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import {
   fwmReadCommand, fwmReadContractCommand, fwmReadViewsCommand
 } from './fwm/read.mjs';
@@ -72,18 +71,6 @@ const KNOWLEDGE_COMMAND_MODULE = './knowledge/command.mjs';
 const KNOWLEDGE_PROMPT_MODULE = './knowledge/prompt.mjs';
 
 let tokenReductionShadowRuntimePromise = null;
-
-function printCommandRoutes(command, { skill = null, indent = '', label = null, stream = console.log } = {}) {
-  if (label) stream(`${indent}${label}:`);
-  const guidance = safeCommandGuidance({ command, skill });
-  if (!guidance) {
-    stream(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
-    stream(`${indent}Copilot: unavailable — ask /sf-next for a current governed action.`);
-    return;
-  }
-  stream(`${indent}Shell: ${guidance.command}`);
-  stream(`${indent}Copilot: ${guidance.copilotCommand}`);
-}
 
 async function tokenReductionShadowRuntime() {
   // Model composition is already asynchronous. Load the candidate-only implementation from the
@@ -103,13 +90,6 @@ export async function resolveOptionalTokenReductionShadowRuntime(
   try { return { runtime: await loader(), error: null }; }
   catch (error) { return { runtime: null, error }; }
 }
-const DEFAULT_MAX_DISCOVERY_PACKET_BYTES = 24 * 1024;
-const DEFAULT_MAX_SYNTHESIS_INPUT_TOKENS = 24_000;
-const WORLD_MODEL_TEMP_PREFIXES = [
-  'singularity-flow-world-model-',
-  'singularity-flow-world-model-branch-'
-];
-const WORLD_MODEL_OWNER_FILE = 'singularity-flow-owner.json';
 
 function referenceIdentity(pathName, sha256) {
   return pathName && sha256 ? `${posix(pathName)}@${String(sha256).replace(/^sha256:/, '')}` : null;

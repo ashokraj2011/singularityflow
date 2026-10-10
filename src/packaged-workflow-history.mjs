@@ -43,6 +43,10 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     // Took no supporting documents after Story start.
     'reference-driven-build': Object.freeze([
       'ee3b8742aaadf5fcc04735833a3db98431b34fd11231d3caa50279e8eb3eed74'
+    ]),
+    // Before its phase overrides stopped naming (empty) World Model views.
+    'benchmarking-b': Object.freeze([
+      'aa433bacbaead95204b96700360598b5e2e1c682ac1a5846d6fa415adf1b5548'
     ])
   }),
   phases: Object.freeze({
@@ -109,11 +113,63 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
   })
 });
 
+/**
+ * Every packaged phase as shipped before the registered World Model was removed (2026-10-10), when
+ * each still named its World Model views. A repository seeded from that release holds exactly these
+ * values, which stay framework-owned so the next refresh can replace them.
+ */
+const PHASES_BEFORE_WORLD_MODEL_REMOVAL = Object.freeze({
+  'component-mapping': 'afe2fd0fb6af77762e9de78c3662b28f98e8e9d523b9f23be45d7621ecc76341',
+  conformance: '8ddd3bdc1c6db4bd846be47f3f1c83cfc84e071d5f667327e0197477c3b10b12',
+  convergence: '6039fdb0e6e576937fe1deddb3c50a621c9d06ce6c5eb43d17f54d4ddacaabad',
+  'demo-check': 'd44f395f4379773a4a496a74d547f45ddd27b707aa2f9a5a9acd04bf369068a0',
+  'demo-close': '59c928a6eaea1817132e3a7a8fe8ec5fd44613a9d9632bef9d170d1391899eb9',
+  'demo-intake': 'a24da19a6e9e6d971d52e775405edd09e024aaf98b574a52a42f68ffa6054f69',
+  'demo-repair': 'b632bf59de3c8757b8561caf88f880a8a9021ad94663ab3cae7743742baa78d1',
+  'demo-web-check': '6cab0053c02979c59a906963125d3e9e1c55b39bcb4ae8742c95e9892eeedab4',
+  'demo-web-intake': 'd9abac5eacdd842b6361b17facd4beed73633608e251ba6b0f45b9fb8174dd47',
+  'demo-web-repair': '8cee05f255b622fad5795ecdcb2b1bc1e1c4d48eabcb8afa83aa7f98defc144e',
+  'demo-web-retest': 'f35baf9d1b99c67df246120818f3bd0840917d4684911becda0c12dd45c94d23',
+  design: 'de5458692e13cc0c0150b137e28e0071610aa64af4c6200155b769a60352a210',
+  'design-intake': '6d1ba33c507c694af35aaa788062bc2a72d78b7f93d67ae4269737e2d01a2366',
+  'design-inventory': '1ba81d6b4fe6b252b2a28626e7fa927fae15f3b37f3f021b1cefa4c4f32419d1',
+  'document-intake': '7ec868843d5827c6d7bc01e2642d0b10232207fd6fecc132321c652f609a2f5d',
+  'fix-design': 'b0cd61ad3efd5d59965bbcd6f916586bd3843d3e9dc826824db3bf80aa56bc76',
+  'fix-spec': '90d4e32cda609d2fd96c1f7e32e552ab3d8d21a0a09aa28eff59a36e47ca97de',
+  implement: '93028f93ed99fe3a7b1a82016fc65de47a111a88e0fd70a16e8822a42387f05c',
+  implementation: 'dbb6a00d8aa2728ac0f791d3ee2a77ca05319e8af127e85f5e236326646af717',
+  'implementation-spec': '63959074fb6d939bb186bae23e32eb1d923c9af5362b37cb660a9027c96ac71a',
+  intake: 'acee306db6a4fb4e0cb2da7e4c5f9d075e95bc5eddf5179d1250ec9306094b85',
+  'mobile-spec': 'e544c0dbf9ab2b2ee674c41b42a583a3ac43cf20db85fdea6f61fe724c0a62f7',
+  planning: 'a3754fa844f486f040704b5d59c49fb2725e5d34ffc4fc3add4d2ca316b88b07',
+  'poc-impact-analysis': 'da41ab7a95557408f274ac948c5e49256af7a49518b08b2f57cf25262393c812',
+  'poc-intake': 'dd898d67cc9b32b52a71839be42157be183e5031c0c84166651e3b73a8765ddd',
+  'poc-lite-act': 'b28f65c1adddecccf497b6bfd54e9f0403d731ed702dfe7c465607660878b24d',
+  'poc-lite-finalize': '394eb36ea92586141e72344326e9451361feeaa1c470bcb5d35829878ed9111a',
+  'poc-lite-plan': '84c10512fee313c3cf749c8955d61ed4b8cfa1508ff9771e6408c7228345b1f5',
+  'poc-lite-verify': '576f07dfd8faf2bda181ce81962c3ed5b7155e46b6ad2a02dbd75f505374210b',
+  'poc-publication-review': '0b8332ed95493b24e87f0215c878e3da46886520cdbde2a9b496cc3f6e8a201d',
+  'poc-test-generation': '6c7e87ea8beca5202a69e08854600c88e989a7765efadc9427043c7e1737964d',
+  'poc-ui-exploration': '45c443f46ced246b4c7f9beea4137648d469e021da1c268f4500b7fecedab11b',
+  'poc-validation': 'c311bf1fabe8c1e42f445089d09e9d79e2e6134c33e7f38eda816a5050f4e0ae',
+  release: 'fedbd35cc1db8ca7478068ccdd7a3c508378fd49745f4fc527481b2010aa2bf7',
+  reproduction: 'c60c702afd3c975699dc97220e20244346212bc5ab4c87ce38d9342000901c80',
+  requirements: '7b37741acf46c2096854c1f5d8889460e5b7d9eed616bef0a7ec678c83fa23dc',
+  'scenario-check': '829dfac2a445fc3daf5e7166b975d3b7997750da4b9a8a714e0ce3290765c15d',
+  'scenario-repair': '5f135439746cd2373405ee3cd2b3ec6ead020c697eba3265ac784bcb56aec288',
+  'scenario-retest': 'c8ea29959ff1aceb60fe02f5d18427b652bc5e270a2ce0e335368c4d2ed18343',
+  specification: '6d95244700a4b9847d949139ff9256f5e7c7a1523e7a206a3c3de3033ec7629c',
+  testing: 'df936989f0933f9101ad81e59ff2331e8eaf35069e1aaea6dd249d6d3d3a1d53',
+  verification: 'af0c291e1d5b08fd4ebebed61d1f5242a56e97cfb4f1522ba27f94bf6722036e',
+  verify: '11a914f06c7e4dc51ac247c2696a6a70f713032a4d80c075f2dbef6b1b4c077d',
+  'visual-verification': 'f699279ec984049ef4f4186202e9e963da07a0e41fae1d935372678f6d80027f'
+});
+
 /** Exact canonical hashes for every workflow node shipped by this package release. */
 export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
   workTypes: Object.freeze({
     'benchmarking-a': '0a18e2ce95010eee32b209c98e1e9ab9d3a9993e78ca10f23938b2d3fe3d13cd',
-    'benchmarking-b': 'aa433bacbaead95204b96700360598b5e2e1c682ac1a5846d6fa415adf1b5548',
+    'benchmarking-b': '22b76b63947822eff26a76c5b360c132cfb24e81ee4f6975201511ea19669363',
     bugfix: '39ac9d457a906eeeae595d44fa379b709c4ecb77f2992b30d54b327c1312fc24',
     chore: '7d55217aa976c51a702616daeccd8829ca91778839985ae8c4dabc3336645597',
     'classic-delivery': '98cc169510f82d9e046df5471975cf354b7afb7d1acacd0ef0c91b5c51d4f039',
@@ -130,50 +186,50 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'spec-driven-standard': '6528062cd8e1ce663f60ebf361720562f778a03bc808e52158de07bb6cabeacf'
   }),
   phases: Object.freeze({
-    'demo-intake': 'a24da19a6e9e6d971d52e775405edd09e024aaf98b574a52a42f68ffa6054f69',
-    'demo-check': 'd44f395f4379773a4a496a74d547f45ddd27b707aa2f9a5a9acd04bf369068a0',
-    'demo-repair': 'b632bf59de3c8757b8561caf88f880a8a9021ad94663ab3cae7743742baa78d1',
-    'demo-close': '59c928a6eaea1817132e3a7a8fe8ec5fd44613a9d9632bef9d170d1391899eb9',
-    'demo-web-intake': 'd9abac5eacdd842b6361b17facd4beed73633608e251ba6b0f45b9fb8174dd47',
-    'demo-web-check': '6cab0053c02979c59a906963125d3e9e1c55b39bcb4ae8742c95e9892eeedab4',
-    'demo-web-repair': '8cee05f255b622fad5795ecdcb2b1bc1e1c4d48eabcb8afa83aa7f98defc144e',
-    'demo-web-retest': 'f35baf9d1b99c67df246120818f3bd0840917d4684911becda0c12dd45c94d23',
-    'component-mapping': 'afe2fd0fb6af77762e9de78c3662b28f98e8e9d523b9f23be45d7621ecc76341',
-    conformance: '8ddd3bdc1c6db4bd846be47f3f1c83cfc84e071d5f667327e0197477c3b10b12',
-    convergence: '6039fdb0e6e576937fe1deddb3c50a621c9d06ce6c5eb43d17f54d4ddacaabad',
-    design: 'de5458692e13cc0c0150b137e28e0071610aa64af4c6200155b769a60352a210',
-    'design-intake': '6d1ba33c507c694af35aaa788062bc2a72d78b7f93d67ae4269737e2d01a2366',
-    'design-inventory': '1ba81d6b4fe6b252b2a28626e7fa927fae15f3b37f3f021b1cefa4c4f32419d1',
-    'document-intake': '7ec868843d5827c6d7bc01e2642d0b10232207fd6fecc132321c652f609a2f5d',
-    'fix-design': 'b0cd61ad3efd5d59965bbcd6f916586bd3843d3e9dc826824db3bf80aa56bc76',
-    'fix-spec': '90d4e32cda609d2fd96c1f7e32e552ab3d8d21a0a09aa28eff59a36e47ca97de',
-    implement: '93028f93ed99fe3a7b1a82016fc65de47a111a88e0fd70a16e8822a42387f05c',
-    implementation: 'dbb6a00d8aa2728ac0f791d3ee2a77ca05319e8af127e85f5e236326646af717',
-    'implementation-spec': '63959074fb6d939bb186bae23e32eb1d923c9af5362b37cb660a9027c96ac71a',
-    intake: 'acee306db6a4fb4e0cb2da7e4c5f9d075e95bc5eddf5179d1250ec9306094b85',
-    'mobile-spec': 'e544c0dbf9ab2b2ee674c41b42a583a3ac43cf20db85fdea6f61fe724c0a62f7',
-    planning: 'a3754fa844f486f040704b5d59c49fb2725e5d34ffc4fc3add4d2ca316b88b07',
-    'poc-impact-analysis': 'da41ab7a95557408f274ac948c5e49256af7a49518b08b2f57cf25262393c812',
-    'poc-intake': 'dd898d67cc9b32b52a71839be42157be183e5031c0c84166651e3b73a8765ddd',
-    'poc-lite-act': 'b28f65c1adddecccf497b6bfd54e9f0403d731ed702dfe7c465607660878b24d',
-    'poc-lite-finalize': '394eb36ea92586141e72344326e9451361feeaa1c470bcb5d35829878ed9111a',
-    'poc-lite-plan': '84c10512fee313c3cf749c8955d61ed4b8cfa1508ff9771e6408c7228345b1f5',
-    'poc-lite-verify': '576f07dfd8faf2bda181ce81962c3ed5b7155e46b6ad2a02dbd75f505374210b',
-    'poc-publication-review': '0b8332ed95493b24e87f0215c878e3da46886520cdbde2a9b496cc3f6e8a201d',
-    'poc-test-generation': '6c7e87ea8beca5202a69e08854600c88e989a7765efadc9427043c7e1737964d',
-    'poc-ui-exploration': '45c443f46ced246b4c7f9beea4137648d469e021da1c268f4500b7fecedab11b',
-    'poc-validation': 'c311bf1fabe8c1e42f445089d09e9d79e2e6134c33e7f38eda816a5050f4e0ae',
-    release: 'fedbd35cc1db8ca7478068ccdd7a3c508378fd49745f4fc527481b2010aa2bf7',
-    reproduction: 'c60c702afd3c975699dc97220e20244346212bc5ab4c87ce38d9342000901c80',
-    requirements: '7b37741acf46c2096854c1f5d8889460e5b7d9eed616bef0a7ec678c83fa23dc',
-    'scenario-check': '829dfac2a445fc3daf5e7166b975d3b7997750da4b9a8a714e0ce3290765c15d',
-    'scenario-repair': '5f135439746cd2373405ee3cd2b3ec6ead020c697eba3265ac784bcb56aec288',
-    'scenario-retest': 'c8ea29959ff1aceb60fe02f5d18427b652bc5e270a2ce0e335368c4d2ed18343',
-    specification: '6d95244700a4b9847d949139ff9256f5e7c7a1523e7a206a3c3de3033ec7629c',
-    testing: 'df936989f0933f9101ad81e59ff2331e8eaf35069e1aaea6dd249d6d3d3a1d53',
-    verification: 'af0c291e1d5b08fd4ebebed61d1f5242a56e97cfb4f1522ba27f94bf6722036e',
-    verify: '11a914f06c7e4dc51ac247c2696a6a70f713032a4d80c075f2dbef6b1b4c077d',
-    'visual-verification': 'f699279ec984049ef4f4186202e9e963da07a0e41fae1d935372678f6d80027f'
+    'demo-intake': '45ecc0c63654b37c2e396706a286ff0c1d17136fbcebe54c9bc94fd3a516e062',
+    'demo-check': '20072760b4cc6db323ab0676c3bf8704c9d2b849074ea2ab6884e45984bab4de',
+    'demo-repair': '71d0be49b89929fdf93c6074905dffb09cc4ea4e814bc0f53dc9576d753d0941',
+    'demo-close': 'c9a3059f9d756666653de65c438895031bd90c607e57a963cc94986956c5984d',
+    'demo-web-intake': '5d4abe5ce3d309ada94f814a00b949a7c895547d10215369da550e9651cdba69',
+    'demo-web-check': 'dd3b828027bc70a9501a9ac0931958667f4664511a62f4d33bd829effb94bd19',
+    'demo-web-repair': 'c5f8108f88c203c8cc96be42575d9cc141940ecdba86cec4a7469aab7b383e97',
+    'demo-web-retest': 'b820b5ded2f398bef0f59ab62b51c46d0a4dcc3ef49e46279fb01610f5607dbc',
+    'component-mapping': '506e87791b83675dec4c2e54e6b950def9144c1d667a194a72bebccd9ca00f29',
+    conformance: '8aebfffa8ed9c22fa75a2e69800f73db16a7ca6b53ed02e60a14646b52736b73',
+    convergence: '88f806558a64d7e46151ed3de100711ae13ff15aa34d020fd8d0c44be0f5668f',
+    design: 'cb2603200e89e62c719c5c31d031ee6234572b52f2b3dffae2317ff410b513a8',
+    'design-intake': 'e4d0371c1c702461dddb8f25d3f93295dc895be412324aac28d93edf39de47ae',
+    'design-inventory': '55446faa95100fb42cdb4caea8f98bea68c779af06b1af70566f404e425432f8',
+    'document-intake': '2bce3e0ff60252660b3514153296a55c36f9ac3e1dfaa7cdf51259845f8500d1',
+    'fix-design': '1085cd2472104e4342ac0b13db4b44087004a7a6742bf15f63646806319ca93b',
+    'fix-spec': 'ae226973c098930cff207afd51f304f466272abdb0d6c428eac562279ec062f1',
+    implement: '2d1991614f6090ee1fa4c97c88ae67a158cf93bda49650308766fe181c2b55d8',
+    implementation: '8391515ef54d176c0214f747c343f1e0edacf9b840a94e01ca450ea1106402e9',
+    'implementation-spec': '56f8cd7bd70d104ae689c952446b1ba54c188c25eda4a4f9de6d7a4cb2c49637',
+    intake: '3a7cdbe743b19870d809c4510a1ebdb0d9c7b49587f90f113453f46172e14933',
+    'mobile-spec': '4ecd5cf51485d28136f4ac819b091242b0de8f4fc2fb6657814cd4d100356460',
+    planning: 'a588b38f249f6faf6b2a4334f6467c640b38eebceba39586dafd25805082b376',
+    'poc-impact-analysis': 'e722954583c0fa43793052d8ac020fc08b384f5d8a4400a96252c9c98a0021aa',
+    'poc-intake': '44a071bdc3aede9203b26aa55ba77be32879f8339b008300ab0727e8ee188cd4',
+    'poc-lite-act': 'ab2817ad585bac878ab86b603c79014ca84a59f274cd5325f41df477f9870f3a',
+    'poc-lite-finalize': 'e4aa7e427883748714293b103bf105056a2eea47f39f13314b6d8abae6d220d1',
+    'poc-lite-plan': '71d5059aa5a9a37d34722a5b540f550209b87a90dd4d5b1292389397eec54d9b',
+    'poc-lite-verify': '5d3dead80d67469a1c2570fa03f8b996c9f6aa897fdc7131d182f202304156e3',
+    'poc-publication-review': '9308d29f806e37c959801e44122887dd8c41eaf6b6eb85193018448f01000faf',
+    'poc-test-generation': '5f60847e67d8b1b9b5c4b834d38f618b9c9da38c57d61ea1802f1a25a272810b',
+    'poc-ui-exploration': 'c93727af1010872a188ee6c38a36d71e77ef3b1700a54a79525e7c8999cc15ee',
+    'poc-validation': '335f9997bf3741ce5037cdf683def71d2f70337c6e5f1b9f4d2453713fcd088c',
+    release: '43c9560ce805d8cd3de33a1abfd1415019afc11770a1c6fe54321de188fb0314',
+    reproduction: '16fa17c5cc2287afbf1fdb193e6f06f9fe643d504fcd0b19bdefa6ea56355bde',
+    requirements: '77d4d3c86d39421019846caf252ae80b8242cfcb0e5c7886116164306715f973',
+    'scenario-check': '866e2fe7588272b2b7ef1132c37e8a36cecb4947419b733889a919ff5ee03f17',
+    'scenario-repair': '5e4dd1839e53e3d3ca5e4cf1e27b1e40631c2e2c4a003dfe54ab9c461d22b186',
+    'scenario-retest': '0c53d93ca05f0e11f733a7415870a0c20f0fe42996e8e0792cdd1d50f6316d86',
+    specification: 'ac393d223b6fb0c09f9fa602a3fdb0a8eeb20dfd1025e8a2851e6fa4736df194',
+    testing: '3953d7c4c106cfdde9ce7654b93b718e36cbf57618b06f4c417bdd3f6a1867c9',
+    verification: '11caa9e7cf51ecb81ff24eec8effdde40cfdf60fef25f11a54cc97667ae1e3cb',
+    verify: 'bd3aef3d29f9c0ce631ce533eabb905cee1a6ab20f52f8135b4aaf1b6cd6c3d4',
+    'visual-verification': 'db0280a550fdeed91d02f337089ebe135912440210f773cc5b83bd76d9508b2e'
   }),
   artifactSets: Object.freeze({
     'spec-driven-planning': 'bc18e7338a3819b75a65ed001f0cd7843f3be8c9b3908db769a6578d97f44d12',
@@ -194,10 +250,13 @@ export const KNOWN_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze(Object.fromEnt
     Object.freeze(Object.fromEntries(
       [...new Set([
         ...Object.keys(HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256[section] ?? {}),
+        ...Object.keys(section === 'phases' ? PHASES_BEFORE_WORLD_MODEL_REMOVAL : {}),
         ...Object.keys(CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256[section] ?? {})
       ])].sort().map((id) => [id, Object.freeze([
         ...new Set([
           ...(HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256[section]?.[id] ?? []),
+          ...(section === 'phases' && PHASES_BEFORE_WORLD_MODEL_REMOVAL[id]
+            ? [PHASES_BEFORE_WORLD_MODEL_REMOVAL[id]] : []),
           ...(CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256[section]?.[id]
             ? [CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256[section][id]] : [])
         ])

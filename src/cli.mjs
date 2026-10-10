@@ -92,7 +92,7 @@ import { worldModelCommand } from './worldmodel.mjs';
 import { runDraftTransaction } from './draft-unit-of-work.mjs';
 import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
 import { launchHostSession } from './host-session-launcher.mjs';
-import { operationContext, runOperation } from './operation-context.mjs';
+import { operationContext } from './operation-context.mjs';
 import {
   invokeModel, listModelInvocationAudits, listModelInvocations, resolveModelProvider
 } from './model-runner.mjs';
@@ -293,7 +293,7 @@ import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS
 import { action as narrationAction, commandResult, effects, noEffects, noop, plannedAction as plannedNarrationAction, succeeded } from './narration/command-result.mjs';
 import {
   decisionFedBy, decisionInputsHint, normalizeDecisionInputValues, parseDecisionAssignments,
-  recordedDecisionValues, resolveDecisionChoice, storyDecisionView, upcomingDecision
+  recordedDecisionValues, resolveDecisionChoice, storyDecisionView
 } from './workflow-decisions.mjs';
 import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
@@ -11283,28 +11283,6 @@ async function cockpitCommand() {
   ]) printCommandRoutes(command, { indent: '  ' });
 }
 
-// The world-model builder runs Copilot inside an isolated, throwaway worktree (a temp directory
-// named `singularity-flow-world-model-*`) so it can inspect the repository and write the grounding
-// files. That session is a trusted system operation, not contributor Story work: it has no work/Jira
-// ID and can never acquire one. A repository may opt into the retained custom session-gate hook;
-// without this exemption that hook would deny every file write the builder's Copilot attempts.
-// Detect the builder's own worktree (by path, which is deterministic, or by the env marker the
-// builder sets) and let its tools through. The bundled plugin itself is advisory and registers no
-// preToolUse guard.
-export function isWorldModelBuildContext(root, payload) {
-  if (process.env.SINGULARITY_FLOW_WORLD_MODEL_BUILD === '1') return true;
-  // The builder's isolated worktree is always `<tmp>/singularity-flow-world-model-<id>/repository`
-  // (or `…-branch-<id>/repository`). Require the `repository` segment to sit under a matching prefix
-  // segment so an unrelated user file that merely starts with that name is never exempted.
-  const isBuilderWorktree = (value) => {
-    const segments = value.split(path.sep);
-    return segments.some((segment, index) =>
-      segment.startsWith('singularity-flow-world-model-') && segments[index + 1] === 'repository');
-  };
-  const paths = [root, typeof payload?.cwd === 'string' ? payload.cwd : null].filter(Boolean);
-  return paths.some(isBuilderWorktree);
-}
-
 const HOOK_EVENTS = ['turn-intent', 'turn-end', 'agent-start', 'session-start', 'agent-guard', 'boundary-turn', 'boundary-guard', 'boundary-end'];
 
 async function hookCommand(positionals) {
@@ -11331,7 +11309,6 @@ async function hookCommand(positionals) {
       ? await (await import('./copilot-repository-boundary.mjs')).resolveCopilotHookRoot({ ...payload, cwd: candidate })
       : repoRoot(candidate);
     if (!root) return console.log('{}');
-    if (isWorldModelBuildContext(root, payload)) return console.log('{}');
     const authority = await sessionRepositoryAuthority(root);
     if (!authority) return console.log('{}');
     if (event === 'turn-intent') {
@@ -13770,18 +13747,11 @@ async function capabilityCommand(positionals, options) {
  * The one operation that cannot assume a governed repository, because it is the one that makes one.
  * Everything else in this CLI runs inside a repository; this runs from anywhere and produces one.
  */
-// Rejected here rather than at first use: an unknown mode written into the configuration authority
-// would only surface later, as a confusing failure in a Story that did nothing wrong.
-function groundingOption(options) {
-  const requested = optionString(options, 'grounding');
-  if (requested == null) return null;
-  if (!['off', 'warn'].includes(requested)) {
-    throw new SingularityFlowError(`--grounding must be off or warn; got '${requested}'. The World Model is guidance and never blocks.`);
-  }
-  return requested;
-}
-
 async function bootstrapCommand(positionals, options) {
+  if (options.grounding !== undefined) {
+    const { removedWorldModelError } = await import('./removed-features.mjs');
+    throw removedWorldModelError('bootstrap --grounding');
+  }
   const url = requirePositional(positionals, 1, 'repository URL');
   const capabilityId = optionString(options, 'capability');
   if (!capabilityId) {
@@ -13806,7 +13776,6 @@ async function bootstrapCommand(positionals, options) {
     into: optionString(options, 'into'),
     base: optionString(options, 'base'),
     stateBranch,
-    grounding: groundingOption(options),
     push: optionBoolean(options, 'push', true)
   });
 
@@ -14086,7 +14055,6 @@ async function initiativeCommand(positionals, options) {
     console.log(initiativeFlowText(progress));
     console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
     printCommandRoutes('singularity-flow epic requirements prepare', { label: 'Prepare requirements' });
-    if (usesEpicPlanningLifecycle(started.initiative.resolution)) console.log('Repository world-model generation is deferred until each Jira Story has its canonical branch.');
     return;
   }
   if (subcommand === 'resume') {

@@ -28,7 +28,7 @@ a receipt with passing postcondition proof.
 | `stale-workspace-registry` | an active registry entry whose name, id or anchor no longer matches its own valid manifest | a new build's first-run pass |
 | `orphan-bootstrap-staging` | a `.sflow-clone-*` staging root an interrupted clone left inside a registered workspace | a new build's first-run pass |
 | `runtime-projection-drift` | a Copilot plugin or `/sf-*` skill set that no longer matches the CLI package | product alignment |
-| `missing-derived-index` | declared only: its one subject, the WMB query index, has no reader yet | — |
+| `missing-derived-index` | declared only: no derived index has a reader yet (its one subject, the WMB query index, was removed) | — |
 
 The registry healer never rewrites an archived entry or an entry whose manifest is missing or
 invalid, and restores the previous registry if the rewritten one does not resolve. The staging

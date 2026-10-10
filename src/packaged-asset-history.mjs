@@ -356,21 +356,21 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/demo-web-e2e-testing/check.md': '31bc19257b108572d3043066a8747ade34dc0facb9bc75e013a5b5ded599e2c5',
   'singularity/templates/demo-web-e2e-testing/intake.md': '937e5b69f618050e79cb76e384994ba6349d8bbe59914c7d9117920af35e94f7',
   'singularity/templates/demo-web-e2e-testing/repair.md': '5cf8165f7981c55d1b6d2b6f09e23e0230261eeb98312de213f11b93091f332f',
-  '.github/agents/architect.agent.md': '81348d097d9dc7e526319ea242d15178c5a35e7d027b26303be39fd4e8451aa8',
-  '.github/agents/developer.agent.md': '5e98b958632baa68321694536f5a6ddc80cef2b11e1bb422796cfbea6d7786c7',
+  '.github/agents/architect.agent.md': 'c691034602364b7c8c752c29c345a4ef95dd330c44e17bd171b22f057d656136',
+  '.github/agents/developer.agent.md': 'd26252853e95ebfa11bc85e3e453a20a86e6a50b05f6e0b42da90b82291295ed',
   '.github/agents/document-analyst.agent.md': '03c307bb9396ec71ea8af1a347c45cae82c2e5cb04197588c24ce48ea6559d37',
-  '.github/agents/mobile-architect.agent.md': '393e8b3fe7bb07dcfd34f4e7f10be0f124414700414be01b038016087d785958',
-  '.github/agents/poc-analyst.agent.md': 'f80f745a90ea2bf7ef2a5aa9ded7438ba7ba10cd74e5364fb818ec29d80bccf4',
-  '.github/agents/poc-automation.agent.md': '5608247f349c259850f55ac38072875508e9550ad2ebe706fedfd94e8bfe2e80',
-  '.github/agents/poc-explorer.agent.md': '6c6e9515d390d6f4aa715a4921a6ae2748752fa038d2cdf9391b5e712602d45a',
-  '.github/agents/poc-lite-implementer.agent.md': '9d907a1f75e54b75a0a581843aa1195c6635e72a351e54e3de0763daeeec0c29',
-  '.github/agents/poc-lite-planner.agent.md': '74b564d5ca0063954fedf554d9c2350a9eebf78deef212ed2c6907283f35fdae',
-  '.github/agents/poc-lite-verifier.agent.md': '14fe9eb15692eac47922cbc61de3686aec2eedf447544ae6ab6901c70995d33e',
-  '.github/agents/poc-test-developer.agent.md': '31c1c375019c83474dec8e0108310d58a52f5cab92c287d59b36f7d6bcc84cd7',
-  '.github/agents/poc-validator.agent.md': '33d0cc77990f6320aa03305c0bd8051be7f2b696170132d4161c0aef4ba98894',
-  '.github/agents/product-designer.agent.md': '37df7604d2727eeea1cc23d5dee7200fd9a4a4bb16c10f4f9d0e4746a0cd13c5',
-  '.github/agents/product-owner.agent.md': '2fd9bdef16bbf508d58125ba519e1ca46f35cb593480cb544c3e91e6dc63ad8a',
-  '.github/agents/qa.agent.md': '6d73fddfc57e603970eba377123dfa43e2fbd4b444c006df9f13115496976959',
+  '.github/agents/mobile-architect.agent.md': '67ecdb82a9ae3a4a27cae6decf7cf77f7ad0d6ce110898113ace1aab1bde3cf6',
+  '.github/agents/poc-analyst.agent.md': 'f553b0f39011aaaa6a4cbf6aae05c658b224c883a0ba0f1e692427b20feb26f6',
+  '.github/agents/poc-automation.agent.md': 'bee5c59b192c790e1e094b7dfa63146f508f0ad6a88b9398d61517ca8f680603',
+  '.github/agents/poc-explorer.agent.md': '8d4e8fc0a755cca632b991a6a4dac398c0a88684aa27487a45e36ce842e87533',
+  '.github/agents/poc-lite-implementer.agent.md': '0ccc4afecb1e291698540571ae4dbf7ee11bc99808f4c94305652b8e7e251249',
+  '.github/agents/poc-lite-planner.agent.md': 'b72708b0bc7045807a83b8daac78a731d24afb5a90ce48a7af0365facd198f29',
+  '.github/agents/poc-lite-verifier.agent.md': '3e7f3247b001d112695f843533da5156553e8088299e3afab555a631680af998',
+  '.github/agents/poc-test-developer.agent.md': 'ae4608b208606c0fd43f57b9faeda05d28cfaba57a4a30e5c8cfda96822fa0f3',
+  '.github/agents/poc-validator.agent.md': '7db6a9dcec0c57a5da1eb93d93059eac5e56423d9f4ef7619a3ac6272deb188d',
+  '.github/agents/product-designer.agent.md': '20d14612a8cd51044c1b9fc7fd4e65b04248c3f1857b76edf8912020b059ac68',
+  '.github/agents/product-owner.agent.md': 'dc9f689832f95770175c56176cdd6bc40887717649ec2dc5f5ed3cf60862e57b',
+  '.github/agents/qa.agent.md': 'b35814bde7c8edb284b272d33f50b7a0ed219cb6228f3102965f23d6e6e675e7',
   '.github/agents/scenario-developer.agent.md': '9fc0f10ebd86aa0f3efb30414b5523fa8afc5732ffaa3402a1387bac671b4c26',
   '.github/agents/scenario-tester.agent.md': '3f9ea64bd093f5fd63c7d7c5837313deff922feae22c5a5b5e76bed6a131d3be',
   'singularity/agent-mappings.yml': '1b39a4f4caa3242749889a291e2259a361c815712bd762abde3db3cbe9f8a688',
@@ -484,14 +484,38 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/starter-packs/skp-team-notes/draft-input.json': 'fbc136911e7dfecf14be06091b6d759770fa72c133c39de74710511bfee57410'
 });
 
+/**
+ * Packaged agents as shipped before the registered World Model was removed (2026-10-10), when each
+ * still carried an `sflow-world-model-views` header. They stay framework-owned so a refresh can
+ * replace them.
+ */
+const AGENTS_BEFORE_WORLD_MODEL_REMOVAL = Object.freeze({
+  '.github/agents/architect.agent.md': '81348d097d9dc7e526319ea242d15178c5a35e7d027b26303be39fd4e8451aa8',
+  '.github/agents/developer.agent.md': '5e98b958632baa68321694536f5a6ddc80cef2b11e1bb422796cfbea6d7786c7',
+  '.github/agents/mobile-architect.agent.md': '393e8b3fe7bb07dcfd34f4e7f10be0f124414700414be01b038016087d785958',
+  '.github/agents/poc-analyst.agent.md': 'f80f745a90ea2bf7ef2a5aa9ded7438ba7ba10cd74e5364fb818ec29d80bccf4',
+  '.github/agents/poc-automation.agent.md': '5608247f349c259850f55ac38072875508e9550ad2ebe706fedfd94e8bfe2e80',
+  '.github/agents/poc-explorer.agent.md': '6c6e9515d390d6f4aa715a4921a6ae2748752fa038d2cdf9391b5e712602d45a',
+  '.github/agents/poc-lite-implementer.agent.md': '9d907a1f75e54b75a0a581843aa1195c6635e72a351e54e3de0763daeeec0c29',
+  '.github/agents/poc-lite-planner.agent.md': '74b564d5ca0063954fedf554d9c2350a9eebf78deef212ed2c6907283f35fdae',
+  '.github/agents/poc-lite-verifier.agent.md': '14fe9eb15692eac47922cbc61de3686aec2eedf447544ae6ab6901c70995d33e',
+  '.github/agents/poc-test-developer.agent.md': '31c1c375019c83474dec8e0108310d58a52f5cab92c287d59b36f7d6bcc84cd7',
+  '.github/agents/poc-validator.agent.md': '33d0cc77990f6320aa03305c0bd8051be7f2b696170132d4161c0aef4ba98894',
+  '.github/agents/product-designer.agent.md': '37df7604d2727eeea1cc23d5dee7200fd9a4a4bb16c10f4f9d0e4746a0cd13c5',
+  '.github/agents/product-owner.agent.md': '2fd9bdef16bbf508d58125ba519e1ca46f35cb593480cb544c3e91e6dc63ad8a',
+  '.github/agents/qa.agent.md': '6d73fddfc57e603970eba377123dfa43e2fbd4b444c006df9f13115496976959'
+});
+
 /** Every exact package revision accepted as framework provenance, keyed by repository path. */
 export const KNOWN_PACKAGED_ASSET_SHA256 = Object.freeze(Object.fromEntries(
   [...new Set([
     ...Object.keys(HISTORICAL_PACKAGED_ASSET_SHA256),
+    ...Object.keys(AGENTS_BEFORE_WORLD_MODEL_REMOVAL),
     ...Object.keys(CURRENT_PACKAGED_ASSET_SHA256)
   ])].sort().map((relative) => [relative, Object.freeze([
     ...new Set([
       ...(HISTORICAL_PACKAGED_ASSET_SHA256[relative] ?? []),
+      ...(AGENTS_BEFORE_WORLD_MODEL_REMOVAL[relative] ? [AGENTS_BEFORE_WORLD_MODEL_REMOVAL[relative]] : []),
       ...(CURRENT_PACKAGED_ASSET_SHA256[relative]
         ? [CURRENT_PACKAGED_ASSET_SHA256[relative]] : [])
     ])

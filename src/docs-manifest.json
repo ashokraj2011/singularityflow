@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "700b6dee1baa113e7483a87f046aa07e51bbc3eb",
-  "topicCount": 82,
-  "contentSha256": "859c70f165caa4d107b529fa59d8ac709ba799d162fea0a67e099be843148478",
+  "sourceCommit": "71ba48472fffc2860235e229798f55cb961f2e25",
+  "topicCount": 81,
+  "contentSha256": "c4f6e5108706a97974d8f4a4a037053685c3150c8a06193d728c17963f9ee027",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -78,18 +78,10 @@
       "file": "auto-mode.md"
     },
     {
-      "id": "calm-architecture",
-      "title": "Deterministic CALM architecture projection",
-      "version": 5,
-      "sha256": "a3223776f7bfe1390c62d6d110e8e543f180440d4b79f562f0827689f1c9520e",
-      "routingSha256": "95abae8d6afdc37c22055710a180a38c8cefd150bbb4d4ec2d82a3a8ae5a870d",
-      "file": "calm-architecture.md"
-    },
-    {
       "id": "capability-management",
       "title": "Capability mapping and activation",
-      "version": 22,
-      "sha256": "a0ada61e5585db201bf9b20cc47c3c3fb03b1590e1a5e9e273c66661febd6790",
+      "version": 23,
+      "sha256": "fbf959ce396bd0103981e6f2fd2961108566386a4eefc94068b5537990034b64",
       "routingSha256": "34335f7f4930297cb596fd5e42a87bb80b3b74eb7842f8a5bb3801bdf0fa144b",
       "file": "capability-management.md"
     },
@@ -176,8 +168,8 @@
     {
       "id": "document-test-repair",
       "title": "Document-led acceptance and repair workflow",
-      "version": 1,
-      "sha256": "64a245ec07a2d3445425a6a7ff7f456f2c1d23882723cd41f053dc31292ad8a7",
+      "version": 2,
+      "sha256": "6c90d841d1579ae54e2d849bfc782726cc8d4ac6a62e1cf0c7d87a8b301eab8e",
       "routingSha256": "792cf7b684167734fcd9235d375f6b9e9d282154a97c01d6788e45e31674d8e9",
       "file": "document-test-repair.md"
     },
@@ -272,8 +264,8 @@
     {
       "id": "governed-execution",
       "title": "Governed execution and safe next actions",
-      "version": 3,
-      "sha256": "26a03c6190d8649db70044db173dcfe6a4641a4ab756be7f77b663ca4a8222db",
+      "version": 4,
+      "sha256": "b22c570b51c001c2c7f879120818d4dd629e987012fc6f0890a924052a442419",
       "routingSha256": "94338a211b346bbb6356aa389cda6328744becc0d398931bd568359c49be870b",
       "file": "governed-execution.md"
     },
@@ -320,8 +312,8 @@
     {
       "id": "installation-and-upgrades",
       "title": "Installation, initialization, and upgrades",
-      "version": 34,
-      "sha256": "969a5a78f926206da71551dfe774778dbf13fb89733db4946571581154adc9cf",
+      "version": 35,
+      "sha256": "2d46d6d611e509dc61435c114cb0f1a57ffad49476d6001d4be8048b0ea98786",
       "routingSha256": "106c03fc08b2145390e4ddccda9ee831e051f9f235db4b9465d0e2d57004a07a",
       "file": "installation-and-upgrades.md"
     },
@@ -376,16 +368,16 @@
     {
       "id": "model-independence",
       "title": "Model independence",
-      "version": 4,
-      "sha256": "c1aa01c4724a18a6997a807ae966b4293a8d52eb70c5c397256b7d83ecf3b44a",
+      "version": 5,
+      "sha256": "cb2d9d0a3805b7f4e6763ffdc1058720473363cdf0f9abbd84ea2b5be4999f7a",
       "routingSha256": "cf0fc876954ff0be1f6dd06d267d45183e60f9c647749e7ca3ff6999fbaa3a12",
       "file": "model-independence.md"
     },
     {
       "id": "nextsteps",
       "title": "Guidance — nextsteps and the narration contract",
-      "version": 6,
-      "sha256": "22c7c6988f2bab192c7a8ebc9eb322fc124e41a8d032edd415840eea63d98ede",
+      "version": 7,
+      "sha256": "1aff7d52641a718c792b7fbee00b544a300342761ff0c7a1d78234a00f305481",
       "routingSha256": "ef4810deabfd97c053a8863fc7e53c872039f95c9504843ebddf70f2ffc3ba39",
       "file": "nextsteps.md"
     },
@@ -632,8 +624,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 52,
-      "sha256": "4ac216c4f9a131b274593a4868fff8a3f289dded62d0463e7d3ad661769f5847",
+      "version": 54,
+      "sha256": "e6520c025c58702bab0e6784b3b1382778926f9b5d46daaf8416a758e8609e2c",
       "routingSha256": "dd92caf64bf98924287142b9cac08980610cc6fe5e982ecc79d2325ff3abb1bd",
       "file": "workflow-authoring.md"
     },
@@ -655,9 +647,9 @@
     },
     {
       "id": "world-model",
-      "title": "World model grounding and views",
-      "version": 38,
-      "sha256": "4cf0658a85c2a592c5697e26e40ec9eceabc8ff84810378e6fe955aef980e198",
+      "title": "World Model and the Repository brief",
+      "version": 39,
+      "sha256": "8836d63836cd2e3aef2f0ceece2f4d508bc67ae63d5392013f05009628ca844d",
       "routingSha256": "e8bc81fa19c1360eb38defcc0c51657bfdbe20101662beb54d403fa0bccefa68",
       "file": "world-model.md"
     }

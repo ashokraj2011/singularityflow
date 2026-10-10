@@ -633,119 +633,52 @@
     },
     "worldModel": {
       "type": "object",
+      "description": "The World Model is the Repository brief every phase prompt gets, read from the source with no build and no model.",
       "properties": {
         "knowledge": {
           "type": "object",
-          "description": "Repository knowledge (rules, journeys, tests, gaps) read deterministically from the committed source and added to phase prompts.",
+          "description": "The Repository brief: the rules that apply, contracts, flows, what the Story's change touches and the risky places, read deterministically from the committed source and added to phase prompts.",
           "properties": {
             "prompt": { "enum": ["slice", "off"], "default": "slice" },
             "maxBytes": { "type": "integer", "minimum": 2048, "maximum": 32768, "default": 8192 }
           },
           "additionalProperties": false
         },
-        "format": { "enum": ["registered-v4"], "default": "registered-v4", "description": "The only World Model format: deterministic registered facts and kernel-owned provenance. The legacy-v3 format was removed and is refused." },
-        "views": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*(?:@[1-9][0-9]*)?$" } },
         "sourceRoots": {
           "type": "array",
-          "description": "Repository-relative directory prefixes included in this repository's world model. Empty means the whole application tree.",
+          "description": "Repository-relative directory prefixes the Repository brief and AST intelligence read. Empty means the whole application tree.",
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/sourceRoot" }
         },
         "sharedRoots": {
           "type": "array",
-          "description": "Repository-relative shared directories included alongside sourceRoots.",
+          "description": "Repository-relative shared directories read alongside sourceRoots.",
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/sourceRoot" }
         },
         "excludedRoots": {
           "type": "array",
-          "description": "Repository-relative prefixes that cannot contribute WMB v4 evidence or facts.",
+          "description": "Repository-relative prefixes kept out of the source scope.",
           "uniqueItems": true,
           "items": { "$ref": "#/$defs/sourceRoot" }
         },
-        "allowedSubjects": {
-          "type": "array", "uniqueItems": true,
-          "items": { "enum": ["symbol", "file", "contract", "dependency-edge", "test", "configuration", "rule", "runtime-observation"] }
-        },
-        "maximumTraversalDepth": { "type": "integer", "minimum": 0, "maximum": 128, "default": 8 },
-        "v4": {
-          "type": "object",
-          "properties": {
-            "composer": { "enum": ["deterministic", "model-optional", "model-required"], "default": "deterministic" },
-            "consumer": { "enum": ["developer", "architect", "tester", "business", "operations", "security", "release"], "default": "developer" },
-            "cachePolicy": { "enum": ["reuse-valid", "rebuild"], "default": "reuse-valid" },
-            "candidateSnapshots": { "enum": ["allow", "deny"], "default": "allow", "description": "Controls explicit immutable Candidate Snapshot capture/use. Ordinary builds still require a clean committed source." },
-            "legacyAssignments": { "enum": ["strict"], "deprecated": true, "description": "Retired with legacy-v3; only strict is accepted, and it changes nothing." },
-            "totalMaximumOutputTokens": { "type": "integer", "minimum": 1, "maximum": 1000000, "default": 5600 }
-          },
-          "additionalProperties": false
-        },
-        "stateBranch": { "type": "string", "minLength": 1, "description": "Optional World-Model state branch override. The normalized ledger remains the publication authority." },
+        "stateBranch": { "type": "string", "minLength": 1, "description": "Optional state branch override. The normalized ledger remains the publication authority." },
         "remote": { "type": "string", "minLength": 1, "description": "State-authority remote used only when ledger.remote is not explicitly authored." },
-        "outputDir": { "type": "string", "minLength": 1 },
-        "historyDir": { "type": "string", "minLength": 1, "default": "singularity/world-model-history", "description": "Advanced immutable WMP history root on the configured state branch. It must be portable and disjoint from outputDir." },
-        "promptSource": { "type": "string", "minLength": 1, "deprecated": true, "description": "Named the legacy-v3 builder prompt; accepted and ignored." },
-        "stateFetchTimeoutMs": { "type": "integer", "minimum": 250, "maximum": 60000, "default": 10000 },
-        "generation": {
-          "type": "object",
-          "properties": {
-            "parallel": { "type": "boolean", "default": true },
-            "maxWorkers": { "type": "integer", "minimum": 1, "maximum": 16, "default": 4 },
-            "strategy": { "enum": ["view"], "deprecated": true, "description": "Legacy-v3 semantic builder setting; accepted and ignored." },
-            "maximumDiscoveryPacketBytes": { "type": "integer", "minimum": 1024, "maximum": 1048576, "deprecated": true, "description": "Legacy-v3 semantic builder setting; accepted and ignored." },
-            "maximumSynthesisInputTokens": { "type": "integer", "minimum": 2048, "maximum": 1000000, "deprecated": true, "description": "Legacy-v3 semantic builder setting; accepted and ignored." },
-            "synthesisOverflow": { "enum": ["summarize-or-refuse"], "deprecated": true, "description": "Legacy-v3 semantic builder setting; accepted and ignored." }
-          },
-          "additionalProperties": false
-        },
-        "materialization": {
-          "type": "object",
-          "description": "Controls how missing exact grounding tiers are materialized. Read-only commands never invoke a provider regardless of this policy.",
-          "properties": {
-            "mode": { "enum": ["explicit", "on-demand", "disabled"], "default": "explicit" },
-            "publish": { "enum": ["governed", "local"], "default": "governed" },
-            "lookahead": { "enum": ["none", "next-phase"], "default": "none" },
-            "depth": { "enum": ["light", "phase"], "default": "phase", "description": "light uses the deterministic zero-model-token builder; phase uses the phase's configured grounding depth and may invoke a model." },
-            "confirmation": { "enum": ["prompt", "automatic"], "default": "prompt", "description": "automatic is valid only with depth light." }
-          },
-          "additionalProperties": false
-        },
-        "registered": { "enum": ["off", "on"], "default": "off", "description": "The registered World Model (published v4 views and Story history pins). Off: nothing builds, reads, verifies or asks for it, and phase prompts carry only the Repository brief read from the source; grounding, staleness and view settings are kept but ignored." },
-        "grounding": { "enum": ["off", "warn", "enforce"], "default": "off" },
-        "staleness": { "enum": ["warn", "fail", "ignore"] },
-        "injection": {
-          "type": "object",
-          "properties": {
-            "placeholder": { "type": "string", "minLength": 1 },
-            "mode": { "enum": ["replace", "append", "off"] },
-            "maxBytes": { "type": "integer", "minimum": 1 },
-            "rules": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["include"],
-                "properties": {
-                  "when": {
-                    "type": "object",
-                    "properties": {
-                      "agent": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] },
-                      "phase": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] },
-                      "workType": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] },
-                      "changedPaths": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] },
-                      "labels": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" }, "minItems": 1 }] }
-                    },
-                    "additionalProperties": false
-                  },
-                  "include": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "uniqueItems": true },
-                  "evidence": { "type": "boolean" },
-                  "depth": { "enum": ["light", "quick", "standard", "deep"] }
-                },
-                "additionalProperties": false
-              }
-            }
-          },
-          "additionalProperties": false
-        }
+        "format": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
+        "views": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
+        "allowedSubjects": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
+        "maximumTraversalDepth": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
+        "v4": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
+        "outputDir": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
+        "historyDir": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
+        "promptSource": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
+        "stateFetchTimeoutMs": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
+        "generation": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
+        "materialization": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
+        "registered": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
+        "grounding": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
+        "staleness": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." },
+        "injection": { "deprecated": true, "description": "Removed with the registered World Model; accepted and ignored." }
       },
       "additionalProperties": false
     }

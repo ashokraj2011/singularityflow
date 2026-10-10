@@ -278,7 +278,7 @@ for repository-owned configuration:
   configuration proposals; export and import workflow bundles.
 - **Agent Delivery & Instruction Designer** — create and edit
   `.github/agents/*.agent.md`, including phase scope, instructions, tool policy,
-  world-model views, remote skills, remote artifact templates, generated outputs,
+  remote skills, remote artifact templates, generated outputs,
   native Copilot-to-Flow mappings, and hash-lock/cache status.
 - **Prompt, Skill, and Prompt Pack Designer** — inspect and edit reusable Markdown,
   assemble ordered packs, and preview the final composition.
@@ -302,7 +302,7 @@ sflow wm show-prompt --phase <PHASE>
 # Copilot skill: /sf-show-prompt
 ```
 
-The preview identifies every included agent, prompt, world-model view, phase
+The preview identifies every included agent, prompt, phase
 input, template, and hash. Copilot may author an artifact, but only the CLI can
 change lifecycle state or publish it.
 

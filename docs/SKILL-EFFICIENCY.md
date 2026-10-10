@@ -96,8 +96,8 @@ After an approved phase, follow the pinned `contextPolicy` printed by the CLI:
 - `keep`: continue in the current conversation.
 
 The next phase reconstructs context from committed artifacts, approved inputs,
-the selected governed agent, templates, locked remote Markdown, and required
-world-model views. Conversation history is therefore a convenience, not a state
+the selected governed agent, templates, locked remote Markdown, and the
+Repository brief. Conversation history is therefore a convenience, not a state
 transfer mechanism. For long planning turns, compact immediately before the
 generation step after clarifications have been recorded in governed context.
 

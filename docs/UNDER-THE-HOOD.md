@@ -18,9 +18,9 @@ The prompt-related names describe different responsibilities:
 |---|---|---|---|
 | Workflow | Rulebook | Phases, ordering, inputs, outputs, gates, checks, approvals, publication | `singularity/workflow.yml` |
 | Skill | Playbook or action button | Tells Copilot which CLI commands and behavioral rules to follow | `plugin/skills/sflow-*/SKILL.md` |
-| Governed agent | Software execution contract | Gives Copilot phase-specific purpose, instructions, tools, and world-model views | `.github/agents/*.agent.md` |
+| Governed agent | Software execution contract | Gives Copilot phase-specific purpose, instructions, and tools | `.github/agents/*.agent.md` |
 | Prompt | Effective instructions | The exact phase-specific text Copilot receives | Composed and recorded under work-item context |
-| World model | Repository map | Generated, hash-recorded facts about the codebase | `singularity/world-model/` |
+| World model | Repository map | The Repository brief: cited facts about the code a Story touches, read from the committed source | Composed into each phase prompt; `singularity-flow wm brief` |
 | Remote agent dependency | Optional external handbook | Hash-pinned remote Markdown guidance, templates, or generated context declared by an agent | `singularity/agents.lock.yml` plus machine-local cache |
 | Artifact template | Blank form | Required structure and managed fields for an output | `singularity/templates/` |
 | Artifact | Filled form | Generated, committed, reviewable phase output | `singularity/work-items/<ID>/artifacts/` |
@@ -44,7 +44,6 @@ The workflow decides what must happen:
 phases:
   design:
     template: feature/design.md
-    worldModelViews: [arch.contracts, dev.impact]
     inputs: [requirements]
     approval:
       minimum: 1
@@ -83,7 +82,6 @@ Agent Markdown file:
 ---
 name: Architect
 phases: [design, implementation-spec]
-worldModelViews: [arch.contracts, dev.impact]
 ---
 
 Make boundaries, contracts, trade-offs, security, operability, migration, and
@@ -109,8 +107,7 @@ The effective prompt is assembled for one phase and generation:
 ```text
 phase contract and artifact template
 + selected governed-agent prompt
-+ mandatory repository world-model views
-+ additional agent-added views
++ the Repository brief for the phase
 + relevant domain and task files
 + active agent Markdown
 + approved upstream artifacts
@@ -122,28 +119,21 @@ complete governed prompt without replacing either with a summary.
 
 ### World model
 
-The world model is repository-owned evidence:
+The world model is the Repository brief: a few cited bullets about the code the
+Story touches, read from the committed source with no build and no model call. It
+answers questions such as:
 
-A build is deterministic by default. Closed extractors read the exact scoped source, and
-registered view contracts render each view without a model call. Only
-`worldModel.v4.composer: model-optional` or `model-required` sends an admitted fact packet to the
-governed model provider; the model cannot create facts, evidence, or provenance. The validated
-facts, evidence, receipts, views, and manifest are published together under
-`singularity/world-model/` on the state branch.
+- which business rules apply, with their messages and HTTP statuses;
+- which contracts (endpoints, interfaces, storage) exist;
+- which flows run from an entry point to its effects;
+- what the Story's change touches, and where it is risky.
 
-The built-in registered views answer questions such as:
-
-- which interfaces and contracts exist (`arch.contracts`);
-- which business rules the code registers (`biz.rules`);
-- which source and test files a change touches (`dev.impact`);
-- where change concentrates (`dev.hotspots`).
-
-For the business or product reading of the code, use repository knowledge
-(`singularity-flow wm knowledge show business`).
-
-The workflow selects mandatory views. A governed agent may add views but cannot
-remove a mandatory one. World-model Markdown is evidence, not executable code
-or approval authority.
+Each bullet cites its file and line. Sections are ordered for the phase's reader
+and cut to a small per-phase budget. `singularity-flow wm brief --phase PHASE`
+prints exactly what a phase receives; `singularity-flow wm knowledge show business`
+gives the business or product reading of the code. The brief is guidance, not
+executable code or approval authority. See the
+[knowledge model guide](KNOWLEDGE-MODEL.md).
 
 ### agent
 
@@ -521,12 +511,10 @@ The composer resolves:
 1. The immutable work type and active phase.
 2. The phase contract and artifact template.
 3. The phase-default governed agent, or an explicit audited override.
-4. Mandatory phase world-model views.
-5. Additional agent world-model views.
-6. Task/rule-selected repository model files.
-7. Locked remote skills applicable to the phase and agent.
-8. Approved upstream phase inputs.
-9. Configured evidence and task text.
+4. The Repository brief for the phase's reader.
+5. Locked remote skills applicable to the phase and agent.
+6. Approved upstream phase inputs.
+7. Configured evidence and task text.
 
 The result is rendered as one prompt and its provenance is recorded. Depending
 on workflow generation, records include:
@@ -540,16 +528,12 @@ singularity/work-items/<WORK-ID>/context/
 ```
 
 The records capture source paths, SHA-256 values, injected sizes, truncation,
-world-model commit and manifest, active agent, agent resources, approved
-input hashes, and the complete rendered-prompt hash.
+active agent, agent resources, approved input hashes, and the complete
+rendered-prompt hash.
 
 With inputs set to `enforce`, required approved inputs must be present and exact. The World Model
-is guidance, never authority. With World-Model grounding set to `warn`, model context is used only
-when it matches its committed hashes, source tree, agent, provenance, and prompt snapshot. A
-missing or unreachable World Model is represented by a stable unavailable receipt with zero model
-bytes; tampering, identity mismatch, or unverifiable bytes leave the model out of the prompt. Each
-case is reported as a warning and none blocks publication, submission, or completion. Grounding
-`enforce` and staleness `fail` are still accepted and act as `warn`.
+is guidance, never authority: if the Repository brief cannot be built, the prompt goes out without
+it and a warning says why. Nothing about it blocks publication, submission, or completion.
 
 ## 7. End-to-end phase execution
 
@@ -591,7 +575,6 @@ singularity/
 ├── agents/
 ├── prompts/
 ├── templates/
-├── world-model/
 ├── work-items/
 ├── initiatives/
 └── agents.lock.yml
@@ -634,8 +617,8 @@ records.
 | `src/config.mjs` | Workflow loading, normalization, validation |
 | `src/session.mjs` | Local governed-agent session |
 | `src/choices.mjs` | One-time Copilot selection receipts |
-| `src/worldmodel.mjs` | World-model building and prompt composition |
-| `src/grounding.mjs` | World-model manifest and file integrity |
+| `src/worldmodel.mjs` | Prompt composition and the `wm` command |
+| `src/grounding.mjs` | Scoped source fingerprint and grounding record paths |
 | `src/agents.mjs` | Agent Markdown parsing, locking, caching, and injection |
 | `src/inputs.mjs` | Approved upstream artifact injection |
 | `src/state.mjs` | Story workflow state and publication |

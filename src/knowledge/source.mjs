@@ -4,12 +4,14 @@
  * Reading the commit makes a build reproducible on any machine with the same commit and lets the
  * cache be keyed by content. Files are read through the bounded tree reader, which never fetches
  * a missing object, so a sparse or partial checkout reads only what it has. Singularity Flow's own
- * records and Git metadata are not code to explain and are never read.
+ * records and Git metadata are not code to explain and are never read, and neither is anything under
+ * `worldModel.excludedRoots` or declared environment-local in `singularity/environments.yml`.
  */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { comprehensionDefinition, comprehensionPathContext, isExplainedPath } from '../comprehension/code-scope.mjs';
+import { loadEnvironmentDeclarationSync, matchEnvironmentLocalPath } from '../environment-declaration.mjs';
 import { readRefTreeResult } from '../git-ref-tree.mjs';
 import { head } from '../git.mjs';
 import { normalizeSourceRoots } from '../source-scope.mjs';
@@ -43,6 +45,27 @@ function isCandidateSource(relative, pathContext) {
 }
 
 /**
+ * Paths no build reads: `worldModel.excludedRoots` prefixes, and environment-local files (secrets,
+ * machine settings) the repository declares. A declaration that cannot be read stops the read
+ * rather than risk reading what it would have excluded.
+ */
+function excludedSource(root, definition) {
+  let declaration;
+  try {
+    declaration = loadEnvironmentDeclarationSync(root, { optional: true });
+  } catch (error) {
+    throw new SingularityFlowError(`singularity/environments.yml could not be read, so no source was read: ${error.message}`, {
+      code: 'KNOWLEDGE_SCOPE_INVALID'
+    });
+  }
+  const prefixes = (Array.isArray(definition.worldModel?.excludedRoots) ? definition.worldModel.excludedRoots : [])
+    .filter((entry) => typeof entry === 'string' && entry.trim() && !/[*?[\]{}]/u.test(entry))
+    .map((entry) => entry.trim().replace(/\/+$/u, ''));
+  return (relative) => prefixes.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`))
+    || Boolean(matchEnvironmentLocalPath(declaration, relative));
+}
+
+/**
  * Read the code and manifests at HEAD under the configured source roots (or `area`).
  *
  * Over the file limit nothing is read: the result names the areas a reader can build one at a
@@ -60,6 +83,7 @@ export async function readKnowledgeSource(root, { area = null, ownOnly = false, 
   } catch (error) {
     throw new SingularityFlowError(error.message, { code: 'KNOWLEDGE_SCOPE_INVALID' });
   }
+  const excluded = excludedSource(root, definition);
   // Another branch or commit is read from Git's objects, never checked out.
   const commit = ref === 'HEAD' ? head(root) : ref;
   const listed = [];
@@ -67,6 +91,7 @@ export async function readKnowledgeSource(root, { area = null, ownOnly = false, 
     pathFilter: (relative, entry) => {
       // An area's own files are those directly in its folder; its subfolders are areas of their own.
       if (ownOnly && area && path.posix.dirname(relative) !== roots[0]) return false;
+      if (excluded(relative)) return false;
       if (entry.type === 'blob' && (isCandidateSource(relative, pathContext) || MANIFEST.test(relative)
         || (isRuleFile(relative) && isExplainedPath(relative, pathContext) && !BUILD_OUTPUT.test(relative)))) listed.push(relative);
       return false;

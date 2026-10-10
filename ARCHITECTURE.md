@@ -57,10 +57,10 @@ CLI is the sole lifecycle controller. The Electron application was retired by
 | Concept | Responsibility | Must not be used as |
 |---|---|---|
 | Human identity | Attribution and approval authority | A prompt/execution configuration |
-| Governed agent | Phase-specific Copilot behavior, tools, and views | A human approver or authorization role |
+| Governed agent | Phase-specific Copilot behavior and tools | A human approver or authorization role |
 | Skill | Named `/sf-*` interaction and CLI playbook | Workflow state |
 | Prompt / prompt pack | Reusable instructions assembled into context | Repository facts |
-| World model | Hash-bound repository facts and topology | Policy or human instructions |
+| World Model | The Repository brief: rules, contracts, flows, impact, and risks read from the source | Policy or human instructions |
 | Workflow | Phase order, artifacts, inputs, checks, and gates | Generated content |
 | Workspace | Local project/capability selection | Shared lifecycle authority |
 | Capability | Organisational ownership and inherited policy | A local clone or user role |
@@ -125,7 +125,7 @@ control:
 ```mermaid
 flowchart LR
   U["Contributor in Copilot, VS Code, or terminal"] --> S["Phase skill + phase-default agent"]
-  S --> W["Routed world-model context"]
+  S --> W["Repository brief"]
   S --> I["Approved phase inputs"]
   S --> D["Pinned active-agent Markdown"]
   S --> A["Artifact template"]
@@ -161,15 +161,15 @@ Application integration branches are never implicit publication targets. The
 default branch is resolved from configuration or the local remote-HEAD symbolic
 reference. Initial governance is committed to a review branch; shared configuration
 and proof live on the orphan `sflow/config` and `state` branches; Story and Initiative
-transactions publish only their registered lifecycle branches. World-model,
-configuration-editor, and Story-branch attachment publishers fail before staging or
-committing when invoked on the application branch. The final integration action is
+transactions publish only their registered lifecycle branches. Configuration-editor
+and Story-branch attachment publishers fail before staging or committing when
+invoked on the application branch. The final integration action is
 an explicit, human-merged `singularity-flow epic pr` after the Story stack is ready.
 
 ## Repository definition and immutable resolution
 
 `singularity/workflow.yml` on `sflow/config` is the editable definition for new
-work. It declares work types, phases, templates, world-model routing, approval
+work. It declares work types, phases, templates, Repository brief settings, approval
 policies, Git publication, and protected paths. Governed agents live in
 `.github/agents/*.agent.md` on the same branch. Capability edits are reviewed
 against `sflow/config`; application branches are not configuration authorities.
@@ -185,7 +185,7 @@ At work-item creation the CLI resolves:
 1. The selected work type and its phase sequence.
 2. Work-type overrides over phase defaults.
 3. Every phase artifact/template path.
-4. Applicable checks, views, comparison, and approval policy.
+4. Applicable checks, comparison, and approval policy.
 5. Configuration and template SHA-256 hashes.
 6. `inputsMode`, normalized upstream-input declarations, and producer artifact paths.
 7. Any explicitly referenced remote template copied into committed work-item context.
@@ -201,29 +201,18 @@ For generation, context is additive:
 ```text
 phase contract/template
 + governed Agent Markdown
-+ phase-required world-model views
-+ agent-added world-model views
-+ rule-selected repository world-model files
++ Repository brief
 + active-agent remote skill Markdown
 + governed host-MCP policy (agent, phase, and tool allowlist)
 + approved phase-input artifacts
 + evidence ledger for verification/conformance
 ```
 
-A World Model build reads an exact scoped source snapshot, runs closed extractors and registered view contracts, validates every view, and publishes one atomic current projection to the state branch. Its source identity excludes model output and work-item lifecycle state, so those commits do not create false staleness.
+The Repository brief is read from the committed source with no build and no model: the rules that apply, contracts, flows, what the Story's change touches, and the risky places. `worldModel.knowledge` sets its prompt mode (`slice|off`) and size, and a work type's `intelligence.worldModel: off` leaves it out. Old World Model files on a state branch stay in Git and are not read.
 
-Normal phase skills use one `wm compose` operation. It joins the phase-default agent, mandatory phase/agent views, the exact task guide, applicable evidence, and locked remote Agent Markdown dependencies. The next generation commit includes a provenance record plus the exact rendered prompt. The configurable `off|warn` policy verifies model context against the committed model before it is used; context that fails is left out of the prompt with a warning. Missing or unreachable intelligence is represented by an unavailable receipt with zero World-Model bytes. The World Model is guidance and never becomes lifecycle authority: no grounding or staleness finding refuses publication, submission, or completion. Staleness `warn` or `ignore` may consume an otherwise integrity-verified stale snapshot with the configured visibility. `grounding: enforce` and `staleness: fail` are still accepted and act as `warn`.
+Normal phase skills use one `wm compose` operation. It joins the phase-default agent, the Repository brief, the exact task guide, applicable evidence, and locked remote Agent Markdown dependencies. The next generation commit includes a provenance record plus the exact rendered prompt. The brief is guidance and never becomes lifecycle authority: nothing in it refuses publication, submission, or completion.
 
-The `registered-v4` builder is the only World Model format; the legacy-v3 builder was removed. Its
-current state-branch projection and exact cache reuse are operational. The newer WMP
-immutable exact-history contracts, lookup, and build-to-binding staging are an additive foundation:
-they are not yet invoked automatically by Story start or phase grounding. That staged boundary does
-not disable existing Story or World-Model commands. The shipped `grounding: warn` policy records an
-unavailable model with zero injected bytes and lets ordinary repository work continue.
-`grounding: enforce` acts as `warn`: an integrity failure leaves the bytes out of the prompt and
-never blocks work. A separately required intelligence product may retain its own explicit gate.
-
-Repository world models never move to remote delivery. Agent Markdown is the governed execution-role layer. `singularity/agents.lock.yml` supplies committed trust-on-first-use hashes; `.git/singularity-flow/agents/` is an uncommitted verified cache. Sync records the active agent without changing the lock. Remote Markdown dependencies are copied and hash-recorded per generation, remote templates are copied once into immutable work-item context, and generated outputs receive per-generation provenance records.
+The Repository brief never moves to remote delivery. Agent Markdown is the governed execution-role layer. `singularity/agents.lock.yml` supplies committed trust-on-first-use hashes; `.git/singularity-flow/agents/` is an uncommitted verified cache. Sync records the active agent without changing the lock. Remote Markdown dependencies are copied and hash-recorded per generation, remote templates are copied once into immutable work-item context, and generated outputs receive per-generation provenance records.
 
 MCP is a separate host boundary. VS Code or Copilot CLI owns MCP server processes,
 transports, trust, and credentials. The committed workflow owns only server-name,
@@ -231,7 +220,7 @@ agent, phase, and tool policy. Prompt composition exposes that allowlist to the
 active governed agent. Material results become governed only when copied below the
 work item and recorded under `context/mcp/`; the gate revalidates their hashes.
 
-Agents define prompt behavior, allowed tools, phase scope, automatic phase ownership, and added world-model views. Agents are software execution contracts, not people. Human identity and organizational role are recorded separately, and approval authority comes only from configured identity groups.
+Agents define prompt behavior, allowed tools, phase scope, and automatic phase ownership. Agents are software execution contracts, not people. Human identity and organizational role are recorded separately, and approval authority comes only from configured identity groups.
 
 Approval authority comes only from the real Git/GitHub identity matching a configured `approvalAuthorities` group. Each phase's `approval.authorities` names the groups that may approve it and `approval.minimum` how many distinct identities are required; the same identity cannot satisfy a threshold twice. The authority registry is pinned into the work item when it starts, so later configuration edits cannot retroactively grant authority over in-flight work. Matching records an `identityAssurance` of `configured-local` or `github-authenticated` — an honest label for how the identity was established, not a claim of cryptographic authentication. Self-approval is permitted but always recorded and warned, and is never presented as independent review.
 
@@ -246,7 +235,7 @@ singularity/work-items/ENG-142/
 ├── documents.json
 ├── inputs/
 │   └── DOC-001/<original-file>
-├── context/                 # per-generation grounding records and prompt snapshots
+├── context/                 # per-generation context records and prompt snapshots
 │   ├── design-gen1.json
 │   ├── inputs-design-gen1.json
 │   ├── agents-design-gen1.json
@@ -301,7 +290,7 @@ governed state store.
   portfolio progress.
 - Configuration provides visual designers for workflows, artifact templates,
   agents, prompts, skills, prompt packs, capabilities, integrations, and
-  world-model policy.
+  World Model source scope.
 
 Revisioned scoped snapshots prevent an older asynchronous response from replacing
 newer UI state. File watching refreshes visual projections when work is performed
@@ -408,8 +397,6 @@ The final tree hash excludes `singularity` state and hashes tracked source/test 
   be regular files rather than symlink escapes.
 - Approval authority is tied to real configured identities. A governed agent never
   grants authority.
-- Repository world-model generation occurs in a detached analysis worktree; source
-  modifications from the model process are rejected.
 - Worktree locks prevent local read-modify-write races, while Git fast-forward
   rejection remains the cross-machine concurrency arbiter.
 

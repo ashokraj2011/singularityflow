@@ -23,7 +23,7 @@ related:
   - getting-started
   - resets-and-cleanup
   - diagnostics-and-regression
-version: 34
+version: 35
 ---
 Use this workflow to install Singularity Flow, govern an existing checkout or remote repository, verify the product surfaces, and replace an installed build without changing governed application history.
 
@@ -131,14 +131,6 @@ one review instead of opening another. The proposal records its build in the pac
 teammate on another build proposes a review of that build. A window waiting to reload onto a newer
 build opens none; the reloaded build does.
 
-Then the window checks its own repository, once per build, for retired legacy-v3 World Model view
-names (`business`, `architecture`, `development`, ...). When its configuration still names them, a
-notification offers **Replace**, **Preview** (the exact rewrite, file by file) or **Not now**.
-Replace runs `singularity-flow wm migrate-views` with the preview's confirmation, which rewrites
-only working-tree configuration and restores every file if the result does not load; **Review &
-publish** then opens the configuration review so new Stories use the current views. **Singularity
-Flow: Replace Retired World Model Views** runs the same check at any time.
-
 A terminal has no window to wait in, so a new build's first mutation starts the same pass as a
 background worker. `singularity-flow product status` lists the reviews it opened. One pass runs on a
 machine at a time. A registered repository that cannot be reached does not hold up the others: the
@@ -165,7 +157,7 @@ the approved configuration is mirrored. Use the explicit capability publication 
 those links must change. This command never rewrites
 immutable historical records. Registered older records are migrated in memory by their readers;
 future or unreadable schema versions remain explicit blockers with upgrade guidance. Compatibility
-roots and registered-v4 state requirements come from the exact isolated approved configuration
+roots come from the exact isolated approved configuration
 candidate, not a potentially stale application checkout. Old local workflow formats remain
 registered long enough for this recovery command to inspect and upgrade them. A corrupt workspace
 registry is an explicit `WORKSPACE_REGISTRY_INVALID` refusal rather than a misleading successful
@@ -231,8 +223,7 @@ new Stories consume the upgraded approved authority. This is not test or release
 ### Pilot hard cutover — discontinue existing Stories
 
 Choose **After install → Hard cutover: discontinue old Stories…** after selecting the workspace.
-This is a separate opt-in path, never an automatic fallback from a failed upgrade, and it does not
-change the World Model. Review the listed Story IDs and exact plan once. It upgrades configuration,
+This is a separate opt-in path, never an automatic fallback from a failed upgrade. Review the listed Story IDs and exact plan once. It upgrades configuration,
 publishes a retirement registry on `sflow/config` and its state mirror, then refreshes the local
 authority pins.
 
@@ -251,11 +242,10 @@ singularity-flow workspace reinitialize WORKSPACE --hard-cutover --confirm-plan 
 ```
 
 Copilot: `/sf-admin reinitialize WORKSPACE --hard-cutover`.
-Current configuration, non-retired records and authoritative World Model bindings still need valid
+Current configuration and non-retired records still need valid
 integrity. A moved Story ref, configuration/state authority, or workspace membership invalidates the
 plan before publication. Partial completion is retained; preview again rather than reusing a stale
-confirmation. Fresh registered World Model analysis is still a separate capability build from the
-workspace repository checkout, not from a retired Story.
+confirmation.
 
 `spec-driven-standard` and `reference-driven-build` remain standard product contracts rather than
 optional catalog samples during ordinary refresh. Safe reinitialize restores them only when they

@@ -13,7 +13,7 @@ commands:
 related:
   - getting-started
   - sequence-gates
-version: 6
+version: 7
 ---
 `sflow nextsteps` computes the ordered, valid next actions from pinned state — NOW, THEN, and alternatives, each with a reason and a runnable command. Command results follow the same narration contract: outputs explain why you are seeing them (which state, which pin, which rule) and end with a next action or an explicit rest state. Refusals name each unmet condition, its evidence, and the repair command — a gate is never "no," it is "not yet, and here is the path."
 
@@ -35,9 +35,7 @@ Use this topic when the current goal matches **nextsteps**. Start in a governed 
 4. Run the smallest applicable command from this topic. Do not substitute an undocumented subcommand.
 5. Re-read state after completion. In Copilot, return to `/sf-home`; in VS Code, refresh the relevant view if it has not already refreshed.
 
-Any displayed world-model recovery uses the shared repository model keyed by the scoped source
-snapshot. It is an optional improvement and requires its own configured policy or contributor
-authorization; missing or stale intelligence must not delay `sflow next`. Story context is supplied
+A missing Repository brief or AST context never delays `sflow next`. Story context is supplied
 separately by the governed workflow prompt. Copilot invokes `singularity-flow next` without adding
 the Story title or current conversation as a `--task` value.
 

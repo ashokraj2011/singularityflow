@@ -205,14 +205,14 @@ Depending on enabled features, it can contain:
 | `ledger/**` | Append-only lifecycle, activation, binding, and evidence events | Durable proof, not lifecycle mutation authority |
 | Canonical configuration paths plus `configuration/manifest.json` | Exact mirror of approved `sflow/config`, source revision, hashes, and product revision | Read mirror; `sflow/config` remains configuration authority |
 | `singularity/capability-authority.json` | Credential-free routing link from a delivery repository to its approved capability authority | Routing hint, not the capability authority itself |
-| `singularity/world-model/**` | Reusable repository World Model, facts, views, evidence, manifests, and publication receipts | Shared repository intelligence for the exact source snapshot |
+| `singularity/world-model/**` | Files of the removed registered World Model, from older builds | Kept in Git; nothing writes or reads them |
 | `orchestration/stacks/<EPIC-ID>.json` | Deterministic cross-repository Story and pull-request merge order | Derived orchestration projection |
 | `singularity/sgos/authority-stores/<STORE-ID>/**` | Git-trusted SGOS Capability Pack authority projection | Distribution projection; import still requires exact verification and confirmation |
 
 The state branch combines two kinds of data:
 
 1. **Rebuildable projections** — configuration mirrors, capability routing links,
-   World Models, indexes, and Story-stack projections can be recreated from their
+   indexes, and Story-stack projections can be recreated from their
    authoritative inputs.
 2. **Durable history** — append-only ledger and SGOS lineage must not be assumed
    reconstructable after deletion.
@@ -247,8 +247,7 @@ The runtime may create short-lived refs inside isolated local clones, including:
   detached clone.
 
 They are implementation details, are removed with their temporary checkout, and
-must never be pushed as shared product branches. World-Model analysis normally uses
-a detached worktree rather than a durable named branch.
+must never be pushed as shared product branches.
 
 ## Machine-local state is not a branch
 
@@ -312,7 +311,6 @@ Inspect SFlow's interpretation as well as raw Git:
 singularity-flow doctor --json
 singularity-flow capability fsck --lead <LEAD-REPOSITORY-URL> --json
 singularity-flow workspace refresh-configuration --dry-run --json
-singularity-flow wm status --json
 ```
 
 Raw Git shows which refs exist. The SFlow commands additionally verify ancestry,
@@ -341,4 +339,3 @@ See also:
 - [State authority and recovery contract](STATE-AUTHORITY.md)
 - [Existing-workspace configuration refresh](../README-REFRESH-EXISTING-WORKSPACES.md)
 - [Capability-map Git robustness plan](CAPABILITY-MAP-GIT-ROBUSTNESS-PLAN.md)
-- [World-Model Builder v4](WORLD-MODEL-BUILDER-V4.md)

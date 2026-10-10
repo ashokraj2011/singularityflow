@@ -102,15 +102,13 @@ Use these for user surfaces, Copilot skills, and external tool wiring.
 
 ## World Model, AST, And Token Economy
 
-Use these for repository model creation, reuse, projections, AST behavior, and
+Use these for the Repository brief, repository knowledge, AST behavior, and
 token reduction.
 
 | Document | Use it for |
 |---|---|
-| [Governed World-Model Builder v4](WORLD-MODEL-BUILDER-V4.md) | Registered repository views and governed builder contracts |
-| [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md) | Exact-history persisted views and remaining activation work |
+| [Repository knowledge model](KNOWLEDGE-MODEL.md) | `wm knowledge` and the Repository brief every phase prompt gets |
 | [Future-proof world-model read contracts](FUTURE-PROOF-WORLD-MODEL.md) | Versioned model-free structural read contracts |
-| [CALM World Model projection](CALM-WORLD-MODEL-PROJECTION.md) | Model-free CALM architecture projection |
 | [AST Intelligence](AST-INTELLIGENCE.md) | Optional AST packs, assurance, fallback, and project binding |
 | [Token Reduction preview](TOKEN-REDUCTION.md) | Code-local token reduction and cache boundaries |
 | [Self-provisioning usage telemetry](SELF-PROVISIONING-USAGE-TELEMETRY.md) | Local usage and cost capture |

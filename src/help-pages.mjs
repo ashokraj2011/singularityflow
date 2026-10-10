@@ -1111,7 +1111,6 @@ const PAGES = Object.freeze({
       ['--name TEXT', 'Human-readable capability name.'],
       ['--kind collection|delivery', 'Whether the capability collects work or delivers it.'],
       ['--into DIRECTORY', 'Where to clone. Defaults to a directory named after the repository.'],
-      ['--grounding off|warn', 'Registered World Model grounding, used only where worldModel.registered is on (it is off by default; phase prompts always get the Repository brief). Nothing about it ever blocks; warn reports missing, stale or unverifiable context.'],
       ['--no-push', 'Do everything locally and push nothing.']
     ],
     examples: [
@@ -1440,33 +1439,30 @@ const PAGES = Object.freeze({
     seeAlso: ['submit', 'epic', 'stack']
   },
   wm: {
-    summary: 'Build, inspect, and compose the repository world model that grounds each phase.',
+    summary: 'See the Repository brief each phase gets, read repository knowledge, and compose phase prompts.',
     description: [
-      'The world model is the grounding a phase is checked against: registered views built from',
-      'the committed source. `wm build` is deterministic by default (zero model tokens); a',
-      '`model-optional` or `model-required` composer may call the configured provider.',
-      '`wm knowledge` reads what the code does (rules, journeys, tests) for each phase prompt.',
+      'The World Model is the Repository brief every phase prompt gets, read from the source with no',
+      'build and no model: the rules that apply, contracts, flows, what the Story change touches and',
+      'the risky places. It is guidance and never blocks. `wm brief` shows what a phase receives;',
+      '`wm knowledge` reads what the code does (rules, journeys, tests) for the whole repository.',
       '',
-      'If a phase refuses to publish with "grounding is not ready", this is the command that fixes',
-      'it — and note that the grounding policy is pinned from the configuration branch, not from the',
-      'branch you are standing on.',
+      'A work type leaves the brief out with `intelligence.worldModel: off`, and',
+      '`worldModel.knowledge.prompt: off` leaves it out everywhere. `worldModel.sourceRoots` and',
+      '`sharedRoots` choose the directories it reads.',
       '',
-      'A verified stored model can remain reusable when the current source cannot be compared.',
-      '`wm status` then reports `freshness.status: unavailable`, `fresh: false`, `current: null`,',
-      'and the original source error. It never relabels that result as fresh or stale and never',
-      'rebuilds, commits, or captures a Candidate Snapshot merely to answer a status request.'
+      'The registered World Model (published views, CALM architecture, architecture intent) was',
+      'removed. Its commands refuse with WMB_REMOVED, and its settings are dropped when the',
+      'configuration loads; `singularity-flow doctor` names any that are still written.'
     ],
     examples: [
-      ['singularity-flow wm build --depth quick', 'Build the world model at quick depth.'],
-      ['singularity-flow wm compose --phase intake', 'Compose the grounding for a phase.'],
+      ['singularity-flow wm brief --phase implementation', 'Show the Repository brief the implementation phase receives.'],
+      ['singularity-flow wm compose --phase intake', 'Compose the prompt for a phase.'],
       ['singularity-flow wm knowledge show business', 'Approved requirements, journeys, rules and messages, read from the committed source.'],
       ['singularity-flow wm ast context --paths src --max-facts 50 --max-output-bytes 32768 --json', 'Read a bounded, page-continuable structural context without invoking a model.'],
       ['singularity-flow wm ast query --predicate symbol --value PaymentService --paths src --json', 'Find a bounded declaration/signature page from a text preview or installed parser provider.'],
       ['singularity-flow wm ast pack doctor sflow-polyglot-syntax', 'Inspect the legacy-named bundled Java/Python/Kotlin/Swift structural preview and its text assurance ceiling.'],
       ['singularity-flow wm ast warm --semantic --provider sflow-java-jdt --profile default --project maven:. --dry-run', 'Preview the exact offline project-model and toolchain commands before creating a semantic binding.'],
       ['singularity-flow wm ast evidence reproduce --receipt singularity/work-items/WRK-1/context/ast/intake-gen1.json --json', 'Reproduce durable structural evidence from exact Git objects and retained toolchain bytes, without using the cache or a model.'],
-      ['singularity-flow wm recovery list', 'List validated snapshots retained after publication failure.'],
-      ['singularity-flow wm recovery publish 1720000000000-abcd-intake --confirm 1720000000000-abcd-intake', 'Republish retained validated bytes without another provider call.'],
       ['singularity-flow wm ast doctor', 'Show effective AST policy, scope, cache, and optional adapter health.']
     ],
     seeAlso: ['phase', 'doctor', 'capability']

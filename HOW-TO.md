@@ -16,7 +16,7 @@ flowchart LR
   subgraph Prompt["Prompt composition for the active phase"]
     Contract["Phase contract and artifact template"]
     Agent["Phase-default governed Agent Markdown"]
-    World["Repository World Model: configured views or an unavailable receipt"]
+    World["Repository brief read from the source: guidance only"]
     Remote["Locked remote agent Markdown: optional and hash-pinned"]
     Inputs["Approved upstream phase artifacts: optional mode"]
   end
@@ -290,10 +290,6 @@ sflow-next
 
 Run it again only when you deliberately want the following lifecycle action.
 It does not silently combine generation, submission, and approval.
-The phase world model is keyed by the governed repository source snapshot, scope, configuration,
-and selected views—not by the Story title or prose from the current chat. Returning in a new
-Copilot session, or starting another Story at the same admitted inputs, therefore reuses
-otherwise-ready grounding.
 
 ## 5. Generate and publish a phase
 
@@ -316,7 +312,7 @@ Publishing performs the following transaction:
 
 ```mermaid
 flowchart LR
-  Prepare["Resolve template, governed agent, world model, remote dependencies, and inputs"] --> Edit["Author artifact and permitted code or tests"]
+  Prepare["Resolve template, governed agent, Repository brief, remote dependencies, and inputs"] --> Edit["Author artifact and permitted code or tests"]
   Edit --> Validate["Validate write scope, hashes, metadata, traceability, and quality"]
   Validate --> State["Update workflow state and audit records"]
   State --> Commit["Commit: WORK-ID phase generated N"]
@@ -376,7 +372,7 @@ Publication recollects and verifies the producer artifact, so changing the rende
 
 ## 7. Use optional remote agent Markdown
 
-Repository world models stay generated and stored in the application repository. Remote delivery is only for optional agent skills, artifact templates, and generated artifacts represented as public HTTPS Markdown.
+The Repository brief is always read from the application repository's own source. Remote delivery is only for optional agent skills, artifact templates, and generated artifacts represented as public HTTPS Markdown.
 
 ```mermaid
 flowchart LR
@@ -523,7 +519,7 @@ The terminal gate verifies all phases, publication, artifact and approval hashes
 | See the story merge order | — | `singularity-flow epic merge-plan --epic <EPIC-ID>` |
 | Preview a story pull request | — | `singularity-flow pr WORK-123` |
 | Open a story pull request | — | `singularity-flow pr WORK-123 --create` |
-| Build the world model locally | — | `singularity-flow wm build --local` |
+| See the Repository brief a phase receives | — | `singularity-flow wm brief --phase <phase>` |
 | Read full help | `/sflow-help` | `singularity-flow help` |
 
 ## Operational checklist

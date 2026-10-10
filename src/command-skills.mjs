@@ -135,7 +135,6 @@ const entries = {
   validate: ['sf-doctor'],
   gate: ['sf-gate'],
   wm: ['sf-worldmodel', 'sf-show-prompt'],
-  architecture: ['sf-architecture'],
   revision: ['sf-revision', 'sf-revise', 'sf-revision-attachments', 'sf-revision-checks'],
   revise: ['sf-revise'],
   jira: [

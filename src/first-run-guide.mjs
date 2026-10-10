@@ -31,7 +31,6 @@ async function configureRepository(root) {
   const text = await readFile(file, 'utf8');
   const definition = YAML.parse(text);
   definition.git.publish = 'off';
-  definition.worldModel.grounding = 'off';
   // The starter keeps its commentary, so the guide's repository reads like any initialized one.
   await writeFile(file, renderDataPreservingFormatting(text, definition));
 }

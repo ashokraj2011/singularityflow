@@ -19,7 +19,6 @@ const MODES = new Set(['replace', 'append', 'off']);
 // Persisted grounding is trusted only after its receipt, path and exact bytes have all been
 // verified. Bound admission before allocation or I/O so a crafted receipt cannot turn replay into
 // an unbounded memory read. Legitimate packets are normally measured in KiB, not MiB.
-const MAXIMUM_PERSISTED_GROUNDING_FILE_BYTES = 32 * 1024 * 1024;
 
 let tokenReductionCompositionRuntimePromise = null;
 

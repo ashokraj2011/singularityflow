@@ -28,7 +28,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 52
+version: 54
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -53,9 +53,9 @@ work back to, at most how many times, and which step's next run starts the count
 the same step share one count), what it reads from
 earlier steps (each one required or optional: an optional input may be missing when a decision skips
 the step that writes it), artifacts (the template it drafts from, the file it writes and its artifact
-set), knowledge views, clarifying questions, and what happens after it. Everything is
-chosen from lists. The tool rail on the canvas adds a step after the selected one (from the
-repository's step catalog or new), adds a decision, jumps to the step's send-back rule, finds a step
+set), the World Model (the Repository brief the step gets; nothing to set), clarifying questions,
+and what happens after it. Everything is chosen from lists. The tool rail on the canvas adds a step
+after the selected one (from the repository's step catalog or new), adds a decision, jumps to the step's send-back rule, finds a step
 or agent, and opens the workflow's own settings: its name and description, and every send-back rule
 and decision it has. Clicking the empty canvas opens them too. Steps are reordered by dropping one on
 another, with the arrows above a step, or with **Move earlier** and **Move later**. A new workflow
@@ -72,7 +72,7 @@ the decision. Its targets name the steps a route would skip; the engine refuses 
 step a later one reads. See `sflow explain workflow-decisions`.
 
 Agents are created from a role (analyst, product owner, architect, developer, tester, designer,
-reviewer, or blank): name, one-sentence description, tools, knowledge views and instructions. The
+reviewer, or blank): name, one-sentence description, tools and instructions. The
 shared operating rules every agent follows are added automatically. People are added to approval
 groups by email address or GitHub login; a group can be renamed. An agent or approval group added in
 this session can be removed again while no step uses it. **Manage people**, **Integrations** and
@@ -117,7 +117,7 @@ steps** goes back to that after you named them yourself.
 start (`portfolio.yml`). **New Epic workflow** starts empty or from another's steps, and **Duplicate**
 makes a linked copy that shares its source's steps and review packs. Opening one lists its steps (add
 one from another Epic workflow or create one, reorder, remove) and edits the selected step: its
-agents, lanes, knowledge views, sign-off (groups and how many approvals; a review chain stays in the
+agents, lanes, sign-off (groups and how many approvals; a review chain stays in the
 file), and its outputs, each with a kind, the file it writes, its template, whether it is required,
 and which earlier outputs it reads. Review packs and checklists are shown as counts and stay in
 `portfolio.yml`. Epic changes are published with every other change, as one proposal.
@@ -143,7 +143,7 @@ workflow runs the step: every input keeps its settings (optional, clause selecto
 projection, preserved headings), and so do the workflow's sign-off rules, template, write scope and
 tool evidence for it. It then takes the step's place there: the steps that read it, send-back
 targets, decisions, planned claims, source review, where Auto stops and fast-path verbs name the
-copy, and shared lists that allow the step (MCP servers, document uploads, architecture intent)
+copy, and shared lists that allow the step (MCP servers, document uploads)
 allow the copy too. The engine governs the copy exactly as the step, because it reads what a step
 does, never its name (see *A step is governed by what it is* below). Check says what a copy cannot
 take along: a skill that takes its built-in step by name (`/sf-requirements`, `/sf-design`,
@@ -167,8 +167,8 @@ the `base` digest), and `singularity-flow workflow studio apply --change-set <FI
 with `copyOf` names the step to copy and `copyFromWorkflow` the workflow whose settings it keeps. A
 `workflow` named on `phase.update` must use the step once the whole change set is applied
 (`STUDIO_PHASE_UNKNOWN` otherwise), and a setting for it stays that workflow's own even when the same
-change set adds the step to it. `inputs` and `views` left out or `null` mean unchanged; a value that
-is not a list is refused (`STUDIO_PHASE_UNKNOWN` for inputs, `STUDIO_VIEWS_INVALID` for views).
+change set adds the step to it. `inputs` left out or `null` means unchanged; a value that
+is not a list is refused (`STUDIO_PHASE_UNKNOWN`). A step's `views` is ignored.
 
 ## Which skill drafts a step
 
@@ -545,8 +545,8 @@ alter native metadata or preserve eligibility by copying a privileged installed 
 Template IDs are `template:<catalog-ID>` or `path:<existing-relative-path>`; the latter uses
 `expectedDefinitionSha256: null`. Named template declarations may change label/description, but
 not their existing path or kind. Hidden/native discovery roots and non-Markdown paths are not
-editable through this content profile. Required visible headings, supported template tokens,
-world-model prompt references and every affected workflow are checked by shared pure validators.
+editable through this content profile. Required visible headings, supported template tokens
+and every affected workflow are checked by shared pure validators.
 An unclosed HTML comment is invalid; a required heading hidden inside a comment does not count.
 
 The compiler captures original committed bytes through the verified configuration owner while
@@ -1017,15 +1017,15 @@ includes the selected workflow rows and the configuration objects they require: 
 sets and templates, approval authorities (including groups only a decision's `by` or a
 specification-quality `exceptionAuthority` names), governed Agent Markdown (including a
 repository's own source reviewer; a packaged reviewer is installed everywhere), MCP assignments,
-applicability policies, exact remote-agent dependency locks, and declared World Model requirements.
+applicability policies, and exact remote-agent dependency locks.
 A skill or template an agent's lock names as imported (vendored) travels as its exact bytes, with
 the record of where it came from, and so does an imported MCP server's descriptor: the destination
 never fetches them again, and the reader checks each copy against its lock's hash. Other locked
 remote dependencies are hash-verified when the destination fetches them. Every skill from the skill
 master that a carried agent attaches travels as its exact `SKILL.md`; a skill no carried agent
 attaches stays behind (`sflow explain skill-master`). The bundle never embeds a
-token or credential. Repository-wide policy and installed World Model view contracts are prerequisites:
-import validates them on the destination but never overwrites them. It does not include local caches,
+token or credential. Repository-wide policy is a prerequisite:
+import validates it on the destination but never overwrites it. It does not include local caches,
 runtime ledgers, work-item artifacts, or application source.
 
 New exports use bundle v5: v4's closure plus the skill master skills the carried agents attach. v4
@@ -1338,10 +1338,10 @@ and `Benchmark B — generic context` (`benchmarking-b`). Both run:
 `intake → design → implementation → testing → conformance`
 
 They share the same templates, default agents, artifact contracts, write scopes, approval groups,
-thresholds, and rejection routes. A requests governed world-model grounding, one bounded optional
-AST evidence page, and approval-bound agent briefs. If World-Model or AST intelligence is unavailable,
+thresholds, and rejection routes. A requests the Repository brief, one bounded optional
+AST evidence page, and approval-bound agent briefs. If the brief or AST intelligence is unavailable,
 A records the degraded treatment and continues with ordinary repository access. B disables
-world-model and AST context and consumes full approved artifacts. The resolved
+the Repository brief and AST context and consumes full approved artifacts. The resolved
 `intelligence` policy is pinned into `workflow.json`, so a later configuration change cannot switch
 an active Story between arms.
 

@@ -9,7 +9,6 @@
     "gateway-status-worker.cjs": { "maximumBytes": 200000, "maximumModules": 30 },
     "help-runtime.cjs": { "maximumBytes": 630000, "maximumModules": 130 },
     "lazy-panels-runtime.cjs": { "maximumBytes": 2540000, "maximumModules": 220 },
-    "support-runtime.cjs": { "maximumBytes": 430000, "maximumModules": 109 },
-    "world-model-build.cjs": { "maximumBytes": 8980000, "maximumModules": 740 }
+    "support-runtime.cjs": { "maximumBytes": 430000, "maximumModules": 109 }
   }
 }

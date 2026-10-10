@@ -156,7 +156,6 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
-    "@finos/calm-cli": "1.57.0",
     "pyright": "1.1.414",
     "sql.js": "1.14.2",
     "tslib": "2.8.1",
@@ -166,7 +165,6 @@
   },
   "bundleDependencies": [
     "@agentclientprotocol/sdk",
-    "@finos/calm-cli",
     "pyright",
     "sql.js",
     "tslib",

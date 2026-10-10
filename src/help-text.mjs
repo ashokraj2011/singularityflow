@@ -50,7 +50,7 @@ Usage:
   singularity-flow harness report [--json]
   singularity-flow bootstrap <REPOSITORY-URL> --capability ID [--name TEXT] [--kind collection|delivery]
     [--jira-project KEY] [--teams A,B] [--into DIRECTORY] [--base DIRECTORY]
-    [--state-branch NAME | --no-state-branch] [--grounding off|warn] [--no-push] [--json]
+    [--state-branch NAME | --no-state-branch] [--no-push] [--json]
   singularity-flow init [--repair] [--work-id WORK-ID] [--base BRANCH] [--fetch]
   singularity-flow init --check [--json]
   singularity-flow init --smart-detect --dry-run [--json]
@@ -721,24 +721,14 @@ Usage:
   singularity-flow sync [WORK-ID] [--replay [--dry-run]] [--json]
   singularity-flow validate [--strict]
   singularity-flow gate [--terminal] [--json]
-  singularity-flow wm views [--json]
-  singularity-flow wm plan [--phase PHASE] [--views LIST] [--json]
-  singularity-flow wm build [--branch BRANCH] [--remote REMOTE] [--phase PHASE] [--views LIST] [--depth quick|standard|deep] [--composer deterministic|model-optional|model-required] [--workers N]
-  singularity-flow wm status [--phase PHASE] [--task TEXT] [--json]
-  singularity-flow wm ensure [--phase PHASE] [--task TEXT] [--branch BRANCH] [--remote REMOTE] [--model MODEL]
-  singularity-flow wm context <PHASE> [--branch BRANCH] [--remote REMOTE] [--task TEXT] [--concat] [--evidence] [--no-agent]
   singularity-flow wm compose [--agent ID] [--phase ID] [--work-id ID] [--task TEXT] [--evidence] [--dry-run|--render-only] [--out FILE]
   singularity-flow wm show-prompt [--phase ID] [--work-id ID] [--skill ID] [--task TEXT] [--evidence]
   singularity-flow wm brief [--phase ID] [--work-id ID] [--json]   The repository brief a phase receives
   singularity-flow wm inject [same options]              Compatibility alias for wm compose
-  singularity-flow wm check [--branch BRANCH] [--remote REMOTE]
-  singularity-flow wm cleanup [--force] [--json]
   singularity-flow wm cache status|clear [--json]
-  singularity-flow wm migrate-views [--dry-run|--confirm PHRASE] [--json]   Rewrite retired legacy-v3 view names to registered views
   singularity-flow wm ast doctor|status [--json]
   singularity-flow wm ast build [--paths PATH]... [--all] [--max-files N] [--max-bytes N] [--max-facts N] [--max-output-bytes N] [--resume HANDLE] [--json]
   singularity-flow wm ast context [--paths PATH]... [--all] [--max-files N] [--max-bytes N] [--max-facts N] [--max-output-bytes N] [--cursor CURSOR] [--json]
-  singularity-flow wm recovery list|inspect <ID>|publish <ID> --confirm <ID> [--json]
   singularity-flow wm ast query --predicate symbol|symbol-id|import|references|hierarchy|module|language|path --value VALUE [--paths PATH]... [--max-facts N] [--max-output-bytes N] [--cursor CURSOR] [--json]
   singularity-flow wm ast gate [--paths PATH]... [--all] [--json]
   singularity-flow wm ast evidence reproduce --receipt PATH [--json]  # replay is a compatibility alias
@@ -1083,7 +1073,6 @@ Usage:
     (review and normally merge one exact proposal into sflow/config, then refresh its projection;
      protection is unknown until the real exact-CAS update; a direct attempt requires explicit acknowledgement;
      application main is never written)
-  singularity-flow capability world-model <CAPABILITY-ID> [--lead URL] [--json]
     (a capability that ships has its lead's model; one that groups others composes theirs)
   singularity-flow capability organisation [LEAD-URL] [--readiness] [--refresh] [--json]
     (--readiness asks each remote whether its state branch and world model exist;

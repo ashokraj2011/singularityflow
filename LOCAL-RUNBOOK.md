@@ -1,6 +1,6 @@
 # Singularity Flow — Local runbook (no Jira)
 
-The complete lifecycle without a Jira connection: workspace, initialization, repository grounding, manual Story intake, the phase loop, and completion.
+The complete lifecycle without a Jira connection: workspace, initialization, the Repository brief, manual Story intake, the phase loop, and completion.
 
 Use `sflow explain getting-started`, `sflow explain workspaces-and-sessions`, and `sflow explain manual-authorship` for the packaged tutorials corresponding to this runbook.
 
@@ -30,9 +30,7 @@ git remote add origin ../origin.git && git push -u origin main
 
 To run fully offline instead, set `git: { publish: off }` in `singularity/workflow.yml` on the base branch and commit it before `start`. Two consequences: `singularity-flow session attach` becomes unusable (it requires `refs/remotes/origin/<ID>`), and `workflow.yml` is hash-pinned at `start`, so it cannot be edited afterwards without failing `gate`.
 
-**`worldModel.grounding: warn` is the shipped starter setting.** `phase publish` checks the next generation's recorded `wm compose --phase <phase>` receipt and warns when it is missing or does not verify; that receipt may explicitly record a missing or unreachable model with zero World-Model bytes. Normal file-based phase work continues in that state. Staleness `warn` or `ignore` may consume an otherwise verified stale snapshot. The World Model is guidance, never authority: model bytes, provenance, or a prompt snapshot that do not verify are left out of the prompt with a warning, and nothing about the model blocks a lifecycle step. `enforce` and staleness `fail` are still accepted and act as `warn`. Set `worldModel.grounding: off` before `start` to omit repository grounding entirely.
-
-**`wm build` is deterministic by default.** With the default deterministic composer it calls no model and needs no Copilot CLI. Only `worldModel.v4.composer: model-optional` or `model-required` may call a model.
+**Every phase prompt gets the Repository brief.** It is read from the committed source with no build and no model: the rules that apply, contracts, flows, what the Story's change touches, and the risky places. The brief is guidance, never authority: nothing about it blocks a lifecycle step. `phase publish` checks the next generation's recorded `wm compose --phase <phase>` receipt and warns when it is missing or does not verify. Set `worldModel.knowledge.prompt: off`, or `intelligence.worldModel: off` on a work type, before `start` to leave the brief out.
 
 ### Commands that require an interactive terminal
 
@@ -146,7 +144,7 @@ intentional repository policy.
 ### Factory reset
 
 Use factory reset only when you intentionally want to discard every governed
-workflow, artifact, prompt customization, repository world model, and local
+workflow, artifact, prompt customization, and local
 Singularity session in this clone and return to the installed npm package
 defaults. Run it from the target application repository:
 
@@ -239,152 +237,27 @@ wants future Work IDs to inherit this process configuration.
 
 ---
 
-## 3. Build the repository world model
+## 3. Read the Repository brief
 
-Run from the initialized application repository, before starting its workflow.
+Nothing has to be built before starting a workflow. Every phase prompt gets the
+Repository brief, read from the committed source with no build and no model.
+Read the repository's knowledge from the initialized application repository at any time:
 
 ```bash
 cd /absolute/path/to/the/application-repository
-singularity-flow wm views
-singularity-flow wm plan --views all
-singularity-flow wm build --views all
-singularity-flow wm check
+singularity-flow wm knowledge status
+singularity-flow wm knowledge show contracts
 ```
 
-`wm build` reads the exact committed in-scope source, builds the registered views
-(`arch.contracts`, `biz.rules`, `dev.hotspots`, `dev.impact`) with zero model tokens,
-and publishes the validated model to the configured state branch. The application
-branch is not changed. Exact valid cache entries are reused, so rerunning the same
-build does not redo finished views. Add `--local` to validate without publishing.
-
-### Phase-by-phase minimum commands
-
-Run these commands from the application repository. Use the section for the
-workflow profile selected when the work item was started; do not run phases from
-a different profile. Each command builds only the views that phase uses,
-validates them, and publishes them to the state branch:
-
-#### Spec-Driven Standard
+After `start`, see exactly what a phase receives:
 
 ```bash
-singularity-flow wm build --phase specification
-singularity-flow wm build --phase planning
-singularity-flow wm build --phase implementation
-singularity-flow wm build --phase convergence
-singularity-flow wm build --phase verification
-singularity-flow wm build --phase release
+singularity-flow wm brief --phase <phase> --work-id WORK-123
 ```
 
-#### Quick fix
-
-```bash
-singularity-flow wm build --phase implement
-singularity-flow wm build --phase verify
-```
-
-#### Feature
-
-```bash
-singularity-flow wm build --phase intake
-singularity-flow wm build --phase requirements
-singularity-flow wm build --phase design
-singularity-flow wm build --phase implementation-spec
-singularity-flow wm build --phase implementation
-singularity-flow wm build --phase verification
-singularity-flow wm build --phase conformance
-```
-
-#### Bug fix
-
-```bash
-singularity-flow wm build --phase intake
-singularity-flow wm build --phase reproduction
-singularity-flow wm build --phase fix-design
-singularity-flow wm build --phase fix-spec
-singularity-flow wm build --phase implementation
-singularity-flow wm build --phase verification
-singularity-flow wm build --phase conformance
-```
-
-#### Chore
-
-```bash
-singularity-flow wm build --phase intake
-singularity-flow wm build --phase implementation
-singularity-flow wm build --phase verification
-singularity-flow wm build --phase conformance
-```
-
-#### Figma export to mobile app
-
-```bash
-singularity-flow wm build --phase design-intake
-singularity-flow wm build --phase design-inventory
-singularity-flow wm build --phase component-mapping
-singularity-flow wm build --phase mobile-spec
-singularity-flow wm build --phase implementation
-singularity-flow wm build --phase visual-verification
-singularity-flow wm build --phase conformance
-```
-
-#### POC workflow
-
-```bash
-singularity-flow wm build --phase poc-intake
-singularity-flow wm build --phase poc-impact-analysis
-singularity-flow wm build --phase poc-ui-exploration
-singularity-flow wm build --phase poc-test-generation
-singularity-flow wm build --phase poc-validation
-singularity-flow wm build --phase poc-publication-review
-```
-
-#### POC Lite
-
-POC Lite normally runs with world-model, AST, model, and MCP context disabled. These commands
-document every phase identifier and remain available for an explicitly requested deterministic,
-zero-token build:
-
-```bash
-singularity-flow wm build --phase poc-lite-plan
-singularity-flow wm build --phase poc-lite-act
-singularity-flow wm build --phase poc-lite-verify
-singularity-flow wm build --phase poc-lite-finalize
-```
-
-#### Benchmark A and Benchmark B
-
-Both benchmark workflows use the same phase IDs so their outcomes remain comparable:
-
-```bash
-singularity-flow wm build --phase intake
-singularity-flow wm build --phase design
-singularity-flow wm build --phase implementation
-singularity-flow wm build --phase testing
-singularity-flow wm build --phase conformance
-```
-
-Benchmark A measures the published world model, so run the command for its current phase when
-populating that treatment. If the model is unavailable, the run is marked degraded and
-the lifecycle still continues with ordinary repository access. Benchmark B deliberately disables
-world-model, AST, and agent-brief context; the commands above document the available phase IDs but
-are not required for that generic-context arm.
-
-You normally run only the current phase's command when Singularity Flow reports
-that grounding is missing or stale; running every command in advance is not
-required.
-
-The phase ID must exist in the repository's `singularity/workflow.yml`.
-Customized workflows use the same pattern:
-
-```bash
-singularity-flow wm build --phase <configured-phase-id>
-singularity-flow wm check
-```
-
-If you need a single broader model instead of the minimum phase-specific
-views, use `singularity-flow wm build --views all`.
-
-Flags: `--phase <id>` · `--views a,b,c|all` · `--depth quick|standard|deep` · `--composer deterministic|model-optional|model-required` · `--workers N` · `--local`.
+In a large monorepo, list the application directories the brief reads in
+`worldModel.sourceRoots` (and shared contracts in `worldModel.sharedRoots`) and
+commit them before `start`.
 
 ---
 
@@ -495,7 +368,6 @@ The `feature` work type runs `intake → requirements → design → implementat
 For each phase:
 
 ```bash
-singularity-flow wm ensure  --phase intake
 singularity-flow wm compose --phase intake --dry-run
 singularity-flow wm compose --phase intake
 singularity-flow prepare intake
@@ -507,7 +379,7 @@ singularity-flow submit --phase intake
 singularity-flow approve WORK-123 --fetch
 ```
 
-The model is shared across Stories and reused when its scoped source snapshot is unchanged. Story context comes from the governed workflow; use `--task` only for an explicitly requested ad-hoc task guide.
+Story context comes from the governed workflow; use `--task` only for an explicitly requested ad-hoc task guide.
 
 Artifacts must exceed the phase's configured `minimumBytes` and contain no `TODO`, `TBD`, `{{…}}`, or `[describe …]` placeholders; `publish` and `submit` both refuse otherwise. Phases with `writeScope: artifact-only` reject any change outside `artifacts/<phase>/` — source code belongs to `implementation` and `verification`.
 
@@ -531,7 +403,7 @@ Orientation at any point:
 
 ```bash
 singularity-flow nextsteps WORK-123 [--json]    # read-only ordered plan
-singularity-flow next [--task TEXT]             # one action; grounding reuses the shared repository model
+singularity-flow next [--task TEXT]             # one action
 singularity-flow guide WORK-123
 ```
 
@@ -566,7 +438,7 @@ singularity-flow validate --strict
 singularity-flow gate --terminal
 ```
 
-`gate` re-derives everything from Git rather than trusting `workflow.json`: configuration and template hashes, document integrity, protected paths, per-generation publication commits, grounding and telemetry records, distinct approver identities against the pinned authority registry, acceptance-criteria test tags, and conformance freshness.
+`gate` re-derives everything from Git rather than trusting `workflow.json`: configuration and template hashes, document integrity, protected paths, per-generation publication commits, prompt and telemetry records, distinct approver identities against the pinned authority registry, acceptance-criteria test tags, and conformance freshness.
 
 **`finalize` does not apply to a standalone work item.** It requires a governed seed at `singularity/seeds/<WORK-ID>.yml`, which only `initiative materialize` or `story fetch` create when a Story is derived from an Epic. A work item started directly with `singularity-flow start` has no seed, and `finalize` reports that the seed is unreadable. For that path, completion is `gate --terminal`.
 
@@ -581,7 +453,7 @@ singularity-flow gate --terminal
    `start`, selection receipts, soft-gate confirmation, `approve`, `reject`, and
    `epic start --local`; phase agents are resolved by the workflow.
 5. Consume selection receipts without committing in between; they expire in 15 minutes and are single use.
-6. Run `wm compose --phase <phase>` before every `phase publish` when grounding is enabled; do not add a Story-specific `--task`. A valid unavailable receipt is sufficient to continue with zero World-Model bytes.
+6. Run `wm compose --phase <phase>` before every `phase publish`; do not add a Story-specific `--task`.
 7. Replace every template placeholder and exceed the phase's minimum byte count.
 8. Keep source changes inside `implementation` and `verification`.
 9. Name the branch exactly the work ID.

@@ -17,7 +17,7 @@ import {
 import { initializeDefinition, loadDefinition, resolveWorkType } from './config.mjs';
 import {
   describeCapability, describeRepository, enableLedger, repositoryIdFromUrl,
-  setDefaultBaseBranch, setGroundingMode
+  setDefaultBaseBranch
 } from './bootstrap.mjs';
 import { loadCapabilities } from './capabilities.mjs';
 import { gitCommitIdentity } from './git.mjs';
@@ -782,7 +782,7 @@ async function clearScratchWorktree(root) {
  * remote ref becomes visible.
  */
 export async function prepareConfigurationBootstrapWorktree(root, {
-  sourceRef = 'HEAD', remote, defaultBranch, capability = null, grounding = null,
+  sourceRef = 'HEAD', remote, defaultBranch, capability = null,
   authorIdentity = null, identityRoot = null, env = process.env, identityEnv = env,
   preserveImportedApprovalAuthorities = false, frameworkApprovalAuthoritySeeds = null,
   preserveImportedRepositoryPolicy = false, preserveImportedLedgerPolicy = false
@@ -871,7 +871,6 @@ export async function prepareConfigurationBootstrapWorktree(root, {
       enrollActorPortfolioAuthorityIds: exactFrameworkPortfolioAuthorities,
       preserveExistingRepository: preserveImportedRepositoryPolicy && importedPortfolio
     });
-    if (grounding) await setGroundingMode(root, grounding);
     if (capability && importedCapabilityMap) {
       const importedCapabilities = await loadCapabilities(root, { required: true });
       const requestedCapabilityId = String(capability.capabilityId ?? '').trim();
@@ -1158,7 +1157,7 @@ async function publishPreparedConfigurationCandidate(remote, {
  * application branch. That is what makes a protected `main` a non-issue rather than an obstacle.
  */
 export async function ensureConfigurationBranch(remote, {
-  sourceBranch = null, capability = null, grounding = null,
+  sourceBranch = null, capability = null,
   sourceCommit = null, publisherRoot = null, transport = {}, remoteSession = null, observedHead = null,
   authorIdentity = null, preparedCandidate = null, env = process.env,
   cleanupTemporaryTree = removeTemporaryTree
@@ -1265,7 +1264,7 @@ export async function ensureConfigurationBranch(remote, {
       );
     }
     const { actor } = await prepareConfigurationBootstrapWorktree(scratch, {
-      sourceRef: 'HEAD', remote: url, defaultBranch, capability, grounding,
+      sourceRef: 'HEAD', remote: url, defaultBranch, capability,
       authorIdentity,
       // Ordinary bootstrap discovers identity outside the transport-isolated scratch clone.
       identityRoot: canonicalPublisher ?? scratch,

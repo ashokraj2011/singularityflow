@@ -200,16 +200,6 @@ export async function setDefaultBaseBranch(root, defaultBranch) {
   await writeFile(file, renderPreservingFormatting(text, document), 'utf8');
 }
 
-export async function setGroundingMode(root, mode) {
-  const file = path.join(root, 'singularity/workflow.yml');
-  const text = await readFile(file, 'utf8');
-  const document = YAML.parseDocument(text);
-  const worldModel = document.get('worldModel');
-  if (!worldModel) return;
-  worldModel.set('grounding', String(mode).trim());
-  await writeFile(file, renderPreservingFormatting(text, document), 'utf8');
-}
-
 /**
  * Write the capability map, with the capability this bootstrap was given as its initial top-level node.
  *
@@ -271,7 +261,6 @@ export async function bootstrapRepository(url, {
   into = null,
   base = null,
   stateBranch = 'state',
-  grounding = null,
   push = true
 } = {}) {
   const remote = String(url ?? '').trim();
@@ -388,13 +377,11 @@ export async function bootstrapRepository(url, {
     if (wrote.includes('singularity/workflow.yml')) await setDefaultBaseBranch(root, branch);
     await describeRepository(root, repositoryId, remote, branch, actor);
     await describeCapability(root, { capabilityId, capabilityName, kind, repositoryId, jiraProject, teams });
-    if (grounding) await setGroundingMode(root, grounding);
     if (stateBranch) await enableLedger(root, stateBranch);
   }
   if (push) {
     const { ensureConfigurationBranch } = await import('./configuration-branch.mjs');
     configuration = await ensureConfigurationBranch(remote, {
-      grounding,
       capability: { capabilityId, capabilityName, kind, repositoryId, jiraProject, teams },
       env: gitEnv
     });

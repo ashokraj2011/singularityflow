@@ -286,7 +286,7 @@ import { validateLedgerDeployment } from './ledger-deployment.mjs';
 import { CAPABILITY_KINDS, CAPABILITY_TYPES, CAPABILITIES_PATH, capabilityDeliveries, capabilityForRepository, capabilityTree, editCapability, flattenCapabilityTree, loadCapabilities, resolveCapabilityPolicy, resolveEffectiveCapabilityPolicy, validateCapabilities } from './capabilities.mjs';
 import { applyCapabilityPolicyToWorkResolution, validateConfigurationSnapshotCapabilities } from './capability-context.mjs';
 import { bootstrapRepository, repositoryIdFromUrl } from './bootstrap.mjs';
-import { activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation, applyStaleCapabilityAuthorityLinkRetirement, cancelCapabilityProposal, capabilityFsck, capabilityProposalCommands, capabilityReadiness, composeCapabilityWorldModel, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, previewCapabilityReconciliation, previewStaleCapabilityAuthorityLinkRetirement, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, rebaseCapabilityProposal, repairCapabilityProposal, resolveWorkspacePlan } from './organisation.mjs';
+import { activateCapabilityProposal, addCapabilityRepository, applyCapabilityReconciliation, applyStaleCapabilityAuthorityLinkRetirement, cancelCapabilityProposal, capabilityFsck, capabilityProposalCommands, capabilityReadiness, discardStaleCapabilityProposal, editCapabilityInOrganisation, inspectCapabilityProposal, inspectCapabilityRepository, listCapabilityProposals, initializeWorkspaceState, listLeadRepositories, mapCapability, previewCapabilityReconciliation, previewStaleCapabilityAuthorityLinkRetirement, publishOrganisationCapabilityMap, readOrganisation, rememberLeadRepository, rebaseCapabilityProposal, repairCapabilityProposal, resolveWorkspacePlan } from './organisation.mjs';
 import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS, validateCommandHandlers } from './command-registry.mjs';
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
@@ -13620,37 +13620,8 @@ async function capabilityCommand(positionals, options) {
   }
 
   if (subcommandForWrite === 'world-model') {
-    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
-    if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
-    const id = requirePositional(positionals, 2, 'capability ID');
-    const organisation = await readOrganisation(leadUrl, {
-      refresh: optionBoolean(options, 'refresh')
-    });
-    const model = composeCapabilityWorldModel(organisation, id, await capabilityReadiness(leadUrl, {
-      organisation, refresh: optionBoolean(options, 'refresh')
-    }));
-    await rememberLeadRepository(leadUrl);
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(model, null, 2));
-
-    console.log(`${model.name} — ${model.composed
-      ? `composed from ${model.sources.length} capabilit${model.sources.length === 1 ? 'y' : 'ies'} beneath it`
-      : 'its own world model'}`);
-    if (!model.sources.length) {
-      console.log('  Nothing beneath it ships, so there is nothing to compose from yet.');
-      return;
-    }
-    for (const source of model.sources) {
-      console.log(`  ${source.name} (${source.repository}): `
-        + `${source.present ? `world model on ${source.branch}` : 'no world model built'}`);
-    }
-    if (model.alsoShipsFrom.length) {
-      console.log(`  also ships from ${model.alsoShipsFrom.join(', ')}, whose code is governed by the lead's model`);
-    }
-    const missing = model.sources.filter((source) => !source.present);
-    if (missing.length) {
-      console.log(`  ${missing.length} of ${model.sources.length} have no world model, so this view is partial.`);
-    }
-    return;
+    const { removedWorldModelError } = await import('./removed-features.mjs');
+    throw removedWorldModelError('capability world-model');
   }
 
   if (subcommandForWrite === 'organisation') {
@@ -13681,13 +13652,12 @@ async function capabilityCommand(positionals, options) {
       const lead = row.repositories?.length > 1 && row.leadRepository ? ` (lead ${row.leadRepository})` : '';
       const type = row.type ? ` [${row.type}]` : '';
       console.log(`${'  '.repeat(row.depth)}${row.name}${type}${ships}${lead}`);
-      // Under each repository, the two things that decide whether it can be worked in.
+      // Under each repository, whether it can be worked in.
       for (const id of readiness ? row.repositories ?? [] : []) {
         const state = readiness[id];
         if (!state) continue;
         console.log(`${'  '.repeat(row.depth + 1)}${id}: `
-          + `${state.hasStateBranch ? `${state.stateBranch} branch` : 'no state branch'}`
-          + ` \u00b7 ${state.worldModel ? `world model on ${state.worldModel}` : 'no world model'}`);
+          + `${state.hasStateBranch ? `${state.stateBranch} branch` : 'no state branch'}`);
       }
     }
     return;

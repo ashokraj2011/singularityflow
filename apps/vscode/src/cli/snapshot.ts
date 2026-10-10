@@ -174,7 +174,6 @@ export interface InitiativeResolutionPhase {
   label: string;
   order: number;
   lanes?: unknown;
-  worldModelViews?: string[];
   outputs: Array<{
     id: string;
     label: string;
@@ -198,7 +197,6 @@ export interface InitiativeState {
     initiativeRoot?: string;
     phases: InitiativeResolutionPhase[];
     packs?: Array<{ id: string; label?: string; members: string[] }>;
-    worldModelGrounding?: 'off' | 'warn' | 'enforce';
     [key: string]: unknown;
   };
   history?: Array<{ event: string; detail?: string; at?: string }>;
@@ -871,18 +869,6 @@ export interface RepositorySnapshot {
   decisions?: StoryDecisionView | null;
   /** The engine's verdict on the approval of the phase awaiting it. */
   approval?: { phase: string; minimum: number; distinct: number; remainingAuthorities: string[]; met: boolean } | null;
-  architectureIntent?: {
-    workId: string; enabled: boolean; present: boolean;
-    status: 'disabled' | 'absent' | 'invalid' | 'candidate' | 'approved';
-    phase: string | null; generation: number | null; approved: boolean; reasons: string[];
-    fulfilment: null | {
-      status: 'recorded-unverified' | 'recorded-satisfied' | 'recorded-blocking' | 'stale' | 'invalid';
-      blocking: boolean; reportedBlocking?: boolean;
-      reportSha256: string | null; baseAfterSha256?: string;
-      counts: Partial<Record<'fulfilled' | 'missing' | 'deviated' | 'unplanned' | 'not-observable', number>>;
-      reason?: string;
-    };
-  } | null;
   /** Immutable reference inputs and their local detached-checkout health for this Story. */
   referenceRepositories?: StoryReferenceRepositoryStatus | null;
   /** Lazy projection-only SGOS Process inventory; absent until Command Center acquires the slice. */
@@ -907,104 +893,6 @@ export interface RepositorySnapshot {
   modelFreedom?: ModelFreedomSnapshot;
   documents?: StoryArtifact[];
   detachedDocuments?: StoryArtifact[];
-  worldModel?: {
-    /** The registered World Model (v4) is off unless the repository sets worldModel.registered: on. */
-    registered?: 'on' | 'off';
-    schemaVersion?: number;
-    kind?: 'world-model-ide-slice' | string;
-    format?: 'wmb-v4' | 'registered-v4' | string;
-    status?: 'ready' | 'unavailable' | string;
-    revision?: string;
-    reason?: string | null;
-    detail?: string | null;
-    root: string;
-    generatedAt: string | null;
-    rebuildReason: string | null;
-    authority?: { ref?: string; commit?: string | null; manifestSha256?: string };
-    source?: {
-      sourceManifestSha256?: string; scopeManifestSha256?: string;
-      status?: 'fresh' | 'stale' | 'unavailable' | string;
-      fresh?: boolean; currentSourceManifestSha256?: string | null; reason?: string | null;
-    };
-    summary?: {
-      views?: number; facts?: number; evidence?: number; derivations?: number;
-      unavailable?: number; contradictions?: number; cacheHits?: number;
-    };
-    readiness?: {
-      status: string;
-      ready: boolean;
-      source: string | null;
-      /** True when an exact immutable snapshot was recovered from older state-branch history. */
-      historical?: boolean;
-      staleness?: {
-        policy: 'ignore' | 'warn' | 'fail';
-        fresh: boolean;
-        stale: boolean;
-        blocks: boolean;
-        warns: boolean;
-        ignored: boolean;
-        status: string;
-        message: string | null;
-      };
-      command: string | null;
-    } | null;
-    views: Array<{
-      id: string; references: string[];
-      viewId?: string; viewVersion?: number; status?: string; required?: boolean;
-      path?: string | null; viewSha256?: string | null; cache?: 'hit' | 'miss';
-      counts?: {
-        total: number; available: number; partial: number;
-        unavailable: number; contradicted: number; stale: number;
-      };
-      preview?: { text: string; bytes: number; truncated: boolean };
-      expansion?: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;
-    }>;
-    projections?: Array<{
-      id: string; version: number; required: boolean; status: 'available' | 'unavailable';
-      path?: string | null; sha256?: string; receiptSha256?: string; toolchainLockSha256?: string;
-      refusalCode?: string;
-      counts?: {
-        nodes: number; interfaces: number; relationships: number; controls: number; flows?: number;
-        unavailable: number; contradictions: number;
-      };
-      nodes?: Array<{
-        id: string; name: string; type: string; layer: string; status: string;
-        sources?: Array<{ kind: string; reference: string | null; assurance: string | null }>;
-        sourceCount?: number;
-      }>;
-      relationships?: Array<{
-        id: string; kind: string; source: string; destinations: string[]; status: string;
-        sources?: Array<{ kind: string; reference: string | null; assurance: string | null }>;
-        sourceCount?: number;
-      }>;
-      controls?: Array<{
-        id: string; description: string; mode: string; paths: number;
-        sources?: Array<{ kind: string; reference: string | null; assurance: string | null }>;
-        sourceCount?: number;
-      }>;
-      flows?: Array<{
-        id: string; name: string; description: string; transitions: number;
-        sources?: Array<{ kind: string; reference: string | null; assurance: string | null }>;
-        sourceCount?: number;
-      }>;
-      unavailable?: Array<{ subject: string; reason: string; factId: string | null }>;
-      contradictions?: Array<{ subject: string; factId: string | null; conflictsWith: string[] }>;
-      truncated?: {
-        nodes: boolean; relationships: boolean; controls: boolean; flows?: boolean;
-        unavailable?: boolean; contradictions?: boolean;
-      };
-      expansion?: { kind: string; id: string; sha256: string; path?: string | null; ref: string };
-    }>;
-    expansion?: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;
-    workflows?: Array<{
-      id: string; label: string; mode: string;
-      phases: Array<{
-        id: string; label: string; views: string[]; depth: string;
-        source: 'shared-phase' | 'workflow-override' | 'disabled';
-      }>;
-    }>;
-    files?: Array<{ path: string; content?: string }>;
-  };
   /**
    * A separately leased CMP projection. It is diagnostic only: no field authorizes a lifecycle
    * transition, approves a cause, warms AST, invokes a model, or writes a repository file.
@@ -1059,7 +947,6 @@ export interface RepositorySnapshot {
     phases?: Record<string, {
       label?: string;
       agents?: string[];
-      worldModel?: { views?: string[]; depth?: string; evidence?: boolean };
     }>;
     workTypes?: Record<string, {
       label?: string;
@@ -1070,9 +957,6 @@ export interface RepositorySnapshot {
         [key: string]: unknown;
       };
       intelligence?: { worldModel?: string };
-      phaseOverrides?: Record<string, {
-        worldModel?: { views?: string[]; depth?: string; evidence?: boolean };
-      }>;
     }>;
     planning?: { promptSource?: string };
     ast?: {
@@ -1090,43 +974,12 @@ export interface RepositorySnapshot {
         path?: string; symbol?: string; minimumAssurance?: 'text' | 'syntax' | 'semantic';
       }>;
     };
+    /** Repository brief and source scope; the registered World Model settings were removed. */
     worldModel?: {
-      format?: 'registered-v4';
-      views?: string[];
-      outputDir?: string;
-      stateFetchTimeoutMs?: number;
-      generation?: { parallel?: boolean; maxWorkers?: number };
-      v4?: {
-        composer?: 'deterministic' | 'model-optional' | 'model-required';
-        consumer?: 'developer' | 'architect' | 'tester' | 'business' | 'operations' | 'security' | 'release';
-        cachePolicy?: 'reuse-valid' | 'rebuild';
-        totalMaximumOutputTokens?: number;
-      };
-      projections?: {
-        'arch.calm'?: {
-          enabled?: boolean;
-          required?: boolean;
-          contract?: string;
-          calm?: { schemaRelease?: '1.2'; strict?: boolean };
-          profile?: Record<string, unknown>;
-          budgets?: Record<string, number>;
-        };
-      };
-      materialization?: {
-        mode?: 'explicit' | 'on-demand' | 'disabled';
-        publish?: 'governed' | 'local';
-        lookahead?: 'none' | 'next-phase';
-        depth?: 'light' | 'phase';
-        confirmation?: 'prompt' | 'automatic';
-      };
-      grounding?: 'off' | 'warn' | 'enforce';
-      staleness?: 'warn' | 'fail' | 'ignore';
-      injection?: {
-        placeholder?: string;
-        mode?: 'replace' | 'append' | 'off';
-        maxBytes?: number;
-        rules?: unknown[];
-      };
+      sourceRoots?: string[];
+      sharedRoots?: string[];
+      excludedRoots?: string[];
+      knowledge?: { prompt?: 'slice' | 'off'; maxBytes?: number };
       [key: string]: unknown;
     };
     /** Whether workflow progress is recorded on an orphan branch, and which one. */
@@ -1150,11 +1003,9 @@ export interface RepositorySnapshot {
       sourceCommit?: string | null;
       /** Exact approved revision per editable root; proposal CAS never targets checkout bytes. */
       files?: Record<string, string>;
-      worldModelFormat: string;
     };
     candidate: null | {
       status: 'valid' | 'invalid'; error: string | null; changes: string[]; sha256: string;
-      worldModelFormat: string | null;
     };
   };
   /** Validation may fail while the configuration inventory remains safely readable. */
@@ -1259,7 +1110,7 @@ export interface RepositorySnapshot {
   [key: string]: unknown;
 }
 
-export type SnapshotSlice = 'repository' | 'lifecycle' | 'configuration' | 'capabilities' | 'integrations' | 'diagnostics' | 'sgos' | 'worldModel' | 'comprehension';
+export type SnapshotSlice = 'repository' | 'lifecycle' | 'configuration' | 'capabilities' | 'integrations' | 'diagnostics' | 'sgos' | 'comprehension';
 
 export interface ComprehensionRegion {
   regionId: string;

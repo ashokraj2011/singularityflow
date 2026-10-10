@@ -432,18 +432,8 @@
       },
       {
         "command": "singularityFlow.configureWorldModel",
-        "title": "Singularity Flow: World Model & CALM Explorer",
+        "title": "Singularity Flow: World Model Settings",
         "icon": "$(globe)"
-      },
-      {
-        "command": "singularityFlow.buildWorldModel",
-        "title": "Singularity Flow: Build or Refresh World Model",
-        "icon": "$(run-all)"
-      },
-      {
-        "command": "singularityFlow.rebuildWorldModel",
-        "title": "Singularity Flow: Rebuild Capability World Model and Push to Git",
-        "icon": "$(sync)"
       },
       {
         "command": "singularityFlow.configureAstIntelligence",
@@ -479,10 +469,6 @@
         "command": "singularityFlow.publishConfiguration",
         "title": "Singularity Flow: Review & Publish Configuration",
         "icon": "$(cloud-upload)"
-      },
-      {
-        "command": "singularityFlow.migrateWorldModelViews",
-        "title": "Singularity Flow: Replace Retired World Model Views"
       },
       {
         "command": "singularityFlow.openPromptAudit",
@@ -1006,18 +992,6 @@
         {
           "command": "singularityFlow.openDesigner",
           "when": "false"
-        },
-        {
-          "command": "singularityFlow.buildWorldModel",
-          "when": "singularityFlow.registeredWorldModel"
-        },
-        {
-          "command": "singularityFlow.rebuildWorldModel",
-          "when": "singularityFlow.registeredWorldModel"
-        },
-        {
-          "command": "singularityFlow.migrateWorldModelViews",
-          "when": "singularityFlow.registeredWorldModel"
         },
         {
           "command": "singularityFlow.configureTemplates",

@@ -1,11 +1,5 @@
 /** Pure models and governed YAML edits for the Configuration Center. */
 import YAML from 'yaml';
-import {
-  BUILTIN_VIEW_IDS, normalizeBuiltInViewReference
-} from '../../../../src/world-model/registry/views.mjs';
-import {
-  worldModelViewContractCatalog, worldModelViewIdentity
-} from '../../../../src/world-model-views.mjs';
 import type { ModelRoutingProjection, RepositorySnapshot } from '../cli/snapshot.ts';
 export {
   configurationSaveDisposition, configurationSavePlan, configurationSavePlanCliArgs,
@@ -38,54 +32,18 @@ export interface McpServerView {
   sources: string[]; captureToolCalls: boolean; captureResults: boolean;
   readiness?: 'ready' | 'needs-host-setup' | 'misconfigured'; readinessReasons?: string[];
 }
+/**
+ * The World Model is the Repository brief read from the source; the only settings it has here are
+ * which directories it reads. The registered World Model and its settings were removed.
+ */
 export interface WorldModelSettingsView {
-  /** Registered v4 is the only World Model format; legacy-v3 was retired in a hard cutover. */
-  format: 'registered-v4';
-  views: string[];
   sourceRoots: string[];
   sharedRoots: string[];
-  outputDir: string;
-  stateFetchTimeoutMs: number;
-  generation: { parallel: boolean; maxWorkers: number };
-  v4: {
-    composer: 'deterministic' | 'model-optional' | 'model-required';
-    consumer: 'developer' | 'architect' | 'tester' | 'business' | 'operations' | 'security' | 'release';
-    cachePolicy: 'reuse-valid' | 'rebuild';
-    totalMaximumOutputTokens: number;
-  };
-  projections: {
-    archCalm: {
-      enabled: boolean; required: boolean; schemaRelease: '1.2'; strict: boolean;
-      includeGovernanceActors: boolean; includeControls: boolean; includeFlows: boolean;
-      includeExternalDependencies: 'off' | 'direct-architecture-only';
-    };
-  };
-  materialization: {
-    mode: 'explicit' | 'on-demand' | 'disabled'; publish: 'governed' | 'local';
-    lookahead: 'none' | 'next-phase'; depth: 'light' | 'phase';
-    confirmation: 'prompt' | 'automatic';
-  };
-  grounding: 'off' | 'warn';
-  staleness: 'warn' | 'ignore';
-  injection: { placeholder: string; mode: 'replace' | 'append' | 'off'; maxBytes: number; rulesCount: number };
 }
 export type AutoEligibility = 'disabled' | 'plan-only' | 'bounded';
 export interface AutoSettingsView {
   enabled: boolean;
   workTypes: Array<{ id: string; label: string; eligibility: AutoEligibility }>;
-}
-export interface WorldModelPhaseUsage {
-  id: string;
-  label: string;
-  views: string[];
-  depth: string;
-  source: 'shared-phase' | 'workflow-override' | 'disabled';
-}
-export interface WorldModelWorkflowUsage {
-  id: string;
-  label: string;
-  mode: string;
-  phases: WorldModelPhaseUsage[];
 }
 export interface ConfigurationCenterView {
   profile: ProfileView;
@@ -105,43 +63,11 @@ export interface ConfigurationCenterView {
   /** Approved policy and an optional validated working-tree draft are intentionally distinct. */
   configurationState: {
     editor: 'effective' | 'candidate';
-    effective: { kind: string; ref: string | null; commit: string | null; sha256: string; worldModelFormat: string } | null;
-    candidate: { status: 'valid' | 'invalid'; error: string | null; changes: string[]; sha256: string; worldModelFormat: string | null } | null;
+    effective: { kind: string; ref: string | null; commit: string | null; sha256: string } | null;
+    candidate: { status: 'valid' | 'invalid'; error: string | null; changes: string[]; sha256: string } | null;
   };
   /** Repository master switch and work-type opt-ins. Capability policy can only tighten these. */
   auto: AutoSettingsView;
-  /**
-   * Grounding state, as opposed to grounding policy: whether the world model has been built, what
-   * views exist, and the engine's own reason for rebuilding. Absorbed from the sidebar, which was
-   * the only surface that showed it — the Center's world-model tab configured a thing whose current
-   * state it never displayed.
-   */
-  worldModelStatus: {
-    /** Off unless the repository turned the registered World Model on; nothing is built then. */
-    registered: 'on' | 'off';
-    built: boolean;
-    root: string;
-    generatedAt: string | null;
-    rebuildReason: string | null;
-    readiness: NonNullable<RepositorySnapshot['worldModel']>['readiness'];
-    format: string | null;
-    summary: NonNullable<RepositorySnapshot['worldModel']>['summary'] | null;
-    authority?: NonNullable<RepositorySnapshot['worldModel']>['authority'];
-    source?: NonNullable<RepositorySnapshot['worldModel']>['source'];
-    /** Content-addressed, inert drill-downs into the verified state-backed WMB store. */
-    expansion: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;
-    views: Array<{
-      id: string; reference: string; path: string; references: string[]; generated: boolean; canOpenPath: boolean;
-      workflowCount: number; phaseCount: number;
-      status: string | null; required: boolean; cache: string | null;
-      counts: { total: number; available: number; partial: number; unavailable: number; contradicted: number; stale: number } | null;
-      preview: { text: string; bytes: number; truncated: boolean } | null;
-      expansion: Array<{ kind: string; id: string; sha256: string; path?: string | null; ref: string }>;
-    }>;
-    workflows: WorldModelWorkflowUsage[];
-    projections: NonNullable<NonNullable<RepositorySnapshot['worldModel']>['projections']>;
-  };
-  storyArchitecture: RepositorySnapshot['architectureIntent'];
   /** Validated configuration edits waiting to be published, and anything blocking that. */
   publish: { changes: string[]; unrelated: string[]; branch: string };
   /**
@@ -160,13 +86,7 @@ export interface ConfigurationCenterView {
 
 export interface McpDraft extends Omit<McpServerView, 'configured' | 'sources'> { previousId?: string; }
 export interface AuthorityDraft extends AuthorityView { previousId?: string; }
-export type WorldModelDraft = Omit<WorldModelSettingsView, 'format' | 'v4' | 'projections' | 'injection'> & {
-  /** Optional so a draft that omits a v4 control preserves the repository's current value. */
-  v4?: Partial<WorldModelSettingsView['v4']>;
-  /** Optional so an older webview cannot turn off a governed projection while saving another field. */
-  projections?: WorldModelSettingsView['projections'];
-  injection: Omit<WorldModelSettingsView['injection'], 'rulesCount'>;
-};
+export type WorldModelDraft = WorldModelSettingsView;
 export interface AutoDraft {
   enabled: boolean;
   workTypes: Array<{ id: string; eligibility: AutoEligibility }>;
@@ -241,11 +161,6 @@ export function configurationRefreshDecision(
 }
 
 const KEBAB_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-const WORLD_MODEL_V4_COMPOSERS = new Set(['deterministic', 'model-optional', 'model-required']);
-const WORLD_MODEL_V4_CONSUMERS = new Set([
-  'developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'
-]);
-const WORLD_MODEL_V4_CACHE_POLICIES = new Set(['reuse-valid', 'rebuild']);
 const AUTO_ELIGIBILITIES = new Set<AutoEligibility>(['disabled', 'plan-only', 'bounded']);
 const email = /^[^@\s]+@[^@\s]+$/;
 
@@ -290,20 +205,9 @@ function ledgerStatus(snapshot: RepositorySnapshot): ConfigurationCenterView['le
     };
 }
 
-/** Read the engine's effective workflow routing; the VS Code surface never re-resolves policy. */
-export function worldModelWorkflowUsage(snapshot: RepositorySnapshot): WorldModelWorkflowUsage[] {
-  return (snapshot.worldModel?.workflows ?? []).map((workflow) => ({
-    ...workflow,
-    phases: workflow.phases.map((phase) => ({ ...phase, views: [...phase.views] }))
-  }));
-}
-
 export function configurationCenterView(snapshot: RepositorySnapshot, profile: ProfileView): ConfigurationCenterView {
   const definition = snapshot.definition ?? {};
   const worldModel = definition.worldModel ?? {};
-  const generation = worldModel.generation ?? {};
-  const materialization = worldModel.materialization ?? {};
-  const injection = worldModel.injection ?? {};
   const phaseRows = definition.phases ?? {};
   const workTypeRows = definition.workTypes ?? {};
   const agentLabels = new Map((snapshot.agents ?? []).map((entry) => [entry.id, entry.id]));
@@ -314,36 +218,6 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
   const normalizedApprovalSecurityProfile = approvalSecurityProfile === 'poc' || approvalSecurityProfile === 'regulated'
     ? approvalSecurityProfile : 'team';
   const approvalSecurityDefault = normalizedApprovalSecurityProfile !== 'regulated';
-  const workflowUsage = worldModelWorkflowUsage(snapshot);
-  const defaultWorldModelViews = BUILTIN_VIEW_IDS.map((id) => normalizeBuiltInViewReference(id).reference);
-  // Freshness is not existence. A verified stale model, or one whose current source cannot be
-  // compared, is still a built model and must not be rendered as "never built".
-  const built = Boolean(
-    snapshot.worldModel?.status === 'ready'
-    || snapshot.worldModel?.authority?.manifestSha256
-    || snapshot.worldModel?.generatedAt
-    || snapshot.worldModel?.readiness?.ready
-  );
-  const modelRoot = snapshot.worldModel?.root ?? 'singularity/world-model';
-  const catalog = worldModelViewContractCatalog(definition, [
-    ...(worldModel.views ?? defaultWorldModelViews),
-    ...(snapshot.worldModel?.views ?? []).map((view) => view.id),
-    ...workflowUsage.flatMap((workflow) => workflow.phases.flatMap((phase) => phase.views))
-  ]);
-  const snapshotViews = new Map((snapshot.worldModel?.views ?? []).flatMap((view) => {
-    const identity = worldModelViewIdentity(definition, view.id);
-    return identity ? [[identity.id, view] as const] : [];
-  }));
-  const fileInventory = snapshot.worldModel?.files;
-  const generatedPaths = new Set((fileInventory ?? []).map((file) => file.path));
-  const capturedPaths = new Set((fileInventory ?? []).filter((file) => typeof file.content === 'string').map((file) => file.path));
-  // A model built in any other format (for example one retained on a state branch from before the
-  // legacy-v3 cutover) does not contain the configured registered-v4 views.
-  const selectedFormat = snapshot.worldModel?.format;
-  const formatMismatch = selectedFormat != null && !['registered-v4', 'wmb-v4'].includes(selectedFormat);
-  const mismatchReason = formatMismatch
-    ? `The selected ${selectedFormat} model does not contain the configured registered-v4 views. Select the workspace repository checkout and build its effective model.`
-    : null;
   return {
     profile,
     gitIdentity: gitEmail || gitLogin ? {
@@ -354,59 +228,6 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
     approvalSecurityProfile: normalizedApprovalSecurityProfile,
     approvalAllowSelfApproval: definition.approvalSecurity?.allowSelfApproval ?? approvalSecurityDefault,
     approvalAutoEnrollNewIdentities: definition.approvalSecurity?.autoEnrollNewIdentities ?? approvalSecurityDefault,
-    /**
-     * Read straight from the snapshot the engine already annotates. The catalog join happens once,
-     * server-side; recomputing it here would be the Center and the kernel
-     * holding two opinions about whether a file is safe to delete.
-     */
-    worldModelStatus: {
-      // An engine that predates the switch always had the registered World Model on.
-      registered: snapshot.worldModel?.registered === 'off' ? 'off' : 'on',
-      built,
-      root: modelRoot,
-      generatedAt: snapshot.worldModel?.generatedAt ?? null,
-      rebuildReason: mismatchReason ?? snapshot.worldModel?.rebuildReason ?? null,
-      readiness: snapshot.worldModel?.readiness ?? null,
-      format: snapshot.worldModel?.format ?? null,
-      summary: snapshot.worldModel?.summary ?? null,
-      authority: snapshot.worldModel?.authority,
-      source: snapshot.worldModel?.source,
-      expansion: [...(snapshot.worldModel?.expansion ?? [])],
-      views: catalog.map(({ id, reference }) => {
-        const snapshotView = snapshotViews.get(id);
-        const selectedPath = snapshotView?.path;
-        const path = selectedPath
-          ? selectedPath.startsWith(`${modelRoot}/`) ? selectedPath : `${modelRoot}/${selectedPath}`
-          : `${modelRoot}/views/${id}.md`;
-        // A model's existence says nothing about an unbuilt catalog entry. In particular, a model
-        // in another format cannot materialize the approved repository's v4 contract files.
-        const generated = !formatMismatch && (snapshotView?.status
-          ? snapshotView.status === 'available'
-          : built && (fileInventory === undefined ? Boolean(snapshotView) : generatedPaths.has(path)));
-        // Registered content opens only from exact captured bytes, never a checkout file.
-        const canOpenPath = generated && capturedPaths.has(path);
-        const workflowMatches = workflowUsage.filter((workflow) =>
-          workflow.phases.some((phase) => phase.views.includes(id)));
-        const phaseCount = workflowMatches.reduce((count, workflow) =>
-          count + workflow.phases.filter((phase) => phase.views.includes(id)).length, 0);
-        return {
-          id, reference, path,
-          references: [...(snapshotView?.references ?? [])],
-          generated, canOpenPath,
-          workflowCount: workflowMatches.length,
-          phaseCount,
-          status: snapshotView?.status ?? null,
-          required: snapshotView?.required === true,
-          cache: snapshotView?.cache ?? null,
-          counts: snapshotView?.counts ?? null,
-          preview: snapshotView?.preview ?? null,
-          expansion: [...(snapshotView?.expansion ?? [])]
-        };
-      }),
-      workflows: workflowUsage,
-      projections: [...(snapshot.worldModel?.projections ?? [])]
-    },
-    storyArchitecture: snapshot.architectureIntent ?? null,
     configurationState: snapshot.configurationSource ?? {
       editor: 'effective', effective: null, candidate: null
     },
@@ -451,63 +272,18 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
       })).sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id))
     },
     worldModel: {
-      format: 'registered-v4',
-      views: worldModel.views ?? defaultWorldModelViews,
       sourceRoots: Array.isArray(worldModel.sourceRoots) ? worldModel.sourceRoots : [],
-      sharedRoots: Array.isArray(worldModel.sharedRoots) ? worldModel.sharedRoots : [],
-      outputDir: worldModel.outputDir ?? 'singularity/world-model',
-      stateFetchTimeoutMs: worldModel.stateFetchTimeoutMs ?? 10_000,
-      generation: {
-        parallel: generation.parallel !== false,
-        maxWorkers: generation.maxWorkers ?? 4
-      },
-      v4: {
-        composer: worldModel.v4?.composer ?? 'deterministic',
-        consumer: worldModel.v4?.consumer ?? 'developer',
-        cachePolicy: worldModel.v4?.cachePolicy ?? 'reuse-valid',
-        totalMaximumOutputTokens: worldModel.v4?.totalMaximumOutputTokens ?? 5600
-      },
-      projections: {
-        archCalm: {
-          enabled: worldModel.projections?.['arch.calm']?.enabled === true,
-          required: worldModel.projections?.['arch.calm']?.required === true,
-          schemaRelease: '1.2',
-          strict: worldModel.projections?.['arch.calm']?.calm?.strict !== false,
-          includeGovernanceActors: worldModel.projections?.['arch.calm']?.profile?.includeGovernanceActors !== false,
-          includeControls: worldModel.projections?.['arch.calm']?.profile?.includeControls !== false,
-          includeFlows: worldModel.projections?.['arch.calm']?.profile?.includeFlows !== false,
-          includeExternalDependencies: worldModel.projections?.['arch.calm']?.profile?.includeExternalDependencies === 'off'
-            ? 'off' : 'direct-architecture-only'
-        }
-      },
-      materialization: {
-        mode: materialization.mode ?? 'explicit', publish: materialization.publish ?? 'governed',
-        lookahead: materialization.lookahead ?? 'none', depth: materialization.depth ?? 'phase',
-        confirmation: materialization.confirmation ?? 'prompt'
-      },
-      // The World Model is guidance: the former blocking settings (enforce, fail) run as warn.
-      grounding: worldModel.grounding === 'enforce' ? 'warn' : worldModel.grounding ?? 'off',
-      staleness: worldModel.staleness === 'fail' ? 'warn' : worldModel.staleness ?? 'warn',
-      injection: {
-        placeholder: injection.placeholder ?? '{{WORLD_MODEL}}',
-        mode: injection.mode ?? 'append', maxBytes: injection.maxBytes ?? 32_768,
-        rulesCount: injection.rules?.length ?? 0
-      }
+      sharedRoots: Array.isArray(worldModel.sharedRoots) ? worldModel.sharedRoots : []
     }
   };
 }
 
 export type ConfigurationPathTarget =
-  | { kind: 'captured'; path: string; content: string }
   | { kind: 'artifact'; path: string }
   | { kind: 'unavailable'; message: string };
 
-/** Use the same exact inventory as the Explorer, including state-backed brief/custom paths. */
+/** Open only a path the snapshot lists (templates, prompts and skills). */
 export function configurationPathTarget(snapshot: RepositorySnapshot | null, requestedPath: string): ConfigurationPathTarget {
-  const captured = snapshot?.worldModel?.files?.find((file) => file.path === requestedPath);
-  if (typeof captured?.content === 'string') {
-    return { kind: 'captured', path: requestedPath, content: captured.content };
-  }
   const listed = new Set([
     ...(snapshot?.templates ?? []).map((entry) => entry.path),
     ...(snapshot?.prompts ?? snapshot?.agentPrompts ?? snapshot?.personaPrompts ?? []).map((entry) => entry.path),
@@ -515,8 +291,6 @@ export function configurationPathTarget(snapshot: RepositorySnapshot | null, req
     ...(snapshot?.flowSkills ?? []).map((entry) => entry.packagePath ?? entry.path)
   ]);
   if (listed.has(requestedPath)) return { kind: 'artifact', path: requestedPath };
-  // A registered view opens only from the exact captured bytes above; there is no checkout or
-  // on-demand file fallback for World Model content.
   return { kind: 'unavailable', message: `This repository no longer lists ${requestedPath}. Refresh and try again.` };
 }
 
@@ -545,51 +319,14 @@ function unsafeRelative(value: string): boolean {
   return /^(?:\/|[A-Za-z]:[\\/])/.test(value) || value.split(/[\\/]+/).includes('..');
 }
 
-/**
- * Merge a submitted form with the registered-v4 policy fields it did not send.
- *
- * Validation must apply to the document that will actually be written. `updateWorldModelYaml`
- * preserves a v4 control the draft omits, so that control is validated with the repository's
- * current value rather than with a default the writer would never write. Registered v4 is the only
- * World Model format; the retired legacy-v3 catalog is never migrated or repaired here, so a draft
- * naming legacy views is refused by ordinary validation with its original values.
- */
-export function prepareWorldModelDraftForSave(text: string, draft: WorldModelDraft): WorldModelDraft {
-  const shapeErrors = validateWorldModelDraftShape(draft);
-  if (shapeErrors.length) throw new Error(shapeErrors.join(' '));
-  let existing: any = {};
-  try { existing = YAML.parse(text)?.worldModel ?? {}; }
-  catch { /* the governed CLI reports malformed source YAML; never invent replacement policy */ }
-  const v4 = {
-    ...(existing.v4 && typeof existing.v4 === 'object' ? existing.v4 : {}),
-    ...(draft.v4 ?? {})
-  } as Partial<WorldModelSettingsView['v4']>;
-  return { ...draft, v4 };
-}
-
 /** Reject malformed/retained postMessage payloads before any property is dereferenced. */
 export function validateWorldModelDraftShape(draft: unknown): string[] {
-  if (!draft || typeof draft !== 'object') {
-    return ['World-model settings are incomplete. Reload Configuration Center and try again.'];
-  }
-  const candidate = draft as Partial<WorldModelDraft>;
   const strings = (value: unknown): value is string[] => Array.isArray(value)
     && value.every((entry) => typeof entry === 'string');
-  const record = (value: unknown): value is Record<string, unknown> => Boolean(value)
-    && typeof value === 'object' && !Array.isArray(value);
-  if (!strings(candidate.views)
-      || (candidate.sourceRoots !== undefined && !strings(candidate.sourceRoots))
-      || (candidate.sharedRoots !== undefined && !strings(candidate.sharedRoots))
-      || typeof candidate.outputDir !== 'string'
-      || typeof candidate.stateFetchTimeoutMs !== 'number'
-      || (candidate.v4 !== undefined && !record(candidate.v4))
-      || (candidate.projections !== undefined && (
-        !record(candidate.projections) || !record(candidate.projections.archCalm)
-      ))
-      || !record(candidate.generation)
-      || !record(candidate.materialization)
-      || !record(candidate.injection)) {
-    return ['World-model settings are incomplete. Reload Configuration Center and try again.'];
+  if (!draft || typeof draft !== 'object'
+      || !strings((draft as Partial<WorldModelDraft>).sourceRoots)
+      || !strings((draft as Partial<WorldModelDraft>).sharedRoots)) {
+    return ['Source scope settings are incomplete. Reload Configuration Center and try again.'];
   }
   return [];
 }
@@ -598,46 +335,8 @@ export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
   const shapeErrors = validateWorldModelDraftShape(draft);
   if (shapeErrors.length) return shapeErrors;
   const errors: string[] = [];
-  const v4 = {
-    composer: draft.v4?.composer ?? 'deterministic',
-    consumer: draft.v4?.consumer ?? 'developer',
-    cachePolicy: draft.v4?.cachePolicy ?? 'reuse-valid',
-    totalMaximumOutputTokens: draft.v4?.totalMaximumOutputTokens ?? 5600
-  };
-  const normalized: string[] = [];
-  const unsupported: string[] = [];
-  for (const view of draft.views) {
-    try { normalized.push(normalizeBuiltInViewReference(view).reference); }
-    catch { unsupported.push(view); }
-  }
-  if (unsupported.length) {
-    errors.push(
-      `Registered-v4 views must use installed active contracts (${BUILTIN_VIEW_IDS.join(', ')}); unsupported: ${unsupported.join(', ')}.`
-    );
-  }
-  if (new Set(normalized).size !== normalized.length) {
-    errors.push('Registered-v4 views must not repeat one contract with and without its exact version.');
-  }
-  if (!WORLD_MODEL_V4_COMPOSERS.has(v4.composer)) errors.push(`Unknown registered-v4 composer '${v4.composer}'.`);
-  if (!WORLD_MODEL_V4_CONSUMERS.has(v4.consumer)) errors.push(`Unknown registered-v4 consumer '${v4.consumer}'.`);
-  if (!WORLD_MODEL_V4_CACHE_POLICIES.has(v4.cachePolicy)) errors.push(`Unknown registered-v4 cache policy '${v4.cachePolicy}'.`);
-  if (!Number.isInteger(v4.totalMaximumOutputTokens)
-      || v4.totalMaximumOutputTokens < 1 || v4.totalMaximumOutputTokens > 1_000_000) {
-    errors.push('Registered-v4 total output budget must be from 1 through 1000000 tokens.');
-  }
-  if (draft.projections?.archCalm.required && !draft.projections.archCalm.enabled) {
-    errors.push('The CALM architecture projection must be enabled before it can be required.');
-  }
-  if (draft.projections?.archCalm.includeExternalDependencies != null
-      && !['off', 'direct-architecture-only'].includes(
-        draft.projections.archCalm.includeExternalDependencies
-      )) {
-    errors.push('CALM external dependencies must be off or direct-architecture-only.');
-  }
-  if (!draft.views.length) errors.push('Declare at least one world-model view.');
-  if (new Set(draft.views).size !== draft.views.length) errors.push('World-model views must not contain duplicates.');
   for (const [label, roots] of [
-    ['Source roots', draft.sourceRoots ?? []], ['Shared roots', draft.sharedRoots ?? []]
+    ['Source roots', draft.sourceRoots], ['Shared roots', draft.sharedRoots]
   ] as const) {
     if (new Set(roots).size !== roots.length) errors.push(`${label} must not contain duplicates.`);
     roots.forEach((root) => {
@@ -646,12 +345,6 @@ export function validateWorldModelDraft(draft: WorldModelDraft): string[] {
       }
     });
   }
-  if (!draft.outputDir.trim() || unsafeRelative(draft.outputDir.trim())) errors.push('Output directory must be a repository-relative path.');
-  if (!Number.isInteger(draft.stateFetchTimeoutMs) || draft.stateFetchTimeoutMs < 250 || draft.stateFetchTimeoutMs > 60_000) errors.push('State fetch timeout must be from 250 through 60000 milliseconds.');
-  if (!Number.isInteger(draft.generation.maxWorkers) || draft.generation.maxWorkers < 1 || draft.generation.maxWorkers > 16) errors.push('Parallel workers must be from 1 through 16.');
-  if (draft.materialization.confirmation === 'automatic' && draft.materialization.depth !== 'light') errors.push('Automatic materialization requires deterministic light depth. Model-driven phase generation must be confirmed.');
-  if (!draft.injection.placeholder) errors.push('Injection placeholder must not be empty.');
-  if (!Number.isInteger(draft.injection.maxBytes) || draft.injection.maxBytes < 1) errors.push('Injection budget must be a positive whole number of bytes.');
   return errors;
 }
 
@@ -795,69 +488,13 @@ export function updateAutoYaml(text: string, draft: AutoDraft): string {
   return String(parsed);
 }
 
-/** Update only guided world-model fields. Advanced context and injection rules remain untouched. */
+/** Update only the source scope; every other World Model setting in the file stays as it is. */
 export function updateWorldModelYaml(text: string, draft: WorldModelDraft): string {
   const parsed = document(text, 'workflow.yml');
-  const prepared = prepareWorldModelDraftForSave(text, draft);
-  const errors = validateWorldModelDraft(prepared);
+  const errors = validateWorldModelDraft(draft);
   if (errors.length) throw new Error(errors.join(' '));
-  // Registered v4 is the only format. Writing it explicitly also replaces a retired `legacy-v3`
-  // value; the views above were already validated against the installed v4 contracts.
-  parsed.setIn(['worldModel', 'format'], 'registered-v4');
-  // A v4 control the draft omits keeps the repository's exact current value. The retired
-  // `legacyAssignments`, `promptSource` and `generation.strategy` keys are never written.
-  if (prepared.v4 !== undefined) {
-    if (prepared.v4.composer !== undefined) parsed.setIn(['worldModel', 'v4', 'composer'], prepared.v4.composer);
-    if (prepared.v4.consumer !== undefined) parsed.setIn(['worldModel', 'v4', 'consumer'], prepared.v4.consumer);
-    if (prepared.v4.cachePolicy !== undefined) parsed.setIn(['worldModel', 'v4', 'cachePolicy'], prepared.v4.cachePolicy);
-    if (prepared.v4.totalMaximumOutputTokens !== undefined) {
-      parsed.setIn(['worldModel', 'v4', 'totalMaximumOutputTokens'], prepared.v4.totalMaximumOutputTokens);
-    }
-  }
-  if (prepared.projections !== undefined) {
-    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'enabled'], prepared.projections.archCalm.enabled);
-    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'required'], prepared.projections.archCalm.required);
-    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'contract'], 'arch.calm@1');
-    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'calm', 'schemaRelease'], '1.2');
-    parsed.setIn(['worldModel', 'projections', 'arch.calm', 'calm', 'strict'], prepared.projections.archCalm.strict);
-    if (typeof prepared.projections.archCalm.includeGovernanceActors === 'boolean') {
-      parsed.setIn(['worldModel', 'projections', 'arch.calm', 'profile', 'includeGovernanceActors'],
-        prepared.projections.archCalm.includeGovernanceActors);
-    }
-    if (typeof prepared.projections.archCalm.includeControls === 'boolean') {
-      parsed.setIn(['worldModel', 'projections', 'arch.calm', 'profile', 'includeControls'],
-        prepared.projections.archCalm.includeControls);
-    }
-    if (typeof prepared.projections.archCalm.includeFlows === 'boolean') {
-      parsed.setIn(['worldModel', 'projections', 'arch.calm', 'profile', 'includeFlows'],
-        prepared.projections.archCalm.includeFlows);
-    }
-    if (['off', 'direct-architecture-only'].includes(
-      prepared.projections.archCalm.includeExternalDependencies
-    )) {
-      parsed.setIn(['worldModel', 'projections', 'arch.calm', 'profile', 'includeExternalDependencies'],
-        prepared.projections.archCalm.includeExternalDependencies);
-    }
-  }
-  parsed.setIn(['worldModel', 'views'], prepared.views);
-  // Callers from before scoped world models omit these fields. Preserve the existing YAML in that
-  // case; the current form always supplies arrays, including [] when the user deliberately selects
-  // the whole repository.
-  if (Array.isArray(prepared.sourceRoots)) parsed.setIn(['worldModel', 'sourceRoots'], prepared.sourceRoots);
-  if (Array.isArray(prepared.sharedRoots)) parsed.setIn(['worldModel', 'sharedRoots'], prepared.sharedRoots);
-  parsed.setIn(['worldModel', 'outputDir'], prepared.outputDir.trim());
-  parsed.setIn(['worldModel', 'stateFetchTimeoutMs'], prepared.stateFetchTimeoutMs);
-  parsed.setIn(['worldModel', 'generation', 'parallel'], prepared.generation.parallel);
-  parsed.setIn(['worldModel', 'generation', 'maxWorkers'], prepared.generation.maxWorkers);
-  parsed.setIn(['worldModel', 'materialization', 'mode'], prepared.materialization.mode);
-  parsed.setIn(['worldModel', 'materialization', 'publish'], prepared.materialization.publish);
-  parsed.setIn(['worldModel', 'materialization', 'lookahead'], prepared.materialization.lookahead);
-  parsed.setIn(['worldModel', 'materialization', 'depth'], prepared.materialization.depth);
-  parsed.setIn(['worldModel', 'materialization', 'confirmation'], prepared.materialization.confirmation);
-  parsed.setIn(['worldModel', 'grounding'], prepared.grounding);
-  parsed.setIn(['worldModel', 'staleness'], prepared.staleness);
-  parsed.setIn(['worldModel', 'injection', 'placeholder'], prepared.injection.placeholder);
-  parsed.setIn(['worldModel', 'injection', 'mode'], prepared.injection.mode);
-  parsed.setIn(['worldModel', 'injection', 'maxBytes'], prepared.injection.maxBytes);
+  // [] is a deliberate choice of the whole repository, so it is written too.
+  parsed.setIn(['worldModel', 'sourceRoots'], draft.sourceRoots);
+  parsed.setIn(['worldModel', 'sharedRoots'], draft.sharedRoots);
   return String(parsed);
 }

@@ -108,8 +108,6 @@ export type CapabilityReadiness = Record<string, {
   url?: string;
   stateBranch?: string | null;
   hasStateBranch?: boolean;
-  /** Which copy a command would actually read: `state-branch`, a branch name, or nothing. */
-  worldModel?: string | null;
 }>;
 
 export function buildCapabilityTree(
@@ -175,13 +173,11 @@ export function buildCapabilityTree(
       // containing were exclusive; the menu that gated "add one inside" on the plain value therefore
       // hid it from exactly the capabilities that ship — which may now contain others too.
       contextValue: 'sflow.capability',
-      // What it contains first, then what it is. The tree is a map of the organisation before it is
-      // a property sheet, and a "World model" row above the capabilities beneath it buries the
-      // structure somebody opened this view to read.
+      // What it contains first, then what it is: the tree is a map of the organisation before it is
+      // a property sheet.
       children: [
         ...capability.children.map(toNode),
         ...repositoryNodes(capability, repositories, readiness),
-        ...worldModelNodes(capability, repositories, readiness),
         ...linkNodes(capability)
       ]
     };
@@ -223,48 +219,6 @@ function repositoryNodes(
   });
 }
 
-/**
- * Where this capability's grounding comes from.
- *
- * A capability that ships has one model, resolved state-branch-first because that is the order every
- * reader resolves it in. A capability that groups others has no repository to hold one, so what it
- * has is the union of its children's — composed on read and stored nowhere, which is why this says
- * how many parts it is made of rather than pretending there is a file.
- */
-function worldModelNodes(
-  capability: CapabilityNode,
-  repositories: string[],
-  readiness: CapabilityReadiness
-): TreeNode[] {
-  const descendants = (node: CapabilityNode): string[] => [
-    ...(node.repositories?.length ? node.repositories : (node.repository ? [node.repository] : [])),
-    ...node.children.flatMap(descendants)
-  ];
-  const parts = repositories.length ? repositories : descendants(capability);
-  if (!parts.length) return [];
-
-  const checked = parts.filter((id) => readiness[id]);
-  const built = checked.filter((id) => readiness[id]?.worldModel);
-  const lead = capability.leadRepository ?? parts[0]!;
-  const description = !checked.length
-    ? 'not checked'
-    : repositories.length
-      ? (readiness[lead]?.worldModel ? `on ${readiness[lead]!.worldModel}` : 'not built')
-      : `${built.length}/${parts.length} of its capabilities`;
-
-  return [{
-    kind: 'group',
-    id: `capability:${capability.id}:world-model`,
-    label: 'World model',
-    description,
-    tooltip: repositories.length
-      ? 'Read from the state branch first and the default branch second, in that order.'
-      : 'Composed from the models beneath it when something asks for it, and stored nowhere.',
-    icon: built.length || !checked.length ? 'worldModel' : 'statusWarning',
-    contextValue: 'sflow.capability.worldModel'
-  }];
-}
-
 /** Whatever describes the capability or whatever it runs on, as the map records it. */
 function linkNodes(capability: CapabilityNode): TreeNode[] {
   const entries = [
@@ -285,7 +239,7 @@ function linkNodes(capability: CapabilityNode): TreeNode[] {
 /**
  * The capability id a tree node stands for, or null for anything else.
  *
- * A capability now has rows beneath it — its repositories, its world model, its links — and their
+ * A capability now has rows beneath it — its repositories and its links — and their
  * ids are the capability's with a further segment. Those are not capabilities, and handing
  * `commerce:repository:commerce-api` to an edit command is how a screen opens on something that
  * does not exist. Capability ids are kebab-case, so a second colon is proof this is not one.

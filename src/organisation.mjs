@@ -76,7 +76,7 @@ import {
   gitRepositoryComparisonKey, sameGitRepository
 } from './git-repository-identity.mjs';
 import {
-  GitRemoteSession, readRemoteGitTreePresence, requireRemoteObservation, runRemoteGitAsync
+  GitRemoteSession, requireRemoteObservation, runRemoteGitAsync
 } from './git-execution.mjs';
 import {
   forgetLeadRepository, leadRegistryFile, listLeadRepositories, listLeadRepositoryRegistryRecords,
@@ -103,10 +103,6 @@ export {
 
 const PORTFOLIO_PATH = 'singularity/portfolio.yml';
 const CAPABILITY_PROPOSAL_PREFIX = 'sflow/config-change/capability/';
-// Presence is an immutable-tree fact, never an approval or freshness cache. Every use still makes
-// a fresh operation-scoped ref observation; unavailable reads never enter this bounded local LRU.
-const CAPABILITY_READINESS_TREE_CACHE_LIMIT = 128;
-const capabilityReadinessTrees = new Map();
 const CAPABILITY_INSPECTION_MAX_PROPOSALS = 64;
 const CAPABILITY_PROPOSAL_ADVERTISED_SCAN_LIMIT = 4_096;
 // Git for Windows ultimately passes one UTF-16 command line to CreateProcessW. Keep explicit
@@ -7790,25 +7786,16 @@ export async function proposeProgressiveCapabilityChange(leadUrl, {
 }
 
 /**
- * Whether each repository a capability ships from is actually ready to be worked in.
- *
- * Two questions: does the state branch exist, and is there a world-model manifest. One exact
- * branch advertisement per repository selects the tips; manifest presence then reuses an exact
- * tree fact or a blobless metadata fetch. No model content or application checkout is needed.
- *
- * The world model is looked for on the state branch first and the default branch second, in that
- * order, because that is the order every reader resolves it in.
+ * Whether each repository a capability ships from is ready to be worked in: whether its state
+ * branch exists. One exact branch advertisement per repository answers it; no
+ * content, model or application checkout is read.
  */
 export async function capabilityReadiness(leadUrl, {
-  stateBranch = 'state', outputDir = 'singularity/world-model',
-  organisation: suppliedOrganisation = null, remoteSession = null,
-  runRemoteCommand = runRemoteGitAsync, refresh = false
+  stateBranch = 'state',
+  organisation: suppliedOrganisation = null, remoteSession = null
 } = {}) {
-  if (typeof stateBranch !== 'string' || !isGitRefName(stateBranch)
-      || typeof outputDir !== 'string' || Buffer.byteLength(`${outputDir}/manifest.json`) > 512
-      || /[\u0000-\u001f\u007f-\u009f\\:*?\[\]]/u.test(outputDir)
-      || outputDir.split('/').some((part) => !part || part === '.' || part === '..')) {
-    throw new SingularityFlowError('Capability readiness requires literal branch and repository-relative model paths.', {
+  if (typeof stateBranch !== 'string' || !isGitRefName(stateBranch)) {
+    throw new SingularityFlowError('Capability readiness requires a literal state branch name.', {
       code: 'CAPABILITY_READINESS_INPUT_INVALID'
     });
   }
@@ -7827,138 +7814,28 @@ export async function capabilityReadiness(leadUrl, {
   // Capture all caller-owned scalars before any worker awaits, so a later mutation cannot change
   // the authority or branch selected by an in-flight readiness read.
   const entries = Object.entries(organisation.repositories)
-    .filter(([, declared]) => Boolean(declared?.url)).map(([id, declared]) => {
-      const url = assertCredentialFreeRemote(declared.url);
-      const defaultBranch = declared.defaultBranch ?? 'main';
-      if (typeof defaultBranch !== 'string' || !isGitRefName(defaultBranch)) {
-        throw new SingularityFlowError('Capability readiness requires literal repository default branches.', {
-          code: 'CAPABILITY_READINESS_INPUT_INVALID'
-        });
-      }
-      return [id, { url, defaultBranch }];
-    });
+    .filter(([, declared]) => Boolean(declared?.url))
+    .map(([id, declared]) => [id, { url: assertCredentialFreeRemote(declared.url) }]);
   const workers = Math.max(1, Math.min(4, entries.length || 1));
   // One session is deliberately shared by the whole readiness operation. Apart from coalescing
   // identical remotes, this makes the worker limit real: the old synchronous `observe` blocked the
   // event loop inside each worker, so four repositories paid four serial office-proxy delays before
   // their fetches could become concurrent.
-  const pendingTrees = new Map();
   const resolved = await mapLimit(entries, workers, async ([id, declared]) => {
-    const { url, defaultBranch } = declared;
-    const branches = [...new Set([stateBranch, defaultBranch])];
+    const { url } = declared;
     const advertised = await session.observeAsync(url, {
-      includeHead: false, refs: branches.map((branch) => `refs/heads/${branch}`)
+      includeHead: false, refs: [`refs/heads/${stateBranch}`]
     });
     if (!advertised.ok) return [id, {
-      url, stateBranch: null, hasStateBranch: null, worldModel: null,
-      status: 'unavailable', worldModelStatus: 'unavailable',
-      failure: publicRemoteFailure(advertised.failure)
+      url, stateBranch: null, hasStateBranch: null,
+      status: 'unavailable', failure: publicRemoteFailure(advertised.failure)
     }];
-    const refs = advertised.refs;
-    const hasState = refs.has(`refs/heads/${stateBranch}`);
-    const inspect = branches.filter((branch) => refs.has(`refs/heads/${branch}`));
-    const branchEntries = inspect.map((branch) => ({ branch, commit: refs.get(`refs/heads/${branch}`) }));
-    const key = recordSha256({ profile: 'tree-manifest-presence/v1', remote: url,
-      cwd: session.cwd, stateBranch, defaultBranch, outputDir,
-      tips: branches.map((branch) => [branch, refs.get(`refs/heads/${branch}`) ?? null]) });
-    let tree = refresh ? null : capabilityReadinessTrees.get(key);
-    if (tree) {
-      capabilityReadinessTrees.delete(key);
-      capabilityReadinessTrees.set(key, tree);
-    } else {
-      if (!pendingTrees.has(key)) pendingTrees.set(key, inspect.length
-        ? readRemoteGitTreePresence(url, branchEntries, `${outputDir}/manifest.json`, {
-          env: gitEnv, cwd: session.cwd, runRemoteCommand
-        }) : Promise.resolve({ status: 'current', presence: {} }));
-      tree = await pendingTrees.get(key);
-      if (tree.status === 'current') {
-        capabilityReadinessTrees.set(key, Object.freeze({
-          status: 'current', presence: Object.freeze({ ...tree.presence })
-        }));
-        while (capabilityReadinessTrees.size > CAPABILITY_READINESS_TREE_CACHE_LIMIT) {
-          capabilityReadinessTrees.delete(capabilityReadinessTrees.keys().next().value);
-        }
-      }
-    }
-    const { status } = tree;
-    const failure = publicRemoteFailure(tree.failure);
-    const onState = status === 'current' && hasState && tree.presence[stateBranch] === true;
-    const worldModel = onState ? 'state-branch'
-      : status === 'current' && tree.presence[defaultBranch] === true ? defaultBranch : null;
+    const hasState = advertised.refs.has(`refs/heads/${stateBranch}`);
     return [id, {
-      url,
-      stateBranch: hasState ? stateBranch : null,
-      hasStateBranch: hasState,
-      // Which copy a command would actually read, said plainly rather than left to be worked out.
-      worldModel,
-      status, worldModelStatus: status === 'current' ? worldModel ? 'present' : 'missing' : 'unavailable',
-      ...(failure ? { failure } : {}), ...(tree.cleanupRetained ? { cleanupRetained: true } : {})
+      url, stateBranch: hasState ? stateBranch : null, hasStateBranch: hasState, status: 'current'
     }];
   });
   return Object.fromEntries(resolved);
-}
-
-/**
- * The world model for a capability, at any level of the tree.
- *
- * A capability that ships has one: the model in its lead repository, resolved state-branch-first
- * like every other read. A capability that groups others has no repository to hold one, so its
- * model is the union of its children's — composed when asked and stored nowhere.
- *
- * Storing it would be the obvious alternative and it is the wrong one. A grouping's model contains
- * nothing that is not already in its children, so a stored copy is a second thing to build, to
- * invalidate when a child rebuilds, and to be wrong. Composition cannot go stale, because there is
- * nothing to go stale.
- *
- * Nothing is fetched here. It reports which parts exist and where each comes from, which is what a
- * reader needs to decide whether to trust the grounding — the parts themselves are resolved by
- * whoever is about to read them.
- */
-export function composeCapabilityWorldModel(organisation, capabilityId, readiness = {}) {
-  const rows = flattenTree(organisation.capabilities ?? []);
-  const target = rows.find((row) => row.id === capabilityId);
-  if (!target) throw new SingularityFlowError(`Unknown capability '${capabilityId}'.`);
-
-  const modelFor = (row) => {
-    const lead = row.leadRepository ?? row.repositories?.[0] ?? null;
-    if (!lead) return null;
-    const state = readiness[lead];
-    return {
-      capability: row.id,
-      name: row.name,
-      repository: lead,
-      // Where a reader would actually find it, or null when nobody has built one yet.
-      branch: state?.worldModel ?? null,
-      present: Boolean(state?.worldModel)
-    };
-  };
-
-  if (target.repositories?.length) {
-    const own = modelFor(target);
-    return {
-      capability: capabilityId,
-      name: target.name,
-      composed: false,
-      sources: own ? [own] : [],
-      // A capability that ships from several repositories still has one model: the lead's. The
-      // others are where its code lives, not where its understanding of itself lives.
-      alsoShipsFrom: (target.repositories ?? []).filter((id) => id !== own?.repository)
-    };
-  }
-
-  // Every shipping capability beneath this one, however deep. A grouping of groupings composes
-  // through them without needing a model of its own at each level.
-  const beneath = rows
-    .filter((row) => row.ancestors.includes(capabilityId) && row.repositories?.length)
-    .map(modelFor)
-    .filter(Boolean);
-  return {
-    capability: capabilityId,
-    name: target.name,
-    composed: true,
-    sources: beneath,
-    alsoShipsFrom: []
-  };
 }
 
 /** Depth-first with ancestors, matching what capabilityTree consumers already expect. */

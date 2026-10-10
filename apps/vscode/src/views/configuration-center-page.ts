@@ -6,10 +6,6 @@ import type { AuthorityView, ConfigurationCenterView, ConfigurationTab, McpServe
 import { PROFILE_PERSONAS } from './profile-personas.ts';
 import { testSetupHtml, TEST_SETUP_SCRIPT } from './test-setup-page.ts';
 import type { TestSetupView } from './test-setup-model.ts';
-import { worldModelVisualization, WORLD_MODEL_VISUAL_SCRIPT } from './world-model-visual-page.ts';
-import {
-  BUILTIN_VIEW_IDS, BUILTIN_VIEW_REFERENCES
-} from '../../../../src/world-model/registry/views.mjs';
 
 function csv(values: string[]): string { return escape(values.join(', ')); }
 
@@ -31,8 +27,7 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
     { label: 'Test setup', glyph: 'phase', tab: 'tests' },
     { label: 'Workflow Studio', glyph: 'workflow', action: 'workflow-studio' },
     { label: 'Shared workflow drafts', glyph: 'workflow', action: 'shared-workflow-drafts' },
-    { label: 'World Model & CALM', glyph: 'worldModel', tab: 'world-model' },
-    { label: 'Rebuild capability World Model', glyph: 'worldModel', action: 'rebuild-world-model' },
+    { label: 'World Model', glyph: 'worldModel', tab: 'world-model' },
     { label: 'AST intelligence', glyph: 'worldModel', action: 'ast-intelligence' }
   ] },
   { label: 'AI & automation', items: [
@@ -52,12 +47,12 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
   ] }
 ];
 
-function navigation(active: ConfigurationTab, registeredOn = true): string {
+function navigation(active: ConfigurationTab): string {
   return `<aside class="configuration-sidebar">
     <nav class="configuration-nav" aria-label="Configuration areas">
       ${CONFIGURATION_NAVIGATION.map((group) => `<section class="configuration-nav-group" aria-labelledby="configuration-nav-${escape(group.label.toLowerCase().replace(/[^a-z]+/g, '-'))}">
         <h2 id="configuration-nav-${escape(group.label.toLowerCase().replace(/[^a-z]+/g, '-'))}">${escape(group.label)}</h2>
-        <ul>${group.items.filter((item) => registeredOn || item.action !== 'rebuild-world-model').map((item) => `<li><button type="button" class="configuration-nav-item${item.tab === active ? ' active' : ''}"${item.tab === active ? ' aria-current="page"' : ''}${item.tab ? ` data-tab="${item.tab}"` : ` data-action="${item.action}"`}>${icon(item.glyph, { size: 16 })}<span>${escape(item.label)}</span></button></li>`).join('')}</ul>
+        <ul>${group.items.map((item) => `<li><button type="button" class="configuration-nav-item${item.tab === active ? ' active' : ''}"${item.tab === active ? ' aria-current="page"' : ''}${item.tab ? ` data-tab="${item.tab}"` : ` data-action="${item.action}"`}>${icon(item.glyph, { size: 16 })}<span>${escape(item.label)}</span></button></li>`).join('')}</ul>
       </section>`).join('')}
     </nav>
   </aside>`;
@@ -198,278 +193,29 @@ function modelRouting(view: ConfigurationCenterView): string {
     </div></section>`;
 }
 
-function architectureProjectionExplorer(view: ConfigurationCenterView): string {
-  const configured = view.worldModel.projections.archCalm;
-  const entry = view.worldModelStatus.projections.find((projection) => projection.id === 'arch.calm');
-  if (!configured.enabled && !entry) return `<section class="wm-architecture">
-    <div class="section-heading"><div><p class="eyebrow">Architecture projection</p><h2>${icon('impact')}CALM architecture</h2><p class="muted">A deterministic, model-free architecture view derived from the exact World Model and capability map.</p></div></div>
-    <p class="empty">Not enabled. Turn on <strong>Generate CALM architecture</strong> below, publish the configuration, then build the World Model.</p>
-  </section>`;
-  if (!entry || entry.status !== 'available') return `<section class="wm-architecture">
-    <div class="section-heading"><div><p class="eyebrow">Architecture projection</p><h2>${icon('impact')}CALM architecture</h2><p class="muted">Configured as ${configured.required ? 'required' : 'optional'}, but the current state-branch World Model contains no usable projection.</p></div><button class="secondary" data-action="build-world-model">Build / refresh</button></div>
-    <p class="notice warning">${escape(entry?.refusalCode ?? 'The projection has not been generated yet.')}</p>
-  </section>`;
-
-  const counts = entry.counts ?? {
-    nodes: entry.nodes?.length ?? 0,
-    interfaces: 0,
-    relationships: entry.relationships?.length ?? 0,
-    controls: entry.controls?.length ?? 0,
-    flows: entry.flows?.length ?? 0,
-    unavailable: 0,
-    contradictions: 0
-  };
-  const workflowUse = view.worldModelStatus.workflows.flatMap((workflow) => workflow.phases
-    .filter((phase) => phase.views.length && workflow.mode !== 'off')
-    .map((phase) => `${workflow.label} · ${phase.label}`));
-  const sourceCell = (sources: Array<{ kind: string; reference: string | null; assurance: string | null }> = [], total = sources.length) => sources.length
-    ? `${sources.map((source) => `<span class="wm-source"><strong>${escape(source.kind)}</strong><code>${escape(source.reference ?? 'exact record')}</code><small>${escape(source.assurance ?? '')}</small></span>`).join('')}${total > sources.length ? `<small>+ ${total - sources.length} more in the exact source map</small>` : ''}`
-    : '<span class="muted">No bounded source preview</span>';
-  const nodeRows = (entry.nodes ?? []).map((node) => {
-    const layer = node.layer === 'external' ? 'external'
-      : node.type === 'database' ? 'data'
-        : node.type === 'actor' || node.layer === 'governance' ? 'governance' : 'delivery';
-    return `<tr data-arch-row data-arch-layer="${layer}" data-arch-status="${escape(node.status)}"><td><strong>${escape(node.name)}</strong><small><code>${escape(node.id)}</code></small></td><td>${escape(node.type)}</td><td>${escape(node.layer)}</td><td><span class="wm-state ${node.status === 'confirmed' ? 'ready' : 'missing'}">${escape(node.status)}</span></td><td>${sourceCell(node.sources, node.sourceCount)}</td></tr>`;
-  }).join('');
-  const relationRows = (entry.relationships ?? []).map((relation) => `<tr data-arch-row data-arch-layer="delivery" data-arch-status="${escape(relation.status)}"><td><code>${escape(relation.source)}</code></td><td><strong>${escape(relation.kind)}</strong><small><code>${escape(relation.id)}</code></small></td><td>${relation.destinations.map((destination) => `<code>${escape(destination)}</code>`).join(' ')}</td><td>${escape(relation.status)}</td><td>${sourceCell(relation.sources, relation.sourceCount)}</td></tr>`).join('');
-  const controlRows = (entry.controls ?? []).map((control) => `<tr data-arch-row data-arch-layer="governance" data-arch-status="confirmed"><td><strong>${escape(control.id)}</strong><small>${escape(control.description)}</small></td><td>${escape(control.mode)}</td><td>${control.paths}</td><td>${sourceCell(control.sources, control.sourceCount)}</td></tr>`).join('');
-  const flowRows = (entry.flows ?? []).map((flow) => `<tr data-arch-row data-arch-layer="delivery" data-arch-status="observed-only"><td><strong>${escape(flow.name)}</strong><small><code>${escape(flow.id)}</code></small></td><td>${flow.transitions}</td><td>${escape(flow.description)}</td><td>${sourceCell(flow.sources, flow.sourceCount)}</td></tr>`).join('');
-  const unavailableRows = (entry.unavailable ?? []).map((gap) => `<tr data-arch-row data-arch-layer="unknown" data-arch-status="unavailable"><td><code>${escape(gap.subject)}</code></td><td><span class="wm-state missing">unavailable</span></td><td>${escape(gap.reason)}</td><td><code>${escape(gap.factId ?? 'no fact')}</code></td></tr>`).join('');
-  const contradictionRows = (entry.contradictions ?? []).map((gap) => `<tr data-arch-row data-arch-layer="unknown" data-arch-status="contradicted"><td><code>${escape(gap.subject)}</code></td><td><span class="wm-state missing">contradicted</span></td><td>${gap.conflictsWith.map((id) => `<code>${escape(id)}</code>`).join(' ') || 'conflicting exact records'}</td><td><code>${escape(gap.factId ?? 'no fact')}</code></td></tr>`).join('');
-  const story = view.storyArchitecture;
-  const recordedFulfilment = story?.fulfilment;
-  const fulfilmentStatus = recordedFulfilment?.status.startsWith('recorded-')
-    ? recordedFulfilment.baseAfterSha256 === entry.sha256
-      ? recordedFulfilment.status.slice('recorded-'.length)
-      : 'stale'
-    : recordedFulfilment?.status;
-  const storyArchitecture = story
-    ? `<div class="editor-card"><h3>Active Story architecture · <code>${escape(story.workId)}</code></h3>
-      <p><span class="wm-state ${story.status === 'approved' ? 'ready' : 'missing'}">${escape(story.status)}</span>${story.phase ? ` · ${escape(story.phase)} generation ${story.generation}` : ''}</p>
-      ${recordedFulfilment
-        ? `<p>Fulfilment: <strong>${escape(fulfilmentStatus ?? 'invalid')}</strong>${recordedFulfilment.reportSha256 ? ` · <code>${escape(recordedFulfilment.reportSha256.slice(0, 19))}</code>` : ''}</p><p class="muted">${Object.entries(recordedFulfilment.counts).map(([verdict, count]) => `${escape(verdict)} ${count}`).join(' · ') || escape(recordedFulfilment.reason ?? 'No clause result is available.')}</p>`
-        : '<p class="muted">No current intent-fulfilment receipt. Verification will compare the approved intent with exact generated reality.</p>'}
-      ${story.reasons.length ? `<ul class="plain-list">${story.reasons.map((reason) => `<li>${escape(reason)}</li>`).join('')}</ul>` : ''}
-    </div>`
-    : '<p class="muted">No active Story is selected. The repository architecture remains reusable and Story-independent.</p>';
-  return `<section class="wm-architecture">
-    <div class="section-heading"><div><p class="eyebrow">Architecture projection · FINOS CALM 1.2</p><h2>${icon('impact')}System architecture</h2><p class="muted">One exact, reusable state-branch projection. It is derived without a model and never rebuilt per Story while its inputs remain unchanged.</p></div><div class="button-row">${entry.expansion ? `<button class="secondary" data-open-world-model-ref="${escape(entry.expansion.ref)}">Open exact CALM JSON</button>` : ''}<button class="secondary" data-action="architecture-planned">Story plan</button><button class="secondary" data-action="architecture-export">Prepare export</button><button class="secondary" data-action="architecture-compare">Compare</button></div></div>
-    <div class="summary-grid wm-summary"><div class="summary-card"><strong>${counts.nodes}</strong><span>nodes</span></div><div class="summary-card"><strong>${counts.interfaces}</strong><span>interfaces</span></div><div class="summary-card"><strong>${counts.relationships}</strong><span>relationships</span></div><div class="summary-card"><strong>${counts.controls}</strong><span>controls</span></div><div class="summary-card"><strong>${counts.flows ?? 0}</strong><span>flows</span></div><div class="summary-card ${counts.unavailable || counts.contradictions ? 'governance-warning' : ''}"><strong>${counts.unavailable} / ${counts.contradictions}</strong><span>gaps / contradictions</span></div></div>
-    <dl class="wm-provenance"><div><dt>Projection</dt><dd><code>arch.calm@${entry.version}</code></dd></div><div><dt>Policy</dt><dd>${entry.required ? 'required' : 'optional'}</dd></div><div><dt>Validation</dt><dd>official CALM CLI · ${configured.strict ? 'strict' : 'schema'} · offline</dd></div><div><dt>Receipt</dt><dd><code>${escape((entry.receiptSha256 ?? '').slice(0, 19))}</code></dd></div><div><dt>Workflow use</dt><dd>${workflowUse.length} phase assignment${workflowUse.length === 1 ? '' : 's'}</dd></div></dl>
-    ${storyArchitecture}
-    <div class="wm-filter-bar"><label>Layer <select id="wm-architecture-layer-filter"><option value="all">All</option><option value="delivery">Delivery</option><option value="external">External</option><option value="data">Data</option><option value="governance">Governance</option><option value="unknown">Gaps</option></select></label><label>Evidence <select id="wm-architecture-status-filter"><option value="all">All</option><option value="confirmed">Confirmed</option><option value="declared-only">Declared</option><option value="observed-only">Observed</option><option value="planned">Planned</option><option value="contradicted">Contradictions</option><option value="unavailable">Unavailable</option></select></label><span class="muted">Each row carries a bounded provenance preview; open the exact projection for the complete content-addressed product.</span></div>
-    <details open><summary>Components · ${counts.nodes}</summary><div class="wm-catalog-wrap"><table class="configuration-table"><thead><tr><th>Component</th><th>CALM type</th><th>Layer</th><th>Confidence</th><th>Exact provenance</th></tr></thead><tbody>${nodeRows}</tbody></table></div>${entry.truncated?.nodes ? '<p class="muted">Preview is bounded. Open the exact CALM JSON for every component.</p>' : ''}</details>
-    <details><summary>Connections · ${counts.relationships}</summary><div class="wm-catalog-wrap"><table class="configuration-table"><thead><tr><th>From</th><th>Relationship</th><th>To</th><th>Evidence state</th><th>Exact provenance</th></tr></thead><tbody>${relationRows || '<tr><td colspan="5" class="muted">No architecture connections were derived.</td></tr>'}</tbody></table></div>${entry.truncated?.relationships ? '<p class="muted">Preview is bounded. Open the exact CALM JSON for every relationship.</p>' : ''}</details>
-    <details><summary>Governance controls · ${counts.controls}</summary><div class="wm-catalog-wrap"><table class="configuration-table"><thead><tr><th>Control</th><th>Mode</th><th>Protected paths</th><th>Exact provenance</th></tr></thead><tbody>${controlRows || '<tr><td colspan="4" class="muted">No architecture controls were derived.</td></tr>'}</tbody></table></div></details>
-    <details><summary>Ordered flows · ${counts.flows ?? 0}</summary><div class="wm-catalog-wrap"><table class="configuration-table"><thead><tr><th>Flow</th><th>Transitions</th><th>Description</th><th>Exact provenance</th></tr></thead><tbody>${flowRows || '<tr><td colspan="4" class="muted">No exact ordered flow evidence was admitted.</td></tr>'}</tbody></table></div></details>
-    <details ${counts.unavailable || counts.contradictions ? 'open' : ''}><summary>Evidence gaps and contradictions · ${counts.unavailable + counts.contradictions}</summary><div class="wm-catalog-wrap"><table class="configuration-table"><thead><tr><th>Subject</th><th>State</th><th>Reason / conflict</th><th>Fact</th></tr></thead><tbody>${unavailableRows}${contradictionRows}${unavailableRows || contradictionRows ? '' : '<tr><td colspan="4" class="muted">No projection evidence gaps or contradictions.</td></tr>'}</tbody></table></div></details>
-    ${workflowUse.length ? `<details><summary>Where this architecture is used</summary><ul class="plain-list">${workflowUse.map((usage) => `<li>${escape(usage)}</li>`).join('')}</ul></details>` : '<p class="muted">No enabled workflow phase currently consumes World Model context.</p>'}
-    <p class="muted">Story plan opens the approved Story-local architecture overlay. Candidate or unapproved intent is refused; the reusable state-branch architecture is never replaced.</p>
-  </section>`;
-}
-
-function worldModelExplorer(view: ConfigurationCenterView): string {
-  const status = view.worldModelStatus;
-  const workflowsUsingGrounding = status.workflows.filter((workflow) =>
-    workflow.mode !== 'off' && workflow.phases.some((phase) => phase.views.length));
-  const phaseUses = workflowsUsingGrounding.reduce((count, workflow) =>
-    count + workflow.phases.reduce((total, phase) => total + phase.views.length, 0), 0);
-  const availableViews = status.views.filter((entry) => entry.generated).length;
-  const readiness = status.rebuildReason ? 'Needs refresh' : status.built ? 'Ready' : 'Not built';
-  const source = status.readiness?.source ?? (status.generatedAt ? 'repository' : 'not available');
-  const generatedDate = status.generatedAt ? new Date(status.generatedAt) : null;
-  const generated = generatedDate && Number.isFinite(generatedDate.valueOf())
-    ? `${generatedDate.toISOString().slice(0, 16).replace('T', ' ')} UTC`
-    : status.generatedAt ?? (status.built ? 'governed state branch' : 'never');
-
-  const facts = status.summary?.facts ?? status.views.reduce((total, entry) => total + (entry.counts?.total ?? 0), 0);
-  const unavailable = status.summary?.unavailable ?? status.views.reduce((total, entry) => total + (entry.counts?.unavailable ?? 0), 0);
-  const contradictions = status.summary?.contradictions ?? status.views.reduce((total, entry) => total + (entry.counts?.contradicted ?? 0), 0);
-  const evidence = status.summary?.evidence ?? 0;
-  const derivations = status.summary?.derivations ?? 0;
-  const stale = status.views.reduce((total, entry) => total + (entry.counts?.stale ?? 0), 0);
-  const cacheHits = status.summary?.cacheHits ?? status.views.filter((entry) => entry.cache === 'hit').length;
-  const expansionButton = (kind: string, label: string) => {
-    const reference = status.expansion.find((entry) => entry.kind === kind);
-    return reference
-      ? `<button class="secondary" data-open-world-model-ref="${escape(reference.ref)}">${escape(label)}</button>`
-      : `<button class="secondary" disabled>${escape(label)}</button>`;
-  };
-
-  const catalogRows = status.views.map((entry) => `<tr>
-    <td><strong>${escape(entry.id)}</strong>${entry.reference !== entry.id ? `<small><code>${escape(entry.reference)}</code></small>` : ''}</td>
-    <td><span class="wm-state ${entry.generated ? 'ready' : 'missing'}">${entry.generated ? 'Available' : 'Declared'}</span>${entry.required ? '<small>required</small>' : ''}</td>
-    <td>${entry.counts ? `<strong>${entry.counts.total}</strong><small>${entry.counts.available} ready · ${entry.counts.partial} partial</small>` : '<span class="muted">—</span>'}</td>
-    <td>${entry.counts ? `<strong>${entry.counts.unavailable}</strong><small>${entry.counts.contradicted} contradiction${entry.counts.contradicted === 1 ? '' : 's'}</small>` : '<span class="muted">—</span>'}</td>
-    <td>${entry.cache ? `<span class="wm-state ${entry.cache === 'hit' ? 'ready' : 'missing'}">${escape(entry.cache)}</span>` : '<span class="muted">—</span>'}</td>
-    <td><strong>${entry.workflowCount}</strong> workflow${entry.workflowCount === 1 ? '' : 's'}<small>${entry.phaseCount} phase assignment${entry.phaseCount === 1 ? '' : 's'}</small></td>
-    <td>${entry.preview?.text
-      ? `<details class="wm-references"><summary>Preview${entry.preview.truncated ? ' · bounded' : ''}</summary><pre>${escape(entry.preview.text)}</pre></details>`
-      : entry.references.length
-        ? `<details class="wm-references"><summary>${entry.references.length} policy reference${entry.references.length === 1 ? '' : 's'}</summary><ul>${entry.references.map((reference) => `<li>${escape(reference)}</li>`).join('')}</ul></details>`
-        : '<small class="muted">no preview · no references</small>'}</td>
-    <td>${entry.generated ? (() => {
-      const reference = entry.expansion.find((candidate) => candidate.kind === 'view');
-      return reference
-        ? `<button class="link" data-open-world-model-ref="${escape(reference.ref)}">Open exact view</button>${entry.expansion.length ? `<details class="wm-references"><summary>${entry.expansion.length} exact reference${entry.expansion.length === 1 ? '' : 's'}</summary><ul>${entry.expansion.map((item) => `<li><code>${escape(item.ref)}</code></li>`).join('')}</ul></details>` : ''}`
-        : entry.canOpenPath
-          ? `<button class="link" data-open-path="${escape(entry.path)}">Open view</button>`
-          : '<small class="muted">Exact content is not available</small>';
-    })() : `<code>${escape(entry.path)}</code>`}</td>
-  </tr>`).join('');
-
-  const matrix = status.workflows.length && status.views.length ? `<section class="wm-coverage" aria-labelledby="wm-coverage-title">
-    <div class="section-heading"><div><h2 id="wm-coverage-title">${icon('workflow')}Workflow coverage</h2><p class="muted">Each cell names the phases that receive that view. Empty cells mean the view is not injected for that workflow phase.</p></div></div>
-    <div class="wm-filter-bar" role="group" aria-label="World model coverage filters">
-      <label><span>Workflow</span><select id="wm-workflow-filter"><option value="all">All workflows</option>${status.workflows.map((workflow) => `<option value="${escape(workflow.id)}">${escape(workflow.label)}</option>`).join('')}</select></label>
-      <label><span>View</span><select id="wm-view-filter"><option value="all">All views</option>${status.views.map((entry) => `<option value="${escape(entry.id)}">${escape(entry.id)}</option>`).join('')}</select></label>
-      <span class="wm-map-legend"><i class="wm-dot inherited"></i>shared phase <i class="wm-dot overridden"></i>workflow override</span>
-    </div>
-    <div class="wm-matrix-wrap"><table class="wm-matrix"><thead><tr><th>Workflow</th><th>Mode</th>${status.views.map((entry) => `<th data-wm-view-column="${escape(entry.id)}">${escape(entry.id)}</th>`).join('')}</tr></thead><tbody>
-      ${status.workflows.map((workflow) => `<tr data-wm-workflow-row="${escape(workflow.id)}"${workflow.mode === 'off' ? ' class="wm-disabled"' : ''}><td><strong>${escape(workflow.label)}</strong><small><code>${escape(workflow.id)}</code></small></td><td><span class="wm-state ${workflow.mode === 'off' ? 'off' : 'ready'}">${escape(workflow.mode)}</span></td>${status.views.map((entry) => {
-        const phases = workflow.phases.filter((phase) => phase.views.includes(entry.id));
-        return `<td data-wm-view-column="${escape(entry.id)}">${phases.length ? phases.map((phase) => `<span class="wm-phase-use ${phase.source === 'workflow-override' ? 'overridden' : 'inherited'}" title="${escape(`${phase.label} · ${phase.depth} depth · ${phase.source === 'workflow-override' ? 'workflow override' : 'shared phase policy'}`)}"><strong>${escape(phase.label)}</strong><small>${escape(phase.depth)}</small></span>`).join('') : '<span class="wm-none">—</span>'}</td>`;
-      }).join('')}</tr>`).join('')}
-    </tbody></table></div>
-  </section>` : '<p class="empty">No workflow-to-view assignments are declared.</p>';
-
-  return `<div class="wm-explorer">
-    <div class="section-heading"><div><p class="eyebrow">World Model Explorer</p><h2>${icon('worldModel')}Repository grounding map</h2><p class="muted">See what knowledge is available and exactly where each workflow consumes it.</p></div><div class="button-row"><button class="secondary" data-action="build-world-model">Build / refresh effective model</button><button data-action="rebuild-world-model">Rebuild capability &amp; push to Git…</button></div></div>
-    <div class="summary-grid wm-summary"><div class="summary-card ${status.rebuildReason || !status.built ? 'governance-warning' : ''}"><strong>${escape(readiness)}</strong><span>grounding state</span></div><div class="summary-card"><strong>${availableViews}/${status.views.length}</strong><span>views available</span></div><div class="summary-card"><strong>${facts}</strong><span>registered facts</span></div><div class="summary-card"><strong>${evidence} / ${derivations}</strong><span>evidence / derivations</span></div><div class="summary-card ${unavailable || contradictions ? 'governance-warning' : ''}"><strong>${unavailable} / ${contradictions}</strong><span>unavailable / contradicted</span></div><div class="summary-card ${stale ? 'governance-warning' : ''}"><strong>${stale}</strong><span>stale facts</span></div><div class="summary-card"><strong>${cacheHits}/${status.views.length}</strong><span>view cache reuse</span></div></div>
-    <dl class="wm-provenance"><div><dt>Format</dt><dd>${escape(status.format ?? (status.built ? 'unreported' : 'not built'))}</dd></div><div><dt>Source</dt><dd>${escape(source)}</dd></div><div><dt>Generated</dt><dd>${escape(generated)}</dd></div><div><dt>Storage</dt><dd><code>${escape(status.root)}</code></dd></div><div><dt>Workflow use</dt><dd>${workflowsUsingGrounding.length} workflows · ${phaseUses} assignments</dd></div></dl>
-    <div class="wm-filter-bar" role="group" aria-label="World model exact records">
-      ${expansionButton('manifest', 'Manifest')}
-      ${expansionButton('facts', 'Facts')}
-      ${expansionButton('evidence', 'Evidence')}
-      ${expansionButton('derivations', 'Derivations')}
-      ${expansionButton('unavailable', 'Unavailable analysis')}
-      ${expansionButton('contradictions', 'Contradictions')}
-      ${expansionButton('staleness', 'Staleness receipts')}
-      ${expansionButton('economics', 'Cache & economics')}
-      <small class="muted">Exact, content-addressed state records open only when requested; large records are bounded.</small>
-    </div>
-    <h2>${icon('book')}View catalog</h2>
-    ${status.views.length ? `<div class="wm-catalog-wrap"><table class="configuration-table wm-catalog"><thead><tr><th>View</th><th>Status</th><th>Facts</th><th>Gaps</th><th>Cache</th><th>Workflow use</th><th>Preview</th><th>Content</th></tr></thead><tbody>${catalogRows}</tbody></table></div>` : '<p class="empty">No world-model views are declared.</p>'}
-    ${matrix}
-  </div>`;
-}
-
-/** While the registered World Model is off there is nothing to build, explore or tune here. */
-function registeredWorldModelOff(): string {
-  return `<section class="plain world-model-settings">
-    <div class="section-heading"><div><p class="eyebrow">World Model</p><h2>${icon('worldModel')}Repository brief</h2><p class="muted">Every phase prompt gets a short Repository brief read from the source with no build and no model: the rules that apply, contracts, flows, what the Story's change touches and the risky places.</p></div><button class="secondary" data-action="open-workflow">Open advanced YAML</button></div>
-    <p class="notice">The registered World Model is off in this repository, so nothing is built, published or required. See what a phase receives with <code>singularity-flow wm brief --phase PHASE</code>. To use registered views again, set <code>worldModel.registered: on</code> in <code>singularity/workflow.yml</code>.</p>
-  </section>`;
-}
-
+/** The World Model is the Repository brief read from the source; this tab only chooses which directories it reads. */
 function worldModel(view: ConfigurationCenterView): string {
-  if (view.worldModelStatus.registered === 'off') return registeredWorldModelOff();
   const model = view.worldModel;
   const source = view.configurationState;
   const proposed = Boolean(source.effective?.kind && source.effective.kind !== 'working-tree');
-  const editorLabel = source.editor === 'candidate'
-    ? 'validated local candidate'
-    : 'approved effective configuration';
   return `<section class="plain world-model-settings">
-    <details class="wm-data-details"><summary>World Model facts, views &amp; workflow coverage</summary>
-    ${worldModelExplorer(view)}</details>
-    <p class="muted">Rebuild chooses an approved capability in this repository, then Quick, Standard, or Deep complexity. It regenerates selected registered views even when cached and publishes the reviewed result to the configured Git state branch; it does not commit to the application or Story branch.</p>
-    <p class="notice">Build / refresh uses the approved repository configuration, or the accepted Story's pinned execution configuration when a Story is active. ${proposed
-    ? 'Saving creates a review proposal from the exact approved authority; it never rewrites the application checkout. Merge the proposal into <code>sflow/config</code>, then refresh workspace configuration before expecting a repository-level build to use it.'
-    : 'This repository uses local configuration authority. Saving writes a validated local draft; review and publish it before expecting a repository-level build to use it.'} An existing Story retains its pin.
-      <span class="muted"> Editor source: ${escape(editorLabel)} · Current built-model format: <code>${escape(view.worldModelStatus.format ?? 'not built')}</code>.</span>
-      ${view.publish.changes.length ? `<strong>${view.publish.changes.length} local configuration change${view.publish.changes.length === 1 ? '' : 's'} awaiting publication.</strong>` : ''}</p>
-    <details class="wm-data-details"><summary>CALM provenance, controls, flows &amp; evidence gaps</summary>
-    ${architectureProjectionExplorer(view)}</details>
-    ${view.worldModelStatus.rebuildReason
-    ? `<p class="notice warning">${escape(view.worldModelStatus.rebuildReason)}<span class="grow"></span><button class="secondary" data-action="build-world-model">Review explicit refresh</button></p>`
-    : view.worldModelStatus.built
-      ? ''
-      : '<p class="notice warning">This repository has no world model yet, so governed prompts are ungrounded.<span class="grow"></span><button class="secondary" data-action="build-world-model">Review world-model build</button></p>'}
-    <details class="configuration-advanced-tools wm-settings"><summary>Behavior &amp; generation settings</summary>
-    <div class="section-heading"><div><h2>${icon('configuration')}World-model behavior</h2><p class="muted">Control whether verified repository context is included and how optional missing context is created. Read-only status commands never invoke a model.</p></div><button class="secondary" data-action="open-workflow">Open advanced YAML</button></div>
+    <div class="section-heading"><div><p class="eyebrow">World Model</p><h2>${icon('worldModel')}Repository brief</h2><p class="muted">Every phase prompt gets a short Repository brief read from the source with no build: the rules that apply, contracts, flows, what the Story's change touches and the risky places.</p></div><div class="button-row"><button class="secondary" data-action="repository-brief">Open Repository Brief</button><button class="secondary" data-action="open-workflow">Open advanced YAML</button></div></div>
+    <p class="muted">See what a phase receives with <code>singularity-flow wm brief --phase PHASE</code>. A work type leaves it out with <code>intelligence.worldModel: off</code>.</p>
     <form id="world-model-form">
       <div class="editor-card">
-        <h2>${icon('approval')}Grounding policy</h2>
+        <h2>${icon('document')}Source scope</h2>
+        <p class="muted">The directories the Repository brief and AST intelligence read.</p>
         <div class="form-grid">
-          <label><span>Phase grounding</span><select name="grounding">${option('off', model.grounding, 'Off — no World-Model context')}${option('warn', model.grounding, 'Warn — use when available')}</select><small>The World Model is guidance: missing, stale or unverifiable context is reported and left out, never a blocker.</small></label>
-          <label><span>Stale model</span><select name="staleness">${option('warn', model.staleness, 'Warn and continue')}${option('ignore', model.staleness, 'Ignore staleness')}</select><small>A stale model is still guidance. Phase work never waits for a refresh.</small></label>
-        </div>
-      </div>
-
-      <div class="editor-card">
-        <h2>${icon('worldModel')}Materialization</h2>
-        <p class="muted">Choose whether Flow may create a missing model while performing a mutating lifecycle action.</p>
-        <div class="form-grid">
-          <label><span>Mode</span><select name="materializationMode">${option('explicit', model.materialization.mode, 'Explicit — user runs world-model command')}${option('on-demand', model.materialization.mode, 'On demand — prepare when required')}${option('disabled', model.materialization.mode, 'Disabled — no automatic materialization; explicit builds remain available')}</select></label>
-          <label><span>Generation depth</span><select name="materializationDepth" id="world-model-depth">${option('light', model.materialization.depth, 'Light — deterministic, zero model tokens')}${option('phase', model.materialization.depth, 'Phase — phase-aware, may invoke a model')}</select></label>
-          <label><span>Confirmation</span><select name="materializationConfirmation" id="world-model-confirmation">${option('prompt', model.materialization.confirmation, 'Prompt before generation')}${option('automatic', model.materialization.confirmation, 'Automatic — proven-first or same-source light')}</select><small>Automatic requires proven first-use state or adds same-source missing views. It never recreates removed, unpublished, stale, divergent, or invalid authority. Model-driven generation always needs explicit confirmation.</small></label>
-          <label><span>Publication</span><select name="materializationPublish">${option('governed', model.materialization.publish, 'Governed — commit and publish')}${option('local', model.materialization.publish, 'Local — do not publish')}</select></label>
-          <label><span>Look ahead</span><select name="materializationLookahead">${option('none', model.materialization.lookahead, 'Current phase only')}${option('next-phase', model.materialization.lookahead, 'Also prepare next phase')}</select></label>
-        </div>
-        <div class="notice"><strong>Recommended low-friction setup:</strong> on demand + light + automatic. It creates deterministic repository facts without calling a model or consuming model tokens.</div>
-      </div>
-
-      <div class="editor-card">
-        <h2>${icon('worldModel')}Registered v4 builder</h2>
-        <p class="muted">Registered v4 uses closed extractors, registered facts, independently validated views, and exact cache reuse. These controls govern future builds; they do not build anything while saving.</p>
-        <div class="form-grid">
-          <label><span>v4 composer</span><select name="v4Composer">${option('deterministic', model.v4.composer, 'Deterministic — zero model calls')}${option('model-optional', model.v4.composer, 'Model optional — deterministic when sufficient')}${option('model-required', model.v4.composer, 'Model required — invoke governed provider')}</select></label>
-          <label><span>v4 consumer</span><select name="v4Consumer">${['developer', 'architect', 'tester', 'business', 'operations', 'security', 'release'].map((value) => option(value, model.v4.consumer, value.charAt(0).toUpperCase() + value.slice(1))).join('')}</select></label>
-          <label><span>v4 cache policy</span><select name="v4CachePolicy">${option('reuse-valid', model.v4.cachePolicy, 'Reuse exact valid entries')}${option('rebuild', model.v4.cachePolicy, 'Rebuild requested views')}</select></label>
-          <label><span>v4 total output-token budget</span><input name="v4TotalMaximumOutputTokens" type="number" min="1" max="1000000" step="1" value="${model.v4.totalMaximumOutputTokens}" required><small>Operation-level maximum. Every independent view retains its stricter registered contract ceiling.</small></label>
-        </div>
-        <div class="notice"><strong>Provider boundary:</strong> <code>--model</code> chooses a concrete model only after the composer requires one. It does not enable model composition by itself.</div>
-      </div>
-
-      <div class="editor-card">
-        <h2>${icon('impact')}Architecture projection</h2>
-        <p class="muted">Generate an exact FINOS CALM 1.2 architecture product in the same state-branch transaction as the World Model. It uses deterministic governed facts and zero model tokens.</p>
-        <div class="form-grid">
-          <label class="check"><input name="archCalmEnabled" type="checkbox"${model.projections.archCalm.enabled ? ' checked' : ''}>Generate CALM architecture</label>
-          <label class="check"><input name="archCalmRequired" type="checkbox"${model.projections.archCalm.required ? ' checked' : ''}>Require a valid projection for World Model publication</label>
-          <label class="check"><input name="archCalmStrict" type="checkbox"${model.projections.archCalm.strict ? ' checked' : ''}>Run strict offline CALM validation</label>
-          <label class="check"><input name="archCalmGovernanceActors" type="checkbox"${model.projections.archCalm.includeGovernanceActors ? ' checked' : ''}>Include governance actors</label>
-          <label class="check"><input name="archCalmControls" type="checkbox"${model.projections.archCalm.includeControls ? ' checked' : ''}>Include policy controls</label>
-          <label class="check"><input name="archCalmFlows" type="checkbox"${model.projections.archCalm.includeFlows ? ' checked' : ''}>Include exact ordered flows</label>
-          <label><span>External dependencies</span><select name="archCalmExternalDependencies">${option('direct-architecture-only', model.projections.archCalm.includeExternalDependencies, 'Direct architecture dependencies only')}${option('off', model.projections.archCalm.includeExternalDependencies, 'Off')}</select><small>Only exact, direct dependency facts become external CALM nodes. Repository imports are not guessed into architecture.</small></label>
-          <label><span>Schema release</span><input type="text" value="1.2" disabled><small>Schema and validator are locked and packaged with SFlow.</small></label>
-        </div>
-        <div class="notice"><strong>Safe default:</strong> enabled + optional. If projection generation is unavailable, narrative World Model publication and Story work continue with a visible refusal receipt.</div>
-      </div>
-
-      <div class="editor-card">
-        <h2>${icon('document')}Content and storage</h2>
-        <div class="form-grid">
-          <label class="span-2"><span>Declared views</span><input name="views" id="world-model-views" type="text" value="${csv(model.views)}" placeholder="${escape(BUILTIN_VIEW_REFERENCES.slice(0, 2).join(', '))}"><small>Comma-separated lower-case IDs, optionally pinned to an installed exact version. Registered-v4 accepts the installed contracts <code>${escape(BUILTIN_VIEW_IDS.join('</code>, <code>'))}</code> that are currently active; unknown IDs are refused.</small></label>
-          <label class="span-2"><span>Application source roots</span><input name="sourceRoots" type="text" value="${csv(model.sourceRoots)}" placeholder="apps/payments, services/checkout"><small>Comma-separated repository directories. Leave empty to model the whole application tree.</small></label>
-          <label class="span-2"><span>Shared source roots</span><input name="sharedRoots" type="text" value="${csv(model.sharedRoots)}" placeholder="libs/contracts, libs/platform"><small>Shared contracts and platform code included alongside the application roots. Sparse-absent tracked files remain present through Git object IDs.</small></label>
-          <label><span>Output directory</span><input name="outputDir" type="text" value="${escape(model.outputDir)}"></label>
-          <label><span>State fetch timeout (ms)</span><input name="stateFetchTimeoutMs" type="number" min="250" max="60000" step="1" value="${model.stateFetchTimeoutMs}" required></label>
-        </div>
-      </div>
-
-      <div class="editor-card">
-        <h2>${icon('impact')}Generation performance</h2>
-        <div class="form-grid">
-          <label class="check"><input name="generationParallel" type="checkbox"${model.generation.parallel ? ' checked' : ''}>Build independent views in parallel</label>
-          <label><span>Maximum workers</span><input name="generationMaxWorkers" type="number" min="1" max="16" step="1" value="${model.generation.maxWorkers}" required><small>Used only when parallel generation is enabled.</small></label>
+          <label class="span-2"><span>Application source roots</span><input name="sourceRoots" type="text" value="${csv(model.sourceRoots)}" placeholder="apps/payments, services/checkout"><small>Comma-separated repository directories. Leave empty to read the whole application tree.</small></label>
+          <label class="span-2"><span>Shared source roots</span><input name="sharedRoots" type="text" value="${csv(model.sharedRoots)}" placeholder="libs/contracts, libs/platform"><small>Shared contracts and platform code read alongside the application roots.</small></label>
         </div>
         <p class="card-foot"><button class="secondary" type="button" data-action="diagnose-monorepo">Benchmark this repository</button><small>Measures warm Git status and scoped fingerprint cost without changing Git configuration.</small></p>
       </div>
-
-      <div class="editor-card">
-        <h2>${icon('prompt')}Prompt injection</h2>
-        <div class="form-grid">
-          <label><span>Mode</span><select name="injectionMode">${option('append', model.injection.mode, 'Append when placeholder is absent')}${option('replace', model.injection.mode, 'Replace placeholder only')}${option('off', model.injection.mode, 'Off — do not inject')}</select></label>
-          <label><span>Maximum injected bytes</span><input name="injectionMaxBytes" type="number" min="1" step="1" value="${model.injection.maxBytes}" required></label>
-          <label class="span-2"><span>Placeholder</span><input name="injectionPlaceholder" type="text" value="${escape(model.injection.placeholder)}"></label>
-        </div>
-        <p class="muted">${model.injection.rulesCount} advanced routing rule${model.injection.rulesCount === 1 ? '' : 's'} configured. Guided saving preserves these rules unchanged; edit them in workflow YAML when conditional agent, phase, or path routing is required.</p>
-      </div>
-      <div class="card-foot"><button type="submit">Save world-model settings</button><button type="button" class="secondary" data-action="discard-edits">Discard changes</button><button class="secondary" type="button" data-action="open-workflow">Open YAML</button></div>
+      <p class="notice">${proposed
+    ? 'Saving creates a review proposal from the exact approved authority; it never rewrites the application checkout.'
+    : 'Saving writes a validated local draft; review and publish it before it takes effect.'}${view.publish.changes.length ? ` <strong>${view.publish.changes.length} local configuration change${view.publish.changes.length === 1 ? '' : 's'} awaiting publication.</strong>` : ''}</p>
+      <div class="card-foot"><button type="submit">Save source scope</button><button type="button" class="secondary" data-action="discard-edits">Discard changes</button></div>
     </form>
-    </details>
   </section>`;
 }
 
@@ -574,8 +320,7 @@ export function configurationCenterHtml(
     : content;
   return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Governed repository setup</p><h1>${icon('configuration', { size: 24 })}Configuration Center</h1><p class="meta">Configure the product through guided screens. Use YAML only for advanced settings that do not yet have a form.</p></header>
     <div id="configuration-runtime-message" class="notice warning" role="status" aria-live="polite" hidden><span id="configuration-runtime-text"></span><span class="grow"></span><button class="secondary" id="configuration-reload" type="button">Reload newer configuration</button><button class="secondary" id="configuration-keep" type="button">Keep editing</button><button class="secondary" id="configuration-runtime-resume-approved" type="button" hidden>Resume approved baseline</button></div>
-    <div class="configuration-shell">${navigation(tab, view.worldModelStatus.registered !== 'off')}<main class="configuration-content">
-      ${tab === 'world-model' && view.worldModelStatus.registered !== 'off' ? worldModelVisualization(view) : ''}
+    <div class="configuration-shell">${navigation(tab)}<main class="configuration-content">
       ${guardedContent}
     </main></div>`;
 }
@@ -620,24 +365,6 @@ export const CONFIGURATION_CENTER_SCRIPT = `
   document.getElementById('configuration-resume-approved')?.addEventListener('click', () => vscode.postMessage({ type: 'resume-approved-baseline' }));
   document.getElementById('configuration-runtime-resume-approved')?.addEventListener('click', () => vscode.postMessage({ type: 'resume-approved-baseline' }));
   document.getElementById('configuration-keep')?.addEventListener('click', () => { if (runtime) runtime.hidden = true; vscode.postMessage({ type: 'keep-dirty' }); });
-  const applyWorldModelFilters = () => {
-    const workflow = document.getElementById('wm-workflow-filter')?.value || 'all';
-    const view = document.getElementById('wm-view-filter')?.value || 'all';
-    document.querySelectorAll('[data-wm-workflow-row]').forEach((row) => {
-      row.hidden = workflow !== 'all' && row.dataset.wmWorkflowRow !== workflow;
-    });
-    document.querySelectorAll('[data-wm-view-column]').forEach((cell) => {
-      cell.hidden = view !== 'all' && cell.dataset.wmViewColumn !== view;
-    });
-  };
-  const applyArchitectureFilters = () => {
-    const layer = document.getElementById('wm-architecture-layer-filter')?.value || 'all';
-    const status = document.getElementById('wm-architecture-status-filter')?.value || 'all';
-    document.querySelectorAll('[data-arch-row]').forEach((row) => {
-      row.hidden = (layer !== 'all' && row.dataset.archLayer !== layer)
-        || (status !== 'all' && row.dataset.archStatus !== status);
-    });
-  };
   document.addEventListener('input', (event) => { if (event.target?.closest('form')) markDirty(); });
   document.addEventListener('click', (event) => {
     const help = event.target.closest('[data-help-topic]'); if (help) return vscode.postMessage({ type: 'open-help-topic', topic: help.dataset.helpTopic });
@@ -645,7 +372,6 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     const authority = event.target.closest('[data-authority]'); if (authority) return vscode.postMessage({ type: 'select-authority', key: authority.dataset.authority });
     const mcp = event.target.closest('[data-mcp]'); if (mcp) return vscode.postMessage({ type: 'select-mcp', id: mcp.dataset.mcp });
     const openPath = event.target.closest('[data-open-path]'); if (openPath) return vscode.postMessage({ type: 'open-path', path: openPath.dataset.openPath });
-    const worldModelRef = event.target.closest('[data-open-world-model-ref]'); if (worldModelRef) return vscode.postMessage({ type: 'open-world-model-ref', ref: worldModelRef.dataset.openWorldModelRef });
     const action = event.target.closest('[data-action]'); if (action) return vscode.postMessage({ type: 'action', action: action.dataset.action });
   });
   document.addEventListener('submit', (event) => {
@@ -660,15 +386,9 @@ export const CONFIGURATION_CENTER_SCRIPT = `
     if (form.id === 'authority-form') vscode.postMessage({ type: 'save-authority', previousId: form.dataset.previousId, scope: data.get('scope'), id: data.get('id'), label: data.get('label'), allowAnyGitIdentity: data.get('allowAnyGitIdentity') === 'on', members: members(data.get('members')) });
     if (form.id === 'mcp-form') vscode.postMessage({ type: 'save-mcp', previousId: form.dataset.previousId, id: data.get('id'), label: data.get('label'), hostReference: data.get('hostReference'), agents: csv(data.get('agents')), phases: csv(data.get('phases')), tools: csv(data.get('tools')), approval: data.get('approval'), required: data.get('required') === 'on', captureToolCalls: data.get('captureToolCalls') === 'on', captureResults: data.get('captureResults') === 'on' });
     if (form.id === 'auto-form') vscode.postMessage({ type: 'save-auto', enabled: data.get('enabled') === 'true', workTypes: Array.from(form.querySelectorAll('[data-auto-work-type]')).map((field) => ({ id: field.dataset.autoWorkType, eligibility: field.value })) });
-    if (form.id === 'world-model-form') vscode.postMessage({ type: 'save-world-model', v4: { composer: data.get('v4Composer'), consumer: data.get('v4Consumer'), cachePolicy: data.get('v4CachePolicy'), totalMaximumOutputTokens: Number(data.get('v4TotalMaximumOutputTokens')) }, projections: { archCalm: { enabled: data.get('archCalmEnabled') === 'on', required: data.get('archCalmRequired') === 'on', schemaRelease: '1.2', strict: data.get('archCalmStrict') === 'on', includeGovernanceActors: data.get('archCalmGovernanceActors') === 'on', includeControls: data.get('archCalmControls') === 'on', includeFlows: data.get('archCalmFlows') === 'on', includeExternalDependencies: data.get('archCalmExternalDependencies') } }, views: csv(data.get('views')), sourceRoots: csv(data.get('sourceRoots')), sharedRoots: csv(data.get('sharedRoots')), outputDir: data.get('outputDir'), stateFetchTimeoutMs: Number(data.get('stateFetchTimeoutMs')), generation: { parallel: data.get('generationParallel') === 'on', maxWorkers: Number(data.get('generationMaxWorkers')) }, materialization: { mode: data.get('materializationMode'), publish: data.get('materializationPublish'), lookahead: data.get('materializationLookahead'), depth: data.get('materializationDepth'), confirmation: data.get('materializationConfirmation') }, grounding: data.get('grounding'), staleness: data.get('staleness'), injection: { placeholder: data.get('injectionPlaceholder'), mode: data.get('injectionMode'), maxBytes: Number(data.get('injectionMaxBytes')) } });
+    if (form.id === 'world-model-form') vscode.postMessage({ type: 'save-world-model', sourceRoots: csv(data.get('sourceRoots')), sharedRoots: csv(data.get('sharedRoots')) });
   });
   document.addEventListener('change', (event) => {
     if (event.target?.closest('form')) markDirty();
-    if (event.target?.id === 'wm-workflow-filter' || event.target?.id === 'wm-view-filter') applyWorldModelFilters();
-    if (event.target?.id === 'wm-architecture-layer-filter' || event.target?.id === 'wm-architecture-status-filter') applyArchitectureFilters();
-    if (event.target && event.target.id === 'world-model-confirmation' && event.target.value === 'automatic') {
-      const depth = document.getElementById('world-model-depth'); if (depth) depth.value = 'light';
-    }
   });
-  ${TEST_SETUP_SCRIPT}
-  ${WORLD_MODEL_VISUAL_SCRIPT}`;
+  ${TEST_SETUP_SCRIPT}`;

@@ -28,7 +28,7 @@ export type InstructionDesignerReply = string | null | {
 };
 
 function emptyAgent(): AgentDraft {
-  return { id: '', label: '', description: '', phases: [], defaultFor: [], worldModelViews: [], tools: ['read', 'search'], body: '# Agent instructions\n\nDescribe how this agent should reason, what evidence it must use, and what it must produce.', remoteSkills: [], remoteTemplates: [], remoteOutputs: [] };
+  return { id: '', label: '', description: '', phases: [], defaultFor: [], tools: ['read', 'search'], body: '# Agent instructions\n\nDescribe how this agent should reason, what evidence it must use, and what it must produce.', remoteSkills: [], remoteTemplates: [], remoteOutputs: [] };
 }
 function emptyPrompt(): PromptDraft { return { id: '', body: '# Purpose\n\nDescribe the reusable instruction.' }; }
 function emptySkill(): SkillDraft {
@@ -244,7 +244,7 @@ export class InstructionDesignerPanel {
     if (message.type === 'save-agent') {
       const draft: AgentDraft = { id: String(message.id ?? '').trim(), label: String(message.label ?? '').trim(),
         description: agentDescription(message.description), phases: this.strings(message.phases),
-        defaultFor: this.strings(message.defaultFor), worldModelViews: this.strings(message.worldModelViews),
+        defaultFor: this.strings(message.defaultFor),
         tools: this.strings(message.tools), body: String(message.body ?? ''),
         remoteSkills: Array.isArray(message.remoteSkills) ? message.remoteSkills as AgentDraft['remoteSkills'] : [],
         remoteTemplates: Array.isArray(message.remoteTemplates) ? message.remoteTemplates as AgentDraft['remoteTemplates'] : [],

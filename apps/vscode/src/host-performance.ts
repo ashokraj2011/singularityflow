@@ -19,7 +19,7 @@ export type HostPerformanceMark =
   | 'confirmedFirstPaint'
   | 'activationComplete';
 
-export type HostRuntimeLoad = 'help' | 'panels' | 'support' | 'world-model';
+export type HostRuntimeLoad = 'help' | 'panels' | 'support';
 
 export interface HostPerformanceSnapshot {
   readonly schemaVersion: 1;

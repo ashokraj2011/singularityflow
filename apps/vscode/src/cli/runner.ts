@@ -24,7 +24,7 @@ import { ProgressLineSplitter } from './progress.ts';
 /** Lifecycle snapshots include branch cataloguing and deterministic governance checks. */
 export const CLI_TIMEOUT_MS = 120_000;
 export const SNAPSHOT_TIMEOUT_MS = 120_000;
-/** `wm build` runs a model over a whole repository and legitimately takes minutes. */
+/** A model-written repository brief or explanation legitimately takes minutes. */
 export const WORLD_MODEL_TIMEOUT_MS = 15 * 60_000;
 /** Remote capability authority may establish or review configuration on a very large monorepo. */
 export const CAPABILITY_AUTHORITY_TIMEOUT_MS = 15 * 60_000;

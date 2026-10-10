@@ -1,14 +1,13 @@
 import { showCompactWarningMessage } from "../compact-message.ts";
 /** First-class VS Code configuration for humans, approvals, MCP, and the other designers. */
 import * as vscode from 'vscode';
-import { DEFAULT_WORLD_MODEL_SLICE_LEASE_MS, type SliceLease, type WorkspaceStore } from '../state.ts';
+import { type SliceLease, type WorkspaceStore } from '../state.ts';
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
 import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import {
   configurationCenterView, configurationPendingProposalStatus, configurationRefreshDecision,
   pendingConfigurationProposal,
-  prepareWorldModelDraftForSave,
   updateAuthorityYaml, updateAutoYaml, updateMcpYaml, updateWorldModelYaml,
   validateAuthorityDraft, validateAutoDraft, validateMcpDraft, validateWorldModelDraft,
   CONFIGURATION_TABS,
@@ -20,7 +19,6 @@ import {
   configurationSavePlan, type ConfigurationSaveDisposition, type ConfigurationSavePlan
 } from './configuration-save.ts';
 import { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } from './configuration-center-page.ts';
-import { WORLD_MODEL_VISUAL_STYLES } from './world-model-visual-page.ts';
 import { RetainedPanelRenderGate } from '../single-flight.ts';
 import { testSetupTargetsFromYaml, updateTestSetupYaml, type TestSetupInspection } from './test-setup-model.ts';
 
@@ -38,8 +36,7 @@ export type ConfigurationCenterMessage =
    * Open a repository file the Center listed. Carries the path rather than an action name because
    * the set is data — every template in the catalog — not a fixed vocabulary of commands.
    */
-  | { type: 'open-path'; path: string }
-  | { type: 'open-world-model-ref'; ref: string };
+  | { type: 'open-path'; path: string };
 
 /** Saves return their actual CLI disposition; all other messages retain the simple error contract. */
 export type ConfigurationCenterReply = string | null | {
@@ -87,9 +84,6 @@ export class ConfigurationCenterPanel {
   private readonly subscription: { dispose(): void };
   private readonly snapshotRenders: RetainedPanelRenderGate;
   private readonly disposables: vscode.Disposable[] = [];
-  private worldModelLease: SliceLease | null;
-  private worldModelLeaseAcquisition: Promise<void> | null = null;
-  private worldModelRenewal: ReturnType<typeof setInterval> | null = null;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -97,16 +91,13 @@ export class ConfigurationCenterPanel {
     private readonly profile: () => { name: string; role: string },
     private readonly onMessage: (message: ConfigurationCenterMessage) => Promise<ConfigurationCenterReply>,
     private readonly lease: SliceLease,
-    initialTab: ConfigurationTab,
-    worldModelLease: SliceLease | null
+    initialTab: ConfigurationTab
   ) {
     this.tab = initialTab;
-    this.worldModelLease = worldModelLease;
-    this.armWorldModelRenewal();
     this.snapshotRenders = new RetainedPanelRenderGate(
       () => this.panel.visible !== false,
       () => this.storeChanged(),
-      ['repository', 'configuration', 'integrations', 'worldModel']
+      ['repository', 'configuration', 'integrations']
     );
     this.subscription = store.onDidChange((_state, change) =>
       this.snapshotRenders.changed(change.kind, change.changedSlices));
@@ -121,9 +112,6 @@ export class ConfigurationCenterPanel {
     panel.onDidChangeViewState?.(({ webviewPanel }) => {
       const visible = webviewPanel.visible !== false;
       this.snapshotRenders.visibilityChanged(visible);
-      if (visible && this.tab === 'world-model') {
-        void this.ensureWorldModelLease().then(() => this.render());
-      }
     }, null, this.disposables);
     this.render();
   }
@@ -136,21 +124,9 @@ export class ConfigurationCenterPanel {
       return ConfigurationCenterPanel.current;
     }
     const lease = await store.acquireSlices(['configuration', 'integrations']);
-    let worldModelLease: SliceLease | null = null;
-    if (tab === 'world-model') {
-      try {
-        worldModelLease = await store.acquireSlices(
-          'world-model-explorer', ['worldModel'], { ttlMs: DEFAULT_WORLD_MODEL_SLICE_LEASE_MS }
-        );
-      } catch (error) {
-        lease.dispose();
-        throw error;
-      }
-    }
     const raced = ConfigurationCenterPanel.current as ConfigurationCenterPanel | null;
     if (raced) {
       lease.dispose();
-      worldModelLease?.dispose();
       await raced.restorePendingProposal();
       await raced.selectTab(tab);
       raced.panel.reveal(vscode.ViewColumn.Active);
@@ -163,64 +139,15 @@ export class ConfigurationCenterPanel {
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
       ConfigurationCenterPanel.current = new ConfigurationCenterPanel(
-        panel, store, profile, onMessage, lease, tab, worldModelLease
+        panel, store, profile, onMessage, lease, tab
       );
       await ConfigurationCenterPanel.current.restorePendingProposal();
       ConfigurationCenterPanel.current.render();
     } catch (error) {
       lease.dispose();
-      worldModelLease?.dispose();
       throw error;
     }
     return ConfigurationCenterPanel.current;
-  }
-
-  private armWorldModelRenewal(): void {
-    if (this.worldModelRenewal) clearInterval(this.worldModelRenewal);
-    this.worldModelRenewal = null;
-    if (!this.worldModelLease) return;
-    this.worldModelRenewal = setInterval(() => {
-      if (this.disposed || this.tab !== 'world-model' || this.panel.visible === false) return;
-      try { this.worldModelLease?.renew(); }
-      catch {
-        this.worldModelLease = null;
-        if (this.worldModelRenewal) clearInterval(this.worldModelRenewal);
-        this.worldModelRenewal = null;
-        void this.ensureWorldModelLease().then(() => this.render());
-      }
-    }, Math.max(1_000, Math.floor(DEFAULT_WORLD_MODEL_SLICE_LEASE_MS / 2)));
-    this.worldModelRenewal.unref?.();
-  }
-
-  /** Acquire or revive the heavy slice only while the World-Model Explorer is selected. */
-  private async ensureWorldModelLease(): Promise<void> {
-    if (this.disposed || this.tab !== 'world-model') return;
-    if (this.worldModelLease) {
-      try {
-        this.worldModelLease.renew();
-        this.armWorldModelRenewal();
-        return;
-      } catch {
-        this.worldModelLease = null;
-      }
-    }
-    if (!this.worldModelLeaseAcquisition) {
-      this.worldModelLeaseAcquisition = this.store.acquireSlices(
-        'world-model-explorer', ['worldModel'], { ttlMs: DEFAULT_WORLD_MODEL_SLICE_LEASE_MS }
-      ).then((lease) => {
-        if (this.disposed || this.tab !== 'world-model') lease.dispose();
-        else this.worldModelLease = lease;
-      }).finally(() => { this.worldModelLeaseAcquisition = null; });
-    }
-    await this.worldModelLeaseAcquisition;
-    this.armWorldModelRenewal();
-  }
-
-  private releaseWorldModelLease(): void {
-    if (this.worldModelRenewal) clearInterval(this.worldModelRenewal);
-    this.worldModelRenewal = null;
-    this.worldModelLease?.dispose();
-    this.worldModelLease = null;
   }
 
   /** Whether the person agrees to throw away edits they have not saved; clears the flag on yes. */
@@ -232,17 +159,8 @@ export class ConfigurationCenterPanel {
     return true;
   }
 
-  /** World-model bytes exist only while the Explorer tab itself owns this bounded lease. */
   private async selectTab(tab: ConfigurationTab): Promise<void> {
-    if (tab === 'world-model') {
-      this.tab = tab;
-      await this.ensureWorldModelLease();
-    } else {
-      // Update the visible tab before release publishes its reduced snapshot; the synchronous store
-      // notification must never re-render an empty World-Model Explorer during the transition.
-      this.tab = tab;
-      this.releaseWorldModelLease();
-    }
+    this.tab = tab;
     this.render();
   }
 
@@ -558,14 +476,13 @@ export class ConfigurationCenterPanel {
     }
     if (message.type === 'save-world-model') {
       try {
-        const received = message as unknown as WorldModelDraft;
-        const draft = prepareWorldModelDraftForSave(this.renderedTexts.definitionText, received);
+        const draft = message as unknown as WorldModelDraft;
         this.errors = validateWorldModelDraft(draft); if (this.errors.length) return this.showErrors(this.errors);
         const snapshot = this.store.current.snapshot!;
         const text = this.renderedTexts.definitionText;
         const outcome = await this.save(snapshot.definitionPath ?? 'singularity/workflow.yml', updateWorldModelYaml(text, draft), text);
         if (outcome.error) return this.showErrors([outcome.error]);
-        this.dirty = false; this.notice = this.savedNotice('World-model settings saved to this checkout only. Publish configuration before repository-level builds use them. An accepted Story retains its pin; use the base repository checkout or a new Story to consume the approved V4 policy.', outcome.disposition);
+        this.dirty = false; this.notice = this.savedNotice('Source scope saved to this checkout only. Review and publish configuration before it applies.', outcome.disposition);
         if (outcome.disposition?.kind === 'proposal') return;
       } catch (error) { return this.showErrors([(error as Error).message]); }
       return this.render();
@@ -573,13 +490,6 @@ export class ConfigurationCenterPanel {
     if (message.type === 'open-path') {
       const error = ConfigurationCenterPanel.replyError(await this.onMessage({
         type: 'open-path', path: String(message.path ?? '')
-      }));
-      if (error) { this.errors = [error]; return this.render(); }
-      return;
-    }
-    if (message.type === 'open-world-model-ref') {
-      const error = ConfigurationCenterPanel.replyError(await this.onMessage({
-        type: 'open-world-model-ref', ref: String(message.ref ?? '')
       }));
       if (error) { this.errors = [error]; return this.render(); }
       return;
@@ -679,15 +589,6 @@ export class ConfigurationCenterPanel {
   }
 
   private render(): void {
-    // Rendering is proof the retained explorer still has a live consumer. A panel that disappears
-    // without a dispose event cannot pin the heavy WMB projection beyond this bounded lease.
-    if (this.tab === 'world-model' && this.worldModelLease) {
-      try { this.worldModelLease.renew(); }
-      catch {
-        this.worldModelLease = null;
-        void this.ensureWorldModelLease().then(() => this.render());
-      }
-    }
     this.snapshotRenders.rendered();
     const view = this.view(); const token = nonce();
     if (!view) { this.panel.webview.html = page('Configuration Center', '<p class="empty">Choose a governed workspace to configure it.</p>', contentSecurityPolicy(this.panel.webview, token), token, '', { nav: 'configuration' }); return; }
@@ -703,7 +604,7 @@ export class ConfigurationCenterPanel {
           inspection: this.testInspection?.repositoryPath === this.store.current.snapshot?.repository?.root ? this.testInspection : null }
       ),
       contentSecurityPolicy(this.panel.webview, token), token, CONFIGURATION_CENTER_SCRIPT,
-      { nav: 'configuration', styles: this.tab === 'world-model' ? WORLD_MODEL_VISUAL_STYLES : '' }
+      { nav: 'configuration' }
     );
   }
 
@@ -713,7 +614,6 @@ export class ConfigurationCenterPanel {
     this.subscription.dispose();
     this.snapshotRenders.dispose();
     this.lease.dispose();
-    this.releaseWorldModelLease();
     this.disposables.forEach((item) => item.dispose());
     ConfigurationCenterPanel.current = null;
   }

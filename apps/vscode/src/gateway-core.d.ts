@@ -150,36 +150,12 @@ declare module '*/gateway/planners/workspace-reliability-surface.mjs' {
   export const workspaceDoctorGuide: unknown;
   export const workspaceExploreGuide: unknown;
 }
-declare module '*/gateway/planners/world-model.mjs' {
-  export const worldModelInspect: unknown;
-  export const worldModelNext: unknown;
-  export const worldModelExplain: unknown;
-}
-
-declare module '*/gateway/planners/world-model-run.mjs' {
-  export function worldModelGatewayCapabilities(options?: { defaults?: Record<string, unknown> }): {
-    readonly planBuilders: Map<string, unknown>;
-    readonly mutationExecutors: Map<string, unknown>;
-  };
-}
-
 declare module '*/gateway/policy.mjs' {
   export const DEFAULT_GATEWAY_POLICY: Readonly<Record<string, unknown>>;
 }
 
 declare module '*/state-stores.mjs' {
   export function loadConfig(root: string): Promise<any>;
-}
-
-declare module '*/world-model/commands.mjs' {
-  export function configuredWorldModelV4ViewSelections(
-    config: any, options?: Record<string, unknown>, phase?: string | null
-  ): ReadonlyArray<Readonly<{ viewId: string; version: number; reference: string }>>;
-  export function configuredWorldModelV4ViewIds(
-    config: any, options?: Record<string, unknown>, phase?: string | null
-  ): string[];
-  export function isWorldModelV4(config: any, options?: Record<string, unknown>): boolean;
-  export function worldModelV4GatewayDefaults(root: string, config: any): Readonly<Record<string, any>>;
 }
 
 declare module '*/workspace-bootstrap.mjs' {
@@ -304,22 +280,6 @@ declare module '*/yaml-formatting.mjs' {
   ): string;
 }
 
-declare module '*/worldmodel.mjs' {
-  export function loadWorldModelConfig(root: string, options?: {
-    agent?: string | null; workId?: string | null; capabilityId?: string | null;
-  }): Promise<Record<string, any>>;
-}
-
-declare module '*/world-model-format.mjs' {
-  export function assertRegisteredWorldModel(definition: any, options?: { source?: string; workId?: string | null }): void;
-}
-
-declare module '*/grounding.mjs' {
-  export function worldModelSourceSnapshot(root: string, definition: Record<string, any>): Promise<{
-    readonly sha256: string;
-  }>;
-}
-
 declare module '*/approved-configuration-reader.mjs' {
   export function withApprovedConfigurationRead<T>(
     root: string,
@@ -328,28 +288,9 @@ declare module '*/approved-configuration-reader.mjs' {
   ): Promise<T>;
 }
 
-declare module '*/world-model/registry/views.mjs' {
-  export const BUILTIN_VIEW_IDS: readonly string[];
-  export const BUILTIN_VIEW_REFERENCES: readonly string[];
-  export function normalizeBuiltInViewReference(reference: string): Readonly<{
-    viewId: string; version: number; reference: string; contract: Record<string, any>;
-  }>;
-}
-
 declare module '*/external-command-policy.mjs' {
   export const TEST_RESULT_ADAPTERS: readonly string[];
   export function normalizeExternalCommand(value: unknown, index?: number): { id: string; [key: string]: unknown };
-}
-
-declare module '*/world-model-views.mjs' {
-  export const LEGACY_WORLD_MODEL_VIEW_IDS: readonly string[];
-  export function worldModelViewIdentity(definition: any, value: string): Readonly<{
-    id: string; reference: string; version: number | null;
-  }> | null;
-  export function worldModelViewCatalog(definition: any, promptViews?: Iterable<string>): string[];
-  export function worldModelViewContractCatalog(definition: any, promptViews?: Iterable<string>): Array<Readonly<{
-    id: string; reference: string; version: number | null;
-  }>>;
 }
 
 /**

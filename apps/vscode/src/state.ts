@@ -77,11 +77,11 @@ export interface SnapshotCache {
 }
 
 const SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
-  'repository', 'lifecycle', 'configuration', 'capabilities', 'integrations', 'diagnostics', 'sgos', 'worldModel', 'comprehension'
+  'repository', 'lifecycle', 'configuration', 'capabilities', 'integrations', 'diagnostics', 'sgos', 'comprehension'
 ]);
 
 /** Slices the engine assembles without the lifecycle, so a lifecycle refusal does not take them down. */
-const INDEPENDENT_SLICES: readonly SnapshotSlice[] = Object.freeze(['comprehension', 'worldModel', 'sgos', 'diagnostics']);
+const INDEPENDENT_SLICES: readonly SnapshotSlice[] = Object.freeze(['comprehension', 'sgos', 'diagnostics']);
 
 /** A recovery snapshot with independently read slices (and their revisions) laid over it. */
 function withSlices(base: RepositorySnapshot, extra: RepositorySnapshot, slices: readonly SnapshotSlice[]): RepositorySnapshot {
@@ -105,7 +105,7 @@ function withoutEphemeralSlices(
   snapshot: RepositorySnapshot,
   retained: ReadonlySet<SnapshotSlice> = new Set()
 ): RepositorySnapshot {
-  const ephemeral: SnapshotSlice[] = ['worldModel', 'comprehension'];
+  const ephemeral: SnapshotSlice[] = ['comprehension'];
   const removed = ephemeral.filter((slice) => !retained.has(slice) && Object.hasOwn(snapshot, slice));
   if (!removed.length) return snapshot;
   const reduced = { ...snapshot } as RepositorySnapshot;
@@ -123,7 +123,6 @@ function withoutEphemeralSlices(
   };
 }
 
-export const DEFAULT_WORLD_MODEL_SLICE_LEASE_MS = 5 * 60 * 1_000;
 export const DEFAULT_COMPREHENSION_SLICE_LEASE_MS = 5 * 60 * 1_000;
 export const MAX_SLICE_LEASE_MS = 60 * 60 * 1_000;
 
@@ -268,7 +267,7 @@ export class WorkspaceStore {
     try { cached = this.cache?.read() ?? null; } catch { /* A broken cache is simply empty. */ }
     if (cached) {
       const retained = new Set<SnapshotSlice>();
-      for (const slice of ['worldModel', 'comprehension'] as SnapshotSlice[]) {
+      for (const slice of ['comprehension'] as SnapshotSlice[]) {
         if ((this.sliceLeases.get(slice) ?? 0) > 0) retained.add(slice);
       }
       cached = withoutEphemeralSlices(cached, retained);
@@ -404,7 +403,7 @@ export class WorkspaceStore {
     this.sliceLeases.delete(slice);
     if (CORE_SNAPSHOT_SLICES.includes(slice)) return;
     this.loadedSlices.delete(slice);
-    const dedicated = slice === 'sgos' || slice === 'worldModel' || slice === 'comprehension';
+    const dedicated = slice === 'sgos' || slice === 'comprehension';
     if (!dedicated || !this.state.snapshot || !Object.hasOwn(this.state.snapshot, slice)) return;
     const releasedPayload = { ...this.state.snapshot } as RepositorySnapshot;
     delete (releasedPayload as Record<string, unknown>)[slice];

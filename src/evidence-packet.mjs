@@ -576,7 +576,7 @@ export async function compileEvidencePacket(root, request = {}) {
   const generation = phase ? workflow?.phases?.[phase]?.generation ?? null : null;
   const welKnowledgeEnabled = observedWelEnrollment(root, definition, workflow);
   let slices = unique(request.requestedSlices?.length ? request.requestedSlices : (
-    request.slice ? [request.slice] : plan ? ['brief', 'impact', 'ast', 'evidence'] : ['brief', 'world-model', 'ast', 'evidence']
+    request.slice ? [request.slice] : plan ? ['brief', 'impact', 'ast', 'evidence'] : ['brief', 'ast', 'evidence']
   ));
   if (welKnowledgeEnabled) slices = unique([...slices, 'knowledge']);
   const invalidSlices = slices.filter((slice) => !EVIDENCE_PACKET_SLICES.includes(slice));

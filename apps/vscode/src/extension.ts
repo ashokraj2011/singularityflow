@@ -142,7 +142,6 @@ import { configuredGitRemoteUrls, configuredGitRemotes, gitVersion } from './cli
 import {
   alignProductSurfaces, codeLauncher, LoadedBundle, openConfigurationReviews, type ProductAlignmentHost
 } from './product-alignment.ts';
-import { offerViewMigration, type ViewMigrationHost } from './view-migration.ts';
 
 let extensionLifetime = new AbortController();
 
@@ -313,21 +312,6 @@ async function firstRunChecks(extensionPath: string, location: { executable: str
  * function below, so the key cannot disagree with the routing it describes.
  */
 export const REPOSITORY_ACTIVE_CONTEXT = 'singularityFlow.repositoryActive';
-
-/**
- * True while the selected repository has the registered World Model (v4) on. It is off unless the
- * repository sets worldModel.registered: on, and its build commands leave the palette while off.
- */
-export const REGISTERED_WORLD_MODEL_CONTEXT = 'singularityFlow.registeredWorldModel';
-let registeredWorldModelContext: boolean | null = null;
-
-function setRegisteredWorldModelContext(snapshot: RepositorySnapshot | null | undefined): void {
-  // An engine that predates the switch always had it on.
-  const next = Boolean(snapshot) && snapshot?.worldModel?.registered !== 'off';
-  if (next === registeredWorldModelContext) return;
-  registeredWorldModelContext = next;
-  Promise.resolve(vscode.commands.executeCommand('setContext', REGISTERED_WORLD_MODEL_CONTEXT, next)).catch(() => undefined);
-}
 
 function setActiveRepositoryContext(next: ActiveRepositoryContext | null): void {
   setGatewayRepositoryContext(next);
@@ -945,14 +929,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openEvidenceMatrix',
     'singularityFlow.showImpact', 'singularityFlow.addCapability', 'singularityFlow.editCapability',
     'singularityFlow.openDashboard', 'singularityFlow.openDesigner', 'singularityFlow.openWorkflowStudio', 'singularityFlow.decideStory',
-    'singularityFlow.publishConfiguration', 'singularityFlow.migrateWorldModelViews',
+    'singularityFlow.publishConfiguration',
     'singularityFlow.openInstructionDesigner', 'singularityFlow.openPromptAudit', 'singularityFlow.openActivityLog',
     'singularityFlow.openWorkspaceLogs', 'singularityFlow.refreshWorkspaceLogs', 'singularityFlow.openSpecificationTrace',
     'singularityFlow.inspectCompositionCache', 'singularityFlow.checkLedgerDeployment',
     'singularityFlow.openCopilot', 'singularityFlow.openMeteredCopilot',
     'singularityFlow.openVisualAssurance',
     'singularityFlow.openConfigurationCenter', 'singularityFlow.configureTests', 'singularityFlow.configureAuto', 'singularityFlow.configureWorldModel',
-    'singularityFlow.buildWorldModel', 'singularityFlow.rebuildWorldModel', 'singularityFlow.configureAstIntelligence',
+    'singularityFlow.configureAstIntelligence',
     'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
     'singularityFlow.configureTemplates', 'singularityFlow.openSkills', 'singularityFlow.openReusableInstructions', 'singularityFlow.configureModels',
     'singularityFlow.reopenCompleted', 'singularityFlow.rollForwardRework', 'singularityFlow.cancelWork',
@@ -1735,7 +1719,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           'Attach this repository to Singularity Flow?',
           {
             modal: true,
-            detail: `Repository: ${repository}\nAuthority: ${routeLabel}\n\nNo clone, source scan, AST build, world-model build, model request, checkout, or application-branch commit will run.`
+            detail: `Repository: ${repository}\nAuthority: ${routeLabel}\n\nNo clone, source scan, AST build, model request, checkout, or application-branch commit will run.`
           },
           'Attach repository'
         );
@@ -4678,37 +4662,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const store = new WorkspaceStore(client, snapshotCache);
 
-  // After a new build: offer once per repository to replace retired World Model view names. The
-  // preview is a read-only document, so closing it never asks to save.
-  let viewMigrationPreview = '';
-  context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('sflow-view-migration', {
-    provideTextDocumentContent: () => viewMigrationPreview
-  }));
-  const viewMigrationHost: ViewMigrationHost = {
-    run: (args) => client.run(args),
-    log: (line) => output.appendLine(line),
-    inform: (message, ...actions) => showCompactInformationMessage(message, ...actions),
-    warn: (message, ...actions) => showCompactWarningMessage(message, ...actions),
-    showDocument: async (markdown) => {
-      viewMigrationPreview = markdown;
-      const uri = vscode.Uri.from({ scheme: 'sflow-view-migration', path: '/Replace retired World Model views.md', query: String(Date.now()) });
-      return vscode.window.showTextDocument(await vscode.workspace.openTextDocument(uri), { preview: true, viewColumn: vscode.ViewColumn.Beside });
-    },
-    // The publish flow reads the snapshot's configuration changes, so it is refreshed first.
-    publish: async () => {
-      await refreshAfterKnownMutation();
-      return vscode.commands.executeCommand('singularityFlow.publishConfiguration');
-    },
-    remembered: (key) => context.globalState.get(key),
-    remember: (key, value) => context.globalState.update(key, value)
-  };
-  if (vscode.env?.appHost) {
-    void productChecks
-      .then(() => backgroundWork.waitUntilIdle({ signal: activationSignal }))
-      .then(() => offerViewMigration(viewMigrationHost, { repository: store.current.snapshot?.repository?.root ?? client.repository ?? null, build: loadedBuild }))
-      .then((outcome) => output.appendLine(`World Model view check: ${outcome}`))
-      .catch((error) => output.appendLine(`World Model view check could not run: ${(error as Error).message}`));
-  }
   if (hostBenchmarkEnabled) {
     persistHostBenchmarkCache = async () => {
       if (!store.current.snapshot || store.current.stale || store.current.error) return false;
@@ -4722,7 +4675,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return item?.id ? { id: item.id, kind: item.workType ?? null } : null;
   };
   context.subscriptions.push(store);
-  context.subscriptions.push(store.onDidChange((state) => setRegisteredWorldModelContext(state.snapshot)));
   // An open intake form started on the Store's last snapshot; keep its in-flight list current. The
   // panels bundle is never loaded just to listen: no bundle means no open form.
   context.subscriptions.push(store.onDidChange((state) => {
@@ -7204,76 +7156,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const target = configurationPathTarget(store.current.snapshot, message.path);
       if (target.kind === 'unavailable') return target.message;
-      if (target.kind === 'captured') {
-        // A governed model normally lives only on the state branch. Open the exact content already
-        // captured by the read-only snapshot instead of pretending the file exists in the
-        // application checkout or projecting state bytes into it.
-        const extension = message.path.split('.').pop()?.toLowerCase();
-        const language = extension === 'json' || extension === 'jsonl'
-          ? 'json'
-          : extension === 'yml' || extension === 'yaml'
-            ? 'yaml'
-            : 'markdown';
-        const document = await vscode.workspace.openTextDocument({
-          content: target.content,
-          language
-        });
-        await vscode.window.showTextDocument(document, { preview: true });
-        return null;
-      }
       const label = message.path.split('/').pop() ?? message.path;
       await openArtifact(client.repository, { kind: 'artifact', id: `file:${message.path}`, label, path: message.path });
       return null;
-    }
-
-    if (message.type === 'open-world-model-ref') {
-      const snapshot = store.current.snapshot;
-      const references = [
-        ...(snapshot?.worldModel?.expansion ?? []),
-        ...(snapshot?.worldModel?.views ?? []).flatMap((view) => view.expansion ?? [])
-      ];
-      const selected = references.find((entry) => entry.ref === message.ref);
-      if (!selected) return 'This world-model reference is no longer current. Refresh the Explorer and try again.';
-      const active = activeRepositoryContext();
-      if (!active || active.root !== client.repository) {
-        return 'The selected repository changed. Refresh the Explorer before opening state-backed world-model content.';
-      }
-      try {
-        const { kernel } = gatewaySession(active);
-        const resolution = await kernel.resolve({
-          utterance: 'show registered world model',
-          arguments: { entity: 'expansion', id: selected.ref, maximumBytes: 65_536 }
-        });
-        const envelope = resolution.kind === 'read' && resolution.next?.length === 1
-          ? await kernel.read({ resolutionId: resolution.next[0].handle })
-          : resolution;
-        const page = envelope?.data?.worldModel?.value;
-        if (page?.kind !== 'world-model-exact-expansion' || page.encoding !== 'base64') {
-          const reason = envelope?.why?.[0]?.code ?? 'world-model.entity-unavailable';
-          return `The exact state-backed record could not be opened (${reason}).`;
-        }
-        const exact = Buffer.from(page.content, 'base64').toString('utf8');
-        const complete = page.complete === true;
-        const content = complete
-          ? exact
-          : `${exact}\n\n[Bounded at ${page.bytes} of ${page.totalBytes} bytes. Use the CLI or gateway cursor to read the remaining exact record.]\n`;
-        const language = complete && page.contentType === 'application/json'
-          ? 'json'
-          : complete && page.contentType === 'text/markdown'
-            ? 'markdown'
-            : 'plaintext';
-        const document = await vscode.workspace.openTextDocument({ content, language });
-        await vscode.window.showTextDocument(document, { preview: true });
-        if (!complete) {
-          void showCompactInformationMessage(
-            `Opened a bounded ${page.bytes}-byte preview of ${selected.kind}:${selected.id}.`
-          );
-        }
-        return null;
-      } catch (error) {
-        output.appendLine(`  world-model expansion refused: ${(error as Error).message}`);
-        return (error as Error).message;
-      }
     }
 
     if (message.action === 'after-install') await vscode.commands.executeCommand('singularityFlow.afterInstall');
@@ -7295,6 +7180,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       'singularityFlow.openSharedWorkflowDrafts', { repositoryPath: client.repository }
     );
     else if (message.action === 'world-model') { await openConfigurationCenter('world-model'); return null; }
+    else if (message.action === 'repository-brief') await vscode.commands.executeCommand('singularityFlow.openRepositoryKnowledge');
     else if (message.action === 'ast-intelligence') await vscode.commands.executeCommand('singularityFlow.configureAstIntelligence');
     else if (message.action === 'people') { await openConfigurationCenter('people'); return null; }
     else if (message.action === 'mcp') { await openConfigurationCenter('mcp'); return null; }
@@ -7321,40 +7207,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'inspect-composition-cache') await vscode.commands.executeCommand('singularityFlow.inspectCompositionCache');
     else if (message.action === 'check-ledger-deployment') await vscode.commands.executeCommand('singularityFlow.checkLedgerDeployment');
     else if (message.action === 'open-impact-file') await openArtifact(client.repository, { kind: 'artifact', id: 'config:impact', label: 'impact.yml', path: 'singularity/impact.yml' });
-    else if (message.action === 'build-world-model') {
-      await vscode.commands.executeCommand('singularityFlow.buildWorldModel');
-      return null;
-    }
-    else if (message.action === 'rebuild-world-model') {
-      await vscode.commands.executeCommand('singularityFlow.rebuildWorldModel');
-      return null;
-    }
-    else if (message.action === 'architecture-export') {
-      await vscode.commands.executeCommand('workbench.action.chat.open', {
-        query: '/sf-architecture export the current CALM projection to ', isPartialQuery: true
-      });
-      return null;
-    }
-    else if (message.action === 'architecture-planned') {
-      await vscode.commands.executeCommand('workbench.action.chat.open', {
-        query: '/sf-architecture show the approved planned architecture for the active Story',
-        isPartialQuery: true
-      });
-      return null;
-    }
-    else if (message.action === 'architecture-compare') {
-      await vscode.commands.executeCommand('workbench.action.chat.open', {
-        query: '/sf-architecture compare these two CALM projection files: ', isPartialQuery: true
-      });
-      return null;
-    }
     else if (message.action === 'diagnose-monorepo') {
       output.appendLine('\n$ singularity-flow doctor --performance --offline');
       output.show(true);
       try {
         await vscode.window.withProgress({
           location: vscode.ProgressLocation.Notification,
-          title: 'Benchmarking repository and world-model scope…',
+          title: 'Benchmarking repository and source scope…',
           cancellable: false
         }, () => client.runText(['doctor', '--performance', '--offline']));
         void showCompactInformationMessage(
@@ -8632,79 +8491,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       });
     },
     'singularityFlow.openConfigurationCenter': () => openConfigurationCenter('overview'),
-    'singularityFlow.migrateWorldModelViews': async () => {
-      const outcome = await offerViewMigration(viewMigrationHost, { repository: store.current.snapshot?.repository?.root ?? client.repository ?? null, build: loadedBuild, force: true });
-      if (outcome === 'no-repository') void showCompactWarningMessage('Open a Singularity Flow repository to check its World Model views.');
-    },
     'singularityFlow.configureTests': () => openConfigurationCenter('tests'),
     'singularityFlow.configureAuto': () => openConfigurationCenter('auto'),
     'singularityFlow.configureWorldModel': () => openConfigurationCenter('world-model'),
-    'singularityFlow.rebuildWorldModel': (request?: { capabilityId?: string }) => vscode.commands.executeCommand(
-      'singularityFlow.buildWorldModel', { ...request, rebuild: true }
-    ),
-    'singularityFlow.buildWorldModel': async (request?: { capabilityId?: string; rebuild?: boolean }) => {
-      if (store.current.snapshot?.worldModel?.registered === 'off') {
-        void showCompactInformationMessage('The registered World Model is off in this repository, so there is nothing to build. Phase prompts get the Repository brief read from the source; set worldModel.registered: on to use registered views again.');
-        return;
-      }
-      const active = activeRepositoryContext();
-      if (!active) {
-        void showCompactWarningMessage(
-          'Choose a governed workspace repository before building its World Model.'
-        );
-        return;
-      }
-      try {
-        // The model builder brings the full writable gateway and World Model graph. Keep that
-        // separate from activation and load it only after the person selects this command.
-        const {
-          showGovernedWorldModelBuild, worldModelAuthorityRefreshArguments,
-          worldModelBuildCompletionMessage
-        } = require(path.join(__dirname, 'world-model-build.cjs')) as typeof import('./world-model-build.ts');
-        const modelMode = vscode.workspace.getConfiguration('singularityFlow')
-          .get<string>('modelMode', 'auto');
-        const outcome = await showGovernedWorldModelBuild(active, {
-          modelRouting: modelMode === 'disabled' ? 'disabled' : 'enabled',
-          capabilityId: request?.capabilityId ?? null,
-          rebuild: request?.rebuild === true
-        });
-        if (outcome.status === 'cancelled') return;
-        if (outcome.status === 'refused') {
-          const reason = outcome.result?.why?.[0];
-          const code = reason?.code ?? 'world-model build refused';
-          const engineCode = reason?.slots?.code;
-          const refreshRequired = engineCode === 'WMB_GATEWAY_STATE_AUTHORITY_REFRESH_REQUIRED';
-          const refreshAction = 'Refresh state & retry';
-          const choice = await showCompactWarningMessage(
-            `World Model build was not run: ${code}${engineCode ? ` (${String(engineCode)})` : ''}. ${refreshRequired
-              ? 'The remote state authority must be materialized before an exact preserving Plan can be reviewed.'
-              : 'Review the current repository state and try again.'}`,
-            ...(refreshRequired ? [refreshAction] : [])
-          );
-          if (refreshRequired && choice === refreshAction) {
-            const refreshArgs = worldModelAuthorityRefreshArguments(outcome.capabilityId ?? null);
-            output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(refreshArgs)}`);
-            await client.runText([...refreshArgs]);
-            await refreshAfterSurfaceMutation();
-            await vscode.commands.executeCommand(
-              'singularityFlow.buildWorldModel',
-              { ...(outcome.capabilityId ? { capabilityId: outcome.capabilityId } : {}),
-                ...(request?.rebuild === true ? { rebuild: true } : {}) }
-            );
-          }
-          return;
-        }
-        await refreshAfterSurfaceMutation();
-        void showCompactInformationMessage(worldModelBuildCompletionMessage(outcome));
-      } catch (error) {
-        output.appendLine(`  exact world-model build refused: ${(error as Error).message}`);
-        // Keep recovery bound to the repository that produced the failure even if the user changes
-        // the active workspace while an authority probe or reviewed build is still in flight.
-        showRefusal(error, {
-          headline: 'Could not build the World Model', repositoryRoot: active.root
-        });
-      }
-    },
     'singularityFlow.configureAstIntelligence': async () => {
       const { AstIntelligencePanel } = lazyPanels();
       return AstIntelligencePanel.show(context, client, store);

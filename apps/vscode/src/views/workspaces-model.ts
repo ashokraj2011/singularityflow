@@ -60,7 +60,6 @@ export interface WorkspaceStatus {
     ready?: number;
     dirty?: number;
     stagedDocuments?: number;
-    worldModels?: number;
   };
   /**
    * The capability map read through the workspace's lead repository.
@@ -243,7 +242,6 @@ export interface WorkspaceRepositoryStatus {
   defaultBranch?: string;
   metadata?: Record<string, unknown>;
   jira?: Record<string, unknown>;
-  worldModel?: { state?: string; warning?: string | null } | null;
 }
 
 export type WorkspaceFosAction = 'attach' | 'refresh-authority' | 'offline-authority'

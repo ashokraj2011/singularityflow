@@ -246,7 +246,7 @@ function policyForm(
       ${detectedLanguageCards(doctor)}
       <div class="editor-card"><h3>Warm the AST cache when a Story starts</h3><div class="form-grid">
         <label><span>When to warm</span><select name="storyStartWarmMode">${option('background', policy.warmOnStoryStart.mode, 'Background — recommended')}${option('before-first-phase', policy.warmOnStoryStart.mode, 'Before first phase — wait for warming')}${option('off', policy.warmOnStoryStart.mode, 'Off — warm only when requested')}</select><small>Story publication always completes first. Failures are warnings and never block work.</small></label>
-        <label><span>Scope</span><select name="storyStartWarmScope">${option('configured-roots', policy.warmOnStoryStart.scope, 'Configured source scope — recommended')}${option('repository', policy.warmOnStoryStart.scope, 'Entire repository — bounded by safety limits')}</select><small>Configured scope uses pinned capability and world-model roots. When no roots are declared, it uses the bounded repository scope.</small></label>
+        <label><span>Scope</span><select name="storyStartWarmScope">${option('configured-roots', policy.warmOnStoryStart.scope, 'Configured source scope — recommended')}${option('repository', policy.warmOnStoryStart.scope, 'Entire repository — bounded by safety limits')}</select><small>Configured scope uses the pinned capability and source roots. When no roots are declared, it uses the bounded repository scope.</small></label>
       </div></div>
       <p class="notice">AST is optional. Missing packs, unsupported languages, and disabled analysis never prevent normal Copilot repository access.</p>
       <p class="card-foot"><button type="button" class="secondary" data-open-ast-advanced>Set up deeper analysis</button></p></div>
@@ -362,7 +362,7 @@ function languageMatrixSection(doctor: AstDoctorResult | null): string {
 }
 
 export function astIntelligenceBody(policy: AstPolicyDraft, doctor: AstDoctorResult | null, run: AstRunResult | null, preview: AstCachePreview | null, warmPreview: AstWarmPreview | null, notice: string | null, error: string | null, scope: AstRepositoryScopeView | null, inventory: AstWorkspaceRepositoryInventory | null, inventoryError: string | null, configurationBlockedReason: string | null = null): string {
-  return `<div data-repository-scope="${escape(scope?.key ?? '')}"><header class="inbox-header"><p class="eyebrow">Configuration · World model</p><h1>${icon('worldModel', { size: 24 })}AST Intelligence</h1><p class="meta">Bounded structural facts, explicit assurance, and content-aware local caching. No daemon and no implicit whole-repository scan.</p></header>
+  return `<div data-repository-scope="${escape(scope?.key ?? '')}"><header class="inbox-header"><p class="eyebrow">Configuration · Source scope</p><h1>${icon('worldModel', { size: 24 })}AST Intelligence</h1><p class="meta">Bounded structural facts, explicit assurance, and content-aware local caching. No daemon and no implicit whole-repository scan.</p></header>
     ${notice ? `<div class="notice ok">${escape(notice)}</div>` : ''}${error ? `<div class="notice error"><strong>AST action refused</strong><p>${escape(error)}</p></div>` : ''}
     <p class="card-foot"><button class="secondary" data-message="refresh">Refresh status</button><button class="secondary" data-message="open-help">Open AST guide</button></p>
     ${repositoryScope(scope, inventory, inventoryError)}${policyForm(policy, scope, doctor, configurationBlockedReason)}${runResult(run)}

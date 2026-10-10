@@ -1179,8 +1179,7 @@ function configurationSourceRecord(configuration, authority) {
     files: {
       [WORKFLOW_PATH]: contentSha256(definitionText),
       [PORTFOLIO_PATH]: contentSha256(portfolioText)
-    },
-    worldModelFormat: 'registered-v4'
+    }
   };
 }
 
@@ -1245,8 +1244,7 @@ async function configurationEditorSlice(root) {
         editor: 'candidate', effective,
         candidate: {
           ...candidateBase,
-          status: 'valid', error: null,
-          worldModelFormat: 'registered-v4'
+          status: 'valid', error: null
         }
       }
     };
@@ -1257,7 +1255,7 @@ async function configurationEditorSlice(root) {
         editor: 'effective', effective,
         candidate: {
           ...candidateBase,
-          status: 'invalid', error: error?.message ?? String(error), worldModelFormat: null
+          status: 'invalid', error: error?.message ?? String(error)
         }
       }
     };

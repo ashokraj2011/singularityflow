@@ -84,7 +84,7 @@ function agentEditor(catalog: InstructionCatalog, view: InstructionDesignerView)
   const locked = packaged ? ' disabled' : '';
   const tools = [...new Set([...draft.tools, 'read', 'search', 'edit', 'execute', 'web'])];
   return `<section class="instruction-editor">
-    <div class="editor-title"><p class="eyebrow">Governed agent</p><h1>${isNew ? 'Create an agent' : escape(draft.label)}</h1><p class="muted">Agents combine these instructions with the active phase, selected repository world-model views, and approved inputs.</p></div>
+    <div class="editor-title"><p class="eyebrow">Governed agent</p><h1>${isNew ? 'Create an agent' : escape(draft.label)}</h1><p class="muted">Agents combine these instructions with the active phase, the Repository brief, and approved inputs.</p></div>
     ${errors(view)}<div class="form-grid">
       <label class="field"><span>Agent ID</span><input data-agent-id value="${escape(draft.id)}"${isNew && !packaged ? '' : ' disabled'} placeholder="security-reviewer"></label>
       <label class="field"><span>Display name</span><input data-agent-label value="${escape(draft.label)}" placeholder="Security reviewer"${locked}></label>
@@ -92,7 +92,6 @@ function agentEditor(catalog: InstructionCatalog, view: InstructionDesignerView)
     </div>
     <h2>${icon('gate')}Available in phases</h2>${checks('agent-phases', catalog.phases, draft.phases, packaged)}
     <h2>${icon('approval')}Default agent for</h2><p class="muted">A default must also be selected above.</p>${checks('agent-defaults', catalog.phases, draft.defaultFor, packaged)}
-    <h2>${icon('book')}Repository world-model views</h2>${checks('agent-views', catalog.worldModelViews.map((id) => ({ id, label: id })), draft.worldModelViews, packaged)}
     <h2>${icon('code')}Allowed tools</h2>${checks('agent-tools', tools.map((id) => ({ id, label: id })), draft.tools, packaged)}
     <label class="field full"><span>Agent instructions</span><textarea data-agent-body rows="18"${packaged ? ' readonly' : ''}>${escape(draft.body)}</textarea></label>
     <section class="remote-delivery"><div class="section-heading"><div><p class="eyebrow">Remote Markdown delivery</p><h2>${icon('delivery')}Skills, templates &amp; generated artifacts</h2></div><span class="status-chip">Public HTTPS · hash locked</span></div>
@@ -101,7 +100,7 @@ function agentEditor(catalog: InstructionCatalog, view: InstructionDesignerView)
       <h3>${icon('artifact')}Remote artifact templates</h3><p class="muted">Referenced explicitly as <code>agent:${escape(draft.id || '<agent>')}/&lt;template-id&gt;</code>.</p>${remoteRows('template', draft, packaged)}
       <h3>${icon('delivery')}Remote generated artifacts</h3><p class="muted">Fetched once per generation into the governed phase artifact folder.</p>${remoteRows('output', draft, packaged)}
     </section>
-    <div class="composition-map"><strong>Prompt composition</strong><span>${icon('phase')}Phase contract</span><i>${icon('add')}</i><span>${icon('agent')}This agent</span><i>${icon('add')}</i><span>${icon('worldModel')}World model</span><i>${icon('add')}</i><span>${icon('approval')}Approved inputs</span></div>
+    <div class="composition-map"><strong>Prompt composition</strong><span>${icon('phase')}Phase contract</span><i>${icon('add')}</i><span>${icon('agent')}This agent</span><i>${icon('add')}</i><span>${icon('worldModel')}Repository brief</span><i>${icon('add')}</i><span>${icon('approval')}Approved inputs</span></div>
     <div class="form-actions">${packaged ? `<button data-copy-agent="${escape(view.selected?.path)}">Copy into repository</button>` : `<button data-save-agent="1">${isNew ? 'Create agent' : 'Save agent'}</button>`}<button class="secondary" data-cancel="1">Cancel</button></div>
   </section>`;
 }
@@ -205,7 +204,7 @@ function parseAgentForPage(entry: InstructionEntry): AgentDraft {
   const header = entry.content.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? '';
   const phases = header.match(/^\s*sflow-phases:\s*["']?([^"'\n]*)/m)?.[1] ?? '';
   return { id: entry.id, label: entry.name, description: entry.description,
-    phases: phases.split(',').map((item) => item.trim()).filter(Boolean), defaultFor: [], worldModelViews: [], tools: [], body: '', remoteSkills: [], remoteTemplates: [], remoteOutputs: [] };
+    phases: phases.split(',').map((item) => item.trim()).filter(Boolean), defaultFor: [], tools: [], body: '', remoteSkills: [], remoteTemplates: [], remoteOutputs: [] };
 }
 
 // Icons rendered into browser-created rows must be encoded as a JavaScript string
@@ -237,7 +236,7 @@ document.addEventListener('click', (event) => {
   if (target.dataset.copyPack) vscode.postMessage({ type: 'copy-pack', path: target.dataset.copyPack });
   if (target.dataset.copyAgent) vscode.postMessage({ type: 'copy-agent', path: target.dataset.copyAgent });
   // The Agent ID field shares data-agent-id with the reload and trust buttons that come before it.
-  if (target.dataset.saveAgent) vscode.postMessage({ type: 'save-agent', id: val('input[data-agent-id]'), label: val('[data-agent-label]'), description: val('[data-agent-description]'), phases: checked('agent-phases'), defaultFor: checked('agent-defaults'), worldModelViews: checked('agent-views'), tools: checked('agent-tools'), body: val('[data-agent-body]'), remoteSkills: remoteRows('skill'), remoteTemplates: remoteRows('template'), remoteOutputs: remoteRows('output') });
+  if (target.dataset.saveAgent) vscode.postMessage({ type: 'save-agent', id: val('input[data-agent-id]'), label: val('[data-agent-label]'), description: val('[data-agent-description]'), phases: checked('agent-phases'), defaultFor: checked('agent-defaults'), tools: checked('agent-tools'), body: val('[data-agent-body]'), remoteSkills: remoteRows('skill'), remoteTemplates: remoteRows('template'), remoteOutputs: remoteRows('output') });
   if (target.dataset.savePrompt) vscode.postMessage({ type: 'save-prompt', id: val('[data-prompt-id]'), body: val('[data-prompt-body]') });
   if (target.dataset.saveSkill) vscode.postMessage({ type: 'save-skill', id: val('[data-skill-id]'), description: val('[data-skill-description]'), argumentHint: val('[data-skill-hint]'), disableModelInvocation: Boolean(document.querySelector('[data-skill-disable]')?.checked), body: val('[data-skill-body]') });
   if (target.dataset.addRemote) { const list = document.querySelector('[data-remote-list="' + target.dataset.addRemote + '"]'); list?.querySelector('.empty-state')?.remove(); list?.insertAdjacentHTML('beforeend', remoteTemplate(target.dataset.addRemote)); }

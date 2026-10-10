@@ -101,8 +101,7 @@ function dashboardHtml(dashboard: CapabilityDashboard): string {
       <div class="summary-card"><strong>${escape(dashboard.openWork)}</strong><span>open governed work</span></div>
       <div class="summary-card${dashboard.approvals ? ' important' : ''}"><strong>${escape(dashboard.approvals)}</strong><span>awaiting approvals</span></div>
     </div>
-    <p class="meta">Repository grounding: <strong>${dashboard.worldModel}</strong>. Open work and
-      approvals are portfolio signals from the active lead repository; capability cards below show
+    <p class="meta">Open work and approvals are portfolio signals from the active lead repository; capability cards below show
       only ownership declared by the capability map.</p>
     ${dashboard.roots.length ? `<div class="capability-root-grid">${dashboard.roots.map((root) => `
       <button class="capability-root-card" data-select="${escape(root.id)}">
@@ -296,17 +295,17 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
     <label class="field span-2"><span>Application source roots</span>
       <input type="text" value="${escape(detail.sourceRoots.join(', '))}" data-field="sourceRoots"
         placeholder="apps/payments, services/checkout">
-      <small>Comma-separated directories used for this capability's lead-repository world model. A child's explicit roots replace inherited application roots.</small>
+      <small>Comma-separated directories this capability owns in its lead repository. A child's explicit roots replace inherited application roots.</small>
     </label>
     <label class="field span-2"><span>Shared source roots</span>
       <input type="text" value="${escape(detail.sharedRoots.join(', '))}" data-field="sharedRoots"
         placeholder="libs/contracts, libs/platform">
-      <small>Shared directories accumulate down the capability tree and remain in grounding.</small>
+      <small>Shared directories accumulate down the capability tree.</small>
     </label>
     <label class="field span-2"><span>Separately hashed test-input directories</span>
       <input type="text" value="${escape(detail.sourceHashExcludedRoots.join(', '))}" data-field="sourceHashExcludedRoots"
         placeholder="generated, test/fixtures">
-      <small>Excluded from the application-source and World Model hashes, but independently fingerprinted so changed inputs invalidate test evidence.</small>
+      <small>Excluded from the application-source hash, but independently fingerprinted so changed inputs invalidate test evidence.</small>
     </label>
     <label class="field span-2"><span>Test configuration files</span>
       <input type="text" value="${escape(detail.testConfigurationPaths.join(', '))}" data-field="testConfigurationPaths"

@@ -76,7 +76,7 @@ type ReviewableRecovery = {
  * A diagnostic copied out of a repository-bound refusal must keep that repository boundary. The
  * public command remains the registered SFlow argv, while the shell form changes directory using
  * the same cross-platform quoting helper as timeout recovery. Without this, a command copied from
- * a World Model failure can run from HOME and active-workspace routing may diagnose a completely
+ * a repository-bound failure can run from HOME and active-workspace routing may diagnose a completely
  * different repository.
  */
 function reviewableActions(planned: readonly ReviewableRecovery[],
@@ -307,11 +307,6 @@ function messageOnlyRecovery(error: unknown, text: string,
     : '';
   const authorityFailure = /Story configuration authority|configuration authority/i.test(text);
   const remoteFailure = authorityFailure || /^REMOTE_/.test(code);
-  const registeredV4Failure = /^(?:WMB|WMC)_/.test(code) || /registered-v4/i.test(text)
-    || (/^MODEL_/.test(code) && /World-model view/i.test(text));
-  const worldModelDoctor = registeredV4Failure
-    ? 'singularity-flow wm doctor --format registered-v4 --json'
-    : 'singularity-flow wm doctor --json';
   const worldModelFailure = /^(?:WMB|WMC|WORLD_MODEL)_/.test(code)
     || /World[ -]Model/i.test(text);
   if (remoteFailure) {
@@ -329,24 +324,15 @@ function messageOnlyRecovery(error: unknown, text: string,
         label: 'Inspect this exact repository and its configured authority.',
         command: 'singularity-flow doctor --json'
       };
-    return reviewableActions([
-      exactAuthorityDiagnostic,
-      {
-        id: 'diagnose-world-model',
-        label: 'Inspect World Model configuration, contracts, and stored artifacts.',
-        command: worldModelDoctor
-      }
-    ], repositoryRoot);
+    return reviewableActions([exactAuthorityDiagnostic], repositoryRoot);
   }
   if (worldModelFailure) {
     return reviewableActions([
       {
-        id: 'diagnose-world-model',
-        label: 'Inspect World Model configuration, contracts, and stored artifacts.',
-        // Typed WMB/WMC failures belong to registered-v4. Keep their diagnostic on that format
-        // boundary instead of letting a legacy checkout reinterpret v4 view IDs and report an
-        // unrelated WMB_VIEW_UNKNOWN refusal. Untyped/legacy failures retain ordinary diagnosis.
-        command: worldModelDoctor
+        // The registered World Model was removed; what a phase gets now is the Repository brief.
+        id: 'repository-brief',
+        label: 'See the Repository brief a phase receives.',
+        command: 'singularity-flow wm brief --phase <phase>'
       },
       {
         id: 'recommended-next',

@@ -1,7 +1,6 @@
 /** Pure read/write model for the visual agent, prompt, skill and prompt-pack designer. */
 import path from 'node:path';
 import YAML from 'yaml';
-import { worldModelViewCatalog } from '../../../../src/world-model-views.mjs';
 import { renderPreservingFormatting } from '../../../../src/yaml-formatting.mjs';
 import { COPILOT_AGENT_MAPPING_NAME_RULE, validCopilotAgentMappingName } from '../../../../src/copilot-agent-names.mjs';
 import type { RepositorySnapshot } from '../cli/snapshot.ts';
@@ -28,7 +27,6 @@ export interface AgentDraft {
   description: string;
   phases: string[];
   defaultFor: string[];
-  worldModelViews: string[];
   tools: string[];
   body: string;
   remoteSkills: RemoteSkillDraft[];
@@ -64,7 +62,6 @@ export interface InstructionCatalog {
   skills: InstructionEntry[];
   packs: InstructionEntry[];
   phases: Array<{ id: string; label: string }>;
-  worldModelViews: string[];
   promptUsage: Record<string, string[]>;
   mappings: Array<{ copilotAgent: string; agentId: string; source: string }>;
   mappingPath: string;
@@ -207,11 +204,6 @@ export function instructionCatalog(snapshot: RepositorySnapshot): InstructionCat
       repositoryPath: skill.repositoryPath ?? `.github/skills/${skill.id ?? skill.name}/SKILL.md`
     })).sort((left, right) => left.name.localeCompare(right.name)),
     phases,
-    // Agent frontmatter accepts logical IDs only. Registered configuration retains `@version`, but
-    // offering that exact reference here would create Markdown the agent parser correctly rejects.
-    worldModelViews: worldModelViewCatalog(
-      definition ?? {}, (snapshot.worldModel?.views ?? []).map((view) => view.id)
-    ),
     promptUsage,
     mappings: snapshot.agentMappings?.rows ?? [],
     mappingPath: snapshot.agentMappings?.path ?? 'singularity/agent-mappings.yml',
@@ -240,7 +232,6 @@ export function parseAgent(content: string, fallbackId = ''): AgentDraft {
     description: agentDescription(header.description),
     phases: list(metadata['sflow-phases'] ?? ''),
     defaultFor: list(metadata['sflow-default-for'] ?? ''),
-    worldModelViews: list(metadata['sflow-world-model-views'] ?? ''),
     tools: Array.isArray(header.tools) ? [...header.tools] : [],
     body: withoutRemoteTables(parsed.body),
     remoteSkills: skills.filter((row) => row.length === 5 && row[0]).map((row) => ({
@@ -331,7 +322,8 @@ function remoteTables(draft: AgentDraft): string {
   ].filter(Boolean).join('\n\n');
 }
 
-const HEADER_FIELDS = ['id', 'description', 'tools', 'label', 'phases', 'defaultFor', 'worldModelViews'] as const;
+// An old `sflow-world-model-views` header is not a field: it is never read or written, so it stays as authored.
+const HEADER_FIELDS = ['id', 'description', 'tools', 'label', 'phases', 'defaultFor'] as const;
 const BODY_FIELDS = ['body', 'remoteSkills', 'remoteTemplates', 'remoteOutputs'] as const;
 type AgentField = typeof HEADER_FIELDS[number] | typeof BODY_FIELDS[number];
 
@@ -351,7 +343,7 @@ function comparable(draft: AgentDraft, key: AgentField): string {
   switch (key) {
     case 'description': return JSON.stringify(agentDescription(draft.description));
     case 'tools': return JSON.stringify(set(draft.tools));
-    case 'phases': case 'defaultFor': case 'worldModelViews': return JSON.stringify(set(draft[key], true));
+    case 'phases': case 'defaultFor': return JSON.stringify(set(draft[key], true));
     case 'remoteSkills': case 'remoteTemplates':
       return JSON.stringify(draft[key].map((entry) =>
         [text(entry.id), text(entry.url), set(entry.phases, true), Boolean(entry.optional), limit(entry.maxBytes)]));
@@ -392,8 +384,7 @@ function renderHeader(source: string, draft: AgentDraft, unchanged: (key: AgentF
   }
   const metadata = ([
     ['label', 'sflow-label', draft.label.trim()], ['phases', 'sflow-phases', draft.phases.join(',')],
-    ['defaultFor', 'sflow-default-for', draft.defaultFor.join(',')],
-    ['worldModelViews', 'sflow-world-model-views', draft.worldModelViews.join(',')]
+    ['defaultFor', 'sflow-default-for', draft.defaultFor.join(',')]
   ] as const).filter(([key]) => !unchanged(key));
   // `metadata:` with no value is an empty map to the CLI; make it one before writing into it.
   const map = document.get('metadata', true);
@@ -446,8 +437,8 @@ export function validateAgentMappingsDraft(rows: Array<{ copilotAgent: string; a
   return errors;
 }
 
-export function phaseAgentLinks(snapshot: RepositorySnapshot): Array<{ phase: string; agent: string; views: string[] }> {
+export function phaseAgentLinks(snapshot: RepositorySnapshot): Array<{ phase: string; agent: string }> {
   return Object.entries(snapshot.definition?.phases ?? {}).flatMap(([phase, definition]) =>
-    (definition.agents ?? []).map((agent) => ({ phase, agent, views: definition.worldModel?.views ?? [] }))
+    (definition.agents ?? []).map((agent) => ({ phase, agent }))
   );
 }

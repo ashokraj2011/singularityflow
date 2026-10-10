@@ -1003,14 +1003,6 @@ function storyReferenceRepositoryNodes(
   if (!status) return [];
   const ready = status.repositories.filter((entry) => entry.status === 'ready').length;
   const repositories: TreeNode[] = status.repositories.map((entry) => {
-    const worldModel = entry.reusableWorldModel;
-    const worldModelStatus = entry.worldModelStatus?.status ?? (worldModel ? 'reusable' : 'not-present');
-    const worldModelDetail = worldModel
-      ? `Reusable World Model: ${worldModel.path} (${worldModel.sha256})`
-      : worldModelStatus === 'not-inspected'
-        ? 'World Model reuse: integrity and freshness are checked during generation composition'
-        : `Reusable World Model: unavailable (${worldModelStatus}${entry.worldModelStatus?.reason
-          ? ` · ${entry.worldModelStatus.reason}` : ''})`;
     const details = [
       `Requested branch: ${entry.requestedBranch}`,
       `Pinned commit: ${entry.commit}`,
@@ -1018,8 +1010,7 @@ function storyReferenceRepositoryNodes(
       `Detached path: ${entry.localPath}`,
       entry.projectMarkers?.length ? `Project markers: ${entry.projectMarkers.join(', ')}` : null,
       entry.sourceRoots?.length ? `Source roots: ${entry.sourceRoots.join(', ')}` : null,
-      entry.reason ?? null,
-      worldModelDetail
+      entry.reason ?? null
     ].filter(Boolean).join('\n');
     return {
       kind: 'repository',
@@ -1030,27 +1021,11 @@ function storyReferenceRepositoryNodes(
       icon: entry.status === 'ready' ? 'statusSuccess'
         : entry.status === 'missing' ? 'statusIdle' : 'statusBlocked',
       contextValue: `sflow.story.reference.${entry.status}`,
-      children: worldModel ? [{
-        kind: 'artifact',
-        id: `story:reference:${entry.id}:world-model`,
-        label: 'Reusable World Model manifest',
-        description: 'existing · never regenerated here',
-        tooltip: `${worldModel.path}\n${worldModel.sha256}`,
-        path: worldModel.path,
-        readOnly: true,
-        icon: 'worldModel'
-      }] : worldModelStatus === 'not-inspected' ? [{
-        kind: 'message',
-        id: `story:reference:${entry.id}:world-model-check`,
-        label: 'World Model reuse check',
-        description: 'validated at generation composition',
-        tooltip: 'Lifecycle keeps refreshes fast. Before reference World Model bytes enter a governed prompt, SFlow validates the complete committed graph, admission limits, and current source fingerprint.',
-        icon: 'worldModel'
-      }] : [{
+      children: [{
         kind: 'message',
         id: `story:reference:${entry.id}:grounding`,
         label: 'Bounded file grounding',
-        description: 'model-free · no World Model build',
+        description: 'model-free',
         tooltip: 'Generation receives the immutable local root, project markers, and shallow source roots. It uses ordinary bounded file access for detail.',
         icon: 'references'
       }]
@@ -1062,7 +1037,7 @@ function storyReferenceRepositoryNodes(
     id: 'story:reference-repositories',
     label: 'Reference repositories',
     description: `${ready}/${status.repositories.length} ready · immutable inputs`,
-    tooltip: 'Pinned read-only repositories used for generation grounding. They are never delivery targets and do not trigger World Model generation.',
+    tooltip: 'Pinned read-only repositories used for generation grounding. They are never delivery targets.',
     icon: 'references',
     contextValue: `sflow.story.references.${status.status}`,
     children: [
@@ -1254,7 +1229,7 @@ export function buildConfigurationTree(
       id: 'configuration:center',
       label: 'Open Configuration Center',
       description: 'all settings',
-      tooltip: 'Capabilities, workflows, artifact templates, model routing, world model, agents, approvals and MCP tools.',
+      tooltip: 'Capabilities, workflows, artifact templates, model routing, source scope, agents, approvals and MCP tools.',
       icon: 'configuration',
       runCommand: 'singularityFlow.openConfigurationCenter'
     }

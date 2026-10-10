@@ -41,7 +41,6 @@ function valuePairs(value: Record<string, unknown> | undefined): string {
 }
 
 function repositoryDetails(repository: WorkspaceRepositoryStatus, leadId: string): string {
-  const worldModel = repository.worldModel?.state ?? 'not available';
   const stateClass = repository.state === 'ready' ? 'ok' : 'bad';
   return `
   <tr>
@@ -53,7 +52,6 @@ function repositoryDetails(repository: WorkspaceRepositoryStatus, leadId: string
     <td>${repository.branch ? `${icon('branch')}<code>${escape(repository.branch)}</code>` : '<span class="muted">—</span>'}
       ${repository.dirty ? '<br><span class="pill wait">local changes</span>' : ''}</td>
     <td><span class="pill ${stateClass}">${escape(repository.state ?? 'unknown')}</span></td>
-    <td><span class="pill ${worldModel === 'available' ? 'ok' : ''}">${escape(worldModel)}</span></td>
   </tr>`;
 }
 
@@ -87,9 +85,9 @@ function workspaceDetails(status: WorkspaceStatus | null, loading: boolean, deta
 
   <h2>${icon('repository')}Repositories</h2>
   <p class="meta">${escape(status.counts?.ready ?? 0)} of ${escape(status.counts?.repositories ?? status.repositories.length)} ready
-    · ${escape(status.counts?.dirty ?? 0)} with local changes · ${escape(status.counts?.worldModels ?? 0)} world models</p>
+    · ${escape(status.counts?.dirty ?? 0)} with local changes</p>
   <table>
-    <thead><tr><th>Repository</th><th>Role</th><th>Working copy</th><th>Branch</th><th>State</th><th>World model</th></tr></thead>
+    <thead><tr><th>Repository</th><th>Role</th><th>Working copy</th><th>Branch</th><th>State</th></tr></thead>
     <tbody>${status.repositories.map((repository) => repositoryDetails(repository, status.workspace.leadRepository)).join('')}</tbody>
   </table>
 
@@ -159,7 +157,7 @@ function fastOnboardingHtml(
     </div>` : ''}
     <div class="card-foot">
       <button data-fos-action="attach" data-workspace-path="${escape(row.path)}"${disabled ? ' disabled' : ''}
-        title="Validate the selected repository and save an exact reviewed authority pin. Does not clone, scan source, build AST/world models, or change the application branch.">${busy === 'attach' ? 'Attaching…' : 'Verify &amp; attach'}</button>
+        title="Validate the selected repository and save an exact reviewed authority pin. Does not clone, scan source, build AST, or change the application branch.">${busy === 'attach' ? 'Attaching…' : 'Verify &amp; attach'}</button>
       <button class="secondary" data-fos-action="refresh-authority" data-workspace-path="${escape(row.path)}"${disabled ? ' disabled' : ''}
         title="Re-read only the repository's previously selected authority route and update its reviewed pin.">Refresh authority pin</button>
       <button class="secondary" data-fos-action="offline-authority" data-workspace-path="${escape(row.path)}"${disabled ? ' disabled' : ''}

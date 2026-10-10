@@ -78,7 +78,7 @@ async function resolvedRepositoryWorldModel(root, commit, dirty) {
     source: projected.status === 0 ? 'application-projection' : null,
     outputDir, sha256: projected.status === 0 ? sha256(projected.stdout) : null,
     sourceTreeSha256: null, snapshotRef: commit,
-    reason: 'Impact analysis does not read registered World Model views; inspect them with singularity-flow wm context.'
+    reason: 'Impact analysis reads the repository source; it does not read World Model views.'
   };
 }
 

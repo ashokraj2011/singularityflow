@@ -162,7 +162,10 @@ export async function buildKnowledgeForAreas(root, areaPaths, { history = true, 
       callsMatchedByName: sum((entry) => entry.metrics.callsMatchedByName),
       imports: sum((entry) => entry.metrics.imports)
     },
-    graph: { imports: knowledges.flatMap((entry) => entry.graph.imports), calls: knowledges.flatMap((entry) => entry.graph.calls) },
+    graph: {
+      imports: knowledges.flatMap((entry) => entry.graph.imports), calls: knowledges.flatMap((entry) => entry.graph.calls),
+      callSites: knowledges.flatMap((entry) => entry.graph.callSites ?? []), functions: knowledges.flatMap((entry) => entry.graph.functions ?? [])
+    },
     items
   };
   return {

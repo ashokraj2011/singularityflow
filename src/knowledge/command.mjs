@@ -38,6 +38,9 @@ import {
 import { parseKnowledgeExpectations, scoreKnowledge } from './benchmark.mjs';
 import { buildRuleRecords, renderRuleRecords } from './records/rules.mjs';
 import { buildContractRecords, renderContractRecords } from './records/contracts.mjs';
+import { buildFlowRecords, renderFlowRecords } from './records/flows.mjs';
+import { buildImpactRecords, impactSymbols, knowledgePaths, readChange, renderImpactRecords } from './records/impact.mjs';
+import { buildRiskRecords, renderRiskRecords } from './records/risks.mjs';
 import { KNOWLEDGE_KINDS } from './items.mjs';
 import { KNOWLEDGE_ROLES, KNOWLEDGE_VIEWS, renderKnowledgeSlice, renderKnowledgeView, roleForPhase } from './render.mjs';
 import { readKnowledgeSource } from './source.mjs';
@@ -114,6 +117,21 @@ export async function knowledgeCommand(root, positionals, options) {
       records = buildContractRecords(knowledge, { focus });
       const section = renderContractRecords(records);
       if (section) text = `${text.trimEnd()}\n\n${section}\n`;
+    }
+    if (view === 'journeys') {
+      records = buildFlowRecords(knowledge, { focus });
+      const section = renderFlowRecords(records);
+      if (section) text = `${text.trimEnd()}\n\n${section}\n`;
+    }
+    // The change view reads what the working state changes since --base (default HEAD), then the risky places.
+    if (view === 'change') {
+      const known = knowledgePaths(knowledge);
+      const { changedPaths, changedRanges } = await readChange(root, optionString(options, 'base') ?? 'HEAD', { keep: (file) => known.has(file) });
+      const impact = buildImpactRecords(knowledge, { changedPaths, changedRanges });
+      const risks = buildRiskRecords(knowledge, { focus, changedPaths, changedSymbols: changedRanges ? impactSymbols(impact) : null });
+      records = [...impact, ...risks];
+      const sections = [renderImpactRecords(impact), renderRiskRecords(risks)].filter(Boolean);
+      if (sections.length) text = `${text.trimEnd()}\n\n${sections.join('\n\n')}\n`;
     }
     if (json) console.log(JSON.stringify({ view, bytes: Buffer.byteLength(text), markdown: text, ...(records ? { records } : {}) }, null, 2));
     else console.log(text);

@@ -24,7 +24,7 @@ same build finds every one of those rules with the line it is on.
 | L2 behaviour | What does the code do? | decision trees per function, calls, data reaching the network, database, storage or screen, error paths from a throw to the HTTP status its handler returns |
 | L3 domain | What does it mean? | rules (thresholds, matches, refusals, caps, calculations), named limits and where they are applied, what users are told, journeys from an endpoint or UI event to its effects, test cases and what they exercise, functions with rules no test reaches, test titles that contradict the code, `@clause` links, clauses of approved Story specifications |
 | L4 system | How does it fit together? | outbound calls, configuration keys (secrets withheld) |
-| L5 change | What does a change touch? | hotspots (change count × complexity × importers), files that change together (from commits of at most 20 files, root commits excluded, noting pairs with no import between them), impact sets for every function with rules (callers, importers, tests, files it usually changes with) |
+| L5 change | What does a change touch? | hotspots (change count × complexity × importers × fix commits, with who changes the file), files that change together (from commits of at most 20 files, root commits excluded, noting pairs with no import between them), impact sets for every function with rules (callers, importers, tests, files it usually changes with), function risk (complexity, callers, rules, test reach, how often its file changes and needed a fix), every function's line span |
 
 Every observed item cites the exact lines it was read from and a hash of those lines; derived
 items (journeys, coverage, drift, hotspots) are computed only from observed items. Each level
@@ -35,7 +35,7 @@ instead of padding a prompt.
 
 ```bash
 singularity-flow wm knowledge build [--area PATH] [--refresh] [--json]
-singularity-flow wm knowledge show [overview|business|rules|contracts|journeys|entities|tests|system|change] [--focus TEXT] [--max-bytes N]
+singularity-flow wm knowledge show [overview|business|rules|contracts|journeys|entities|tests|system|change] [--focus TEXT] [--max-bytes N] [--base REF]
 singularity-flow wm knowledge slice [--role developer|tester|architect|product | --phase PHASE] [--focus TEXT] [--max-bytes N]
 singularity-flow wm knowledge items [--kind KIND] [--json]
 singularity-flow wm knowledge eval --expected FILE [--json]
@@ -206,6 +206,34 @@ without a model:
 
 Phase briefs list the contracts that match the Story's words first.
 
+## Flows, change impact and risks
+
+Three more record kinds are built without a model:
+
+- **Flows** (`wm knowledge show journeys`): each entry point with the call chain from its handler to
+  the step holding the most rules (the other steps it reaches are counted as helpers), the refusals
+  and HTTP statuses on the way, its effects (database, messages, files, outbound calls) and the
+  response its handler declares. For example: "POST /orders → OrderController.place →
+  OrderService.place (and 1 helper: totalOf); refuses 3 ways (HTTP 400); 6 rules on the way; writes
+  the database; returns Order".
+- **What a change touches** (`wm knowledge show change`, and in phase briefs): read from a change's
+  own lines, not from the last commit. The changed line ranges since a base (`--base REF`, default
+  `HEAD`; in a phase brief the Story's base commit) are mapped to the functions they fall in, each
+  with its callers, the entry points whose flow reaches it, its rules, the tests that reach it and
+  the files that usually change with its file. A file whose changed lines are not known, and a file
+  the Story's reviewed plan expects to change, is read whole; a file declaring a type an endpoint
+  takes or returns is a contract change ("Order.java (planned): declares Order, used by POST
+  /orders").
+- **Risks** (`wm knowledge show change`, and in phase briefs): where a change is risky and why, in
+  words. File records carry the history (how often the file changed in 12 months, how many of those
+  commits fixed something, whether one person makes most changes, which files change with it);
+  function records carry what is true of one function (complexity, entry points and callers
+  reaching it, rules, whether a test reaches it). Tests that contradict the code and functions with
+  rules no test reaches are risks too. What the change touches ranks first.
+
+A commit fixed something when its subject names a fix, bug, hotfix, incident, regression or revert.
+Authors are compared by address, ignoring case.
+
 ## Plain-language explanations
 
 `wm knowledge explain` asks the configured model to explain the repository, its journeys and its
@@ -233,7 +261,9 @@ Model view files that phases used to receive (World Model v5, milestone M0).
   published file. Declarations are folded per type (accessors together), imports per file, and
   same-file lexical call guesses are left out.
 - **Ranking:** items matching the Story's title, description, acceptance criteria and changed files
-  come first; an item appears once.
+  come first; an item appears once. "What a change touches" is read from the Story's changed lines
+  and planned files (see above); with neither, it lists what depends on the functions the Story
+  names. A registered impact view describes the last commit, so the Story's own records replace it.
 - **Format:** short sections with plain bullets, each ending with its source as `(File.java:42)` or
   `(README.md › Heading)`; what could not be determined is one closing "Not known" line. No JSON,
   hashes or fact IDs reach the prompt.

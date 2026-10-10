@@ -3,6 +3,8 @@
  *
  * One brief per phase, for the phase's reader (product, architect, developer, tester), ranked by
  * the Story's own words and changed files, cut to a small per-phase budget (see phase-brief.mjs).
+ * What the Story touches is read from its own changed lines (from its base commit to the working
+ * state) and the files its plan names, not from the last commit.
  * It is built from repository knowledge (the committed source on this machine, cached by content),
  * README and docs statements, and what the registered World Model views say. It needs no model and
  * no publication. Knowledge never blocks a prompt: if it cannot be built, the prompt goes out
@@ -17,6 +19,9 @@ import { readExplanations } from './explain.mjs';
 import { phaseBriefProfile, renderPhaseBrief } from './phase-brief.mjs';
 import { buildRuleRecords, ruleQuestions } from './records/rules.mjs';
 import { buildContractRecords } from './records/contracts.mjs';
+import { buildFlowRecords } from './records/flows.mjs';
+import { buildImpactRecords, impactSymbols, knowledgePaths, readChange } from './records/impact.mjs';
+import { buildRiskRecords } from './records/risks.mjs';
 import { knowledgePromptPolicy } from './render.mjs';
 import { buildKnowledge, buildKnowledgeForAreas, selectKnowledgeAreas } from './store.mjs';
 import { projectRegisteredView, viewProjectionDigest } from './view-brief.mjs';
@@ -47,7 +52,7 @@ async function storyKnowledge(root, { focus, changedPaths, limits }) {
  * reports what was read from each so the prompt receipt can bind it.
  */
 export async function repositoryBriefPrompt(root, {
-  definition, phase, workflow, changedPaths = [], limits = undefined, registeredViews = [], modelCommit = null, knowledge: knowledgeOn = true
+  definition, phase, workflow, changedPaths = [], plannedPaths = [], limits = undefined, registeredViews = [], modelCommit = null, knowledge: knowledgeOn = true
 }) {
   const policy = knowledgePromptPolicy(definition);
   const explicitBudget = Number.isInteger(definition?.worldModel?.knowledge?.maxBytes) ? policy.maxBytes : null;
@@ -58,6 +63,9 @@ export async function repositoryBriefPrompt(root, {
   let template = null;
   let rules = null;
   let contracts = null;
+  let flows = null;
+  let impact = null;
+  let risks = null;
   let explanations = [];
   let knowledge = null;
   let cache = null;
@@ -75,6 +83,13 @@ export async function repositoryBriefPrompt(root, {
         template.notKnown = briefNotKnown(knowledge, documentation);
         rules = buildRuleRecords(knowledge, documentation, { focus: focus || null });
         contracts = buildContractRecords(knowledge, { focus: focus || null });
+        flows = buildFlowRecords(knowledge, { focus: focus || null });
+        const known = knowledgePaths(knowledge);
+        const { changedRanges } = changedPaths.length
+          ? await readChange(root, workflow?.workItem?.baseCommit ?? workflow?.workItem?.baseBranch ?? null, { paths: changedPaths, keep: (file) => known.has(file) })
+          : { changedRanges: null };
+        impact = buildImpactRecords(knowledge, { changedPaths, changedRanges, plannedPaths });
+        risks = buildRiskRecords(knowledge, { focus: focus || null, changedPaths, changedSymbols: changedRanges ? impactSymbols(impact) : null });
       } else {
         status = result.status;
         warnings.push(`Repository knowledge was not added: the repository has ${result.codeFiles ?? 'too many'} code files and this Story names no area of it; set worldModel.sourceRoots, or change files in an area first.`);
@@ -91,7 +106,7 @@ export async function repositoryBriefPrompt(root, {
     repository: knowledge?.repository?.name ?? workflow?.workItem?.repository ?? 'repository',
     commit: knowledge?.repository?.commit ?? null,
     profile, focus, template, phase,
-    rules, questions: rules ? ruleQuestions(rules) : null, contracts,
+    rules, questions: rules ? ruleQuestions(rules) : null, contracts, flows, impact, risks,
     registered: registered.map((entry) => entry.projection),
     explanations,
     notKnown: [...(template?.notKnown ?? []), ...registered.flatMap((entry) => entry.projection.notKnown)],

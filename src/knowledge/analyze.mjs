@@ -22,7 +22,7 @@ import { validatedTypes, validationConstraints } from './validation.mjs';
 import { handlerSignature, repositoryInterfaces, typeRelations } from './contracts.mjs';
 import { ruleFileRules } from './rule-files.mjs';
 
-export const KNOWLEDGE_ANALYZER_VERSION = 4;
+export const KNOWLEDGE_ANALYZER_VERSION = 5;
 const PRODUCER = `knowledge-analyzer@${KNOWLEDGE_ANALYZER_VERSION}`;
 const AREA_TARGET_FILES = 150;
 const MAXIMUM_AREAS = 80;
@@ -901,17 +901,63 @@ export function analyzeKnowledge(source, { churn = null, commits = null, resolve
     if (symbol.test || symbol.complexity == null) continue;
     complexityByFile.set(symbol.file, (complexityByFile.get(symbol.file) ?? 0) + symbol.complexity);
   }
+  // Who changes each file and how often a change fixed something (subjects naming a fix, bug, incident, regression or revert).
+  const authorsByFile = new Map();
+  const fixesByFile = new Map();
+  for (const commit of commits ?? []) {
+    const fix = /\b(?:fix(?:e[sd])?|bug(?:fix)?|hotfix|incident|regression|revert)\b/iu.test(String(commit.subject ?? ''));
+    // An address is one person whatever its case.
+    const author = String(commit.author ?? '').trim().toLowerCase();
+    for (const changed of commit.files ?? []) {
+      if (author) {
+        if (!authorsByFile.has(changed)) authorsByFile.set(changed, new Map());
+        authorsByFile.get(changed).set(author, (authorsByFile.get(changed).get(author) ?? 0) + 1);
+      }
+      if (fix) fixesByFile.set(changed, (fixesByFile.get(changed) ?? 0) + 1);
+    }
+  }
+  const ownership = (path) => {
+    const authors = authorsByFile.get(path);
+    if (!authors?.size) return { authors: null, topAuthorShare: null };
+    const counts = [...authors.values()];
+    return { authors: authors.size, topAuthorShare: Math.round((Math.max(...counts) / counts.reduce((sum, value) => sum + value, 0)) * 100) / 100 };
+  };
   const scored = files.filter((file) => !isTestPath(file.path)).map((file) => {
     const changes = churn?.get(file.path) ?? 0;
     const complexity = complexityByFile.get(file.path) ?? 0;
     const fanIn = importers.get(file.path)?.size ?? 0;
-    const score = (churn ? Math.max(1, changes) : 1) * (1 + complexity / 10) * (1 + fanIn);
-    return { file, changes, complexity, fanIn, score };
+    const fixes = fixesByFile.get(file.path) ?? 0;
+    const score = (churn ? Math.max(1, changes) : 1) * (1 + complexity / 10) * (1 + fanIn) * (1 + fixes / 3);
+    return { file, changes, complexity, fanIn, fixes, score };
   }).filter((entry) => entry.complexity > 0 || entry.fanIn > 0 || entry.changes > 1).sort((a, b) => b.score - a.score || a.file.path.localeCompare(b.file.path, 'en'));
   for (const entry of scored.slice(0, 15)) {
     add({ kind: 'hotspot', key: entry.file.path, grain: 'component', assurance: 'derived', subject: { path: entry.file.path },
-      statement: { changes: churn ? entry.changes : null, complexity: entry.complexity, importedBy: entry.fanIn, score: Math.round(entry.score * 10) / 10 },
+      statement: {
+        changes: churn ? entry.changes : null, complexity: entry.complexity, importedBy: entry.fanIn, fixes: commits ? entry.fixes : null,
+        ...ownership(entry.file.path), coChanges: (coChanged.get(entry.file.path) ?? []).length, score: Math.round(entry.score * 10) / 10
+      },
       area: areaOf(entry.file.path) });
+  }
+  // Function-level risk: how complex, how many places call it, how often its file changes and needed
+  // a fix, how many rules it holds, and whether a test reaches it.
+  const risky = [...symbolsById.values()].filter((symbol) => !symbol.test && symbol.complexity != null && filesByPath.has(symbol.file)).map((symbol) => {
+    const callers = callersOf.get(symbol.id)?.size ?? 0;
+    const changes = churn?.get(symbol.file) ?? 0;
+    const tested = testsByFunction.has(symbol.id) || testedThrough.has(symbol.id);
+    const rules = rulesBySymbol.get(symbol.id)?.length ?? 0;
+    const fixes = fixesByFile.get(symbol.file) ?? 0;
+    const score = (1 + symbol.complexity / 5) * (1 + callers) * (1 + changes / 5) * (tested ? 1 : 1.5) * (1 + rules / 3) * (1 + fixes / 3);
+    return { symbol, callers, changes, tested, rules, fixes, score };
+  }).filter((entry) => entry.symbol.complexity > 1 || entry.callers > 1 || entry.rules > 0)
+    .sort((a, b) => b.score - a.score || a.symbol.qualifiedName.localeCompare(b.symbol.qualifiedName, 'en'));
+  for (const entry of risky.slice(0, 15)) {
+    add({ kind: 'risk', key: `${entry.symbol.file}:${entry.symbol.qualifiedName}`, grain: 'unit', assurance: 'derived',
+      subject: { symbol: entry.symbol.qualifiedName, path: entry.symbol.file },
+      statement: {
+        complexity: entry.symbol.complexity, callers: entry.callers, changes: churn ? entry.changes : null, fixes: commits ? entry.fixes : null,
+        rules: entry.rules, tested: entry.tested, ...ownership(entry.symbol.file), score: Math.round(entry.score * 10) / 10
+      },
+      citations: [citation(filesByPath.get(entry.symbol.file), entry.symbol.line ?? 1)], area: areaOf(entry.symbol.file) });
   }
   for (const [id, rules] of rulesBySymbol) {
     const symbol = symbolsById.get(id);
@@ -1011,6 +1057,9 @@ export function analyzeKnowledge(source, { churn = null, commits = null, resolve
       imports: imports.length
     },
     graph: {
+      // Every function with its span, so a change's lines can be mapped to the functions it touches.
+      functions: [...symbolsById.values()].filter((symbol) => !symbol.test && symbol.kind !== 'class' && symbol.kind !== 'interface')
+        .slice(0, 20000).map((symbol) => ({ file: symbol.file, qualifiedName: symbol.qualifiedName, kind: symbol.kind, start: symbol.start, end: symbol.end, complexity: symbol.complexity })),
       imports: imports.map((edge) => [edge.from, edge.to]),
       calls: callEdges.map((edge) => [symbolsById.get(edge.from)?.qualifiedName ?? edge.from, symbolsById.get(edge.to)?.qualifiedName ?? edge.to, edge.inferred ? 'by-name' : 'resolved']),
       // The same calls with where each end is defined, for an editor whose language has no call hierarchy.

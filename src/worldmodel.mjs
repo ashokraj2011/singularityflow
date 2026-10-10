@@ -1080,6 +1080,18 @@ async function withTargetBranch(root, options, operation) {
   }
 }
 
+/** Files the Story's reviewed plan expects to change, so the brief can say what they touch before they change. */
+async function workflowPlannedPaths(root, workItemRoot, workflow) {
+  if (!workflow?.workItem?.id) return [];
+  try {
+    const { loadActiveSpecRecords, mergePlannedClaimRecords } = await import('./specifications.mjs');
+    const records = await loadActiveSpecRecords(path.join(root, workItemRoot, workflow.workItem.id), workflow);
+    return [...new Set(Object.values(mergePlannedClaimRecords(records.planned ?? [])).flatMap((claim) => claim.expectedPaths ?? []).map(posix))].sort();
+  } catch {
+    return [];
+  }
+}
+
 function workflowChangedPaths(root, definition, workflow) {
   const pending = changedFiles(root);
   const pathContext = applicationPathContext(definition, workflow);
@@ -1814,6 +1826,7 @@ async function compose(root, options, {
   const repositoryBrief = knowledgeOn || registeredViews.length
     ? await (await import(KNOWLEDGE_PROMPT_MODULE)).repositoryBriefPrompt(root, {
       definition, phase: signals.phase, workflow, changedPaths: signals.changedPaths ?? [],
+      plannedPaths: knowledgeOn ? await workflowPlannedPaths(root, workItemRoot, workflow) : [],
       registeredViews, knowledge: knowledgeOn, modelCommit: required.located?.commit ?? null
     })
     : { text: '', warnings: [], files: [] };

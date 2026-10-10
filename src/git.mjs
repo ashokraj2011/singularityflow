@@ -2004,13 +2004,14 @@ export function trackedPathListing(root, { prefix = null, maximumBytes = 8 * 102
  * an empty history, never a partial one presented as complete.
  */
 export function recentCommitFileSets(root, { since = '12 months ago', limit = 2000, paths = [], ref = null, env = process.env } = {}) {
-  const result = git(['log', `--since=${since}`, `--max-count=${limit}`, '--no-merges', '--name-only', '--format=%x00%H%x09%P',
+  // Author email and subject ride along for ownership and fix-commit counts; the subject is last on its line.
+  const result = git(['log', `--since=${since}`, `--max-count=${limit}`, '--no-merges', '--name-only', '--format=%x00%H%x09%P%x09%ae%x09%s',
     ...(ref ? [ref] : []), ...(paths.length ? ['--', ...paths] : [])], { cwd: root, env, allowFailure: true, maxBuffer: 32 * 1024 * 1024 });
   if (result.status !== 0) return [];
   return String(result.stdout ?? '').split('\0').slice(1).map((chunk) => {
     const [header, ...files] = chunk.split('\n').map((line) => line.trim()).filter(Boolean);
-    const [commit, parents = ''] = String(header ?? '').split('\t');
-    return { commit, parents: parents.split(' ').filter(Boolean), files };
+    const [commit, parents = '', author = '', ...subject] = String(header ?? '').split('\t');
+    return { commit, parents: parents.split(' ').filter(Boolean), author: author || null, subject: subject.join('\t') || null, files };
   }).filter((entry) => /^[0-9a-f]{40,64}$/u.test(entry.commit ?? ''));
 }
 

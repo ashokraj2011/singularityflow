@@ -96,7 +96,8 @@ function collapseNotKnown(entries) {
  */
 export function renderPhaseBrief({
   repository = 'repository', commit = null, profile, focus = null, template = null, registered = [],
-  explanations = [], notKnown = [], modelCommit = null, phase = null, rules = null, questions = null, contracts = null
+  explanations = [], notKnown = [], modelCommit = null, phase = null, rules = null, questions = null, contracts = null,
+  flows = null, impact = null, risks = null
 }) {
   const focusWords = words(focus);
   const relevance = (text) => [...words(text)].filter((word) => focusWords.has(word)).length;
@@ -121,8 +122,15 @@ export function renderPhaseBrief({
     const tested = record.category === 'endpoint' && record.tested != null ? (record.tested ? '; tested' : '; no test reaches it') : '';
     push('contracts', `${record.text}${tested}`, record.sources.code);
   }
+  // Flow, impact and risk records replace the template's when there are any. With no changed or
+  // planned file, the template's impact (what depends on the functions the Story names) stays.
+  for (const record of flows ?? []) push('flows', record.text, record.sources.code);
+  // A file-level record begins with its path, so it needs no citation after it.
+  for (const record of impact ?? []) push('impact', record.text, record.scope === 'file' ? null : record.sources.code);
+  for (const record of risks ?? []) push('risks', `${record.change === 2 ? '(changed by this Story) ' : ''}${record.text}`, record.scope === 'file' ? null : record.sources.code);
+  const replaced = { rules, questions, contracts, flows: flows?.length ? flows : null, impact: impact?.length ? impact : null, risks: risks?.length ? risks : null };
   for (const id of Object.keys(SECTION_TITLES)) {
-    if ((id === 'rules' && rules) || (id === 'questions' && questions) || (id === 'contracts' && contracts)) continue;
+    if (replaced[id]) continue;
     for (const statement of template?.views?.[id] ?? []) {
       const source = statement.sources?.[0] ?? null;
       const heading = source?.label?.includes(' › ') ? source.label.split(' › ').slice(1).join(' › ') : null;
@@ -131,6 +139,8 @@ export function renderPhaseBrief({
   }
   // A registered line adds what knowledge lacks: skip one whose leading name a knowledge line already uses.
   for (const projection of registered) {
+    // A registered impact view describes the last commit; the Story's own impact records replace it.
+    if (projection.section === 'impact' && impact?.length) continue;
     const known = (sections.get(projection.section) ?? []).map((entry) => entry.text.toLowerCase()).join('\n');
     const ranked = projection.lines.map((line, index) => ({ line, index, score: relevance(line.text) }))
       .sort((a, b) => b.score - a.score || a.index - b.index);

@@ -15,6 +15,8 @@ const execute = promisify(execFile);
 const { SharedWorkflowDraftController, WORKFLOW_DRAFT_INPUT_MAX_BYTES, workflowDraftCopilotContextIssue } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-model.ts'));
 const { withWorkflowDraftInputFile } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-input.ts'));
 const { createWorkflowDraftRecoveryStore } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-recovery.ts'));
+const { SingularityFlowClient } = await import(path.join(root, 'apps/vscode/src/cli/client.ts'));
+const { cliRefusalCode } = await import(path.join(root, 'apps/vscode/src/cli/runner.ts'));
 const { sharedWorkflowDraftsHtml, SHARED_WORKFLOW_DRAFTS_SCRIPT } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-page.ts'));
 const { addWorkflowDraftStage, editWorkflowDraftGuide, workflowDraftGuide, reorderWorkflowDraftStage, selectWorkflowDraftCatalog, prepareWorkflowDraftChange, WORKFLOW_DRAFT_STAGES } = await import(path.join(root, 'apps/vscode/src/views/workflow-drafts-guide.ts'));
 
@@ -28,6 +30,8 @@ const revision = (number = 1, id = draftId) => ({ draftId: id, displayName: 'Dra
 const result = (action, data, status = 'read') => ({ resultType: 'workflow-author', status,
   operation: { id: `workflow.author.${action}`, modelPolicy: 'never' },
   capability: { repository: '/approved/shared.git' }, data });
+// The extension adapter never rejects: a CLI refusal arrives as prose plus its structured code.
+const refused = (code, message = code) => Object.assign(new Error(message), { errorCode: code });
 function packagePreview(selected = revision(), overrides = {}) {
   const approvedSource = { repository: '/approved/shared.git', baseRevision: firstHead, observedCommit: firstHead };
   return { kind: 'workflow-authoring-package-preview',
@@ -56,7 +60,10 @@ function fixture(overrides = {}, clock, recoveryStore) {
     calls.push({ args, root: callRoot });
     assert.equal(callRoot, repository);
     const action = args[2];
-    if (overrides[action]) return { result: await overrides[action](args), error: null };
+    if (overrides[action]) {
+      try { return { result: await overrides[action](args), error: null }; }
+      catch (error) { return { result: null, error: error.message, errorCode: error.errorCode ?? null }; }
+    }
     if (action === 'list') return { result: result(action, { head: listHead, drafts: [loadedRevision], nextCursor: null }), error: null };
     if (action === 'read') return { result: result(action, { head: firstHead, record: loadedRevision,
       payload: { id: 'partial' }, assets: [{ path: 'SKILL.md', contentBase64: Buffer.from('literal').toString('base64'), bytes: 7 }], tombstone: null }), error: null };
@@ -185,7 +192,7 @@ test('shared draft editor reaches only the existing CLI at the frozen explicit r
 });
 
 test('list refresh never rebases an unsaved draft and conflict retains exact editor text', async () => {
-  const f = fixture({ save: async () => { throw new Error('WCA_DRAFT_CONFLICT: Another client won compare-and-swap.'); } });
+  const f = fixture({ save: async () => { throw refused('WCA_DRAFT_CONFLICT', 'Another client won compare-and-swap.'); } });
   await f.open(); const fields = f.edit();
   await f.controller.receive({ type: 'change', ...fields });
   f.setListHead(latestHead); await f.controller.receive({ type: 'refresh', ...fields });
@@ -270,7 +277,7 @@ test('Create retry resolves an existing acknowledgement before allocating or wri
 test('losing Create compare-and-swap can retry the same identity only after a fresh not-found observation', async () => {
   let attempts = 0;
   const f = fixture({ create: async (args) => {
-    if (++attempts === 1) throw new Error('WCA_DRAFT_CONFLICT');
+    if (++attempts === 1) throw refused('WCA_DRAFT_CONFLICT');
     return result('create', { record: revision(1, args[3]), operationId: args[args.indexOf('--operation-id') + 1] }, 'shared-acknowledged');
   }, read: async (args) => result('read', { head: latestHead, record: revision(1, args[3]), payload: {}, assets: [], tombstone: null }) });
   await f.controller.initialize(); await f.controller.receive({ type: 'create' });
@@ -385,11 +392,19 @@ test('Save timeout never advertises a deleted temp replay and status inspection 
 });
 
 test('Save failure retains a bounded reported refusal code without echoing the deleted input invocation', async () => {
-  const f = fixture({ save: async () => { throw new Error('Command failed: node CLI workflow author save WFD-ABC123 --input /deleted/input.json\n{"resultType":"command-result","code":"WCA_DRAFT_CONFLICT","message":"Another client won compare-and-swap"}'); } });
+  const failure = 'Command failed: node CLI workflow author save WFD-ABC123 --input /deleted/input.json\n{"resultType":"command-result","code":"WCA_DRAFT_CONFLICT","message":"Another client won compare-and-swap"}';
+  const f = fixture({ save: async () => { throw refused('WCA_DRAFT_CONFLICT', failure); } });
   await f.open(); await f.controller.receive({ type: 'save', ...f.edit() });
   assert.match(f.controller.view.error, /reported WCA_DRAFT_CONFLICT/);
   assert.doesNotMatch(f.controller.view.error, /\/deleted|Command failed|node CLI|resultType/);
   assert.match(f.controller.view.error, /op-status .* first/);
+  assert.equal(f.controller.view.durability, 'conflict');
+  f.controller.dispose();
+  const prose = fixture({ save: async () => { throw new Error(failure); } });
+  await prose.open(); await prose.controller.receive({ type: 'save', ...prose.edit() });
+  assert.equal(prose.controller.view.durability, 'uncertain', 'a code named only in prose is not a structured refusal');
+  assert.doesNotMatch(prose.controller.view.error, /reported|\/deleted|Command failed/);
+  prose.controller.dispose();
 });
 
 test('over-limit host fallback rejects transient input without re-rendering the previous bounded editor', async () => {
@@ -1118,7 +1133,7 @@ test('lost autosave acknowledgement fences changed requests until operation-stat
   const clock = fakeClock(); let attempts = 0; let operation;
   const f = fixture({ save: async (args) => {
     operation ??= args[args.indexOf('--operation-id') + 1];
-    if (++attempts === 1) throw new Error('WCA_DRAFT_WRITE_UNACKNOWLEDGED: Network outcome unknown');
+    if (++attempts === 1) throw refused('WCA_DRAFT_WRITE_UNACKNOWLEDGED', 'Network outcome unknown');
     return result('save', { record: revision(3), head: latestHead, operationHead: latestHead,
       operationId: args[args.indexOf('--operation-id') + 1], currentLifecycle: 'live' }, 'shared-acknowledged');
   }, 'op-status': async (args) => result('op-status', { status: 'shared-acknowledged', head: latestHead,
@@ -1140,7 +1155,7 @@ test('lost autosave acknowledgement fences changed requests until operation-stat
 
 test('autosave conflict or deletion pauses retries and navigation; explicit Reload is the only discard/reconciliation path', async () => {
   for (const code of ['WCA_DRAFT_CONFLICT', 'WCA_DRAFT_AUTHORITY_CHANGED', 'WCA_DRAFT_DELETED']) {
-    const clock = fakeClock(); const f = fixture({ save: async () => { throw new Error(`${code}: Peer changed retained authority/lifecycle`); } }, clock);
+    const clock = fakeClock(); const f = fixture({ save: async () => { throw refused(code, 'Peer changed retained authority/lifecycle'); } }, clock);
     await f.open(); await f.controller.receive({ type: 'autosave-on', binding: f.controller.view.editor.binding });
     const fields = f.edit(); await f.controller.receive({ type: 'change', ...fields }); await clock.advance(750);
     assert.equal(f.controller.view.durability, code === 'WCA_DRAFT_DELETED' ? 'deleted' : 'conflict');
@@ -1240,7 +1255,7 @@ test('closing the controller cancels scheduled autosave and offers no false priv
 
 test('uncertain Save still pauses when the visible buffer was reverted before the failed acknowledgement', async () => {
   const clock = fakeClock(); let release; const gate = new Promise((resolve) => { release = resolve; });
-  const f = fixture({ save: async () => { await gate; throw new Error('WCA_FUTURE_TRANSPORT_FAILURE: outcome unknown'); } }, clock);
+  const f = fixture({ save: async () => { await gate; throw refused('WCA_FUTURE_TRANSPORT_FAILURE', 'outcome unknown'); } }, clock);
   await f.open(); const original = { binding: f.controller.view.editor.binding, name: f.controller.view.editor.name,
     inputText: f.controller.view.editor.inputText };
   await f.controller.receive({ type: 'autosave-on', binding: original.binding });
@@ -1255,7 +1270,7 @@ test('uncertain Save still pauses when the visible buffer was reverted before th
 
 test('an uncertain exact pending checkpoint fences replacement/exit even after reverting the visible buffer to an older baseline', async () => {
   for (const type of ['open', 'create', 'reload', 'back-drafts', 'exit']) {
-    const f = fixture({ save: async () => { throw new Error('WCA_DRAFT_WRITE_UNACKNOWLEDGED: outcome unknown'); } }); await f.open();
+    const f = fixture({ save: async () => { throw refused('WCA_DRAFT_WRITE_UNACKNOWLEDGED', 'outcome unknown'); } }); await f.open();
     const editor = f.controller.view.editor;
     const original = { binding: editor.binding, name: editor.name, inputText: editor.inputText };
     const pending = f.edit('{"payload":{"uncertainOriginal":"retain exact bytes"}}');
@@ -1280,7 +1295,7 @@ test('a failed initial read is not rendered as an empty successful draft catalog
 });
 
 test('deleted-draft fencing still permits explicit pause and Cancel-default return without recreating the ID', async () => {
-  const clock = fakeClock(); const f = fixture({ save: async () => { throw new Error('WCA_DRAFT_DELETED: Shared tombstone'); } }, clock);
+  const clock = fakeClock(); const f = fixture({ save: async () => { throw refused('WCA_DRAFT_DELETED', 'Shared tombstone'); } }, clock);
   await f.open(); await f.controller.receive({ type: 'autosave-on', binding: f.controller.view.editor.binding });
   const fields = f.edit(); await f.controller.receive({ type: 'change', ...fields }); await clock.advance(750);
   assert.equal(f.controller.view.durability, 'deleted');
@@ -1489,16 +1504,24 @@ test('actual CLI-backed clients share identity, fence autosave races and Preview
     SINGULARITY_FLOW_LEAD_REGISTRY: path.join(base, 'leads.json'), SINGULARITY_FLOW_DISABLE_MODELS: '1' };
   const cli = async (cwd, args) => JSON.parse((await execute(process.execPath,
     [path.join(root, 'bin/singularity-flow.mjs'), ...args], { cwd, env, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 })).stdout);
+  // The extension's drafts runner: a SingularityFlowClient per opened repository, and a refusal
+  // keeps the CLI's structured code beside the headline its CliError carries.
+  const draftsRunner = (opened, commandLog) => {
+    const client = new SingularityFlowClient({ repository: opened, environment: env,
+      location: { executable: process.execPath, cli: path.join(root, 'bin/singularity-flow.mjs'), source: 'setting' } });
+    return async (argv, openedRoot) => {
+      assert.equal(openedRoot, opened); commandLog.push([...argv]);
+      try { return { result: await client.run(argv), error: null }; }
+      catch (error) { return { result: null, error: error instanceof Error ? error.message : String(error), errorCode: cliRefusalCode(error) }; }
+    };
+  };
   const commands = [];
   const clock = fakeClock();
   const privateKeys = new Map(); const secrets = { get: async (key) => privateKeys.get(key), store: async (key, value) => { privateKeys.set(key, value); } };
   const recoveryDirectory = path.join(base, 'private-extension-storage', 'workflow-draft-recovery');
   const recovery = createWorkflowDraftRecoveryStore(recoveryDirectory, secrets);
-  const controller = new SharedWorkflowDraftController(application, async (argv, openedRoot) => {
-    assert.equal(openedRoot, application); commands.push([...argv]);
-    try { return { result: await cli(openedRoot, argv), error: null }; }
-    catch (error) { return { result: null, error: error.message }; }
-  }, withWorkflowDraftInputFile, { changed: () => {}, confirmDiscard: async () => true,
+  const controller = new SharedWorkflowDraftController(application, draftsRunner(application, commands),
+    withWorkflowDraftInputFile, { changed: () => {}, confirmDiscard: async () => true,
     copyReview: async () => { throw new Error('No deletion review was requested.'); } }, clock, recovery);
   t.after(() => controller.dispose());
   await controller.initialize(); await controller.receive({ type: 'create' });
@@ -1522,6 +1545,7 @@ test('actual CLI-backed clients share identity, fence autosave races and Preview
   const unsaved = { ...fields(), name: 'Unsaved after peer change' };
   await controller.receive({ type: 'save', ...unsaved });
   assert.match(controller.view.error, /WCA_DRAFT_CONFLICT/);
+  assert.equal(controller.view.durability, 'conflict', 'a definite CLI refusal is not an unresolved acknowledgement');
   assert.equal(controller.view.editor.name, unsaved.name);
   assert.equal(controller.view.editor.inputText, text);
   assert.equal(controller.view.dirty, true);
@@ -1538,11 +1562,8 @@ test('actual CLI-backed clients share identity, fence autosave races and Preview
   // Two independently rooted authoring clients open the same canonical head, accept different
   // complete semantic answers and autosave concurrently. Only one CAS may install revision 4.
   const peerCommands = [];
-  const peerController = new SharedWorkflowDraftController(peer, async (argv, openedRoot) => {
-    assert.equal(openedRoot, peer); peerCommands.push([...argv]);
-    try { return { result: await cli(openedRoot, argv), error: null }; }
-    catch (error) { return { result: null, error: error.message }; }
-  }, withWorkflowDraftInputFile, { changed: () => {}, confirmDiscard: async () => false,
+  const peerController = new SharedWorkflowDraftController(peer, draftsRunner(peer, peerCommands),
+    withWorkflowDraftInputFile, { changed: () => {}, confirmDiscard: async () => false,
     copyReview: async () => { throw new Error('No review action requested.'); } }, clock,
   createWorkflowDraftRecoveryStore(recoveryDirectory, secrets));
   t.after(() => peerController.dispose());
@@ -1571,9 +1592,8 @@ test('actual CLI-backed clients share identity, fence autosave races and Preview
   }
   assert.ok([controller, peerController].every((client) => client.view.recovery.status !== 'writing'));
   const reopenedCommands = []; const copied = [];
-  const reopened = new SharedWorkflowDraftController(application, async (argv, openedRoot) => {
-    assert.equal(openedRoot, application); reopenedCommands.push([...argv]); return { result: await cli(openedRoot, argv), error: null };
-  }, withWorkflowDraftInputFile, { changed: () => {}, confirmDiscard: async () => true,
+  const reopened = new SharedWorkflowDraftController(application, draftsRunner(application, reopenedCommands),
+    withWorkflowDraftInputFile, { changed: () => {}, confirmDiscard: async () => true,
     copyReview: async (openedRoot, argv, surface) => copied.push({ root: openedRoot, argv: [...argv], surface }) }, clock,
   createWorkflowDraftRecoveryStore(recoveryDirectory, secrets));
   t.after(() => reopened.dispose());

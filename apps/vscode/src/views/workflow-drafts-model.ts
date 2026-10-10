@@ -11,8 +11,9 @@ const DRAFT_ID = /^WFD-[A-Z0-9]{6,32}$/u;
 const HEAD = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 const SHA = /^sha256:[a-f0-9]{64}$/u;
 
+/** `errorCode` is the CLI's closed refusal code from its structured result; prose is never scanned for one. */
 export type WorkflowDraftRunner = (argv: string[], root: string) => Promise<{
-  result: unknown; error: string | null;
+  result: unknown; error: string | null; errorCode?: string | null;
 }>;
 export type WorkflowDraftInputTransport = <T>(text: string, invoke: (file: string) => Promise<T>) => Promise<T>;
 export interface WorkflowDraftRecord {
@@ -172,6 +173,14 @@ function inputIssue(text: string): string | null {
 }
 function errorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 4000);
+}
+/** A CLI failure that keeps the runner's structured refusal code beside the displayed text. */
+class WorkflowDraftRefusal extends Error {
+  readonly refusalCode: string | null;
+  constructor(message: string, refusalCode: string | null) { super(message); this.refusalCode = refusalCode; }
+}
+function refusalCode(error: unknown): string | null {
+  return error instanceof WorkflowDraftRefusal ? error.refusalCode : null;
 }
 
 /** Private recovery is inert and separate from the canonical shared draft and consent owners. */
@@ -479,7 +488,11 @@ export class SharedWorkflowDraftController {
   private async call(action: string, args: string[] = []): Promise<AuthorResult> {
     if (this.disposed) throw new Error('The shared-draft panel is closed.');
     const response = await this.runner(['workflow', 'author', action, ...args, '--json'], this.root);
-    if (response.error) throw new Error(response.error);
+    if (response.error) {
+      const code = typeof response.errorCode === 'string' && /^[A-Z][A-Z0-9_]{0,127}$/u.test(response.errorCode)
+        ? response.errorCode : null;
+      throw new WorkflowDraftRefusal(code && !response.error.includes(code) ? `${code}: ${response.error}` : response.error, code);
+    }
     return authorResult(response.result, action);
   }
   private async leased(work: () => Promise<void>, statusOnly = false): Promise<void> {
@@ -491,8 +504,9 @@ export class SharedWorkflowDraftController {
       this.view.error = errorMessage(error);
       if (this.view.dirty || this.pendingSave?.uncertain || this.view.durability === 'saving') {
         this.autosavePaused = true;
-        this.view.durability = /WCA_DRAFT_DELETED/u.test(this.view.error) ? 'deleted'
-          : /WCA_DRAFT_CONFLICT|WCA_DRAFT_AUTHORITY_CHANGED/u.test(this.view.error) ? 'conflict'
+        const code = refusalCode(error);
+        this.view.durability = code === 'WCA_DRAFT_DELETED' ? 'deleted'
+          : code === 'WCA_DRAFT_CONFLICT' || code === 'WCA_DRAFT_AUTHORITY_CHANGED' ? 'conflict'
           : this.pendingSave?.uncertain ? 'uncertain' : 'failed';
         if (this.view.durability === 'deleted' && this.view.editor) {
           this.view.editor.readOnlyReason = 'The shared draft was deleted. Captured text is retained; only acknowledged private checkpoints survive a crash. This ID will not be recreated.';
@@ -730,7 +744,7 @@ export class SharedWorkflowDraftController {
       // by the transport's finally block. Surface only its bounded diagnostic, never that replay.
       const message = errorMessage(error);
       const firstLine = message.split(/[\r\n]/u)[0] ?? '';
-      const reportedCode = /\bWCA_[A-Z_]{1,64}\b/u.exec(message)?.[0];
+      const reportedCode = refusalCode(error);
       const definiteRefusal = new Set(['WCA_DRAFT_CONFLICT', 'WCA_DRAFT_AUTHORITY_CHANGED', 'WCA_DRAFT_DELETED',
         'WCA_DRAFT_CONTENT_BLOCKED', 'WCA_DRAFT_INVALID', 'WCA_DRAFT_LIMIT', 'WCA_DRAFT_NOT_FOUND',
         'WCA_DRAFT_REMOTE_INVALID', 'WCA_OPERATION_ID_REUSED', 'WCA_INPUT_INVALID', 'WCA_INPUT_LIMIT',
@@ -739,7 +753,7 @@ export class SharedWorkflowDraftController {
       this.queueRecovery();
       const diagnostic = firstLine.includes('--input')
         ? `Shared Save was not acknowledged${reportedCode ? ` (reported ${reportedCode})` : ''}.` : firstLine;
-      throw new Error(`${diagnostic}\nCheck workflow author op-status ${operationId} first. Then use explicit Save with the retained editor text; unchanged text reuses this operation ID and creates a fresh private input file. Do not replay a temporary --input path.`);
+      throw new WorkflowDraftRefusal(`${diagnostic}\nCheck workflow author op-status ${operationId} first. Then use explicit Save with the retained editor text; unchanged text reuses this operation ID and creates a fresh private input file. Do not replay a temporary --input path.`, reportedCode);
     }
     pending.uncertain = true;
     await this.acceptSave(result, pending, editor);

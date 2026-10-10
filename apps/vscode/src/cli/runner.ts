@@ -1042,6 +1042,16 @@ export class CliError extends Error {
 }
 
 /**
+ * The closed code of a structured CLI refusal (`error.code` in its --json result), or null.
+ * The message is only the refusal's headline, so a caller that routes by code reads it here.
+ */
+export function cliRefusalCode(error: unknown): string | null {
+  if (!(error instanceof CliError) || !error.result || typeof error.result !== 'object') return null;
+  const code = (error.result as { error?: { code?: unknown } }).error?.code;
+  return typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,127}$/u.test(code) ? code : null;
+}
+
+/**
  * The soft sequence gate a refused command names and lets a person continue through, or null.
  * A CliError's message is only the refusal's headline (the last "Singularity Flow error:" line);
  * the override the engine tells you to add is on a later line of stderr, so the whole refusal is

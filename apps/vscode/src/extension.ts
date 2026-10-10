@@ -17,7 +17,7 @@ import { access, lstat, readFile, readdir, realpath as fsRealpath, rm } from 'no
 import { gatewayDestinationRequest } from './gateway-destination.ts';
 import { resolveCli, SingularityFlowClient, isCliReadSuperseded, type CliLocation } from './cli/client.ts';
 import {
-  CliError, CliTimeoutError, formatCliArgsForDisplay, RepositoryAuthorityUnavailableError,
+  CliError, cliRefusalCode, CliTimeoutError, formatCliArgsForDisplay, RepositoryAuthorityUnavailableError,
   terminalCommand, recentCliCommandTimings,
   validateFactoryResetRepositoryDirectory, validateRepositoryDirectory,
   validatedRepositoryGitCommonDirectory
@@ -4030,7 +4030,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
           return { result: await draftsClient.run(argv), error: null };
         } catch (error) {
-          return { result: null, error: error instanceof Error ? error.message : String(error) };
+          return { result: null, error: error instanceof Error ? error.message : String(error),
+            errorCode: cliRefusalCode(error) };
         }
       }, selectedRoot);
     } catch (error) { showRefusal(error, { headline: 'Could not open shared workflow drafts' }); }

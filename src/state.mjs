@@ -272,6 +272,7 @@ import { diagnoseSkillHostReadiness } from './skp-host-readiness.mjs';
 import { gateRefusal } from './evidence/gate-refusal.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
 import { obligationId } from './evidence/vocabulary.mjs';
+import { registeredWorldModelOn } from './world-model-policy.mjs';
 
 export const CONFIG_PATH = WORKFLOW_PATH;
 export const loadConfig = loadDefinition;
@@ -1369,8 +1370,10 @@ export async function createWorkflow(root, config, {
   // triggers extraction, rendering, model use, cache writes, or publication during Story start.
   // Once captured below, every phase re-resolves these exact keys and proves the pinned commit is
   // still admitted by the configured state authority; advancing the state tip cannot repin a Story.
+  // While the registered World Model is off the Story records an explicit "not configured" pin and
+  // nothing is read from the state branch.
   workflow.resolution.worldModelHistoryPin = await prepareStoryWorldModelHistoryPin(root, {
-    definition: config,
+    definition: registeredWorldModelOn(config) ? config : { ...config, worldModel: { ...config.worldModel, format: null } },
     workflow,
     approvedConfigurationSnapshot
   });

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { registeredWorldModelOn } from './world-model-policy.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, lstatSync, realpathSync, rmSync } from 'node:fs';
 import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises';
@@ -4090,11 +4091,13 @@ async function repositoryWorldModelStatus(root) {
   }
 
   let outputDirectory = defaultOutputDirectory;
+  let registeredOn = false;
   const workflow = await regularRepositoryFile('singularity/workflow.yml');
   if (workflow.state === 'file') {
     try {
       const definition = YAML.parse(await readFile(workflow.absolute, 'utf8'));
       outputDirectory = String(definition?.worldModel?.outputDir ?? defaultOutputDirectory).trim() || defaultOutputDirectory;
+      registeredOn = registeredWorldModelOn(definition);
     } catch {
       // Workspace creation must not turn workflow parsing into a world-model gate. The normal
       // repository validator will report malformed configuration after the clone is opened.
@@ -4102,6 +4105,10 @@ async function repositoryWorldModelStatus(root) {
     }
   }
 
+  // A repository that has not turned the registered World Model on has none to look for.
+  if (!registeredOn) {
+    return { state: 'off', exists: false, outputDirectory, manifestPath: null, generatedAt: null, warning: null };
+  }
   const normalizedOutput = outputDirectory.replaceAll('\\', '/').replace(/\/+$/, '');
   if (!normalizedOutput || path.isAbsolute(normalizedOutput) || normalizedOutput.split('/').includes('..')) {
     return {

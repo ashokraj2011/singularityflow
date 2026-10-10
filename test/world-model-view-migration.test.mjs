@@ -38,6 +38,7 @@ async function legacyRepository(t) {
   await initializeDefinition(root);
   const workflowPath = path.join(root, 'singularity/workflow.yml');
   const workflow = (await readFile(workflowPath, 'utf8'))
+    .replace('  registered: off\n', '  registered: on\n')
     .replace('  views: [arch.contracts@4, biz.rules@4, dev.hotspots@4, dev.impact@4]',
       '  # every view, as v3 configurations listed them\n  views: [business, architecture, development, testing, release, operations, security]')
     .replace('    worldModel: {views: [biz.rules], depth: quick}\n    clarification:\n      mode: required',

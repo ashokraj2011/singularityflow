@@ -1,4 +1,5 @@
 import { initializeDefinition } from '../src/config.mjs';
+import { enableRegisteredWorldModel } from './helpers/registered-world-model.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -72,6 +73,7 @@ async function persistedRepository(t) {
   await writeFile(path.join(root, 'README.md'), '# application\n');
   // The registered World Model reads its state authority from the governed configuration.
   await initializeDefinition(root);
+  await enableRegisteredWorldModel(root);
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'application source');
 

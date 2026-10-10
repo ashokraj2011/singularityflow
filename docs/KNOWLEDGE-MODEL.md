@@ -255,8 +255,10 @@ command says so and changes nothing; `--dry-run` prints the exact prompt.
 Story touches, built without a model. It replaces both the knowledge slice and the registered World
 Model view files that phases used to receive (World Model v5, milestone M0).
 
-- **Inputs:** this knowledge, README and docs statements, accepted plain-language explanations, and
-  the registered views the phase selects. A view file is read for its statements only: its hash
+- **Inputs:** this knowledge, README and docs statements, accepted plain-language explanations, and,
+  only where `worldModel.registered: on`, the registered views the phase selects. The registered
+  World Model is off by default: nothing builds, reads or verifies it, and the brief is the phase's
+  only World Model context. A view file is read for its statements only: its hash
   header, facts JSON, fact IDs and "No registered deterministic producer…" lines stay in the
   published file. Declarations are folded per type (accessors together), imports per file, and
   same-file lexical call guesses are left out.

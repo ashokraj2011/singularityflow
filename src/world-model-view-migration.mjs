@@ -17,6 +17,7 @@ import YAML from 'yaml';
 
 import { discoverAgents } from './agents.mjs';
 import { loadDefinition, WORKFLOW_PATH } from './config.mjs';
+import { registeredWorldModelOn } from './world-model-policy.mjs';
 import { loadPortfolio, PORTFOLIO_PATH } from './initiative-config.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from './util.mjs';
 import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/registry/views.mjs';
@@ -217,6 +218,14 @@ function summary(plan) {
  * then loads the configuration again; if it no longer loads, every file is restored.
  */
 export async function worldModelViewMigrationCommand(root, options = {}) {
+  // Configured view names are not used while the registered World Model is off; nothing to rewrite.
+  const definition = await loadDefinition(root).catch(() => null);
+  if (definition && !registeredWorldModelOn(definition)) {
+    return report({
+      operation: 'wm-migrate-views', files: [], changes: 0, status: 'off',
+      message: 'The registered World Model is off, so configured World Model view names are not used and there is nothing to migrate.'
+    }, options);
+  }
   const plan = await planWorldModelViewMigration(root);
   const publish = 'singularity-flow config publish --message "Migrate World Model views to registered views"';
   const result = {

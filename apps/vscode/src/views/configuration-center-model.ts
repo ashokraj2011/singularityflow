@@ -117,6 +117,8 @@ export interface ConfigurationCenterView {
    * state it never displayed.
    */
   worldModelStatus: {
+    /** Off unless the repository turned the registered World Model on; nothing is built then. */
+    registered: 'on' | 'off';
     built: boolean;
     root: string;
     generatedAt: string | null;
@@ -358,6 +360,8 @@ export function configurationCenterView(snapshot: RepositorySnapshot, profile: P
      * holding two opinions about whether a file is safe to delete.
      */
     worldModelStatus: {
+      // An engine that predates the switch always had the registered World Model on.
+      registered: snapshot.worldModel?.registered === 'off' ? 'off' : 'on',
       built,
       root: modelRoot,
       generatedAt: snapshot.worldModel?.generatedAt ?? null,

@@ -1008,6 +1008,18 @@
           "when": "false"
         },
         {
+          "command": "singularityFlow.buildWorldModel",
+          "when": "singularityFlow.registeredWorldModel"
+        },
+        {
+          "command": "singularityFlow.rebuildWorldModel",
+          "when": "singularityFlow.registeredWorldModel"
+        },
+        {
+          "command": "singularityFlow.migrateWorldModelViews",
+          "when": "singularityFlow.registeredWorldModel"
+        },
+        {
           "command": "singularityFlow.configureTemplates",
           "when": "false"
         },

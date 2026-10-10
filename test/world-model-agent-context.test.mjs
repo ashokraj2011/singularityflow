@@ -113,6 +113,7 @@ test('wm context and its configuration use the requested phase’s pinned agent,
   const definitionPath = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
   definition.git.publish = 'off';
+  definition.worldModel.registered = 'on';
   definition.worldModel.grounding = 'off';
   await writeFile(definitionPath, YAML.stringify(definition));
   git(root, 'add', '.');

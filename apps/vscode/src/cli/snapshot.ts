@@ -908,6 +908,8 @@ export interface RepositorySnapshot {
   documents?: StoryArtifact[];
   detachedDocuments?: StoryArtifact[];
   worldModel?: {
+    /** The registered World Model (v4) is off unless the repository sets worldModel.registered: on. */
+    registered?: 'on' | 'off';
     schemaVersion?: number;
     kind?: 'world-model-ide-slice' | string;
     format?: 'wmb-v4' | 'registered-v4' | string;

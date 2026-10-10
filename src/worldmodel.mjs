@@ -1,5 +1,5 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
-import { assertRegisteredWorldModel, retiredWorldModelError, retiredWorldModelFormatError } from './world-model-format.mjs';
+import { assertRegisteredWorldModel, registeredWorldModelOffError, retiredWorldModelError, retiredWorldModelFormatError } from './world-model-format.mjs';
 import { resolvePersonalization, withReplyPersonalization } from './personalization.mjs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
@@ -26,7 +26,7 @@ import { assertPhaseSequence } from './sequence.mjs';
 import { groundingMode, resolveWorldModelAgentPrompt, worldModelCommit } from './grounding.mjs';
 import { resolveViews } from './world-model-selection.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
-import { worldModelStalenessDecision } from './world-model-policy.mjs';
+import { registeredWorldModelOn, worldModelStalenessDecision } from './world-model-policy.mjs';
 import {
   renderCapabilityWorldModelPack, resolveLifecycleCapability
 } from './capability-context.mjs';
@@ -697,6 +697,21 @@ export async function inspectConfiguredGrounding(root, config, phaseId, {
   plan: suppliedPlan = null,
   refreshRemote = false
 } = {}) {
+  // While the registered World Model is off nothing is read, refreshed or suggested: readers see
+  // `off`, with no recovery command, and phase prompts carry the repository brief instead.
+  if (!registeredWorldModelOn(config.definition)) {
+    return {
+      format: 'registered-v4', config,
+      plan: { phase: phaseId, depth: 'standard', includeEvidence: false, views: [], selections: [] },
+      availability: {
+        format: 'registered-v4', status: 'off', ready: false, source: null, selected: null,
+        candidates: [], missing: [], refresh: 'off',
+        staleness: worldModelStalenessDecision('ignore', true),
+        failureClass: null, error: null, action: null
+      },
+      resolved: null, command: null, reason: null, off: true
+    };
+  }
   // A Story pinned before the legacy-v3 World Model was removed continues with zero World Model bytes.
   const retired = retiredWorldModelError(config.definition, { workId: config.workflow?.workItem?.id ?? null });
   if (retired) {
@@ -1169,7 +1184,7 @@ async function assertStoryGroundingPromptDelivery(root, {
   // history bytes are consumed in that case, so preserve the ordinary no-grounding delivery path.
   // Planned pairs pass a lifecycle identity and must re-prove authority immediately before bytes
   // leave the composer.
-  if (workflow?.resolution?.worldModelHistoryPin?.status !== 'active'
+  if (!registeredWorldModelOn(definition) || workflow?.resolution?.worldModelHistoryPin?.status !== 'active'
       || expectedLifecycle == null) return;
   // This dependency is deliberately outside CLI options. Focused race tests use it to move the
   // authority at the exact async boundary; production callers never receive an authority bypass.
@@ -1185,7 +1200,7 @@ async function assertStoryGroundingPromptDelivery(root, {
  * replacement still describe the Story-selected keys.
  */
 async function pinnedPromptReplayProblem(root, { definition, workflow, phase, agent, existing }) {
-  if (workflow.resolution?.worldModelHistoryPin?.status !== 'active') return null;
+  if (!registeredWorldModelOn(definition) || workflow.resolution?.worldModelHistoryPin?.status !== 'active') return null;
   try {
     const replay = await resolvePinnedStoryWorldModelGrounding(root, {
       definition, workflow, phase, agent
@@ -1536,7 +1551,7 @@ async function compose(root, options, {
       }
     }
     if (existing) {
-      const existingDeliveryLifecycle = workflow.resolution?.worldModelHistoryPin?.status === 'active'
+      const existingDeliveryLifecycle = registeredWorldModelOn(definition) && workflow.resolution?.worldModelHistoryPin?.status === 'active'
           && existing.record.persistedGrounding != null
         ? storyGroundingLifecycleIdentity(workflow, phase.id)
         : null;
@@ -1589,7 +1604,9 @@ async function compose(root, options, {
     views: [],
     selections: []
   };
-  const storyWorldModelHistoryPin = workflow?.resolution?.worldModelHistoryPin ?? null;
+  // A Story's exact-history pin belongs to the registered World Model; while that is off the Story
+  // composes with the repository brief alone.
+  const storyWorldModelHistoryPin = registeredWorldModelOn(definition) ? workflow?.resolution?.worldModelHistoryPin ?? null : null;
   // Only an active history pin changes the grounding owner. An unavailable enrollment remains
   // immutable (it can never turn into exact-history authority), but legacy/current configured
   // WMB grounding remains available for compatibility and is still non-authoritative.
@@ -2561,6 +2578,19 @@ export async function worldModelCommand(root, positionals, options) {
     });
     // A Story pinned before legacy-v3 was removed cannot use the World Model again.
     assertRegisteredWorldModel(config.definition, { workId: config.workflow?.workItem?.id ?? null });
+    if (!registeredWorldModelOn(config.definition)) {
+      // Status reads answer `off`; everything that would read or write the registered model refuses.
+      if (command === 'status' || command === 'availability') {
+        const result = {
+          format: 'registered-v4', registered: 'off', status: 'off', ready: false,
+          message: 'The registered World Model is off. Phase prompts get the repository brief read from the source: singularity-flow wm brief --phase PHASE.'
+        };
+        if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+        else console.log(result.message);
+        return result;
+      }
+      throw registeredWorldModelOffError(`wm ${command}`);
+    }
     return handleWorldModelV4Command(targetRoot, config, command, positionals, options);
   });
 }

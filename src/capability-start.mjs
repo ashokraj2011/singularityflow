@@ -11,6 +11,7 @@
  * VS Code surface can show what would happen before anything is fetched.
  */
 import readline from 'node:readline/promises';
+import { registeredWorldModelOn } from './world-model-policy.mjs';
 import { stdin as input, stdout as output } from 'node:process';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -73,6 +74,8 @@ export function capabilityPublicationWorkers(total, requested = DEFAULT_REMOTE_W
 function registeredWorldModelConfig(definition) {
   // A repository still configured for the retired legacy-v3 World Model has no registered model to start from.
   if (!definition || definition.worldModel?.format === 'legacy-v3') return null;
+  // Nothing to prefetch while the registered World Model is off.
+  if (!registeredWorldModelOn(definition)) return null;
   const authority = worldModelStateAuthority(definition);
   return {
     definition: { ...definition, worldModel: { ...(definition.worldModel ?? {}), format: 'registered-v4' } },

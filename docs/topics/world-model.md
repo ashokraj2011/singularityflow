@@ -11,7 +11,7 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 37
+version: 38
 ---
 The world model provides repository-grounded views used during governed generation. In a monorepo, scope it to the capability's source and shared directories so unrelated products do not increase scan cost or invalidate evidence.
 
@@ -26,6 +26,14 @@ content on this machine, and added to each phase prompt as one cited slice for t
 focused on the Story (`worldModel.knowledge.prompt: off` turns it off). `wm knowledge show business`
 is the product owner's view: approved requirements, journeys, rules, messages and vocabulary. Use `wm knowledge show`,
 `slice` and `eval`; see [the knowledge model guide](../KNOWLEDGE-MODEL.md).
+
+## Registered World Model: off by default
+
+The registered World Model is off unless a repository sets `worldModel.registered: on`. While it is
+off nothing builds, reads, verifies or asks for it, a Story that pinned it continues without it,
+`wm build` and the other registered commands refuse with `WMB_REGISTERED_OFF` (`wm status` answers
+`off`), and every phase prompt carries the Repository brief read from the source instead
+(`singularity-flow wm brief --phase PHASE`). What follows applies only where it is on.
 
 ## Registered v4 builder
 

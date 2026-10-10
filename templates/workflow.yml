@@ -204,6 +204,11 @@ planning:
   maxContextBytes: 1048576
 
 worldModel:
+  # Every phase prompt gets a Repository brief read from the source with no build and no model
+  # (rules, contracts, flows, what the Story's change touches, risks). The registered World Model
+  # below (published v4 views on the state branch) is off: nothing builds, reads, verifies or asks
+  # for it, and the settings that follow are kept only for a repository that sets it on.
+  registered: off
   format: registered-v4
   views: [arch.contracts@4, biz.rules@4, dev.hotspots@4, dev.impact@4]
   # Phase and agent assignments name these logical contract IDs.
@@ -253,10 +258,10 @@ worldModel:
     # Use depth: phase with confirmation: prompt when exact phase-depth generation is preferred.
     depth: phase
     confirmation: prompt
-  # The World Model is guidance, never authority: a repository that has not built a model yet, has
-  # no model provider, or holds a stale or unverifiable one still runs its whole lifecycle. `warn`
-  # reports such context and leaves it out with a stable unavailable receipt; `enforce` and
-  # staleness `fail` are still accepted and act as `warn`.
+  # With registered: on, the World Model is guidance, never authority: a repository that has not
+  # built a model yet, has no model provider, or holds a stale or unverifiable one still runs its
+  # whole lifecycle. `warn` reports such context and leaves it out with a stable unavailable
+  # receipt; `enforce` and staleness `fail` are still accepted and act as `warn`.
   grounding: warn
   staleness: warn
   injection:

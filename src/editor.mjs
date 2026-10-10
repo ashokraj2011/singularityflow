@@ -1,4 +1,5 @@
 import { SKILL_LIBRARY_ROOT } from './skill-library.mjs';
+import { registeredWorldModelOn } from './world-model-policy.mjs';
 import { INSTRUCTION_LIBRARY_ROOT } from './instruction-library.mjs';
 import { isConfigurationStatePath } from './configuration-state-contract.mjs';
 import { retiredWorldModelError, selectsRetiredWorldModel } from './world-model-format.mjs';
@@ -828,6 +829,8 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     },
     worldModel: {
       root: modelRoot,
+      // Off unless the repository sets worldModel.registered: on; the IDE then offers no build.
+      registered: registeredWorldModelOn(definition) ? 'on' : 'off',
       repositoryOwned: true,
       timing: 'story-intake',
       generatedAt: worldModelReadiness?.availability?.selected?.manifest?.generated_at
@@ -1470,6 +1473,17 @@ async function worldModelSliceInConfigurationScope(root, requestedWorkId = null)
   const config = await loadWorldModelConfig(root, requestedWorkId ? { workId: requestedWorkId } : {});
   const definition = config.definition;
   const outputDir = posix(config.outputDir ?? definition.worldModel?.outputDir ?? 'singularity/world-model');
+  if (!registeredWorldModelOn(definition)) {
+    // The registered World Model is off: there is nothing to read, and nothing to build.
+    return {
+      schemaVersion: 1, kind: 'world-model-ide-slice', format: 'registered-v4', registered: 'off',
+      status: 'off', reason: 'WMB_REGISTERED_OFF', root: outputDir, generatedAt: null,
+      rebuildReason: null, readiness: { status: 'off', ready: false, source: null, historical: false, command: null },
+      source: { status: 'off', fresh: false, currentSourceManifestSha256: null, reason: null },
+      summary: { views: 0, facts: 0, evidence: 0, derivations: 0, unavailable: 0, contradictions: 0, cacheHits: 0 },
+      views: [], projections: [], expansion: [], workflows: worldModelWorkflowViewUsage(definition)
+    };
+  }
   if (selectsRetiredWorldModel(definition)) {
     // A Story pinned before the legacy-v3 World Model was removed has no readable model.
     const reason = retiredWorldModelError(definition).message;

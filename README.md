@@ -2343,6 +2343,12 @@ child application roots replace the parent scope while shared roots accumulate.
 New lifecycle state pins that resolution so an active Story does not drift when
 the capability map changes.
 
+The registered World Model is off unless a repository sets `worldModel.registered: on`. While it is
+off nothing builds, reads, verifies or asks for it, a Story that pinned it continues without it,
+`wm build` and the other registered commands refuse with `WMB_REGISTERED_OFF` (`wm status` answers
+`off`), and every phase prompt carries the Repository brief read from the source instead
+(`singularity-flow wm brief --phase PHASE`). What follows applies only where it is on.
+
 Registered v4 is the only World Model format; `worldModel.format` may be omitted. In that page
 (or in `singularity/workflow.yml`), declare dotted views such as `dev.impact` and review the
 composer, consumer, cache, and total-token controls. Use `sflow world-model plan --views ...` before

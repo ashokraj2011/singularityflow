@@ -23,6 +23,7 @@ import { scopedRead, withReadScope } from './read-scope.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { assertAttachedLibrarySkills } from './skill-library.mjs';
 import { groundingMode } from './grounding.mjs';
+import { assertRegisteredWorldModelMode, guidanceGroundingMode } from './world-model-policy.mjs';
 import {
   discoverAgents,
   parseAgentDependencies,
@@ -1117,7 +1118,8 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
       throw new SingularityFlowError(`testRecovery references unknown approval authority '${authority}'.`);
     }
   }
-  groundingMode(definition);
+  assertRegisteredWorldModelMode(definition);
+  guidanceGroundingMode(definition.worldModel?.grounding ?? 'off');
   if (definition.worldModel?.runner != null) throw new SingularityFlowError('worldModel.runner is not supported. Configure models.providers with a trusted executable and argument array.');
   for (const [field, label] of [
     ['stateBranch', 'worldModel.stateBranch'], ['remote', 'worldModel.remote']

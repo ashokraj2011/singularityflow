@@ -314,6 +314,21 @@ async function firstRunChecks(extensionPath: string, location: { executable: str
  */
 export const REPOSITORY_ACTIVE_CONTEXT = 'singularityFlow.repositoryActive';
 
+/**
+ * True while the selected repository has the registered World Model (v4) on. It is off unless the
+ * repository sets worldModel.registered: on, and its build commands leave the palette while off.
+ */
+export const REGISTERED_WORLD_MODEL_CONTEXT = 'singularityFlow.registeredWorldModel';
+let registeredWorldModelContext: boolean | null = null;
+
+function setRegisteredWorldModelContext(snapshot: RepositorySnapshot | null | undefined): void {
+  // An engine that predates the switch always had it on.
+  const next = Boolean(snapshot) && snapshot?.worldModel?.registered !== 'off';
+  if (next === registeredWorldModelContext) return;
+  registeredWorldModelContext = next;
+  Promise.resolve(vscode.commands.executeCommand('setContext', REGISTERED_WORLD_MODEL_CONTEXT, next)).catch(() => undefined);
+}
+
 function setActiveRepositoryContext(next: ActiveRepositoryContext | null): void {
   setGatewayRepositoryContext(next);
   Promise.resolve(vscode.commands.executeCommand('setContext', REPOSITORY_ACTIVE_CONTEXT, next !== null))
@@ -4707,6 +4722,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return item?.id ? { id: item.id, kind: item.workType ?? null } : null;
   };
   context.subscriptions.push(store);
+  context.subscriptions.push(store.onDidChange((state) => setRegisteredWorldModelContext(state.snapshot)));
   // An open intake form started on the Store's last snapshot; keep its in-flight list current. The
   // panels bundle is never loaded just to listen: no bundle means no open form.
   context.subscriptions.push(store.onDidChange((state) => {
@@ -8627,6 +8643,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       'singularityFlow.buildWorldModel', { ...request, rebuild: true }
     ),
     'singularityFlow.buildWorldModel': async (request?: { capabilityId?: string; rebuild?: boolean }) => {
+      if (store.current.snapshot?.worldModel?.registered === 'off') {
+        void showCompactInformationMessage('The registered World Model is off in this repository, so there is nothing to build. Phase prompts get the Repository brief read from the source; set worldModel.registered: on to use registered views again.');
+        return;
+      }
       const active = activeRepositoryContext();
       if (!active) {
         void showCompactWarningMessage(

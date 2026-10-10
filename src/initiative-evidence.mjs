@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { registeredWorldModelOn } from './world-model-policy.mjs';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { EPIC_TRACEABILITY_CHECKS, isEpicPlanningPhase, isEpicRequirementsPhase } from './initiative-phase-roles.mjs';
@@ -868,6 +869,8 @@ async function verifyInitiativeImpactMap(root, portfolio, initiative, phaseId) {
       await loadDefinition(root),
       initiative.resolution?.worldModelSourceScope ?? null
     );
+    // Views are not used while the registered World Model is off, so there is nothing to check them against.
+    if (!registeredWorldModelOn(definition)) return { errors: [], warnings: [] };
     const ledger = initiative.resolution?.ledger ?? definition.ledger ?? {};
     const stateAuthority = worldModelStateAuthority({
       ...definition,

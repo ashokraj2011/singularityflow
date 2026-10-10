@@ -97,8 +97,10 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
   // The lifecycle's own freshness rule: a phase reopened as downstream rework or by a skill
   // amendment needs a new generation (and its grounding) as much as a never-published one.
   const generationRequired = Boolean(active) && phaseNeedsGeneration(workflow, active);
-  const { guidanceGroundingMode } = await import('../world-model-policy.mjs');
-  const groundingMode = guidanceGroundingMode(workflow.resolution?.worldModelGrounding ?? 'off');
+  // A Story pinned off needs nothing more; otherwise the registered World Model must also be on.
+  const pinnedGrounding = workflow.resolution?.worldModelGrounding ?? 'off';
+  if (pinnedGrounding !== 'off') definition ??= await (await import('../config.mjs')).loadDefinition(root);
+  const groundingMode = pinnedGrounding === 'off' ? 'off' : (await import('../grounding.mjs')).groundingMode(definition, workflow);
   if (active?.status === 'in_progress' && generationRequired
       && groundingMode !== 'off' && !deterministicConvergence) {
     const { loadDefinition } = await import('../config.mjs');

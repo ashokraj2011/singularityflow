@@ -1,6 +1,8 @@
 import { canonicalJson } from '../../specifications.mjs';
 import { loadCapabilities } from '../../capabilities.mjs';
 import { SingularityFlowError } from '../../util.mjs';
+import { registeredWorldModelOffError } from '../../world-model-format.mjs';
+import { registeredWorldModelOn } from '../../world-model-policy.mjs';
 import { planWorldModelV4 } from '../../world-model/plan.mjs';
 import { sha256 } from '../../world-model/canonicalize.mjs';
 import { createArchitectureCapabilitySnapshot } from '../../world-model/projections/calm/projection.mjs';
@@ -95,6 +97,11 @@ export async function worldModelBuildPlanDescriptor({ root, arguments: args, def
       code: 'WMB_GATEWAY_REPOSITORY_REQUIRED'
     });
   }
+  // Nothing is planned, reviewed or published for a governed repository whose registered World
+  // Model is off. A folder with no configuration has only the host's explicit defaults to go by.
+  const { loadDefinition } = await import('../../config.mjs');
+  const definition = await loadDefinition(root).catch(() => null);
+  if (definition && !registeredWorldModelOn(definition)) throw registeredWorldModelOffError('a World Model build');
   const requestedOptions = await projectionOptions(root, normalizedOptions(root, args, defaults));
   const publication = await captureWorldModelPublicationReview(root, requestedOptions);
   let options;

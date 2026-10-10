@@ -136,6 +136,7 @@ async function activationFixture(t) {
   const definition = {
     workItemRoot: 'singularity/work-items',
     worldModel: {
+      registered: 'on',
       format: 'registered-v4',
       historyDir: 'singularity/world-model-history',
       outputDir: 'singularity/world-model',

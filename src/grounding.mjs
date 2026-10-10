@@ -12,7 +12,7 @@ import { sourcePathIncluded, worldModelSourceScope } from './source-scope.mjs';
 import { withoutConfiguredFilters } from './worktree-fingerprint.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { selectionId } from './world-model-selection.mjs';
-import { guidanceGroundingMode, worldModelStalenessDecision } from './world-model-policy.mjs';
+import { effectiveGroundingMode, registeredWorldModelOn, worldModelStalenessDecision } from './world-model-policy.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
@@ -50,9 +50,9 @@ async function withInitiativeRoot(root, definition = {}) {
   return portfolio?.initiativeRoot ? { ...definition, initiativeRoot: portfolio.initiativeRoot } : definition;
 }
 
+/** The grounding mode in effect (see effectiveGroundingMode); never read resolution.worldModelGrounding directly. */
 export function groundingMode(definition, workflow = null) {
-  // A Story pinned `enforce` before the World Model became guidance-only acts as `warn` too.
-  return guidanceGroundingMode(workflow ? workflow.resolution?.worldModelGrounding ?? 'off' : definition.worldModel?.grounding ?? 'off');
+  return effectiveGroundingMode(definition, workflow);
 }
 
 // Where this tool keeps its own material. Nothing under here is application source, so nothing
@@ -557,7 +557,8 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
   const configuredMode = groundingMode(definition, workflow);
   // An active Story pin is consumed by the composer even when projection grounding is off, so its
   // receipt is still checked and reported. Like every grounding finding, the result only warns.
-  const mode = configuredMode === 'off'
+  // With the registered World Model off, the pin is not consumed and nothing is checked.
+  const mode = configuredMode === 'off' && registeredWorldModelOn(definition)
       && workflow.resolution?.worldModelHistoryPin?.status === 'active'
     ? 'warn'
     : configuredMode;

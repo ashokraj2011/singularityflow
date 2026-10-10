@@ -157,7 +157,7 @@ import { evaluateVisualCoverage } from './visual-coverage.mjs';
 import { compareVisualArtifacts, listVisualComparisons } from './visual-compare.mjs';
 import { bootstrapWorkspacePortfolio, deleteConfigurationFile, deleteConfigurationTemplate, exportConfigurationBundle, repositorySnapshot, publishEditorConfiguration, readConfigurationFile, saveConfigurationFile, selectEditorAgent, validateEditorConfiguration } from './editor.mjs';
 import { automaticEnrollmentMayPublish, publishCurrentIdentityToConfiguration } from './configuration-people.mjs';
-import { verifyGroundingRecord } from './grounding.mjs';
+import { groundingMode, verifyGroundingRecord } from './grounding.mjs';
 import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, redactCommandArgv, repositoryLogger, resolveLogging } from './logging.mjs';
 import { collectWorkspaceLogs } from './workspace-logs.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
@@ -3510,7 +3510,7 @@ export async function startCommand(positionals, options) {
     ]
   });
   if (!optionBoolean(options, 'json')) {
-    summary(workflow);
+    summary(workflow, config);
     console.log(`Story-start readiness: ${startReadiness.status} · configuration, workflow agents, and Git publication verified.`);
     for (const warning of startReadiness.warnings ?? []) console.log(`Readiness advisory: ${warning.message}`);
     if (sealedTestPolicy?.capability?.status === 'not-checked' || sealedTestPolicy?.capability?.modules?.length) {
@@ -3691,7 +3691,7 @@ async function resumeCommand(positionals, options) {
     console.warn(`Warning: Story '${resolved.workId}' resumed, but its active-workspace selection was not updated: ${error.message}`);
   }
   if (!json) {
-    summary(workflow);
+    summary(workflow, config);
     console.log(`Active governed agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
   }
   const active = currentPhase(workflow);
@@ -3840,7 +3840,7 @@ async function returnCommand(positionals, options) {
   );
   const json = optionBoolean(options, 'json');
   if (!json) {
-    summary(workflow);
+    summary(workflow, config);
     console.log(`Returned from ${plan.freshness} evidence at ${plan.sourceCommit.slice(0, 12)}.`);
     console.log(`Active governed agent: ${session.agentLabel ?? session.agent} (${session.agent})`);
   }
@@ -3903,7 +3903,7 @@ export async function statusCommand(positionals, options) {
     console.log(JSON.stringify({ ...workflow, welStatus: wel, authoringRoutes: workflowAuthoringRoutes(workflow) }, null, 2));
     return;
   }
-  summary(workflow);
+  summary(workflow, config);
   console.log(`WEL: ${wel.classification} · ${wel.mode}${wel.reason ? ` · ${wel.reason}` : ''}`);
   console.log(`\n${table(workflow.phaseOrder.map((id, index) => {
     const phase = workflow.phases[id];
@@ -4657,7 +4657,7 @@ async function nextCommand(options) {
   if (requestedTask) {
     console.warn('Ignoring --task for lifecycle grounding; the repository world model is shared across Stories and Story context comes from the governed phase. Use an explicit wm ensure/compose --task command only to request an ad-hoc task guide.');
   }
-  const grounding = workflow.resolution?.worldModelGrounding ?? 'off';
+  const grounding = groundingMode(config, workflow);
   if (grounding !== 'off' && !deterministicConvergence) {
     const readiness = await inspectWorkflowGrounding(root, workflow, phase.id, {
       agent: (await loadSession(root, { required: false }))?.agent ?? null,

@@ -16,7 +16,19 @@ export const RETIRED_WORLD_MODEL_FORMAT = 'legacy-v3';
 // Kept free of the view registry: the command registry refuses retired subcommands before loading anything heavy.
 const REMEDIATION = `Set worldModel.format: ${WORLD_MODEL_FORMAT} (or remove the setting), list worldModel.views from the `
   + 'registered views (singularity-flow wm views), and replace phase, agent and initiative view assignments with those IDs. '
-  + 'Existing legacy-v3 output is not read; build the registered views with: singularity-flow wm build.';
+  + 'Existing legacy-v3 output is not read. Phase prompts get the repository brief read from the source (singularity-flow wm brief); '
+  + 'registered views are used only where worldModel.registered is on.';
+
+/** The refusal for a registered World Model command while `worldModel.registered` is off. */
+export function registeredWorldModelOffError(source) {
+  return new SingularityFlowError(
+    `The registered World Model is off in this repository, so ${source} has nothing to work on. `
+    + 'Phase prompts get the repository brief, read from the source with no model: see what a phase receives with '
+    + 'singularity-flow wm brief --phase PHASE, or read the repository with singularity-flow wm knowledge brief. '
+    + 'To use registered views again, set worldModel.registered: on in singularity/workflow.yml.',
+    { code: 'WMB_REGISTERED_OFF', details: { source } }
+  );
+}
 
 /** The refusal for anything that still asks for the retired format. */
 export function retiredWorldModelFormatError(source, details = {}) {

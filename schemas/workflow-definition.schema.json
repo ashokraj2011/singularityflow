@@ -710,6 +710,7 @@
           },
           "additionalProperties": false
         },
+        "registered": { "enum": ["off", "on"], "default": "off", "description": "The registered World Model (published v4 views and Story history pins). Off: nothing builds, reads, verifies or asks for it, and phase prompts carry only the Repository brief read from the source; grounding, staleness and view settings are kept but ignored." },
         "grounding": { "enum": ["off", "warn", "enforce"], "default": "off" },
         "staleness": { "enum": ["warn", "fail", "ignore"] },
         "injection": {

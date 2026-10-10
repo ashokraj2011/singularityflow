@@ -27,7 +27,7 @@ export interface CapabilityDashboard {
   openWork: number;
   approvals: number;
   diagnostics: 'healthy' | 'needs-attention' | 'unknown';
-  worldModel: 'available' | 'missing';
+  worldModel: 'available' | 'missing' | 'off';
   roots: CapabilityRootSummary[];
 }
 
@@ -90,7 +90,7 @@ export function buildCapabilityDashboard(snapshot: RepositorySnapshot | null): C
     diagnostics: snapshot?.diagnostics?.healthy == null
       ? 'unknown'
       : snapshot.diagnostics.healthy ? 'healthy' : 'needs-attention',
-    worldModel: snapshot?.worldModel?.generatedAt ? 'available' : 'missing',
+    worldModel: snapshot?.worldModel?.registered === 'off' ? 'off' : snapshot?.worldModel?.generatedAt ? 'available' : 'missing',
     roots: tree.map(rootSummary)
   };
 }

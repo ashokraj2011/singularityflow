@@ -148,6 +148,7 @@ async function repository(t, { publication = 'off' } = {}) {
   const workflowPath = path.join(root, 'singularity', 'workflow.yml');
   const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
   workflow.worldModel.format = 'registered-v4';
+  workflow.worldModel.registered = 'on';
   workflow.worldModel.promptSource = 'builtin';
   workflow.worldModel.views = ['dev.impact'];
   workflow.worldModel.v4 = {

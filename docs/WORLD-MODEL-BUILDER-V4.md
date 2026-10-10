@@ -23,9 +23,28 @@ does not rebuild an unchanged repository model.
 > builds missing history. The explicit history producer and this builder's operational current
 > projection remain separate. See [Persisted World-Model views](PERSISTED-WORLD-MODEL-VIEWS.md).
 
+## Off by default
+
+The registered World Model is off unless a repository sets `worldModel.registered: on` in
+`singularity/workflow.yml` (the packaged configuration writes `registered: off`). While it is off:
+
+- nothing builds, refreshes, reads, verifies or asks for it: Story start selects no history pin and
+  records an explicit `WMP_STORY_ACTIVATION_NOT_CONFIGURED` one, compose reads no view, and prompt
+  receipts are not checked against a model;
+- a Story that pinned `warn` grounding or an active history pin continues without it, exactly as a
+  Story that pinned `off`;
+- `wm build` and every other registered command refuse with `WMB_REGISTERED_OFF`; `wm status` and
+  `wm availability` answer `off`; `wm migrate-views` has nothing to rewrite; the gateway plans no build;
+- VS Code shows no build, rebuild or "no world model yet" notice;
+- every phase prompt carries the Repository brief read from the source with no model
+  (see [the knowledge model guide](KNOWLEDGE-MODEL.md)).
+
+`worldModel.grounding`, `staleness`, `views`, `v4` and phase and agent view assignments are still
+accepted and validated, and are ignored. Everything below describes the builder with it on.
+
 ## Enable v4
 
-`registered-v4` is the only World Model format: exact `@4` catalog entries, native phase/agent
+Set `worldModel.registered: on`. `registered-v4` is the only World Model format: exact `@4` catalog entries, native phase/agent
 selections, deterministic composition and strict assignment validation. A configuration without a
 `format` uses it. World Model-off workflows remain off.
 

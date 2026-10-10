@@ -8,8 +8,7 @@ import { verifyClarificationRecord } from '../clarifications.mjs';
 import { phaseRequiresCodeDelivery } from '../code-delivery-policy.mjs';
 import { resolveDeliveryQualityCommands } from '../delivery-evidence.mjs';
 import { head } from '../git.mjs';
-import { verifyGroundingRecord } from '../grounding.mjs';
-import { guidanceGroundingMode } from '../world-model-policy.mjs';
+import { groundingMode as storyGroundingMode, verifyGroundingRecord } from '../grounding.mjs';
 import { readPromptGeneration } from '../inject.mjs';
 import { generationTaskForPhase } from '../model-tasks.mjs';
 import { invokeModel, resolveModelProvider } from '../model-runner.mjs';
@@ -1085,7 +1084,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       }
       const deterministicProducer = phase.generationPolicy?.producer === 'deterministic'
         && !phaseRequiresCodeDelivery(phase);
-      const groundingMode = guidanceGroundingMode(workflow.resolution?.worldModelGrounding ?? 'off');
+      const groundingMode = storyGroundingMode(definition, workflow);
       if (!deterministicProducer && groundingMode !== 'off') {
         let readiness = await inspectWorkflowGrounding(worktree, workflow, phase.id, {
           agent: phase.defaultAgent,

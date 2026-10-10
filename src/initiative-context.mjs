@@ -12,7 +12,7 @@ import {
 import { resolveGroundingPlan } from './world-model-selection.mjs';
 import { isRetiredWorldModelView, worldModelAssignmentViews } from './world-model-views.mjs';
 import { materializationPolicy } from './world-model-materialization.mjs';
-import { guidanceGroundingMode, worldModelStalenessDecision } from './world-model-policy.mjs';
+import { effectiveGroundingMode, guidanceGroundingMode, registeredWorldModelOn, worldModelStalenessDecision } from './world-model-policy.mjs';
 import { inspectConfiguredGrounding, resolveInspectedGrounding } from './worldmodel.mjs';
 import { validatePortfolioWorldModelViews } from './initiative-config.mjs';
 import {
@@ -430,7 +430,9 @@ export async function composeInitiativeContext(root, initiativeId, requestedPhas
   const inputs = await approvedInputSections(root, portfolio, initiative, phase);
   const epicSources = await epicSourceSections(root, initiative, phase);
   const knowledge = await knowledgeSections(root, definition, initiative);
-  const mode = guidanceGroundingMode(initiative.resolution.worldModelGrounding ?? groundingMode(definition));
+  const mode = registeredWorldModelOn(definition)
+    ? guidanceGroundingMode(initiative.resolution.worldModelGrounding ?? groundingMode(definition))
+    : 'off';
   const groundingDefinition = withWorldModelSourceScope(
     definition,
     initiative.resolution?.worldModelSourceScope ?? initiative.resolution?.capability?.sourceScope ?? null
@@ -583,7 +585,8 @@ export async function verifyInitiativeContext(root, portfolio, initiative, phase
     type: 'file'
   });
   // Context findings are guidance about the prompt, so every one of them is a warning.
-  const mode = guidanceGroundingMode(initiative.resolution.worldModelGrounding ?? 'off');
+  const pinned = guidanceGroundingMode(initiative.resolution.worldModelGrounding ?? 'off');
+  const mode = pinned === 'off' ? 'off' : effectiveGroundingMode(await loadDefinition(root), initiative);
   const errors = [];
   const warnings = [];
   if (!recordTarget.exists) {

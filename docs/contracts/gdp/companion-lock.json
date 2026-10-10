@@ -4,9 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "b931b39689a80a23251410b62dbdaa44b2eb1f9a",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-09-RETIRED-VIEWS-GUIDANCE.md",
+    "reviewedAtCommit": "700b6dee1baa113e7483a87f046aa07e51bbc3eb",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-10-REGISTERED-WORLD-MODEL-OFF.md",
     "companionIds": [
+      "workflow-configuration",
       "world-model-v4"
     ]
   },
@@ -14,7 +15,7 @@
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:eb170ff17215ea049266391640b40fdb7b90126fc496eb5757dfc57f01f07e2e"
+      "sha256": "sha256:59843ffe6498d4d1b7a7f14459e45b163878c2c9baba36d0114e01e59f122529"
     },
     {
       "id": "sgos-portable-schema",
@@ -34,7 +35,7 @@
     {
       "id": "world-model-v4",
       "path": "docs/WORLD-MODEL-BUILDER-V4.md",
-      "sha256": "sha256:c3b16850f3ca8db49f0380f781defb99e4e2a444b7468d3b1dc90044b5a24088"
+      "sha256": "sha256:4f9c5de12a94f5aee87a11e3683c97b721257c3e2e59709382e9d422f9966b71"
     },
     {
       "id": "witnessed-engineering-loop",

@@ -1,4 +1,5 @@
 import { workflowAuthoringRoutes } from '../code-delivery-policy.mjs';
+import { effectiveGroundingMode } from '../world-model-policy.mjs';
 import { branch } from '../git.mjs';
 import { executeGitQuery } from '../git-query.mjs';
 import { ledgerStatus } from '../ledger.mjs';
@@ -11,12 +12,15 @@ function activePhase(workflow) {
   return workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
 }
 
-function summary(workflow) {
+function summary(workflow, definition = null) {
   const active = activePhase(workflow);
   console.log(`\n${workflow.workItem.id} — ${workflow.workItem.title}`);
   console.log(`Branch: ${workflow.workItem.branch}`);
   for (const line of storyLineageLines(workflow)) console.log(line);
-  console.log(`World-model grounding: ${workflow.resolution?.worldModelGrounding ?? 'off'}`);
+  // The pinned mode applies only while the registered World Model is on.
+  if (definition || (workflow.resolution?.worldModelGrounding ?? 'off') === 'off') {
+    console.log(`World-model grounding: ${definition ? effectiveGroundingMode(definition, workflow) : 'off'}`);
+  }
   console.log(`Status: ${storyStatusLabel(workflow.status)}`);
   console.log(`Current phase: ${active ? `${active.id} (${active.status})` : noCurrentPhaseLabel(workflow.status)}`);
   if (active) {
@@ -116,7 +120,8 @@ export async function run(_argv, { positionals, options }) {
     authoringRoutes: workflowAuthoringRoutes(workflow)
   }, null, 2));
 
-  summary(workflow);
+  const pinnedGrounding = workflow.resolution?.worldModelGrounding ?? 'off';
+  summary(workflow, pinnedGrounding === 'off' ? null : await (await import('../config.mjs')).loadDefinition(root).catch(() => null));
   if (gitShadowSummary) {
     console.log(`Git shadow: ${gitShadowSummary.equivalent}/${gitShadowSummary.comparisons} equivalent · reference remains authoritative`);
   }

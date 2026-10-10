@@ -52,12 +52,12 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
   ] }
 ];
 
-function navigation(active: ConfigurationTab): string {
+function navigation(active: ConfigurationTab, registeredOn = true): string {
   return `<aside class="configuration-sidebar">
     <nav class="configuration-nav" aria-label="Configuration areas">
       ${CONFIGURATION_NAVIGATION.map((group) => `<section class="configuration-nav-group" aria-labelledby="configuration-nav-${escape(group.label.toLowerCase().replace(/[^a-z]+/g, '-'))}">
         <h2 id="configuration-nav-${escape(group.label.toLowerCase().replace(/[^a-z]+/g, '-'))}">${escape(group.label)}</h2>
-        <ul>${group.items.map((item) => `<li><button type="button" class="configuration-nav-item${item.tab === active ? ' active' : ''}"${item.tab === active ? ' aria-current="page"' : ''}${item.tab ? ` data-tab="${item.tab}"` : ` data-action="${item.action}"`}>${icon(item.glyph, { size: 16 })}<span>${escape(item.label)}</span></button></li>`).join('')}</ul>
+        <ul>${group.items.filter((item) => registeredOn || item.action !== 'rebuild-world-model').map((item) => `<li><button type="button" class="configuration-nav-item${item.tab === active ? ' active' : ''}"${item.tab === active ? ' aria-current="page"' : ''}${item.tab ? ` data-tab="${item.tab}"` : ` data-action="${item.action}"`}>${icon(item.glyph, { size: 16 })}<span>${escape(item.label)}</span></button></li>`).join('')}</ul>
       </section>`).join('')}
     </nav>
   </aside>`;
@@ -354,7 +354,16 @@ function worldModelExplorer(view: ConfigurationCenterView): string {
   </div>`;
 }
 
+/** While the registered World Model is off there is nothing to build, explore or tune here. */
+function registeredWorldModelOff(): string {
+  return `<section class="plain world-model-settings">
+    <div class="section-heading"><div><p class="eyebrow">World Model</p><h2>${icon('worldModel')}Repository brief</h2><p class="muted">Every phase prompt gets a short Repository brief read from the source with no build and no model: the rules that apply, contracts, flows, what the Story's change touches and the risky places.</p></div><button class="secondary" data-action="open-workflow">Open advanced YAML</button></div>
+    <p class="notice">The registered World Model is off in this repository, so nothing is built, published or required. See what a phase receives with <code>singularity-flow wm brief --phase PHASE</code>. To use registered views again, set <code>worldModel.registered: on</code> in <code>singularity/workflow.yml</code>.</p>
+  </section>`;
+}
+
 function worldModel(view: ConfigurationCenterView): string {
+  if (view.worldModelStatus.registered === 'off') return registeredWorldModelOff();
   const model = view.worldModel;
   const source = view.configurationState;
   const proposed = Boolean(source.effective?.kind && source.effective.kind !== 'working-tree');
@@ -565,8 +574,8 @@ export function configurationCenterHtml(
     : content;
   return `<header class="inbox-header">${brandLockup()}<p class="eyebrow">Governed repository setup</p><h1>${icon('configuration', { size: 24 })}Configuration Center</h1><p class="meta">Configure the product through guided screens. Use YAML only for advanced settings that do not yet have a form.</p></header>
     <div id="configuration-runtime-message" class="notice warning" role="status" aria-live="polite" hidden><span id="configuration-runtime-text"></span><span class="grow"></span><button class="secondary" id="configuration-reload" type="button">Reload newer configuration</button><button class="secondary" id="configuration-keep" type="button">Keep editing</button><button class="secondary" id="configuration-runtime-resume-approved" type="button" hidden>Resume approved baseline</button></div>
-    <div class="configuration-shell">${navigation(tab)}<main class="configuration-content">
-      ${tab === 'world-model' ? worldModelVisualization(view) : ''}
+    <div class="configuration-shell">${navigation(tab, view.worldModelStatus.registered !== 'off')}<main class="configuration-content">
+      ${tab === 'world-model' && view.worldModelStatus.registered !== 'off' ? worldModelVisualization(view) : ''}
       ${guardedContent}
     </main></div>`;
 }

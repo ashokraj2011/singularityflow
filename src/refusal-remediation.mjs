@@ -277,10 +277,14 @@ const UPGRADE_KNOWN = Object.freeze({
       'singularity-flow wm views')
   ],
   WMB_FORMAT_RETIRED: () => [
-    step('review-registered-views', 'List the registered views that replace the retired legacy-v3 names.',
-      'singularity-flow wm views'),
-    step('build-registered-world-model', 'After the configuration names only registered views, build them.',
-      'singularity-flow wm build', 'remediation')
+    step('read-repository-brief', 'Phase prompts get the repository brief read from the source; see what a phase receives.',
+      'singularity-flow wm brief --phase PHASE')
+  ],
+  WMB_REGISTERED_OFF: () => [
+    step('read-repository-brief', 'Phase prompts get the repository brief read from the source; see what a phase receives.',
+      'singularity-flow wm brief --phase PHASE'),
+    step('read-repository-knowledge', 'Read the repository itself: rules, contracts, flows and risks, with no model.',
+      'singularity-flow wm knowledge brief')
   ],
   WMB_VIEW_VERSION_UNSUPPORTED: () => [
     step('review-registered-views', 'Compare the requested view version with the installed registered views.',

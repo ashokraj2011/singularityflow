@@ -7,12 +7,12 @@ argument-hint: "[PHASE-ID]"
 # View phase documents
 
 <!-- sflow-copilot-pause -->
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+Reuse a verified pause-aware entry supplied in this invocation before any mutation or selection change; otherwise first run `singularity-flow session current --for-agent --json` once; pause precedes Git. If `paused`: native Copilot, only `/sf-pause off`, never resume implicitly. Reuse binding/`personalization.replyName`; fresh operation checks/consent remain required.
 
 <!-- sflow-output-contract: concise-relay -->
 **Output contract:** Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below. Honor returned `commandGuidance`: show Shell, Copilot and available `modelFreeCommand` as "VS Code (model-free)". Missing Copilot: "Copilot: no verified equivalent". Never invent routes.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
+**Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup.
 
 1. Select the explicit phase argument, or the current phase from the ready Story session. Run `singularity-flow phase show <PHASE-ID> --json`. Stop if its Story or phase differs from the selected session, policy is unverified, or a document reports an error.
 2. Show each produced document's ID, label, kind, path, generation, size and SHA-256, and the phase status. Distinguish unpublished drafts from published or submitted evidence. Render its returned text in full when available. For a bounded preview or omitted body, read that exact ID with `singularity-flow documents view <DOCUMENT-ID> --work-id <WORK-ID> --json`; state clearly if the verified preview is truncated. For a binary, show its metadata and verified open path. Never invent missing content or read a different Story's file.

@@ -8,12 +8,12 @@ argument-hint: "status | preview <SKILL-ID> --reason <TEXT> | propose <SKILL-ID>
 # Review a Story skill-version amendment
 
 <!-- sflow-copilot-pause -->
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+Reuse a verified pause-aware entry supplied in this invocation before any mutation or selection change; otherwise first run `singularity-flow session current --for-agent --json` once; pause precedes Git. If `paused`: native Copilot, only `/sf-pause off`, never resume implicitly. Reuse binding/`personalization.replyName`; fresh operation checks/consent remain required.
 
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions. Honor returned `commandGuidance`: show Shell, Copilot and available `modelFreeCommand` as "VS Code (model-free)". Missing Copilot: "Copilot: no verified equivalent". Never invent routes.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
+**Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup.
 
 1. Read `singularity-flow story skill-version status --json` from the verified Story repository. It reports the pinned version and any pending proposal; it does not read a floating live skill folder as authority.
 2. When the person names an approved skill ID and reason, run `singularity-flow story skill-version preview <SKILL-ID> --reason <TEXT> --json`. Show the old and proposed package identities, approved configuration revision, exact plan digest, and each affected, preserved, or unproven dependency. Stop if the CLI reports an unknown dependency, changed policy outside the selected package, unavailable approved bytes, or unsupported snapshot shape.

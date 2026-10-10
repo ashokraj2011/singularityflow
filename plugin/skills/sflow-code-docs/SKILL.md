@@ -8,12 +8,12 @@ argument-hint: "[file or declaration focus]"
 # Document the code this generation changed
 
 <!-- sflow-copilot-pause -->
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+Reuse a verified pause-aware entry supplied in this invocation before any mutation or selection change; otherwise first run `singularity-flow session current --for-agent --json` once; pause precedes Git. If `paused`: native Copilot, only `/sf-pause off`, never resume implicitly. Reuse binding/`personalization.replyName`; fresh operation checks/consent remain required.
 
 <!-- sflow-output-contract: scoped-repair -->
 **Output contract:** Repair only the named local scope; report changes and remaining findings. Never publish, submit, or approve. Honor returned `commandGuidance`: show Shell, Copilot and available `modelFreeCommand` as "VS Code (model-free)". Missing Copilot: "Copilot: no verified equivalent". Never invent routes.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
+**Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup.
 
 1. Use the Boundary result's `phase`. Run `singularity-flow status --json` and require `phases[<phase>].generationPolicy.task: code`. Otherwise stop and route to `/sf-code`.
 2. Run `singularity-flow phase draft-check <phase> --json`. Read `advisories[]` (code `code.documentation.missing`) and `documentation`. If `documentation.status` is `complete` or `not-applicable`, report that and stop.

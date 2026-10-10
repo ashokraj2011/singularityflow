@@ -50,7 +50,7 @@ test('every public skill has a bounded class and output contract', async () => {
     && row.bodyTokens - row.commandPresentationTokens - row.pauseGuardTokens <= (policy.skills[row.name]?.maximumTokenOverride ?? 800)));
   // Code generation, the specialised skills a step may choose (they follow that step's contract),
   // and the two skills that relay a step routed elsewhere.
-  const overridden = ['sflow-code', 'sflow-design', 'sflow-phase', 'sflow-release', 'sflow-requirements', 'sflow-verify'];
+  const overridden = ['sflow-code', 'sflow-design', 'sflow-phase', 'sflow-release', 'sflow-requirements'];
   assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.commandPresentationTokens - row.pauseGuardTokens > 800).map((row) => row.name), overridden);
   for (const name of overridden) assert.ok(policy.skills[name].exception, `${name} explains its token override`);
   assert.ok(result.rows.every((row) => ['never', 'conditional'].includes(row.kernelModelPolicy)));
@@ -91,7 +91,7 @@ test('code-gate skills distinguish runtime repair, draft authoring and published
   assert.match(recover, /dependency repair permits retry without republishing unchanged source/);
   assert.match(recover, /Stop on unchanged conditions or three distinct repairs/);
   assert.match(submit, /changed source\/artifacts need reviewed rollover/);
-  assert.match(submit, /Fingerprint refusal plus artifact\/check hashes and diagnosed runtime evidence/);
+  assert.match(submit, /Fingerprint refusal plus artifact\/check hashes and diagnosed runtime evidence/i);
   assert.match(submit, /Stop on an unchanged condition or after three distinct repairs/);
   assert.match(submit, /Never loop quality commands/);
   assert.doesNotMatch(submit, /fix only current-phase artifacts\/checks/,
@@ -178,16 +178,15 @@ test('approval remains explicit-only with one bound artifact review per conversa
   const content = await readFile(path.join(root, 'plugin', 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
   assert.match(content, /disable-model-invocation:\s*true/);
   assert.match(content, /sflow-output-contract: governed-review/);
-  assert.match(content, /Render all text\/briefs between/);
+  assert.match(content, /Render every text\/brief with identity, hash and `--- BEGIN <path> ---` \/ `--- END <path> ---`/);
   assert.match(content, /exact phase name|exact phase ID/i);
   assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('phase show <phase> --json'),
     'approval must resolve the requested Story and phase before reading artifacts');
   assert.ok(content.indexOf('phase show <phase> --json') < content.indexOf('Render once per exact display binding'),
     'current packet must be revalidated before prior display is reused');
-  assert.match(content, /documentId`, `documentPath`, and `documentSha256`/);
-  assert.match(content, /Do not perform a second `singularity-flow documents view` lookup/);
-  assert.match(content, /across messages if needed/);
-  assert.match(content, /Truncated content: stop/);
+  assert.match(content, /Match receipt, `reviewBinding`, artifacts and briefs to `approvalContext`; mismatch or missing binding stops/);
+  assert.match(content, /Do not repeat document lookup/);
+  assert.match(content, /omissions or truncation require full display/);
   assert.match(content, /do not ask again/);
   assert.match(content, /A phase supplied before a new or changed packet review is not its confirmation, even if document bodies match/);
   assert.match(content, /sflow-turn-boundary: approval-only/);

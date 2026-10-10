@@ -7,12 +7,12 @@ argument-hint: "[WORK-ID]"
 # Safe recovery
 
 <!-- sflow-copilot-pause -->
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+Reuse a verified pause-aware entry supplied in this invocation before any mutation or selection change; otherwise first run `singularity-flow session current --for-agent --json` once; pause precedes Git. If `paused`: native Copilot, only `/sf-pause off`, never resume implicitly. Reuse binding/`personalization.replyName`; fresh operation checks/consent remain required.
 
 <!-- sflow-output-contract: deterministic-mutation -->
 **Output contract:** CLI validates/mutates; preserve exact results, warnings, publication status, artifacts/actions. Honor returned `commandGuidance`: show Shell, Copilot and available `modelFreeCommand` as "VS Code (model-free)". Missing Copilot: "Copilot: no verified equivalent". Never invent routes.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
+**Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup.
 
 1. `singularity-flow recover $ARGUMENTS --fetch --json`: retain `planId`; inspection never `--apply`.
 2. Follow action classifications, not blanket dirty-tree stops. `requiresRecovery: false`/no blockers: no gate. `current-phase-review-required`/`confirmation: none`: review diff, preserve validated preparation context and exactly declared phase evidence; continue draft checks. Preserve untracked `.sflow/results/**`; tracked/staged reports and source require review. Stop for divergence/transport/authority. Diagnose `repair-publication-authority:<phase>`/`repair-generation-change-set:<phase>` before rollover; never waive.

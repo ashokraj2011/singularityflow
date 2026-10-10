@@ -8,12 +8,12 @@ argument-hint: "[WORK-ID] [--fetch] --to PHASE --reason 'explanation' [--repair]
 # Request governed changes
 
 <!-- sflow-copilot-pause -->
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+Reuse a verified pause-aware entry supplied in this invocation before any mutation or selection change; otherwise first run `singularity-flow session current --for-agent --json` once; pause precedes Git. If `paused`: native Copilot, only `/sf-pause off`, never resume implicitly. Reuse binding/`personalization.replyName`; fresh operation checks/consent remain required.
 
 <!-- sflow-output-contract: governed-review -->
 **Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision. Honor returned `commandGuidance`: show Shell, Copilot and available `modelFreeCommand` as "VS Code (model-free)". Missing Copilot: "Copilot: no verified equivalent". Never invent routes.
 <!-- sflow-execution-boundary -->
-**Boundary:** `singularity-flow session current --json` → `ready`/`workId`, cwd=`repositoryPath`; use CLI/`workItemRoot` paths; never `$HOME`.
+**Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup.
 
 On `Out of sequence`, relay the refusal. On `Soft sequence warning`, leave continuation to the
 human. Never edit managed state to bypass a gate.

@@ -332,30 +332,15 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   ])
 });
 
-/** Current release digests, kept separate so a known current file is never offered as repairable. */
-export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
+// Exact profiles shipped before native entry reuse; preserve upgrade provenance, not custom edits.
+const AGENTS_BEFORE_NATIVE_ENTRY_REUSE = Object.freeze({
   '.github/agents/demo-intake-analyst.agent.md': 'f2fb5a528c8cc3966901868436afd640489e82fc4c5703787e1d010ef9c2b36e',
   '.github/agents/demo-code-checker.agent.md': '05ac1874b8e0b6a48efde26fd1a77e0c9ce2ecab27de28761a51460fa82deb03',
   '.github/agents/demo-code-repairer.agent.md': 'c79919043b5c93cd43cdd6b297949d948796e8e56c7548d89ebb457472c02bff',
   '.github/agents/demo-story-closer.agent.md': '098d10ddb1af9624cdd93f9fe53909e1fef79d666cd197a2b330c6076f12a5b0',
-  'singularity/templates/demo-check-repair-close/intake.md': 'b711a8f37bebf0dda05a99d4bf3efdcbb1bfc424d70d8f69d5c9289c2a6e2b2f',
-  'singularity/templates/demo-check-repair-close/check.md': 'cbde6d2812b782f32589db7f95f33c44586ce6e552ce636541326e912c3a1663',
-  'singularity/templates/demo-check-repair-close/repair.md': '66af2bad38c83317e4ccd2d96c7713234f64149e7d7015235b98047770f7df30',
-  'singularity/templates/demo-check-repair-close/close.md': '9070bc1135edfa168c5c63b43df230dd5997f527e7b7a2931311eb8cca78a2d6',
-  'singularity/skill-library/demo-acceptance-intake/SKILL.md': '0ca1d2e0fec9b529070e7ec7128e632e2efc9c6e8089b05443ea928190304896',
-  'singularity/skill-library/demo-code-acceptance-check/SKILL.md': '57cd19310b68568853ac9339b4d4d73cece27ff2df57b2fc1110a4e26e7c8870',
-  'singularity/skill-library/demo-scoped-code-repair/SKILL.md': '8b5dad40926ef0f95a9d1c9295b2cdcbe9a43f1182636b1d82ff3fa69c2c9871',
-  'singularity/skill-library/demo-evidence-bound-close/SKILL.md': 'e18a418b84f1371fa7b86dbf30e9a9015d1ab348bddbb034ff12004f771f7926',
   '.github/agents/demo-web-analyst.agent.md': 'a06f1b514eec22d8e75b2d8b609348f3d43b118f00e456de5b1c3e25ca72e2b1',
   '.github/agents/demo-web-developer.agent.md': '30572f81d47c0c9274872153f93d9313884713c6b25411967468307da703cdfa',
   '.github/agents/demo-web-tester.agent.md': 'effdbb363713e11ebcf06df83c7258dada6ef5b28e7ba012dd3e2f9e74611af3',
-  'singularity/skill-library/attachments.yml': '34bb3311f72976388ce8279974354142ccffff182da90ceb7c0cef033bedd027',
-  'singularity/skill-library/demo-web-defect-repair/SKILL.md': 'c968f300ac02c798ec54a9b7c83744534b529372fdb60539f164effd251416fb',
-  'singularity/skill-library/demo-web-screenshot-check/SKILL.md': '77a7ca8a6afb9a73cbbfda626ce72cec6d07d6b82287b3deaf61159785b0ee5f',
-  'singularity/skill-library/demo-web-screenshot-intake/SKILL.md': '225d981bbf356ccbe63033940b4c81172d5985f9453330af275bdd21c4510a63',
-  'singularity/templates/demo-web-e2e-testing/check.md': '31bc19257b108572d3043066a8747ade34dc0facb9bc75e013a5b5ded599e2c5',
-  'singularity/templates/demo-web-e2e-testing/intake.md': '937e5b69f618050e79cb76e384994ba6349d8bbe59914c7d9117920af35e94f7',
-  'singularity/templates/demo-web-e2e-testing/repair.md': '5cf8165f7981c55d1b6d2b6f09e23e0230261eeb98312de213f11b93091f332f',
   '.github/agents/architect.agent.md': 'c691034602364b7c8c752c29c345a4ef95dd330c44e17bd171b22f057d656136',
   '.github/agents/developer.agent.md': 'd26252853e95ebfa11bc85e3e453a20a86e6a50b05f6e0b42da90b82291295ed',
   '.github/agents/document-analyst.agent.md': '03c307bb9396ec71ea8af1a347c45cae82c2e5cb04197588c24ce48ea6559d37',
@@ -373,6 +358,49 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   '.github/agents/qa.agent.md': 'b35814bde7c8edb284b272d33f50b7a0ed219cb6228f3102965f23d6e6e675e7',
   '.github/agents/scenario-developer.agent.md': '9fc0f10ebd86aa0f3efb30414b5523fa8afc5732ffaa3402a1387bac671b4c26',
   '.github/agents/scenario-tester.agent.md': '3f9ea64bd093f5fd63c7d7c5837313deff922feae22c5a5b5e76bed6a131d3be',
+});
+
+/** Current release digests, kept separate so a known current file is never offered as repairable. */
+export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
+  '.github/agents/demo-intake-analyst.agent.md': '4de23dbcb5a2877937198343521aab3f9f2accd4638560c8d386e11faab21dc1',
+  '.github/agents/demo-code-checker.agent.md': '8663390f8d2307b0761c77dff2b8c3ba5f210eb0b4ce2a667393e35f74a8c429',
+  '.github/agents/demo-code-repairer.agent.md': 'c9fa90ab14274f2f1bd0d92662a773087ccdaa66d24b8b117b26d1e36fbb9834',
+  '.github/agents/demo-story-closer.agent.md': '41a9a1aebd1200f6777f78dd3b34b2b97aa2fc9a49d7b69923c351fcdcfa42bd',
+  'singularity/templates/demo-check-repair-close/intake.md': 'b711a8f37bebf0dda05a99d4bf3efdcbb1bfc424d70d8f69d5c9289c2a6e2b2f',
+  'singularity/templates/demo-check-repair-close/check.md': 'cbde6d2812b782f32589db7f95f33c44586ce6e552ce636541326e912c3a1663',
+  'singularity/templates/demo-check-repair-close/repair.md': '66af2bad38c83317e4ccd2d96c7713234f64149e7d7015235b98047770f7df30',
+  'singularity/templates/demo-check-repair-close/close.md': '9070bc1135edfa168c5c63b43df230dd5997f527e7b7a2931311eb8cca78a2d6',
+  'singularity/skill-library/demo-acceptance-intake/SKILL.md': '0ca1d2e0fec9b529070e7ec7128e632e2efc9c6e8089b05443ea928190304896',
+  'singularity/skill-library/demo-code-acceptance-check/SKILL.md': '57cd19310b68568853ac9339b4d4d73cece27ff2df57b2fc1110a4e26e7c8870',
+  'singularity/skill-library/demo-scoped-code-repair/SKILL.md': '8b5dad40926ef0f95a9d1c9295b2cdcbe9a43f1182636b1d82ff3fa69c2c9871',
+  'singularity/skill-library/demo-evidence-bound-close/SKILL.md': 'e18a418b84f1371fa7b86dbf30e9a9015d1ab348bddbb034ff12004f771f7926',
+  '.github/agents/demo-web-analyst.agent.md': '05e16faddfd28fec43c1500a7577a0e82dfceac91b28f71e6aa704555d595b2e',
+  '.github/agents/demo-web-developer.agent.md': 'e4831b6094bf6a203e8593d4cd13fcc2477592ed6c4a2c707665cac5f4b8b0cb',
+  '.github/agents/demo-web-tester.agent.md': 'c2e3b161f05bcbe375ab119418c13aa1a041ab0237d8e428251e7b51bf1b476d',
+  'singularity/skill-library/attachments.yml': '34bb3311f72976388ce8279974354142ccffff182da90ceb7c0cef033bedd027',
+  'singularity/skill-library/demo-web-defect-repair/SKILL.md': 'c968f300ac02c798ec54a9b7c83744534b529372fdb60539f164effd251416fb',
+  'singularity/skill-library/demo-web-screenshot-check/SKILL.md': '77a7ca8a6afb9a73cbbfda626ce72cec6d07d6b82287b3deaf61159785b0ee5f',
+  'singularity/skill-library/demo-web-screenshot-intake/SKILL.md': '225d981bbf356ccbe63033940b4c81172d5985f9453330af275bdd21c4510a63',
+  'singularity/templates/demo-web-e2e-testing/check.md': '31bc19257b108572d3043066a8747ade34dc0facb9bc75e013a5b5ded599e2c5',
+  'singularity/templates/demo-web-e2e-testing/intake.md': '937e5b69f618050e79cb76e384994ba6349d8bbe59914c7d9117920af35e94f7',
+  'singularity/templates/demo-web-e2e-testing/repair.md': '5cf8165f7981c55d1b6d2b6f09e23e0230261eeb98312de213f11b93091f332f',
+  '.github/agents/architect.agent.md': '41052a47c867dfe1eaae3f0ab8686912efc3ae00e42cb0c9198131a19dc5bc88',
+  '.github/agents/developer.agent.md': 'ed77451dc289cdacd4e9276f2238994fc4b19e3de0a35aac6bce2ff79cc8f89f',
+  '.github/agents/document-analyst.agent.md': '4d8dba85aa99d9929fa480aa2f208a25aefdf451fcd096a2a0bd529383fb2715',
+  '.github/agents/mobile-architect.agent.md': '297c4d1a96fb97f38ed362cbc998ec22d562be0bb55e12599d53c7ec32486992',
+  '.github/agents/poc-analyst.agent.md': 'a4c0fb8c793ac6fb09334b181e901b7fd7e145fbe2066a9c183e1974d653c34d',
+  '.github/agents/poc-automation.agent.md': 'd952e28e424e85a529e63bcf940806d39f005d807099a2d6a5ef3c1a0409f0af',
+  '.github/agents/poc-explorer.agent.md': 'ca9b18f4be9ea42e4a21ff5f06b4ac2613a954f24802829b70ca5c9844ce8176',
+  '.github/agents/poc-lite-implementer.agent.md': '8bac9c87e650a32f3e94eafb7d6c9685ef3f5ee9adcedc0ba4a62820e4fe055b',
+  '.github/agents/poc-lite-planner.agent.md': '98814211b56eed0e92c931b3ddbb5e8be3911bd56dc00a2892f0d4d3d8671acd',
+  '.github/agents/poc-lite-verifier.agent.md': '26dd4c7fd3a9ac68c180521e00900b8701cd4c28c5c3dd69f01584a5cd261467',
+  '.github/agents/poc-test-developer.agent.md': '879a3b0fe1142593699f4576ce2f3ca38f18cc5fba72b00a8da9a0d5d1eeb88e',
+  '.github/agents/poc-validator.agent.md': '90c8eae5b84c96e5932b84604715f162977e6ca48bb67707d95d6e7ef6a02fc4',
+  '.github/agents/product-designer.agent.md': 'c6194bab94544b46c87fad7102a546103ff09dbbdee5cd73999742d1b3b937ea',
+  '.github/agents/product-owner.agent.md': '84b653bdf4c778841221c46552a198deee1a23feb4e5bfc152a117796a673a10',
+  '.github/agents/qa.agent.md': '1d9963e539be077db1efe3cbd55572c1365c755db98008857ed0aa958f67fd4a',
+  '.github/agents/scenario-developer.agent.md': 'daa622886352e3d5abd80d90823f2360028a3ee5acd8f85374653a45ea274cf7',
+  '.github/agents/scenario-tester.agent.md': '8149fbf087fedeaca0fcb9db91560e7a6b7d66e8fe580e171b3767a85db83cca',
   'singularity/agent-mappings.yml': '1b39a4f4caa3242749889a291e2259a361c815712bd762abde3db3cbe9f8a688',
   'singularity/impact.yml': 'e91000c4f19ba8f8c08812ebea1d3e825919f5b31dadd1f3e22f1749e3b05313',
   'singularity/modelTiers.yml': 'da16ef4023221a14aba0b5a87fd80b395d3ea7d48b0ecf65481c291180aec23a',
@@ -511,11 +539,13 @@ export const KNOWN_PACKAGED_ASSET_SHA256 = Object.freeze(Object.fromEntries(
   [...new Set([
     ...Object.keys(HISTORICAL_PACKAGED_ASSET_SHA256),
     ...Object.keys(AGENTS_BEFORE_WORLD_MODEL_REMOVAL),
+    ...Object.keys(AGENTS_BEFORE_NATIVE_ENTRY_REUSE),
     ...Object.keys(CURRENT_PACKAGED_ASSET_SHA256)
   ])].sort().map((relative) => [relative, Object.freeze([
     ...new Set([
       ...(HISTORICAL_PACKAGED_ASSET_SHA256[relative] ?? []),
       ...(AGENTS_BEFORE_WORLD_MODEL_REMOVAL[relative] ? [AGENTS_BEFORE_WORLD_MODEL_REMOVAL[relative]] : []),
+      ...(AGENTS_BEFORE_NATIVE_ENTRY_REUSE[relative] ? [AGENTS_BEFORE_NATIVE_ENTRY_REUSE[relative]] : []),
       ...(CURRENT_PACKAGED_ASSET_SHA256[relative]
         ? [CURRENT_PACKAGED_ASSET_SHA256[relative]] : [])
     ])

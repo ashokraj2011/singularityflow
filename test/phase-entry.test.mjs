@@ -15,6 +15,7 @@ import { snapshot } from '../src/util.mjs';
 import { validatePhaseEntryRequest } from '../src/commands/phase.mjs';
 import { validateAgentEntryRequest } from '../src/agent-entry-options.mjs';
 import { phaseContextAdmission, phaseAdmissionActions } from '../src/phase-entry-admission.mjs';
+import { agentPacketPresentation } from '../src/agent-packet-presentation.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -157,6 +158,26 @@ test('entry bundles a custom-root Story without changing files, HEAD, index or l
   assert.equal(git(item.root, 'rev-parse', 'HEAD'), before.head);
   assert.equal(git(item.root, 'status', '--porcelain=v1'), before.status);
   assert.equal(await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8'), before.workflow);
+});
+
+test('session agent entry retains the verified custom-root binding with no Story mutation', async t => {
+  const item = await fixture(t);
+  const original = await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8');
+  const before = git(item.root, 'rev-parse', 'HEAD');
+  const full = item.invoke('session', 'current', '--json');
+  const agent = item.invoke('session', 'current', '--for-agent', '--json');
+  assert.equal(agent.status, 0, agent.stdout + agent.stderr);
+  const packet = JSON.parse(agent.stdout);
+  for (const [key, value] of Object.entries(JSON.parse(full.stdout))) assert.deepEqual(packet[key], value, key);
+  assert.equal(packet.resultType, 'sflow-session-entry');
+  assert.equal(packet.paused, false);
+  assert.equal(packet.workItemRoot, 'team/stories');
+  assert.equal(packet.workId, 'ENTRY-1');
+  assert.match(packet.agentInstruction, /Operation-specific readiness and human confirmations remain required/);
+  assert.match(packet.agentInstruction, /literally[^.]*never in artifacts or approval identity/);
+  assert.equal(await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8'), original);
+  assert.equal(git(item.root, 'rev-parse', 'HEAD'), before);
+  assert.equal(git(item.root, 'status', '--porcelain=v1'), '');
 });
 
 test('entry never interprets an explicit other Story or historical phase as selection', async t => {
@@ -426,9 +447,9 @@ test('CLI compact prepublish keeps the kernel findings and next actions; full JS
   const compact = JSON.parse(agentResult.stdout);
   assert.equal(compact.projection.kind, 'agent');
   for (const key of ['status', 'findings', 'advisories', 'commands', 'commandGuidance', 'testExecution', 'correction']) {
-    assert.deepEqual(compact[key], full[key], key);
+    assert.deepEqual(compact[key], agentPacketPresentation(full[key]), key);
   }
-  assert.deepEqual(compact.resolution, full.resolution);
+  assert.deepEqual(compact.resolution, agentPacketPresentation(full.resolution));
   assert.equal(git(item.root, 'status', '--porcelain=v1'), '');
 });
 
@@ -438,7 +459,7 @@ test('all authoring skills use a single prepublish validator pass and entry has 
     assert.doesNotMatch(skill, /draft-check[^\n]*(?:then| and )[^\n]*prepublish/);
     assert.match(skill, /phase prepublish .*--for-agent --json/);
     assert.equal([...skill.matchAll(/<!-- sflow-execution-boundary -->/g)].length, 1, name);
-    if (['code', 'phase'].includes(name)) {
+    if (['code', 'phase', 'design', 'requirements', 'release', 'scenario-check', 'document-intake'].includes(name)) {
       assert.match(skill, /phase enter --for-agent --json/);
       assert.doesNotMatch(skill, /singularity-flow (?:pause status|session current|status --json|clarification status|story references verify)/);
     }

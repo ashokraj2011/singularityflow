@@ -211,7 +211,7 @@ test('mutation skills carry reviewed confirmations into noninteractive CLI forms
 
 test('revision skill preserves exact preview, confirmation, execution, and publication boundaries', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-revise', 'SKILL.md'), 'utf8');
-  assert.match(content, /singularity-flow session current --json/);
+  assert.match(content, /singularity-flow session current --for-agent --json/);
   assert.match(content, /registered task is `code`/);
   assert.match(content, /revise --dry-run --feedback-stdin/);
   assert.match(content, /same bytes and selectors/);
@@ -299,7 +299,7 @@ test('initial phase skills require interactive clarification instead of silently
   for (const content of [phase, requirements, code, epicRequirements]) {
     assert.match(content, /ask_user/);
     assert.match(content, /wait/i);
-    assert.match(content, /(?:stop before (?:authoring|preparation)|record before (?:preparation|preparing|mutation); (?:stop if unavailable|if unavailable, display the questions and stop)|required[^\n]*(?:stop if unavailable|stop before))/i);
+    assert.match(content, /(?:stop before (?:authoring|preparation)|record before (?:preparation|preparing|mutation); (?:stop if unavailable|if unavailable, display the questions and stop)|required[^\n]*(?:stop if unavailable|stop before|unavailable: show questions and stop))/i);
   }
   for (const content of [phase, code]) {
     assert.match(content, /git rev-parse --git-path singularity-flow\/clarification-responses/i);
@@ -319,7 +319,7 @@ test('initial phase skills require interactive clarification instead of silently
   assert.match(next, /never pair `\/sf-phase` with `singularity-flow next`/i);
   assert.match(workflowAgent, /skills\/sflow-next\/SKILL.md/);
   assert.match(workflowAgent, /do not inline or chain the returned skill/i);
-  assert.match(requirements, /required.*evidence looks complete/is);
+  assert.match(requirements, /`required`, use `ask_user`, wait and record before preparation/);
   assert.match(epicRequirements, /epic sources answer/);
   assert.match(code, /Missing\/invalid\/ambiguous\/policy-blocked runner: returned recovery\/adoption/i);
   assert.match(code, /never edit protected config, disable hooks or fabricate results/i);
@@ -367,7 +367,7 @@ test('fast-path authoring skills execute the returned preparation checkpoint bef
 test('code skill reads readiness and task policy from their real structured sources', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
   assert.match(content, /phase enter --for-agent --json/);
-  assert.match(content, /require `ready`\/`workId` and valid `phaseAgent`; cwd=`repositoryPath`/);
+  assert.match(content, /(?:require|reuse entry) `ready`\/`workId`, valid `phaseAgent`; cwd=`repositoryPath`/i);
   assert.match(content, /Require entry `phase`, `phaseAgent.valid: true`, `generatesCode: true`, `authoring.policyVerified`/);
   assert.match(content, /never draft sign-off/);
   assert.match(content, /No duplicate pause\/session\/status/);
@@ -525,14 +525,14 @@ test('Copilot phase authoring repairs structured draft findings before publicati
     assert.ok(content.includes(`singularity-flow ${command.replace('draft-check', 'prepublish')} --for-agent --json`),
       `${name} omits the read-only combined draft/prepublish gate`);
     assert.match(content, /includes draft-check/);
-    assert.match(content, /singularity-flow recover <WORK-ID> --phase (?:<phase>|<PHASE>|[a-z-]+) --json|Follow `\/sf-recover`|Prepublish rechecks recovery/,
+    assert.match(content, /singularity-flow recover <WORK-ID> --phase (?:<phase>|<PHASE>|[a-z-]+) --json|Follow `\/sf-recover`|Prepublish rechecks recovery|Unready: reuse findings\/resolution/,
       `${name} omits phase-scoped recovery`);
     assert.match(content, /(?:commands.publish`|publication command)[^\n]*when `ready`/i, `${name} may publish an unready draft`);
-    assert.match(content, /(?:repair|re-author|correct) every (?:structured )?(?:agent )?(?:authoring )?finding|Repair other agent findings|(?:correct (?:only )?(?:agent )?findings|Repair from approved inputs)[^\n]*`correction.sameTurn`[^\n]*route to (?:their|its) owner/i,
+    assert.match(content, /(?:repair|re-author|correct) every (?:structured )?(?:agent )?(?:authoring )?finding|Repair other agent findings|(?:correct (?:only )?(?:agent )?findings|Repair from approved inputs)[^\n]*`correction.sameTurn`[^\n]*route to (?:(?:their|its) )?owner/i,
       `${name} does not repair every finding`);
     assert.match(content, /current Copilot turn|this Copilot turn|finding now|Repair other agent findings|(?:correct (?:only )?(?:agent )?findings|Repair from approved inputs)[^\n]*`correction.sameTurn`/i,
       `${name} defers repair instead of completing the authoring turn`);
-    assert.match(content, /returned `repairLoop.protocol`/,
+    assert.match(content, /(?:returned )?`repairLoop.protocol`/,
       `${name} must use the durable kernel budget instead of remembering turn-local counts`);
     assert.match(content, /stop unchanged|never loop preparation/i,
       `${name} may loop on a non-progressing repair`);
@@ -956,9 +956,8 @@ test('approval skill reuses only an exact complete review and accepts a human ph
   assert.match(content, /positional argument selects \*\*PHASE-ID\*\*, never Work ID/);
   assert.match(content, /choices begin approve <WORK-ID> --fetch --json/);
   assert.match(content, /phase-confirmation <TYPED-PHASE>/);
-  assert.match(content, /documentId`, `documentPath`, and `documentSha256`/);
-  assert.match(content, /brief `path` is integrity JSON/);
-  assert.match(content, /Do not perform a second `singularity-flow documents view` lookup/);
+  assert.match(content, /Match receipt, `reviewBinding`, artifacts and briefs to `approvalContext`/);
+  assert.match(content, /Do not repeat document lookup/);
   assert.match(content, /approve <TYPED-PHASE> --work-id <WORK-ID> --fetch --selection-receipt <TOKEN>/);
   assert.match(content, /Never add `--yes`/);
   assert.match(content, /receipt is consumed once/i);
@@ -970,7 +969,7 @@ test('approval skill reuses only an exact complete review and accepts a human ph
   assert.match(content, /human `\/sf-approve <PHASE-ID>` or exact phase answer \*\*after\*\* complete review of this exact `reviewBinding`/);
   assert.match(content, /do not ask again/);
   assert.match(content, /A phase supplied before a new or changed packet review is not its confirmation, even if document bodies match/);
-  assert.match(content, /Missing binding\/mismatch: stop/);
+  assert.match(content, /mismatch or missing binding stops/);
   assert.match(content, /sflow-turn-boundary: approval-only/);
   assert.match(content, /approval CLI is the sole permitted lifecycle mutation/i);
   assert.match(content, /Never edit repository files, run tests\/builds\/raw Git, delegate, submit, or begin\/author another phase/i);
@@ -983,10 +982,9 @@ test('approval skill reuses only an exact complete review and accepts a human ph
 test('submit skill presents generated documents before approval', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-submit', 'SKILL.md'), 'utf8');
   assert.match(content, /status <WORK-ID> --submission-readiness --json/);
-  assert.match(content, /Require (?:exact )?`resultType: sflow-submission-readiness`/);
-  assert.match(content, /matching work\/phase.*`draftExists`.*`draftModified`.*`publicationRecorded`.*`nextSkill`.*`nextCommand`/);
+  assert.match(content, /require matching work\/phase and its readiness fields/);
   assert.match(content, /Trust `lifecycleReady`/);
-  assert.match(content, /equal generation while `in_progress` is ready\. Never republish/);
+  assert.match(content, /Trust `lifecycleReady`; never republish/);
   assert.match(content, /Seeded draft — not published/);
   assert.match(content, /Published generation <N> — ready to submit/);
   assert.match(content, /`classification: generation-required`.*\*\*Generate and publish <Phase>\*\*.*returned `nextSkill`, stop/);
@@ -998,7 +996,7 @@ test('submit skill presents generated documents before approval', async () => {
   assert.match(content, /Pending amendment acknowledgement requires the person's explicit choice/);
   assert.match(content, /confirmationRequired: true.*human provides `continue`/s);
   assert.match(content, /Work-ID-pinned submit command/);
-  assert.match(content, /Otherwise render all documents\/briefs/);
+  assert.match(content, /Otherwise render every document\/brief/);
   assert.match(content, /singularity-flow phase show <phase>/);
   assert.match(content, /incomplete review cannot offer approval/);
 });
@@ -1054,7 +1052,7 @@ test('code explanation skill uses one read-only computed route and keeps narrati
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-explain-code', 'SKILL.md'), 'utf8');
   assert.match(content, /^name: sflow-explain-code$/m);
   assert.match(content, /disable-model-invocation:\s*true/);
-  assert.match(content, /singularity-flow session current --json/);
+  assert.match(content, /singularity-flow session current --for-agent --json/);
   assert.match(content, /singularity-flow explain code \$ARGUMENTS --json/);
   assert.match(content, /explicitly asks for a narrative or walkthrough/);
   assert.match(content, /Narrative — advisory, not a record/);
@@ -1226,7 +1224,7 @@ test('governed phase skills reuse the shared repository model without Story task
     assert.match(content, /wm (?:compose|availability) --phase|phase enter <phase> --work-id <WORK-ID> --compose/i,
       `${name} must inspect or compose repository grounding`);
     assert.doesNotMatch(content, /singularity-flow wm (?:compose|availability) --phase [^`\n]*--task/i, `${name} must not create a Story-specific task guide`);
-    assert.match(content, /Story context|governed workflow|entry packet[^\n]*binding, recovery, clarification and references/i,
+    assert.match(content, /Story context|governed workflow|entry packet[^\n]*binding, recovery, clarification and references|reuse binding\/recovery\/clarification\/references/i,
       `${name} must preserve Story context separately`);
   }
   const alias = await readFile(path.join(pluginRoot, 'skills', 'sflow-implement', 'SKILL.md'), 'utf8');
@@ -1250,7 +1248,7 @@ test('submission renders review once and approval reuses only that complete boun
   for (const name of ['sflow-submit', 'sflow-approve']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
     assert.match(content, /phase show <phase> --json/i, `${name} must load artifact content as JSON`);
-    assert.match(content, /visible same-chat display/i,
+    assert.match(content, /visible same-chat (?:display|bodies)/i,
       `${name} must establish visible review`);
     assert.match(content, /--- BEGIN <path> ---[\s\S]*--- END <path> ---/i, `${name} must delimit exact artifact bodies`);
     assert.match(content, /Tool output or summaries are not review|Tool output alone is insufficient/i,

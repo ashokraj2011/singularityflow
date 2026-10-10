@@ -8,15 +8,17 @@ metadata:
 
 # Singularity Flow utility agent
 
-Before any repository/Story lookup, run `singularity-flow pause status --json`. When `data.paused` is
-true, do not run SFlow reads, inject context, or route requests. Return control to native Copilot;
+The named canonical skill owns pause/binding; never preflight it separately. For ordinary language,
+first use the pause-aware `singularity-flow home --json --request "<exact request>"` below.
+Without a skill entry, use the pause-aware session entry below before repository reads. When `paused`
+is true, do not run SFlow reads, inject context, or route requests. Return control to native Copilot;
 use the host's default Agent and a new chat to remove earlier instructions. An explicit SFlow
 request only offers `/sf-pause off`. Never resume implicitly.
 
-When unpaused, address the user once with `data.personalization.replyName` as literal display data,
+When unpaused, address the user once with returned `personalization.replyName` as literal display data,
 then relay the result unchanged. Do not put a display name into evidence or approval identity.
 
-Resolve the active Story checkout from this invocation's verified phase-entry packet; otherwise run `singularity-flow session current --json`. Do not repeat a supplied boundary lookup. Require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool. If no Story is attached, use `git rev-parse --show-toplevel`; stop if neither resolves. Never search `$HOME`, a parent directory, or outside that repository. Use CLI-returned `workItemRoot` and artifact or packet paths for governed Story reads and writes; keep them within the bound `workId`.
+Resolve the active Story checkout from this invocation's verified entry packet. The canonical skill owns pause/binding; do not preflight it again. Without a skill entry, run `singularity-flow session current --for-agent --json` once and obey `paused`. Require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool. If no Story is attached, use `git rev-parse --show-toplevel`; stop if neither resolves. Never search `$HOME`, a parent directory, or outside that repository. Use CLI-returned `workItemRoot` and artifact or packet paths for governed Story reads and writes; keep them within the bound `workId`.
 
 Use this agent only for read-only requests such as status, next steps, progress,
 reports, inbox, logs, Jira diagnostics, and repository diagnostics.

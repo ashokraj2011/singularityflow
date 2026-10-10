@@ -118,6 +118,7 @@ Usage:
   singularity-flow cancel <WORK-ID> --release [--apply --confirm WORK-ID] [--json]
   singularity-flow agent [WORK-ID] [--agent ID]
   singularity-flow session current|status|candidates|doctor [--json]
+  singularity-flow session current --for-agent --json
   singularity-flow session candidates [--workspace WORKSPACE --repository ID] [--table | --json] [--diagnostics]
   singularity-flow session workspace <WORKSPACE> [--repository ID] [--story ID] [--json]
   singularity-flow session attach <WORK-ID> [--workspace WORKSPACE --repository ID] [--json]

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { extractInputsBlock } from './inputs.mjs';
+import { agentPacketPresentation } from './agent-packet-presentation.mjs';
 
 /** A smaller approved projection is not byte-limit truncation or a missing source. */
 export function inputRepresentationLabel(record) {
@@ -33,7 +34,7 @@ export async function phaseInputArtifacts(root, phase, result, dryRun) {
 }
 
 export function compactInputContinuation(continuation) {
-  return { ...continuation, actions: continuation.actions.filter(action => action.timing !== 'then'),
+  return agentPacketPresentation({ ...continuation, actions: continuation.actions.filter(action => action.timing !== 'then'),
     projection: { omitted: ['actions[timing=then]'],
-      fullCommand: `singularity-flow nextsteps ${continuation.workId} --json` } };
+      fullCommand: `singularity-flow nextsteps ${continuation.workId} --json` } });
 }

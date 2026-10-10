@@ -1,3 +1,5 @@
+import { agentPacketPresentation } from './agent-packet-presentation.mjs';
+
 /** Presentation only: never recompute readiness, eligibility or a runnable command. */
 export function phaseAgentResult(result) {
   const omitted = [];
@@ -16,7 +18,7 @@ export function phaseAgentResult(result) {
   projected.coverage = metadata(result.coverage, 'coverage', ['entries', 'paths', 'declarations']);
   projected.documentation = metadata(result.documentation, 'documentation', ['declarations', 'inspected']);
   // Findings, resolution choices, repair actions, test plans, hashes and command guards stay whole.
-  return { ...projected, projection: {
+  return { ...agentPacketPresentation(projected), projection: {
     kind: 'agent', omitted,
     fullCommand: `singularity-flow phase ${result.resultType === 'sflow-phase-prepublish' ? 'prepublish' : 'draft-check'} ${result.phase} --json`,
     documentCommand: `singularity-flow phase show ${result.phase} --json`

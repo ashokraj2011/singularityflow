@@ -11669,6 +11669,9 @@ async function printSessionCandidateResult(discovered, options, scope = {}) {
 }
 
 async function sessionCommand(positionals, options) {
+  const agentEntry = options['for-agent'] != null ? await import('./session-agent-entry.mjs') : null;
+  const paused = agentEntry?.sessionAgentEntryGuard(positionals, options);
+  if (paused) return console.log(JSON.stringify(paused));
   const subcommand = positionals[1] ?? 'status';
   if (optionBoolean(options, 'table') && (subcommand !== 'candidates' || optionBoolean(options, 'json'))) {
     throw new SingularityFlowError('Use --table only with session candidates, without --json.', {
@@ -11721,18 +11724,7 @@ async function sessionCommand(positionals, options) {
     }
     const currentDirectory = path.resolve(process.cwd());
     const repositoryPath = path.resolve(context.repositoryPath);
-    /**
-     * Attaching no longer depends on where the host happens to be rooted.
-     *
-     * This reported `reopen-repository` whenever the caller's working directory was not the clone,
-     * and Copilot — which is never rooted there — read that as "I cannot proceed", refusing to
-     * attach a Story until someone opened the repository again. The selection already names an
-     * absolute path, and `session status`, `candidates` and `attach` now resolve through it, so
-     * the session is genuinely ready.
-     *
-     * The directory mismatch is still reported, because it does matter for editing files by hand —
-     * it is simply no longer a precondition for governed work.
-     */
+    // Selected absolute paths route governed commands even when the editor is elsewhere.
     const hostAction = 'ready';
     const editorRooted = currentDirectory === repositoryPath;
     if (!requestedStoryId) {
@@ -11869,6 +11861,7 @@ async function sessionCommand(positionals, options) {
       selectionSource: context.selectionSource ?? null,
       selectionStatus: context.selectionStatus ?? 'ready'
     };
+    if (agentEntry) return console.log(JSON.stringify(agentEntry.sessionAgentResult(result, definition.workItemRoot)));
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Repository: ${result.repositoryPath}`);
     console.log(`Story: ${result.workId ?? 'not selected'} · branch ${result.branch}`);

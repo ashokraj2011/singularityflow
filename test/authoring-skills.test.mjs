@@ -171,7 +171,7 @@ test('a specialised skill a step chose is routed, kept in guidance, and checks t
     const body = await readFile(path.join(packageRoot, 'plugin', 'skills', entry.sourceId, 'SKILL.md'), 'utf8');
     assert.deepEqual(authoringSkillContractErrors(entry, body), [], `${entry.sourceId} keeps the authoring contract`);
     if (!entry.legacyPhases.length) continue;
-    assert.match(body, /singularity-flow clarification status <phase> --json/, `${entry.sourceId} follows the step's clarification mode`);
+    assert.match(body, /entry `clarification`/, `${entry.sourceId} reuses the step's clarification mode`);
     assert.doesNotMatch(body, /\/sf-submit (?:requirements|design|release)\b/, `${entry.sourceId} no longer hard-codes its submit handoff`);
   }
 });

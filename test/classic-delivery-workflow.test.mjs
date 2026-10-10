@@ -10,6 +10,7 @@ import YAML from 'yaml';
 import { initializeDefinition, loadDefinition, resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { phaseRequiresCodeDelivery } from '../src/code-delivery-policy.mjs';
 import { installWorkflow, simulateWorkflow, workflowCatalog } from '../src/workflow-catalog.mjs';
+import { summarizeNativeCopilotTrace } from '../src/native-copilot-efficiency.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -18,7 +19,10 @@ const PHASES = ['intake', 'implementation', 'testing', 'conformance'];
 function run(command, args, cwd, { allowFailure = false } = {}) {
   const result = spawnSync(command, args, {
     cwd, encoding: 'utf8',
-    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Classic Delivery Tester' }
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Classic Delivery Tester',
+      SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(cwd, '.git/fixture-mode.json'),
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(cwd, '.git/fixture-selection.json'),
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(cwd, '.git/fixture-registry.json') }
   });
   if (!allowFailure && result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);
@@ -101,8 +105,31 @@ test('Classic delivery commits passing test results before Testing and Code chec
     await rm(remote, { recursive: true, force: true });
   });
   const workId = 'CLASSIC-1';
+  const events = [], entryMeasurements = [];
+  let measuredPhase = 'intake';
   const approvedSource = `// @clause:${workId}:AC-001 returns the approved value 2\nexport const value = 2;\n`;
-  const cli = (...args) => run(process.execPath, [CLI, '--no-model', ...args], root);
+  const cli = (...args) => {
+    const started = performance.now();
+    const result = run(process.execPath, [CLI, '--no-model', ...args], root);
+    events.push({ phase: measuredPhase, command: `singularity-flow ${args.join(' ')}`,
+      responseBytes: Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr),
+      durationMs: performance.now() - started });
+    return result;
+  };
+  const measureEntry = () => {
+    const full = cli('phase', 'enter', '--json');
+    const compact = cli('phase', 'enter', '--for-agent', '--json');
+    const packet = JSON.parse(compact.stdout);
+    assert.equal(packet.workId, workId);
+    assert.equal(packet.phase, measuredPhase);
+    assert.equal(packet.agentGuide.platform, process.platform);
+    const session = JSON.parse(cli('session', 'current', '--for-agent', '--json').stdout);
+    assert.equal(session.workId, workId);
+    assert.equal(session.phase, measuredPhase);
+    entryMeasurements.push({ phase: measuredPhase, fullBytes: Buffer.byteLength(full.stdout),
+      legacyAgentBytes: Buffer.byteLength(JSON.stringify(JSON.parse(full.stdout))) + 1,
+      agentBytes: Buffer.byteLength(compact.stdout) });
+  };
   run('git', ['init', '-b', 'main'], root);
   run('git', ['config', 'user.name', 'Classic Delivery Tester'], root);
   run('git', ['config', 'user.email', 'classic@example.test'], root);
@@ -165,13 +192,16 @@ test('Classic delivery commits passing test results before Testing and Code chec
     '## Initial evidence', '', 'The baseline module and executable test at the pinned main revision.', ''
   ].join('\n'));
   cli('wm', 'compose', '--phase', 'intake');
+  measureEntry();
   cli('clarification', 'record', 'intake', '--question', 'Is the new value 2 the approved outcome?',
     '--answer', 'Yes; keep the exported interface and add the matching unit test.');
   cli('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'intake');
   cli('approve', 'intake', '--yes');
 
+  measuredPhase = 'implementation';
   cli('prepare', 'implementation');
+  measureEntry();
   await writeFile(path.join(root, 'src/value.mjs'), approvedSource);
   await writeFile(path.join(root, 'test/value.test.mjs'), [
     "import test from 'node:test';",
@@ -203,7 +233,9 @@ test('Classic delivery commits passing test results before Testing and Code chec
   }
 
   for (const phase of ['testing', 'conformance']) {
+    measuredPhase = phase;
     cli('prepare', phase);
+    measureEntry();
     const current = (await workflow()).phases[phase];
     const artifact = path.join(item, current.requiredArtifact.path);
     let text = await readFile(artifact, 'utf8');
@@ -216,6 +248,14 @@ test('Classic delivery commits passing test results before Testing and Code chec
     text = text.replace(/TODO:[^\n]*/gu,
       `Verified ${workId}:AC-001 against ${receiptPath} and the committed passing unit-test receipt.`);
     text = text.replace(/\bTODO\b/gu, 'matched');
+    if (phase === 'conformance') {
+      const retained = await workflow();
+      text += '\n## Self-approval disclosure\n\n';
+      for (const id of retained.phaseOrder) for (const approval of retained.phases[id].approvals ?? []) {
+        if (!approval.selfApproval || approval.invalidatedAt) continue;
+        text += `- ${id}: self-approval by ${approval.actor.login ?? approval.actor.email ?? approval.actor.name}; not an independent review.\n`;
+      }
+    }
     await writeFile(artifact, text);
     {
       // Code checking relies on Code's tests exactly like Testing, so it is offered the same
@@ -255,4 +295,13 @@ test('Classic delivery commits passing test results before Testing and Code chec
     run('git', ['rev-parse', 'HEAD'], root).stdout.trim());
   assert.equal(run('git', ['rev-parse', 'refs/remotes/origin/main'], root).stdout.trim(), base);
   assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');
+  const observation = summarizeNativeCopilotTrace({ schemaVersion: 1, workId,
+    workflow: 'classic-delivery', phaseOrder: PHASES, completedPhases: PHASES,
+    lifecycleStatus: 'completed', events });
+  assert.equal(observation.completeStoryReported, true);
+  assert.equal(observation.providerUsage, null);
+  assert.deepEqual(observation.phases.map(row => row.phase), PHASES);
+  t.diagnostic(`Scripted kernel journey, not live Copilot: ${JSON.stringify({
+    toolCalls: observation.toolCalls, responseBytes: observation.responseBytes,
+    durationMsSum: Math.round(observation.durationMsSum), entryMeasurements })}`);
 });

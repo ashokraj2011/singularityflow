@@ -17,6 +17,8 @@ import { readSourceReviewStatus } from '../source-review-lifecycle.mjs';
 import { phaseContinuation } from '../phase-continuation.mjs';
 import { collectInputs } from '../inputs.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
+import { authoringSkillCatalog } from '../authoring-skills.mjs';
+import { agentPacketPresentation } from '../agent-packet-presentation.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');
@@ -183,8 +185,9 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
 
 /** Only entry-capable authoring skills can compose inline; every other prerequisite survives. */
 export function agentNextSteps(snapshot) {
+  const entrySkills = authoringSkillCatalog().map(entry => `/${entry.id}`);
   const draft = snapshot.actions.find(action => action.timing === 'now'
-    && ['/sf-phase', '/sf-code'].includes(action.copilotCommand)
+    && entrySkills.includes(action.copilotCommand)
     && action.argv?.[0] === 'prepare');
   if (!draft) return snapshot;
   const compose = snapshot.actions.filter(action => {
@@ -224,10 +227,10 @@ export async function nextStepsAgentPacket(workId = null) {
     inputs = { phase: packet.phase, dryRun: true, ...resolved,
       records: resolved.records.map(({ content, ...record }) => record) };
   }
-  return { ...packet, ...snapshot, resultType: 'sflow-nextsteps', inputs,
+  return agentPacketPresentation({ ...packet, ...snapshot, resultType: 'sflow-nextsteps', inputs,
     actions: snapshot.actions.filter(action => action.timing !== 'then'),
     projection: { kind: 'agent', omitted: ['actions[timing=then]'],
-      fullCommand: `singularity-flow nextsteps ${packet.workId} --json` } };
+      fullCommand: `singularity-flow nextsteps ${packet.workId} --json` } });
 }
 
 export async function run(_argv, { positionals, options }) {

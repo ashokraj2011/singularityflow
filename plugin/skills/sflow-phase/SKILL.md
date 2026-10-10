@@ -8,12 +8,12 @@ argument-hint: "[generation focus]"
 # Generate the active phase
 
 <!-- sflow-copilot-pause -->
-First run `singularity-flow phase enter --for-agent --json` once. Run the lookup from the current cwd, even a non-Git chat folder; it resolves selection. Never locate a repository by searching `/Users`, `$HOME` or parents. Use only the returned `ready`/`workId`/`repositoryPath`; unavailable selection: `/sf-session` or `/sf-workspaces`, stop. It checks pause before Git or Story discovery. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Otherwise reuse this entry packet for binding, recovery, clarification and references; use `personalization.replyName` literally once per reply/suggestion group, never in artifacts or approval identity.
+First run `singularity-flow phase enter --for-agent --json` once. Lookup from current cwd (non-Git allowed). Never search `/Users`, `$HOME` or parents for a repo. Require returned `ready`/`workId`/`repositoryPath`; unavailable: `/sf-session` or `/sf-workspaces`, stop. It checks pause before Git. If `paused`, native Copilot; only offer `/sf-pause off`, never resume implicitly. Otherwise follow `agentGuide.readOrder` once, reuse binding/recovery/clarification/references and delivered inputs; no duplicate lookups. Use `personalization.replyName` literally in replies, never artifacts or approval identity.
 
 <!-- sflow-output-contract: clarification-and-artifact -->
 **Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts. Honor returned `commandGuidance`: show Shell, Copilot and available `modelFreeCommand` as "VS Code (model-free)". Missing Copilot: "Copilot: no verified equivalent". Never invent routes.
 <!-- sflow-execution-boundary -->
-**Boundary:** reuse the entry packet: require `ready`/`workId` and valid `phaseAgent`; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact paths within this Story; never `$HOME`.
+**Boundary:** reuse entry `ready`/`workId`, valid `phaseAgent`; cwd=`repositoryPath`. Returned `workItemRoot`/artifact paths only; never `$HOME`.
 Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/expiry and authorized human confirmation. Never auto-accept risk.
 
 1. Use entry `authoring`; false `policyVerified`: show `policyReason`, stop. If `effectiveAuthoringSkill` is not `/sf-phase`, relay it as `Next in Copilot:` and `Terminal equivalent: singularity-flow prepare <phase>`; null drafts nothing; stop. `retained-generation`: relay `next`, stop.

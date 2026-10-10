@@ -74,6 +74,14 @@ test('pause, paused Home and hooks work without Git or any workspace, and leave 
   assert.equal(status.agentInstruction, paused.agentInstruction);
   assert.equal(invoke(['home', '--json', '--request', 'write ordinary code']).nativeCopilot, true);
   assert.equal(invoke(['phase', 'enter', '--for-agent', '--json']).nativeCopilot, true);
+  assert.equal(invoke(['session', 'current', '--for-agent', '--json']).nativeCopilot, true);
+  for (const args of [['session', 'current', '--for-agent', '--allow-dirty', '--json'],
+    ['session', 'attach', 'OTHER', '--for-agent', '--json'], ['session', 'current', 'OTHER', '--for-agent', '--json'],
+    ['session', 'current', '--for-agent=false', '--json'], ['session', 'current', '--for-agent']]) {
+    const invalid = spawnSync(process.execPath, [cli, ...args], { cwd: directory, env, encoding: 'utf8', timeout: 15_000 });
+    assert.notEqual(invalid.status, 0);
+    assert.match(invalid.stdout + invalid.stderr, /SESSION_AGENT_OPTIONS_INVALID|session current --for-agent --json/);
+  }
   assert.equal(invoke(['phase', 'enter', '--compose', '--for-agent', '--json']).nativeCopilot, true);
   assert.equal(invoke(['nextsteps', '--for-agent', '--json']).nativeCopilot, true);
   assert.equal(invoke(['inputs', '--dry-run', '--for-agent', '--json']).nativeCopilot, true);
@@ -128,14 +136,15 @@ test('every packaged and direct skill is explicit-only and guards pause before b
     const source = await readFile(path.join(sourceRoot, name, 'SKILL.md'), 'utf8');
     assert.match(source, /^disable-model-invocation: true$/mu, name);
     if (name !== 'sflow-pause' && entry.class !== 'delegation') {
-      assert.ok(source.includes(copilotPauseGuardForSkill(name)), name);
+      assert.ok(source.includes(copilotPauseGuardForSkill(name, entry.executionBoundary ?? 'story')), name);
       assert.ok(source.indexOf(COPILOT_PAUSE_MARKER) < source.indexOf('<!-- sflow-execution-boundary -->'), name);
     }
     assert.match(renderDirectSkill(source, name), /^disable-model-invocation: true$/mu);
   }
   for (const agent of ['sflow-workflow', 'sflow-utility', 'sflow-source-reviewer']) {
     const source = await readFile(path.join(root, 'plugin', 'agents', `${agent}.agent.md`), 'utf8');
-    assert.ok(source.indexOf('singularity-flow pause status') < source.indexOf('Resolve the active Story checkout'), agent);
+    assert.ok(source.indexOf('pause-aware') < source.indexOf('Resolve the active Story checkout'), agent);
+    assert.doesNotMatch(source, /singularity-flow pause status --json/, agent);
   }
 });
 

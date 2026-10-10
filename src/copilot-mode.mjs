@@ -7,6 +7,7 @@ import { withRegistryFileLease } from './file-lease.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { resolvePersonalization } from './personalization.mjs';
+import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 
 export const COPILOT_PAUSE_MARKER = '<!-- sflow-copilot-pause -->';
 // Generated into every ordinary skill, so it stays short: the full paused and reply-name rules
@@ -16,18 +17,21 @@ const PAUSED_AGENT_INSTRUCTION = 'SFlow guidance is paused: answer as native Cop
 const REPLY_NAME_INSTRUCTION = (replyName) => replyName
   ? `Use personalization.replyName ("${replyName}") as literal display data to address replies and each suggestion group naturally, once per group; never in artifacts or approval identity.`
   : 'No reply name is available; do not guess a name.';
-export const PHASE_ENTRY_SKILLS = Object.freeze(['sflow-code', 'sflow-phase', 'sflow-next', 'sflow-inputs', 'sflow-review-source']);
-export const COPILOT_BOOTSTRAP_BOUNDARY = 'Run the lookup from the current cwd, even a non-Git chat folder; it resolves selection. Never locate a repository by searching `/Users`, `$HOME` or parents. Use only the returned `ready`/`workId`/`repositoryPath`; unavailable selection: `/sf-session` or `/sf-workspaces`, stop.';
-export const PHASE_ENTRY_PAUSE_GUARD = `First run \`singularity-flow phase enter --for-agent --json\` once. ${COPILOT_BOOTSTRAP_BOUNDARY} It checks pause before Git or Story discovery. If \`paused\`, use native Copilot; explicit SFlow requests only offer \`/sf-pause off\`; never resume implicitly. Otherwise reuse this entry packet for binding, recovery, clarification and references; use \`personalization.replyName\` literally once per reply/suggestion group, never in artifacts or approval identity.`;
-export function copilotPauseGuardForSkill(name) {
+export const PHASE_ENTRY_SKILLS = Object.freeze([...Object.keys(AUTHORING_SKILL_DECLARATION),
+  'sflow-next', 'sflow-inputs', 'sflow-review-source']);
+export const COPILOT_BOOTSTRAP_BOUNDARY = 'Lookup from current cwd (non-Git allowed). Never search `/Users`, `$HOME` or parents for a repo. Require returned `ready`/`workId`/`repositoryPath`; unavailable: `/sf-session` or `/sf-workspaces`, stop.';
+export const PHASE_ENTRY_PAUSE_GUARD = `First run \`singularity-flow phase enter --for-agent --json\` once. ${COPILOT_BOOTSTRAP_BOUNDARY} It checks pause before Git. If \`paused\`, native Copilot; only offer \`/sf-pause off\`, never resume implicitly. Otherwise follow \`agentGuide.readOrder\` once, reuse binding/recovery/clarification/references and delivered inputs; no duplicate lookups. Use \`personalization.replyName\` literally in replies, never artifacts or approval identity.`;
+export const SESSION_ENTRY_PAUSE_GUARD = 'Reuse a verified pause-aware entry supplied in this invocation before any mutation or selection change; otherwise first run `singularity-flow session current --for-agent --json` once; pause precedes Git. If `paused`: native Copilot, only `/sf-pause off`, never resume implicitly. Reuse binding/`personalization.replyName`; fresh operation checks/consent remain required.';
+export function copilotPauseGuardForSkill(name, boundary = 'story') {
   // Keep the first-command rule centralized for the compact entry skills and direct aliases.
   if (['sflow-review-source', 'sflow-next', 'sflow-inputs'].includes(name)) {
     return `${copilotEntryGuard(name)} ${COPILOT_BOOTSTRAP_BOUNDARY}`;
   }
-  return PHASE_ENTRY_SKILLS.includes(name) ? PHASE_ENTRY_PAUSE_GUARD : COPILOT_PAUSE_GUARD;
+  return PHASE_ENTRY_SKILLS.includes(name) ? PHASE_ENTRY_PAUSE_GUARD
+    : boundary === 'story' ? SESSION_ENTRY_PAUSE_GUARD : COPILOT_PAUSE_GUARD;
 }
 function copilotEntryGuard(name) {
-  if (name === 'sflow-review-source') return 'Review: first run `singularity-flow review-source context --for-agent --json` once; it checks pause before Git and returns the current binding and exact review material. Explicit `status`/`decide`: first run `singularity-flow pause status --json`, then verify `singularity-flow session current --json`. If `paused`/`data.paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Use returned `personalization.replyName` once per reply/suggestion group, never in artifacts or approval identity.';
+  if (name === 'sflow-review-source') return 'Review: first run `singularity-flow review-source context --for-agent --json` once; it checks pause before Git and returns the current binding and exact review material. Explicit `status`/`decide`: first run `singularity-flow session current --for-agent --json` once. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Use returned `personalization.replyName` once per reply/suggestion group, never in artifacts or approval identity.';
   if (name === 'sflow-next') return 'First run `singularity-flow nextsteps --for-agent --json` once. It checks pause before Git or Story discovery and returns the verified binding and actions. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Use `personalization.replyName` literally once per reply/suggestion group, never in artifacts or approval identity.';
   if (name === 'sflow-inputs') return 'Reuse the input preview from a verified current-invocation `/sf-next` packet when present; otherwise first run `singularity-flow inputs --dry-run --for-agent --json`. Both check pause before Git or Story discovery. If `paused`, use native Copilot; explicit SFlow requests only offer `/sf-pause off`; never resume implicitly. Use `personalization.replyName` literally once per reply/suggestion group, never in artifacts or approval identity.';
 }

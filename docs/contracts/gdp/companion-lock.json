@@ -4,10 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "71ba48472fffc2860235e229798f55cb961f2e25",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-10-REGISTERED-WORLD-MODEL-REMOVED.md",
+    "reviewedAtCommit": "616d5eed7782effebb70ef00904123c078f5abae",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-10-WORKFLOW-BUNDLE-V8.md",
     "companionIds": [
-      "workflow-configuration"
+      "migration-registry"
     ]
   },
   "companions": [
@@ -94,7 +94,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:0e6df671b05046e9c08e57ce958e4dc57935318546bec3a0e013e02b16bb206b"
+      "sha256": "sha256:775b67f5211646883259a7b2773ca7c4fe81e5d7d712149bbfd8ba5e2e86f8a6"
     },
     {
       "id": "smart-initialization-v1",

@@ -37,6 +37,7 @@ import {
 } from './brief.mjs';
 import { parseKnowledgeExpectations, scoreKnowledge } from './benchmark.mjs';
 import { buildRuleRecords, renderRuleRecords } from './records/rules.mjs';
+import { buildContractRecords, renderContractRecords } from './records/contracts.mjs';
 import { KNOWLEDGE_KINDS } from './items.mjs';
 import { KNOWLEDGE_ROLES, KNOWLEDGE_VIEWS, renderKnowledgeSlice, renderKnowledgeView, roleForPhase } from './render.mjs';
 import { readKnowledgeSource } from './source.mjs';
@@ -107,6 +108,11 @@ export async function knowledgeCommand(root, positionals, options) {
     if (view === 'rules' || view === 'business') {
       records = buildRuleRecords(knowledge, readDocumentation(root, { focus }), { focus });
       const section = renderRuleRecords(records);
+      if (section) text = `${text.trimEnd()}\n\n${section}\n`;
+    }
+    if (view === 'contracts') {
+      records = buildContractRecords(knowledge, { focus });
+      const section = renderContractRecords(records);
       if (section) text = `${text.trimEnd()}\n\n${section}\n`;
     }
     if (json) console.log(JSON.stringify({ view, bytes: Buffer.byteLength(text), markdown: text, ...(records ? { records } : {}) }, null, 2));

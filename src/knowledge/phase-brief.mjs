@@ -96,7 +96,7 @@ function collapseNotKnown(entries) {
  */
 export function renderPhaseBrief({
   repository = 'repository', commit = null, profile, focus = null, template = null, registered = [],
-  explanations = [], notKnown = [], modelCommit = null, phase = null, rules = null, questions = null
+  explanations = [], notKnown = [], modelCommit = null, phase = null, rules = null, questions = null, contracts = null
 }) {
   const focusWords = words(focus);
   const relevance = (text) => [...words(text)].filter((word) => focusWords.has(word)).length;
@@ -116,8 +116,13 @@ export function renderPhaseBrief({
     }
   }
   for (const question of questions ?? []) push('questions', question.text, question.source);
+  // Contract records (endpoints with their request, response and statuses; seams; storage; calls) replace the template's contracts.
+  for (const record of contracts ?? []) {
+    const tested = record.category === 'endpoint' && record.tested != null ? (record.tested ? '; tested' : '; no test reaches it') : '';
+    push('contracts', `${record.text}${tested}`, record.sources.code);
+  }
   for (const id of Object.keys(SECTION_TITLES)) {
-    if ((id === 'rules' && rules) || (id === 'questions' && questions)) continue;
+    if ((id === 'rules' && rules) || (id === 'questions' && questions) || (id === 'contracts' && contracts)) continue;
     for (const statement of template?.views?.[id] ?? []) {
       const source = statement.sources?.[0] ?? null;
       const heading = source?.label?.includes(' › ') ? source.label.split(' › ').slice(1).join(' › ') : null;

@@ -16,6 +16,7 @@ import { applyReviews, readConfirmations } from './confirm.mjs';
 import { readExplanations } from './explain.mjs';
 import { phaseBriefProfile, renderPhaseBrief } from './phase-brief.mjs';
 import { buildRuleRecords, ruleQuestions } from './records/rules.mjs';
+import { buildContractRecords } from './records/contracts.mjs';
 import { knowledgePromptPolicy } from './render.mjs';
 import { buildKnowledge, buildKnowledgeForAreas, selectKnowledgeAreas } from './store.mjs';
 import { projectRegisteredView, viewProjectionDigest } from './view-brief.mjs';
@@ -56,6 +57,7 @@ export async function repositoryBriefPrompt(root, {
   const registered = registeredViews.map((view) => ({ view, projection: projectRegisteredView(view.body) }));
   let template = null;
   let rules = null;
+  let contracts = null;
   let explanations = [];
   let knowledge = null;
   let cache = null;
@@ -72,6 +74,7 @@ export async function repositoryBriefPrompt(root, {
         template = templateBrief(briefEvidence(knowledge, documentation, { focus: focus || null }));
         template.notKnown = briefNotKnown(knowledge, documentation);
         rules = buildRuleRecords(knowledge, documentation, { focus: focus || null });
+        contracts = buildContractRecords(knowledge, { focus: focus || null });
       } else {
         status = result.status;
         warnings.push(`Repository knowledge was not added: the repository has ${result.codeFiles ?? 'too many'} code files and this Story names no area of it; set worldModel.sourceRoots, or change files in an area first.`);
@@ -88,7 +91,7 @@ export async function repositoryBriefPrompt(root, {
     repository: knowledge?.repository?.name ?? workflow?.workItem?.repository ?? 'repository',
     commit: knowledge?.repository?.commit ?? null,
     profile, focus, template, phase,
-    rules, questions: rules ? ruleQuestions(rules) : null,
+    rules, questions: rules ? ruleQuestions(rules) : null, contracts,
     registered: registered.map((entry) => entry.projection),
     explanations,
     notKnown: [...(template?.notKnown ?? []), ...registered.flatMap((entry) => entry.projection.notKnown)],

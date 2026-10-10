@@ -7,7 +7,7 @@
  * A slice is the same material cut to one role, one Story focus and a byte budget; it opens with
  * what a newcomer would get wrong, because that is what a prompt most needs.
  */
-export const KNOWLEDGE_VIEWS = Object.freeze(['overview', 'business', 'rules', 'journeys', 'entities', 'tests', 'system', 'change']);
+export const KNOWLEDGE_VIEWS = Object.freeze(['overview', 'business', 'rules', 'contracts', 'journeys', 'entities', 'tests', 'system', 'change']);
 export const KNOWLEDGE_ROLES = Object.freeze(['developer', 'tester', 'architect', 'product']);
 
 /** Which sections each role reads, most important first. */
@@ -22,6 +22,8 @@ const VIEW_SECTIONS = Object.freeze({
   // For a product owner: what was asked for, what the product does, what it decides and says.
   business: ['summary', 'requirements', 'journeys', 'rules', 'messages', 'glossary'],
   rules: ['rules', 'messages', 'errors'],
+  // Contract records (endpoints, seams, storage, calls, shapes, configuration) are added by the command.
+  contracts: ['errors'],
   journeys: ['journeys', 'system'],
   entities: ['entities'],
   tests: ['tests', 'pitfalls'],

@@ -35,7 +35,7 @@ instead of padding a prompt.
 
 ```bash
 singularity-flow wm knowledge build [--area PATH] [--refresh] [--json]
-singularity-flow wm knowledge show [overview|business|rules|journeys|entities|tests|system|change] [--focus TEXT] [--max-bytes N]
+singularity-flow wm knowledge show [overview|business|rules|contracts|journeys|entities|tests|system|change] [--focus TEXT] [--max-bytes N]
 singularity-flow wm knowledge slice [--role developer|tester|architect|product | --phase PHASE] [--focus TEXT] [--max-bytes N]
 singularity-flow wm knowledge items [--kind KIND] [--json]
 singularity-flow wm knowledge eval --expected FILE [--json]
@@ -176,6 +176,30 @@ Bean Validation constraint on a type no endpoint validates is reported as declar
 warnings for a person, never refusals. Phase briefs list the Story's rules with their status, and
 intake briefs turn conflicts, documented-only rules and untested refusals into questions for the
 product owner. `--json` adds the records themselves.
+
+## Contracts
+
+`wm knowledge show contracts` lists what the system exposes and depends on, one line each, built
+without a model:
+
+- **Exposed:** each endpoint with what its handler takes (the request body type with its fields and
+  their validation constraints; path, query and header parameters), what it returns (wrappers such
+  as `ResponseEntity<T>`, `Mono<T>` and `Promise<T>` removed), the HTTP statuses its flow refuses
+  with, and whether a test reaches the handler or a function on its flow. For example:
+  "POST /interest/calculate takes InterestRequest {principal, rate, period: BigDecimal} and returns
+  InterestResult; refuses with 400 (5 checks); tested". Read from Spring, JAX-RS and Micronaut
+  (Java and Kotlin), NestJS and FastAPI handlers. Message listeners, timers and program starts are
+  listed after them.
+- **Seams:** interfaces and abstract classes the repository declares, with the classes that
+  implement them ("PaymentGateway (interface) is implemented by StripeGateway").
+- **Storage:** Spring Data and Micronaut Data repositories with the entity and id they store and the
+  finder methods they declare.
+- **Called:** outbound HTTP calls with a literal target.
+- **Data shapes:** enums with their values, and the types the endpoints and repositories use, with
+  fields and constraints.
+- **Configuration:** the first configuration keys, secret-named values withheld.
+
+Phase briefs list the contracts that match the Story's words first.
 
 ## Plain-language explanations
 

@@ -19,8 +19,9 @@ import {
 } from './producers.mjs';
 import { clauseEndLine, textTerms, wordMatches } from './requirements.mjs';
 import { validatedTypes, validationConstraints } from './validation.mjs';
+import { handlerSignature, repositoryInterfaces, typeRelations } from './contracts.mjs';
 
-export const KNOWLEDGE_ANALYZER_VERSION = 2;
+export const KNOWLEDGE_ANALYZER_VERSION = 3;
 const PRODUCER = `knowledge-analyzer@${KNOWLEDGE_ANALYZER_VERSION}`;
 const AREA_TARGET_FILES = 150;
 const MAXIMUM_AREAS = 80;
@@ -298,8 +299,11 @@ export function analyzeKnowledge(source, { churn = null, commits = null, resolve
       if (!file) continue;
       if (entry.kind === 'http' && declaredHttpClients(file).client) continue;
       entries.push({ ...entry, file: symbol.file, line: symbol.line ?? 1, path: lenses.flow.paths[entry.id] ?? null, nodes: lenses.flow.nodes });
+      // An endpoint's contract: the request body, path/query/header parameters and response type its handler declares.
+      const signature = entry.kind === 'http' ? handlerSignature(file, String(symbol.qualifiedName ?? '').split('.').pop(), symbol.line ?? 1) : null;
       add({ kind: 'entry-point', key: `${symbol.file}:${entry.label}`, grain: 'unit', subject: { symbol: symbol.qualifiedName, path: symbol.file },
-        statement: { kind: entry.kind, label: entry.label, reason: entry.reason }, citations: [citation(file, symbol.line ?? 1)], area: areaOf(symbol.file) });
+        statement: { kind: entry.kind, label: entry.label, reason: entry.reason, ...(signature ? { request: signature.request, response: signature.response, params: signature.params } : {}) },
+        citations: [citation(file, symbol.line ?? 1)], area: areaOf(symbol.file) });
     }
     const nodeById = new Map(lenses.flow.nodes.map((node) => [node.id, node]));
     for (const edge of lenses.flow.edges) {
@@ -423,6 +427,34 @@ export function analyzeKnowledge(source, { churn = null, commits = null, resolve
           framework: field.framework, validated: field.framework === 'bean-validation' ? validated.has(field.type) : null
         },
         citations: [citation(file, field.line)], area: areaOf(file.path) });
+    }
+  }
+  // Seams: interfaces (and abstract classes) the repository declares, with the classes that implement
+  // them; and Spring/Micronaut Data repositories with the entity they store and the finders they declare.
+  const relations = files.map((file) => ({ file, ...typeRelations(file) }));
+  const implementers = new Map();
+  for (const { file, classes } of relations) {
+    for (const declared of classes) {
+      for (const parent of declared.supertypes) {
+        if (!implementers.has(parent)) implementers.set(parent, []);
+        implementers.get(parent).push({ name: declared.name, path: file.path, line: declared.line });
+      }
+    }
+  }
+  for (const { file, interfaces } of relations) {
+    for (const declared of interfaces) {
+      const implementations = implementers.get(declared.name) ?? [];
+      if (!implementations.length) continue;
+      add({ kind: 'interface', key: `${file.path}:${declared.name}`, grain: 'component', subject: { name: declared.name, path: file.path },
+        statement: { name: declared.name, kind: declared.abstract ? 'abstract class' : 'interface', implementations: implementations.map((entry) => ({ name: entry.name, path: entry.path, line: entry.line })) },
+        citations: [citation(file, declared.line)], area: areaOf(file.path) });
+    }
+  }
+  for (const file of files) {
+    for (const repository of repositoryInterfaces(file)) {
+      add({ kind: 'interface', key: `${file.path}:${repository.name}`, grain: 'component', subject: { name: repository.name, path: file.path },
+        statement: { name: repository.name, kind: 'repository', base: repository.base, entity: repository.entity, id: repository.id, methods: repository.methods },
+        citations: [citation(file, repository.line)], area: areaOf(file.path) });
     }
   }
   const configuration = [];

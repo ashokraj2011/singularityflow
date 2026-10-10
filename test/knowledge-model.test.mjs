@@ -317,6 +317,13 @@ test('model explanations are kept only when every code name, number and quote is
     'The SAVE10 coupon applies when the base is at least 3000 cents.',
     'VIP20 is refused for customers who are not members.'
   ]);
+  // A real model wrote subject ids without their kind prefix; that form names the same subject.
+  assert.ok(coupon.id.startsWith('rules:'));
+  const bare = validateExplanations({ explanations: [{ subject: coupon.id.slice('rules:'.length), sentences: [
+    { text: 'The SAVE10 coupon applies when the base is at least 3000 cents.', cites: [save10.id] }
+  ] }] }, subjects, prompt.evidence);
+  assert.deepEqual(bare.accepted.map((entry) => entry.subject), [coupon.id]);
+  assert.deepEqual(bare.rejected, []);
   const reasons = checked.rejected.map((entry) => entry.reason);
   assert.ok(reasons.includes('names what its citations do not contain: 25'), reasons.join('; '));
   assert.ok(reasons.includes('names what its citations do not contain: applyCoupon'));

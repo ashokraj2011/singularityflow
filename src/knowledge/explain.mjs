@@ -169,11 +169,20 @@ export function groundedTokens(sentence) {
 export function validateExplanations(output, subjects, evidence, { limits = EXPLANATION_LIMITS } = {}) {
   const parsed = typeof output === 'string' ? parseOutput(output) : output;
   const bySubject = new Map(subjects.map((subject) => [subject.id, new Set(subject.items.map((item) => item.id))]));
+  // Models often drop a subject id's kind prefix ("journey:K-journey-…" written as "K-journey-…").
+  // That form is accepted when it names exactly one subject; anything else stays unknown.
+  const byBareId = new Map();
+  for (const subject of subjects) {
+    const bare = subject.id.replace(/^[a-z]+:/u, '');
+    if (bare !== subject.id) byBareId.set(bare, byBareId.has(bare) ? null : subject.id);
+  }
+  const subjectOf = (id) => (bySubject.has(id) ? id : byBareId.get(id) ?? id);
   const accepted = [];
   const rejected = [];
   // Counted per subject, not per entry: splitting a subject across entries does not lift the limit.
   const seen = new Map();
-  for (const entry of Array.isArray(parsed?.explanations) ? parsed.explanations : []) {
+  for (const raw of Array.isArray(parsed?.explanations) ? parsed.explanations : []) {
+    const entry = raw && typeof raw === 'object' ? { ...raw, subject: subjectOf(raw.subject) } : raw;
     const allowed = bySubject.get(entry?.subject);
     for (const raw of (Array.isArray(entry?.sentences) ? entry.sentences : [])) {
       const index = seen.get(entry?.subject) ?? 0;

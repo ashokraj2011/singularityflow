@@ -95,14 +95,13 @@ test('preview is model-free, reproducible, locally disposable, and performs zero
   assert.equal(excluded.dispositionReason, 'Handled by a separate change.');
 });
 
-test('preview leaves the World Model unevaluated and names the command that reads registered views', async () => {
-  // Registered views live on the state branch and are read through wm context, not the flight plan.
+test('preview leaves the World Model unevaluated: the flight plan reads the repository source', async () => {
   const root = await repository();
   const plan = await previewChangeFlightPlan(root, {
     file: 'src/payment/notifier.mjs', ast: false, persist: false
   });
   assert.equal(plan.provenance.categories.worldModel.status, 'not-evaluated');
-  assert.match(plan.provenance.categories.worldModel.reason, /singularity-flow wm context/);
+  assert.match(plan.provenance.categories.worldModel.reason, /reads the repository source; it does not read World Model views/);
   assert.ok(!plan.findings.some((finding) => finding.relationship === 'indexed-by-world-model'));
 });
 test('outside paths and symlink targets are refused before analysis', async () => {

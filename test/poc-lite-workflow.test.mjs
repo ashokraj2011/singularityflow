@@ -44,7 +44,7 @@ test('POC Lite is a separate four-checkpoint, deterministic, service-free profil
   for (const phase of resolved.phases) {
     assert.equal(phase.generation.defaultProducer, 'deterministic', `${phase.id} can require a model`);
     assert.deepEqual(phase.generation.allowedProducers, ['deterministic']);
-    assert.deepEqual(phase.worldModel.views, []);
+    assert.deepEqual(phase.worldModel, {}, 'phases carry no World Model views');
     assert.deepEqual(phase.mcp, { requiredServers: [], requireSmoke: false, evidence: [] });
   }
   assert.deepEqual(resolved.phases.slice(0, -1).map((phase) => phase.approval.mode), ['none', 'none', 'none']);

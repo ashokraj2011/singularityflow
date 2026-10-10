@@ -653,7 +653,7 @@ test('a lifecycle branch receives and verifies one exact approved configuration 
   }
 });
 
-test('custom configuration roots materialize while custom world-model output remains runtime', async () => {
+test('custom configuration roots materialize while an old custom world-model output remains runtime', async () => {
   const fixture = await repositoryFixture();
   try {
     await ensureConfigurationBranch(fixture.remote);
@@ -709,7 +709,9 @@ test('custom configuration roots materialize while custom world-model output rem
       snapshot: configurationReadSnapshot(checkout)
     }), { preferAuthority: true });
     assert.equal(approvedRead.definition.templatesRoot, 'governance/templates');
-    assert.equal(approvedRead.definition.worldModel.outputDir, 'governance/world-model');
+    // The registered World Model is removed: its output setting is dropped at load, and the folder
+    // it named is still never transported as configuration.
+    assert.equal(approvedRead.definition.worldModel.outputDir, undefined);
     assert.ok(approvedRead.snapshot?.assets?.some(
       (entry) => entry.relative === 'singularity/portfolio.yml'
     ), 'the request-local approved read retains the exact verified portfolio bytes');

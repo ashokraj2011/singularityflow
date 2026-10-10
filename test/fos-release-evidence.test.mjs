@@ -18,8 +18,10 @@ test('FOS release inventory binds exact source locations and test-body digests w
   assert.ok(report.representedAcceptanceCases.includes('FOS:AC-001'));
   assert.ok(report.representedAcceptanceCases.includes('FOS:AC-002'));
   assert.ok(report.representedAcceptanceCases.includes('FOS:AC-011'));
-  assert.equal(report.representedAcceptanceCases.length, 49);
-  assert.deepEqual(report.unrepresentedAcceptanceCases, ['FOS:AC-035']);
+  // FOS:AC-018's witness proved the registered World Model's state-view publication, which was
+  // removed with it; the inventory reports the case unrepresented rather than inventing coverage.
+  assert.equal(report.representedAcceptanceCases.length, 48);
+  assert.deepEqual(report.unrepresentedAcceptanceCases, ['FOS:AC-018', 'FOS:AC-035']);
   assert.equal(report.malformedWitnesses.length, 0);
   assert.equal(report.duplicateTitles.length, 0);
   assert.ok(report.witnesses.every((entry) => entry.namePath.startsWith('test/')));

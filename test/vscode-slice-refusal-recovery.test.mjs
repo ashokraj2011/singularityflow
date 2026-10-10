@@ -34,7 +34,7 @@ function drive({ independentFails = false, lease = ['comprehension'] } = {}) {
         return {
           workItems: [], initiatives: [], included: slices,
           comprehension: slices.includes('comprehension') ? { marker: 'captured change' } : undefined,
-          worldModel: slices.includes('worldModel') ? { marker: 'world model' } : undefined,
+          sgos: slices.includes('sgos') ? { marker: 'sgos' } : undefined,
           revision: { head: 'abc', slices: { repository: 'r1', comprehension: 'c1' } }
         };
       },
@@ -50,7 +50,7 @@ function drive({ independentFails = false, lease = ['comprehension'] } = {}) {
       reads,
       marker: snapshot?.marker ?? null,
       comprehension: snapshot?.comprehension?.marker ?? null,
-      worldModel: snapshot?.worldModel?.marker ?? null,
+      sgos: snapshot?.sgos?.marker ?? null,
       included: snapshot?.included ?? [],
       revisionSlices: snapshot?.revision?.slices ?? null,
       error: store.current.error?.message ?? null
@@ -75,9 +75,9 @@ test('a refused lifecycle keeps the error, and the captured change a panel lease
 });
 
 test('the independent read is bounded to leased slices, and its own failure leaves the plain recovery', () => {
-  const both = drive({ lease: ['comprehension', 'worldModel'] });
-  assert.equal(both.worldModel, 'world model');
-  assert.ok(both.reads.includes('repository,comprehension,worldModel'));
+  const both = drive({ lease: ['comprehension', 'sgos'] });
+  assert.equal(both.sgos, 'sgos');
+  assert.ok(both.reads.includes('repository,comprehension,sgos'));
   const refused = drive({ independentFails: true });
   assert.equal(refused.comprehension, null);
   assert.equal(refused.marker, 'configuration');

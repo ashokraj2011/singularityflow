@@ -47,9 +47,10 @@ test('end-to-end-under-budget', async () => {
     const configured = await readFile(path.join(result.repository, 'singularity/workflow.yml'), 'utf8');
     const definition = YAML.parse(configured);
     assert.equal(definition.repositoryReadiness.requiredBeforeStory, false);
-    // The guide's two settings are the only lines it changes in the packaged starter.
+    // The guide's one setting is the only line it changes in the packaged starter; World Model
+    // grounding is no longer a setting.
     assert.deepEqual(changedLines(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'), configured), {
-      removed: ['  publish: required', '  grounding: warn'], added: ['  publish: off', '  grounding: off']
+      removed: ['  publish: required'], added: ['  publish: off']
     });
     assert.equal(run('git', ['status', '--porcelain'], { cwd: result.repository }).stdout, '');
     assert.ok(result.steps.every((step) => step.output.length <= 4_050));

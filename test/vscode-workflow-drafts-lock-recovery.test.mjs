@@ -5,10 +5,13 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, write
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { createWorkflowDraftRecoveryStore, workflowDraftRecoveryNativeDomainRefusal } from '../apps/vscode/src/views/workflow-drafts-recovery.ts';
 import { collectExecutionSites, summarizeSites } from '../scripts/git-bypass-audit.mjs';
 import { modelBoundaryFailures } from '../scripts/model-boundary-policy.mjs';
+import { nodeTypeScriptFlags } from '../scripts/typescript-runtime.mjs';
 
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const moduleUrl = new URL('../apps/vscode/src/views/workflow-drafts-recovery.ts', import.meta.url).href;
 const nativeRepair = ['darwin', 'linux'].includes(process.platform);
 const scope = { repository: path.resolve('/fixture-only/repository'), authority: 'https://approved.example.test/config.git', draftId: 'WFD-ABC123' };
@@ -49,7 +52,7 @@ async function holder(t, f, mode = 'scope') {
     await createWorkflowDraftRecoveryStore(directory,secrets).write(JSON.parse(raw),expected==='null'?null:expected);
     clearInterval(keepAlive);
   `;
-  const child = spawn(process.execPath, ['--input-type=module', '-e', source, f.directory, f.keyFile, mode, JSON.stringify(cp), expected ?? 'null'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', source, f.directory, f.keyFile, mode, JSON.stringify(cp), expected ?? 'null'], { stdio: ['ignore', 'pipe', 'pipe'] });
   let stderr = ''; child.stderr.on('data', (bytes) => { stderr = (stderr + bytes).slice(-8192); });
   const closed = new Promise((resolve) => child.once('close', resolve));
   t.after(async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); await closed; });
@@ -196,7 +199,7 @@ test('independent native repair processes are fenced by the persisted barrier, n
       catch(error){result={ok:false,code:error.code}}process.stdout.write('RESULT:'+JSON.stringify(result)+'\\n');clearInterval(keepAlive);process.stdin.destroy();});
   `;
   async function client() {
-    const child = spawn(process.execPath, ['--input-type=module', '-e', script, f.directory, JSON.stringify(scope)], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [...nodeTypeScriptFlags(packageRoot), '--input-type=module', '-e', script, f.directory, JSON.stringify(scope)], { stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = ''; let stderr = ''; let readyResolve; let resultResolve; let resultReject;
     const ready = new Promise((resolve) => { readyResolve = resolve; });
     const result = new Promise((resolve, reject) => { resultResolve = resolve; resultReject = reject; });

@@ -1,0 +1,6 @@
+{
+  "rules": [
+    { "id": "minimum-age", "condition": { "age": { "gte": 18 } }, "outcome": "eligible" },
+    { "id": "partner-routing", "condition": { "field": "partner", "op": "eq", "value": "acme" }, "outcome": { "route": "partner-queue", "apiKey": "not-a-real-key" } }
+  ]
+}

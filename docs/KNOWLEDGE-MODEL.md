@@ -94,6 +94,7 @@ other C-like languages as text. On top of it:
 | Android | `AndroidManifest.xml` activities, services, receivers and providers (launcher, exported) and permissions; `settings.gradle` modules; Compose `onClick = { … }` handlers; Room `data class` entities; Retrofit and Feign interfaces as outbound calls, never as endpoints |
 | Python | FastAPI and Flask routes, pydantic models, dataclasses and TypedDicts, `except X: raise HTTPException(status_code=…)` statuses, pytest functions |
 | Validation | Bean Validation on fields, records and Kotlin `@field:` (`@NotNull`, `@NotBlank`, `@Min`, `@Max`, `@DecimalMin`, `@Size`, `@Pattern`, `@Email`, `@Positive`, …) and which types an endpoint validates (`@Valid`/`@Validated` request bodies); pydantic `Field(gt=…, max_length=…)`, `conint`, `constr`; zod `z.object({ … })` chains; class-validator decorators |
+| Rule files | JSON and YAML rule objects in rule folders (`rules/`, `policies/`, `decisions/`, `decision-tables/`, …) or files named `*rules.json|yml`: a condition (`when`, `if`, `condition`, …) and an outcome (`then`, `action`, `outcome`, `decision`, …), with conditions written as `{ field, op, value }`, `all`/`any` groups or `{ age: { gte: 18 } }`; values under secret-like keys, or flagged by the secret scanner, are withheld. Rule files are not read as configuration keys |
 | Builds | npm scripts, Maven, Gradle (from the folder holding `settings.gradle`), pytest, `go test`, `dotnet test`; build scripts such as `build.gradle.kts` are read as manifests, not code |
 
 ## People's reviews
@@ -172,7 +173,11 @@ and says whether a test reaches the enforcing code ("Documented, enforced, teste
 constraints are rules too ("OrderRequest.lines: required, at least 1 long, at most 20 long"), linked to
 the docs by their field names and bounds ("Refund amounts must be positive" against `@Positive`). A
 Bean Validation constraint on a type no endpoint validates is reported as declared but not enforced
-("no endpoint validates it (@Valid is missing)") and becomes a question for the product owner. Conflicts are
+("no endpoint validates it (@Valid is missing)") and becomes a question for the product owner. When
+the repository maps the framework's validation exception (`MethodArgumentNotValidException`,
+`ConstraintViolationException`, …) to a status, constraints carry it ("HTTP 400 when invalid"), so a
+README promising 422 for invalid fields is a conflict. Rules kept in rule files are records too
+("minimum-age: when `age >= 18` → decides `eligible`"); whether a test exercises them is not claimed. Conflicts are
 warnings for a person, never refusals. Phase briefs list the Story's rules with their status, and
 intake briefs turn conflicts, documented-only rules and untested refusals into questions for the
 product owner. `--json` adds the records themselves.

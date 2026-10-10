@@ -85,3 +85,15 @@ test('records link docs and code by anchors and report agreement, conflicts and 
   const focused = buildRuleRecords(knowledge, documentation, { focus: 'cancel placed orders' });
   assert.match(focused[0].text, /placed orders/u, 'the Story\'s words rank first');
 });
+
+test('a validation constraint carries the status the repository maps validation failures to', () => {
+  const knowledge = { items: [{
+    id: 'K-v1', kind: 'validation', subject: { symbol: 'EvaluateRequest.rule', path: 'src/EvaluateRequest.java' }, citations: [{ path: 'src/EvaluateRequest.java', lines: [9, 9] }],
+    statement: { type: 'EvaluateRequest', field: 'rule', constraints: [{ kind: 'required' }], framework: 'bean-validation', validated: true, status: 'BAD_REQUEST', message: null }
+  }] };
+  const documentation = { statements: [{ path: 'README.md', line: 70, heading: 'Errors', text: '422 Unprocessable Entity when validation fails for request fields (e.g., `rule` is null).' }] };
+  const [record] = buildRuleRecords(knowledge, documentation);
+  assert.equal(record.text, 'EvaluateRequest.rule: required (HTTP 400 when invalid)');
+  assert.equal(record.status, 'conflict');
+  assert.equal(record.conflict, 'the docs say HTTP 422; the code returns HTTP 400');
+});

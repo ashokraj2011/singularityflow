@@ -1,0 +1,20 @@
+rules:
+  - name: loyal-customer-discount
+    when:
+      all:
+        - field: customer.years
+          op: gte
+          value: 3
+        - field: order.total
+          op: gt
+          value: 100
+    then:
+      discount: 0.1
+  - name: high-risk-block
+    when:
+      field: customer.riskScore
+      op: gt
+      value: 80
+    then:
+      action: reject
+      reason: Risk score too high

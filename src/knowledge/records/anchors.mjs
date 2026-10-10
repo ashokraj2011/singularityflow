@@ -61,7 +61,10 @@ export function normalizeEndpoint(method, route) {
  * A crude stem, the same on both sides of a comparison: "cancelling", "cancelled" and "cancel" all
  * become "cancel"; "orders" becomes "order"; "entries" becomes "entry".
  */
+const SYNONYMS = Object.freeze({ old: 'age', aged: 'age', ages: 'age' });
+
 function stem(word) {
+  if (SYNONYMS[word]) return SYNONYMS[word];
   let value = word.replace(/ies$/u, 'y');
   if (value.length > 5) value = value.replace(/(?:ing|ed)$/u, '');
   value = value.replace(/(?<=[a-z]{3})(?:es|s)$/u, '');

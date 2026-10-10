@@ -20,8 +20,9 @@ import {
 import { clauseEndLine, textTerms, wordMatches } from './requirements.mjs';
 import { validatedTypes, validationConstraints } from './validation.mjs';
 import { handlerSignature, repositoryInterfaces, typeRelations } from './contracts.mjs';
+import { ruleFileRules } from './rule-files.mjs';
 
-export const KNOWLEDGE_ANALYZER_VERSION = 3;
+export const KNOWLEDGE_ANALYZER_VERSION = 4;
 const PRODUCER = `knowledge-analyzer@${KNOWLEDGE_ANALYZER_VERSION}`;
 const AREA_TARGET_FILES = 150;
 const MAXIMUM_AREAS = 80;
@@ -200,7 +201,7 @@ function comparisonIn(cond) {
 
 export function analyzeKnowledge(source, { churn = null, commits = null, resolvedCalls = null } = {}) {
   const files = source.files;
-  const filesByPath = new Map([...files, ...source.manifests, ...(source.documents ?? [])].map((file) => [file.path, file]));
+  const filesByPath = new Map([...files, ...source.manifests, ...(source.documents ?? []), ...(source.ruleFiles ?? [])].map((file) => [file.path, file]));
   const knownPaths = new Set(files.map((file) => file.path));
   const items = [];
   const add = (spec) => {
@@ -419,12 +420,16 @@ export function analyzeKnowledge(source, { churn = null, commits = null, resolve
   // Validation constraints on request and data types. A Bean Validation constraint is enforced only
   // where an endpoint validates its type; other frameworks validate when the value is parsed.
   const validated = new Set(files.flatMap((file) => validatedTypes(file)));
+  // The status a failed validation returns, when the repository maps the framework's validation exception.
+  const validationMapping = files.flatMap((file) => exceptionStatuses(file).map((mapping) => ({ ...mapping, path: file.path })))
+    .find((mapping) => /^(?:MethodArgumentNotValidException|ConstraintViolationException|BindException|WebExchangeBindException|RequestValidationError|ValidationError|ValidationException)$/u.test(mapping.exception));
   for (const file of files) {
     for (const field of validationConstraints(file)) {
       add({ kind: 'validation', key: `${file.path}:${field.type}.${field.field}`, grain: 'unit', subject: { symbol: `${field.type}.${field.field}`, path: file.path },
         statement: {
           type: field.type, field: field.field, fieldType: field.fieldType ?? null, constraints: field.constraints, message: field.message,
-          framework: field.framework, validated: field.framework === 'bean-validation' ? validated.has(field.type) : null
+          framework: field.framework, validated: field.framework === 'bean-validation' ? validated.has(field.type) : null,
+          status: validationMapping?.status ?? null, handler: validationMapping?.path ?? null
         },
         citations: [citation(file, field.line)], area: areaOf(file.path) });
     }
@@ -456,6 +461,18 @@ export function analyzeKnowledge(source, { churn = null, commits = null, resolve
         statement: { name: repository.name, kind: 'repository', base: repository.base, entity: repository.entity, id: repository.id, methods: repository.methods },
         citations: [citation(file, repository.line)], area: areaOf(file.path) });
     }
+  }
+  // Rules kept as data: each rule object's conditions (with values) and outcome.
+  for (const file of source.ruleFiles ?? []) {
+    ruleFileRules(file).forEach((rule, index) => {
+      add({ kind: 'rule', key: `${file.path}:${rule.name}:rule-file:${index}`, grain: 'unit', subject: { symbol: rule.name, path: file.path },
+        statement: {
+          kind: rule.when.some((line) => /\s[<>]=?\s/u.test(line)) ? 'threshold' : 'match', source: 'rule-file',
+          when: rule.when, then: rule.then ? { kind: 'decides', text: rule.then, line: rule.line } : null, otherwise: null,
+          values: rule.values, comparison: rule.when.map((line) => comparisonIn(line)).find(Boolean) ?? null
+        },
+        citations: [citation(file, rule.line)], area: areaOf(file.path) });
+    });
   }
   const configuration = [];
   for (const manifest of source.manifests) {

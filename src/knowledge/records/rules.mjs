@@ -45,8 +45,14 @@ function constantValue(name, constants) {
  * most 20); any other rule states when it applies.
  */
 export function codeRuleBound(statement) {
-  const refusal = statement?.then?.kind === 'refuses';
+  return codeRuleBounds(statement)[0] ?? null;
+}
+
+/** Every bound a rule's conditions state; a rejecting outcome (a refusal, "action = reject") states what is allowed. */
+export function codeRuleBounds(statement) {
+  const refusal = statement?.then?.kind === 'refuses' || /\b(?:reject|deny|denied|block|decline|refuse)\w*/iu.test(String(statement?.then?.text ?? ''));
   const constants = statement?.values?.constants ?? [];
+  const bounds = [];
   for (const condition of statement?.when ?? []) {
     let op = null;
     let value = null;
@@ -60,16 +66,16 @@ export function codeRuleBound(statement) {
       else if (right) { op = right[1]; value = /^[A-Z]/u.test(right[2]) ? constantValue(right[2], constants) : Number(right[2]); }
       else if (left) { op = FLIP[left[2]]; value = /^[A-Z]/u.test(left[1]) ? constantValue(left[1], constants) : Number(left[1]); }
     }
-    if (op && value != null && Number.isFinite(value)) return { op: refusal ? INVERSE[op] : op, value };
+    if (op && value != null && Number.isFinite(value)) bounds.push({ op: refusal ? INVERSE[op] : op, value });
   }
-  return null;
+  return bounds;
 }
 
 function ruleLine(item, status) {
   const statement = item.statement ?? {};
   const when = (statement.when ?? []).filter(Boolean);
   const then = statement.then ?? null;
-  const verb = { refuses: 'refuses', returns: 'returns', shows: 'shows', computes: 'computes', does: 'does', checks: 'checks', stops: 'stops' }[then?.kind] ?? then?.kind ?? '';
+  const verb = { refuses: 'refuses', returns: 'returns', shows: 'shows', computes: 'computes', does: 'does', checks: 'checks', stops: 'stops', decides: 'decides' }[then?.kind] ?? then?.kind ?? '';
   const condition = when.length ? `when ${when.map((part) => `\`${part}\``).join(' and ')}` : '';
   const outcome = then ? `${verb} ${then.kind === 'refuses' || then.kind === 'shows' ? `"${then.text}"` : `\`${then.text}\``}` : '';
   return `${item.subject?.symbol ?? 'The code'}: ${[condition, outcome].filter(Boolean).join(' → ')}${status ? ` (HTTP ${status})` : ''}`;
@@ -83,7 +89,7 @@ function validationAnchors(item) {
   const required = (statement.constraints ?? []).some((entry) => entry.kind === 'required');
   const names = [statement.field, statement.type].filter(Boolean).map((name) => name.toLowerCase());
   return {
-    message: statement.message ? normalizeMessage(statement.message) : null, status: null,
+    message: statement.message ? normalizeMessage(statement.message) : null, status: statusNumber(statement.status),
     identifiers: new Set(names), quoted: new Set(), nullChecked: new Set(required ? [String(statement.field).toLowerCase()] : []),
     values: new Set(), constants: new Set(),
     bounds: (statement.constraints ?? []).filter((entry) => CONSTRAINT_OP[entry.kind] && Number.isFinite(entry.value))
@@ -123,7 +129,7 @@ function codeAnchors(item, statusByMessage, limitValues) {
       ...(String(then?.text ?? '').match(/\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/gu) ?? []).map((name) => limitValues.get(name))
     ].map((value) => Number(String(value ?? '').replace(/[^\d.-]/gu, ''))).filter((value) => Number.isFinite(value) && value !== 0)),
     constants: new Set([...(statement.values?.constants ?? []).map((entry) => entry.name), ...(String(then?.text ?? '').match(/\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b/gu) ?? [])]),
-    bounds: [codeRuleBound(statement)].filter(Boolean),
+    bounds: codeRuleBounds(statement),
     words: subjectWords([...(statement.when ?? []), method, then?.text ?? ''].join(' '))
   };
 }
@@ -147,14 +153,21 @@ function compare(doc, code, weight) {
       && [...code.nullChecked].some((name) => doc.identifiers.has(name) || doc.words.has(name))) score += 3;
   const sharedWords = [...doc.words].filter((word) => code.words.has(word));
   const shared = sharedWords.length;
-  score += Math.min(3, sharedWords.reduce((sum, word) => sum + weight.word(word), 0));
+  const sharedWeight = sharedWords.reduce((sum, word) => sum + weight.word(word), 0);
+  score += Math.min(3, sharedWeight);
   if (code.status && doc.statuses.has(code.status)) score += 1;
   let disagreement = null;
+  // Bounds pair by value first; an unpaired docs bound disagrees only with the one unpaired code bound
+  // of its direction, so "at least 3 years and over 100" against `years >= 3` and `total > 100` agrees.
+  const paired = new Set();
+  const unpaired = [];
   for (const bound of doc.bounds) {
-    const same = code.bounds.filter((candidate) => family(candidate.op) === family(bound.op));
-    if (!same.length) continue;
-    if (same.some((candidate) => candidate.value === bound.value)) score += 3;
-    else if (shared >= 2 || strong || named.length) disagreement = { docs: bound, code: same[0] };
+    const match = code.bounds.findIndex((candidate, index) => !paired.has(index) && family(candidate.op) === family(bound.op) && candidate.value === bound.value);
+    if (match >= 0) { paired.add(match); score += 3; } else unpaired.push(bound);
+  }
+  for (const bound of unpaired) {
+    const left = code.bounds.filter((candidate, index) => !paired.has(index) && family(candidate.op) === family(bound.op));
+    if (left.length === 1 && (shared >= 2 || strong || named.length || sharedWeight >= 1)) disagreement = { docs: bound, code: left[0] };
   }
   const statuses = [...doc.statuses].filter((code) => code >= 400);
   if ((strong || score >= 4) && code.status && statuses.length && !statuses.includes(code.status)) disagreement = { docsStatus: statuses, codeStatus: code.status };
@@ -244,7 +257,7 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
       const citation = item.citations?.[0];
       records.push({
         id: recordId(item.id), kind: 'rule', origin: 'validation',
-        text: `${statement.type}.${statement.field}: ${constraintText(statement.constraints)}${statement.message ? ` ("${statement.message}")` : ''}`,
+        text: `${statement.type}.${statement.field}: ${constraintText(statement.constraints)}${statement.message ? ` ("${statement.message}")` : ''}${anchors.status ? ` (HTTP ${anchors.status} when invalid)` : ''}`,
         status: conflicts.length ? 'conflict' : documented ? 'agreed' : 'enforced-only',
         documented, enforced, tested: null, declaredOnly: !enforced, framework: statement.framework,
         conflict: conflicts.length ? conflictText(conflicts[0].disagreement) : null,
@@ -258,10 +271,11 @@ export function buildRuleRecords(knowledge, documentation = null, { focus = null
     const tests = (item.relations ?? []).filter((relation) => relation.type === 'tested-by' || relation.type === 'tested-through').map((relation) => relation.label).filter(Boolean);
     const citation = item.citations?.[0];
     records.push({
-      id: recordId(item.id), kind: 'rule', origin: 'code',
+      id: recordId(item.id), kind: 'rule',
       text: ruleLine(item, anchors.status),
       status: conflicts.length ? 'conflict' : documented ? 'agreed' : 'enforced-only',
-      documented, enforced: true, tested: tests.length > 0,
+      // A rule file is data: whether a test exercises it is not known from the file.
+      documented, enforced: true, tested: item.statement?.source === 'rule-file' ? null : tests.length > 0, origin: item.statement?.source === 'rule-file' ? 'rule-file' : 'code',
       conflict: conflicts.length ? conflictText(conflicts[0].disagreement) : null,
       parts: { condition: item.statement?.when ?? [], outcome: item.statement?.then ?? null, message: anchors.message, status: anchors.status, bound: anchors.bound },
       sources: {

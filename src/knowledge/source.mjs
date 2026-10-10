@@ -15,6 +15,7 @@ import { head } from '../git.mjs';
 import { normalizeSourceRoots } from '../source-scope.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { readApprovedRequirements } from './requirements.mjs';
+import { isRuleFile } from './rule-files.mjs';
 import { codeAreas, isCodeLanguage, languageOf } from '../code-intelligence/generated/code-explainer-model.mjs';
 
 export const KNOWLEDGE_SOURCE_LIMITS = Object.freeze({
@@ -66,7 +67,8 @@ export async function readKnowledgeSource(root, { area = null, ownOnly = false, 
     pathFilter: (relative, entry) => {
       // An area's own files are those directly in its folder; its subfolders are areas of their own.
       if (ownOnly && area && path.posix.dirname(relative) !== roots[0]) return false;
-      if (entry.type === 'blob' && (isCandidateSource(relative, pathContext) || MANIFEST.test(relative))) listed.push(relative);
+      if (entry.type === 'blob' && (isCandidateSource(relative, pathContext) || MANIFEST.test(relative)
+        || (isRuleFile(relative) && isExplainedPath(relative, pathContext) && !BUILD_OUTPUT.test(relative)))) listed.push(relative);
       return false;
     }
   });
@@ -105,6 +107,8 @@ export async function readKnowledgeSource(root, { area = null, ownOnly = false, 
   }
   const files = [];
   const manifests = [];
+  // Rules kept as data (JSON/YAML in rule folders): read for their rules, never as configuration keys.
+  const ruleFiles = [];
   for (const [relative, text] of [...read.contents].sort(([a], [b]) => a.localeCompare(b, 'en'))) {
     if (text.includes('\u0000')) { skipped.push({ path: relative, reason: 'binary' }); continue; }
     const entry = {
@@ -114,12 +118,14 @@ export async function readKnowledgeSource(root, { area = null, ownOnly = false, 
       sha256: digest(text)
     };
     if (isCandidateSource(relative, pathContext)) files.push(entry);
+    else if (isRuleFile(relative) && !MANIFEST.test(relative)) ruleFiles.push(entry);
     else manifests.push(entry);
   }
   // What the code was asked to do: clauses of approved Story specifications, read at the same commit.
   const requirements = readApprovedRequirements(root, definition, { ref: ref === 'HEAD' ? 'HEAD' : commit });
   const key = digest(JSON.stringify([commit, roots, ownOnly, files.map((file) => [file.path, file.sha256]),
-    manifests.map((file) => [file.path, file.sha256]), requirements.documents.map((document) => [document.path, document.sha256])]));
-  return { ...base, status: 'ok', reason: null, key, files, manifests, skipped, bytes: total, name: path.basename(root),
+    manifests.map((file) => [file.path, file.sha256]), requirements.documents.map((document) => [document.path, document.sha256]),
+    ruleFiles.map((file) => [file.path, file.sha256])]));
+  return { ...base, status: 'ok', reason: null, key, files, manifests, ruleFiles, skipped, bytes: total, name: path.basename(root),
     documents: requirements.documents, requirements: requirements.clauses, requirementSkipped: requirements.skipped };
 }

@@ -35,7 +35,7 @@ import { resolveWorldModelV4Grounding } from './world-model/commands.mjs';
 import {
   cachedWorldModelV4AuthorityPresent, refreshWorldModelV4Authority
 } from './world-model/authority-refresh.mjs';
-import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { worldModelStateAuthority } from './state-authority.mjs';
 import {
   artifactPlaceholderFindings, authoredArtifactFingerprint
 } from './publication-preflight.mjs';

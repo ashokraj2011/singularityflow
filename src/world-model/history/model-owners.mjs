@@ -4,7 +4,7 @@ import {
   assertPlainRecord, assertSchemaKind, assertSelfHash, assertSha256, assertString,
   assertStringArray, contractFailure
 } from '../contracts.mjs';
-import { compareText, deepFreeze, sealRecord } from '../canonicalize.mjs';
+import { compareText, deepFreeze, sealRecord } from '../../canonical-json.mjs';
 
 const REPOSITORY_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/;
 const TYPE_ID = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;

@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { compareText, deepFreeze, sha256 } from '../canonicalize.mjs';
+import { compareText, deepFreeze, sha256 } from '../../canonical-json.mjs';
 import { assertExactKeys, assertPlainRecord, contractFailure } from '../contracts.mjs';
 import {
   BUILTIN_EXTRACTOR_REGISTRY, DEFAULT_EXTRACTOR_REFERENCES, resolveExtractorManifest,

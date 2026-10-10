@@ -11,7 +11,7 @@ import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { verifyGroundingRecord } from '../src/grounding.mjs';
 import { recordInjection } from '../src/inject.mjs';
 import { run } from '../src/util.mjs';
-import { canonicalJson, sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sealRecord, sha256 } from '../src/canonical-json.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 import { planWorldModelV4 } from '../src/world-model/plan.mjs';
 import {

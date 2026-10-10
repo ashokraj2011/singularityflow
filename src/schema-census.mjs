@@ -11,7 +11,7 @@ import { run, SingularityFlowError } from './util.mjs';
 import { familyForStoredPath, migrationRegistrySnapshot, readRecord } from './schema-migrations.mjs';
 import { loadDefinition } from './config.mjs';
 import { loadPortfolio } from './initiative-config.mjs';
-import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { worldModelStateAuthority } from './state-authority.mjs';
 import {
   classifyWorldModelInput, LEGACY_WORLD_MODEL_CLASSIFICATION
 } from './world-model/migration/v3-reader.mjs';

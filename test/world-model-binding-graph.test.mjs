@@ -8,7 +8,7 @@ import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { run } from '../src/util.mjs';
 import {
   canonicalJson, compareText, sealRecord, sha256
-} from '../src/world-model/canonicalize.mjs';
+} from '../src/canonical-json.mjs';
 import { createEvidenceCatalog } from '../src/world-model/extract/evidence-catalog.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 import { createWmpModelBinding } from '../src/world-model/history/contracts.mjs';

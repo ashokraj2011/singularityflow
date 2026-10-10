@@ -16,7 +16,7 @@ import { tkrContractReference } from '../src/token-reduction/contracts.mjs';
 import { readRecord, schemaFamily } from '../src/schema-migrations.mjs';
 import {
   canonicalJson, recordSha256, sealRecord, sha256
-} from '../src/world-model/canonicalize.mjs';
+} from '../src/canonical-json.mjs';
 
 const set = defaultTokenReductionContractSet();
 const HASH = (character) => `sha256:${character.repeat(64)}`;

@@ -1,4 +1,4 @@
-import { deepFreeze } from '../canonicalize.mjs';
+import { deepFreeze } from '../canonical-json.mjs';
 import {
   createFwmActivation, createFwmConsumer, createFwmRegistry, createFwmViewDescriptor,
   FWM_EXACT_VIEW, FWM_VIEW_ID, validateFwmActivation, validateFwmRegistry

@@ -8,7 +8,7 @@ import path from 'node:path';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 import {
   extractPolyglotImports, extractPolyglotSymbols, maskPolyglotNonCode
-} from '../src/world-model/extract/adapters/polyglot-lexical.mjs';
+} from '../src/polyglot-lexical.mjs';
 import { scanClauseBindings } from '../src/world-model/extract/adapters/closed-structure.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
 import { verifyBuiltInExtractorConformance } from '../src/world-model/registry/extractor-conformance.mjs';

@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { sealRecord, sha256 } from '../src/canonical-json.mjs';
 import { scanLocalCallAndReferenceEdges } from '../src/world-model/extract/adapters/call-reference-edge.mjs';
 import { extractChangeRegions } from '../src/world-model/extract/adapters/change-region.mjs';
 import { parseHumanConfirmedKnowledgeImport } from '../src/world-model/extract/adapters/human-confirmed-knowledge-import.mjs';

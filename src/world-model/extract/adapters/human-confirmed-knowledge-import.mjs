@@ -1,4 +1,4 @@
-import { compareText, isPlainRecord, recordSha256 } from '../../canonicalize.mjs';
+import { compareText, isPlainRecord, recordSha256 } from '../../../canonical-json.mjs';
 import { readRecord } from '../../../schema-migrations.mjs';
 import {
   adapterFiles, evidenceDescriptor, exactText, factDraft, implementationSha256, result,

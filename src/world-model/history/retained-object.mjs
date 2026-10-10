@@ -1,6 +1,6 @@
 import { readRecord, schemaFamily } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
-import { canonicalJson, sha256 } from '../canonicalize.mjs';
+import { canonicalJson, sha256 } from '../../canonical-json.mjs';
 import { validateHistoricalDerivationCatalog } from '../extract/derivation-catalog.mjs';
 import { validateEvidenceCatalog } from '../extract/evidence-catalog.mjs';
 import { validateHistoricalFactLedger } from '../extract/fact-ledger.mjs';

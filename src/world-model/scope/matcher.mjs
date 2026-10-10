@@ -1,5 +1,5 @@
 import { normalizeRepositoryPath } from '../contracts.mjs';
-import { compareText } from '../canonicalize.mjs';
+import { compareText } from '../../canonical-json.mjs';
 import { portableFilesystemPathIdentity } from '../../configuration-assets.mjs';
 import { normalizeScopePattern, validateScopeManifest } from './manifest.mjs';
 

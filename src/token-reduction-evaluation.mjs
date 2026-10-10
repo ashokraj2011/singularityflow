@@ -1,7 +1,7 @@
 /** Deterministic, content-free evaluation for TKR benchmark observations. */
 import { recordSha256 } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { deepFreeze } from './world-model/canonicalize.mjs';
+import { deepFreeze } from './canonical-json.mjs';
 
 export const TKR_BENCHMARK_DEFAULTS = Object.freeze({
   minimumScenarios: 10,

@@ -4,7 +4,7 @@ import { SingularityFlowError } from '../../util.mjs';
 import { registeredWorldModelOffError } from '../../world-model-format.mjs';
 import { registeredWorldModelOn } from '../../world-model-policy.mjs';
 import { planWorldModelV4 } from '../../world-model/plan.mjs';
-import { sha256 } from '../../world-model/canonicalize.mjs';
+import { sha256 } from '../../canonical-json.mjs';
 import { createArchitectureCapabilitySnapshot } from '../../world-model/projections/calm/projection.mjs';
 import { createCalmToolchainLock } from '../../world-model/projections/calm/validator.mjs';
 import {

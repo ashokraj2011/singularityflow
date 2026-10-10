@@ -5,7 +5,7 @@ import {
   assertNormalizedRepositoryPath, assertPlainRecord, assertSchemaKind, assertSelfHash,
   assertSha256, assertString, contractFailure
 } from '../contracts.mjs';
-import { compareText, deepFreeze, sealRecord } from '../canonicalize.mjs';
+import { compareText, deepFreeze, sealRecord } from '../../canonical-json.mjs';
 
 export const WMP_CANDIDATE_ROSTER_FAMILY = 'world-model-discovered-candidate-roster';
 export const WMP_CANDIDATE_ROSTER_ROLE = 'candidate-roster';

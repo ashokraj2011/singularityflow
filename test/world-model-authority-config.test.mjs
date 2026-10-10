@@ -7,7 +7,7 @@ import YAML from 'yaml';
 
 import { initializeDefinition, loadDefinition } from '../src/config.mjs';
 import { run } from '../src/util.mjs';
-import { worldModelStateAuthority } from '../src/world-model/authority-config.mjs';
+import { worldModelStateAuthority } from '../src/state-authority.mjs';
 
 test('World-Model state authority prefers the ledger remote over application transport', () => {
   assert.deepEqual(worldModelStateAuthority({

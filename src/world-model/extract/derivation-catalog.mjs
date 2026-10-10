@@ -1,4 +1,4 @@
-import { collisionSafeIds, compareText, sealRecord, sha256 } from '../canonicalize.mjs';
+import { collisionSafeIds, compareText, sealRecord, sha256 } from '../../canonical-json.mjs';
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
 import {
   DERIVATION_ID_PATTERN, EVIDENCE_ID_PATTERN, FACT_ID_PATTERN, assertCanonicalOrder,

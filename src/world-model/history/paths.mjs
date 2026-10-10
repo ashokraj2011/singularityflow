@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { assertSha256, contractFailure } from '../contracts.mjs';
-import { deepFreeze } from '../canonicalize.mjs';
+import { deepFreeze } from '../../canonical-json.mjs';
 
 export const DEFAULT_WORLD_MODEL_OUTPUT_DIR = 'singularity/world-model';
 export const DEFAULT_WORLD_MODEL_HISTORY_DIR = 'singularity/world-model-history';

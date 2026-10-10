@@ -12,8 +12,8 @@ import { readRecord } from './schema-migrations.mjs';
 import {
   gitHeadIsUnborn, gitReadOutput, run, secureRepositoryPath, SingularityFlowError
 } from './util.mjs';
-import { canonicalJson, sha256 } from './world-model/canonicalize.mjs';
-import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { canonicalJson, sha256 } from './canonical-json.mjs';
+import { worldModelStateAuthority } from './state-authority.mjs';
 import {
   assertCurrentArchitectureProjection, resolveCurrentArchitectureProjectionInputs
 } from './world-model/projections/calm/authority.mjs';

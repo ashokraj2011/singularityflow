@@ -13,7 +13,7 @@ import { defaultTokenReductionContractSet } from './default-contract.mjs';
 import { renderTkrGeneratedSection } from './generated-renderer.mjs';
 import {
   canonicalJson, deepFreeze, sealRecord, sha256
-} from '../world-model/canonicalize.mjs';
+} from '../canonical-json.mjs';
 
 export const TOKEN_REDUCTION_COMPOSITION_FAMILY = 'token-reduction-composition';
 export const TOKEN_REDUCTION_COMPOSITION_KIND = 'tkr/composition-receipt';

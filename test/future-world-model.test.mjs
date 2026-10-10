@@ -11,7 +11,7 @@ import {
   fwmSemanticSha256,
   resolveFwmReadView,
   validateFwmReadResult
-} from '../src/world-model/fwm/index.mjs';
+} from '../src/fwm/index.mjs';
 
 const HASH = (character) => `sha256:${character.repeat(64)}`;
 

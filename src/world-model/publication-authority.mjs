@@ -5,7 +5,7 @@ import {
 import { exactRemoteBranchObservationAsync, refHead } from '../git.mjs';
 import { configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { canonicalJson } from './canonicalize.mjs';
+import { canonicalJson } from '../canonical-json.mjs';
 
 const DEFAULT_MESSAGE = '[world-model][wmb-v4] publish registered views';
 const COMMIT = /^[a-f0-9]{40,64}$/;

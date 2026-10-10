@@ -1,8 +1,8 @@
 import path from 'node:path';
 
-import { astContext, astQuery } from '../../ast-intelligence.mjs';
-import { actionCommandLines, copilotAction } from '../../copilot-guidance.mjs';
-import { optionBoolean, optionNumber, optionString, SingularityFlowError } from '../../util.mjs';
+import { astContext, astQuery } from '../ast-intelligence.mjs';
+import { actionCommandLines, copilotAction } from '../copilot-guidance.mjs';
+import { optionBoolean, optionNumber, optionString, SingularityFlowError } from '../util.mjs';
 import { fwmCanonicalJson, fwmSemanticSha256 } from './canonical.mjs';
 import {
   createFwmInputBinding, createFwmOrigin, createFwmReadResult, FWM_SHA256

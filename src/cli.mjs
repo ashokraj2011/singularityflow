@@ -31,7 +31,7 @@ import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resol
 import { discoverRemoteStoryCandidates, validatedRemoteStoryDefinition } from './session-story-discovery.mjs';
 import { discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch } from './session-remote-url-discovery.mjs';
 import { samePlatformPath } from './story-worktree.mjs';
-import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { worldModelStateAuthority } from './state-authority.mjs';
 import { mintStoryIntakeReceipt, storyIntakeReceiptsDisabled } from './story-intake-receipt.mjs';
 import {
   STORY_INTAKE_AUTHORITY_REUSE_MS, admitStoryIntakeReceipt, isStoryIntakeProof, verifyStoryIntakeWave

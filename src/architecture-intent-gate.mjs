@@ -10,7 +10,7 @@ import {
   assertArchitectureIntentReportMatches, evaluateArchitectureIntentEvidence,
   resolveArchitectureIntentPublicationBinding
 } from './architecture-intent-service.mjs';
-import { canonicalJson } from './world-model/canonicalize.mjs';
+import { canonicalJson } from './canonical-json.mjs';
 import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
 
 const EMPTY = Object.freeze({

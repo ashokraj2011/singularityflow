@@ -8,7 +8,7 @@ import {
   initializeLedger, publishToStateBranch, stateBranchPublicationTargetIdentity
 } from '../src/ledger.mjs';
 import { run } from '../src/util.mjs';
-import { canonicalJson, sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sealRecord, sha256 } from '../src/canonical-json.mjs';
 import { createWmpHandoff } from '../src/world-model/history/contracts.mjs';
 import { worldModelHistoryHandoffPath } from '../src/world-model/history/paths.mjs';
 import {

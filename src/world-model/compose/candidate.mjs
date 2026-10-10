@@ -1,6 +1,6 @@
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
-import { canonicalJson, compareText } from '../canonicalize.mjs';
+import { canonicalJson, compareText } from '../../canonical-json.mjs';
 
 export const FACT_REFERENCE = /\[F:(FACT-[a-f0-9]{16,64}(?:,FACT-[a-f0-9]{16,64})*)\]/g;
 

@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { SingularityFlowError } from '../../util.mjs';
-import { canonicalJson, deepFreeze, isPlainRecord, sha256 } from '../canonicalize.mjs';
+import { canonicalJson, deepFreeze, isPlainRecord, sha256 } from '../../canonical-json.mjs';
 import {
   parseCanonicalWmpRecordBytes, validateWmpHandoff,
   validateWmpModelBinding, validateWmpViewBinding

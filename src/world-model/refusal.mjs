@@ -1,6 +1,6 @@
 import { recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
-import { deepFreeze } from './canonicalize.mjs';
+import { deepFreeze } from '../canonical-json.mjs';
 import {
   VIEW_ID_PATTERN, assertExactKeys, assertPlainRecord, assertSchemaKind, assertSelfHash,
   assertSha256, assertString, assertStringArray

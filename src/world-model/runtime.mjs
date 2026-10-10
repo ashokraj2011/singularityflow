@@ -9,7 +9,7 @@ import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { SingularityFlowError } from '../util.mjs';
 import { readWorldModelViewCache, writeWorldModelViewCache } from './cache.mjs';
-import { canonicalJson, sealRecord, sha256 } from './canonicalize.mjs';
+import { canonicalJson, sealRecord, sha256 } from '../canonical-json.mjs';
 import {
   assembleWmbV4Prompt, assertWmbV4PromptInputBudget
 } from './compose/pinned-core.mjs';

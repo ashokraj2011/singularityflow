@@ -1,6 +1,6 @@
 import { currentSchemaVersion, readRecord } from '../../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../../util.mjs';
-import { canonicalJson, compareText, sealRecord, sha256 } from '../../canonicalize.mjs';
+import { canonicalJson, compareText, sealRecord, sha256 } from '../../../canonical-json.mjs';
 import { BUILTIN_ARCH_CALM_CONTRACT, CALM_SCHEMA_URI } from '../../registry/projections.mjs';
 import { validateCalmWithOfficialToolchain } from './validator.mjs';
 import { createCalmFactBridge } from './fact-bridge.mjs';

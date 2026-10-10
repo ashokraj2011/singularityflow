@@ -15,7 +15,7 @@ import {
 } from '../src/world-model/extract/derivation-catalog.mjs';
 import { createFactLedger, factIdentityFromRecord } from '../src/world-model/extract/fact-ledger.mjs';
 import { BUILTIN_EXTRACTOR_REGISTRY } from '../src/world-model/registry/extractors.mjs';
-import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { sealRecord, sha256 } from '../src/canonical-json.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
 import { classifyScopePath } from '../src/world-model/scope/matcher.mjs';
 import {

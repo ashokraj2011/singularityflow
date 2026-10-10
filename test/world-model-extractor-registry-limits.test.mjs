@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
-import { sealRecord } from '../src/world-model/canonicalize.mjs';
+import { sealRecord } from '../src/canonical-json.mjs';
 import {
   BUILTIN_EXTRACTOR_REGISTRY, createExtractorRegistry,
   MAXIMUM_EXTRACTOR_REGISTRY_MANIFESTS, validateHistoricalExtractorRegistry

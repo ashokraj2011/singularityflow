@@ -9,7 +9,7 @@ import { SingularityFlowError } from '../util.mjs';
 import { validateTkrRuntimeRendererClosure } from './renderer-contracts.mjs';
 import {
   canonicalJson, compareText, deepFreeze, sealRecord, sha256
-} from '../world-model/canonicalize.mjs';
+} from '../canonical-json.mjs';
 
 const SHA256 = /^sha256:[a-f0-9]{64}$/;
 const TYPE_ID = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;

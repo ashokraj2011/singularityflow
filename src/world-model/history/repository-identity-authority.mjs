@@ -14,7 +14,7 @@ import {
 import { PORTFOLIO_PATH, validatePortfolio } from '../../initiative-config.mjs';
 import { withWorldModelSourceScope } from '../../source-scope.mjs';
 import { secureRepositoryPath } from '../../util.mjs';
-import { canonicalJson, deepFreeze, sealRecord, sha256 } from '../canonicalize.mjs';
+import { canonicalJson, deepFreeze, sealRecord, sha256 } from '../../canonical-json.mjs';
 import {
   assertExactKeys, assertPlainRecord, assertSelfHash, assertSha256,
   assertString, contractFailure

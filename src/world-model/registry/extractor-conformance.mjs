@@ -1,4 +1,4 @@
-import { canonicalJson, sealRecord, sha256 } from '../canonicalize.mjs';
+import { canonicalJson, sealRecord, sha256 } from '../../canonical-json.mjs';
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
 import { extractImports, extractSymbols } from '../../repository-facts.mjs';
 import {

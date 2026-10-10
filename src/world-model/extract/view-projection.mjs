@@ -1,6 +1,6 @@
 import {
   canonicalJson, compareText, deepFreeze, sha256
-} from '../canonicalize.mjs';
+} from '../../canonical-json.mjs';
 import { contractFailure } from '../contracts.mjs';
 import {
   resolveExtractorManifest, validateExtractorRegistry

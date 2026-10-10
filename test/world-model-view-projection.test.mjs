@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { canonicalJson, sha256 } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sha256 } from '../src/canonical-json.mjs';
 import {
   createViewProjectionRegistration, runDeterministicRegistration
 } from '../src/world-model/extract/index.mjs';

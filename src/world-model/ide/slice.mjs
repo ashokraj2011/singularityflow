@@ -1,4 +1,4 @@
-import { canonicalJson, sha256 } from '../canonicalize.mjs';
+import { canonicalJson, sha256 } from '../../canonical-json.mjs';
 import { classifyScopePath } from '../scope/matcher.mjs';
 import { readExactSourceFile } from '../source/snapshot.mjs';
 import { resolvePublishedWorldModelV4 } from '../store.mjs';

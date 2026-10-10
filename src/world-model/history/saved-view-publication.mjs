@@ -1,6 +1,6 @@
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
-import { canonicalJson, compareText, deepFreeze, sealRecord, sha256 } from '../canonicalize.mjs';
+import { canonicalJson, compareText, deepFreeze, sealRecord, sha256 } from '../../canonical-json.mjs';
 import { deriveWmpViewKey } from './identity.mjs';
 import { createViewProjectionRegistration } from '../extract/view-projection.mjs';
 import { createWmpViewBinding, createWmpViewInputs } from './contracts.mjs';

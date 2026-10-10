@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   canonicalJson, collisionSafeIds, sealRecord, sha256
-} from '../src/world-model/canonicalize.mjs';
+} from '../src/canonical-json.mjs';
 import {
   assertInstalledExtractorRegistry, BUILTIN_EXTRACTOR_REGISTRY, resolveExtractorManifest,
   validateExtractorManifest, validateExtractorRegistry

@@ -1,4 +1,4 @@
-import { canonicalJson, compareText, deepFreeze, sealRecord } from '../canonicalize.mjs';
+import { canonicalJson, compareText, deepFreeze, sealRecord } from '../../canonical-json.mjs';
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
 import {
   assertBoolean, assertCanonicalOrder, assertExactKeys, assertPlainRecord, assertSchemaKind,

@@ -12,7 +12,7 @@ import { resolveLifecycleCapability } from '../src/capability-context.mjs';
 import {
   ensureConfigurationBranch, materializeConfigurationSnapshot
 } from '../src/configuration-branch.mjs';
-import { sha256 } from '../src/world-model/canonicalize.mjs';
+import { sha256 } from '../src/canonical-json.mjs';
 import { createWorldModelRepositoryDomain } from '../src/world-model/history/model-owners.mjs';
 import {
   assertWorldModelRepositoryIdentityAuthority,

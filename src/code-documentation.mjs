@@ -11,7 +11,7 @@
  * nothing and does not count.
  */
 import path from 'node:path';
-import { maskPolyglotNonCode } from './world-model/extract/adapters/polyglot-lexical.mjs';
+import { maskPolyglotNonCode } from './polyglot-lexical.mjs';
 
 const LANGUAGE_BY_EXTENSION = Object.freeze({
   '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript', '.jsx': 'javascript',

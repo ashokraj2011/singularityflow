@@ -7,7 +7,7 @@ import { PACKAGE_ROOT } from '../../../package-root.mjs';
 import { runQualityCommand } from '../../../quality-command-runner.mjs';
 import { currentSchemaVersion, readRecord } from '../../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../../util.mjs';
-import { canonicalJson, compareText, sealRecord, sha256, sha256Bytes } from '../../canonicalize.mjs';
+import { canonicalJson, compareText, sealRecord, sha256, sha256Bytes } from '../../../canonical-json.mjs';
 import { BUILTIN_ARCH_CALM_CONTRACT } from '../../registry/projections.mjs';
 
 // Resolve both executable dependencies and packaged schemas through the shared package boundary.

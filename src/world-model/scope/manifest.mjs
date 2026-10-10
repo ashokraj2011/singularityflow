@@ -4,7 +4,7 @@ import {
   assertStringArray, contractFailure, normalizeRepositoryPath
 } from '../contracts.mjs';
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
-import { sealRecord, sha256 } from '../canonicalize.mjs';
+import { sealRecord, sha256 } from '../../canonical-json.mjs';
 import { SCOPE_SUBJECT_KINDS, assertVocabularyValue } from '../vocabularies.mjs';
 
 export const DEFAULT_SCOPE_POLICY_SHA256 = sha256({

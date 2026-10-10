@@ -8,7 +8,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { run } from '../src/util.mjs';
-import { canonicalJson, sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sealRecord, sha256 } from '../src/canonical-json.mjs';
 import { buildAndPublishWorldModelV4 } from '../src/world-model/service.mjs';
 import {
   resolvePublishedWorldModelV4, validateWorldModelContextManifest,

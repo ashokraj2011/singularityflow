@@ -7,7 +7,7 @@ import {
   promptSectionsToTokenReductionOffers
 } from '../src/token-reduction-prompt-adapter.mjs';
 import { defaultTokenReductionContractSet } from '../src/token-reduction/default-contract.mjs';
-import { recordSha256 } from '../src/world-model/canonicalize.mjs';
+import { recordSha256 } from '../src/canonical-json.mjs';
 
 const contractSet = defaultTokenReductionContractSet();
 

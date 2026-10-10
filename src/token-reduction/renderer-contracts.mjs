@@ -8,7 +8,7 @@ import { SingularityFlowError } from '../util.mjs';
 import { TKR_GENERATED_RENDERER_REF } from './generated-renderer.mjs';
 import {
   canonicalize, deepFreeze, sha256, withoutFields
-} from '../world-model/canonicalize.mjs';
+} from '../canonical-json.mjs';
 
 const REGISTRATION_KEYS = new Set([
   'kind', 'version', 'owner', 'rendererId', 'rendererRef', 'mode', 'format',

@@ -5,7 +5,7 @@ import { gitCommonDir } from '../git.mjs';
 import { readPrivateSidecar, writeMutablePrivateSidecar } from '../private-sidecar.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { canonicalJson, compareText, sealRecord } from './canonicalize.mjs';
+import { canonicalJson, compareText, sealRecord } from '../canonical-json.mjs';
 import { validateDerivationCatalog } from './extract/derivation-catalog.mjs';
 import { validateEvidenceCatalog } from './extract/evidence-catalog.mjs';
 import { validateFactLedger } from './extract/fact-ledger.mjs';

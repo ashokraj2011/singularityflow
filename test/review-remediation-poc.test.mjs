@@ -15,7 +15,7 @@ import { resolveStoryExecutionContext } from '../src/story-execution-context.mjs
 import { run } from '../src/util.mjs';
 import { assembleWmbV4Prompt } from '../src/world-model/compose/pinned-core.mjs';
 import { renderDeterministicCandidate } from '../src/world-model/compose/candidate.mjs';
-import { canonicalJson, sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sealRecord, sha256 } from '../src/canonical-json.mjs';
 import {
   createDerivationCatalog, derivationIdentityFromRecord
 } from '../src/world-model/extract/derivation-catalog.mjs';

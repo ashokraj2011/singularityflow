@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { canonicalJson, sealRecord } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sealRecord } from '../src/canonical-json.mjs';
 import { assembleWmbV4Prompt } from '../src/world-model/compose/pinned-core.mjs';
 import {
   canonicalFactSentence, candidateFactReferences, renderDeterministicCandidate

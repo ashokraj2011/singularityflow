@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { maskPolyglotNonCode } from './polyglot-lexical.mjs';
+import { maskPolyglotNonCode } from '../../../polyglot-lexical.mjs';
 import { scanSourceClauseTags } from '../../../traceability-ids.mjs';
 
 const IDENTIFIER = '[A-Za-z_$][\\w$]*';

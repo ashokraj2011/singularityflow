@@ -1,6 +1,6 @@
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
-import { canonicalJson, compareText, deepFreeze, sha256 } from '../canonicalize.mjs';
+import { canonicalJson, compareText, deepFreeze, sha256 } from '../../canonical-json.mjs';
 import {
   createWmpGroundingPacket, validateWmpGroundingPacket
 } from './contracts.mjs';

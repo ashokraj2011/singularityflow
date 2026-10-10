@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { sha256 } from '../src/world-model/canonicalize.mjs';
+import { sha256 } from '../src/canonical-json.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 import {

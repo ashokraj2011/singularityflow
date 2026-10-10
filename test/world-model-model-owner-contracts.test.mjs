@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { schemaFamily } from '../src/schema-migrations.mjs';
-import { canonicalJson, sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sealRecord, sha256 } from '../src/canonical-json.mjs';
 import {
   createWorldModelCompletenessRecord, createWorldModelExtractionPolicy,
   createWorldModelRepositoryDomain, validateWorldModelRepositoryDomain

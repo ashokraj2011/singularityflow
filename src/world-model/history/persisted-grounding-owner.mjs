@@ -1,4 +1,4 @@
-import { canonicalJson, deepFreeze, sealRecord, sha256 } from '../canonicalize.mjs';
+import { canonicalJson, deepFreeze, sealRecord, sha256 } from '../../canonical-json.mjs';
 import {
   PERSISTED_GROUNDING_COMPOSER_V1_ID,
   PERSISTED_GROUNDING_COMPOSER_V1_VERSION,

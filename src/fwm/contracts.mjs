@@ -1,5 +1,5 @@
-import { currentSchemaVersion, readRecord } from '../../schema-migrations.mjs';
-import { SingularityFlowError } from '../../util.mjs';
+import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
+import { SingularityFlowError } from '../util.mjs';
 import { assertFwmRecordHash, fwmSealRecord, fwmSemanticSha256 } from './canonical.mjs';
 
 export const FWM_SHA256 = /^sha256:[a-f0-9]{64}$/;

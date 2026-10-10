@@ -12,7 +12,7 @@ import { SFLOW_TOOLS } from '../src/gateway/tools.mjs';
 import { publishToStateBranch } from '../src/ledger.mjs';
 import { listModelInvocations } from '../src/model-runner.mjs';
 import { run } from '../src/util.mjs';
-import { sha256 } from '../src/world-model/canonicalize.mjs';
+import { sha256 } from '../src/canonical-json.mjs';
 import {
   assertWorldModelV4BuildCompleted, buildAndPublishWorldModelV4
 } from '../src/world-model/service.mjs';

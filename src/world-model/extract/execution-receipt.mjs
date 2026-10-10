@@ -1,7 +1,7 @@
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
 import {
   canonicalJson, compareText, deepFreeze, sealRecord, sha256
-} from '../canonicalize.mjs';
+} from '../../canonical-json.mjs';
 import {
   VIEW_ID_PATTERN, assertCanonicalOrder, assertExactKeys, assertInteger,
   assertPlainRecord, assertSchemaKind, assertSelfHash, assertSha256, assertString,

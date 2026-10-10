@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { schemaFamily } from '../src/schema-migrations.mjs';
-import { canonicalJson, sha256 } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sha256 } from '../src/canonical-json.mjs';
 import {
   createWmpModelBinding, createWmpViewInputs, parseCanonicalWmpRecordBytes,
   WMP_RECORD_FAMILIES

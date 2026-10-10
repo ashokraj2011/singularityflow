@@ -62,7 +62,7 @@ import {
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
-import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { worldModelStateAuthority } from './state-authority.mjs';
 import { phasePublicationCommand } from './manual-authorship.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { artifactContentContractLines, authoredArtifactText } from './publication-preflight.mjs';

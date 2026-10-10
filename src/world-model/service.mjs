@@ -40,7 +40,7 @@ import {
   buildCalmProjection, calmProjectionOptions, createCalmProjectionRefusal, enforceProjectionBudgets,
   validateCalmProjectionCandidate
 } from './projections/calm/projection.mjs';
-import { compareText, isPlainRecord } from './canonicalize.mjs';
+import { compareText, isPlainRecord } from '../canonical-json.mjs';
 import { validateWorldModelHistoryRoots } from './history/paths.mjs';
 import {
   materializePersistedWorldModelViews

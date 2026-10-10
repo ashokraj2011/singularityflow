@@ -8,7 +8,7 @@ import { SingularityFlowError } from '../util.mjs';
 import {
   deriveWorldModelViewCacheKey, readWorldModelViewCache, writeWorldModelViewCache
 } from './cache.mjs';
-import { canonicalJson, sha256 } from './canonicalize.mjs';
+import { canonicalJson, sha256 } from '../canonical-json.mjs';
 
 const FAMILY = 'world-model-shared-cache-bundle';
 const KIND = 'world-model-shared-cache-bundle';

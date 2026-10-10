@@ -4,7 +4,7 @@ import { gitCommonDir } from '../git.mjs';
 import { readPrivateSidecar, writeImmutablePrivateSidecar } from '../private-sidecar.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { canonicalJson, deepFreeze, sealRecord, sha256 } from './canonicalize.mjs';
+import { canonicalJson, deepFreeze, sealRecord, sha256 } from '../canonical-json.mjs';
 import {
   VIEW_ID_PATTERN, assertExactKeys, assertInteger, assertPlainRecord, assertSchemaKind,
   assertSelfHash, assertSha256, assertString, assertStringArray

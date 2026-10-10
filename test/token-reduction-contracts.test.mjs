@@ -19,7 +19,7 @@ import {
   validateTkrComposerContract,
   validateTkrContractSet
 } from '../src/token-reduction/contracts.mjs';
-import { canonicalJson, sealRecord } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sealRecord } from '../src/canonical-json.mjs';
 import { WMP_RECORD_FAMILIES } from '../src/world-model/history/contracts.mjs';
 import {
   createTkrRuntimeRendererRegistration,

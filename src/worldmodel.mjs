@@ -65,14 +65,14 @@ import { configuredWorldModelV4ViewSelections, explicitWorldModelV4CapabilityId,
 import {
   cachedWorldModelV4AuthorityPresent, refreshWorldModelV4Authority
 } from './world-model/authority-refresh.mjs';
-import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { worldModelStateAuthority } from './state-authority.mjs';
 import {
   inspectWorldModelPublicationRecovery, listWorldModelPublicationRecoveries,
   resumeWorldModelPublication
 } from './world-model/recovery.mjs';
 import {
   fwmReadCommand, fwmReadContractCommand, fwmReadViewsCommand
-} from './world-model/fwm/read.mjs';
+} from './fwm/read.mjs';
 import {
   isWorldModelAvailabilityError, worldModelAvailabilityReasonCode
 } from './world-model-availability.mjs';

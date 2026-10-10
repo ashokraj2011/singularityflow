@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { sha256 } from '../src/world-model/canonicalize.mjs';
+import { sha256 } from '../src/canonical-json.mjs';
 import {
   buildCalmProjection, createArchitectureCapabilitySnapshot,
   createArchitectureConfigurationSnapshot, explainArchitectureElement,

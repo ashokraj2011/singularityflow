@@ -4,7 +4,7 @@ import { exactRemoteBranchObservationAsync, hasRemote, refHead, validBranch } fr
 import { runRemoteGitAsync } from '../git-execution.mjs';
 import { configuredRemoteAuthority, configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 import { posix, run, SingularityFlowError } from '../util.mjs';
-import { worldModelStateAuthority } from './authority-config.mjs';
+import { worldModelStateAuthority } from '../state-authority.mjs';
 
 function configuredAuthority(config) {
   const authority = worldModelStateAuthority(config.definition ?? {}, {

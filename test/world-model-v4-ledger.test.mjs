@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { sealRecord } from '../src/world-model/canonicalize.mjs';
+import { sealRecord } from '../src/canonical-json.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 import { selectViewFacts } from '../src/world-model/extract/selection.mjs';
 import { validateFactLedger } from '../src/world-model/extract/fact-ledger.mjs';

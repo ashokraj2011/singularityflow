@@ -3,7 +3,7 @@ import {
   assertCanonicalOrder, assertExactKeys, assertInteger, assertPlainRecord,
   assertSchemaKind, assertSelfHash, assertSha256, assertString, contractFailure
 } from '../contracts.mjs';
-import { compareText, sealRecord } from '../canonicalize.mjs';
+import { compareText, sealRecord } from '../../canonical-json.mjs';
 
 export const PROJECTION_ID_PATTERN = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*)+$/;
 export const CALM_SCHEMA_URI = 'https://calm.finos.org/release/1.2/meta/calm.json';

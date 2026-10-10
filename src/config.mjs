@@ -90,7 +90,7 @@ import { BUILTIN_VIEW_IDS, normalizeBuiltInViewReference } from './world-model/r
 import {
   BUILTIN_PROJECTION_REGISTRY, resolveProjectionContract
 } from './world-model/registry/projections.mjs';
-import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { worldModelStateAuthority } from './state-authority.mjs';
 import {
   DEFAULT_WORLD_MODEL_HISTORY_DIR, validateWorldModelHistoryRoots
 } from './world-model/history/paths.mjs';

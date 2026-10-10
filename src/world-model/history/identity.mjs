@@ -3,7 +3,7 @@ import {
   COMMIT_PATTERN, VIEW_ID_PATTERN, assertCanonicalOrder, assertExactKeys, assertInteger,
   assertPlainRecord, assertSha256, assertString, contractFailure
 } from '../contracts.mjs';
-import { compareText, deepFreeze, sha256, sha256Bytes } from '../canonicalize.mjs';
+import { compareText, deepFreeze, sha256, sha256Bytes } from '../../canonical-json.mjs';
 
 export const WMP_IDENTITY_VERSION = 1;
 export const WMP_MAXIMUM_OBJECT_BYTES = 32 * 1024 * 1024;

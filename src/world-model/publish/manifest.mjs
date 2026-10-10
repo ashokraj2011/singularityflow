@@ -2,7 +2,7 @@ import { currentSchemaVersion, readRecord } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import {
   canonicalJson, compareText, isPlainRecord, sealRecord, sha256
-} from '../canonicalize.mjs';
+} from '../../canonical-json.mjs';
 import {
   VIEW_ID_PATTERN, assertCanonicalOrder, assertExactKeys, assertInteger,
   assertPlainRecord, assertSha256, assertString

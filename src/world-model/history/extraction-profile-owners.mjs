@@ -2,7 +2,7 @@ import {
   assertCanonicalOrder, assertExactKeys, assertInteger, assertPlainRecord, assertSha256,
   assertString, contractFailure
 } from '../contracts.mjs';
-import { deepFreeze, sha256 } from '../canonicalize.mjs';
+import { deepFreeze, sha256 } from '../../canonical-json.mjs';
 
 const TYPE_ID = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
 const MAXIMUM_EXTRACTORS = 1024;

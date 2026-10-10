@@ -8,7 +8,7 @@ import {
   TKR_GENERATED_RENDERER_REF,
   validateTkrGeneratedRendererContract
 } from '../src/token-reduction/generated-renderer.mjs';
-import { sha256 } from '../src/world-model/canonicalize.mjs';
+import { sha256 } from '../src/canonical-json.mjs';
 
 const SUBJECT = Object.freeze({
   owner: 'fixture-owner',

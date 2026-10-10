@@ -5,7 +5,7 @@ import {
   optionBoolean, optionNumber, optionString, run, secureRepositoryPath, SingularityFlowError
 } from '../util.mjs';
 import { inspectWorldModelViewCache } from './cache.mjs';
-import { canonicalJson, compareText, sha256 } from './canonicalize.mjs';
+import { canonicalJson, compareText, sha256 } from '../canonical-json.mjs';
 import { createWorldModelMigrationReceipt } from './migration/v3-to-v4.mjs';
 import { readLegacyWorldModelView } from './migration/v3-reader.mjs';
 import {
@@ -45,7 +45,7 @@ import {
 import {
   inspectWorldModelV4Authority, refreshWorldModelV4Authority
 } from './authority-refresh.mjs';
-import { worldModelStateAuthority } from './authority-config.mjs';
+import { worldModelStateAuthority } from '../state-authority.mjs';
 import {
   resolvePersistedWorldModel, resolvePersistedWorldModelView,
   resolveWorldModelHistoryAuthority

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { run } from '../src/util.mjs';
-import { canonicalJson, sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sealRecord, sha256 } from '../src/canonical-json.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 import {
   createWmpHandoff, createWmpViewBinding, createWmpViewInputs

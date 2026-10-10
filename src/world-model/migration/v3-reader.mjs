@@ -1,5 +1,5 @@
 import { SingularityFlowError } from '../../util.mjs';
-import { isPlainRecord, sha256 } from '../canonicalize.mjs';
+import { isPlainRecord, sha256 } from '../../canonical-json.mjs';
 
 export const LEGACY_WORLD_MODEL_CLASSIFICATION = 'legacy-unregistered-view';
 

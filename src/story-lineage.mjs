@@ -23,7 +23,7 @@ import { validateTrpRecord } from './test-recovery-policy.mjs';
 import { canonicalJson } from './records.mjs';
 import {
   canonicalJson as canonicalWorldModelJson, sha256 as worldModelSha256
-} from './world-model/canonicalize.mjs';
+} from './canonical-json.mjs';
 import { validateArchitectureIntent } from './world-model/projections/calm/projection.mjs';
 import { publishedArchitectureIntentBinding } from './architecture-intent-service.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';

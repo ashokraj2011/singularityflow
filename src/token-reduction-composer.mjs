@@ -14,7 +14,7 @@ import {
   TKR_GENERATED_RENDERER_REF
 } from './token-reduction/generated-renderer.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { deepFreeze } from './world-model/canonicalize.mjs';
+import { deepFreeze } from './canonical-json.mjs';
 
 export const TKR_COMPOSER_KIND = 'tkr/composer-contract';
 export const TKR_COMPOSER_VERSION = 1;

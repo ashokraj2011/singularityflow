@@ -15,8 +15,8 @@ import {
   ensureSecureRepositoryDirectory, exists, optionBoolean, optionString, requirePositional,
   secureRepositoryPath, SingularityFlowError, writeAtomic
 } from '../util.mjs';
-import { canonicalJson, compareText, sha256 } from '../world-model/canonicalize.mjs';
-import { worldModelStateAuthority } from '../world-model/authority-config.mjs';
+import { canonicalJson, compareText, sha256 } from '../canonical-json.mjs';
+import { worldModelStateAuthority } from '../state-authority.mjs';
 import {
   createArchitectureIntent,
   explainArchitectureElement, renderPlannedArchitecture, validateArchitectureIntent,

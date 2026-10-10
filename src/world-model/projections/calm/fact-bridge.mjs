@@ -1,4 +1,4 @@
-import { sha256 } from '../../canonicalize.mjs';
+import { sha256 } from '../../../canonical-json.mjs';
 import { contractFailure } from '../../contracts.mjs';
 import { validateEvidenceCatalog } from '../../extract/evidence-catalog.mjs';
 import { validateDerivationCatalog } from '../../extract/derivation-catalog.mjs';

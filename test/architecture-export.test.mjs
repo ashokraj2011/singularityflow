@@ -4,7 +4,7 @@ import test from 'node:test';
 import {
   architectureProjectionDiff, createArchitectureExportPlan
 } from '../src/commands/architecture.mjs';
-import { sha256 } from '../src/world-model/canonicalize.mjs';
+import { sha256 } from '../src/canonical-json.mjs';
 
 test('architecture export confirmation binds exact target, bytes, and planned status', () => {
   const input = {

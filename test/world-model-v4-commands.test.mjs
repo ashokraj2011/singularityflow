@@ -41,7 +41,7 @@ import {
   configuredWorldModelV4ViewSelections,
   resolveWorldModelV4Grounding, worldModelV4GatewayDefaults, WORLD_MODEL_V4_COMMANDS
 } from '../src/world-model/commands.mjs';
-import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { sealRecord, sha256 } from '../src/canonical-json.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 import {
   resolveWorldModelRepositoryIdentityAuthority

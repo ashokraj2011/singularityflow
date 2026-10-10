@@ -5,7 +5,7 @@ import {
 } from '../contracts.mjs';
 import {
   canonicalJson, deepFreeze, sealRecord, sha256
-} from '../canonicalize.mjs';
+} from '../../canonical-json.mjs';
 import {
   WMP_MAXIMUM_OBJECT_BYTES, assertSortedTypeIds, deriveWmpModelKey, deriveWmpViewKey,
   validateWmpModelInputs, validateWmpObjectRef, validateWmpObjectRefs,

@@ -3,7 +3,7 @@ import {
   assertCredentialFreeRemote, remoteFingerprint
 } from '../../git-remote-diagnostics.mjs';
 import { run, SingularityFlowError } from '../../util.mjs';
-import { worldModelStateAuthority } from '../authority-config.mjs';
+import { worldModelStateAuthority } from '../../state-authority.mjs';
 import { runWorldModelHistoryGitRead } from './git-read.mjs';
 
 const COMMIT = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;

@@ -1,6 +1,6 @@
 export * from './repository-files.mjs';
 export * from './language-detection.mjs';
-export * from './polyglot-lexical.mjs';
+export * from '../../../polyglot-lexical.mjs';
 export * from './closed-structure.mjs';
 export * from './symbol-skeleton.mjs';
 export * from './signature-and-export.mjs';

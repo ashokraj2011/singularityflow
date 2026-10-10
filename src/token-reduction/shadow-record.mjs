@@ -6,7 +6,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { deepFreeze, recordSha256 } from '../world-model/canonicalize.mjs';
+import { deepFreeze, recordSha256 } from '../canonical-json.mjs';
 
 export const TOKEN_REDUCTION_SHADOW_KIND = 'tkr/shadow-evaluation';
 export const TOKEN_REDUCTION_SHADOW_FORMAT_VERSION = 1;

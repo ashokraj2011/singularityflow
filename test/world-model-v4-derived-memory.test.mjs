@@ -15,7 +15,7 @@ import {
   readSharedWorldModelViewCache
 } from '../src/world-model/shared-cache.mjs';
 import { buildAndPublishWorldModelV4 } from '../src/world-model/service.mjs';
-import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { sealRecord, sha256 } from '../src/canonical-json.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 
 function git(root, ...args) { return run('git', args, { cwd: root }); }

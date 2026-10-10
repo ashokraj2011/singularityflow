@@ -6,7 +6,7 @@ import { PACKAGE_ROOT } from '../../package-root.mjs';
 import { canonicalJson, recordSha256 } from '../../records.mjs';
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
-import { compareText } from '../canonicalize.mjs';
+import { compareText } from '../../canonical-json.mjs';
 import { deterministicArrangementFits } from './candidate.mjs';
 
 export const WMB_V4_REQUEST_BOUNDARY = '<!-- ===== REQUEST INPUTS: volatile tail ===== -->';

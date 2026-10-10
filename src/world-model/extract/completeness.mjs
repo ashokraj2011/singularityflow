@@ -1,4 +1,4 @@
-import { canonicalJson, compareText } from '../canonicalize.mjs';
+import { canonicalJson, compareText } from '../../canonical-json.mjs';
 import {
   assertExactKeys, assertPlainRecord, contractFailure
 } from '../contracts.mjs';

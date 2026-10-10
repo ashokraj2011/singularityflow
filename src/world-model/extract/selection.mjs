@@ -1,4 +1,4 @@
-import { canonicalJson, compareText, sealRecord, sha256 } from '../canonicalize.mjs';
+import { canonicalJson, compareText, sealRecord, sha256 } from '../../canonical-json.mjs';
 import { currentSchemaVersion } from '../../schema-migrations.mjs';
 import {
   FACT_ID_PATTERN, VIEW_ID_PATTERN, assertCanonicalOrder, assertExactKeys, assertInteger,

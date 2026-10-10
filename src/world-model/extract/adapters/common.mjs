@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { compareText, sha256 } from '../../canonicalize.mjs';
+import { compareText, sha256 } from '../../../canonical-json.mjs';
 import { contractFailure } from '../../contracts.mjs';
 import { scopedSnapshotFiles } from '../../scope/matcher.mjs';
 import { validateScopeManifest } from '../../scope/manifest.mjs';

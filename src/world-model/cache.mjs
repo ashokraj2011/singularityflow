@@ -23,7 +23,7 @@ import {
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { withSubjectLock } from '../subject-lock.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { canonicalJson, isPlainRecord, sha256 } from './canonicalize.mjs';
+import { canonicalJson, isPlainRecord, sha256 } from '../canonical-json.mjs';
 import { WMB_V4_VALIDATION_CHECK_IDS } from './validate/candidate.mjs';
 
 export const VIEW_CACHE_RECORD_FAMILY = 'world-model-view-cache-record';

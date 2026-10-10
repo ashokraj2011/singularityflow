@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { run } from '../src/util.mjs';
 import { publishToStateBranch } from '../src/ledger.mjs';
-import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { sealRecord, sha256 } from '../src/canonical-json.mjs';
 import { planWorldModelV4 } from '../src/world-model/plan.mjs';
 import { buildWorldModelV4 } from '../src/world-model/runtime.mjs';
 import { buildAndPublishWorldModelV4 } from '../src/world-model/service.mjs';

@@ -1,13 +1,13 @@
 import path from 'node:path';
 
 import { extractSymbols } from '../../../repository-facts.mjs';
-import { compareText } from '../../canonicalize.mjs';
+import { compareText } from '../../../canonical-json.mjs';
 import {
   SOURCE_LIKE, adapterFiles, evidenceDescriptor, exactText, factDraft, implementationSha256,
   languageForPath, result, unavailableDraft
 } from './common.mjs';
 import { scanSignaturesAndExports } from './closed-structure.mjs';
-import { extractPolyglotSymbols, maskPolyglotNonCode } from './polyglot-lexical.mjs';
+import { extractPolyglotSymbols, maskPolyglotNonCode } from '../../../polyglot-lexical.mjs';
 
 export const CALL_REFERENCE_EDGE_ID = 'call-reference-edge';
 export const CALL_REFERENCE_EDGE_VERSION = '1.0.0';

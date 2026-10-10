@@ -11,7 +11,7 @@ import {
   canonicalJson,
   deepFreeze,
   recordSha256
-} from './world-model/canonicalize.mjs';
+} from './canonical-json.mjs';
 
 const OWNER_BINDING_KIND = 'tkr/prompt-section-owner-binding';
 const OWNER_BINDING_VERSION = 1;

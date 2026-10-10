@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { CAPABILITIES_PATH, loadCapabilities } from '../../../capabilities.mjs';
 import { WORKFLOW_PATH } from '../../../config.mjs';
 import { secureRepositoryPath, SingularityFlowError } from '../../../util.mjs';
-import { canonicalJson, sha256 } from '../../canonicalize.mjs';
+import { canonicalJson, sha256 } from '../../../canonical-json.mjs';
 import {
   createArchitectureCapabilitySnapshot, createArchitectureConfigurationSnapshot
 } from './projection.mjs';

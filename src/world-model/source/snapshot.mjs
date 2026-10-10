@@ -16,7 +16,7 @@ import {
   COMMIT_PATTERN, assertCanonicalOrder, assertExactKeys, assertInteger, assertNormalizedRepositoryPath,
   assertPlainRecord, assertSchemaKind, assertSelfHash, assertSha256, assertString, contractFailure
 } from '../contracts.mjs';
-import { canonicalJson, compareText, sealRecord, sha256, sha256Bytes } from '../canonicalize.mjs';
+import { canonicalJson, compareText, sealRecord, sha256, sha256Bytes } from '../../canonical-json.mjs';
 import { classifyScopePath, pathInsideScope } from '../scope/matcher.mjs';
 import { validateScopeManifest } from '../scope/manifest.mjs';
 import {

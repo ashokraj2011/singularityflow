@@ -1,7 +1,7 @@
 import {
   implementationSha256, observeAdapterGlobalOutcome, result, unavailableDraft
 } from './common.mjs';
-import { compareText } from '../../canonicalize.mjs';
+import { compareText } from '../../../canonical-json.mjs';
 
 export const REQUIRED_FACT_COVERAGE_ID = 'required-fact-coverage';
 export const REQUIRED_FACT_COVERAGE_VERSION = '1.0.1';

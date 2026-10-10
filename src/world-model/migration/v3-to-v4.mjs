@@ -1,6 +1,6 @@
 import { currentSchemaVersion, readRecord } from '../../schema-migrations.mjs';
 import { SingularityFlowError } from '../../util.mjs';
-import { canonicalJson, sealRecord, sha256 } from '../canonicalize.mjs';
+import { canonicalJson, sealRecord, sha256 } from '../../canonical-json.mjs';
 import {
   FACT_ID_PATTERN, assertCanonicalOrder, assertExactKeys, assertInteger, assertPlainRecord,
   assertSelfHash, assertSha256, assertString, assertStringArray

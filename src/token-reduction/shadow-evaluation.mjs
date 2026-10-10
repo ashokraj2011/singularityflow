@@ -9,7 +9,7 @@ import { composePromptSectionsWithTokenReduction } from '../token-reduction-prom
 import { createTokenReductionCompositionReceipt } from './composition-contract.mjs';
 import { defaultTokenReductionContractSet } from './default-contract.mjs';
 import { tkrContractReference } from './contracts.mjs';
-import { deepFreeze, recordSha256 } from '../world-model/canonicalize.mjs';
+import { deepFreeze, recordSha256 } from '../canonical-json.mjs';
 import {
   TOKEN_REDUCTION_SHADOW_FORMAT_VERSION,
   TOKEN_REDUCTION_SHADOW_KIND,

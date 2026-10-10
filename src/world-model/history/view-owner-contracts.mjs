@@ -2,7 +2,7 @@ import {
   assertExactKeys, assertInteger, assertPlainRecord, assertSchemaKind, assertSelfHash,
   assertSha256, assertString, assertStringArray, contractFailure
 } from '../contracts.mjs';
-import { canonicalJson, deepFreeze, sealRecord, sha256 } from '../canonicalize.mjs';
+import { canonicalJson, deepFreeze, sealRecord, sha256 } from '../../canonical-json.mjs';
 import {
   PERSISTED_OVERVIEW_BRIEF_MAXIMUM_BYTES,
   PERSISTED_OVERVIEW_FULL_MAXIMUM_BYTES,

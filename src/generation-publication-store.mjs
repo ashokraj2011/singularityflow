@@ -17,7 +17,7 @@ import {
 } from './util.mjs';
 import {
   canonicalJson as canonicalWorldModelJson, sha256 as worldModelSha256
-} from './world-model/canonicalize.mjs';
+} from './canonical-json.mjs';
 import { validateArchitectureIntent } from './world-model/projections/calm/projection.mjs';
 
 const SHA = /^[0-9a-f]{40,64}$/i;

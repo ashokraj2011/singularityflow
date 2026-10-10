@@ -4,7 +4,7 @@ import { hasRemote } from '../git.mjs';
 import { readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError, run } from '../util.mjs';
 import { isWorldModelAvailabilityError } from '../world-model-availability.mjs';
-import { canonicalJson, compareText, sha256 } from './canonicalize.mjs';
+import { canonicalJson, compareText, sha256 } from '../canonical-json.mjs';
 import { createConservativeWorldModelStalenessReceipt } from './cache.mjs';
 import {
   assembleWmbV4PromptSync, assertWmbV4PromptInputBudget

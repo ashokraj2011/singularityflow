@@ -7,7 +7,7 @@ import {
 } from './common.mjs';
 import {
   POLYGLOT_STRUCTURAL_LANGUAGES, extractPolyglotImports, resolvePolyglotLocal
-} from './polyglot-lexical.mjs';
+} from '../../../polyglot-lexical.mjs';
 
 export const IMPORT_DEPENDENCY_ID = 'import-dependency';
 export const IMPORT_DEPENDENCY_VERSION = '1.2.0';

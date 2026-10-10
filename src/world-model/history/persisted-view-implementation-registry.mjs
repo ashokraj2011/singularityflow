@@ -1,4 +1,4 @@
-import { canonicalJson, deepFreeze } from '../canonicalize.mjs';
+import { canonicalJson, deepFreeze } from '../../canonical-json.mjs';
 import { assertSha256, contractFailure } from '../contracts.mjs';
 
 function unavailable(message, details = {}) {

@@ -13,7 +13,7 @@ import {
 } from '../private-sidecar.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError, run } from '../util.mjs';
-import { canonicalJson, sealRecord, sha256 } from './canonicalize.mjs';
+import { canonicalJson, sealRecord, sha256 } from '../canonical-json.mjs';
 import { WMP_MAXIMUM_OBJECT_BYTES } from './history/identity.mjs';
 import {
   publishMigratedV1WorldModelRecoveryTransaction, publishWorldModelTransaction,

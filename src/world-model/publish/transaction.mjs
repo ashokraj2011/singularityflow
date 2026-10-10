@@ -5,7 +5,7 @@ import { publishToStateBranch } from '../../ledger.mjs';
 import { loadDefinition } from '../../config.mjs';
 import { readRecord } from '../../schema-migrations.mjs';
 import { secureRepositoryPath, SingularityFlowError } from '../../util.mjs';
-import { canonicalJson, isPlainRecord, sha256 } from '../canonicalize.mjs';
+import { canonicalJson, isPlainRecord, sha256 } from '../../canonical-json.mjs';
 import {
   assembleWmbV4PromptSync, assertWmbV4PromptInputBudget
 } from '../compose/pinned-core.mjs';

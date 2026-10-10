@@ -25,7 +25,7 @@ import { readKnowledge, recallKnowledge } from './knowledge.mjs';
 import { loadSession } from './session.mjs';
 import { renderCapabilityWorldModelPack } from './capability-context.mjs';
 import { withWorldModelSourceScope } from './source-scope.mjs';
-import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { worldModelStateAuthority } from './state-authority.mjs';
 import { isWorldModelAvailabilityError } from './world-model-availability.mjs';
 import {
   secureRepositoryPath,

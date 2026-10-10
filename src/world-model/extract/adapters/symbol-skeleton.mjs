@@ -1,5 +1,5 @@
 import { extractSymbols } from '../../../repository-facts.mjs';
-import { compareText } from '../../canonicalize.mjs';
+import { compareText } from '../../../canonical-json.mjs';
 
 import {
   JAVASCRIPT_LIKE, SOURCE_LIKE, adapterFiles, evidenceDescriptor, exactText, factDraft,
@@ -7,7 +7,7 @@ import {
 } from './common.mjs';
 import {
   POLYGLOT_STRUCTURAL_LANGUAGES, extractPolyglotSymbols
-} from './polyglot-lexical.mjs';
+} from '../../../polyglot-lexical.mjs';
 import path from 'node:path';
 
 export const SYMBOL_SKELETON_ID = 'symbol-skeleton';

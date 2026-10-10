@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { sealRecord, sha256 } from '../src/canonical-json.mjs';
 import { assertArchitectureIntentReportMatches } from '../src/architecture-intent-service.mjs';
 import {
   buildCalmProjection, createArchitectureCapabilitySnapshot, createArchitectureConfigurationSnapshot,

@@ -9,7 +9,7 @@ import { createArchitectureIntentStabilityGuard } from '../src/architecture-inte
 import { resolveArchitectureIntentPublicationBinding } from '../src/architecture-intent-service.mjs';
 import { lifecycleEvent } from '../src/lifecycle-event.mjs';
 import { GitPublicationUnitOfWork } from '../src/publication-unit-of-work.mjs';
-import { canonicalJson } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson } from '../src/canonical-json.mjs';
 import { createArchitectureIntent } from '../src/world-model/projections/calm/projection.mjs';
 
 function git(root, args) {

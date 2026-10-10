@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
-import { canonicalJson, sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sealRecord, sha256 } from '../src/canonical-json.mjs';
 import {
   buildWorldModelManifest, readWorldModelV4Manifest, verifyWorldModelManifest,
   worldModelViewSha256

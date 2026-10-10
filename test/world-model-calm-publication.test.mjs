@@ -24,7 +24,7 @@ import {
 import {
   createArchitectureIntent, verifyArchitectureIntent
 } from '../src/world-model/projections/calm/projection.mjs';
-import { canonicalJson, sealRecord } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sealRecord } from '../src/canonical-json.mjs';
 import { resolvePublishedWorldModelV4 } from '../src/world-model/store.mjs';
 import {
   prepareWorldModelPublicationRecovery, resumeWorldModelPublication

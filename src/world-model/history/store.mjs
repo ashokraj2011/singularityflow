@@ -1,5 +1,5 @@
 import { run, SingularityFlowError } from '../../util.mjs';
-import { canonicalJson, compareText, isPlainRecord, sha256 } from '../canonicalize.mjs';
+import { canonicalJson, compareText, isPlainRecord, sha256 } from '../../canonical-json.mjs';
 import {
   validateDerivationCatalog, validateHistoricalDerivationCatalog
 } from '../extract/derivation-catalog.mjs';

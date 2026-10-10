@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { sha256 } from '../canonicalize.mjs';
+import { sha256 } from '../../canonical-json.mjs';
 import { normalizeScopePattern } from './manifest.mjs';
 import { normalizeWorkItemRoot } from '../../work-item-location.mjs';
 

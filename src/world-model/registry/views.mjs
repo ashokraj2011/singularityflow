@@ -1,4 +1,4 @@
-import { canonicalJson, compareText, deepFreeze, sealRecord } from '../canonicalize.mjs';
+import { canonicalJson, compareText, deepFreeze, sealRecord } from '../../canonical-json.mjs';
 import { WORLD_MODEL_VIEW_CONTRACT_SCHEMA_VERSION } from '../view-contract-schema-version.mjs';
 import {
   VIEW_ID_PATTERN, assertBoolean, assertCanonicalOrder, assertExactKeys, assertInteger,

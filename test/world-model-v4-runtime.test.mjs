@@ -18,7 +18,7 @@ import {
   inspectWorldModelViewCache, verifyWorldModelStalenessReceipt,
   worldModelViewCacheRoot, writeWorldModelViewCache
 } from '../src/world-model/cache.mjs';
-import { canonicalJson, sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sealRecord, sha256 } from '../src/canonical-json.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/index.mjs';
 import {
   materializeWorldModelView, usageObservation

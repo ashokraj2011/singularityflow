@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { assertRecordSha256, compareText, sealRecord, sha256 } from './canonicalize.mjs';
+import { assertRecordSha256, compareText, sealRecord, sha256 } from '../canonical-json.mjs';
 import {
   VIEW_ID_PATTERN, assertBoolean, assertExactKeys, assertInteger, assertPlainRecord,
   assertSchemaKind, assertSha256, assertString, contractFailure

@@ -22,7 +22,7 @@
     "./gal/async-read": "./src/gal-async-read.mjs",
     "./sgos": "./src/sgos/index.mjs",
     "./local-mode": "./src/local-mode/index.mjs",
-    "./fwm": "./src/world-model/fwm/index.mjs",
+    "./fwm": "./src/fwm/index.mjs",
     "./package.json": "./package.json"
   },
   "files": [

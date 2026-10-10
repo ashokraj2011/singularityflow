@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { compareText, sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { compareText, sealRecord, sha256 } from '../src/canonical-json.mjs';
 import {
   createCompletenessRecordFromExtractionExecution, validateExtractionExecutionReceipt
 } from '../src/world-model/extract/index.mjs';

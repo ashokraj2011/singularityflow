@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { assertRecordSha256, compareText, isPlainRecord } from './canonicalize.mjs';
+import { assertRecordSha256, compareText, isPlainRecord } from '../canonical-json.mjs';
 
 export const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/;
 export const COMMIT_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;

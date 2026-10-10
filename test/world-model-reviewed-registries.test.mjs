@@ -19,7 +19,7 @@ import {
   REVIEWED_EXTRACTOR_REGISTRY_TRANSITIONS, REVIEWED_TRANSITION_EFFECTS, earlierBuildModelIncompatible,
   reviewedExtractorRegistryPath, reviewedPathPreservesModel, reviewedValidationContract
 } from '../src/world-model-reviewed-registries.mjs';
-import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { sealRecord, sha256 } from '../src/canonical-json.mjs';
 import { handleWorldModelV4Command } from '../src/world-model/commands.mjs';
 import { loadWorldModelIdeSlice } from '../src/world-model/ide/slice.mjs';
 import { resolveWorldModelV4ReusableIdentity } from '../src/world-model/plan.mjs';

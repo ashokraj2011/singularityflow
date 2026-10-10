@@ -9,7 +9,7 @@ import test from 'node:test';
 import { operationCatalog, resolveOperation } from '../src/command-registry.mjs';
 import { run } from '../src/util.mjs';
 import { worldModelCommand } from '../src/worldmodel.mjs';
-import { canonicalJson, sha256 } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sha256 } from '../src/canonical-json.mjs';
 import { historyWorldModelV4Command } from '../src/world-model/commands.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 import { createWmpModelBinding } from '../src/world-model/history/contracts.mjs';

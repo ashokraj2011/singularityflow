@@ -1,4 +1,4 @@
-import { canonicalJson, sha256 } from './canonicalize.mjs';
+import { canonicalJson, sha256 } from '../canonical-json.mjs';
 
 export const WMB_V4_DETERMINISTIC_EXECUTION_SHA256 = sha256({
   kind: 'world-model-composer-execution-profile',

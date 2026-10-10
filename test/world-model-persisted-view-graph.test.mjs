@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { run } from '../src/util.mjs';
-import { canonicalJson, sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { canonicalJson, sealRecord, sha256 } from '../src/canonical-json.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 import { createViewProjectionRegistration } from '../src/world-model/extract/view-projection.mjs';
 import { createWmpViewBinding, createWmpViewInputs } from '../src/world-model/history/contracts.mjs';

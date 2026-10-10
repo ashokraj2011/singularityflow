@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { schemaFamily } from '../src/schema-migrations.mjs';
-import { sealRecord, sha256 } from '../src/world-model/canonicalize.mjs';
+import { sealRecord, sha256 } from '../src/canonical-json.mjs';
 import { runDeterministicRegistration } from '../src/world-model/extract/runner.mjs';
 import {
   PERSISTED_OVERVIEW_BRIEF_MAXIMUM_BYTES, PERSISTED_OVERVIEW_FULL_MAXIMUM_BYTES,

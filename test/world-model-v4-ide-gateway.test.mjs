@@ -19,7 +19,7 @@ import {
 import { createConservativeWorldModelStalenessReceipt } from '../src/world-model/cache.mjs';
 import { createScopeManifest } from '../src/world-model/scope/manifest.mjs';
 import { createExactSourceSnapshot } from '../src/world-model/source/snapshot.mjs';
-import { sealRecord } from '../src/world-model/canonicalize.mjs';
+import { sealRecord } from '../src/canonical-json.mjs';
 import {
   createViewRegistry, resolveBuiltInViewContract
 } from '../src/world-model/registry/views.mjs';

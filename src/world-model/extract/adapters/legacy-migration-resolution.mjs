@@ -1,4 +1,4 @@
-import { sha256 } from '../../canonicalize.mjs';
+import { sha256 } from '../../../canonical-json.mjs';
 import { contractFailure } from '../../contracts.mjs';
 import { validateScopeManifest } from '../../scope/manifest.mjs';
 import { validateViewContract } from '../../registry/views.mjs';

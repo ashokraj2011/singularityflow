@@ -20,7 +20,7 @@ import {
 import { readJson, run } from '../src/util.mjs';
 import {
   canonicalJson as canonicalWmpJson, recordSha256, sealRecord
-} from '../src/world-model/canonicalize.mjs';
+} from '../src/canonical-json.mjs';
 import { createWmpGroundingPacket } from '../src/world-model/history/contracts.mjs';
 import { PERSISTED_GROUNDING_COMPOSER_CONTRACT } from '../src/world-model/history/persisted-grounding-owner.mjs';
 import {

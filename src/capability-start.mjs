@@ -38,7 +38,7 @@ import {
 import { resolveLifecycleCapability } from './capability-context.mjs';
 import { loadDefinition } from './config.mjs';
 import { refreshWorldModelV4Authority } from './world-model/authority-refresh.mjs';
-import { worldModelStateAuthority } from './world-model/authority-config.mjs';
+import { worldModelStateAuthority } from './state-authority.mjs';
 import {
   resolveApprovedConfigurationCapability, resolveStoryConfigurationAuthority,
   resolveStoryConfigurationSnapshotCapability

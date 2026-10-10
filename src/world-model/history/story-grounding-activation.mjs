@@ -8,7 +8,7 @@ import {
   writeAtomicExclusive
 } from '../../util.mjs';
 import { resolveGroundingPlan } from '../../world-model-selection.mjs';
-import { canonicalJson, compareText, deepFreeze, sealRecord, sha256 } from '../canonicalize.mjs';
+import { canonicalJson, compareText, deepFreeze, sealRecord, sha256 } from '../../canonical-json.mjs';
 import { planWorldModelV4 } from '../plan.mjs';
 import { createExactSourceSnapshotAtRevision } from '../source/snapshot.mjs';
 import { configuredWorldModelV4ScopeOptions } from '../scope/configuration.mjs';

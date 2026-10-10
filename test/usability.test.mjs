@@ -49,7 +49,10 @@ test('assignments are durable and guided run stops at the authoring boundary', a
   const workflow = JSON.parse(await readFile(path.join(root, 'singularity/work-items/EASY-2/workflow.json'), 'utf8'));
   assert.equal(workflow.collaboration.assignments.intake.assignee, 'mobile-team');
   assert.match(run('git', ['log', '-1', '--format=%s'], root).stdout, /\[EASY-2\]\[phase:intake\]\[assign\]/);
-  const guided = flow(root, 'run', '--task', 'Capture user outcome').stdout; assert.match(guided, /stopped at the authoring boundary/i); assert.doesNotMatch(guided, /approved/i);
+  const guided = flow(root, 'run', '--task', 'Capture user outcome').stdout; assert.match(guided, /stopped at the authoring boundary/i);
+  // The run composes the phase prompt, whose guidance mentions approved inputs; it approves nothing.
+  assert.doesNotMatch(guided, /^Approved /mu);
+  assert.notEqual(JSON.parse(await readFile(path.join(root, 'singularity/work-items/EASY-2/workflow.json'), 'utf8')).phases.intake.status, 'approved');
   const watch = flow(root, 'watch', '--once').stdout; assert.match(watch, /Assignment: mobile-team/);
 });
 

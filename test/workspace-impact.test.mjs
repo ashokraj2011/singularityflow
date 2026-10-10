@@ -167,16 +167,17 @@ test('workspace impact reports a governed repository World Model as unread inste
     repositories: ['api']
   }, {
     runner: async ({ prompt }) => {
-      assert.match(prompt, /world model: not-available — Impact analysis does not read registered World Model views/);
+      assert.match(prompt, /world model: not-available — Impact analysis reads the repository source; it does not read World Model views/);
       return { output: '# Impact summary\n\n## Executive summary\nNo World Model was read.' };
     }
   });
   const [entry] = report.repositories;
   assert.equal(entry.worldModel.present, false);
   assert.equal(entry.worldModel.status, 'not-available');
-  assert.equal(entry.worldModel.outputDir, 'governed/repository-model');
+  // worldModel.outputDir belonged to the removed registered World Model and is dropped at load.
+  assert.equal(entry.worldModel.outputDir, 'singularity/world-model');
   assert.equal(entry.worldModel.sha256, null);
-  assert.match(report.warnings.join('\n'), /api: Impact analysis does not read registered World Model views/);
+  assert.match(report.warnings.join('\n'), /api: Impact analysis reads the repository source; it does not read World Model views/);
 });
 
 test('workspace impact pins a detached HEAD and detects untracked work through registered local Git reads', async () => {

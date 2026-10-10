@@ -12,6 +12,7 @@ import { validateQualityRiskPacket } from '../src/phase-quality-risk.mjs';
 import { inspectPhaseAuthoredReviewContent } from '../src/publication-preflight.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import { resolveOperation, operationById } from '../src/command-registry.mjs';
+import { changedFiles } from '../src/git.mjs';
 
 async function fixture(t, id = 'team-defined-delivery') {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-preserve-'));
@@ -114,6 +115,20 @@ test('preservation does not refresh the index when a clean tracked file has new 
   await utimes(path.join(f.root, 'source.txt'), oldTime, oldTime);
   const before = await readFile(path.join(f.root, '.git/index'));
   await createPhaseCheckpoint(f.root, f.config, f.workflow, f.phase);
+  assert.deepEqual(await readFile(path.join(f.root, '.git/index')), before);
+});
+
+test('a clean tracked file with new filesystem metadata is not a changed file, and finding that writes nothing', async t => {
+  const f = await fixture(t);
+  f.git('config', 'diff.autoRefreshIndex', 'true');
+  await writeFile(path.join(f.root, 'source.txt'), 'Original source\n');
+  const oldTime = new Date(Date.now() - 60_000);
+  await utimes(path.join(f.root, 'source.txt'), oldTime, oldTime);
+  const before = await readFile(path.join(f.root, '.git/index'));
+  assert.equal(changedFiles(f.root).includes('source.txt'), false);
+  await writeFile(path.join(f.root, 'source.txt'), 'Edited source\n');
+  await utimes(path.join(f.root, 'source.txt'), oldTime, oldTime);
+  assert.equal(changedFiles(f.root).includes('source.txt'), true, 'a real edit still counts');
   assert.deepEqual(await readFile(path.join(f.root, '.git/index')), before);
 });
 

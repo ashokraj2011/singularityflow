@@ -3702,11 +3702,16 @@ export async function publishGeneration(root, config, workflow, {
       if (!governedByCode) {
         const ungoverned = sourceChanges.filter((file) => classifySupportingChange(file).refused);
         if (ungoverned.length) {
-          throw new SingularityFlowError(
-            `Phase ${phase.id} is not a code phase and no approved code phase comes before it, so it cannot publish application source, tests or migrations: ${ungoverned.join(', ')}. `
-            + 'Make this change in a Story whose workflow has a code phase (for example quick-fix), or limit this phase to dependency, build, CI, repository metadata and documentation files.',
-            { code: 'PHASE_SOURCE_CHANGE_UNGOVERNED', details: { phase: phase.id, paths: ungoverned } }
-          );
+          // Another phase's artifact is a Story record, not application source, so name it as one.
+          const storyArtifacts = `${workDirRelative(config, workflow.workItem.id)}/artifacts/`;
+          const otherArtifacts = ungoverned.filter((file) => file.startsWith(storyArtifacts));
+          const source = ungoverned.filter((file) => !file.startsWith(storyArtifacts));
+          throw new SingularityFlowError([
+            source.length ? `Phase ${phase.id} is not a code phase and no approved code phase comes before it, so it cannot publish application source, tests or migrations: ${source.join(', ')}. `
+              + 'Make this change in a Story whose workflow has a code phase (for example quick-fix), or limit this phase to dependency, build, CI, repository metadata and documentation files.' : null,
+            otherArtifacts.length ? `Phase ${phase.id} changed another phase's artifact, which only that phase publishes: ${otherArtifacts.join(', ')}. Restore it, or return to that phase to change it.` : null
+          ].filter(Boolean).join(' '),
+          { code: 'PHASE_SOURCE_CHANGE_UNGOVERNED', details: { phase: phase.id, paths: ungoverned, otherPhaseArtifacts: otherArtifacts } });
         }
       }
     }

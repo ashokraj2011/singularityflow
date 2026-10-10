@@ -1953,7 +1953,18 @@ export function changedFiles(root) {
   const unstaged = nullList(git(['--no-optional-locks', '-c', 'diff.autoRefreshIndex=false', 'diff', '--name-only', '-z', 'HEAD'], { cwd: root }).stdout);
   const staged = nullList(git(['--no-optional-locks', '-c', 'diff.autoRefreshIndex=false', 'diff', '--name-only', '-z', '--cached', 'HEAD'], { cwd: root }).stdout);
   const untracked = nullList(git(['--no-optional-locks', 'ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout);
-  return [...new Set([...unstaged, ...staged, ...untracked])].sort();
+  return [...new Set([...contentChanged(root, unstaged), ...staged, ...untracked])].sort();
+}
+
+// Without the refresh, a file rewritten with the same bytes still reads as modified because its
+// cached stat no longer matches. `git status` compares those contents in memory and, with optional
+// locks off, writes nothing, so it settles which worktree candidates really changed.
+function contentChanged(root, candidates) {
+  if (!candidates.length) return candidates;
+  const reported = new Set(nullList(git([
+    '--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=no', '--no-renames'
+  ], { cwd: root }).stdout).map((record) => record.slice(3)));
+  return candidates.filter((file) => reported.has(file));
 }
 
 function exactIndexRoster(root, env, { maximumBytes = 16 * 1024 * 1024 } = {}) {

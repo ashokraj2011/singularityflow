@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, mkdir, unlink } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, mkdir, unlink, utimes } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -916,8 +916,23 @@ test('a phase with no code phase before it cannot publish application code', asy
   assert.match(refused.stderr, /src\/ledger\.mjs/);
   assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.implementation.generation, 0, 'nothing was published');
 
-  // A dependency change needs no requirement, so the same step may publish it.
+  // A file in an earlier phase's artifacts is a Story record, not application source, and is named as one.
   await unlink(path.join(root, 'src/ledger.mjs'));
+  const notes = path.join(root, 'singularity/work-items', workId, 'artifacts/intake/notes.md');
+  await writeFile(notes, 'An afterthought.\n');
+  const crossPhase = flow(root, ['phase', 'publish', 'implementation'], { allowFailure: true, selection: selection('chore', 'developer') });
+  assert.notEqual(crossPhase.status, 0);
+  assert.match(crossPhase.stderr, /changed another phase's artifact, which only that phase publishes: .*artifacts\/intake\/notes\.md/);
+  assert.doesNotMatch(crossPhase.stderr, /cannot publish application source/);
+  await unlink(notes);
+
+  // The approved Intake rewritten with the same bytes has only new filesystem metadata: not a change.
+  const intake = path.join(root, 'singularity/work-items', workId, 'artifacts/intake/intake.md');
+  await writeFile(intake, await readFile(intake));
+  const later = new Date(Date.now() + 60_000);
+  await utimes(intake, later, later);
+
+  // A dependency change needs no requirement, so the same step may publish it.
   await writeFile(path.join(root, 'package.json'), '{ "name": "ledger-app", "dependencies": { "ledger-client": "2.0.0" } }\n');
   flow(root, ['phase', 'publish', 'implementation'], { selection: selection('chore', 'developer') });
   assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.implementation.generation, 1);

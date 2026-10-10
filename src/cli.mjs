@@ -6450,7 +6450,7 @@ async function wmCommand(positionals, options) {
     const root = repoRoot();
     const readsApprovedPolicy = new Set([
       'ast', 'facts', 'build', 'availability', 'status', 'ensure', 'refresh-authority',
-      'context', 'check', 'show-prompt', 'read', 'read-views', 'read-contract'
+      'context', 'check', 'show-prompt', 'brief', 'read', 'read-views', 'read-contract'
     ]).has(positionals[1]);
     return readsApprovedPolicy
       ? withApprovedConfigurationRead(root, () => worldModelCommand(root, positionals, options))

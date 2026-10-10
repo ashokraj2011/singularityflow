@@ -735,6 +735,7 @@ Every public operation is classified before its implementation module is importe
 | wm.ast.symbol | read | never | — | — |
 | wm.ast.warm | mutation | never | — | — |
 | wm.availability | read | never | — | — |
+| wm.brief | read | never | — | — |
 | wm.build | mutation | required | — | copilot-cli |
 | wm.build.deterministic | mutation | never | — | — |
 | wm.cache | mutation | never | — | — |

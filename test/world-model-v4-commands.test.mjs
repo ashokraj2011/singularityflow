@@ -1787,9 +1787,45 @@ test('phase composition reads exact state-backed registered views and never rebu
   assert.deepEqual(verified.errors, []);
   assert.deepEqual(verified.warnings, []);
   const prompt = await readFile(path.join(root, verified.record.promptPath), 'utf8');
-  assert.match(prompt, /required repository world-model grounding/i);
-  assert.match(prompt, /Repository grounding: singularity\/world-model\/views\/dev\.impact\.md/);
-  assert.match(prompt, /SFlow World-Model View/);
+  // The selected view is read into the phase's repository brief: its statements with their sources,
+  // never its hash header, facts JSON or unavailable boilerplate.
+  assert.match(prompt, /^# Repository brief: .+ \(for intake/mu);
+  assert.match(prompt, /registered World Model at [0-9a-f]{12}/u);
+  assert.doesNotMatch(prompt, /SFlow World-Model View|fact_ledger_sha256|\[F:FACT-|No registered deterministic producer supplied/u);
+  const viewFile = verified.record.files.find((file) => file.path === 'singularity/world-model/views/dev.impact.md');
+  assert.equal(viewFile.category, 'required');
+  assert.deepEqual(viewFile.renderer, { id: 'repository-brief-view', version: 1 });
+  assert.match(viewFile.projectionSha256, /^[0-9a-f]{64}$/u);
+  await t.test('a receipt whose brief read does not match the committed view is reported', async () => {
+    const receiptPath = path.join(root, 'singularity/work-items', workflow.workItem.id, 'context', 'intake-gen1.json');
+    const original = await readFile(receiptPath, 'utf8');
+    const record = JSON.parse(original);
+    record.files.find((file) => file.path === viewFile.path).projectionSha256 = '0'.repeat(64);
+    await writeFile(receiptPath, `${JSON.stringify(record, null, 2)}\n`);
+    try {
+      const tampered = await verifyGroundingRecord(root, config, workflow, workflow.phases.intake, { generation: 1, agent: 'product-owner' });
+      assert.match([...tampered.errors, ...tampered.warnings].join('\n'), /repository brief read of singularity\/world-model\/views\/dev\.impact\.md differs from its committed view/u);
+    } finally {
+      await writeFile(receiptPath, original);
+    }
+  });
+  await t.test('wm brief shows exactly the brief the phase received, and records nothing', async () => {
+    const contextDirectory = path.join(root, 'singularity/work-items', workflow.workItem.id, 'context');
+    const before = (await readdir(contextDirectory)).sort();
+    const stateRef = git(root, ['rev-parse', 'state']);
+    const shown = spawnSync(process.execPath, [
+      executable, '--no-model', 'wm', 'brief', '--phase', 'intake', '--work-id', workflow.workItem.id, '--agent', 'product-owner', '--json'
+    ], { cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'WMB Test' } });
+    assert.equal(shown.status, 0, shown.stderr);
+    const brief = JSON.parse(shown.stdout);
+    assert.equal(brief.status, 'ok');
+    const start = prompt.indexOf('# Repository brief: ');
+    const end = prompt.indexOf('\n# ', start + 1);
+    assert.equal(brief.text, prompt.slice(start, end < 0 ? undefined : end).trimEnd());
+    assert.equal(brief.bytes, Buffer.byteLength(brief.text));
+    assert.deepEqual((await readdir(contextDirectory)).sort(), before, 'no prompt or receipt was written');
+    assert.equal(git(root, ['rev-parse', 'state']), stateRef);
+  });
   await t.test('grounding verification uses recorded exact selections after current view policy changes', async () => {
     const changedDefinition = structuredClone(config);
     changedDefinition.worldModel.views = ['biz.rules'];
@@ -2122,7 +2158,7 @@ test('advisory composition labels a verified historical model when current sourc
   });
   assert.match(composed, /Source comparison: `unavailable` \(`WMB_SOURCE_SNAPSHOT_REQUIRED`\)/);
   assert.match(composed, /injected model is historical context/i);
-  assert.match(composed, /SFlow World-Model View/,
+  assert.match(composed, /registered World Model at [0-9a-f]{12}/u,
     'warn policy may use verified historical model bytes when they are labeled honestly');
 
   const verified = await verifyGroundingRecord(

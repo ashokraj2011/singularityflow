@@ -165,20 +165,42 @@ command says so and changes nothing; `--dry-run` prints the exact prompt.
 
 ## In phase prompts
 
-`wm compose` adds one slice per phase, focused on the Story's title, description and acceptance
-criteria and kept within `worldModel.knowledge.maxBytes` (default 8192):
+`wm compose` gives every phase one **Repository brief**: a few cited bullets about the code the
+Story touches, built without a model. It replaces both the knowledge slice and the registered World
+Model view files that phases used to receive (World Model v5, milestone M0).
 
-| Phase | Reader | Sections, in order |
+- **Inputs:** this knowledge, README and docs statements, accepted plain-language explanations, and
+  the registered views the phase selects. A view file is read for its statements only: its hash
+  header, facts JSON, fact IDs and "No registered deterministic producer…" lines stay in the
+  published file. Declarations are folded per type (accessors together), imports per file, and
+  same-file lexical call guesses are left out.
+- **Ranking:** items matching the Story's title, description, acceptance criteria and changed files
+  come first; an item appears once.
+- **Format:** short sections with plain bullets, each ending with its source as `(File.java:42)` or
+  `(README.md › Heading)`; what could not be determined is one closing "Not known" line. No JSON,
+  hashes or fact IDs reach the prompt.
+- **Budget:** the whole brief fits the phase's budget; what did not fit is counted on a pointer
+  line. `worldModel.knowledge.maxBytes` replaces the defaults for every phase.
+
+| Phase | Budget | Sections, in order |
 |---|---|---|
-| intake, specification, requirements | product | approved requirements, journeys, rules, what users are told, data shapes, pitfalls |
-| design, architecture, planning | architect | areas, journeys, external calls and configuration, data shapes, hotspots, error paths |
-| implementation and others | developer | pitfalls, rules, journeys, data shapes, tests, impact |
-| testing, verification, conformance | tester | pitfalls, approved requirements, rules, tests, error paths, journeys |
+| intake, requirements, specification | 2 KB | what exists, rules that apply, questions for the product owner, contracts |
+| design, planning, architecture | 3 KB | contracts, flows, rules, risks, what exists |
+| implementation spec, fix design, component mapping | 4 KB | what a change touches, rules, contracts, flows, risks |
+| reproduction, fix spec | 3 KB | rules, what a change touches, risks, contracts |
+| implementation and others | 3 KB | what a change touches, rules, contracts, risks |
+| verification, testing | 3 KB | rules, risks, flows, what a change touches |
+| conformance | 2 KB | contracts, rules, what a change touches |
+| release | 2 KB | contracts, rules |
 
-"Pitfalls" is what a newcomer would get wrong: test/code disagreements, limits and where they are
-applied, refusals, and functions with rules no test reaches. The slice travels in the existing
-`capability-world-model` prompt section, so prompt budgets and token-reduction contracts apply
-unchanged. Turn it off with `worldModel.knowledge.prompt: off`.
+`singularity-flow wm brief --phase PHASE [--work-id ID]` prints exactly what a phase receives, without
+recording anything. The prompt receipt still binds each registered view file by its committed hash,
+plus the digest of what was read from it (renderer `repository-brief-view` v1), and grounding
+verification recomputes that digest from the committed bytes. A Story pinned to an exact-history
+packet keeps that packet byte for byte; its brief then carries knowledge only, beside the packet.
+The brief travels in the existing grounding section (or the capability section beside a pinned
+packet), so prompt budgets and token-reduction contracts apply unchanged. Turn knowledge off with
+`worldModel.knowledge.prompt: off`; the registered views are still read into the brief.
 
 ## Measuring it
 

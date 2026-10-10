@@ -241,28 +241,37 @@ test('wm knowledge works from the command line, read-only for the repository', a
   assert.match(unknown.stderr, /Available: areas, brief, build, calls, confirm, correct, eval, explain, items, reject, show, slice, status/u);
 });
 
-test('phase prompts receive one slice for the phase reader, focused on the Story, unless turned off', async (t) => {
+test('phase prompts receive one repository brief for the phase reader, focused on the Story, unless turned off', async (t) => {
   const { repositoryKnowledgePrompt, knowledgePromptPolicy } = await import('../src/knowledge/prompt.mjs');
   const repository = await fixtureRepository(t, 'orders-spring');
   const workflow = { workItem: { title: 'Allow cancelling paid orders', description: 'A paid order can be cancelled with a refund.' } };
   const testing = await repositoryKnowledgePrompt(repository, { definition: {}, phase: 'testing', workflow });
   assert.equal(testing.status, 'ok');
   assert.equal(testing.role, 'tester');
-  assert.match(testing.text, /knowledge for the tester \(focused on this Story\)/u);
+  assert.match(testing.text, /^# Repository brief: .+ \(for verification, focused on this Story\)$/mu);
   assert.match(testing.text, /Only placed orders can be cancelled/u);
+  assert.match(testing.text, /\(OrderService\.java:\d+\)/u, 'every bullet names its file and line');
+  assert.doesNotMatch(testing.text, /```|sha256|FACT-/u, 'no JSON, hashes or fact ids reach the prompt');
   assert.match(testing.text, /Open the cited lines before relying on a detail\.$/u);
+  assert.ok(Buffer.byteLength(testing.text) <= 3072, 'the verification budget holds');
+  const intake = await repositoryKnowledgePrompt(repository, { definition: {}, phase: 'intake', workflow });
+  assert.equal(intake.role, 'product');
+  assert.ok(Buffer.byteLength(intake.text) <= 2048, 'the intake budget holds');
+  assert.match(intake.text, /^Not known: /mu, 'what could not be determined is one closing line');
   const design = await repositoryKnowledgePrompt(repository, { definition: { worldModel: { knowledge: { maxBytes: 2048 } } }, phase: 'design', workflow });
   assert.equal(design.role, 'architect');
-  assert.ok(Buffer.byteLength(design.text) < 2048 + 200, 'the configured budget holds');
-  assert.deepEqual(await repositoryKnowledgePrompt(repository, { definition: { worldModel: { knowledge: { prompt: 'off' } } }, phase: 'testing', workflow }),
-    { text: '', warnings: [], status: 'off' });
+  assert.ok(Buffer.byteLength(design.text) <= 2048, 'the configured budget holds');
+  const off = await repositoryKnowledgePrompt(repository, { definition: { worldModel: { knowledge: { prompt: 'off' } } }, phase: 'testing', workflow });
+  assert.deepEqual([off.text, off.status, off.warnings], ['', 'off', []]);
   assert.deepEqual(knowledgePromptPolicy({ worldModel: { knowledge: { maxBytes: 999999 } } }), { prompt: 'slice', maxBytes: 32768 });
   const missing = await repositoryKnowledgePrompt(path.join(repository, 'not-a-repository'), { definition: {}, phase: 'testing', workflow });
   assert.equal(missing.text, '');
   assert.match(missing.warnings[0], /Repository knowledge was not added/u, 'a failure never blocks the prompt');
-  // The slice rides the registered capability section, so prompt budgets and token-reduction contracts need no new owner.
+  // The brief rides registered sections (the grounding section, or the capability section beside a
+  // pinned exact packet), so prompt budgets and token-reduction contracts need no new owner.
   const compose = await readFile(path.join(root, 'src', 'worldmodel.mjs'), 'utf8');
-  assert.match(compose, /id: 'capability-world-model', text: \[capability\.text, repositoryKnowledge\.text\]\.filter\(Boolean\)\.join/u);
+  assert.match(compose, /if \(!exactGroundingPacket\) requiredText = repositoryBrief\.text;/u);
+  assert.match(compose, /id: 'capability-world-model', text: \[capability\.text, exactGroundingPacket \? repositoryBrief\.text : ''\]\.filter\(Boolean\)\.join/u);
   assert.match(compose, /const KNOWLEDGE_PROMPT_MODULE = '\.\/knowledge\/prompt\.mjs';/u);
 });
 
@@ -337,7 +346,7 @@ test('model explanations are kept only when every code name, number and quote is
   const { repositoryKnowledgePrompt } = await import('../src/knowledge/prompt.mjs');
   const slice = await repositoryKnowledgePrompt(repository, { definition: {}, phase: 'intake', workflow: { workItem: { title: 'Coupon discount changes' } } });
   assert.match(slice.text, /## In plain words \(inferred: model-written, checked against the cited code\)/u);
-  assert.match(slice.text, /The SAVE10 coupon applies when the base is at least 3000 cents\. — `src\/rules\/pricing\.ts:20`/u);
+  assert.match(slice.text, /The SAVE10 coupon applies when the base is at least 3000 cents\. \(pricing\.ts:20\)/u);
 });
 
 test('without a model, explain says so and changes nothing; the dry run shows the exact prompt', async (t) => {

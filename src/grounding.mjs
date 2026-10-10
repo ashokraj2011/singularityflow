@@ -17,6 +17,7 @@ import { loadPortfolio } from './initiative-config.mjs';
 import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { loadEnvironmentDeclaration, matchEnvironmentLocalPath } from './environment-declaration.mjs';
+import { projectRegisteredView, VIEW_BRIEF_RENDERER, viewProjectionDigest } from './knowledge/view-brief.mjs';
 
 let storyGroundingVerificationRuntimePromise = null;
 let promptGenerationVerificationRuntimePromise = null;
@@ -807,7 +808,9 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
     if (!validFileDigest) problems.push(`grounding composition has invalid hash for ${file.path}`);
     if (!GROUNDING_FILE_CATEGORIES.has(file.category)) problems.push(`grounding composition has invalid category for ${file.path}`);
     if (!Number.isInteger(file.bytes) || file.bytes < 0 || !Number.isInteger(file.injectedBytes) || file.injectedBytes < 0) problems.push(`grounding composition has invalid byte accounting for ${file.path}`);
-    if (file.category === 'required' && (file.truncated || file.injectedBytes !== file.bytes)) problems.push(`required grounding was truncated for ${file.path}`);
+    // A registered view read into the repository brief records what was read from it instead of a verbatim copy.
+    const readIntoBrief = file.category === 'required' && file.renderer?.id === VIEW_BRIEF_RENDERER.id;
+    if (file.category === 'required' && (file.truncated || (!readIntoBrief && file.injectedBytes !== file.bytes))) problems.push(`required grounding was truncated for ${file.path}`);
     if (['required', 'rule'].includes(file.category)) {
       if (!persistedGroundingFile
           && (!recordedPath || !withinGroundingRoot(recordedPath, modelRoot))) {
@@ -820,6 +823,12 @@ export async function verifyGroundingRecord(root, definition, workflow, phase, {
       const content = run('git', ['show', `${record.worldModelCommit}:${recordedPath}`], { cwd: root, allowFailure: true });
       if (content.status !== 0) problems.push(`world-model commit ${record.worldModelCommit.slice(0, 8)} does not contain ${file.path}`);
       else if (createHash('sha256').update(content.stdout).digest('hex') !== file.sha256) problems.push(`world-model commit hash differs for ${file.path}`);
+      else if (readIntoBrief && file.renderer.version === VIEW_BRIEF_RENDERER.version) {
+        const digest = viewProjectionDigest(projectRegisteredView(content.stdout));
+        if (digest.sha256 !== file.projectionSha256 || digest.bytes !== file.projectionBytes) {
+          problems.push(`repository brief read of ${file.path} differs from its committed view`);
+        }
+      }
     }
     if (file.category === 'capability') {
       if (!recordedPath || !withinGroundingRoot(recordedPath, capabilityRoot)) problems.push(`capability grounding escapes the work-item context: ${file.path}`);

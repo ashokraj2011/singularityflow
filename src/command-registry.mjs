@@ -162,7 +162,7 @@ export function commandDefinition(name) {
 
 const WM_MODEL_OPERATIONS = new Set(['build']);
 const WM_NEVER_OPERATIONS = new Set([
-  'inject', 'compose', 'show-prompt', 'cleanup', 'context',
+  'inject', 'compose', 'show-prompt', 'brief', 'cleanup', 'context',
   'facts', 'check', 'cache', 'availability', 'status', 'design-inventory',
   'read', 'read-views', 'read-contract', 'migrate-views'
 ]);
@@ -213,7 +213,7 @@ const WORKSPACE_READ_OPERATIONS = new Set([
   'migrate-schemas'
 ]);
 const WM_READ_OPERATIONS = new Set([
-  'show-prompt', 'context', 'facts', 'check', 'availability', 'status',
+  'show-prompt', 'brief', 'context', 'facts', 'check', 'availability', 'status',
   'design-inventory', 'read', 'read-views', 'read-contract'
 ]);
 const WORKSPACE_IMPACT_READ_OPERATIONS = new Set(['list', 'show']);

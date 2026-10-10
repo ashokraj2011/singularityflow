@@ -730,6 +730,7 @@ Usage:
   singularity-flow wm context <PHASE> [--branch BRANCH] [--remote REMOTE] [--task TEXT] [--concat] [--evidence] [--no-agent]
   singularity-flow wm compose [--agent ID] [--phase ID] [--work-id ID] [--task TEXT] [--evidence] [--dry-run|--render-only] [--out FILE]
   singularity-flow wm show-prompt [--phase ID] [--work-id ID] [--skill ID] [--task TEXT] [--evidence]
+  singularity-flow wm brief [--phase ID] [--work-id ID] [--json]   The repository brief a phase receives
   singularity-flow wm inject [same options]              Compatibility alias for wm compose
   singularity-flow wm check [--branch BRANCH] [--remote REMOTE]
   singularity-flow wm cleanup [--force] [--json]

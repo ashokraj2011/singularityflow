@@ -1092,15 +1092,6 @@ function workflowChangedPaths(root, definition, workflow) {
     .filter((candidate) => isApplicationPath(candidate, pathContext)).sort();
 }
 
-function groundingSectionsText(selected, rulePaths) {
-  const sections = selected.filter((item) => !rulePaths.has(item.path));
-  if (!sections.length) return '';
-  return [
-    '<!-- required repository world-model grounding -->',
-    ...sections.map((section) => `\n## Repository grounding: ${section.path}\n\n${section.body.trim()}\n`)
-  ].join('\n');
-}
-
 function exactOccurrenceCount(text, exact) {
   if (!exact) return 0;
   let count = 0;
@@ -1764,9 +1755,11 @@ async function compose(root, options, {
     });
   }
   const rulePaths = new Set(injection.sections.map((section) => section.path));
-  const requiredText = persistedGrounding?.status === 'composed'
-    ? persistedGrounding.content
-    : groundingSectionsText(mandatory, rulePaths);
+  const exactGroundingPacket = persistedGrounding?.status === 'composed';
+  // A pinned exact-history packet is replayed byte for byte. Otherwise the selected registered views
+  // are read into the phase's repository brief instead of being pasted with their hashes and JSON.
+  const registeredViews = exactGroundingPacket ? [] : mandatory.filter((item) => !rulePaths.has(item.path));
+  let requiredText = exactGroundingPacket ? persistedGrounding.content : '';
   let persistedGroundingReceipt = persistedGrounding?.status === 'composed'
     ? persistedStoryWorldModelGroundingReceipt(persistedGrounding)
     : null;
@@ -1815,16 +1808,29 @@ async function compose(root, options, {
       views: phase?.worldModel?.views ?? [], grounding: config.grounding
     })
     : { text: '', files: [], warnings: [] };
-  // Deterministic knowledge of what the code does (rules, journeys, tests, gaps), sliced for this phase's reader.
-  const repositoryKnowledge = workflow && !worldModelDisabledForWorkflow(workflow)
-    ? await (await import(KNOWLEDGE_PROMPT_MODULE)).repositoryKnowledgePrompt(root, { definition, phase: signals.phase, workflow, changedPaths: signals.changedPaths ?? [] })
-    : { text: '', warnings: [] };
+  // One repository brief for this phase's reader: repository knowledge, docs and the registered views,
+  // ranked by the Story and cut to the phase's budget, each line with its file and line.
+  const knowledgeOn = Boolean(workflow && !worldModelDisabledForWorkflow(workflow));
+  const repositoryBrief = knowledgeOn || registeredViews.length
+    ? await (await import(KNOWLEDGE_PROMPT_MODULE)).repositoryBriefPrompt(root, {
+      definition, phase: signals.phase, workflow, changedPaths: signals.changedPaths ?? [],
+      registeredViews, knowledge: knowledgeOn, modelCommit: required.located?.commit ?? null
+    })
+    : { text: '', warnings: [], files: [] };
+  if (!exactGroundingPacket) requiredText = repositoryBrief.text;
+  for (const file of repositoryBrief.files ?? []) {
+    const entry = mandatory.find((item) => item.path === file.path);
+    if (entry) Object.assign(entry, {
+      injectedBytes: Math.min(entry.bytes, file.projectionBytes), renderer: file.renderer,
+      projectionSha256: file.projectionSha256, projectionBytes: file.projectionBytes
+    });
+  }
   const structural = workflow
     ? await requiredStructuralPromptContext(root, workflow)
     : { text: '', record: null, warnings: [] };
   governed.warnings.forEach((warning) => console.error(`Warning: ${warning}`));
   capability.warnings.forEach((warning) => console.error(`Capability warning: ${warning}`));
-  repositoryKnowledge.warnings.forEach((warning) => console.error(`Knowledge warning: ${warning}`));
+  repositoryBrief.warnings.forEach((warning) => console.error(`Knowledge warning: ${warning}`));
   structural.warnings.forEach((warning) => console.error(`AST warning: ${warning}`));
   designSources.warnings.forEach((warning) => console.error(`Design-source warning: ${warning}`));
   approvedReferences.warnings.forEach((warning) => console.error(`Reference warning: ${warning}`));
@@ -1919,16 +1925,16 @@ async function compose(root, options, {
     {
       id: 'world-model-grounding', text: requiredText,
       mandatory: false,
-      exact: persistedGrounding?.status === 'composed', priority: 40
+      exact: exactGroundingPacket, priority: 40
     },
     // This is a small deterministic navigation overlay, not a second model build. Keep it mandatory
     // when present so token trimming cannot leave the authoring model unaware of the immutable
     // source boundary or accidentally treat a reference as a delivery repository.
     { id: 'reference-repository-grounding', text: referenceRepositories.text,
       mandatory: Boolean(referenceRepositories.repositories.length), priority: 0 },
-    // Registered section: repository knowledge travels with the capability world model so the
-    // token-reduction contract, which names every section, needs no new owner.
-    { id: 'capability-world-model', text: [capability.text, repositoryKnowledge.text].filter(Boolean).join('\n\n'), priority: 50 },
+    // Registered section: beside a pinned exact packet, the repository brief travels with the
+    // capability world model so the token-reduction contract, which names every section, needs no new owner.
+    { id: 'capability-world-model', text: [capability.text, exactGroundingPacket ? repositoryBrief.text : ''].filter(Boolean).join('\n\n'), priority: 50 },
     { id: 'optional-ast-context', text: structural.text, priority: 70 },
     { id: 'agent-skills', text: remote.text, mandatory: true, priority: 5 },
     { id: 'active-story-evidence', text: governed.evidence, mandatory: true, priority: 5 },
@@ -2303,6 +2309,34 @@ export async function composePhasePrompt(root, {
   }, { beforeFinalAuthorityCheck });
 }
 
+/**
+ * `wm brief`: the repository brief a phase receives, read from the composed prompt without recording
+ * anything, so it is exactly what the phase sees (a saved prompt is shown as it was saved).
+ */
+async function phaseBriefCommand(root, options) {
+  const story = await load(root, { agent: optionString(options, 'agent'), workId: optionString(options, 'work-id'), phase: optionString(options, 'phase') });
+  if (!story.workflow) {
+    throw new SingularityFlowError(
+      'wm brief shows what a Story phase receives: pass --work-id, or start a Story first. For the repository as a whole, run: singularity-flow wm knowledge brief',
+      { code: 'WORLD_MODEL_BRIEF_STORY_REQUIRED' }
+    );
+  }
+  const prompt = await compose(root, {
+    ...(optionString(options, 'work-id') ? { 'work-id': optionString(options, 'work-id') } : {}),
+    ...(optionString(options, 'phase') ? { phase: optionString(options, 'phase') } : {}),
+    ...(optionString(options, 'agent') ? { agent: optionString(options, 'agent') } : {}),
+    'render-only': true, 'return-only': true, 'skip-prompt-audit': true
+  });
+  const lines = String(prompt ?? '').split('\n');
+  const start = lines.findIndex((line) => line.startsWith('# Repository brief: '));
+  const end = start < 0 ? -1 : lines.findIndex((line, index) => index > start && /^# /u.test(line));
+  const text = start < 0 ? '' : lines.slice(start, end < 0 ? undefined : end).join('\n').trimEnd();
+  const result = { status: text ? 'ok' : 'none', phase: optionString(options, 'phase') ?? null, bytes: Buffer.byteLength(text), text };
+  if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+  else console.log(text || 'This phase receives no repository brief: knowledge is off and no registered view is selected.');
+  return result;
+}
+
 async function showPrompt(root, options) {
   const requestedSkill = optionString(options, 'skill');
   if (requestedSkill != null && !/^[a-z0-9][a-z0-9-]{0,63}$/.test(requestedSkill)) {
@@ -2491,6 +2525,7 @@ export async function worldModelCommand(root, positionals, options) {
   }
   if (command === 'inject' || command === 'compose') return compose(root, options);
   if (command === 'show-prompt') return showPrompt(root, options);
+  if (command === 'brief') return phaseBriefCommand(root, options);
   if (command === 'cleanup') {
     const result = await cleanupStaleWorldModelWorktrees(root, { force: optionBoolean(options, 'force') });
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
@@ -2502,7 +2537,7 @@ export async function worldModelCommand(root, positionals, options) {
   }
   if (!registeredCommands.has(command) && !WORLD_MODEL_V4_COMMANDS.has(command)) {
     throw new SingularityFlowError(
-      'Usage: singularity-flow wm plan|snapshot|refresh-authority|build|ensure|availability|status|manifest|show <view>|facts [view]|evidence <id>|derivation <id>|views|view-contract <view>|history list|show <key> --authority-commit <full-commit>|read <ncg-view>|read-views|read-contract <ncg-view>|extractors|validate|validate-view <view>|verify-cache|regenerate <view>|context <phase>|doctor|migrate <legacy-view>|compose|show-prompt|inject|check|cleanup|recovery list|inspect|publish|cache status|clear|knowledge|ast'
+      'Usage: singularity-flow wm plan|snapshot|refresh-authority|build|ensure|availability|status|manifest|show <view>|facts [view]|evidence <id>|derivation <id>|views|view-contract <view>|history list|show <key> --authority-commit <full-commit>|read <ncg-view>|read-views|read-contract <ncg-view>|extractors|validate|validate-view <view>|verify-cache|regenerate <view>|context <phase>|doctor|migrate <legacy-view>|compose|show-prompt|brief|inject|check|cleanup|recovery list|inspect|publish|cache status|clear|knowledge|ast'
     );
   }
   if (command === 'build') await cleanupStaleWorldModelWorktrees(root);

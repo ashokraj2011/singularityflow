@@ -1,0 +1,168 @@
+/**
+ * The repository brief a phase prompt receives: one section in place of the registered World Model
+ * view files and the knowledge slice.
+ *
+ * It is built without a model from what already exists: repository knowledge (rules with their
+ * messages and statuses, endpoints, data shapes, flows, impact, history), README and docs
+ * statements, and what the registered views say once their hashes, JSON and boilerplate are set
+ * aside (see view-brief.mjs). Items are ranked by the Story's own words and changed
+ * files, ordered for the phase's reader, and cut to a small per-phase budget. Every bullet names its
+ * source as a file and line; what could not be determined is one closing "Not known" line. Evidence
+ * stays where it is stored; the prompt receipt binds the view files it read.
+ */
+import path from 'node:path';
+
+export const PHASE_BRIEF_RENDERER = Object.freeze({ id: 'repository-brief', version: 1 });
+
+/**
+ * Per-phase reader, budget and section order, matched on the phase ID, first match wins. The
+ * budgets are defaults: `worldModel.knowledge.maxBytes` replaces them for every phase.
+ */
+export const PHASE_BRIEF_PROFILES = Object.freeze([
+  Object.freeze({ id: 'reproduction', reader: 'developer', pattern: '(reproduc|fix-spec)', budget: 3072, order: Object.freeze(['rules', 'impact', 'risks', 'contracts']) }),
+  Object.freeze({ id: 'implementation-spec', reader: 'developer', pattern: '(implementation-spec|fix-design|component-mapping|mobile-spec)', budget: 4096, order: Object.freeze(['impact', 'rules', 'contracts', 'flows', 'risks']) }),
+  Object.freeze({ id: 'conformance', reader: 'tester', pattern: '(conform)', budget: 2048, order: Object.freeze(['contracts', 'rules', 'impact']) }),
+  Object.freeze({ id: 'release', reader: 'product', pattern: '(release|deploy)', budget: 2048, order: Object.freeze(['contracts', 'rules']) }),
+  Object.freeze({ id: 'verification', reader: 'tester', pattern: '(test|verif|qa|accept)', budget: 3072, order: Object.freeze(['rules', 'risks', 'flows', 'impact']) }),
+  Object.freeze({ id: 'intake', reader: 'product', pattern: '(intake|requirement|specif|discover|product|business|story)', budget: 2048, order: Object.freeze(['overview', 'rules', 'questions', 'contracts']) }),
+  Object.freeze({ id: 'design', reader: 'architect', pattern: '(design|architect|plan)', budget: 3072, order: Object.freeze(['contracts', 'flows', 'rules', 'risks', 'overview']) }),
+  Object.freeze({ id: 'implementation', reader: 'developer', pattern: '.*', budget: 3072, order: Object.freeze(['impact', 'rules', 'contracts', 'risks']) })
+]);
+
+const SECTION_TITLES = Object.freeze({
+  overview: 'What exists', rules: 'Rules that apply', contracts: 'Contracts', flows: 'Flows',
+  impact: 'What a change touches', risks: 'Risks', questions: 'Questions for the product owner'
+});
+const EXPLANATIONS_TITLE = 'In plain words (inferred: model-written, checked against the cited code)';
+const BULLET_CHARACTERS = 320;
+
+export function phaseBriefProfile(phase, { maxBytes = null } = {}) {
+  const id = String(phase ?? '').toLowerCase();
+  const profile = PHASE_BRIEF_PROFILES.find((entry) => new RegExp(entry.pattern, 'u').test(id));
+  return { ...profile, budget: Number.isInteger(maxBytes) ? maxBytes : profile.budget };
+}
+
+function words(text) {
+  return new Set(String(text ?? '').toLowerCase().match(/[a-z][a-z0-9]{2,}/gu) ?? []);
+}
+
+/** `(OrderService.java:22)`, or the full path when two cited files share a name. */
+function sourceLabeler(sources) {
+  const byName = new Map();
+  for (const source of sources) {
+    if (!source?.path) continue;
+    const name = path.posix.basename(source.path);
+    if (!byName.has(name)) byName.set(name, new Set());
+    byName.get(name).add(source.path);
+  }
+  return (source) => {
+    if (!source?.path) return '';
+    const name = path.posix.basename(source.path);
+    const shown = byName.get(name)?.size > 1 ? source.path : name;
+    if (source.heading) return `${shown} › ${source.heading}`;
+    return source.line ? `${shown}:${source.line}` : shown;
+  };
+}
+
+function clip(text) {
+  const value = String(text ?? '').replace(/\s+/gu, ' ').trim();
+  return value.length > BULLET_CHARACTERS ? `${value.slice(0, BULLET_CHARACTERS - 1)}…` : value;
+}
+
+/**
+ * Bare fact types collapse into one counted entry, and an entry another one already begins with
+ * (`calls are matched by name`) is dropped, so the closing line stays one short sentence.
+ */
+function collapseNotKnown(entries) {
+  const types = [];
+  const other = [];
+  for (const entry of entries) {
+    if (/^[a-z][a-z0-9-]*$/u.test(entry)) { if (!types.includes(entry)) types.push(entry); }
+    else if (!other.some((known) => known.startsWith(entry) || entry.startsWith(known))) other.push(entry);
+    else if (entry.length > (other.find((known) => entry.startsWith(known)) ?? entry).length) other[other.findIndex((known) => entry.startsWith(known))] = entry;
+  }
+  const named = types.length > 3 ? `${types.slice(0, 3).join(', ')} and ${types.length - 3} more` : types.join(', ');
+  return [...(types.length ? [`no registered producer for ${named}`] : []), ...other];
+}
+
+/**
+ * Render the brief. `template` is `templateBrief(briefEvidence(…))` (null when knowledge is off or
+ * unavailable); `registered` are view projections; `explanations` are accepted plain-language
+ * sentences. The text never exceeds `profile.budget` bytes except for its header and closing lines.
+ */
+export function renderPhaseBrief({
+  repository = 'repository', commit = null, profile, focus = null, template = null, registered = [],
+  explanations = [], notKnown = [], modelCommit = null, phase = null
+}) {
+  const focusWords = words(focus);
+  const relevance = (text) => [...words(text)].filter((word) => focusWords.has(word)).length;
+  const sections = new Map(Object.keys(SECTION_TITLES).map((id) => [id, []]));
+  const shown = new Set();
+  const push = (section, text, source) => {
+    const value = clip(text);
+    const key = value.toLowerCase();
+    if (!value || shown.has(key)) return;
+    shown.add(key);
+    sections.get(section)?.push({ text: value, source });
+  };
+  for (const id of Object.keys(SECTION_TITLES)) {
+    for (const statement of template?.views?.[id] ?? []) {
+      const source = statement.sources?.[0] ?? null;
+      const heading = source?.label?.includes(' › ') ? source.label.split(' › ').slice(1).join(' › ') : null;
+      push(id, statement.text, source ? { path: source.path, line: source.line ?? null, heading } : null);
+    }
+  }
+  // A registered line adds what knowledge lacks: skip one whose leading name a knowledge line already uses.
+  for (const projection of registered) {
+    const known = (sections.get(projection.section) ?? []).map((entry) => entry.text.toLowerCase()).join('\n');
+    const ranked = projection.lines.map((line, index) => ({ line, index, score: relevance(line.text) }))
+      .sort((a, b) => b.score - a.score || a.index - b.index);
+    for (const { line } of ranked) {
+      const name = /^([A-Za-z_$][\w$]*)[:\s]/u.exec(line.text)?.[1]?.toLowerCase();
+      if (name && new RegExp(`\\b${name}\\b`, 'u').test(known)) continue;
+      push(projection.section, line.text, line.source);
+    }
+  }
+  const order = profile.reader === 'product' ? profile.order : profile.order.filter((id) => id !== 'questions');
+  const label = sourceLabeler([...sections.values()].flat().map((entry) => entry.source));
+  const header = `# Repository brief: ${repository}${commit ? ` at ${String(commit).slice(0, 12)}` : ''} (for ${profile.id}${focusWords.size ? ', focused on this Story' : ''})`;
+  const unknown = collapseNotKnown(notKnown);
+  const footer = [
+    ...(unknown.length ? [`Not known: ${unknown.join('; ')}.`] : []),
+    `Read without a model from the committed source${modelCommit ? ` and the registered World Model at ${String(modelCommit).slice(0, 12)}` : ''}. Open the cited lines before relying on a detail.`
+  ];
+  const body = [];
+  const pointer = (count) => `- … ${count} more: singularity-flow wm brief${phase ? ` --phase ${phase}` : ''}`;
+  // The whole brief fits the budget: header, closing lines and the "more" pointer are set aside first.
+  let remaining = profile.budget - Buffer.byteLength(`${header}\n\n${footer.join('\n')}\n${pointer(99)}\n\n`);
+  let omitted = 0;
+  let included = 0;
+  // Sections share what is left: the first may take more than an even share, so one long list
+  // cannot crowd out every section after it.
+  const addSection = (title, entries, sectionsLeft, first) => {
+    if (!entries.length) return;
+    const share = Math.min(remaining, Math.floor((remaining / Math.max(1, sectionsLeft)) * (first ? 1.6 : 1)));
+    const lines = [];
+    let size = Buffer.byteLength(`## ${title}\n\n`);
+    for (const entry of entries) {
+      const source = label(entry.source);
+      const line = `- ${entry.text}${source ? ` (${source})` : ''}`;
+      const bytes = Buffer.byteLength(`${line}\n`);
+      if (size + bytes > share) { omitted += 1; continue; }
+      lines.push(line);
+      included += 1;
+      size += bytes;
+    }
+    if (!lines.length) return;
+    body.push(`## ${title}`, ...lines, '');
+    remaining -= size;
+  };
+  const explained = explanations.slice(0, 2).map((entry) => ({
+    text: entry.text, source: entry.citations?.[0] ? { path: entry.citations[0].path, line: entry.citations[0].lines?.[0] ?? null } : null
+  }));
+  const filled = order.filter((id) => (sections.get(id) ?? []).length);
+  addSection(EXPLANATIONS_TITLE, explained, filled.length + 1, false);
+  filled.forEach((id, index) => addSection(SECTION_TITLES[id], sections.get(id), filled.length - index, index === 0));
+  if (omitted) body.push(pointer(omitted), '');
+  return { text: [header, '', ...body, ...footer].join('\n').trimEnd(), omitted, included };
+}

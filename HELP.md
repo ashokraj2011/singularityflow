@@ -2241,14 +2241,17 @@ When the rejection means another clone published to the same Story first and the
 The world model grounds phase generation in repository facts:
 
 **Repository knowledge** reads what the code does (rules, limits, journeys, data shapes, error paths,
-tests and their gaps, approved requirements) from the committed tree, with every line cited, and
-adds one slice per phase to the prompt. It needs no model and no build step:
+tests and their gaps, approved requirements) from the committed tree, with every line cited. Each
+phase prompt gets one **Repository brief** built from it, the README and docs, and the registered
+views: a few cited bullets ranked by the Story, within a 2–4 KB budget per phase. It needs no model
+and no build step:
 
 ```bash
 singularity-flow wm knowledge build
 singularity-flow wm knowledge show rules
 singularity-flow wm knowledge show business
 singularity-flow wm knowledge slice --phase testing --focus "coupon discount"
+singularity-flow wm brief --phase testing --work-id STORY-1    # exactly what that phase receives
 ```
 
 See [the knowledge model guide](docs/KNOWLEDGE-MODEL.md).

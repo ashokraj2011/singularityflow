@@ -64,6 +64,13 @@ native chat without effective hooks remains advisory/detected by lifecycle check
 
 ## Approval and next actions
 
+Tool execution and command display use separate validation. A standalone approval command may
+carry one syntactically valid private `--selection-receipt`; the hook does not authenticate it.
+The CLI still validates the receipt's phase, Story, reviewed packet, identity, expiry and one-time
+consumption. Receipt-bearing commands are never reusable guidance or model-free replay commands,
+and durable argument logs redact the receipt. Do not remove the receipt or add `--yes` to bypass
+a tool refusal. Tests exercise the serialized hook and actual receipt-backed CLI together.
+
 `approve ... --for-agent --json` changes presentation only. It keeps the decision, retained review
 bindings, commit/push status, self-approval warning and final verdict, without printing documents
 or next-phase authoring context again. It instructs the model to end the turn. Re-approving an

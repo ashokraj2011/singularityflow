@@ -13,14 +13,17 @@ import {
   resolveSelectionReceipt,
   selectionReceiptStatus
 } from '../src/choices.mjs';
+import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
+import { captureMutationTurn } from '../src/copilot-mutation-guard.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const bin = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
 
-function run(command, args, cwd, { allowFailure = false } = {}) {
+function run(command, args, cwd, { allowFailure = false, input } = {}) {
   const result = spawnSync(command, args, {
     cwd,
     encoding: 'utf8',
+    input,
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Choice Tester' }
   });
   if (!allowFailure && result.status !== 0) throw new Error(`${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);
@@ -150,8 +153,16 @@ test('selection receipts reject incomplete, mismatched, invalid, and stale choic
   assert.match(stale.stderr, /stale because the repository HEAD changed/);
 });
 
-test('approval receipt keeps exact phase confirmation inside Copilot and uses the phase agent', async () => {
+test('approval receipt crosses the native tool guard, keeps exact confirmation and is consumed only once', async t => {
   const root = await repository();
+  const previousMode = process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+  process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = path.join(root, '.git', 'approval-host', 'mode.json');
+  t.after(async () => {
+    if (previousMode === undefined) delete process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+    else process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = previousMode;
+    await rm(root, { recursive: true, force: true });
+    await rm(`${root}.git`, { recursive: true, force: true });
+  });
   const workId = 'CHOICE-APPROVE-1';
   const start = JSON.parse(flow(root, ['choices', 'begin', 'start', workId, '--json']).stdout);
   flow(root, ['choices', 'answer', start.token, 'base-branch', 'main']);
@@ -205,8 +216,19 @@ test('approval receipt keeps exact phase confirmation inside Copilot and uses th
   assert.equal(bypass.status, 1);
   assert.match(bypass.stderr, /Do not combine --selection-receipt with --yes/);
 
-  const approved = flow(root, ['approve', 'intake', '--work-id', workId, '--fetch', '--selection-receipt', begun.token]);
-  assert.match(approved.stdout, /Approval decision committed [0-9a-f]{8} locally/);
+  const hook = { cwd: await realpath(root), sessionId: 'receipt-approval', prompt: `/sf-approve intake --work-id ${workId}` };
+  await recordRepositoryBoundaryTurn(hook, { captureMutation: (payload, record) =>
+    captureMutationTurn(payload, record, { resolveRoot: async () => hook.cwd }) });
+  const decisionArgs = ['approve', 'intake', '--work-id', workId, '--fetch', '--selection-receipt', begun.token, '--for-agent', '--json'];
+  const guard = command => JSON.parse(flow(root, ['hook', 'boundary-guard'], {
+    input: JSON.stringify({ ...hook, toolName: 'bash', toolArgs: { command, cwd: hook.cwd } })
+  }).stdout);
+  const decisionCommand = ['singularity-flow', ...decisionArgs].join(' ');
+  const wrongTurnOperation = guard(`singularity-flow approve requirements --work-id ${workId} --selection-receipt ${begun.token}`);
+  assert.equal(wrongTurnOperation.permissionDecision, 'deny', 'the actual hook must be active, not silently bypassed');
+  assert.deepEqual(guard(decisionCommand), {}, 'the exact receipt-bearing command passes the actual serialized hook');
+  const approved = flow(root, decisionArgs);
+  assert.equal(JSON.parse(approved.stdout).outcome.status, 'succeeded');
   assert.match(approved.stderr, /self-approved; this is not independent review/);
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.currentPhase, 'requirements');
@@ -225,6 +247,10 @@ test('approval receipt keeps exact phase confirmation inside Copilot and uses th
   assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), approvedHead,
     'a consumed approval cannot create a second decision commit');
   assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.intake.approvals.length, 1);
+  const ended = guard(decisionCommand);
+  assert.equal(ended.permissionDecision, 'deny');
+  assert.match(ended.permissionDecisionReason, /PHASE_MUTATION_DECISION_TURN_ENDED/);
+  assert.doesNotMatch(ended.permissionDecisionReason, new RegExp(begun.token));
 });
 
 test('untracked runner reports do not block receipt preparation or approval and are never committed', async t => {

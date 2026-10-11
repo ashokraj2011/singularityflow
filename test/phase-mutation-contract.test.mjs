@@ -306,6 +306,10 @@ test('expired explicit permission cannot authorize an edit or approval; diagnost
     captureMutation: (value, record) => captureMutationTurn(value, record, { resolveRoot: async () => f.root, load: async () => f.accepted }) });
   assert.equal((await mutationToolGuard(payload)).permissionDecision, 'deny');
   assert.equal((await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow approve custom-step --yes' } })).permissionDecision, 'deny');
+  const receiptRefusal = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: {
+    command: 'singularity-flow approve custom-step --work-id PMC-1 --selection-receipt 8232baec-10cb-4dd1-a8af-066d1fb06841 --for-agent --json' } });
+  assert.equal(receiptRefusal.permissionDecision, 'deny');
+  assert.match(receiptRefusal.permissionDecisionReason, /PHASE_MUTATION_CONTRACT_REQUIRED/);
   assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow phase enter --for-agent --json' } }), {});
   const refusal = await mutationToolGuard(payload);
   assert.match(refusal.permissionDecisionReason, /new explicit turn/);
@@ -347,6 +351,43 @@ test('a failed decision locks only approval operations, never granting authoring
   assert.equal((await mutationToolGuard(shell('npm test'))).permissionDecision, 'deny');
   assert.equal((await mutationToolGuard({ ...payload, toolName: 'task', toolArgs: { prompt: 'implement next phase' } })).permissionDecision, 'deny');
   assert.deepEqual(await mutationToolGuard(shell('singularity-flow nextsteps --json')), {});
+});
+
+test('receipt-backed approval crosses the tool guard for every seeded and future phase without widening authority', async t => {
+  const definition = YAML.parse(readFileSync(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  const phases = [...new Set(Object.keys(definition.workTypes).flatMap(workType => resolveWorkType(definition, workType).phases.map(phase => phase.id)))];
+  phases.push('future-team-phase');
+  const receipt = '8232baec-10cb-4dd1-a8af-066d1fb06841';
+  const f = await fixture(t, { status: 'awaiting_approval', generation: 1 });
+  for (const phase of phases) {
+    f.phase.id = phase;
+    f.workflow.currentPhase = phase;
+    f.workflow.phaseOrder = [phase];
+    f.workflow.phases = { [phase]: f.phase };
+    await writeFile(f.workflowFile, JSON.stringify(f.workflow));
+    const payload = await f.enter(`/sf-approve ${phase} --work-id PMC-1`);
+    const argv = ['singularity-flow', 'approve', phase, '--work-id', 'PMC-1', '--fetch', '--selection-receipt', receipt, '--for-agent', '--json'];
+    for (const platform of ['darwin', 'win32']) {
+      const command = renderPlatformCommand(argv, platform);
+      const call = { ...payload, toolName: platform === 'win32' ? 'powershell' : 'bash', toolArgs: { command, cwd: f.root } };
+      assert.deepEqual(await mutationToolGuard(call), {}, `${phase}/${platform}`);
+      assert.deepEqual(await mutationPostToolGuard(call), {});
+    }
+    const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+    assert.deepEqual(await shell(argv.join(' ')), {}, phase);
+    for (const command of [`singularity-flow approve other-phase --work-id PMC-1 --selection-receipt ${receipt}`,
+      `singularity-flow approve ${phase} --work-id OTHER --selection-receipt ${receipt}`,
+      `singularity-flow reject ${phase} --work-id PMC-1 --selection-receipt ${receipt}`,
+      `singularity-flow prepare ${phase}`]) {
+      assert.equal((await shell(command)).permissionDecision, 'deny', command);
+    }
+    assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: 'src/App.jsx' } })).permissionDecision, 'deny');
+    await endMutationDecisionTurns(f.root);
+    const ended = await shell(argv.join(' '));
+    assert.match(ended.permissionDecisionReason, /PHASE_MUTATION_DECISION_TURN_ENDED/);
+    assert.doesNotMatch(ended.permissionDecisionReason, new RegExp(receipt), 'denials never disclose a receipt');
+  }
+  assert.ok(phases.length > 40);
 });
 
 test('documented Copilot edit aliases, string arguments, and VS Code-compatible payloads use the same path boundary', async t => {

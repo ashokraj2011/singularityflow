@@ -8,7 +8,7 @@ import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
 import { parseArgs } from './util.mjs';
 import { resolveOperation } from './command-registry.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { safeCommandGuidance, validateSafeSflowCommand } from './safe-command-guidance.mjs';
+import { safeCommandGuidance, validateSflowExecutionCommand } from './safe-command-guidance.mjs';
 
 const MAX_AGE = 30 * 60 * 1000;
 const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', 'exec_command', 'write_stdin']);
@@ -180,7 +180,7 @@ function verifiedShellForm(call, value) {
   const normalized = command.trim().replace(/^&\s+(?=['"]?(?:singularity-flow|sflow)\b)/u, '')
     .replace(/^(['"])(singularity-flow|sflow)\1(?=\s|$)/u, '$2');
   const staging = /^(?:singularity-flow|sflow)\s+(?:review-source|'review-source'|"review-source")\s+(?:stage|'stage'|"stage")\s/u.test(normalized);
-  const safe = validateSafeSflowCommand(normalized, { shell: powershell ? 'powershell' : 'posix',
+  const safe = validateSflowExecutionCommand(normalized, { shell: powershell ? 'powershell' : 'posix',
     maximumLength: staging ? 65536 : 2000 });
   return safe?.copyable ? safe : null;
 }

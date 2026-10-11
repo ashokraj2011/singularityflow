@@ -219,17 +219,40 @@ function normalizedSkill(value) {
   return direct === id ? id : null;
 }
 
-/** Validate command syntax and the registered top-level CLI family. */
-export function validateSafeSflowCommand(value, { shell = 'posix', maximumLength = 2000 } = {}) {
+// Receipt capabilities belong in private execution, never in reusable command guidance.
+// This is syntax validation only: the CLI still authenticates the exact receipt, packet,
+// phase, identity, expiry and one-time consumption before recording a decision.
+function executionSecretCheckArgv(tokens) {
+  const receiptOptions = tokens.filter(token => /^--selection-receipt(?:=|$)/u.test(token));
+  if (!receiptOptions.length) return tokens;
+  const argv = tokens.slice(1);
+  const supportsReceipt = ['start', 'approve', 'reject'].includes(argv[0])
+    || argv[0] === 'initiative' && ['start', 'approve'].includes(argv[1])
+    || argv[0] === 'epic' && argv[1] === 'review' && ['approve', 'reject'].includes(argv[2]);
+  if (!supportsReceipt || receiptOptions.length !== 1) return null;
+  const index = tokens.indexOf(receiptOptions[0]);
+  if (tokens.includes('--') && tokens.indexOf('--') < index) return null;
+  const equals = receiptOptions[0].startsWith('--selection-receipt=');
+  const receipt = equals ? receiptOptions[0].slice('--selection-receipt='.length) : tokens[index + 1];
+  if (typeof receipt !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(receipt)) return null;
+  const checked = [...tokens];
+  checked.splice(index, equals ? 1 : 2);
+  return checked;
+}
+
+function validatedSflowCommand(value, { shell = 'posix', maximumLength = 2000 } = {}, execution = false) {
   if (!['posix', 'powershell'].includes(shell)) return null;
   if (!Number.isSafeInteger(maximumLength) || maximumLength < 1 || maximumLength > 65536) return null;
   const original = typeof value === 'string' ? value.trim() : '';
   const displayGrammar = scrubDisplayGrammar(original);
   if (!original || original.length > maximumLength || /[\r\n\u0000-\u001f\u007f]/u.test(original)
-      || !SAFE_EXECUTABLE.test(original) || SECRET_SHAPE.test(original)
+      || !SAFE_EXECUTABLE.test(original)
       || hasForbiddenShellSyntax(displayGrammar.scrubbed, shell)) return null;
   const tokens = tokenizeCommand(original, shell);
   if (!tokens?.length || !['singularity-flow', 'sflow'].includes(tokens[0])) return null;
+  const secretCheck = execution ? executionSecretCheckArgv(tokens) : tokens;
+  if (!secretCheck || SECRET_SHAPE.test(commandFromArgv(secretCheck[0], secretCheck.slice(1)))
+      || !execution && SECRET_SHAPE.test(original)) return null;
   const executable = tokens[0] === 'sflow' ? ['singularity-flow', ...tokens.slice(1)] : tokens;
   const top = executable[1];
   if (!top || (top.startsWith('-') && !['--help', '--version', '-h', '-v'].includes(top))) return null;
@@ -253,6 +276,8 @@ export function validateSafeSflowCommand(value, { shell = 'posix', maximumLength
       } catch { /* Incomplete/malformed JSON remains display-only. */ }
     }
   }
+  if (execution) return Object.freeze({ executable: 'singularity-flow',
+    argv: Object.freeze(executable.slice(1)), copyable });
   return Object.freeze({
     command,
     executable: 'singularity-flow',
@@ -264,6 +289,16 @@ export function validateSafeSflowCommand(value, { shell = 'posix', maximumLength
       win32: renderPlatformCommand(executable, 'win32')
     }) : null
   });
+}
+
+/** Presentation-safe commands: private selection receipts remain forbidden. */
+export function validateSafeSflowCommand(value, options) {
+  return validatedSflowCommand(value, options);
+}
+
+/** Private tool execution syntax, not authority and not a display/replay command. */
+export function validateSflowExecutionCommand(value, options) {
+  return validatedSflowCommand(value, options, true);
 }
 
 /**

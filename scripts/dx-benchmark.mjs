@@ -498,9 +498,11 @@ function verifyConnectedTopology(root) {
     throw new Error(`Connected fixture has ${remoteBranches} remote branches; expected ${declared.remoteBranches}.`);
   }
   const probe = spawnSync(process.execPath, [path.join(projectRoot, 'bin/singularity-flow.mjs'), 'snapshot', '--json'], {
-    cwd: root, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_NO_MODEL: '1' }
+    cwd: root, encoding: 'utf8', maxBuffer: CLI_OUTPUT_LIMIT, env: { ...process.env, SINGULARITY_FLOW_NO_MODEL: '1' }
   });
-  if (probe.status !== 0) throw new Error(`Connected fixture snapshot failed: ${probe.stderr || probe.stdout}`);
+  if (probe.status !== 0) {
+    throw new Error(`Connected fixture snapshot failed: ${probe.error?.message ?? ''} ${probe.stderr || probe.stdout}`);
+  }
   /**
    * Assert the outcome, not the preconditions.
    *
@@ -573,11 +575,15 @@ function verifyTopology(root, declared = fixtureManifest.topology) {
   return actual;
 }
 
+/** `snapshot --json` outgrew spawnSync's 1 MiB default, past which the child is killed (ENOBUFS). */
+const CLI_OUTPUT_LIMIT = 64 * 1024 * 1024;
+
 function invoke(root, args, { network = false, probe = false } = {}) {
   const started = process.hrtime.bigint();
   const result = spawnSync(process.execPath, [path.join(projectRoot, 'bin/singularity-flow.mjs'), ...args], {
     cwd: root,
     encoding: 'utf8',
+    maxBuffer: CLI_OUTPUT_LIMIT,
     env: {
       ...process.env,
       SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1',
@@ -593,7 +599,9 @@ function invoke(root, args, { network = false, probe = false } = {}) {
     }
   });
   const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
-  if (result.status !== 0) throw new Error(`${args.join(' ')} failed: ${result.stderr || result.stdout}`);
+  if (result.status !== 0) {
+    throw new Error(`${args.join(' ')} failed: ${result.error?.message ?? ''} ${result.stderr || result.stdout}`);
+  }
   return { durationMs, stderr: result.stderr ?? '' };
 }
 

@@ -9,7 +9,6 @@ import { readPendingPublication } from '../publication-pending.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
 import { exists, optionBoolean, readJson } from '../util.mjs';
 import { phaseNeedsGeneration } from '../sequence.mjs';
-import { groundingRecordRelative } from '../grounding.mjs';
 import { validateAgentEntryRequest } from '../agent-entry-options.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
@@ -17,9 +16,7 @@ import { effectivePhasePublicationProducer } from '../manual-authorship.mjs';
 import { storyRequiresStepActions } from '../step-actions.mjs';
 import { requiresProspectivePhaseInspection } from '../code-submission-evidence.mjs';
 import { sourceReviewRequired } from '../source-review-policy.mjs';
-import { readSourceReviewStatus } from '../source-review-lifecycle.mjs';
 import { phaseContinuation } from '../phase-continuation.mjs';
-import { collectInputs } from '../inputs.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { authoringSkillCatalog } from '../authoring-skills.mjs';
 import { agentPacketPresentation } from '../agent-packet-presentation.mjs';
@@ -129,6 +126,8 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
 
 /** Whether the phase's next generation has a composed prompt whose snapshot still matches its record. */
 async function composedPromptCurrent(root, definition, workflow, phase) {
+  // Lazy: grounding.mjs reaches the initiative and Jira domains, which `nextsteps` must not load.
+  const { groundingRecordRelative } = await import('../grounding.mjs');
   const record = await readJson(path.join(root, groundingRecordRelative(definition, workflow, phase))).catch(() => null);
   if (typeof record?.promptPath !== 'string' || typeof record.renderedSha256 !== 'string') return false;
   const prompt = await readFile(path.join(root, record.promptPath)).catch(() => null);
@@ -167,9 +166,11 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
   const active = activePhase(workflow);
   const consumedGenerationChanged = active?.generationIntent?.status === 'consumed'
     && Number(active.generationIntent.generation) === Number(active.generation);
+  // Lazy, like grounding and inputs: source review reaches the agent, workspace and Jira domains.
   const sourceReviewEvidence = active?.status === 'in_progress' && active.generation > 0
     && sourceReviewRequired(workflow, active.id)
-    ? await readSourceReviewStatus(root, definition, workflow, active.id).catch(() => null) : null;
+    ? await (await import('../source-review-lifecycle.mjs'))
+      .readSourceReviewStatus(root, definition, workflow, active.id).catch(() => null) : null;
   // Full publication preflight can inspect a large source change set. `nextsteps` only needs it
   // automatically at the lifecycle state that otherwise causes the retry loop: a consumed code
   // generation whose bytes may have changed. Ordinary authoring readiness stays with /sf-phase.
@@ -243,6 +244,7 @@ export async function nextStepsAgentPacket(workId = null) {
   const first = snapshot.actions.find(action => action.timing === 'now');
   let inputs = null;
   if (first?.argv?.[0] === 'inputs' && first.argv[1] === packet.phase) {
+    const { collectInputs } = await import('../inputs.mjs');
     const resolved = await collectInputs(entry.root, entry.workflow, entry.phase, {
       definition: entry.definition,
       itemDirectory: path.join(entry.root, entry.definition.workItemRoot, packet.workId),

@@ -822,19 +822,32 @@ test('the aggregate runner checkpoints exact shards and retries only incomplete 
 });
 
 test('configuration scratch clones avoid hidden blob fetches while workspace clone policy remains explicit', async () => {
-  const [configuration, proposals, organisation, authorityLink, workspace] = await Promise.all([
+  const [configuration, proposals, organisation, authorityLink, workspace, objectReader] = await Promise.all([
     readFile(path.join(root, 'src/configuration-branch.mjs'), 'utf8'),
     readFile(path.join(root, 'src/configuration-proposal.mjs'), 'utf8'),
     readFile(path.join(root, 'src/organisation.mjs'), 'utf8'),
     readFile(path.join(root, 'src/capability-authority-link.mjs'), 'utf8'),
-    readFile(path.join(root, 'src/workspace.mjs'), 'utf8')
+    readFile(path.join(root, 'src/workspace.mjs'), 'utf8'),
+    readFile(path.join(root, 'src/configuration-object-reader.mjs'), 'utf8')
   ]);
   for (const [name, source] of Object.entries({
-    configuration, proposals, organisation, authorityLink
+    configuration, organisation, authorityLink
   })) {
     assert.doesNotMatch(source, /filter=blob:none/,
       `${name} reintroduced a blobless scratch clone that immediately reads configuration blobs`);
   }
+  // Proposal clones are blobless by design (9aa1fe6f): each one hydrates only admitted
+  // configuration blobs through the object reader, which turns lazy fetches off.
+  const blobless = proposals.split(/\n(?=(?:export )?(?:async )?function )/)
+    .filter((declaration) => /filter=blob:none/.test(declaration));
+  for (const declaration of blobless) {
+    assert.match(declaration, /\b(?:materializeConfigurationSnapshot|configurationStateAtRef)\(/,
+      `proposals reads blobs from a blobless scratch clone outside the object reader: ${declaration.split('\n')[0]}`);
+  }
+  assert.match(objectReader, /GIT_NO_LAZY_FETCH: '1'/,
+    'the configuration object reader must refuse hidden lazy blob fetches');
+  assert.match(objectReader, /inventory\(commit, paths[^]*?this\.seal\(\)/,
+    'the configuration object reader must remove promisor registrations before reading');
   assert.match(proposals, /sflow-workflow-proposals-[\s\S]{0,500}--no-checkout/,
     'read-only workflow proposal inventory must not populate a disposable checkout');
   assert.match(organisation, /sflow-capability-list-[\s\S]{0,900}--no-checkout/,

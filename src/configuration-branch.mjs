@@ -11,6 +11,7 @@ import os from 'node:os';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, types } from 'node:util';
 import YAML from 'yaml';
+import { parseYamlText } from './yaml-parse-cache.mjs';
 import {
   chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, utimes, writeFile
 } from 'node:fs/promises';
@@ -159,7 +160,7 @@ export async function legacyStateMirrorMatchesRepository(root, remote, {
   });
   if (!info?.isFile() || info.isSymbolicLink()) return false;
   let portfolio;
-  try { portfolio = YAML.parse(await readFile(file, 'utf8')) ?? {}; }
+  try { portfolio = parseYamlText(await readFile(file, 'utf8')) ?? {}; }
   catch { return false; }
   const matches = Object.values(portfolio?.repositories ?? {})
     .filter((entry) => sameGitRepository(entry?.url, remote));
@@ -470,9 +471,20 @@ export function isConfigurationAsset(relative, policy = DEFAULT_CONFIGURATION_AS
 
 function yamlAtRef(root, ref, relative, { env = process.env } = {}) {
   const shown = run('git', ['show', `${ref}:${relative}`], { cwd: root, env, allowFailure: true });
-  if (shown.status !== 0) return {};
-  return YAML.parse(shown.stdout) ?? {};
+  if (shown.status !== 0) return { found: false, value: {} };
+  return { found: true, value: parseYamlText(shown.stdout) ?? {} };
 }
+
+/**
+ * Asset policies already derived from an exact commit in this process. `[perf]`
+ *
+ * A Story start derived the same commit's policy five times, each a `git show` and a YAML parse of
+ * `workflow.yml` and `portfolio.yml`. A commit's files never change and the policy is frozen, so
+ * one derivation answers them all. Only an exact object name is remembered (never `HEAD` or a
+ * branch), and only when at least one file was read, which proves the commit is present: a commit
+ * missing from a shallow or partial clone reads as "no files" and a later fetch can change that.
+ */
+const ASSET_POLICY_BY_COMMIT = new Map();
 
 async function yamlInDirectory(root, relative) {
   const target = path.join(root, relative);
@@ -481,14 +493,18 @@ async function yamlInDirectory(root, relative) {
   if (!info.isFile() || info.isSymbolicLink()) {
     throw new SingularityFlowError(`Configuration policy source must be a regular file: ${relative}`);
   }
-  return YAML.parse(await readFile(target, 'utf8')) ?? {};
+  return parseYamlText(await readFile(target, 'utf8')) ?? {};
 }
 
 export function configurationAssetPolicyFromRef(root, ref = 'HEAD', { env = process.env } = {}) {
-  return configurationAssetPolicy(
-    yamlAtRef(root, ref, 'singularity/workflow.yml', { env }),
-    yamlAtRef(root, ref, 'singularity/portfolio.yml', { env })
-  );
+  const key = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(ref)
+    ? `${path.resolve(root)}\0${ref}\0${env.GIT_NO_REPLACE_OBJECTS ?? ''}` : null;
+  if (key && ASSET_POLICY_BY_COMMIT.has(key)) return ASSET_POLICY_BY_COMMIT.get(key);
+  const workflow = yamlAtRef(root, ref, 'singularity/workflow.yml', { env });
+  const portfolio = yamlAtRef(root, ref, 'singularity/portfolio.yml', { env });
+  const policy = configurationAssetPolicy(workflow.value, portfolio.value);
+  if (key && (workflow.found || portfolio.found)) ASSET_POLICY_BY_COMMIT.set(key, policy);
+  return policy;
 }
 
 export async function configurationAssetPolicyFromDirectory(root) {

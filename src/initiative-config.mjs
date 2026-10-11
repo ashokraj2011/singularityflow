@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { assertEpicPlanningTopology, usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
-import YAML from 'yaml';
+import { parseYamlText } from './yaml-parse-cache.mjs';
 import { normalizeRepositoryMetadata } from './repository-metadata.mjs';
 import { isInitiativeGenerator } from './initiative-generators.mjs';
 import { secureRepositoryPath, SingularityFlowError, posix, snapshot } from './util.mjs';
@@ -656,7 +656,7 @@ export async function loadPortfolio(root, { required = true } = {}) {
     throw new SingularityFlowError(`No ${PORTFOLIO_PATH} exists. Run singularity-flow init or add the portfolio configuration.`);
   }
   let parsed;
-  try { parsed = YAML.parse(await readFile(file.absolute, 'utf8')); }
+  try { parsed = parseYamlText(await readFile(file.absolute, 'utf8')); }
   catch (error) { throw new SingularityFlowError(`Unable to parse ${PORTFOLIO_PATH}: ${error.message}`); }
   const portfolio = validatePortfolio(parsed);
   for (const [relative, label] of [

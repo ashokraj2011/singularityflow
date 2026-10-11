@@ -206,6 +206,17 @@ export { gitDir };
 const GITHUB_ACCOUNT_TTL_MS = 10 * 60 * 1000;
 
 /**
+ * A failed lookup, remembered by this process only and only briefly.
+ *
+ * A failure is never written to disk (one offline moment must not look like a signed-out account
+ * for ten minutes), but one Story start asked five times and paid for every failure: no `gh`, a
+ * signed-out account or no network answers the same within one command. A minute bounds a long
+ * running host such as the VS Code extension.
+ */
+const GITHUB_FAILURE_TTL_MS = 60 * 1000;
+const githubLookupFailures = new Map();
+
+/**
  * How the GitHub login was arrived at, so a null never has to be guessed at.
  *
  * `unavailable` means the lookup ran and produced nothing: signed out, no `gh`, network refused.
@@ -237,6 +248,11 @@ function cachedGithubAccount(root, { cacheOnly = false, env = process.env } = {}
     if (Date.now() - cached.at < GITHUB_ACCOUNT_TTL_MS) return { status: 0, stdout: cached.stdout, lookup: GITHUB_LOOKUP.RESOLVED };
   } catch { /* No cache, unreadable, or unparseable is simply a miss. */ }
   if (cacheOnly) return { status: 1, stdout: '', lookup: GITHUB_LOOKUP.NOT_CHECKED };
+  // Anything that chooses which `gh` runs or which account it asks for is part of the key.
+  const failureKey = [file, ...['PATH', 'HOME', 'XDG_CONFIG_HOME', 'GH_CONFIG_DIR', 'GH_HOST', 'GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN']
+    .map((name) => `${name}=${env[name] ?? ''}`)].join('\0');
+  const failed = githubLookupFailures.get(failureKey);
+  if (failed && Date.now() - failed.at < GITHUB_FAILURE_TTL_MS) return failed.result;
 
   const result = run('gh', ['api', 'user', '--jq', '{login: .login, name: .name}'], {
     cwd: root, env, allowFailure: true
@@ -256,7 +272,13 @@ function cachedGithubAccount(root, { cacheOnly = false, env = process.env } = {}
   const lookup = result.status === 0
     ? GITHUB_LOOKUP.RESOLVED
     : (result.blocked ? GITHUB_LOOKUP.NOT_CHECKED : GITHUB_LOOKUP.UNAVAILABLE);
-  return { ...result, lookup };
+  const answered = { ...result, lookup };
+  if (result.status === 0) githubLookupFailures.delete(failureKey);
+  else if (!result.blocked) {
+    if (githubLookupFailures.size >= 64) githubLookupFailures.clear();
+    githubLookupFailures.set(failureKey, { at: Date.now(), result: answered });
+  }
+  return answered;
 }
 
 /** The repository's configured presentation name, without account or environment fallbacks. */
@@ -2526,7 +2548,15 @@ function treePaths(root, tree, env = immutableLocalGitEnvironment()) {
  * from growing weaker, subtly different copies of the environment-local and secret policy.  Both
  * declarations are read from immutable Git objects: a mutable worktree edit after `write-tree`
  * cannot loosen the policy applied to the retained Candidate.
+ *
+ * A successful admission is remembered for the process. Every input is immutable (two object IDs,
+ * declarations read from those trees or from the request's verified configuration overlay, which
+ * is part of the key), so admitting the same pair again cannot reach a different verdict. A Story
+ * start admitted its one prospective tree four times, each with eleven Git processes and a secret
+ * scan of every changed file. A refusal is never remembered: it throws, and the next call retries.
  */
+const ADMITTED_PROSPECTIVE_TREES = new Map();
+
 export function admitExactProspectiveTree(root, {
   baselineCommit, candidateTree, label = 'Governed Candidate', allowGitlinks = false
 } = {}) {
@@ -2536,6 +2566,15 @@ export function admitExactProspectiveTree(root, {
       code: 'PROSPECTIVE_TREE_INVALID'
     });
   }
+  const admissionKey = [path.resolve(root), path.resolve(configurationReadRootForPath(root, ENVIRONMENT_DECLARATION_PATH)),
+    baselineCommit, candidateTree, allowGitlinks ? 'gitlinks' : 'no-gitlinks'].join('\0');
+  const admitted = ADMITTED_PROSPECTIVE_TREES.get(admissionKey);
+  if (admitted) return admitted;
+  const remember = (result) => {
+    if (ADMITTED_PROSPECTIVE_TREES.size >= 256) ADMITTED_PROSPECTIVE_TREES.clear();
+    ADMITTED_PROSPECTIVE_TREES.set(admissionKey, result);
+    return result;
+  };
   const env = immutableLocalGitEnvironment();
   const resolvedBaseline = git(['rev-parse', '--verify', `${baselineCommit}^{tree}`], {
     cwd: root, env, allowFailure: true
@@ -2558,7 +2597,7 @@ export function admitExactProspectiveTree(root, {
   const listed = nullList(git([
     'diff', '--name-only', '-z', '--diff-filter=ACMRT', baselineCommit, candidateTree, '--'
   ], { cwd: root, env }).stdout);
-  if (!listed.length) return Object.freeze({ tree: candidateTree, paths: Object.freeze([]), scan: null });
+  if (!listed.length) return remember(Object.freeze({ tree: candidateTree, paths: Object.freeze([]), scan: null }));
 
   const expectedPaths = new Set(listed);
   const byPath = new Map();
@@ -2654,7 +2693,7 @@ export function admitExactProspectiveTree(root, {
       code: 'SECRET_DETECTED'
     });
   }
-  return Object.freeze({ tree: candidateTree, paths: Object.freeze([...listed]), scan });
+  return remember(Object.freeze({ tree: candidateTree, paths: Object.freeze([...listed]), scan }));
 }
 
 /**

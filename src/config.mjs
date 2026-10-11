@@ -4,7 +4,7 @@ import {
 } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import YAML from 'yaml';
+import { parseYamlText } from './yaml-parse-cache.mjs';
 import { assertDocumentStoragePolicy } from './document-storage-policy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
@@ -1394,7 +1394,7 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
   });
   if (workflow.exists) {
     const definition = applyWorkflowCompatibility(
-      YAML.parse(await readFile(workflow.absolute, 'utf8'))
+      parseYamlText(await readFile(workflow.absolute, 'utf8'))
     );
     // An accepted Story owns exact governed-agent bytes in its WFA closure. Parsing today's live
     // files before that closure is even located would let a deleted or malformed replacement deny

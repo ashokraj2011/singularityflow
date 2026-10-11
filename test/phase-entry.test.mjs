@@ -99,6 +99,46 @@ async function fixture(t, { planningInputs = false, customPhase = null, clarific
   return { root, workflow, config, invoke };
 }
 
+test('CLI preparation is an unpublished authoring checkpoint, not a completed template or publication', async t => {
+  const item = await fixture(t, { customPhase: 'team-discovery' });
+  const before = git(item.root, 'rev-parse', 'HEAD');
+  const prepared = item.invoke('prepare', 'team-discovery', '--json');
+  assert.equal(prepared.status, 0, prepared.stderr || prepared.stdout);
+  const result = JSON.parse(prepared.stdout);
+  assert.equal(result.data.preparation.stage, 'prepared');
+  assert.equal(result.data.preparation.producer, 'governed-agent');
+  assert.equal(result.data.preparation.authoringRequired, true);
+  assert.match(result.data.preparation.instruction, /native file-edit tool/);
+  assert.equal(result.effects.publicationCreated, false);
+  assert.equal(result.next[0].command, 'singularity-flow prepare team-discovery');
+  assert.equal(result.next[0].copilotCommand, '/sf-phase');
+  const draftPath = path.join(item.root, result.data.preparation.path);
+  const draft = await readFile(draftPath, 'utf8');
+  assert.match(draft, /TODO|<requirement>/);
+  const checked = item.invoke('phase', 'prepublish', 'team-discovery', '--for-agent', '--json');
+  assert.equal(checked.status, 0, checked.stderr || checked.stdout);
+  const check = JSON.parse(checked.stdout);
+  assert.equal(check.status, 'correction-required');
+  assert.equal(check.commands.publish, null);
+  const state = JSON.parse(await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8'));
+  assert.equal(state.phases['team-discovery'].generation, 0);
+  assert.equal(git(item.root, 'rev-parse', 'HEAD'), before, 'no commit or publication is implied');
+  assert.equal(await readFile(draftPath, 'utf8'), draft, 'readiness inspection preserves draft bytes');
+});
+
+test('no-model preparation retains human ownership instead of instructing native agent edits', async t => {
+  const item = await fixture(t, { customPhase: 'team-manual' });
+  const prepared = item.invoke('prepare', 'team-manual', '--no-model', '--json');
+  assert.equal(prepared.status, 0, prepared.stderr || prepared.stdout);
+  const result = JSON.parse(prepared.stdout);
+  assert.equal(result.data.preparation.stage, 'prepared');
+  assert.equal(result.data.preparation.producer, 'human');
+  assert.equal(result.data.preparation.authoringRequired, true);
+  assert.match(result.data.preparation.instruction, /configured human or external-tool producer owns completion/);
+  assert.doesNotMatch(result.data.preparation.instruction, /native file-edit tool/);
+  assert.equal(result.effects.publicationCreated, false);
+});
+
 test('preparing a new plan scaffolds verified clauses while repeat preparation preserves the authored draft and prior approval', async t => {
   const item = await fixture(t, { planningInputs: true });
   const producer = item.workflow.phases.specification;

@@ -11,13 +11,13 @@ argument-hint: "<OUTPUT-ID|phase> [--initiative INIT-ID]"
 Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
 
 <!-- sflow-output-contract: governed-review -->
-**Output contract:** Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.
+**Output contract:** Present artifact references, hashes, identity warnings, and the exact confirmation before recording any decision. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
 Approval authority comes from configured local Git name/email groups, not the selected agent. Report identity assurance as `configured-local`, never cryptographic authentication.
 
-1. Use `/sf-initiative-documents` and `/sf-initiative-checklist` to display full outputs, exact hashes, evidence assurance/freshness, prior approvals, child milestones, and self-approval risk.
+1. Use `/sf-initiative-documents` and `/sf-initiative-checklist` for exact output links/hashes, evidence assurance/freshness, prior approvals, child milestones and self-approval risk. Require the human's complete review of these bound outputs outside chat; opening a preview or a summary is not review. Changed bindings need fresh review before confirmation.
 2. Run `singularity-flow initiative choices begin approve <INIT-ID> <OUTPUT-ID|phase> --json`.
 3. Present the governed-agent choice with Copilot's `ask_user`; anyone may select any configured agent, but it does not grant approval authority.
 4. Show the exact `phase:subject` confirmation option and require the reviewer to choose it explicitly. Never infer, preselect, or synthesize approval intent.

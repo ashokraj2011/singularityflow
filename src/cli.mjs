@@ -5245,7 +5245,7 @@ function convergencePreparationState(projection) {
 }
 
 /** Exact post-preparation actions; deterministic convergence cannot be published before review. */
-function preparedPhaseNextActions(workflow, phase, prepared) {
+export function preparedPhaseNextActions(workflow, phase, prepared) {
   const inputs = narrationAction({
     id: 'prepare.inputs',
     label: 'See the approved upstream decisions this phase was given',
@@ -5256,9 +5256,15 @@ function preparedPhaseNextActions(workflow, phase, prepared) {
   if (!convergence) return [
     narrationAction({
       id: 'prepare.author',
-      label: 'Fill the artifact in, then publish this generation of it',
-      command: phasePublicationCommand(phase),
-      skill: generationSkillForPhase(phase, workflow)
+      label: prepared.publicationProducer === 'deterministic'
+        ? 'Check the prepared deterministic artifact before publication'
+        : 'Author or finish the prepared draft; preparation is not completed authoring',
+      command: prepared.publicationProducer === 'deterministic'
+        ? `singularity-flow phase prepublish ${phase.id} --for-agent --json`
+        : `singularity-flow prepare ${phase.id}`,
+      skill: prepared.publicationProducer === 'deterministic'
+        ? '/sf-publish'
+        : generationSkillForPhase(phase, workflow)
     }),
     inputs
   ];
@@ -5335,7 +5341,20 @@ async function prepareCommand(positionals, options) {
     // committed or pushed: preparing is not a governed transition.
     effects: effects({ filesChanged: true, stateChanged: true }),
     next: preparedPhaseNextActions(workflow, phaseContract, prepared),
-    data: prepared.convergence ? { convergence: convergencePreparationState(prepared.convergence) } : {}
+    data: {
+      preparation: {
+        path: artifact,
+        stage: 'prepared',
+        producer: prepared.publicationProducer,
+        authoringRequired: prepared.publicationProducer !== 'deterministic',
+        instruction: prepared.publicationProducer === 'deterministic'
+          ? 'The kernel owns this artifact. Check readiness; do not hand-edit deterministic output.'
+          : prepared.publicationProducer === 'governed-agent'
+            ? 'Preparation preserves the draft and captures inputs; it does not author it. Use the composed prompt and native file-edit tool to complete the existing artifact, then check readiness. Do not stop merely because the prepared template has TODOs.'
+            : 'Preparation is not authoring. The configured human or external-tool producer owns completion; preserve its output and check readiness after that owner completes the draft.'
+      },
+      ...(prepared.convergence ? { convergence: convergencePreparationState(prepared.convergence) } : {})
+    }
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 

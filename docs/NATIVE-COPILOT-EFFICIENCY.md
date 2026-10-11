@@ -26,9 +26,18 @@ reuse affects SFlow-owned provider calls, not ordinary `/sf-*` turns.
 - Same-invocation reuse is not a durable authorization cache. Selection changes,
   mutations, new publication bindings and operation-specific checks still require
   fresh evaluation. Approval consent is never reused.
-- Independent review receives exact pinned sources and artifacts, not summaries.
-  Document display reuse requires the identical non-null display binding and complete
-  visible same-chat content. A new chat, changed binding or truncation needs full display.
+- Preparation scaffolds or preserves a draft; the native agent must author it before
+  checking publication readiness. Template TODOs are work to complete, not a reason
+  to stop authoring. Deterministic artifacts remain kernel-owned.
+- Independent review reads exact pinned sources and artifacts privately, not summaries.
+  Chat shows supported summaries and verified Markdown-preview links, never artifact,
+  code or diff bodies. Code reports use observed paths and added/deleted/created line
+  counts from existing evidence; unknown or binary counts remain unavailable.
+- Human approval requires complete review of the exact linked documents outside chat.
+  Same-chat acknowledgement is reusable only with matching non-null `displayBinding`
+  and unchanged `reviewBinding`. New chat, changed/null bindings or incomplete material
+  require fresh human review. Summaries, opened previews and approval consent are not
+  interchangeable; operation-specific consent remains explicit.
 
 ## Measuring a complete native Story
 

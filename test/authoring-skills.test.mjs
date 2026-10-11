@@ -9,7 +9,7 @@ import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { authoringSkillCatalog, parseAuthoringSkills } from '../src/authoring-skills.mjs';
 import { authoringRoute, deterministicOnlyGeneration, generationSkillForPhase, legacyAuthoringSkill, stepOutputKind } from '../src/code-delivery-policy.mjs';
-import { phaseAuthoringSummary } from '../src/cli.mjs';
+import { phaseAuthoringSummary, preparedPhaseNextActions } from '../src/cli.mjs';
 import { attachContinuation } from '../src/narration/continuation.mjs';
 import { plannedAction } from '../src/narration/command-result.mjs';
 import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
@@ -181,10 +181,17 @@ test('the authoring contract audit checks the route, the built-in steps and the 
   const body = await readFile(path.join(packageRoot, 'plugin', 'skills', 'sflow-design', 'SKILL.md'), 'utf8');
   const errors = (text, entry = design) => authoringSkillContractErrors(entry, text);
   assert.deepEqual(errors(body), []);
+  assert.ok(errors(body.replace('Preparation is not authoring', 'Prepare the document')).some(error => error.includes('preparation and writing')));
+  assert.ok(errors(body.replace('native file-edit tool', 'inspect the template')).some(error => error.includes('preparation and writing')));
+  assert.ok(errors(`${body}\nStop on placeholders/templates/padding.`).some(error => error.includes('not a stopping condition')));
   for (const entry of authoringSkillCatalog()) {
     const text = await readFile(path.join(packageRoot, 'plugin', 'skills', entry.sourceId, 'SKILL.md'), 'utf8');
     assert.ok(authoringSkillContractErrors(entry, text.replace('missing answers permit questions, not drafting',
       'missing answers forbid questions')).some(error => error.includes('checkpoint instruction')), entry.id);
+    assert.ok(authoringSkillContractErrors(entry, text.replace(/preparation is not authoring/i, 'Preparation completes authoring'))
+      .some(error => error.includes('preparation and writing')), entry.id);
+    assert.ok(authoringSkillContractErrors(entry, text.replace('native file-edit tool', 'inspect the existing template'))
+      .some(error => error.includes('preparation and writing')), entry.id);
   }
   // Moving the selection check out of step 1 leaves the skill working before it re-reads its route.
   const [firstStep] = body.match(/^1\. .*$/m);
@@ -204,6 +211,50 @@ test('the authoring contract audit checks the route, the built-in steps and the 
   // A future selectable skill without built-in steps is checked too.
   const future = { id: 'sf-review-plan', sourceId: 'sflow-review-plan', produces: ['document'], legacyPhases: [] };
   assert.ok(errors('1. Draft the document.\n2. Publish it.', future).length >= 3);
+});
+
+test('prepared seeded phases route to authoring, not premature publication; deterministic output keeps its owner', () => {
+  const definition = validateDefinition(starter());
+  let count = 0;
+  for (const workType of Object.keys(definition.workTypes)) {
+    const resolved = resolveWorkType(definition, workType);
+    const workflow = { workItem: { id: 'HANDOFF-1' }, phases: Object.fromEntries(resolved.phases.map(phase => [phase.id, phase])) };
+    for (const phase of resolved.phases) {
+      const producer = deterministicOnlyGeneration(phase) ? 'deterministic' : 'governed-agent';
+      // The convergence projection has its own adjudication handoff, checked separately below.
+      const [next] = preparedPhaseNextActions(workflow, phase, { publicationProducer: producer });
+      if (producer === 'deterministic') {
+        assert.equal(next.command, `singularity-flow phase prepublish ${phase.id} --for-agent --json`);
+        assert.equal(next.copilotCommand, `/sf-publish ${phase.id}`);
+      } else {
+        assert.equal(next.command, `singularity-flow prepare ${phase.id}`, `${workType}/${phase.id}`);
+        assert.equal(next.copilotCommand, safeCommandGuidance({ command: next.command, skill: generationSkillForPhase(phase, workflow) }).copilotCommand);
+        assert.doesNotMatch(next.copilotCommand, /^\/sf-publish\b/);
+        assert.match(next.label, /preparation is not completed authoring/);
+      }
+      assert.equal(next.rank, 'NOW');
+      count++;
+    }
+  }
+  assert.ok(count > 50, 'every resolved seeded workflow is included');
+});
+
+test('future custom prepared phases preserve their selected authoring skill and convergence still requires decisions', () => {
+  const workflow = { workItem: { id: 'FUTURE-1' } };
+  for (const entry of authoringSkillCatalog()) {
+    const phase = { id: `vendor-${entry.id.replace(/^sf-/, '')}`, authoringSkill: entry.id,
+      generation: { producer: 'agent', task: entry.produces.includes('code') ? 'code' : entry.produces[0] } };
+    const [next] = preparedPhaseNextActions(workflow, phase, { publicationProducer: 'governed-agent' });
+    assert.equal(next.copilotCommand, `/${entry.id}`);
+    assert.equal(next.command, `singularity-flow prepare ${phase.id}`);
+  }
+  const phase = { id: 'vendor-convergence', generation: { producer: 'deterministic', task: 'convergence' } };
+  const [decision] = preparedPhaseNextActions(workflow, phase, {
+    publicationProducer: 'deterministic', convergence: { facts: [{ id: 'CF-1' }], findings: [], allowedNext: [] }
+  });
+  assert.equal(decision.id, 'convergence.adjudicate');
+  assert.match(decision.command, /story adjudicate CF-1/);
+  assert.doesNotMatch(decision.command, /publish/);
 });
 
 test('guidance renders verified code routes regardless of the phase name and drops unlisted skills', () => {

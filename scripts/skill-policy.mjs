@@ -6,14 +6,15 @@ import { AUTHORING_SKILL_DECLARATION, parseAuthoringSkills } from '../src/author
 import { copilotPauseGuardForSkill, COPILOT_PAUSE_MARKER, PHASE_ENTRY_SKILLS } from '../src/copilot-mode.mjs';
 
 export const COMMAND_PRESENTATION_CONTRACT = 'For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.';
+export const ARTIFACT_PRESENTATION_CONTRACT = 'Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval.';
 
 const CONTRACT_TEXT = Object.freeze({
   'guided-actions': 'Use read-only CLI evidence, preserve warnings and ordered actions, and change nothing unless explicitly requested.',
   'concise-relay': 'Relay requested CLI fields or output faithfully; preserve warnings/errors and only the explanations required below.',
   'explicit-selection': 'Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions.',
   'conversational-guidance': 'Resolve ordinary language through durable Home and Next projections; reads may run immediately, while every mutation requires an explicit governed choice.',
-  'governed-review': 'Show governed artifacts, hashes, identity warnings, and the exact confirmation before recording any decision.',
-  'clarification-and-artifact': 'Use governed inputs and pinned clarification; publish/show configured artifacts.',
+  'governed-review': 'Present artifact references, hashes, identity warnings, and the exact confirmation before recording any decision.',
+  'clarification-and-artifact': 'Author configured artifacts from governed inputs and pinned clarification; publish only after readiness.',
   'deterministic-mutation': 'Let the CLI validate and mutate state; preserve its exact result, warnings, publication status, artifacts, and next actions.',
   'scoped-repair': 'Repair only the named local scope; report changes and remaining findings. Never publish, submit, or approve.',
   'advisory-analysis': 'Run only the confirmed advisory analysis; report its evidence and limitations. Do not promote or publish governed artifacts.',
@@ -22,10 +23,10 @@ const CONTRACT_TEXT = Object.freeze({
 
 // Preserve narrower task contracts and compact equivalents when the class default is too broad.
 const CONTRACT_TEXT_BY_SKILL = Object.freeze({
-  'sflow-approve': 'Reuse exact same-chat document displays; refresh packet review and explicit consent.',
+  'sflow-approve': 'Require human review of exact bound documents outside chat; refresh packet and explicit consent.',
   'sflow-start': 'Explicit choices; no preselection; preserve errors/artifacts/actions.',
   'sflow-recover': 'CLI validates/mutates; preserve exact results, warnings, publication status, artifacts/actions.',
-  'sflow-submit': 'Show artifacts, hashes, warnings, and confirmation before a decision.',
+  'sflow-submit': 'Show artifact references, hashes, warnings, and confirmation before a decision.',
   'sflow-refresh-configuration': "Preserve the CLI's exact plan, conflicts, branch effects, failures, and retry instructions.",
   'sflow-review-source': 'Show the exact reviewed hashes, cited gaps, exclusions, questions, and test exceptions before any human approval.',
   'sflow-revision-attachments': "Preserve the CLI's exact result, warnings, effects, and next actions.",
@@ -209,11 +210,11 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /explicit human phase ID confirms only the unchanged packet already reviewed in this conversation/i,
       /approval CLI is the sole permitted lifecycle mutation/i,
       /positional argument selects \*\*PHASE-ID\*\*, never Work ID/i,
-      /Render once per exact display binding/i,
+      /Review outside chat against the exact binding/i,
       /exactly matching non-null `displayBinding`/,
-      /New chat, changed\/null binding, omissions or truncation require full display/i,
+      /New chat, changed\/null binding, omissions or truncation require fresh human review/i,
       /A phase supplied before a new or changed packet review is not its confirmation/i,
-      /body reuse never reuses approval consent/i,
+      /document reuse never reuses approval consent/i,
       /do not ask again/i,
       /Never edit repository files, run tests\/builds\/raw Git, delegate, submit, or begin\/author another phase/i,
       /failed approval ends this turn/i,
@@ -343,7 +344,7 @@ function withOutputContract(text, contract, kernelModelPolicy, file, executionBo
   // all maintained boundaries first so repeated generation never appends a second lookup.
   const sourceBody = skill.body.replace(/<!-- sflow-execution-boundary -->\r?\n\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?/gu, '');
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
-  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]} ${COMMAND_PRESENTATION_CONTRACT}`;
+  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
   const boundaryText = executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)));
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
@@ -385,6 +386,12 @@ export function authoringSkillContractErrors(entry, body) {
   for (const required of ['`clarification.checkpoint`', 'missing answers permit questions, not drafting',
     'Never ask users to supply questions or slice control instructions']) {
     if (!body.includes(required)) errors.push(`selectable authoring skills must preserve the shared checkpoint instruction '${required}'`);
+  }
+  for (const required of ['Preparation is not authoring', 'native file-edit tool']) {
+    if (!body.toLowerCase().includes(required.toLowerCase())) errors.push(`authoring must explicitly distinguish preparation and writing: '${required}'`);
+  }
+  if (/Stop on placeholders\/templates\/padding/i.test(body)) {
+    errors.push('prepared template placeholders are authoring work, not a stopping condition');
   }
   if (entry.id === 'sf-code') return errors;
   const steps = [...body.matchAll(/^(\d+)\. (.*)$/gmu)];
@@ -428,6 +435,22 @@ export async function loadSkillPolicy(repositoryRoot) {
   const policy = YAML.parse(await readFile(file, 'utf8'));
   if (policy?.version !== 1) throw new Error('plugin/skills/registry.yml version must be 1');
   return { file, policy };
+}
+
+/** Presentation must not expand a review summary into another full artifact/code dump. */
+export function artifactPresentationContractErrors(body) {
+  const errors = [];
+  if (!body.includes(ARTIFACT_PRESENTATION_CONTRACT)) errors.push('missing concise artifact presentation contract');
+  const stale = [
+    /(?:render|reproduce|display) (?:its returned text|every (?:generated |published )?text document|every document\/brief)[^.\n]*\bin full\b/i,
+    /(?:Render|render) every (?:text\/brief|text document\/brief|document\/brief)[^.\n]*BEGIN <path>/,
+    /(?:require|requires) full display/i,
+    /Reproduce the complete Markdown summary/i,
+    /show all [^.\n]*documents[^.\n]*in full/i,
+    /Reproduce the complete command output in the visible assistant response/i
+  ];
+  if (stale.some(pattern => pattern.test(body))) errors.push('full artifact display instruction conflicts with concise Copilot presentation');
+  return errors;
 }
 
 export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
@@ -499,9 +522,10 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     // The shared command-presentation requirement is fixed engine-owned overhead, not an
     // allowance to grow per-skill prose. Report both budgets and keep the existing domain cap.
     const commandPresentationTokens = estimatedTokens(` ${COMMAND_PRESENTATION_CONTRACT}`);
+    const artifactPresentationTokens = estimatedTokens(` ${ARTIFACT_PRESENTATION_CONTRACT}`);
     const pauseGuard = copilotPauseGuardForSkill(name, executionBoundaryKind);
     const pauseGuardTokens = pauseGuardRequired ? estimatedTokens(`${COPILOT_PAUSE_MARKER}\n${pauseGuard}\n\n`) : 0;
-    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + pauseGuardTokens;
+    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + pauseGuardTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
     const boundaryText = executionBoundary(executionBoundaryKind, name);
@@ -527,6 +551,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     }
     if (!skill.body.includes(marker)) errors.push(`${name}: missing '${classPolicy.outputContract}' output contract`);
     if (!skill.body.includes(COMMAND_PRESENTATION_CONTRACT)) errors.push(`${name}: missing Shell/Copilot presentation contract`);
+    for (const message of artifactPresentationContractErrors(skill.body)) errors.push(`${name}: ${message}`);
     if (!skill.body.includes(boundaryMarker) || !skill.body.includes(boundaryText)) errors.push(`${name}: missing generated execution boundary`);
     if (skill.body.split(boundaryMarker).length !== 2) errors.push(`${name}: exactly one generated execution boundary is required`);
     if (skill.body.includes('singularity/work-items/<WORK-ID>')) {
@@ -562,6 +587,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       descriptionTokens,
       bodyTokens,
       commandPresentationTokens,
+      artifactPresentationTokens,
       pauseGuardTokens,
       warningTokens: classPolicy.warningTokens,
       maximumTokens: maximum,

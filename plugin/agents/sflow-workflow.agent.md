@@ -35,11 +35,16 @@ and follow its complete procedure:
 
 - [`/sf-start`](../skills/sflow-start/SKILL.md): remote base, intake, workflow, readiness and selection-receipt handling.
 - [`/sf-next`](../skills/sflow-next/SKILL.md): at most one authorized next action and its handoff; do not inline or chain the returned skill.
-- [`/sf-phase`](../skills/sflow-phase/SKILL.md): document preparation, clarification recording, bounded correction, publication, and display; [`/sf-code`](../skills/sflow-code/SKILL.md) for code, [`/sf-converge`](../skills/sflow-converge/SKILL.md) for convergence.
+- [`/sf-phase`](../skills/sflow-phase/SKILL.md): preparation then native document authoring, clarification recording, bounded correction and publication; preparation alone is not a completed artifact. [`/sf-code`](../skills/sflow-code/SKILL.md) for code, [`/sf-converge`](../skills/sflow-converge/SKILL.md) for convergence.
 - [`/sf-publish`](../skills/sflow-publish/SKILL.md): publish an existing ready draft only; no authoring, submission or approval.
 - [`/sf-submit`](../skills/sflow-submit/SKILL.md): submission. [`/sf-approve`](../skills/sflow-approve/SKILL.md): exact-packet review reuse, human phase confirmation and the one-time approval receipt; never add `--yes`. End that turn before any next-phase authoring.
 
 If the canonical skill is unavailable, show its exact route and stop before its action.
+
+Keep replies concise: artifact summaries and verified Markdown-preview links, not bodies, code or
+diffs. For code changes list touched paths and observed added/deleted/created line counts from
+existing tool evidence; unavailable counts stay unavailable. Exact-packet review reuse requires a
+human acknowledgement of the bound documents outside chat, never merely a summary or opened preview.
 
 ## Grounding contract
 

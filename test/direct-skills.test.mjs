@@ -65,9 +65,10 @@ test('direct skills install as personal bare-command aliases and update only man
   const directSubmit = await readFile(path.join(targetRoot, 'sf-submit', 'SKILL.md'), 'utf8');
   const sourceSubmit = await readFile(path.join(sourceRoot, 'sflow-submit', 'SKILL.md'), 'utf8');
   assert.match(directSubmit, /^name: sf-submit$/m);
-  assert.match(directSubmit, /identical non-null `displayBinding`/);
-  assert.match(directSubmit, /Otherwise render every document\/brief/);
-  assert.match(directSubmit, /always show the fresh `reviewBinding`/);
+  assert.match(directSubmit, /Preserve `displayBinding` and fresh `reviewBinding`/);
+  assert.match(directSubmit, /verified Markdown-preview link/);
+  assert.match(directSubmit, /never reproduce document bodies, code or diffs/);
+  assert.match(directSubmit, /Never infer review from a summary, opening a preview or successful submission/);
   assert.match(directSubmit, /never approve/);
   assert.match(directSubmit, /in order: Copilot, Shell, VS Code \(model-free\) using `modelFreeCommand`/);
   assert.equal(directSubmit, renderDirectSkill(sourceSubmit, 'sflow-submit'));

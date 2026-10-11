@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "999acb3e46ec6332acd3a2788715a46704751af1",
+  "sourceCommit": "7d1d258ee4e6dac91cffd1a206bcc6ec92e4ead5",
   "topicCount": 81,
-  "contentSha256": "906b15c37b521189bdf43595925a87d2078daea4bc47d56a7646ce150ea967fb",
+  "contentSha256": "6fa68dae2826a5e772756df6ba9881e7a828e22d7543c0ff6fe8d7123be3946b",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -40,8 +40,8 @@
     {
       "id": "approvals",
       "title": "Approvals",
-      "version": 8,
-      "sha256": "a61568cf01b3b56106c32719dbf35a48431f99928da8f778c248d0b27e819375",
+      "version": 9,
+      "sha256": "d390d739db39122b06952f1c28b335c04d391dc7de11955c6aea8dc398c38f03",
       "routingSha256": "fe45322c36bfbedfc9d0472cba8b56288e5bf73a9f864fa321c9dbace47150f5",
       "file": "approvals.md"
     },

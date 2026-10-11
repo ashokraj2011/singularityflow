@@ -11,7 +11,7 @@ argument-hint: "[--skip-checks only when explicitly authorized]"
 Reuse a verified pause-aware entry supplied in this invocation before any mutation or selection change; otherwise first run `singularity-flow session current --for-agent --json` once; pause precedes Git. If `paused`: native Copilot, only `/sf-pause off`, never resume implicitly. Reuse binding/`personalization.replyName`; fresh operation checks/consent remain required.
 
 <!-- sflow-output-contract: governed-review -->
-**Output contract:** Show artifacts, hashes, warnings, and confirmation before a decision. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.
+**Output contract:** Show artifact references, hashes, warnings, and confirmation before a decision. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.
 <!-- sflow-execution-boundary -->
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup.
 
@@ -24,8 +24,8 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 5. Convergence: never generic `singularity-flow submit`. Run returned `singularity-flow story advance` without `--confirm`; show review/digest, stop on unresolved dispositions. Human confirms exact `--confirm sha256:<DIGEST>` once. Changed digest requires fresh review.
 6. Run returned Work-ID-pinned submit command. `--skip-checks` requires authorization.
 7. On failure, fingerprint refusal plus artifact/check hashes and diagnosed runtime evidence. Nonzero exit fails despite passing JUnit. Proven environment repair permits retry without republishing unchanged source; changed source/artifacts need reviewed rollover. Stop on an unchanged condition or after three distinct repairs. Never loop quality commands or waive tests/integrity/policy. `/sf-recover` never substitutes for terminal decisions.
-8. Run `singularity-flow phase show <phase> --for-agent --json`. Reuse complete visible same-chat bodies only for the identical non-null `displayBinding`; always show the fresh `reviewBinding`, checks and warnings. Otherwise render every document/brief with identity, hash and `--- BEGIN <path> ---` / `--- END <path> ---`. Tool output or summaries are not review.
-9. New/changed/null bindings, omissions or truncation require full display; incomplete review cannot offer approval.
+8. Run `singularity-flow phase show <phase> --for-agent --json`. Summarize submitted status/checks/warnings and list each artifact/brief's identity, generation/hash and verified Markdown-preview link. Preserve `displayBinding` and fresh `reviewBinding`; never reproduce document bodies, code or diffs. Tool output or summaries are not review.
+9. Offer the approval route, not an approval decision. The human must review the complete linked documents; changed/null bindings or incomplete material need fresh review before approval. Never infer review from a summary, opening a preview or successful submission.
 10. Report commit/push/hashes/checks/cost; offer `/sf-approve <PHASE-ID> --work-id <WORK-ID>` with real IDs; never approve.
 
 TRP: follow `singularity-flow explain test-recovery`.

@@ -11,7 +11,7 @@ disable-model-invocation: true
 Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
 
 <!-- sflow-output-contract: clarification-and-artifact -->
-**Output contract:** Use governed inputs and pinned clarification; publish/show configured artifacts. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.
+**Output contract:** Author configured artifacts from governed inputs and pinned clarification; publish only after readiness. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
@@ -21,5 +21,5 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 4. Run `singularity-flow epic requirements prepare`. Read the complete governed context that it prints: phase contract, governed agent, Jira snapshot, pinned sources, question ledger, and workspace repository registry. Repository grounding is added later, after each Story has its canonical branch.
 5. Use `ask_user` to ask one concise batch of material questions and wait. Even when the pinned evidence looks complete, ask the contributor to confirm your concise interpretation of outcome, boundaries, and acceptance criteria. If `ask_user` is unavailable, display the questions and stop before authoring or publication. Record every accepted answer with `singularity-flow epic sources answer`, rebuild context, and continue. Unanswered questions stay visible; never fabricate scope.
 6. Author all three outputs: `requirements.md`, `traceability.yml`, and `impact-analysis.yml`. Use stable `REQ-nnn` and `AC-nnn` identifiers and cite exact `SRC-nnn` evidence.
-7. Run `singularity-flow epic requirements publish`, show all three documents and hashes in full, and stop for review.
+7. Run `singularity-flow epic requirements publish`, summarize all three outputs with verified preview/file links and hashes, and stop for human review of the complete bound documents outside chat. Do not reproduce bodies or infer review from links.
 8. After explicit approval, run `singularity-flow epic requirements approve`. Never approve automatically.

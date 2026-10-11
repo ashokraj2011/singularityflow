@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { auditSkillPolicy, bareOperationalCommands, loadSkillPolicy, skillDelegationErrors } from '../scripts/skill-policy.mjs';
+import { ARTIFACT_PRESENTATION_CONTRACT, artifactPresentationContractErrors, auditSkillPolicy, bareOperationalCommands, loadSkillPolicy, skillDelegationErrors } from '../scripts/skill-policy.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -47,11 +47,11 @@ test('every public skill has a bounded class and output contract', async () => {
   assert.deepEqual(result.errors, []);
   assert.equal(result.rows.length, Object.keys(policy.skills ?? {}).length);
   assert.ok(result.rows.every((row) => row.class
-    && row.bodyTokens - row.commandPresentationTokens - row.pauseGuardTokens <= (policy.skills[row.name]?.maximumTokenOverride ?? 800)));
+    && row.bodyTokens - row.commandPresentationTokens - row.artifactPresentationTokens - row.pauseGuardTokens <= (policy.skills[row.name]?.maximumTokenOverride ?? 800)));
   // Code generation, the specialised skills a step may choose (they follow that step's contract),
   // and the two skills that relay a step routed elsewhere.
   const overridden = ['sflow-code', 'sflow-design', 'sflow-phase', 'sflow-release', 'sflow-requirements'];
-  assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.commandPresentationTokens - row.pauseGuardTokens > 800).map((row) => row.name), overridden);
+  assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.commandPresentationTokens - row.artifactPresentationTokens - row.pauseGuardTokens > 800).map((row) => row.name), overridden);
   for (const name of overridden) assert.ok(policy.skills[name].exception, `${name} explains its token override`);
   assert.ok(result.rows.every((row) => ['never', 'conditional'].includes(row.kernelModelPolicy)));
   // `wm ensure` reads registered-v4 views without a model; skills that only offer it stay model-free.
@@ -142,8 +142,10 @@ test('generative requirements retains interactive clarification and governed pub
   assert.match(content, /sflow-output-contract: clarification-and-artifact/);
   assert.match(content, /Human clarification checkpoint|ask_user/);
   assert.match(content, /Use returned `commands\.publish` when `ready`; absent: relay `commands\.next`, stop/);
-  assert.match(content, /matching non-null `displayBinding`; else display every published text document in full/);
-  assert.match(content, /reuse never carries approval consent/);
+  assert.match(content, /Preparation is not authoring/);
+  assert.match(content, /native file-edit tool/);
+  assert.match(content, /verified Markdown-preview links/);
+  assert.match(content, /current `reviewBinding`[\s\S]*document reuse never (?:reuses|carries) approval consent/);
 });
 
 test('phase handoffs show Copilot, Shell and exact available model-free alternatives', async () => {
@@ -175,25 +177,42 @@ test('phase handoffs show Copilot, Shell and exact available model-free alternat
   assert.doesNotMatch(verify, /submit verification/);
 });
 
-test('approval remains explicit-only with one bound artifact review per conversation', async () => {
+test('approval remains explicit-only with complete bound human review outside chat', async () => {
   const content = await readFile(path.join(root, 'plugin', 'skills', 'sflow-approve', 'SKILL.md'), 'utf8');
   assert.match(content, /disable-model-invocation:\s*true/);
   assert.match(content, /sflow-output-contract: governed-review/);
-  assert.match(content, /Render every text\/brief with identity, hash and `--- BEGIN <path> ---` \/ `--- END <path> ---`/);
+  assert.match(content, /Require human review of complete bound documents; never infer it from opened previews/);
   assert.match(content, /exact phase name|exact phase ID/i);
   assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('phase show <phase> --for-agent --json'),
     'approval must resolve the requested Story and phase before reading artifacts');
-  assert.ok(content.indexOf('phase show <phase> --for-agent --json') < content.indexOf('Render once per exact display binding'),
-    'current packet must be revalidated before prior display is reused');
+  assert.ok(content.indexOf('phase show <phase> --for-agent --json') < content.indexOf('Review outside chat against the exact binding'),
+    'current packet must be revalidated before prior human acknowledgement is reused');
   assert.match(content, /Match receipt, `reviewBinding`, artifacts and briefs to `approvalContext`; mismatch or missing binding stops/);
   assert.match(content, /Do not repeat document lookup/);
-  assert.match(content, /omissions or truncation require full display/);
+  assert.match(content, /omissions or truncation require fresh human review/);
   assert.match(content, /do not ask again/);
   assert.match(content, /A phase supplied before a new or changed packet review is not its confirmation, even if document bodies match/);
   assert.match(content, /sflow-turn-boundary: approval-only/);
   assert.match(content, /approval CLI is the sole permitted lifecycle mutation/i);
   assert.match(content, /Never edit repository files, run tests\/builds\/raw Git, delegate, submit, or begin\/author another phase/i);
   assert.match(content, /end this turn before next-phase authoring/i);
+});
+
+test('artifact presentation rejects conflicting dump instructions without equating summaries to review', () => {
+  assert.deepEqual(artifactPresentationContractErrors(ARTIFACT_PRESENTATION_CONTRACT), []);
+  assert.match(ARTIFACT_PRESENTATION_CONTRACT, /observed added\/deleted\/created line counts; unavailable stays unavailable/);
+  assert.match(ARTIFACT_PRESENTATION_CONTRACT, /Use existing evidence, not extra calls solely for display/);
+  assert.match(ARTIFACT_PRESENTATION_CONTRACT, /Summaries, links and opened previews are not human review or approval/);
+  assert.match(artifactPresentationContractErrors('Summarize the artifact.').join(), /missing concise/);
+  for (const stale of [
+    'Display every published text document in full.',
+    'Reproduce every generated text document in full.',
+    'Render every text/brief with --- BEGIN <path> --- delimiters.',
+    'New chats require full display.',
+    'Reproduce the complete Markdown summary.',
+    'Show all three documents and hashes in full.',
+    'Reproduce the complete command output in the visible assistant response.'
+  ]) assert.match(artifactPresentationContractErrors(`${ARTIFACT_PRESENTATION_CONTRACT}\n${stale}`).join(), /conflicts/, stale);
 });
 
 test('plugin startup does not inject a model prompt', async () => {
@@ -206,6 +225,7 @@ test('utility agent is read-only and delegates mutations to the governed workflo
   const content = await readFile(path.join(root, 'plugin', 'agents', 'sflow-utility.agent.md'), 'utf8');
   assert.match(content, /tools: \["bash", "read_bash", "view"\]/);
   assert.doesNotMatch(content, /"edit"|"write_bash"/);
-  assert.match(content, /Run the narrowest named `singularity-flow` command and return its output verbatim/);
+  assert.match(content, /Run the narrowest named `singularity-flow` command and relay its exact status, warnings and actions/);
+  assert.match(content, /not bodies, snippets or diffs/);
   assert.match(content, /request would change repository or lifecycle\s+state, stop/);
 });

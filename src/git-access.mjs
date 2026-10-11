@@ -21,6 +21,7 @@ import {
   isPortableAbsoluteGitPath
 } from './git-remote-diagnostics.mjs';
 import { isFullyQualifiedWindowsPath } from './platform-process.mjs';
+import { gitHostSearchDirectories, isAppleDeveloperGit } from './git-host-selection.mjs';
 import { networkDisabled } from './util.mjs';
 
 const LOCAL_DEADLINE_MS = 30_000;
@@ -216,8 +217,8 @@ async function executableAt(candidate, platform) {
 async function resolveExecutable({ trustedGitPath = null, environment = process.env,
   platform = process.platform } = {}) {
   if (trustedGitPath != null) return executableAt(trustedGitPath, platform);
-  const entry = Object.entries(environment).find(([key]) => key.toLowerCase() === 'path');
-  const search = String(entry?.[1] ?? '').split(path.delimiter);
+  const search = gitHostSearchDirectories(environment, platform);
+  let appleGit = null;
   for (const directory of search) {
     const absolute = platform === 'win32'
       ? isFullyQualifiedWindowsPath(directory) : path.isAbsolute(directory);
@@ -225,9 +226,15 @@ async function resolveExecutable({ trustedGitPath = null, environment = process.
     const candidate = platform === 'win32'
       ? path.win32.join(directory, 'git.exe') : path.join(directory, 'git');
     const found = await executableAt(candidate, platform);
-    if (found) return found;
+    if (found) {
+      if (platform === 'darwin' && isAppleDeveloperGit(found)) {
+        appleGit ??= found;
+        continue;
+      }
+      return found;
+    }
   }
-  return null;
+  return appleGit;
 }
 
 function pinnedSpawn(executable) {

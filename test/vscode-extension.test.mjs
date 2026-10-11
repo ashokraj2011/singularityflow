@@ -139,8 +139,9 @@ test('unavailable capability attachment shows a scrubbed Git diagnosis and exact
     'The capability authority could not be freshly verified.',
     'Git diagnosis (authentication-required): Sign in to Git with the approved credential helper, then retry.',
     'Diagnose:',
-    'Shell: singularity-flow workspace doctor --network --repository https://git.example/platform.git --json',
     'Copilot: /sf-workspace-bootstrap',
+    'Shell: singularity-flow workspace doctor --network --repository https://git.example/platform.git --json',
+    'VS Code (model-free): not available for this action',
     'No local workspace was selected.'
   ].join('\n'));
 

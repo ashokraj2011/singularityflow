@@ -21,6 +21,7 @@ import { processResultCompleted, processResultSucceeded } from './process-result
 import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { scopedReadSync } from './read-scope.mjs';
 import { localReadDeadlineAt, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
+import { gitDeveloperToolsUnavailable, gitHostChildEnvironment } from './git-host-selection.mjs';
 import {
   inheritEnterpriseGitEnvironment, remoteGitEnvironment
 } from './git-enterprise-environment.mjs';
@@ -80,6 +81,7 @@ const gitCommonDirCache = new Map();
 export function repoRoot(cwd = process.cwd()) {
   if (repoRootCache.has(cwd)) return repoRootCache.get(cwd);
   const result = run('git', ['rev-parse', '--show-toplevel'], { cwd, allowFailure: true });
+  if (gitDeveloperToolsUnavailable(result)) gitReadOutput(result, 'Repository root');
   // Only a success is cached: a failure is a thrown error, and a later call from a different cwd
   // inside a repository must still be able to succeed.
   if (result.status !== 0) throw new SingularityFlowError('Run Singularity Flow from inside a Git repository.');
@@ -367,8 +369,11 @@ export async function runRemoteGitAsync(args, {
         return;
       }
       incrementCommandCounter('git.spawns');
+      const childEnvironment = withoutAutomaticGitMaintenance(executionEnvironment, { platform });
       child = spawnCommand(launch.executable, launch.arguments, {
-        cwd, env: withoutAutomaticGitMaintenance(executionEnvironment, { platform }), ...launch.spawnOptions,
+        // A custom pinned transport (e.g. GAL) owns its exact executable environment already.
+        cwd, env: spawnCommand === spawn ? gitHostChildEnvironment(childEnvironment, launch.executable, platform)
+          : childEnvironment, ...launch.spawnOptions,
         // A private POSIX process group lets the timeout boundary reach Git, credential helpers,
         // SSH, proxy commands, and any other descendant in one signal. Windows uses taskkill /T.
         detached: platform !== 'win32',

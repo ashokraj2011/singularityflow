@@ -8910,7 +8910,7 @@ async function activeWorkspaceRepository(
     active?: boolean; workspaceId?: string; workspaceName?: string; workspacePath?: string;
     repositoryId?: string; repositoryPath?: string; repositoryState?: string;
     canonicalRepositoryPath?: string; checkoutPath?: string | null; storyId?: string | null;
-    selectionStatus?: string; selectionError?: string | null;
+    selectionStatus?: string; selectionError?: string | null; selectionErrorCode?: string | null;
   };
   try {
     const client = new SingularityFlowClient({
@@ -8935,9 +8935,12 @@ async function activeWorkspaceRepository(
   }
   if (current.active === false) return null;
   if (current.selectionStatus === 'stale' && current.storyId) {
+    const gitUnavailable = current.selectionErrorCode === 'GIT_DEVELOPER_TOOLS_UNAVAILABLE';
     return {
-      label: `Selected Story ${current.storyId} needs reattachment`,
-      reason: `Its previous checkout is unavailable${current.selectionError ? `: ${current.selectionError}` : '.'} Run “Select Story” or singularity-flow session attach ${current.storyId} --json.`,
+      label: gitUnavailable ? 'Standalone Git is needed; Xcode is optional'
+        : `Selected Story ${current.storyId} needs reattachment`,
+      reason: gitUnavailable ? current.selectionError ?? 'Restore a working Git installation, then retry. The Story selection is preserved.'
+        : `Its previous checkout is unavailable${current.selectionError ? `: ${current.selectionError}` : '.'} Run “Select Story” or singularity-flow session attach ${current.storyId} --json.`,
       contextValue: 'sflow.workspace.repositoryUnavailable',
       lead: current.canonicalRepositoryPath ?? current.repositoryPath ?? null
     };

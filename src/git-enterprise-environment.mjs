@@ -10,6 +10,7 @@ import os from 'node:os';
 
 import { run, SingularityFlowError } from './util.mjs';
 import { gitEmptyConfigPath } from './git-isolation-paths.mjs';
+import { APPLE_GIT_UNAVAILABLE_MESSAGE, gitDeveloperToolsUnavailable } from './git-host-selection.mjs';
 
 const ENTERPRISE_GIT_CONFIG_PATTERN = [
   String.raw`http\.(proxy|proxyauthmethod|sslcainfo|sslcapath|sslbackend|schannelusesslcainfo)`,
@@ -44,7 +45,8 @@ function unavailableConfiguration(scope, reason) {
   throw new SingularityFlowError(
     `Cannot verify the ${scope} Git transport and credential-helper configuration (${reason}). `
       + 'Singularity Flow did not continue with an incomplete Git configuration. '
-      + 'Check the approved Git installation and configuration, then retry.',
+      + (reason === 'developer-tools-unavailable' ? APPLE_GIT_UNAVAILABLE_MESSAGE
+        : 'Check the approved Git installation and configuration, then retry.'),
     { code: 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE', details: { scope, reason } }
   );
 }
@@ -134,7 +136,8 @@ function allowedEnterpriseGitConfiguration(sourceEnv, runCommand) {
     if (observed?.status !== 0 || observed.error || observed.timedOut === true
       || observed.outputOverflow === true || observed.blocked === true
       || observed.aborted === true || observed.signal != null) {
-      const reason = observed?.timedOut === true ? 'timeout'
+      const reason = gitDeveloperToolsUnavailable(observed) ? 'developer-tools-unavailable'
+        : observed?.timedOut === true ? 'timeout'
         : observed?.outputOverflow === true ? 'output-limit'
           : observed?.aborted === true || observed?.signal != null ? 'interrupted'
             : observed?.error?.code === 'ENOENT' ? 'git-unavailable' : 'read-failed';

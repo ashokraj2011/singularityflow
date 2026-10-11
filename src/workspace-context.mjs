@@ -451,6 +451,7 @@ export async function readActiveWorkspaceContext(selectionFile, registryFile, {
       selectionSource: selected.selectionSource ?? 'session-attach',
       selectionStatus: 'stale',
       selectionError: error.message,
+      selectionErrorCode: error.code ?? null,
       selectedAt: selected.selectedAt ?? context.selectedAt
     };
     return { ...stale, prompt: workspacePromptLabel(stale) };

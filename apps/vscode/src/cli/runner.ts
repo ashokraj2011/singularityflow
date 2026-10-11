@@ -17,6 +17,7 @@ import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import { executeGalAsyncRead } from '../../../../src/gal-async-read.mjs';
+import { gitHostChildEnvironment, gitHostSearchDirectories, isAppleDeveloperGit } from '../../../../src/git-host-selection.mjs';
 import { recordHostCliProcessCompleted, recordHostCliProcessStarted } from '../host-performance.ts';
 import { commandGuidance } from '../copilot-command.ts';
 import { ProgressLineSplitter } from './progress.ts';
@@ -557,7 +558,8 @@ export async function resolvePosixGitExecutable(
   environment: NodeJS.ProcessEnv = process.env,
   filesystem: { stat: typeof lstat; canonicalize: typeof realpath } = {
     stat: lstat, canonicalize: realpath
-  }
+  },
+  platform: string = process.platform
 ): Promise<string | null> {
   const pathValue = environmentValue(environment, 'PATH');
   if (!pathValue) return null;
@@ -591,7 +593,8 @@ export async function resolvePosixGitExecutable(
   }
   const checkoutBoundary = canonicalCwd !== path.parse(canonicalCwd).root || rootHasCheckoutMarker
     ? canonicalCwd : null;
-  for (const directory of pathValue.split(path.delimiter).slice(0, 128)) {
+  let appleGit: string | null = null;
+  for (const directory of gitHostSearchDirectories(environment, platform)) {
     if (!path.isAbsolute(directory)) continue;
     const candidate = path.join(directory, 'git');
     try {
@@ -601,10 +604,16 @@ export async function resolvePosixGitExecutable(
         || (relative != null && relative !== '..' && !relative.startsWith(`..${path.sep}`)
           && !path.isAbsolute(relative))) continue;
       const info = await filesystem.stat(canonical);
-      if (info.isFile() && (info.mode & 0o111) !== 0) return canonical;
+      if (info.isFile() && (info.mode & 0o111) !== 0) {
+        if (platform === 'darwin' && isAppleDeveloperGit(canonical)) {
+          appleGit ??= canonical;
+          continue;
+        }
+        return canonical;
+      }
     } catch { /* Missing or unreadable PATH entry. */ }
   }
-  return null;
+  return appleGit;
 }
 
 function selectedGitExecutable(
@@ -843,11 +852,12 @@ export const remoteGit: RemoteGitRunner = async (args, options) => new Promise((
   const timer = setTimeout(() => stop('timeout'), options.timeout);
   if (options.signal?.aborted) return cancel();
   options.signal?.addEventListener('abort', cancel, { once: true });
-  const env = hostGitEnvironment();
+  let env = hostGitEnvironment();
   const launch = (executable: string | null) => {
     try {
       if (settled || stoppingFailure) return;
       if (!executable) return finish({ status: null, stdout: '', failure: 'git-unavailable' });
+      env = gitHostChildEnvironment(env, executable);
       const launched = (options.spawnImpl ?? spawn)(executable, args, {
         cwd: options.cwd,
         windowsHide: true,
@@ -951,13 +961,14 @@ export const localGit: LocalGitRunner = async (args, options) => new Promise((re
   if (options.signal?.aborted) return cancel();
   timer = setTimeout(() => stop('timeout'), options.timeout);
   options.signal?.addEventListener('abort', cancel, { once: true });
-  const env = hostGitEnvironment();
+  let env = hostGitEnvironment();
   const launch = (executable: string | null) => {
     try {
       if (settled || stoppingFailure) return;
       if (!executable) return finish({
         status: null, stdout: Buffer.alloc(0), stderr: '', failure: 'git-unavailable'
       });
+      env = gitHostChildEnvironment(env, executable);
       const launched = (options.spawnImpl ?? spawn)(executable, args, {
         cwd: options.cwd,
         windowsHide: true,

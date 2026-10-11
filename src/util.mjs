@@ -15,6 +15,7 @@ import {
 import { displayWidth, padDisplay, terminalWidth, truncateDisplay } from './style.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { assertLocalReadDeadline, localReadDeadlineRemainingMs, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
+import { APPLE_GIT_UNAVAILABLE_MESSAGE, gitDeveloperToolsUnavailable, gitHostChildEnvironment } from './git-host-selection.mjs';
 
 export class SingularityFlowError extends Error {
   constructor(message, { exitCode = 1, code = null, details = null, cause = undefined } = {}) {
@@ -687,7 +688,10 @@ export function run(command, args = [], {
   try {
     result = spawnSyncCommand(launch.executable, launch.arguments, {
       cwd, encoding, stdio, timeout: timeoutMs, killSignal,
-      env: command === 'git' ? withoutAutomaticGitMaintenance(withoutInteractiveGitPrompts(env, { platform }), { platform }) : env,
+      env: command === 'git' ? gitHostChildEnvironment(
+        withoutAutomaticGitMaintenance(withoutInteractiveGitPrompts(env, { platform }), { platform }),
+        launch.executable, platform
+      ) : env,
       ...launch.spawnOptions,
       ...(windowsHide === undefined ? {} : { windowsHide }),
       ...(maxBuffer === undefined ? {} : { maxBuffer }),
@@ -787,6 +791,11 @@ export function run(command, args = [], {
     throw new SingularityFlowError(`${command} did not respond within ${timeoutMs}ms.`, { code: 'SUBPROCESS_TIMEOUT' });
   }
   if (status !== 0 && !allowFailure) {
+    if (command === 'git' && gitDeveloperToolsUnavailable({ ...result, status }, platform)) {
+      throw new SingularityFlowError(APPLE_GIT_UNAVAILABLE_MESSAGE, {
+        code: 'GIT_DEVELOPER_TOOLS_UNAVAILABLE', details: { platform, requiresXcode: false }
+      });
+    }
     // `String()` rather than `.trim()` directly: in buffer mode these are Buffers, and a failure
     // message is the one place this must not throw a second, less informative error.
     const detail = String(stderr).trim() || String(stdout).trim() || `exit ${status}`;
@@ -823,6 +832,11 @@ export function gitReadOutput(result, label, {
   absentStatus = null, absentWhen = null, code = 'GIT_READ_UNAVAILABLE'
 } = {}) {
   if (processResultSucceeded(result)) return result.stdout;
+  if (gitDeveloperToolsUnavailable(result)) {
+    throw new SingularityFlowError(APPLE_GIT_UNAVAILABLE_MESSAGE, {
+      code: 'GIT_DEVELOPER_TOOLS_UNAVAILABLE', details: { requiresXcode: false }
+    });
+  }
   if (processResultCompleted(result)
       && ((absentStatus !== null && result.status === absentStatus) || absentWhen?.(result))) return null;
   throw new SingularityFlowError(`${label} could not be read from Git: ${gitFailureReason(result)}`, { code });

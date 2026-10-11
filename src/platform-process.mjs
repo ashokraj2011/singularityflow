@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { lstatSync, realpathSync } from 'node:fs';
+import { gitHostSearchDirectories, isAppleDeveloperGit } from './git-host-selection.mjs';
 
 const WINDOWS_BATCH = /\.(?:cmd|bat)$/i;
 const WINDOWS_PACKAGE_MANAGERS = new Set(['npm', 'npx']);
@@ -361,8 +362,9 @@ export function resolvePlatformProcess(command, args = [], {
         && (canonicalCwd !== path.parse(canonicalCwd).root || rootHasCheckoutMarker)
         ? canonicalCwd : null;
       executable = null;
-      const entries = String(environmentValue(environment, ['PATH']) ?? '').split(path.delimiter);
-      for (const directory of entries.slice(0, 128)) {
+      let appleGit = null;
+      const entries = gitHostSearchDirectories(environment, platform);
+      for (const directory of entries) {
         if (!path.isAbsolute(directory)) continue;
         try {
           const resolved = realpathSyncCommand(path.join(directory, 'git'));
@@ -372,11 +374,18 @@ export function resolvePlatformProcess(command, args = [], {
           const info = lstatSyncCommand(resolved);
           if (path.isAbsolute(resolved) && info.isFile?.()
               && (typeof info.mode !== 'number' || (info.mode & 0o111) !== 0)) {
+            // Apple Git can require a licensed developer toolchain. Standalone Git avoids that
+            // optional dependency; select it before any operation, never retry a failed mutation.
+            if (platform === 'darwin' && isAppleDeveloperGit(resolved)) {
+              appleGit ??= resolved;
+              continue;
+            }
             executable = resolved;
             break;
           }
         } catch { /* Missing or unreadable PATH entry. */ }
       }
+      executable ??= appleGit;
       if (!executable) throw new TypeError('POSIX could not resolve a native Git executable from absolute PATH entries.');
     }
     return Object.freeze({

@@ -1,6 +1,7 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { retainedSkillExpansion } from './retained-skill-instructions.mjs';
-import { resolveSkillInstructions, renderReferencedInstructions } from './instruction-library.mjs';
+import { resolveSkillInstructions } from './instruction-library.mjs';
+import { composeSkillInstructions } from './skill-instruction-composition.mjs';
 import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -682,10 +683,11 @@ export async function renderAgentSkills(root, workflow, phase, session, {
   for (const skill of library.skills) {
     if (!saved) skill.referencedInstructions = await resolveSkillInstructions(configurationReadRoot(root), skill);
   }
+  const composition = composeSkillInstructions(library.skills.filter(entry => !expansions.has(entry.id)));
   const text = [
     selected.map((entry) => `<!-- agent skill: ${session.agent}/${entry.id} sha256=${entry.sha256} -->\n\n## Agent skill: ${entry.id}\n\n${entry.content.trim()}`).join('\n\n'),
-    renderLibrarySkills(session.agent, library.skills, { expansions }),
-    renderReferencedInstructions(library.skills.filter(entry => !expansions.has(entry.id)))
+    renderLibrarySkills(session.agent, library.skills, { expansions, composition }),
+    composition.tail
   ].filter(Boolean).join('\n\n');
   const warnings = [...synced.warnings, ...library.warnings];
   let audit = null;

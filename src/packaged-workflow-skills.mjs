@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { librarySkillPath, parseLibrarySkill, parseSkillAttachments, SKILL_ATTACHMENTS_PATH } from './skill-library.mjs';
-import { secureRepositoryPath } from './util.mjs';
+import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
+import { instructionPath, parseInstruction } from './instruction-library.mjs';
 
 /** Plan only the library dependencies of the selected starter; preserve repository overrides. */
 export async function packagedWorkflowSkills(root, workflowId, agentIds, agentSkills = []) {
@@ -12,14 +13,27 @@ export async function packagedWorkflowSkills(root, workflowId, agentIds, agentSk
   const selected = packaged.filter((entry) => entry.workflow === workflowId || agentIds.has(entry.agent));
   if (!selected.length && !agentSkills.length) return [];
   const files = [];
+  const instructions = new Set();
   // Agent-owned tables are the attachment authority. Adopt their library files without
   // duplicating those bindings in attachments.yml or losing them on starter installation.
   for (const id of new Set([...selected, ...agentSkills].map((entry) => entry.id))) {
     const relative = librarySkillPath(id);
     const target = await secureRepositoryPath(root, relative, { label: 'Starter skill', type: 'file' });
     const text = await readFile(path.join(sourceRoot, id, 'SKILL.md'), 'utf8');
-    parseLibrarySkill(target.exists ? await readFile(target.absolute, 'utf8') : text, { id });
+    const skill = parseLibrarySkill(target.exists ? await readFile(target.absolute, 'utf8') : text, { id });
+    for (const reference of skill.instructionRefs) instructions.add(reference);
     if (!target.exists) files.push({ path: relative, text });
+  }
+  for (const id of instructions) {
+    const relative = instructionPath(id);
+    const target = await secureRepositoryPath(root, relative, { label: 'Starter instruction', type: 'file' });
+    if (target.exists) { parseInstruction(await readFile(target.absolute, 'utf8'), { id }); continue; }
+    const text = await readFile(path.join(PACKAGE_ROOT, 'templates/instruction-library', id, 'INSTRUCTIONS.md'), 'utf8')
+      .catch(error => {
+        if (error.code !== 'ENOENT') throw error;
+        throw new SingularityFlowError(`Starter skill references missing instruction '${id}'. Create the reviewed definition before adopting this customized skill.`, { code: 'INSTRUCTION_REFERENCE_MISSING' });
+      });
+    parseInstruction(text, { id }); files.push({ path: relative, text });
   }
   if (!selected.length) return files;
   const target = await secureRepositoryPath(root, SKILL_ATTACHMENTS_PATH, { label: 'Starter skill attachments', type: 'file' });

@@ -67,12 +67,16 @@ async function isolateSkillMaster(root) {
   const file = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(file, 'utf8'));
   delete definition.workTypes['demo-check-repair-close'];
+  delete definition.workTypes['demo-instruction-test-loop'];
+  for (const id of ['demo-instruction-intake', 'demo-instruction-test', 'demo-instruction-repair', 'demo-instruction-close']) delete definition.phases[id];
   for (const id of ['demo-intake', 'demo-check', 'demo-repair', 'demo-close']) delete definition.phases[id];
   delete definition.mcpServers['demo-playwright'];
   await writeFile(file, YAML.stringify(definition));
   for (const id of ['demo-intake-analyst', 'demo-code-checker', 'demo-code-repairer', 'demo-story-closer']) {
     await rm(path.join(root, `.github/agents/${id}.agent.md`));
   }
+  for (const id of ['demo-instruction-analyst', 'demo-instruction-tester', 'demo-instruction-developer', 'demo-instruction-closer']) await rm(path.join(root, `.github/agents/${id}.agent.md`));
+  await rm(path.join(root, 'singularity/instruction-library'), { recursive: true });
   await rm(path.join(root, 'singularity/skill-library'), { recursive: true });
 }
 

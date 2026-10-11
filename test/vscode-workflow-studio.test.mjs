@@ -80,6 +80,21 @@ test('the page loads without a document and says nothing changed until something
   assert.doesNotMatch(WORKFLOW_STUDIO_SCRIPT, /setAttribute\('style'/, 'the nonce-only CSP would drop style attributes');
 });
 
+test('skill authoring inserts a selected reusable instruction at the cursor without deleting surrounding text', () => {
+  const { logic } = studioLogic();
+  const body = 'Read sources.\nIf screenshots apply:\nRun checks.';
+  const cursor = body.indexOf('Run checks.');
+  const result = logic.insertSkillInstruction(body, 'visual-guide', cursor, ['test-guide']);
+  assert.deepEqual(result.instructionRefs, ['test-guide', 'visual-guide']);
+  assert.equal(result.instructions, 'Read sources.\nIf screenshots apply:\n<!-- sflow-instruction: visual-guide -->\nRun checks.');
+  assert.match(logic.insertSkillInstruction(result.instructions, 'visual-guide', 0, result.instructionRefs).error, /already has an insertion/);
+  const example = '```md\n<!-- sflow-instruction: visual-guide -->\n```\nApply here:\n';
+  const withExample = logic.insertSkillInstruction(example, 'visual-guide', example.length, []);
+  assert.equal(withExample.instructions, example + '<!-- sflow-instruction: visual-guide -->\n');
+  assert.match(logic.insertSkillInstruction(example, 'visual-guide', 8, []).error, /outside fenced/);
+  assert.match(WORKFLOW_STUDIO_SCRIPT, /Insert at cursor/);
+});
+
 test('the Instructions editor preserves skill references and emits atomic catalog changes', async () => {
   const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
   const root = await repository();

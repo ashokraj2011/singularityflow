@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { parseAgentDependencies } from './agents.mjs';
 import { effectiveLibrarySkills } from './skill-library.mjs';
-import { INSTRUCTION_COMPOSER, retainedInstructionsForSkill } from './instruction-snapshots.mjs';
+import { INSTRUCTION_COMPOSERS, retainedInstructionsForSkill } from './instruction-snapshots.mjs';
 import {
   hasRetainedWorkflowSnapshotDraft, verifyWorkflowSnapshot
 } from './workflow-snapshots.mjs';
@@ -185,7 +185,7 @@ function pinnedAttachedSkills(closure, agentId) {
 function parsedSnapshotAgents(closure) {
   const parserProfile = closure.semantics?.agentDocumentParser ?? AGENT_PARSER;
   const composerProfile = closure.semantics?.promptComposer ?? COMPOSER;
-  if (parserProfile !== AGENT_PARSER || ![COMPOSER, 'story-snapshot-agent-v2', INSTRUCTION_COMPOSER].includes(composerProfile)) {
+  if (parserProfile !== AGENT_PARSER || ![COMPOSER, 'story-snapshot-agent-v2', ...INSTRUCTION_COMPOSERS].includes(composerProfile)) {
     fail(
       `Story snapshot requires unsupported execution interpretation '${parserProfile}/${composerProfile}'.`,
       'WFA_RUNTIME_INCOMPATIBLE',

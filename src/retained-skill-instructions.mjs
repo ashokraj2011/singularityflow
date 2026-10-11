@@ -2,7 +2,7 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { parseLibrarySkill } from './skill-library.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { renderReferencedInstructions } from './instruction-library.mjs';
+import { composeSkillInstructions } from './skill-instruction-composition.mjs';
 
 const digest = value => String(value ?? '').replace(/^sha256:/, '');
 const matches = (phase, phases) => !phases?.length || phases.includes(phase);
@@ -32,16 +32,17 @@ export function selectRetainedSkillInstructions(workflow, phase, context, reques
   if (skills.some((skill, index) => digest(skill.sha256) !== digest(request.expectedSha256)
       || digest(entries[index].sha256) !== digest(skill.sha256))) fail('Retained skill bytes do not match the exact catalog digest.');
   const skill = skills[0];
+  const composition = composeSkillInstructions([{ ...skill, referencedInstructions: entries[0].referencedInstructions ?? [] }]);
   return {
     schemaVersion: 1, resultType: 'retained-skill-instructions', status: 'ready',
     workId: request.workId, phase: phase.id, generation: request.generation, agent: context.agentId,
     snapshotSha256: context.identity.snapshotHash, skill: {
       id: skill.id, label: skill.label, sha256: skill.sha256, description: skill.description,
       loading: skill.loading, instructions: skill.instructions,
+      composedText: [composition.bodies.get(skill.id), composition.tail].filter(Boolean).join('\n\n'),
       instructionRefs: skill.instructionRefs,
       referencedInstructions: entries[0].referencedInstructions ?? [],
-      referencedInstructionText: renderReferencedInstructions([{ ...skill,
-        referencedInstructions: entries[0].referencedInstructions ?? [] }]),
+      referencedInstructionText: composition.tail,
       attachments: entries.map(entry => ({ scope: entry.scope ?? 'agent',
         phases: entry.phases, use: entry.use ?? '' }))
     },

@@ -16,6 +16,7 @@ import { SingularityFlowError } from './util.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 import { librarySkillPath } from './skill-library.mjs';
 import { instructionPath } from './instruction-library.mjs';
+import { renameInstructionSlots } from './skill-instruction-composition.mjs';
 
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -633,7 +634,10 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
     asset.content = rewriteAgent(asset.content, (document, body) => {
       if (document.get('name') === from) document.set('name', to);
       const refs = document.getIn(['metadata', 'sflow-instructions'])?.toJSON?.();
-      if (Array.isArray(refs)) document.setIn(['metadata', 'sflow-instructions'], refs.map(id => instructionMap.get(id) ?? id));
+      if (Array.isArray(refs)) {
+        body = renameInstructionSlots(body, refs, instructionMap);
+        document.setIn(['metadata', 'sflow-instructions'], refs.map(id => instructionMap.get(id) ?? id));
+      }
       const label = document.getIn(['metadata', 'sflow-label']);
       const named = typeof label === 'string' ? label : `${from.split('-').join(' ').replace(/^./, (letter) => letter.toUpperCase())}`;
       if (to !== from && !named.endsWith(IMPORTED_LABEL)) document.setIn(['metadata', 'sflow-label'], `${named}${IMPORTED_LABEL}`);

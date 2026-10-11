@@ -1646,7 +1646,8 @@ export async function initializeDefinition(root) {
     ['artifacts', 'singularity/templates'],
     ['starter-packs', 'singularity/templates/starter-packs'],
     ['agents', '.github/agents'],
-    ['skill-library', 'singularity/skill-library']
+    ['skill-library', 'singularity/skill-library'],
+    ['instruction-library', 'singularity/instruction-library']
   ]) {
     if (wrote.includes(destination)) continue;
     for (const file of await copyMissingFiles(

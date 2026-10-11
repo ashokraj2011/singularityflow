@@ -4,7 +4,8 @@ import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { librarySkillPath } from './skill-library.mjs';
+import { librarySkillPath, parseLibrarySkill } from './skill-library.mjs';
+import { instructionPath } from './instruction-library.mjs';
 
 const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
   ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
@@ -49,8 +50,14 @@ export async function seededWorkflowProtection(story, initiative = {}, agents = 
   artifactSets.forEach((id) => inspect(story.artifactSets?.[id], root));
   templates.forEach((id) => { const file = story.templates?.[id]?.path; if (file) templateFiles.add(`${root}/${file}`); });
   const skills = agents.filter((agent) => agentIds.has(agent.id)).flatMap((agent) => (agent.librarySkills ?? []).map((skill) => skill.id));
+  const instructions = new Set();
+  for (const id of new Set(skills)) {
+    const text = await readFile(path.join(PACKAGE_ROOT, 'templates/skill-library', id, 'SKILL.md'), 'utf8')
+      .catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
+    if (text) for (const reference of parseLibrarySkill(text, { id }).instructionRefs) instructions.add(reference);
+  }
   return { workflows, epics, phases: [...phases], epicPhases: [...epicPhases], agents: [...agentIds], skills: [...new Set(skills)],
-    artifactSets: [...artifactSets], templates: [...templates], templateFiles: [...templateFiles], integrationTargets: [...integrationTargets] };
+    instructions: [...instructions], artifactSets: [...artifactSets], templates: [...templates], templateFiles: [...templateFiles], integrationTargets: [...integrationTargets] };
 }
 
 export function assertSeededWorkflowsUnchanged(protectedIds, before, after, { beforeAgents = [], afterAgents = [], files = [] } = {}) {
@@ -65,7 +72,7 @@ export function assertSeededWorkflowsUnchanged(protectedIds, before, after, { be
     views: agent.worldModelViews, dependencies: agent.dependencies, skills: agent.librarySkills,
     defaults: agent.defaultFor?.filter((id) => protectedIds.phases.includes(id) || protectedIds.epicPhases.includes(id)), phases: agent.phases?.filter((id) => protectedIds.phases.includes(id) || protectedIds.epicPhases.includes(id)) });
   for (const id of protectedIds.agents) if (!same(signature(beforeAgents.find((agent) => agent.id === id)), signature(afterAgents.find((agent) => agent.id === id)))) refuse(`agent '${id}'`);
-  const paths = new Set([...protectedIds.templateFiles, ...protectedIds.skills.map(librarySkillPath)]);
+  const paths = new Set([...protectedIds.templateFiles, ...protectedIds.skills.map(librarySkillPath), ...(protectedIds.instructions ?? []).map(instructionPath)]);
   for (const file of files) if (paths.has(file.path) && (file.before == null || file.after == null
     ? file.before !== file.after : !Buffer.from(file.before).equals(Buffer.from(file.after)))) refuse(`dependency '${file.path}'`);
 }

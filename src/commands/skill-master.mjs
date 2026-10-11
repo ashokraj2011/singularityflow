@@ -142,7 +142,7 @@ export async function runSkillMaster({ positionals, options, applyChangeSet, pri
         generation: Number(options.generation), snapshotSha256: options['snapshot-sha256'],
         expectedSha256: options['expected-sha256']
       });
-    return console.log(json ? JSON.stringify(result, null, 2) : [result.skill.instructions, result.skill.referencedInstructionText].filter(Boolean).join('\n\n'));
+    return console.log(json ? JSON.stringify(result, null, 2) : result.skill.composedText);
   }
   if (SKILL_MASTER_READS.includes(action)) {
     const model = await withApprovedConfigurationRead(root, () => buildStudioModel(root), { preferAuthority: true });
@@ -152,8 +152,16 @@ export async function runSkillMaster({ positionals, options, applyChangeSet, pri
     }
     const skill = model.skills.find((entry) => entry.id === positionals[2]);
     if (!skill) fail(`There is no skill '${positionals[2]}' in the skill master. List them with: singularity-flow skill list`, 'SKILL_MASTER_UNKNOWN');
+    const { composeSkillInstructions } = await import('../skill-instruction-composition.mjs');
+    const selected = { ...skill, referencedInstructions: skill.instructionRefs.map(id => {
+      const item = model.instructions.find(entry => entry.id === id);
+      if (!item) fail(`Skill '${skill.id}' references missing instruction '${id}'.`, 'INSTRUCTION_REFERENCE_MISSING');
+      return item;
+    }) };
+    const composition = composeSkillInstructions([selected]);
+    skill.composedText = [composition.bodies.get(skill.id), composition.tail].filter(Boolean).join('\n\n');
     if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'skill-master-skill', skill }, null, 2));
-    return printSkill(model, skill);
+    return printSkill(model, { ...skill, instructions: skill.composedText });
   }
   const id = positionals[2];
   const changeSet = { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [await changeFor(action, id, options)] };

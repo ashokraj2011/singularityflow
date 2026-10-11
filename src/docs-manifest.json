@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "38e44423185609b99c61ddb1a6fc460013efe2a0",
+  "sourceCommit": "ad4f3794a519a01b6751bf7d6bb2da5fea8e3df9",
   "topicCount": 81,
-  "contentSha256": "9c6994c818690572767c7a81a44388e0881b7773726fef25da740a0740a8dc21",
+  "contentSha256": "419b83f99caa1a98055b337a553dbed78fae0e0bc6613b32c2b60d64c7b14fd0",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -472,8 +472,8 @@
     {
       "id": "reusable-instructions",
       "title": "Reusable instructions referenced by skills",
-      "version": 2,
-      "sha256": "f114b5f98062803e090b5f6824cceef02c0122e5440636818e32ab8d28d9f3e3",
+      "version": 3,
+      "sha256": "b68ef150aa1c5757a82ae2c703d7fc1fd8969c63a40e307fe95d41197238b889",
       "routingSha256": "819508e7d86f0c94478e4e14ff69d396888fe9a2769c18b780d25b0d43747622",
       "file": "reusable-instructions.md"
     },

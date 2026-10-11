@@ -816,6 +816,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   window.__workflowStudio = { initialDraft: initialDraft, changeSetFrom: changeSetFrom, copiedPhaseDraft: copiedPhaseDraft, describe: describe, kebab: kebab,
+    insertSkillInstruction: insertSkillInstruction,
     proposalGroups: function () { return proposalGroups.apply(null, arguments); },
     worldModelSection: function () { return worldModelSection.apply(null, arguments); }, knowledgeReader: function () { return knowledgeReader.apply(null, arguments); },
     newStepWorldModelHint: function () { return newStepWorldModelHint.apply(null, arguments); },
@@ -4641,7 +4642,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var items = state.draft.instructions || {};
     main.appendChild(el('h1', { text: 'Instructions' }));
     main.appendChild(el('p', { class: 'studio-lede', text: 'Reusable Markdown guidance, referenced explicitly by skills. Not global Copilot instructions; these cannot change approval authority or workflow gates. Changes are reviewed configuration proposals and running Stories retain their exact snapshot.' }));
-    function openForm(id) { var item = id ? items[id] : null; state.instructionForm = { id: id || null, label: item ? item.label : '', description: item ? item.description : '', instructions: item ? item.instructions : '' }; render(); }
+    function openForm(id) { if (id && protectedObject('instructions', id)) { setStatus('Seeded instruction: duplicate the workflow before editing its independent copy.'); return; } var item = id ? items[id] : null; state.instructionForm = { id: id || null, label: item ? item.label : '', description: item ? item.description : '', instructions: item ? item.instructions : '' }; render(); }
     main.appendChild(button('Create instruction', function () { openForm(null); }, { class: 'primary' }));
     var form = state.instructionForm;
     if (form) {
@@ -4747,6 +4748,31 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     render();
   }
 
+  function insertSkillInstruction(body, ref, cursor, references) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(ref)) return { error: 'Choose a valid reusable instruction.' };
+    var marker = '<!-- sflow-instruction: ' + ref + ' -->';
+    var offset = Number.isInteger(cursor) ? Math.max(0, Math.min(cursor, body.length)) : body.length;
+    var lines = body.split('\n'); var lineOffset = 0; var fence = null; var inExample = false;
+    for (var index = 0; index < lines.length; index += 1) {
+      var line = lines[index];
+      if (offset >= lineOffset && offset < lineOffset + line.length + 1 && fence) inExample = true;
+      if (fence) { if (new RegExp('^ {0,3}' + fence.character + '{' + fence.length + ',}\\s*$').test(line)) fence = null; }
+      else {
+        var opening = /^ {0,3}(\x60{3,}|~{3,})/.exec(line);
+        if (opening) {
+          fence = { character: opening[1][0], length: opening[1].length };
+          if (offset >= lineOffset && offset < lineOffset + line.length + 1) inExample = true;
+        }
+        else if (!/^(?: {4}|\t)/.test(line) && line.trim() === marker) return { error: 'This instruction already has an insertion. Move that line to the desired step.' };
+      }
+      lineOffset += line.length + 1;
+    }
+    if (inExample) return { error: 'Place the instruction outside fenced code examples.' };
+    var before = body.slice(0, offset); var after = body.slice(offset);
+    return { instructions: before + (before && !before.endsWith('\n') ? '\n' : '') + marker + '\n' + after,
+      instructionRefs: Array.from(new Set((references || []).concat(ref))) };
+  }
+
   function renderSkillForm(form) {
     var card = el('section', { class: 'studio-card', 'aria-label': form.mode === 'create' ? 'Create a skill' : 'Edit skill' });
     card.appendChild(el('h2', { text: form.mode === 'create' ? 'Create a skill' : 'Edit ' + form.label }));
@@ -4756,11 +4782,23 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       field('skill-name', 'Name', textInput('skill-name', form.label, function (value) { form.label = value; requestRender(); }, { placeholder: 'Security review' }),
         form.mode === 'create' ? (id ? 'ID ' + id + (state.draft.skills[id] ? ' is already used' : '') : 'The ID is made from the name.') : 'ID ' + id),
       field('skill-description', 'What it does and when to use it', textInput('skill-description', form.description, function (value) { form.description = value; }, { placeholder: 'Checks a change for common security mistakes before it is published.' }))));
-    card.appendChild(field('skill-instructions', 'Instructions', el('textarea', { id: 'skill-instructions', 'data-key': 'skill-instructions', rows: 12, onchange: function (event) { form.instructions = event.target.value; } }, form.instructions || ''),
-      'What the agent does when it uses this skill, step by step. Markdown.'));
-    var refs = el('fieldset', { class: 'studio-card' }, el('legend', { text: 'Reusable instructions' }), el('p', { class: 'hint', text: 'Only selected instructions follow this skill. Edit definitions in Instructions. Running Stories keep their pinned bytes.' }));
+    var procedure = el('textarea', { id: 'skill-instructions', 'data-key': 'skill-instructions', rows: 12, oninput: function (event) { form.instructions = event.target.value; } }, form.instructions || '');
+    card.appendChild(field('skill-instructions', 'Instructions', procedure,
+      'Write the procedure and its conditions in Markdown. Position the cursor at a step, then Insert at cursor below to place reusable guidance there.'));
+    var refs = el('fieldset', { class: 'studio-card' }, el('legend', { text: 'Reusable instructions' }), el('p', { class: 'hint', text: 'Only selected instructions follow this skill. Insertions expand pinned instruction text at that step; selected instructions without an insertion appear after the skills. Shared bodies render once. Running Stories keep their pinned bytes.' }));
     Array.from(new Set(Object.keys(state.draft.instructions || {}).concat(form.instructionRefs))).sort().forEach(function (ref) {
-      refs.appendChild(el('label', { class: 'studio-row' }, el('input', { type: 'checkbox', checked: form.instructionRefs.indexOf(ref) >= 0, onchange: function (event) { form.instructionRefs = form.instructionRefs.filter(function (id) { return id !== ref; }); if (event.target.checked) form.instructionRefs.push(ref); } }), (state.draft.instructions[ref] ? state.draft.instructions[ref].label : 'Missing definition — create it or deselect') + ' (' + ref + ')'));
+      refs.appendChild(el('div', { class: 'studio-row' }, el('label', { class: 'studio-row' }, el('input', { type: 'checkbox', checked: form.instructionRefs.indexOf(ref) >= 0, onchange: function (event) {
+        var placement = insertSkillInstruction(procedure.value, ref, 0, []);
+        if (!event.target.checked && placement.error && placement.error.indexOf('already has an insertion') >= 0) { event.target.checked = true; setStatus('Remove this instruction placement from the procedure before deselecting its reference.'); return; }
+        form.instructionRefs = form.instructionRefs.filter(function (id) { return id !== ref; }); if (event.target.checked) form.instructionRefs.push(ref);
+      } }), (state.draft.instructions[ref] ? state.draft.instructions[ref].label : 'Missing definition — create it or deselect') + ' (' + ref + ')'),
+        button('Insert at cursor', function () {
+          if (!state.draft.instructions[ref]) { setStatus('Create the missing instruction first.'); return; }
+          var inserted = insertSkillInstruction(procedure.value, ref, procedure.selectionStart, form.instructionRefs);
+          if (inserted.error) { setStatus(inserted.error); return; }
+          form.instructions = inserted.instructions; form.instructionRefs = inserted.instructionRefs;
+          render(); setStatus('Instruction linked at the selected step. Conditions in that step govern when it applies.');
+        }, { class: 'secondary', 'aria-label': 'Insert ' + ref + ' at cursor' })));
     });
     if (!Object.keys(state.draft.instructions || {}).length) refs.appendChild(el('span', { class: 'hint', text: 'No reusable instructions yet. Create one in Instructions first.' }));
     card.appendChild(refs);

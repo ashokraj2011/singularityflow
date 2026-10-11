@@ -23,6 +23,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { SingularityFlowError, secureRepositoryPath } from './util.mjs';
 import { instructionReferences, resolveSkillInstructions } from './instruction-library.mjs';
+import { instructionSlots } from './skill-instruction-composition.mjs';
 
 export const SKILL_LIBRARY_ROOT = 'singularity/skill-library';
 export const SKILL_FILE = 'SKILL.md';
@@ -102,8 +103,9 @@ export function parseLibrarySkill(text, { id, source = librarySkillPath(id) } = 
   }
   const instructions = body.trim();
   if (!instructions) fail(`Skill '${name}' has no instructions.`);
+  const instructionPlacements = instructionSlots(instructions, instructionRefs);
   return Object.freeze({
-    id: name, label: rawLabel?.trim() ?? defaultSkillLabel(name), description, instructions, loading, instructionRefs,
+    id: name, label: rawLabel?.trim() ?? defaultSkillLabel(name), description, instructions, loading, instructionRefs, instructionPlacements,
     path: librarySkillPath(name), sha256: sha256(text), bytes: Buffer.byteLength(text, 'utf8'), text
   });
 }
@@ -314,7 +316,7 @@ export function normalizeSkillUse(value) {
  * The prompt text for the library skills attached to an agent in a step: a short instruction to
  * read and apply them, then each skill with when to use it and its instructions.
  */
-export function renderLibrarySkills(agentId, entries, { expansions = new Map() } = {}) {
+export function renderLibrarySkills(agentId, entries, { expansions = new Map(), composition = null } = {}) {
   if (!entries.length) return '';
   const guidance = expansions.size
     ? 'Apply eager instructions below. Optional procedures are catalogued with exact read-only retrieval commands; load one only when its use condition applies. Never defer mandatory safety, correctness or policy instructions. A retrieval refusal means unavailable: do not use live library bytes or invent the procedure.'
@@ -332,8 +334,8 @@ export function renderLibrarySkills(agentId, entries, { expansions = new Map() }
     entry.instructionRefs?.length ? `\nReferenced instructions: ${entry.instructionRefs.join(', ')} (retained with this skill).` : null,
     '',
     expansions.has(entry.id)
-      ? `Optional procedure; instructions retained, not loaded. Retrieve before applying:\n\n${expansions.get(entry.id)}`
-      : entry.instructions.trim()
+      ? `Optional procedure; instructions retained, not loaded. Retrieve before applying; use skill.composedText from the response as the procedure:\n\n${expansions.get(entry.id)}`
+      : (composition?.bodies.get(entry.id) ?? entry.instructions).trim()
   ].filter((line) => line != null).join('\n'));
   return [
     '## Attached skill instructions',

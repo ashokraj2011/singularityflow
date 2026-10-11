@@ -10,7 +10,7 @@ related:
   - skill-master
   - workflow-authoring
   - importing-assets
-version: 2
+version: 3
 ---
 
 ## Purpose and prerequisites
@@ -45,6 +45,62 @@ Use semantic controls with accessible names. Preserve keyboard interaction.
 
 A catalog skill selects definitions by their exact IDs in its own front matter, under
 `metadata.sflow-instructions` (a list such as `- web-conventions`).
+
+## Place guidance at a procedure step
+
+In Workflow Studio → Skill master → Edit, position the cursor at the desired step and choose
+**Insert at cursor** beside a reusable instruction. This selects its ID and inserts a standalone
+placement line. Write the condition immediately before the line; the condition belongs to the
+skill procedure, not to the shared definition.
+
+```markdown
+---
+name: team-web-check
+description: Checks supplied UI sources, executes tests and proposes the reviewed route.
+metadata:
+  sflow-instructions: [demo-source-interpretation, demo-fresh-test-evidence, demo-reviewed-routing]
+---
+
+## Establish expected behavior from the supplied documents or screenshots
+<!-- sflow-instruction: demo-source-interpretation -->
+
+## Execute the approved tests; compare screenshots only when visual scenarios apply
+<!-- sflow-instruction: demo-fresh-test-evidence -->
+
+## Propose pass, repair or blocked from the actual observations
+<!-- sflow-instruction: demo-reviewed-routing -->
+```
+
+The composer expands each line into the exact pinned definition body, labelled with its ID and
+SHA-256. It sends the resulting procedure as part of the active agent's phase prompt; Copilot
+does not need another catalog lookup. A shared definition appears once per prompt, with subsequent
+placements referring to that retained definition. Selected definitions without placement lines
+keep the existing appendix behavior. Placement examples inside fenced code blocks are inert.
+Unselected, malformed or duplicate placements refuse configuration validation with
+`SKILL_INSTRUCTION_PLACEMENT_INVALID` instead of silently dropping instructions.
+
+`singularity-flow skill show <ID> --json` includes `skill.composedText` as a read-only catalog
+preview. Story-bound on-demand retrieval also returns `composedText`, using only the accepted
+snapshot, never a later library edit. The source SKILL.md and definition hashes remain separate;
+composition does not overwrite either source file. Placed instructions pin the v4 **skill prompt
+composer** interpretation; this is independent of the World Model format. Older unplaced snapshots
+retain their existing v3 instruction interpretation.
+
+## Seeded demonstration
+
+Choose **Demo — Instruction-composed Test Loop** (`demo-instruction-test-loop`) from the workflow
+catalog, or adopt it through `singularity-flow workflow create demo-instruction-test-loop` using
+the normal reviewed configuration route. Duplicate the seed to customize its agents, skills or
+instructions; seeded definitions remain read-only.
+
+The sequence is Intake → Test → Repair → Test (bounded loop) → Close. A fresh initial pass can
+skip Repair and go to Close; unavailable tools/evidence cannot produce pass. Its four custom
+`demo-instruction-*` agents physically attach their custom skills. The checker skill composes
+three reusable definitions at source interpretation, test execution and route proposal. The
+repairer is a different agent, and every repaired revision returns to the independent checker.
+Automatic route selection retains human approval checkpoints, including closure; closing reports
+preserve repair history and residual risk. No browser service is mandatory: use approved existing
+repository commands or an explicitly authorized Playwright/equivalent tool.
 
 ## Use it from each surface
 

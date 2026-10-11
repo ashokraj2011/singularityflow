@@ -362,6 +362,17 @@ const AGENTS_BEFORE_NATIVE_ENTRY_REUSE = Object.freeze({
 
 /** Current release digests, kept separate so a known current file is never offered as repairable. */
 export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
+  '.github/agents/demo-instruction-analyst.agent.md': '5c527291e89f935e0586657bcffc3a8317dfdddfa140f2701d2fe4a7eea3a478',
+  '.github/agents/demo-instruction-tester.agent.md': '1b7c1a81bceb26860dcb74210ea3ac993c5e0d1ffffaa57461c19345e296b496',
+  '.github/agents/demo-instruction-developer.agent.md': 'e63c417149a151a0aa6155126d40d397918e1810d4d5384b95a4ced0e307bd53',
+  '.github/agents/demo-instruction-closer.agent.md': '46dfd20f054f900fb603bba672bc47b303e640951f3f308c90c6958340b5bb4b',
+  'singularity/skill-library/demo-instruction-intake/SKILL.md': '94cf220f19beaebdf607fd15a0141a725157094fc8041e1c7f545f9ad14667cb',
+  'singularity/skill-library/demo-instruction-check/SKILL.md': '2c5e5c781fd40e0acfe53c840be85aaad3b287ea03be3ab061e232213b9982bc',
+  'singularity/skill-library/demo-instruction-repair/SKILL.md': 'bfc145eb0865f1705a759527142de6fe6906123670c28f8b71874bc0f47452ce',
+  'singularity/skill-library/demo-instruction-close/SKILL.md': '6dafc1c285b8966a16b973083b5d2d4ce256a23497be7e6734cca5d1bdb70609',
+  'singularity/instruction-library/demo-source-interpretation/INSTRUCTIONS.md': 'cd9e207c963372ba5a94d0cdbcb8021d85daaa84d28c3b7fa47980d0c5e9d7a7',
+  'singularity/instruction-library/demo-fresh-test-evidence/INSTRUCTIONS.md': '955f8eb96b82b2498d312e8efc0d464095d0d3760cebb99ff17e12a871e91948',
+  'singularity/instruction-library/demo-reviewed-routing/INSTRUCTIONS.md': '28bf939ed7d27cb2bec663ad3cff3b6eb67692a9862d0244d6d0ba611966e99f',
   '.github/agents/demo-intake-analyst.agent.md': '4de23dbcb5a2877937198343521aab3f9f2accd4638560c8d386e11faab21dc1',
   '.github/agents/demo-code-checker.agent.md': '8663390f8d2307b0761c77dff2b8c3ba5f210eb0b4ce2a667393e35f74a8c429',
   '.github/agents/demo-code-repairer.agent.md': 'c9fa90ab14274f2f1bd0d92662a773087ccdaa66d24b8b117b26d1e36fbb9834',

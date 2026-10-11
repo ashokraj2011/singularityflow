@@ -6,6 +6,8 @@ import { SingularityFlowError } from './util.mjs';
 import { canonicalJson } from './records.mjs';
 
 export const INSTRUCTION_COMPOSER = 'story-snapshot-agent-v3';
+export const PLACED_INSTRUCTION_COMPOSER = 'story-snapshot-agent-v4';
+export const INSTRUCTION_COMPOSERS = Object.freeze([INSTRUCTION_COMPOSER, PLACED_INSTRUCTION_COMPOSER]);
 const qualified = text => `sha256:${createHash('sha256').update(text).digest('hex')}`;
 const referenceHash = id => qualified('wfa.dependency-reference.v1\0'
   + canonicalJson(`skill\0${id}\0${librarySkillReference(id)}`));
@@ -15,16 +17,18 @@ export function instructionOwner(asset) {
 }
 
 export function assertInstructionClosure(manifest, assets, bytes) {
-  const required = new Set();
+  const required = new Set(); let placed = false;
   for (const asset of assets.values()) {
     if (!instructionOwner(asset)) continue;
     const source = bytes.get(asset.logicalId);
     if (!source) throw new SingularityFlowError('Retained skill bytes are unavailable for instruction validation.', { code: 'WFA_DEPENDENCY_UNAVAILABLE' });
     const skill = parseLibrarySkill(source.toString('utf8'), { id: asset.source.skillId ?? asset.source.dependencyId });
+    placed ||= skill.instructionPlacements.length > 0;
     for (const id of skill.instructionRefs) required.add(id);
   }
   const carried = [...assets.values()].filter(asset => asset.purpose === 'shared-instruction');
-  if ((required.size || carried.length) && manifest.semantics?.promptComposer !== INSTRUCTION_COMPOSER) {
+  if ((required.size || carried.length) && (!INSTRUCTION_COMPOSERS.includes(manifest.semantics?.promptComposer)
+      || (placed && manifest.semantics.promptComposer !== PLACED_INSTRUCTION_COMPOSER))) {
     throw new SingularityFlowError('Referenced instructions require the retained instruction composer.', { code: 'WFA_RUNTIME_INCOMPATIBLE' });
   }
   for (const id of required) {

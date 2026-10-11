@@ -150,6 +150,29 @@ Usage is Copilot's own per-model-call record (`session.usage_record` in its sess
   `phase enter` and `nextsteps` each ran 6 times across turns, and `phase show` ran
   after every publication and submission.
 
+### After the fixes (`26a25df0`, `48bb1185`)
+
+The same Story was run twice more:
+- Run 2 used model Auto, which this time chose a different model.
+- Run 3 was pinned to `gpt-6-luna`, the model of the first run, for a like-for-like comparison.
+
+Both runs followed the CLI's approval output, "Context boundary: new … /clear, /sf-next": a fresh conversation per phase, entered with `/sf-session`, then the drafting skill and `/sf-submit`.
+
+| Input tokens | First run | Run 3 (same model) | Run 2 (Auto) |
+| --- | ---: | ---: | ---: |
+| Attach + Intake | 1,338,691 | 1,913,873 | 1,022,841 |
+| Code | 2,305,218 | 2,337,994 | 918,310 |
+| Testing | 2,944,829 | 1,254,975 | 944,917 |
+| Code checking | 10,359,940 | 2,409,731 | 1,487,834 |
+| Total | 16,948,678 | 7,916,573 | 4,373,902 |
+| Premium requests | 16 | 16 | 15 |
+| Largest context per call | 216,524 | 101,394 | 71,925 |
+
+- Code checking passed its draft check first time in both runs: the report arrived with the self-approval disclosures already written. No repair loop ran.
+- Each fresh conversation pays for its own attach turn: `/sf-session` cost 120K–173K tokens and one premium request each time. That is why premium requests stayed flat even though input tokens halved. Carrying the Story selection across a context boundary that SFlow itself requested would remove that turn.
+- Run 3's model needed three corrective messages. It tagged an unapproved clause, published an Agent brief it could not correct without a new generation, and missed the committed test receipt. Model choice moves these numbers as much as the workflow does.
+- An agent that extracts chosen fields with `python3` or truncates with `head -c` can miss what it did not extract. Run 2's agent never read `contextBoundary` in an old conversation. It also missed the Story description, which sits deep in the composed context. Field-only hints are not enough on their own; the surface that approves should start the fresh conversation.
+
 ## Regression checks
 
 ```sh

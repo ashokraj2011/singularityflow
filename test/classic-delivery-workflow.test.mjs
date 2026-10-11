@@ -249,11 +249,13 @@ test('Classic delivery commits passing test results before Testing and Code chec
       `Verified ${workId}:AC-001 against ${receiptPath} and the committed passing unit-test receipt.`);
     text = text.replace(/\bTODO\b/gu, 'matched');
     if (phase === 'conformance') {
+      // Prepare writes the self-approval disclosures the report owes, so a draft cannot fail for
+      // omitting a paragraph the engine already knows.
       const retained = await workflow();
-      text += '\n## Self-approval disclosure\n\n';
       for (const id of retained.phaseOrder) for (const approval of retained.phases[id].approvals ?? []) {
         if (!approval.selfApproval || approval.invalidatedAt) continue;
-        text += `- ${id}: self-approval by ${approval.actor.login ?? approval.actor.email ?? approval.actor.name}; not an independent review.\n`;
+        assert.ok(text.includes(`- \`${id}\`: self-approved by ${approval.actor.login ?? approval.actor.email ?? approval.actor.name}`),
+          `the prepared Code checking report discloses the ${id} self-approval`);
       }
     }
     await writeFile(artifact, text);

@@ -37,6 +37,35 @@ export function inspectSelfApprovalDisclosures(markdown, workflow) {
   return findings;
 }
 
+/** Each self-approval a conformance report owes, from retained approvals, as one Markdown line. */
+export function selfApprovalDisclosureLines(workflow) {
+  const lines = [];
+  for (const phaseId of workflow?.phaseOrder ?? Object.keys(workflow?.phases ?? {})) {
+    for (const approval of workflow?.phases?.[phaseId]?.approvals ?? []) {
+      if (approval.invalidatedAt || !approval.selfApproval) continue;
+      const actor = approval.actor?.login ?? approval.actor?.email ?? approval.actor?.name ?? null;
+      lines.push(`- \`${phaseId}\`: self-approved${actor ? ` by ${actor}` : ''}; not an independent review.`);
+    }
+  }
+  return lines;
+}
+
+/**
+ * A new conformance report starts with the self-approval disclosures it owes.
+ *
+ * The draft check refuses a report that omits one, and an agent that forgets it pays for a bounded
+ * repair loop to add a paragraph the engine already knows. The template's own disclosure section,
+ * when it has one, receives the lines in place of its TODO; otherwise the section is appended.
+ */
+export function withSelfApprovalDisclosures(markdown, workflow) {
+  const lines = selfApprovalDisclosureLines(workflow);
+  if (!lines.length) return markdown;
+  const block = ['Recorded from the retained approvals. Keep every line.', '', ...lines].join('\n');
+  const section = /^## Self-approval disclosures?[ \t]*\n(?:(?!^## )[\s\S])*?^TODO:[^\n]*$/mu;
+  if (section.test(markdown)) return markdown.replace(section, (match) => match.replace(/^TODO:[^\n]*$/mu, block));
+  return `${String(markdown).trimEnd()}\n\n## Self-approval disclosures\n\n${block}\n`;
+}
+
 /** One report-row contract for draft, publication, approval, and terminal review. */
 export function inspectQualifiedConformanceReport(markdown, clauseIds) {
   const known = new Set((clauseIds ?? []).map(normalizeQualifiedClauseId).filter(Boolean));

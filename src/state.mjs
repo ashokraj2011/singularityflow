@@ -96,7 +96,7 @@ import {
   publishedGenerationCommit, verifyOpenGenerationIntent
 } from './generation-boundary.mjs';
 import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
-import { inspectPhaseQualifiedConformance } from './conformance-readiness.mjs';
+import { inspectPhaseQualifiedConformance, withSelfApprovalDisclosures } from './conformance-readiness.mjs';
 import { runQualityCommand } from './quality-command-runner.mjs';
 import { classifyRequiredTestFailure } from './test-execution-diagnostics.mjs';
 import {
@@ -2573,6 +2573,9 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     // so every authoring surface can find the sources without searching home or copying content
     // into prompts. Never inject this block into an existing, user-authored artifact on a retry.
     const referenceContext = referenceRepositoryContextMarkdown(references);
+    if (!artifactExistedBeforePreparation && phase.requiredArtifact?.kind === 'conformance-report') {
+      text = withSelfApprovalDisclosures(text, workflow);
+    }
     if (!artifactExistedBeforePreparation && referenceContext) text = `${referenceContext}\n\n${text}`;
     if (!artifactExistedBeforePreparation) {
       const initialized = repairPreparedArtifactMetadata(text, { canonicalMetadata });

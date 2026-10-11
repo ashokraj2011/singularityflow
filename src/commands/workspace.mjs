@@ -145,6 +145,8 @@ export async function run(argv, context = {}) {
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
     active: true,
     ...current,
+    // The selection error code is part of the payload even when the selection is ready.
+    selectionErrorCode: current.selectionErrorCode ?? null,
     ...(gitShadowSummary ? { gitShadow: gitShadowSummary } : {})
   }, null, 2));
   if (action === 'prompt') return console.log(workspacePromptLabel(current));

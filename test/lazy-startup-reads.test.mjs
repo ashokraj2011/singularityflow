@@ -112,12 +112,13 @@ test('startup read entrypoints do not statically reach the legacy monolith', asy
   const capabilityClosure = await staticClosure('src/commands/capability.mjs');
   // The enterprise Git isolation path is already part of the committed read graph, and so is the
   // governed commit's secret scan, which reads DOCX and XLSX text through source-text.mjs (a leaf
-  // module with only a builtin import). Keep the ceiling at that verified baseline so new eager
-  // startup imports still fail this test.
+  // module with only a builtin import). Every Git spawn also selects the host Git through
+  // git-host-selection.mjs (38e44423), another builtin-only leaf. Keep the ceiling at that verified
+  // baseline so new eager startup imports still fail this test.
   assert.ok(workspaceClosure.size <= 27,
     `workspace startup reads load ${workspaceClosure.size} static modules; ceiling is 27`);
-  assert.ok(capabilityClosure.size <= 10,
-    `capability leads loads ${capabilityClosure.size} static modules; ceiling is 10`);
+  assert.ok(capabilityClosure.size <= 11,
+    `capability leads loads ${capabilityClosure.size} static modules; ceiling is 11`);
   for (const file of [...workspaceClosure, ...capabilityClosure]) {
     assert.doesNotMatch(path.basename(file), /^(?:cli|jira|initiative|visual|model-runner|model-provider)\.mjs$/,
       `startup read graph reaches unrelated heavyweight domain ${file}`);

@@ -16278,7 +16278,9 @@ async function workspaceCommand(positionals, options) {
       printCommandRoutes('singularity-flow workspace use <WORKSPACE>', { label: 'Select one' });
       return;
     }
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ active: true, ...current }, null, 2));
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
+      active: true, ...current, selectionErrorCode: current.selectionErrorCode ?? null
+    }, null, 2));
     if (subcommand === 'prompt') return console.log(workspacePromptLabel(current));
     console.log(`\n${workspacePromptLabel(current)}`);
     console.log(`Workspace: ${current.workspacePath}`);

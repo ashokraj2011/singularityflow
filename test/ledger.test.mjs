@@ -390,6 +390,10 @@ const relay = (result) => {
   if (result.stderr) process.stderr.write(result.stderr);
   process.exit(result.status == null ? 1 : result.status);
 };
+// On macOS a Git child's PATH starts with the selected Git's real directory, so drop both spellings.
+const wrapperDirectories = new Set([${JSON.stringify(directory)}, fs.realpathSync(${JSON.stringify(directory)})]);
+const pathWithoutWrapper = () => process.env.PATH.split(${JSON.stringify(path.delimiter)})
+  .filter((entry) => !wrapperDirectories.has(entry)).join(${JSON.stringify(path.delimiter)});
 ${script}
 relay(forward());
 `);
@@ -484,9 +488,7 @@ if (args[0] === 'push' && args.includes('--atomic') && !fs.existsSync(${JSON.str
   // this push's commit and observation alone cannot tell whether it landed.
   const raced = spawnSync(${JSON.stringify(process.execPath)}, [${JSON.stringify(helper)}], {
     cwd: ${JSON.stringify(root)}, encoding: 'utf8',
-    env: { ...process.env, PATH: process.env.PATH.split(${JSON.stringify(path.delimiter)})
-      .filter((entry) => entry !== ${JSON.stringify(path.join(parent, 'unverifiable-atomic-push'))})
-      .join(${JSON.stringify(path.delimiter)}) }
+    env: { ...process.env, PATH: pathWithoutWrapper() }
   });
   if (raced.status !== 0) { process.stderr.write(raced.stderr || raced.stdout); process.exit(raced.status || 1); }
   process.stderr.write('fatal: connection closed after receive-pack accepted the update\\n');
@@ -709,7 +711,6 @@ await appendLedgerIntent(${JSON.stringify(other)}, ${JSON.stringify(enabled)}, c
   actor: { name: 'Other Reviewer', email: 'other@example.com' }
 }), ${JSON.stringify(otherCommit)});
 `);
-  const wrapperDirectory = path.join(fixture.parent, 'unverifiable-combined');
   const { env } = await gitWrapper(fixture.parent, 'unverifiable-combined', `
 if (args[0] === 'push' && args.includes('--atomic') && args.some((arg) => arg.endsWith(':refs/heads/${fixture.branch}'))) {
   const landed = forward();
@@ -717,8 +718,7 @@ if (args[0] === 'push' && args.includes('--atomic') && args.some((arg) => arg.en
   // Another writer appends on top before this response arrives.
   const raced = spawnSync(${JSON.stringify(process.execPath)}, [${JSON.stringify(helper)}], {
     cwd: ${JSON.stringify(other)}, encoding: 'utf8',
-    env: { ...process.env, PATH: process.env.PATH.split(${JSON.stringify(path.delimiter)})
-      .filter((entry) => entry !== ${JSON.stringify(wrapperDirectory)}).join(${JSON.stringify(path.delimiter)}) }
+    env: { ...process.env, PATH: pathWithoutWrapper() }
   });
   if (raced.status !== 0) { process.stderr.write(raced.stderr || raced.stdout); process.exit(raced.status || 1); }
   process.stderr.write('fatal: connection closed after receive-pack accepted the update\\n');

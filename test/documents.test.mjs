@@ -839,5 +839,7 @@ test('the gate accepts a superseded generation composed from a document detached
   flow(root, ['phase', 'publish', 'intake']); flow(root, ['submit']); flow(root, ['approve', '--yes']);
   const gate = flow(root, ['gate']);
   assert.doesNotMatch(gate.stdout, /supporting evidence is detached/);
-  assert.match(`${gate.stdout}${gate.stderr}`, /intake generation 1 was composed from DOC-001, detached since; a later generation replaced it/);
+  // The gate no longer reads composition receipts (they went with the registered World Model), so
+  // the replaced generation is simply not held against the Story.
+  assert.match(gate.stdout, /Singularity Flow governance gate passed\./);
 });

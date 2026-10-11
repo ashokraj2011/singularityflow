@@ -76,7 +76,10 @@ async function publishSkill(publisher, version, {
   definition.approvalAuthorities['engineering-reviewers'].allowAnyGitIdentity = true;
   definition.workTypes['skill-only'] = { label: 'Skill only',
     phases: independentSkill ? ['threat-model', 'privacy-check'] : ['threat-model'],
-    plannedClaims: { mode: 'opt-out' } };
+    plannedClaims: { mode: 'opt-out' },
+    // A route must hold each delivery responsibility or say who decides it does not apply.
+    omits: ['scope', 'plan', 'implement', 'verify'].map((responsibility) => ({ responsibility,
+      reason: 'Skill amendment fixture of analysis steps that changes no repository code.', authority: 'product-approvers' })) };
   const authoring = {
     id: 'threat-model', kind: 'skill', label: 'Threat model',
     skill: { id: 'threat-model', packageSha256 },

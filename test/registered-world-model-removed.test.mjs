@@ -115,14 +115,14 @@ test('a repository seeded from the earlier package keeps its packaged phases and
   const earlierIntake = { ...template.phases.intake, worldModel: { views: ['biz.rules'], depth: 'quick' } };
   assert.equal(isKnownPackagedWorkflowValue('phases', 'intake', earlierIntake), true);
   assert.equal(isKnownPackagedWorkflowValue('phases', 'intake', template.phases.intake), true);
-  // …and the same developer agent with its views header.
+  // …and the developer agent exactly as it shipped with its views header. The agent has changed
+  // since, so its earlier bytes are pinned by digest rather than rebuilt from today's file.
   const agent = await readFile(path.join(root, 'templates', 'agents', 'developer.agent.md'), 'utf8');
   assert.doesNotMatch(agent, /sflow-world-model-views/u);
-  const earlierAgent = agent.replace(/^( {2}sflow-default-for: .*\n)/mu, '$1  sflow-world-model-views: "arch.contracts,dev.impact"\n');
-  assert.notEqual(earlierAgent, agent);
   const digest = (text) => createHash('sha256').update(text).digest('hex');
   const known = KNOWN_PACKAGED_ASSET_SHA256['.github/agents/developer.agent.md'];
-  assert.ok(known.includes(digest(earlierAgent)), 'the earlier agent revision is registered');
+  assert.ok(known.includes('5e98b958632baa68321694536f5a6ddc80cef2b11e1bb422796cfbea6d7786c7'),
+    'the earlier agent revision is registered');
   assert.ok(known.includes(digest(agent)), 'the current agent revision is registered');
 });
 

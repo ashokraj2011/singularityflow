@@ -62,6 +62,8 @@ test('approve and reject use saved templates and agents even when live resources
   await writeFile(file, YAML.stringify(raw));
   // Also break discovery of the live agent without touching its accepted Git closure.
   await writeFile(path.join(root, '.github/agents/product-owner.agent.md'), '---\ninvalid: [\n');
+  // Committed, because a lifecycle decision refuses uncommitted authored changes before anything else.
+  run('git', ['commit', '-qam', 'break the live template and agent'], { cwd: root });
   const before = run('git', ['status', '--porcelain'], { cwd: root }).stdout;
   for (const action of ['approve', 'reject']) {
     const context = await loadStoryDecisionExecution(root, [action, 'specification'], { 'work-id': ID }, action);
@@ -86,6 +88,7 @@ test('an accepted phase removed from the live catalog is still a phase, not a br
   // valid, but only the accepted Story catalog still contains the old phase identity.
   const replacement = YAML.stringify(raw).replaceAll('specification', 'new-scope');
   await writeFile(file, replacement);
+  run('git', ['commit', '-qam', 'rename the live phase'], { cwd: root });
   const before = run('git', ['status', '--porcelain'], { cwd: root }).stdout;
   for (const action of ['approve', 'reject']) {
     const context = await loadStoryDecisionExecution(root, [action, 'specification'], {}, action);

@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
+import { initializeDefinition, normalizePlannedClaimsPolicy, resolveWorkType } from '../src/config.mjs';
 import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { createReviewBundle, reviewMarkdown } from '../src/review.mjs';
@@ -89,13 +89,18 @@ async function story(name, { markers = 'block', quality = 'enforce' } = {}) {
   // tests; do not let the starter's new review requirement mask the gate under test here.
   resolved.sourceReview = { mode: 'off', phases: [], reviewerAgent: null };
   const specification = resolved.phases.find((phase) => phase.id === 'specification');
+  const planning = resolved.phases.find((phase) => phase.id === 'planning');
+  // A later step keeps the phase under test from being the Story's last, so finishing it advances
+  // the Story instead of running the final evaluation of a rail trimmed for this test.
   resolved.phases = [{
     ...specification,
     order: 0,
     clarification: { ...specification.clarification, mode: 'off', markers: { mode: markers } },
     specificationQuality: { ...specification.specificationQuality, mode: quality },
     approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['specification'] }
-  }];
+  }, { ...planning, order: 1, inputs: [] }];
+  // A rail trimmed after resolution resolves planned claims for the phases it keeps.
+  resolved.plannedClaims = normalizePlannedClaimsPolicy(null, { workTypeId: 'spec-driven-standard', phases: resolved.phases, spec: resolved.spec });
   await setAgentSession(root, config, ACTOR, 'product-owner', 'DRIVE-1', { phaseId: 'specification', source: 'test' });
   return { root, config, resolved };
 }

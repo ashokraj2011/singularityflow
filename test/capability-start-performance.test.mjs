@@ -274,7 +274,7 @@ async function launchFixture(t, { registered = false } = {}) {
   const options = {
     lifecycleRoot: root, publishRequired: false, launchFetchProof: proof,
     ...(registered ? { configurationSnapshot: { definition: {
-      worldModel: { format: 'registered-v4' }, ledger: { branch: 'state', remote: 'origin' }
+      ledger: { branch: 'state', remote: 'origin' }
     } } } : {})
   };
   const calls = [];
@@ -300,7 +300,6 @@ test('capability preflight reuses a same-command launch fetch after one fresh ex
   const probes = fixture.calls.filter((args) => args[0] === 'ls-remote');
   assert.equal(probes.length, 1);
   assert.deepEqual(probes[0].slice(-3).sort(), ['refs/heads/main', 'refs/heads/STORY-FRESH', 'refs/heads/state'].sort());
-  assert.equal(checked[0].worldModelAuthorityRefresh.commit, fixture.options.launchFetchProof.stateCommit);
 });
 
 test('capability preflight reuses Story destination discovery instead of probing the same refs again', async (t) => {
@@ -315,7 +314,6 @@ test('capability preflight reuses Story destination discovery instead of probing
   assert.equal(fixture.calls.filter((args) => args[0] === 'ls-remote').length, 0,
     'destination discovery already asked this remote for these refs after the launch fetch');
   assert.equal(fixture.calls.filter((args) => args[0] === 'fetch').length, 0);
-  assert.equal(checked[0].worldModelAuthorityRefresh.commit, fixture.options.launchFetchProof.stateCommit);
 });
 
 test('a destination observation that misses a proof ref or names another remote is probed as before', async (t) => {
@@ -357,8 +355,6 @@ test('absent remote Story and state tips take the normal prune path for stale tr
   assert.equal(checked[0].fetchReused, false);
   assert.equal(fixture.calls.filter((args) => args[0] === 'fetch').length, 1);
   assert.equal(refHead(fixture.root, 'refs/remotes/origin/STORY-FRESH'), null);
-  assert.equal(checked[0].worldModelAuthorityRefresh.status, 'remote-absent');
-  assert.equal(checked[0].worldModelAuthorityRefresh.commit, null);
 });
 
 test('a state tip removed after launch is freshly detected and pruned even when the base did not move', async (t) => {
@@ -369,7 +365,6 @@ test('a state tip removed after launch is freshly detected and pruned even when 
   assert.equal(fixture.calls.filter((args) => args[0] === 'ls-remote').length, 1);
   assert.equal(fixture.calls.filter((args) => args[0] === 'fetch').length, 1);
   assert.equal(refHead(fixture.root, 'refs/remotes/origin/state'), null);
-  assert.equal(checked[0].worldModelAuthorityRefresh.status, 'remote-absent');
 });
 
 test('freshly absent state remains reusable only when the launch fetch also proved absence', async (t) => {
@@ -380,7 +375,6 @@ test('freshly absent state remains reusable only when the launch fetch also prov
   const checked = await fixture.preflight();
   assert.equal(checked[0].fetchReused, true);
   assert.equal(fixture.calls.filter((args) => args[0] === 'fetch').length, 0);
-  assert.equal(checked[0].worldModelAuthorityRefresh.status, 'remote-absent');
 });
 
 test('poisoned fetch success is refused before any publication probe', async (t) => {

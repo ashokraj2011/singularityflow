@@ -577,7 +577,8 @@ test('isolated Story start fetches the configured remote before pinning its base
     '--from-branch', 'main', '--work-type', 'feature',
     '--title', 'Use the exact company base',
     '--description', 'Fetch the configured remote before readiness and Story creation.'
-  ], root).stdout);
+    // The fetch count is read from the timing log, so keep it on whatever the caller's environment says.
+  ], root, { env: { SINGULARITY_FLOW_DISABLE_TIMING_LOG: '' } }).stdout);
   const workflow = JSON.parse(await readFile(path.join(
     started.data.repositoryPath,
     'singularity/work-items/ISO-CUSTOM-REMOTE-1/workflow.json'

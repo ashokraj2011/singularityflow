@@ -160,27 +160,22 @@ test('real prepublish reserves and resumes owned corrections without treating it
   assert.equal(ready.status, 'ready'); assert.equal(ready.repairLoop.active, null);
 });
 
-test('prepublish reports missing governed grounding as guidance and still offers publication', async (t) => {
+test('prepublish reports grounding as off and still offers publication', async (t) => {
   const item = await fixture(t);
   await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');
-  // A Story pinned `enforce` acts as `warn`: the World Model never blocks publication.
+  // The registered World Model and its grounding receipt were removed. A Story pinned to an older
+  // `enforce` or `warn` setting gets no grounding check, so nothing about grounding can block.
   for (const mode of ['enforce', 'warn']) {
     item.workflow.resolution.worldModelGrounding = mode;
     const result = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
     assert.equal(result.status, 'ready', mode);
-    assert.equal(result.grounding.status, 'warning', mode);
-    assert.match(result.grounding.warnings.join('\n'), /grounding composition is missing/);
+    assert.equal(result.grounding.status, 'off', mode);
     assert.equal(result.findings.some((entry) => String(entry.code).startsWith('phase.grounding.')), false);
     assert.equal(result.mutates, false);
   }
-
-  item.phase.generationPolicy = { defaultProducer: 'human', allowedProducers: ['human'] };
-  const human = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
-  assert.equal(human.status, 'ready', 'human authorship has no model-grounding requirement');
-  assert.equal(human.grounding.status, 'not-applicable');
 });
 
-test('prepublish reports an invalid retained grounding receipt without blocking or rewriting it', async (t) => {
+test('prepublish leaves a retained grounding receipt from an older build untouched', async (t) => {
   const item = await fixture(t);
   await writeFile(item.absolute, '# Plan\n\nImplement the approved requirements and run the planned tests.\n');
   item.workflow.resolution.worldModelGrounding = 'enforce';
@@ -189,7 +184,7 @@ test('prepublish reports an invalid retained grounding receipt without blocking 
   await writeFile(receipt, '{invalid receipt');
   const result = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
   assert.equal(result.status, 'ready');
-  assert.match(result.grounding.warnings.join('\n'), /grounding composition record is not a valid receipt/);
+  assert.equal(result.grounding.status, 'off');
   assert.equal(await readFile(receipt, 'utf8'), '{invalid receipt');
 });
 

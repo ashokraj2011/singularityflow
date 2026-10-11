@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
+import { initializeDefinition, normalizePlannedClaimsPolicy, resolveWorkType } from '../src/config.mjs';
 import { runQualityCommand } from '../src/quality-command-runner.mjs';
 import { assertSourceBoundary, isTestAutomationPath } from '../src/source-boundary.mjs';
 import { storyPullRequestPlan } from '../src/pull-request.mjs';
@@ -97,7 +97,15 @@ test('a phase cannot advance until every required authority group has decided', 
       minimum: 2
     }
   };
-  resolved.phases = [{ ...hardenedPublication, order: 0, inputs: [] }];
+  // A later step keeps the review from being the Story's final phase, so approving it advances the
+  // Story instead of running the final evaluation of a rail reduced for this test.
+  const following = resolved.phases.find((phase) => phase.id === 'poc-impact-analysis');
+  resolved.phases = [
+    { ...hardenedPublication, order: 0, inputs: [] },
+    { ...following, order: 1, inputs: [] }
+  ];
+  // A rail trimmed after resolution resolves planned claims for the phases it keeps.
+  resolved.plannedClaims = normalizePlannedClaimsPolicy(null, { workTypeId: 'poc-workflow', phases: resolved.phases, spec: resolved.spec });
   const first = { name: 'Quality Reviewer', email: 'quality@example.com', login: null };
   const author = { name: 'POC Author', email: 'poc.author@example.com', login: null };
   await setAgentSession(root, config, author, 'poc-validator', 'POC-AUTH-1', { phaseId: publication.id, source: 'test' });
@@ -167,6 +175,6 @@ Quality review must decide first and engineering review must decide independentl
   await setAgentSession(root, config, second, 'poc-validator', 'POC-AUTH-1', { phaseId: publication.id, source: 'test' });
   const two = await approvePhase(root, config, workflow, { phaseId: publication.id, persist: false });
   assert.equal(two.approval.authorityGroup, 'engineering-reviewers');
-  assert.equal(workflow.status, 'closed');
   assert.equal(workflow.phases[publication.id].status, 'approved');
+  assert.equal(workflow.currentPhase, 'poc-impact-analysis', 'both decisions advance the Story');
 });

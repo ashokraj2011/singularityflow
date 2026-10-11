@@ -5,7 +5,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
+import { initializeDefinition, normalizePlannedClaimsPolicy, resolveWorkType } from '../src/config.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { canonicalJson } from '../src/records.mjs';
 import { buildGenerationAuthorship, importManualArtifact, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
@@ -221,6 +221,8 @@ test('an enrolled v7 WFA Story loads, saves, validates, and publishes without po
     clarification: { mode: 'off', maxQuestions: 5, topics: [], markers: { mode: 'block' } },
     approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['intake'] }
   }];
+  // A rail trimmed after resolution resolves planned claims for the phases it keeps.
+  resolved.plannedClaims = normalizePlannedClaimsPolicy(null, { workTypeId: 'feature', phases: resolved.phases, spec: resolved.spec });
   const actor = {
     name: 'WFA Upgrade Author', email: 'wfa-upgrade@example.invalid', login: null
   };
@@ -334,7 +336,7 @@ test('an enrolled v7 WFA Story loads, saves, validates, and publishes without po
   });
 });
 
-test('a Story can complete through manual authorship with model mode disabled', async () => {
+test('a Story phase completes through manual authorship with model mode disabled', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-no-model-lifecycle-'));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', 'Manual Author');
@@ -348,11 +350,16 @@ test('a Story can complete through manual authorship with model mode disabled', 
   const config = await loadConfig(root);
   config.git.publish = 'off';
   const resolved = resolveWorkType(config, 'feature');
+  const requirements = resolved.phases.find((phase) => phase.id === 'requirements');
+  // A later step keeps the phase under test from being the Story's last, so finishing it advances
+  // the Story instead of running the final evaluation of a rail trimmed for this test.
   resolved.phases = [{
     ...resolved.phases[0],
     order: 0,
     approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['intake'] }
-  }];
+  }, { ...requirements, order: 1, inputs: [] }];
+  // A rail trimmed after resolution resolves planned claims for the phases it keeps.
+  resolved.plannedClaims = normalizePlannedClaimsPolicy(null, { workTypeId: 'feature', phases: resolved.phases, spec: resolved.spec });
   const actor = { name: 'Manual Author', email: 'manual@example.invalid', login: null };
   await setAgentSession(root, config, actor, 'developer', 'MANUAL-1', { phaseId: 'intake', source: 'test' });
 
@@ -410,8 +417,8 @@ test('a Story can complete through manual authorship with model mode disabled', 
     phase.writeScope = governedScope;
     await submitPhase(root, config, workflow, { phaseId: 'intake', runChecks: false });
 
-    assert.equal(workflow.status, 'closed');
-    assert.equal(workflow.currentPhase, null);
+    assert.equal(workflow.status, 'in_progress');
+    assert.equal(workflow.currentPhase, 'requirements', 'the accepted phase advances the Story');
     assert.equal(workflow.phases.intake.status, 'approved');
     assert.equal(workflow.phases.intake.authorship.at(-1).producer, 'human');
     assert.equal(workflow.phases.intake.authorship.at(-1).kernelModel.invoked, false);

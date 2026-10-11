@@ -37,6 +37,12 @@ function usage(root, ...args) {
   const result = flow(root, ...args);
   assert.equal(result.status, 0, result.stderr.slice(0, 2000)); return JSON.parse(result.stdout);
 }
+// A --json refusal is one JSON document on stdout, stderr empty, and never carries a usage page.
+function refusal(result, code) {
+  assert.notEqual(result.status, 0); assert.equal(result.stderr, '');
+  const value = JSON.parse(result.stdout); assert.equal(value.resultType, 'sflow-refusal-plan');
+  assert.equal(value.error.code, code); assert.equal(value.data, undefined, 'a refusal returns no usage page'); return value;
+}
 function phase(id, role, input, packageSha256, task = 'analyze') {
   return { id, kind: 'skill', label: id, skill: { id: SKILL, packageSha256 }, contract: {
     task, consumes: [{ phase: input, output: 'primary', required: true, state: 'approved' }],
@@ -158,8 +164,7 @@ test('pagination is deterministic and refuses changed exact sources before retur
   git(f.root, 'checkout', '-q', 'sflow/config');
   await writeFile(path.join(f.root, 'singularity/approved-note.txt'), 'Another exact approved source.\n');
   git(f.root, 'add', '.'); git(f.root, 'commit', '-qm', 'advance approved source'); git(f.root, 'push', '-q', 'origin', 'sflow/config');
-  const refused = flow(f.root, SKILL, '--cursor', '2', '--expected-source', first.sourceSha256);
-  assert.notEqual(refused.status, 0); assert.match(refused.stderr, /SKP_USAGE_SOURCE_CHANGED/u); assert.equal(refused.stdout.trim(), '');
+  refusal(flow(f.root, SKILL, '--cursor', '2', '--expected-source', first.sourceSha256), 'SKP_USAGE_SOURCE_CHANGED');
 });
 
 test('lookup ignores dirty checkout replacements and Story branches and never writes draft or configuration refs', async (t) => {
@@ -182,34 +187,30 @@ test('lookup ignores dirty checkout replacements and Story branches and never wr
 
 test('unknown packages, different package digests and incomplete read scopes are refusals, not zero usage', async (t) => {
   const f = await fixture(t);
-  const absent = flow(f.root, 'absent-skill'); assert.notEqual(absent.status, 0); assert.match(absent.stderr, /SKP_SKILL_MISSING/u);
-  const mismatch = flow(f.root, SKILL, '--package-sha256', H('f'));
-  assert.notEqual(mismatch.status, 0); assert.match(mismatch.stderr, /SKP_SKILL_DRIFT/u);
+  refusal(flow(f.root, 'absent-skill'), 'SKP_SKILL_MISSING');
+  refusal(flow(f.root, SKILL, '--package-sha256', H('f')), 'SKP_SKILL_DRIFT');
   await assert.rejects(withApprovedConfigurationRead(f.root, () => lookupApprovedSkillUsage(f.root, { skillId: SKILL }),
     { preferAuthority: true, requireAuthorityRefresh: true, allowLocalHeads: false,
       selectPaths: ['singularity/workflow.yml'] }), { code: 'SKP_USAGE_SCOPE_UNAVAILABLE' });
   git(f.root, 'remote', 'remove', 'origin');
-  const noAuthority = flow(f.root, SKILL); assert.notEqual(noAuthority.status, 0); assert.match(noAuthority.stderr, /SKP_USAGE_SCOPE_UNAVAILABLE/u);
+  refusal(flow(f.root, SKILL), 'SKP_USAGE_SCOPE_UNAVAILABLE');
 });
 
 test('source digest binds exact authority even when two repositories retain identical commits', async (t) => {
   const f = await fixture(t); const first = usage(f.root, SKILL).data.usage;
   const other = path.join(f.base, 'other.git'); git(f.base, 'clone', '--bare', '-q', f.remote, other);
   git(f.root, 'remote', 'set-url', 'origin', other);
-  const refused = flow(f.root, SKILL, '--expected-source', first.sourceSha256);
-  assert.notEqual(refused.status, 0); assert.match(refused.stderr, /SKP_USAGE_SOURCE_CHANGED/u);
+  refusal(flow(f.root, SKILL, '--expected-source', first.sourceSha256), 'SKP_USAGE_SOURCE_CHANGED');
   const second = usage(f.root, SKILL).data.usage;
   assert.equal(second.source.configurationCommit, first.source.configurationCommit);
   assert.notEqual(second.sourceSha256, first.sourceSha256); assert.equal(second.source.repository, other);
 });
 
 test('configuration budget overflow refuses the complete lookup instead of silently truncating', async (t) => {
-  const f = await fixture(t, { overflow: true }); const refused = flow(f.root, SKILL);
-  assert.notEqual(refused.status, 0); assert.match(refused.stderr, /SKP_USAGE_LIMIT/u); assert.equal(refused.stdout.trim(), '');
+  const f = await fixture(t, { overflow: true }); refusal(flow(f.root, SKILL), 'SKP_USAGE_LIMIT');
 });
 
 test('credential-shaped projected metadata is blocked without echoing its value or returning a partial page', async (t) => {
   const f = await fixture(t, { disclosure: true }); const refused = flow(f.root, SKILL);
-  assert.notEqual(refused.status, 0); assert.match(refused.stderr, /SKP_USAGE_DISCLOSURE_BLOCKED/u);
-  assert.ok(!refused.stderr.includes(`xoxb-${'a'.repeat(16)}`)); assert.equal(refused.stdout.trim(), '');
+  refusal(refused, 'SKP_USAGE_DISCLOSURE_BLOCKED'); assert.ok(!refused.stdout.includes(`xoxb-${'a'.repeat(16)}`));
 });

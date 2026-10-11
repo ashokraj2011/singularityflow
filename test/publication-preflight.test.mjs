@@ -7,7 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
+import { initializeDefinition, normalizePlannedClaimsPolicy, resolveWorkType } from '../src/config.mjs';
 import { applyRecovery, recoveryPlan, recoveryText } from '../src/collaboration.mjs';
 import { phasePrepublish } from '../src/phase-prepublish.mjs';
 import { buildGenerationAuthorship, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
@@ -77,7 +77,7 @@ function flow(root, args, { allowFailure = false } = {}) {
 }
 
 async function fixture(name, { qualityCommands = [], ignoredReportPath = null,
-  artifactSets = null, artifactSet = null } = {}) {
+  artifactSets = null, artifactSet = null, followingPhase = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), `sflow-publication-preflight-${name}-`));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', ACTOR.name);
@@ -93,6 +93,7 @@ async function fixture(name, { qualityCommands = [], ignoredReportPath = null,
   config.git.publish = 'off';
   if (artifactSets) config.artifactSets = artifactSets;
   const resolved = resolveWorkType(config, 'feature');
+  const requirements = resolved.phases.find((phase) => phase.id === 'requirements');
   resolved.phases = [{
     ...resolved.phases[0],
     order: 0,
@@ -101,6 +102,11 @@ async function fixture(name, { qualityCommands = [], ignoredReportPath = null,
     qualityCommands,
     ...(artifactSet ? { artifactSet } : {})
   }];
+  // A later step keeps intake from being the Story's last, so submitting it advances the Story
+  // instead of running the final evaluation of a rail trimmed for this test.
+  if (followingPhase) resolved.phases.push({ ...requirements, order: 1, inputs: [] });
+  // A rail trimmed after resolution resolves planned claims for the phases it keeps.
+  resolved.plannedClaims = normalizePlannedClaimsPolicy(null, { workTypeId: 'feature', phases: resolved.phases, spec: resolved.spec });
   await setAgentSession(root, config, ACTOR, 'product-owner', 'PREFLIGHT-1', { phaseId: 'intake', source: 'test' });
   const workflow = await createWorkflow(root, config, {
     id: 'PREFLIGHT-1',
@@ -140,7 +146,7 @@ async function createSymlinkOrSkip(t, target, link) {
 async function codeFixture(name, {
   acceptance = true, trackedResult = false, intelligenceAst = null, testProfile = 'configured',
   configuredResult = null, configuredProvenance = null, preexistingResult = null, sourceBoundary = null,
-  phaseId = 'implementation', requiresHumanApproval = false
+  phaseId = 'implementation', requiresHumanApproval = false, followingPhase = false
 } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), `sflow-code-delivery-${name}-`));
   git(root, 'init', '-b', 'main');
@@ -242,6 +248,7 @@ async function codeFixture(name, {
   };
   resolved.spec = { ...resolved.spec, acceptance: 'off' };
   const implementation = resolved.phases.find((phase) => phase.id === 'implementation');
+  const conformance = resolved.phases.find((phase) => phase.id === 'conformance');
   const implementationPhase = {
     ...implementation,
     id: phaseId,
@@ -274,6 +281,9 @@ async function codeFixture(name, {
   resolved.phases = acceptance
     ? [requirementsPhase, implementationPhase]
     : [implementationPhase];
+  // A later step keeps the code phase from being the Story's last, so submitting it advances the
+  // Story instead of running the final evaluation of a rail reduced for this test.
+  if (followingPhase) resolved.phases.push({ ...conformance, order: implementationPhase.order + 1, inputs: [] });
   if (intelligenceAst) resolved.intelligence = {
     ...resolved.intelligence, ast: intelligenceAst
   };
@@ -1634,7 +1644,7 @@ test('artifact scan repairs a stale registration even when the governed artifact
 });
 
 test('submit repairs only a stale required-artifact registration and records a governed receipt', async () => {
-  const context = await fixture('submit-managed-registration-repair');
+  const context = await fixture('submit-managed-registration-repair', { followingPhase: true });
   await writeFile(context.target, [
     '# Intake', '',
     '## Requested outcome', '',
@@ -1681,7 +1691,7 @@ test('non-code submission preserves an ignored native report when a passing comm
   const resultPath = 'target/legacy-test-result.json';
   const priorReport = '{"run":"prior","tests":{"discovered":1,"passed":1,"failed":0,"skipped":0}}\n';
   const context = await fixture('non-code-native-report-preservation', {
-    ignoredReportPath: resultPath,
+    ignoredReportPath: resultPath, followingPhase: true,
     qualityCommands: [{
       id: 'fixture-tests', kind: 'test', argv: [process.execPath, '-e', 'process.exit(0)'],
       workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
@@ -2434,7 +2444,7 @@ test('resolved hidden runners continue publication and submission in built-in an
   for (const phaseId of ['implementation', 'verification', 'team-custom-delivery']) await t.test(phaseId, async t => {
     const context = await codeFixture(`runner-handoff-${phaseId}`, {
       acceptance: false, phaseId, testProfile: 'configured-secret',
-      requiresHumanApproval: phaseId === 'team-custom-delivery'
+      requiresHumanApproval: phaseId === 'team-custom-delivery', followingPhase: true
     });
     t.after(() => rm(context.root, { recursive: true, force: true }));
     await beginPhaseGeneration(context.root, context.config, context.workflow, { phaseId });
@@ -2487,7 +2497,7 @@ test('resolved hidden runners continue publication and submission in built-in an
 });
 
 test('Angular Karma publication infers tests, captures stdout, and leaves protected workflow untouched', async (t) => {
-  const context = await codeFixture('angular-karma-inference', { testProfile: 'angular-karma' });
+  const context = await codeFixture('angular-karma-inference', { testProfile: 'angular-karma', followingPhase: true });
   t.after(() => rm(context.root, { recursive: true, force: true }));
   const protectedWorkflow = path.join(context.root, 'singularity', 'workflow.yml');
   const protectedBefore = await readFile(protectedWorkflow, 'utf8');
@@ -2529,7 +2539,7 @@ test('Angular Karma publication infers tests, captures stdout, and leaves protec
 });
 
 test('Playwright publication infers a report and submission reads fresh governed JSON', async (t) => {
-  const context = await codeFixture('playwright-inference', { testProfile: 'playwright-inferred' });
+  const context = await codeFixture('playwright-inference', { testProfile: 'playwright-inferred', followingPhase: true });
   t.after(() => rm(context.root, { recursive: true, force: true }));
   const protectedWorkflow = path.join(context.root, 'singularity', 'workflow.yml');
   const protectedBefore = await readFile(protectedWorkflow, 'utf8');
@@ -2862,7 +2872,7 @@ test('a passing quality command cannot mutate unregistered application source', 
 });
 
 test('tracked volatile SFlow test output is restored and never blocks publish or submit', async () => {
-  const context = await codeFixture('tracked-result', { trackedResult: true });
+  const context = await codeFixture('tracked-result', { trackedResult: true, followingPhase: true });
   const resultPath = path.join(context.root, '.sflow', 'results', 'unit.json');
   const baselineResult = await readFile(resultPath, 'utf8');
   await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
@@ -3106,7 +3116,7 @@ test('unverifiable prior publication offers authority repair, never an impossibl
 });
 
 test('README correction after Code publication rolls over and retains byte-verified source and tests', async (t) => {
-  const context = await codeFixture('readme-correction');
+  const context = await codeFixture('readme-correction', { followingPhase: true });
   t.after(() => rm(context.root, { recursive: true, force: true }));
   await mkdir(path.join(context.root, 'src', 'test'), { recursive: true });
   await writeFile(path.join(context.root, 'src', 'app.java'), 'final class App {}\n');

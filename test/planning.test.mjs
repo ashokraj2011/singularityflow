@@ -181,7 +181,8 @@ test('planning omits unavailable World-Model bytes without falling back to the w
     });
 
     assert.doesNotMatch(context.context, /UNTRUSTED WORKTREE MODEL/);
-    assert.ok(context.manifest.warnings.some((warning) => /world model unavailable/i.test(warning)));
+    // The registered World Model was removed: an old grounding setting reads and warns about nothing.
+    assert.equal(context.manifest.warnings.some((warning) => /world model/i.test(warning)), false);
     assert.equal(context.manifest.sources.some((source) => source.kind === 'world-model'), false);
   });
 });

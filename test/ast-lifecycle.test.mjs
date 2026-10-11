@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import YAML from 'yaml';
 
-import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
+import { initializeDefinition, normalizePlannedClaimsPolicy, resolveWorkType } from '../src/config.mjs';
 import { buildGenerationAuthorship, importManualArtifact, normalizeAuthorshipOptions } from '../src/manual-authorship.mjs';
 import { withOperationContext } from '../src/operation-context.mjs';
 import { setAgentSession } from '../src/session.mjs';
@@ -55,10 +55,15 @@ async function fixture({
   config.git.publish = 'off';
   const resolved = resolveWorkType(config, 'feature');
   if (intelligence) resolved.intelligence = structuredClone(intelligence);
+  const requirements = resolved.phases.find((phase) => phase.id === 'requirements');
+  // A later step keeps intake from being the Story's last, so its submission advances the Story
+  // instead of running the final evaluation of a rail trimmed for this test.
   resolved.phases = [{
     ...resolved.phases[0], order: 0,
     approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['intake'] }
-  }];
+  }, { ...requirements, order: 1, inputs: [] }];
+  // A rail trimmed after resolution resolves planned claims for the phases it keeps.
+  resolved.plannedClaims = normalizePlannedClaimsPolicy(null, { workTypeId: 'feature', phases: resolved.phases, spec: resolved.spec });
   await setAgentSession(root, config, ACTOR, 'developer', 'AST-1', { phaseId: 'intake', source: 'test' });
   const workflow = await createWorkflow(root, config, {
     id: 'AST-1', title: 'Enforce structural lifecycle policy',
@@ -186,7 +191,7 @@ test('publication and submission never require an AST receipt', async () => {
     assert.equal(committed.reason, 'optional-diagnostic');
     assert.deepEqual(committed.errors, []);
     await submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false });
-    assert.equal(workflow.status, 'closed');
+    assert.equal(workflow.currentPhase, 'requirements');
   });
 });
 
@@ -217,7 +222,7 @@ test('source changes do not create an AST receipt prerequisite at submission', a
     );
     await writeFile(path.join(root, 'README.md'), '# AST lifecycle fixture\n');
     await submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false });
-    assert.equal(workflow.status, 'closed');
+    assert.equal(workflow.currentPhase, 'requirements');
   });
 });
 
@@ -231,6 +236,6 @@ test('legacy or corrupt AST receipt summaries are ignored by lifecycle submissio
     assert.equal(verification.applies, false);
     assert.deepEqual(verification.errors, []);
     await submitPhase(root, config, workflow, { phaseId: phase.id, runChecks: false });
-    assert.equal(workflow.status, 'closed');
+    assert.equal(workflow.currentPhase, 'requirements');
   });
 });

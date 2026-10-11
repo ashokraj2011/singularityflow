@@ -37,9 +37,7 @@ import {
 } from '../src/subject-lock.mjs';
 import { run, SingularityFlowError } from '../src/util.mjs';
 import { ensureConfigurationBranch } from '../src/configuration-branch.mjs';
-import { initializeDefinition } from '../src/config.mjs';
 import { publishOrganisationCapabilityMap, readOrganisation } from '../src/organisation.mjs';
-import { worldModelCommand } from '../src/worldmodel.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 
@@ -210,18 +208,15 @@ test('repository commands can route through the explicitly selected workspace', 
 
   const outside = path.join(root, 'outside-every-repository');
   await mkdir(outside);
-  const routed = spawnSync(process.execPath, [cli, 'wm', 'status', '--json'], {
+  const routed = spawnSync(process.execPath, [cli, 'wm', 'knowledge', 'status', '--json'], {
     cwd: outside,
     env,
     encoding: 'utf8'
   });
-  assert.equal(routed.status, 1, routed.stderr || routed.stdout);
-  const worldModelStatus = JSON.parse(routed.stdout);
-  assert.equal(worldModelStatus.resultType, 'sflow-refusal-plan');
-  assert.equal(worldModelStatus.error.code, 'WMB_STATE_AUTHORITY_REFRESH_REQUIRED',
-    'native v4 reports missing state authority, not the legacy-v3 conflict projection');
-  assert.match(worldModelStatus.error.message, /origin\/state.*singularity\/world-model\/manifest.json/,
-    'the rootless command reached the selected repository policy, not repository discovery');
+  assert.equal(routed.status, 0, routed.stderr || routed.stdout);
+  const selectedHead = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repository, encoding: 'utf8' }).stdout.trim();
+  assert.equal(JSON.parse(routed.stdout).commit, selectedHead,
+    'the rootless command read the selected repository, not repository discovery');
 
   // Repository knowledge and code explanation read the repository they are run in, even one with no
   // Singularity Flow configuration: the selection stands in only when no repository is open.
@@ -3094,85 +3089,8 @@ test('workspace creation claims an empty repository folder and clones the config
   assert.equal(saved.status.healthy, true);
   assert.equal(saved.status.repositories[0].branch, 'release/2026.07');
   assert.equal(await readFile(path.join(target, 'BRANCH.txt'), 'utf8'), 'configured branch\n');
-  assert.equal(saved.status.repositories[0].worldModel.state, 'missing');
-  assert.equal(saved.status.repositories[0].worldModel.projectionStatus, 'not-projected');
-  assert.equal(saved.status.warnings[0].code, 'world-model-missing');
-  assert.match(saved.status.warnings[0].message, /No world model is projected into the checked-out application branch/);
-});
-
-test('workspace health recognizes an existing repository world model without warning', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-world-model-'));
-  const remote = await remoteRepository(root, 'platform');
-  const source = path.join(root, 'platform-source');
-  await mkdir(path.join(source, 'singularity/world-model'), { recursive: true });
-  await writeFile(path.join(source, 'singularity/world-model/manifest.json'), JSON.stringify({
-    generated_at: '2026-07-28T04:30:00.000Z'
-  }));
-  run('git', ['add', 'singularity/world-model/manifest.json'], { cwd: source });
-  run('git', ['commit', '-m', 'add repository world model'], { cwd: source });
-  run('git', ['push', remote, 'main'], { cwd: source });
-
-  const saved = await saveWorkspaceConfiguration({
-    baseDirectory: path.join(root, 'workspaces'),
-    id: 'grounded-workspace',
-    name: 'Grounded workspace',
-    leadRepository: 'platform',
-    repositories: {
-      platform: {
-        url: remote,
-        defaultBranch: 'main',
-        required: true,
-        metadata: { appId: 'APP-PLATFORM', name: 'Platform' }
-      }
-    }
-  }, { confirmation: 'grounded-workspace' });
-
-  assert.equal(saved.status.repositories[0].worldModel.state, 'available');
-  assert.equal(saved.status.repositories[0].worldModel.generatedAt, '2026-07-28T04:30:00.000Z');
-  assert.equal(saved.status.counts.worldModels, 1);
-  assert.deepEqual(saved.status.warnings, []);
-});
-
-test('workspace health resolves a registered custom-output model from governed state', async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-workspace-state-world-model-'));
-  const source = path.join(root, 'source');
-  run('git', ['init', '-b', 'main', source], { cwd: root });
-  run('git', ['config', 'user.name', 'Workspace Tester'], { cwd: source });
-  run('git', ['config', 'user.email', 'workspace@example.com'], { cwd: source });
-  await writeFile(path.join(source, 'README.md'), '# state model\n');
-  await initializeDefinition(source);
-  const workflowPath = path.join(source, 'singularity/workflow.yml');
-  const workflow = YAML.parse(await readFile(workflowPath, 'utf8'));
-  workflow.worldModel.outputDir = 'governed/repository-model';
-  await writeFile(workflowPath, YAML.stringify(workflow));
-  run('git', ['add', '.'], { cwd: source });
-  run('git', ['commit', '-m', 'initialize custom model output'], { cwd: source });
-  // A deterministic registered-v4 build publishes the projection to the local state branch only.
-  const prior = { log: console.log, error: console.error, warn: console.warn };
-  console.log = console.error = console.warn = () => {};
-  try {
-    await worldModelCommand(source, ['wm', 'build'], { json: true });
-  } finally { Object.assign(console, prior); }
-  assert.equal(run('git', ['show-ref', '--verify', 'refs/heads/state'], { cwd: source }).status, 0);
-  assert.equal(await stat(path.join(source, 'governed/repository-model/manifest.json')).catch(() => null), null,
-    'the application checkout does not project the model');
-  const remote = path.join(root, 'platform.git');
-  run('git', ['clone', '--bare', source, remote], { cwd: root });
-
-  const saved = await saveWorkspaceConfiguration({
-    baseDirectory: path.join(root, 'workspaces'),
-    id: 'state-grounded', name: 'State grounded', leadRepository: 'platform',
-    repositories: {
-      platform: {
-        url: remote, defaultBranch: 'main', required: true,
-        metadata: { appId: 'APP-PLATFORM', name: 'Platform' }
-      }
-    }
-  }, { confirmation: 'state-grounded' });
-  const model = saved.status.repositories[0].worldModel;
-  assert.equal(model.state, 'available', model.warning ?? undefined);
-  assert.equal(model.source, 'state-branch');
-  assert.equal(model.outputDirectory, 'governed/repository-model');
+  // The registered World Model was removed: a repository reports none and earns no warning for it.
+  assert.equal(saved.status.repositories[0].worldModel, null);
   assert.deepEqual(saved.status.warnings, []);
 });
 

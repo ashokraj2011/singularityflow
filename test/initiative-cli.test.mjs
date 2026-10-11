@@ -269,9 +269,10 @@ test('initiative phase generation continues without repository world-model bytes
     path.join(root, 'singularity/initiatives/INIT-GROUNDED/context/prompt-context-define-gen1.json'),
     'utf8'
   ));
-  assert.equal(record.worldModel.available, false);
+  // The registered World Model was removed, so an old `enforce` setting grounds nothing and warns nothing.
+  assert.deepEqual(record.worldModel, { mode: 'off', available: false });
   assert.equal(record.worldModelFiles.length, 0);
-  assert.ok(record.warnings.some((warning) => /world model unavailable/i.test(warning)));
+  assert.equal(record.warnings.some((warning) => /world model/i.test(warning)), false);
   assert.notEqual(git(root, ['rev-parse', 'HEAD']), before);
   assert.equal(git(root, ['status', '--short']), '');
 });

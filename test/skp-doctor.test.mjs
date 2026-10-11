@@ -187,7 +187,10 @@ async function retainedStory(t) {
       planSha256: `sha256:${'c'.repeat(64)}`, draftRevision: 1
     }
   }));
-  definition.workTypes['skill-analysis'] = { label: 'Skill analysis', phases: order };
+  definition.workTypes['skill-analysis'] = { label: 'Skill analysis', phases: order,
+    // A route must hold each delivery responsibility or say who decides it does not apply.
+    omits: ['scope', 'plan', 'implement', 'verify'].map((responsibility) => ({ responsibility,
+      reason: 'Skill doctor fixture of one analysis step that changes no repository code.', authority: 'product-approvers' })) };
   await writeFile(workflowFile, YAML.stringify(definition));
   await writeFile(path.join(root, '.github', 'agents', 'report-producer.agent.md'), [
     '---', 'name: report-producer', 'description: Governed report producer.', 'model: [auto]',

@@ -171,9 +171,9 @@ function scopedShellCommand(call, value) {
   return command;
 }
 
-function shellAllowed(call, mode, value) {
+function verifiedShellForm(call, value) {
   const command = scopedShellCommand(call, value);
-  if (typeof command !== 'string') return false;
+  if (typeof command !== 'string') return null;
   // Reuse the guidance lexer: punctuation inside literal answers/paths is data, not a
   // command separator. Accept its quoted executable and PowerShell call-operator forms.
   const powershell = call.name === 'powershell' || /^\s*&\s+/u.test(command);
@@ -182,7 +182,12 @@ function shellAllowed(call, mode, value) {
   const staging = /^(?:singularity-flow|sflow)\s+(?:review-source|'review-source'|"review-source")\s+(?:stage|'stage'|"stage")\s/u.test(normalized);
   const safe = validateSafeSflowCommand(normalized, { shell: powershell ? 'powershell' : 'posix',
     maximumLength: staging ? 65536 : 2000 });
-  if (!safe?.copyable) return false;
+  return safe?.copyable ? safe : null;
+}
+
+function shellAllowed(call, mode, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
   const { positionals, options } = parseArgs(safe.argv);
   if (['hook', 'run', 'exec'].includes(positionals[0])) return false;
   let classification;
@@ -265,6 +270,11 @@ export async function mutationToolGuard(payload = {}) {
       const kernel = shellAllowed(call, contract.turnMode, value);
       if (!kernel && value.findings.length) return mutationDenial({ ...contract, next: recoveryRoutes(contract) }, 'PHASE_MUTATION_REPAIR_REQUIRED');
       if (!kernel) {
+        if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {
+          return mutationDenial(contract, value.decisionEnded
+            ? 'PHASE_MUTATION_DECISION_TURN_ENDED: the decision turn has ended. Preserve work and inspect the returned next action in a new turn; correcting command syntax cannot reopen approval'
+            : 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this standalone command is not permitted by the bound turn mode. Preserve work and follow the exact returned action; tool-form repair does not grant authoring or decision authority');
+        }
         if (contract.turnMode !== 'authoring')
           return mutationDenial(contract, 'PHASE_MUTATION_TOOL_PROTOCOL: use native file-read tools for output; write only exact issued staging files with a file-edit tool (source review also supports review-source stage --report-json). Run permitted SFlow commands standalone with the bound cwd. Correct the tool form in this turn; this refusal does not invalidate the phase or require repeating clarification');
         if (mentionsKernelExecution(call, value)) return mutationDenial(contract,

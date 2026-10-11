@@ -160,7 +160,9 @@ test('review tool protocol recovers in the same turn; standalone check/stage/ret
     'singularity-flow review-source submit custom-step --report-file x --work-id OTHER',
     'singularity-flow review-source decide custom-step --finding F1 --reason accepted',
     'singularity-flow phase publish custom-step --authored governed-agent --channel copilot-host']) {
-    assert.equal((await shell(command)).permissionDecision, 'deny');
+    const refusal = await shell(command);
+    assert.equal(refusal.permissionDecision, 'deny');
+    assert.match(refusal.permissionDecisionReason, /PHASE_MUTATION_OPERATION_NOT_ALLOWED/);
   }
   for (const command of [`singularity-flow review-source stage custom-step --report-json '${quoted}' && echo unsafe`,
     `singularity-flow status --json --long '${'x'.repeat(4000)}'`,
@@ -185,7 +187,9 @@ test('publish-only permits one bound publication, never authoring or lifecycle d
     'singularity-flow clarification record custom-step --question Q --answer A',
     'singularity-flow phase publish other-step --authored governed-agent --channel copilot-host',
     'singularity-flow submit custom-step', 'singularity-flow approve custom-step']) {
-    assert.equal((await shell(command)).permissionDecision, 'deny', command);
+    const refusal = await shell(command);
+    assert.equal(refusal.permissionDecision, 'deny', command);
+    assert.match(refusal.permissionDecisionReason, /PHASE_MUTATION_OPERATION_NOT_ALLOWED/);
   }
   for (const target of ['src/App.jsx', 'singularity/work-items/PMC-1/artifacts/custom-step/doc.md', f.workflowFile]) {
     assert.equal((await mutationToolGuard({ ...payload, toolArgs: { path: target } })).permissionDecision, 'deny');
@@ -336,7 +340,10 @@ test('a failed decision locks only approval operations, never granting authoring
   assert.equal((await mutationToolGuard(shell('singularity-flow choices begin start PMC-1 --json'))).permissionDecision, 'deny');
   await endMutationDecisionTurns(f.root);
   assert.equal((await mutationToolGuard(shell(`cd '${f.root}' && singularity-flow approve custom-step --work-id PMC-1`))).permissionDecision, 'deny');
-  assert.equal((await mutationToolGuard(shell('singularity-flow approve custom-step --work-id PMC-1'))).permissionDecision, 'deny');
+  const ended = await mutationToolGuard(shell('singularity-flow approve custom-step --work-id PMC-1'));
+  assert.equal(ended.permissionDecision, 'deny');
+  assert.match(ended.permissionDecisionReason, /PHASE_MUTATION_DECISION_TURN_ENDED/);
+  assert.doesNotMatch(ended.permissionDecisionReason, /Correct the tool form in this turn/);
   assert.equal((await mutationToolGuard(shell('npm test'))).permissionDecision, 'deny');
   assert.equal((await mutationToolGuard({ ...payload, toolName: 'task', toolArgs: { prompt: 'implement next phase' } })).permissionDecision, 'deny');
   assert.deepEqual(await mutationToolGuard(shell('singularity-flow nextsteps --json')), {});

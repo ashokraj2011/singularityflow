@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { stripTypeScriptTypes } from 'node:module';
 import { WORKFLOW_TRANSFER_BODY, WORKFLOW_TRANSFER_SCRIPT } from '../apps/vscode/src/views/workflow-transfer-page.ts';
+import { acceptedMessages, integerField, registerMessageRouter, stringField } from '../apps/vscode/src/views/messages.ts';
+import { navigationTarget } from '../apps/vscode/src/views/webview.ts';
 
 class Element {
   constructor(tag) { this.tag = tag; this.children = []; this.listeners = {}; this.disabled = false; this.textContent = ''; }
@@ -106,13 +108,13 @@ test('skill inventory shows both scopes, their phases and live destination names
 async function host() {
   const source = await readFile(new URL('../apps/vscode/src/views/workflow-transfer-panel.ts', import.meta.url), 'utf8');
   const compiled = stripTypeScriptTypes(source.slice(source.indexOf('export class WorkflowTransferPanel')).replace('export class', 'class'));
-  let receiver, disposed, confirmation = 'Create proposal'; const posted = [];
+  let receiver, disposed, confirmation = 'Create proposal'; const posted = [], navigated = [];
   const panel = { webview: { postMessage: async (message) => { posted.push(message); }, onDidReceiveMessage: (callback) => { receiver = callback; } }, onDidDispose: (callback) => { disposed = callback; }, dispose: () => disposed() };
   let resolveConfirmation;
   const vscode = { ViewColumn: { Active: 1 }, window: { createWebviewPanel: () => panel, showWarningMessage: async () => typeof confirmation === 'function' ? confirmation() : confirmation } };
   const module = { exports: {} };
-  new Function('module', 'exports', 'vscode', 'nonce', 'page', 'contentSecurityPolicy', 'workflowMutationPlanDetail', 'workflowMutationPlanSummary', 'showCompactWarningMessage', 'WORKFLOW_TRANSFER_BODY', 'WORKFLOW_TRANSFER_SCRIPT', compiled + '\nmodule.exports.WorkflowTransferPanel = WorkflowTransferPanel;')(module, module.exports, vscode, () => 'nonce', () => '', () => '', JSON.stringify, () => 'Exact proposal summary', vscode.window.showWarningMessage, '', '');
-  return { Panel: module.exports.WorkflowTransferPanel, send: (message) => receiver(message), posted, cancel: () => panel.dispose(), reject: () => { confirmation = undefined; },
+  new Function('module', 'exports', 'vscode', 'nonce', 'page', 'contentSecurityPolicy', 'workflowMutationPlanDetail', 'workflowMutationPlanSummary', 'showCompactWarningMessage', 'WORKFLOW_TRANSFER_BODY', 'WORKFLOW_TRANSFER_SCRIPT', 'registerMessageRouter', 'integerField', 'stringField', 'navigationTarget', 'navigateTo', compiled + '\nmodule.exports.WorkflowTransferPanel = WorkflowTransferPanel;')(module, module.exports, vscode, () => 'nonce', () => '', () => '', JSON.stringify, () => 'Exact proposal summary', vscode.window.showWarningMessage, '', '', registerMessageRouter, integerField, stringField, navigationTarget, (command) => { navigated.push(command); });
+  return { Panel: module.exports.WorkflowTransferPanel, send: (message) => receiver(message), posted, navigated, cancel: () => panel.dispose(), reject: () => { confirmation = undefined; },
     holdConfirmation: () => { confirmation = () => new Promise((resolve) => { resolveConfirmation = resolve; }); },
     confirm: () => resolveConfirmation('Create proposal') };
 }
@@ -151,4 +153,19 @@ test('closing the panel while confirmation is open cannot apply a proposal after
   assert.equal((await result).outcome, 'cancelled');
   ui.confirm(); await pending;
   assert.equal(writes, 0);
+});
+
+test('the host accepts exactly the messages the transfer page sends, routes the footer and reports anything else', async () => {
+  const ui = await host(); const warnings = []; const warn = console.warn; console.warn = (line) => warnings.push(line);
+  try {
+    const result = ui.Panel.show('Import', async () => ready([]), async () => ({ outcome: 'written', error: null }));
+    const sent = [...new Set([...WORKFLOW_TRANSFER_SCRIPT.matchAll(/type: '(transfer\.[a-z]+)'/g)].map((match) => match[1]))].sort();
+    assert.deepEqual([...acceptedMessages.get('singularityFlow.workflowTransfer')].sort(), sent);
+    await ui.send({ type: 'navigate', to: 'help' });
+    assert.deepEqual(ui.navigated, ['singularityFlow.openHelp']);
+    await ui.send({ type: 'transfer.unknown', revision: 1 });
+    assert.deepEqual(warnings, ['[singularity-flow] singularityFlow.workflowTransfer received an unrecognised message: transfer.unknown']);
+    assert.equal(ui.posted.length, 0);
+    ui.cancel(); assert.equal((await result).outcome, 'cancelled');
+  } finally { console.warn = warn; }
 });

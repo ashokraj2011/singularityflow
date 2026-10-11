@@ -155,11 +155,18 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /reviewGuide\.readOrder/,
       /reportTemplate\.binding/,
       /reportTemplate.*reportSchema/,
+      /stagingProtocol/,
+      /file-edit tool/,
+      /kernelStage/,
       /review-source check <phase> --report-file/,
       /at most two changed-packet repair attempts/,
       /Never mark a real gap supported merely to pass validation/,
       /`retentionReady` is false.*stop without commit\/push/s
     ]
+  },
+  'sflow-publish': {
+    required: [/phase prepublish <phase> --for-agent --json/, /returned `commands\.publish` once/,
+      /never edit source\/artifacts/i, /Never advance to the next phase/]
   },
   'sflow-phase': {
     required: [/successor-preparation-required/, /successor\.preparation\.command/,

@@ -38,6 +38,7 @@ export function boundaryBootstrap(skill) {
   if (name === 'sf-next') return 'singularity-flow nextsteps --for-agent --json';
   if (name === 'sf-inputs') return 'singularity-flow inputs --dry-run --for-agent --json';
   if (name === 'sf-review-source') return 'singularity-flow review-source context --for-agent --json';
+  if (name === 'sf-publish') return 'singularity-flow session current --for-agent --json';
   return 'singularity-flow workspace current --json';
 }
 

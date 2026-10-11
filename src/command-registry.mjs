@@ -1391,8 +1391,8 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   }
   if (definition.name === 'review-source') {
     const subcommand = positionals[1];
-    if (!['context', 'check', 'status', 'submit', 'decide'].includes(subcommand)) {
-      return unknownSubcommand('review-source', subcommand, ['context', 'check', 'status', 'submit', 'decide']);
+    if (!['context', 'stage', 'check', 'status', 'submit', 'decide'].includes(subcommand)) {
+      return unknownSubcommand('review-source', subcommand, ['context', 'stage', 'check', 'status', 'submit', 'decide']);
     }
     return never(`review-source.${subcommand}`, definition,
       ['context', 'check', 'status'].includes(subcommand) ? 'read' : 'mutation');
@@ -1623,7 +1623,7 @@ export function operationCatalog() {
       never(`skill.${name}.preview`, commandDefinition('skill'), 'read'), never(`skill.${name}`, commandDefinition('skill'), 'mutation')
     ]),
     ...['context', 'check', 'status'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'read')),
-    ...['submit', 'decide'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'mutation')),
+    ...['stage', 'submit', 'decide'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'mutation')),
     ...['preflight', 'resolve', 'prepare', 'list', 'show', 'risk-prepare', 'repair-plan', 'repair-status', 'checkpoint-show', 'evidence-prepare'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'read')),
     ...['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'resolve-run', 'resolve-resume', 'checkpoint', 'evidence-accept'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'mutation')),
     never('revise.preview', reviseDefinition, 'read'),

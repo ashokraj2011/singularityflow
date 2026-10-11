@@ -111,7 +111,7 @@ function remoteOperandContainsSensitiveMaterial(value) {
 
 function isSecretOptionKey(value) {
   const key = String(value).replace(/^--/, '');
-  return SECRET_KEY.test(key) || /(?:selection[-_]?receipt|action[-_]?authorization)/i.test(key);
+  return SECRET_KEY.test(key) || /(?:selection[-_]?receipt|action[-_]?authorization|report[-_]?json)/i.test(key);
 }
 const REMOTE_OPTION = /^--(?:repository|repository-url|configuration-url|reference-repository|lead|lead-repository|organisation|url|target-url|output-url|document-url|jira-url|remote|source-remote|origin)$/i;
 const REMOTE_FIELD = /^(?:remote|url|repository(?:url)?|repository-url|configuration-url|lead(?:repository|url)?|lead-repository|organisation|origin|target-url|output-url|document-url|jira-url|source-remote)$/i;

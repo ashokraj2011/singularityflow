@@ -237,14 +237,14 @@ test('platform command rendering keeps substitutions, quotes, and spaces inside 
   assert.throws(() => renderChangeDirectoryCommand('line\nbreak'), /control characters/u);
 });
 
-test('a policy-selected custom code phase keeps the generic code-authoring Copilot route', () => {
+test('standalone publication has a dedicated route even when the producer supplies its authoring skill', () => {
   const guidance = safeCommandGuidance({
     command: 'singularity-flow phase publish build-api --authored governed-agent --channel copilot-host',
     skill: '/sflow-code'
   });
   assert.ok(guidance);
   assert.equal(guidance.skill, '/sf-code');
-  assert.equal(guidance.copilotCommand, '/sf-code');
+  assert.equal(guidance.copilotCommand, '/sf-publish build-api');
 });
 
 test('phase rollover has a dedicated recovery route, not the code-authoring route', () => {

@@ -65,9 +65,15 @@ function approvalSelectors(command) {
 export function copilotCommandForCommand(command, skill = null, fallback = '/sf-next') {
   const explicit = directCopilotSkill(skill);
   if (explicit && /\s/u.test(explicit)
-      && !['/sf-approve', '/sf-worldmodel', '/sf-review-source', '/sf-appeal'].includes(directCopilotSkillId(explicit))) return explicit;
+      && !['/sf-approve', '/sf-worldmodel', '/sf-review-source', '/sf-appeal', '/sf-publish'].includes(directCopilotSkillId(explicit))) return explicit;
   const selected = directCopilotSkillId(explicit) ?? explicit ?? copilotSkillForCommand(command, fallback);
   const value = String(command ?? '').trim();
+  const publication = value.match(/^(?:singularity-flow|sflow)\s+phase\s+publish\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s|$)/u);
+  if (publication) return `/sf-publish ${publication[1]}`;
+  if (selected === '/sf-publish') {
+    const match = value.match(/^(?:singularity-flow|sflow)\s+phase\s+(?:publish|prepublish)\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s|$)/u);
+    return match ? `${selected} ${match[1]}` : selected;
+  }
   if (selected === '/sf-instructions') {
     const match = !/[\u0000-\u001f\u007f]/u.test(value) && value.match(/^(?:singularity-flow|sflow)\s+instruction\s+(list|show|create|edit|remove)(?:\s+(.+))?$/u);
     return match ? `${selected} ${match[1]}${match[2] ? ` ${match[2]}` : ''}` : selected;
@@ -87,7 +93,7 @@ export function copilotCommandForCommand(command, skill = null, fallback = '/sf-
   if (selected === '/sf-review-source') {
     // Keep the phase and the human-decision route distinct from starting another reviewer turn.
     const match = !/[\u0000-\u001f\u007f]/u.test(value)
-      && value.match(/^(?:singularity-flow|sflow)\s+review-source\s+(context|status|decide)\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s+(.+))?$/u);
+      && value.match(/^(?:singularity-flow|sflow)\s+review-source\s+(context|stage|check|submit|status|decide)\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s+(.+))?$/u);
     if (!match) return selected;
     return match[1] === 'context' ? `${selected} ${match[2]}`
       : `${selected} ${match[1]} ${match[2]}${match[3] ? ` ${match[3]}` : ''}`;

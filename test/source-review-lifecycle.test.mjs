@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -15,6 +15,7 @@ import {
   checkSourceReviewReport, evaluateSubmittedSourceReview, readSourceReviewStatus, retainSourceReview,
   retainSourceReviewDecision, scopedSourceReviewerSession, sourceReviewContext, sourceReviewInput
 } from '../src/source-review-lifecycle.mjs';
+import { stageSourceReviewReport } from '../src/source-review-staging.mjs';
 
 const ID = 'EXAMPLE';
 const ITEM = `singularity/work-items/${ID}`;
@@ -172,6 +173,32 @@ test('real reviewer context issues exact usable staging without unlocking the ar
   assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: `${ITEM}/artifacts/spec.md` } })).permissionDecision, 'deny');
   const status = await readSourceReviewStatus(root, f.config, f.workflow, 'specification');
   assert.equal(status.generation, 1);
+});
+
+test('private kernel staging refuses stale bindings, malformed JSON, conflicts and linked paths without retaining review', async t => {
+  const f = await fixture(t);
+  const { root, config, workflow } = f;
+  const input = await sourceReviewInput(root, config, workflow, 'specification');
+  const report = review(input);
+  const before = await readFile(path.join(root, `${ITEM}/workflow.json`));
+  const staged = await stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(report));
+  const bytes = await readFile(staged.stagingPath);
+  assert.equal(staged.effects.reviewRetained, false);
+  const stale = structuredClone(report); stale.binding.generation = 9;
+  for (const value of ['not-json', JSON.stringify(stale), 'x'.repeat(65537)]) {
+    await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', value), { code: 'SOURCE_REVIEW_REPORT_INVALID' });
+    assert.deepEqual(await readFile(staged.stagingPath), bytes);
+  }
+  workflow.phases.specification.generatedAgent = 'sflow-source-reviewer';
+  workflow.resolution.sourceReview = { mode: 'enforce', phases: ['specification'], reviewerAgent: 'sflow-source-reviewer' };
+  await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(report)), { code: 'SOURCE_REVIEW_STAGING_NOT_REVIEWABLE' });
+  workflow.phases.specification.generatedAgent = 'sflow-product-owner';
+  await rm(staged.stagingPath);
+  const target = path.join(root, 'untouched.json'); await writeFile(target, 'untouched');
+  await symlink(target, staged.stagingPath);
+  await assert.rejects(stageSourceReviewReport(root, config, workflow, 'specification', JSON.stringify(report)));
+  assert.equal(await readFile(target, 'utf8'), 'untouched');
+  assert.deepEqual(await readFile(path.join(root, `${ITEM}/workflow.json`)), before);
 });
 
 test('review context binds Story snapshot, exact attachment bytes, and published artifact', async (t) => {

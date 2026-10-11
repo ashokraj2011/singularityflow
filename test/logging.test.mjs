@@ -29,6 +29,13 @@ test('levels are ordered and the names people actually type are accepted', () =>
   assert.equal(normalizeLogLevel(undefined, 'error'), 'error');
 });
 
+test('review staging JSON is never persisted as command arguments', () => {
+  const payload = JSON.stringify({ sourcesReviewed: ['story'], rows: [{ quote: 'Private requirement text' }] });
+  assert.deepEqual(redactCommandArgv(['review-source', 'stage', 'planning', '--report-json', payload, '--json']),
+    ['review-source', 'stage', 'planning', '--report-json', REDACTED, '--json']);
+  assert.equal(redactCommandArgv(['review-source', 'stage', 'planning', `--report-json=${payload}`]).at(-1), `--report-json=${REDACTED}`);
+});
+
 test('the file sink honours its level independently of the console sink', async () => {
   const { gitDirectory, log } = await logger({ level: 'warn', consoleLevel: 'off' });
   log.error('a.error');

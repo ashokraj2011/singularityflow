@@ -38,6 +38,7 @@ test('CLI and Copilot guidance show derived @sflow options without trusting asse
   assert.equal(guidance.modelFreeCommand, '@sflow /approve build --work-id STORY-1');
   const mapped = commandGuidanceForCommands({ publish: 'singularity-flow phase publish build --authored governed-agent --channel copilot-host' });
   assert.equal(mapped.publish.modelFreeCommand, '@sflow /publish build');
-  assert.equal(mapped.publish.copilotStatus, 'unavailable', 'a model skill is not falsely claimed as an exact publish relay');
+  assert.equal(mapped.publish.copilotStatus, 'available');
+  assert.equal(mapped.publish.copilotCommand, '/sf-publish build', 'the publish-only journey never re-enters the phase author');
   assert.match(commandGuidanceLines(mapped.publish, 'Publish').join('\n'), /VS Code \(model-free\): @sflow \/publish build/);
 });

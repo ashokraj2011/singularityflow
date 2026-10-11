@@ -18,7 +18,7 @@ import {
 
 const SAFE_EXECUTABLE = /^(?:singularity-flow|sflow)(?:\s|$)/u;
 const SECRET_SHAPE = /(?:--(?:token|secret|password|credential|authorization|cookie|api[-_]?key|private[-_]?key|selection[-_]?receipt)\b|:\/\/[^\s/@:]+:[^\s/@]+@)/iu;
-const FORBIDDEN_SHELL_SYNTAX = /[;&|`$()*?![\]{}#~]/u;
+const FORBIDDEN_SHELL_SYNTAX = /[;&|`$()*?![\]{}#~<>]/u;
 // Guidance is allowed to describe a value the user must still supply.  The grammar is deliberately
 // narrower than a shell word: no whitespace, quotes, substitutions, or redirection.  Lower-case
 // names and bounded alternatives are accepted because the product's own help uses forms such as
@@ -54,11 +54,23 @@ function scrubDisplayGrammar(value) {
   };
 }
 
-function hasForbiddenShellSyntax(value) {
+function hasForbiddenShellSyntax(value, shell = 'posix') {
   let quote = null;
-  for (const character of value) {
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index];
+    const next = value[index + 1] ?? '';
+    // Match the lexer below: a rendered POSIX apostrophe is an escaped quote outside quotes,
+    // while PowerShell's doubled apostrophe remains inside its single-quoted literal.
+    if (shell === 'posix' && character === '\\' && quote !== "'") {
+      const escaped = quote === '"' ? ['"', '\\'].includes(next)
+        : /\s/u.test(next) || ['"', "'", '\\'].includes(next);
+      if (escaped) { index++; continue; }
+    }
     if (quote === "'") {
-      if (character === "'") quote = null;
+      if (character === "'") {
+        if (shell === 'powershell' && next === "'") index++;
+        else quote = null;
+      }
       continue;
     }
     if (quote === '"') {
@@ -208,14 +220,14 @@ function normalizedSkill(value) {
 }
 
 /** Validate command syntax and the registered top-level CLI family. */
-export function validateSafeSflowCommand(value, { shell = 'posix' } = {}) {
+export function validateSafeSflowCommand(value, { shell = 'posix', maximumLength = 2000 } = {}) {
   if (!['posix', 'powershell'].includes(shell)) return null;
+  if (!Number.isSafeInteger(maximumLength) || maximumLength < 1 || maximumLength > 65536) return null;
   const original = typeof value === 'string' ? value.trim() : '';
   const displayGrammar = scrubDisplayGrammar(original);
-  if (!original || original.length > 2_000 || /[\r\n\u0000-\u001f\u007f]/u.test(original)
+  if (!original || original.length > maximumLength || /[\r\n\u0000-\u001f\u007f]/u.test(original)
       || !SAFE_EXECUTABLE.test(original) || SECRET_SHAPE.test(original)
-      || hasForbiddenShellSyntax(displayGrammar.scrubbed)
-      || /[<>\[\]]/u.test(displayGrammar.scrubbed)) return null;
+      || hasForbiddenShellSyntax(displayGrammar.scrubbed, shell)) return null;
   const tokens = tokenizeCommand(original, shell);
   if (!tokens?.length || !['singularity-flow', 'sflow'].includes(tokens[0])) return null;
   const executable = tokens[0] === 'sflow' ? ['singularity-flow', ...tokens.slice(1)] : tokens;
@@ -225,7 +237,22 @@ export function validateSafeSflowCommand(value, { shell = 'posix' } = {}) {
     try { commandDefinition(top); } catch { return null; }
   }
   const command = original;
-  const copyable = !displayGrammar.displayOnly;
+  let copyable = !displayGrammar.displayOnly;
+  // A completed review report is literal data, not help grammar. Keep placeholder detection
+  // for every other argument, but do not mistake prose/code inside bounded JSON for a missing
+  // CLI value. The shell lexer above still rejects expansions, redirects and command chains.
+  if (!copyable && executable[1] === 'review-source' && executable[2] === 'stage') {
+    const reportIndex = executable.indexOf('--report-json');
+    if (reportIndex > 3 && executable.lastIndexOf('--report-json') === reportIndex) {
+      try {
+        const report = JSON.parse(executable[reportIndex + 1]);
+        if (report && typeof report === 'object' && !Array.isArray(report)) {
+          const grammarOnly = [...executable]; grammarOnly[reportIndex + 1] = '{}';
+          copyable = !scrubDisplayGrammar(commandFromArgv(grammarOnly[0], grammarOnly.slice(1))).displayOnly;
+        }
+      } catch { /* Incomplete/malformed JSON remains display-only. */ }
+    }
+  }
   return Object.freeze({
     command,
     executable: 'singularity-flow',
@@ -325,12 +352,13 @@ export function commandGuidanceForCommands(commands) {
       copilotStatus: 'unavailable',
       copilotReason: 'No verified Copilot equivalent; the command could not be safely resolved.' })];
     // /sf-phase is an authoring journey, not a relay for a read-only check or a standalone
-    // publication. Do not turn a request to inspect a draft into generation/publication.
+    // publication. /sf-publish now owns the exact standalone publication operation.
     const phaseOperation = safe.argv[0] === 'phase'
-      && ['draft-check', 'prepublish', 'begin', 'publish'].includes(safe.argv[1]);
+      && ['draft-check', 'prepublish', 'begin'].includes(safe.argv[1]);
+    const publication = safe.argv[0] === 'phase' && safe.argv[1] === 'publish';
     return [id, Object.freeze({ command: safe.command,
       modelFreeCommand: safe.modelFreeCommand,
-      copilotCommand: phaseOperation ? null : safe.copilotCommand,
+      copilotCommand: publication ? copilotCommandForCommand(safe.command, '/sf-publish') : phaseOperation ? null : safe.copilotCommand,
       copilotStatus: phaseOperation ? 'unavailable' : 'available',
       copilotReason: phaseOperation
         ? `No dedicated Copilot equivalent exists for phase ${safe.argv[1]}; use the Shell command. /sf-phase is an authoring journey, not this exact operation.`

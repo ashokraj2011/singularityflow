@@ -28,7 +28,7 @@ import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
 
 /** Verified per-invocation binding shared by phase entry, nextsteps and inputs. */
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
-  allowTerminal = false } = {}) {
+  allowTerminal = false, turnMode = 'authoring' } = {}) {
   const mode = readCopilotMode();
   if (mode.paused) return { packet: copilotModePresentation(mode) };
   const selected = await resolveWorkspaceExecutionContext(activeWorkspaceFile(), workspaceRegistryFile(), { cwd });
@@ -64,7 +64,7 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
   const contextBoundary = phase ? pendingContextBoundary(workflow) : null;
   const packet = { schemaVersion: 1, resultType: 'sflow-phase-entry', paused: false,
     personalization: resolvePersonalization({ root }), ...binding,
-    mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase })),
+    mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase, turnMode })),
     authoringContract: phaseAuthoringContract(definition, workflow, phase),
     build: { description: versionLine(), ...BUILD_INFO },
     continuationReview: phase ? { contractRevision: PHASE_JOURNEY_CONTRACT, readOnly: true,

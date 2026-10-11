@@ -18,12 +18,12 @@ export function compactSourceReviewContext(packet, binding) {
     bindingPath: packet.reportTemplate ? 'reportTemplate.binding' : null,
     reviewGuide: { readOrder: ['reviewer.instructions', 'clarifications', 'sources', 'upstreamSpec', 'artifact', 'reportTemplate', 'reportSchema'],
       exactTexts: true, bindingCopies: packet.reportTemplate ? 1 : 0,
-      next: 'Start from reportTemplate; preserve binding/metadata, supply independent assessments/citations, then check the Git-private report. Do not enumerate JSON keys or reread inventories; exact material is already in this packet.' } };
+      next: 'Start from reportTemplate; preserve binding/metadata and supply independent assessments/citations. Use stagingProtocol: exact file-edit staging or the standalone kernel stage command, then check and retain. Read captured output with native file-read tools, not shell parsers. Do not enumerate JSON keys or reread inventories; exact material is already in this packet.' } };
 }
 
 /** A single model-free pause, session and published-review context boundary. */
 export async function sourceReviewAgentContext({ cwd = process.cwd(), phaseId = null } = {}) {
-  const entry = await phaseEntryContext({ cwd, phaseId });
+  const entry = await phaseEntryContext({ cwd, phaseId, turnMode: 'read-only-review' });
   if (entry.packet.paused) return entry.packet;
   const { root, definition, workflow, phase, session } = entry;
   if (!entry.packet.ready) return { ...entry.packet, resultType: 'source-review-agent-context',

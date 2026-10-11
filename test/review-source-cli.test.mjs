@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -16,6 +16,9 @@ import { snapshot } from '../src/util.mjs';
 import {
   commitAndPublish, createWorkflow, loadConfig, publishGeneration, scanArtifacts
 } from '../src/state.mjs';
+import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
+import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
+import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const executable = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -199,6 +202,55 @@ function reviewReport(packet) {
     ]
   };
 }
+
+test('kernel review staging preserves published bytes and proceeds through check and retention for seeded and copied phases', async t => {
+  for (const copied of [false, true]) await t.test(copied ? 'copied custom scope' : 'seeded specification', async t => {
+    const { root, phaseId } = await publishedSpecificationStory(t, { copied });
+    const previousMode = process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+    process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = path.join(root, '.git', 'review-host', 'mode.json');
+    t.after(() => {
+      if (previousMode === undefined) delete process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+      else process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = previousMode;
+    });
+    const hook = { cwd: await realpath(root), sessionId: `review-${copied}`, prompt: `/sf-review-source ${phaseId}` };
+    await recordRepositoryBoundaryTurn(hook, { captureMutation: (payload, record) =>
+      captureMutationTurn(payload, record, { resolveRoot: async () => hook.cwd }) });
+    const guarded = async (args, toolName = 'bash') => {
+      const command = renderPlatformCommand(['singularity-flow', ...args], toolName === 'powershell' ? 'win32' : 'darwin');
+      assert.deepEqual(await mutationToolGuard({ ...hook, toolName, toolArgs: { command, cwd: hook.cwd } }), {}, command);
+      return JSON.parse(cli(root, ...args));
+    };
+    const packet = await guarded(['review-source', 'context', phaseId, '--for-agent', '--json']);
+    assert.equal(packet.mutationContract.applicationEdits, false);
+    assert.deepEqual(packet.mutationContract.artifacts, []);
+    assert.equal(packet.stagingProtocol.path, packet.stagingPath);
+    assert.equal(packet.stagingProtocol.shellWritersAllowed, false);
+    assert.equal(packet.stagingProtocol.check.copilotCommand.startsWith(`/sf-review-source check ${phaseId} `), true);
+    const artifactBefore = await readFile(path.join(root, packet.artifact.path));
+    const stateFile = path.join(root, 'singularity/work-items', WORK_ID, 'workflow.json');
+    const stateBefore = await readFile(stateFile);
+    const headBefore = git(root, 'rev-parse', 'HEAD');
+    const report = reviewReport(packet);
+    const refusedParser = await mutationToolGuard({ ...hook, toolName: 'bash', toolArgs: { command: 'jq . packet.json' } });
+    assert.match(refusedParser.permissionDecisionReason, /PHASE_MUTATION_TOOL_PROTOCOL/);
+    const staged = await guarded(['review-source', 'stage', phaseId, '--report-json', JSON.stringify(report), '--json']);
+    assert.equal(staged.status, 'staged');
+    assert.equal(staged.effects.reviewRetained, false);
+    assert.equal(staged.effects.stateChanged, false);
+    assert.equal(staged.effects.approved, false);
+    assert.equal(git(root, 'rev-parse', 'HEAD'), headBefore);
+    assert.deepEqual(await readFile(stateFile), stateBefore);
+    assert.deepEqual(await readFile(path.join(root, packet.artifact.path)), artifactBefore);
+    const checked = await guarded(['review-source', 'check', phaseId, '--report-file', staged.stagingPath, '--json'], 'powershell');
+    assert.equal(checked.retentionReady, true);
+    const retained = await guarded(['review-source', 'submit', phaseId, '--report-file', staged.stagingPath, '--json']);
+    assert.ok(retained.reportSha256);
+    const status = JSON.parse(cli(root, 'status', WORK_ID, '--json'));
+    assert.equal(status.currentPhase, phaseId);
+    assert.equal(status.phases[phaseId].generatedAgent, JSON.parse(stateBefore.toString()).phases[phaseId].generatedAgent);
+    assert.notEqual(status.phases[phaseId].status, 'approved');
+  });
+});
 
 test('real and copied workflow preparation returns authoring instead of reviewing a retained generation', async t => {
   for (const copied of [false, true]) await t.test(copied ? 'copied scope' : 'seeded scope', async t => {

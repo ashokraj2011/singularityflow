@@ -665,7 +665,9 @@ export async function sourceReviewContext(root, config, workflow, phaseId, stagi
     ...(input.unreadableSources?.length ? { unreadableSources: input.unreadableSources } : {}),
     artifact: hashView(input.artifact, input.binding.artifact),
     ...(input.upstreamSpec ? { upstreamSpec: hashView(input.upstreamSpec, input.binding.upstreamSpec) } : {}),
-    reportSchema: sourceReviewReportSchema(input.kind), reportTemplate, stagingPath
+    reportSchema: sourceReviewReportSchema(input.kind), reportTemplate, stagingPath,
+    stagingProtocol: !conflict && stagingPath
+      ? (await import('./source-review-staging.mjs')).sourceReviewStagingProtocol(phaseId, stagingPath) : null
   };
 }
 

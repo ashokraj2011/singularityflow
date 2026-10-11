@@ -139,6 +139,19 @@ test('source-review handoffs retain the selected phase and human-decision operat
     'rerunning the reviewer is not an equivalent human disposition');
 });
 
+test('publish and review staging handoffs preserve exact phase and operation without authoring re-entry', () => {
+  for (const phase of ['specification', 'planning', 'implementation', 'verification', 'release', 'team-custom']) {
+    const command = `singularity-flow phase publish ${phase} --authored governed-agent --channel copilot-host`;
+    assert.equal(copilotCommandForCommand(command), `/sf-publish ${phase}`);
+    assert.equal(copilotCommandForCommand(command, '/sf-code'), `/sf-publish ${phase}`);
+    assert.equal(safeCommandGuidance(command).modelFreeCommand, `@sflow /publish ${phase}`);
+  }
+  for (const operation of ['stage', 'check', 'submit']) {
+    const command = `singularity-flow review-source ${operation} planning-copy --report-file '/tmp/exact report.json' --json`;
+    assert.equal(copilotCommandForCommand(command), `/sf-review-source ${operation} planning-copy --report-file '/tmp/exact report.json' --json`);
+  }
+});
+
 test('approval guidance does not invent selectors from ambiguous or malformed command forms', () => {
   for (const command of [
     'singularity-flow approve',

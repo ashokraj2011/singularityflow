@@ -36,6 +36,7 @@ and follow its complete procedure:
 - [`/sf-start`](../skills/sflow-start/SKILL.md): remote base, intake, workflow, readiness and selection-receipt handling.
 - [`/sf-next`](../skills/sflow-next/SKILL.md): at most one authorized next action and its handoff; do not inline or chain the returned skill.
 - [`/sf-phase`](../skills/sflow-phase/SKILL.md): document preparation, clarification recording, bounded correction, publication, and display; [`/sf-code`](../skills/sflow-code/SKILL.md) for code, [`/sf-converge`](../skills/sflow-converge/SKILL.md) for convergence.
+- [`/sf-publish`](../skills/sflow-publish/SKILL.md): publish an existing ready draft only; no authoring, submission or approval.
 - [`/sf-submit`](../skills/sflow-submit/SKILL.md): submission. [`/sf-approve`](../skills/sflow-approve/SKILL.md): exact-packet review reuse, human phase confirmation and the one-time approval receipt; never add `--yes`. End that turn before any next-phase authoring.
 
 If the canonical skill is unavailable, show its exact route and stop before its action.

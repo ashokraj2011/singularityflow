@@ -9,6 +9,7 @@ import { classifySupportingChange } from './supporting-changes.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
+import { phasePublicationContract } from './manual-authorship.mjs';
 
 export const MUTATION_CONTRACT_VERSION = 1;
 export function mutationTurnMode(skill) {
@@ -16,6 +17,7 @@ export function mutationTurnMode(skill) {
   if (['approve', 'reject'].includes(name)) return 'approval-only';
   if (['session', 'resume', 'agent'].includes(name)) return 'session-only';
   if (name === 'review-source') return 'read-only-review';
+  if (name === 'publish') return 'publish-only';
   if (AUTHORING_SKILL_DECLARATION[`sflow-${name}`]) return 'authoring';
   // Kernel actions have their own authority checks. This never permits direct source edits.
   if (['inputs', 'next', 'recover', 'appeal', 'clarify', 'revise', 'submit', 'converge', 'continue',
@@ -69,6 +71,11 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
   const application = turnMode === 'authoring' && editable && !deterministic
     && phase?.writeScope === 'source-and-artifact' && (!code || openGeneration);
   const next = !phase ? [route(['session', 'current', '--for-agent', '--json'], 'Resolve the Story binding first.')]
+    : turnMode === 'read-only-review'
+      ? [route(['review-source', 'context', phase.id, '--for-agent', '--json'], 'Use the pinned review packet and its staging protocol; no shell writers or repository edits.')]
+    : turnMode === 'publish-only'
+      ? [route(['phase', 'publish', phase.id, '--authored', phasePublicationContract(phase).producer,
+        '--channel', phasePublicationContract(phase).channel], 'Recheck publication readiness first; publish only when the kernel returns ready. Never author, submit or approve.')]
     : ['approval-only', 'session-only', 'read', 'read-only-review'].includes(turnMode)
       ? [route(['nextsteps', '--json'], 'End this turn. Inspect the next action in a new turn; do not author now.')]
       : code && !openGeneration && editable
@@ -148,7 +155,16 @@ export function mutationContractPresentation(contract) {
   return { schemaVersion: contract.schemaVersion, scope: 'phase-policy', workId: contract.workId,
     phaseId: contract.phaseId, generation: contract.generation, summary: contract.summary,
     policy: contract.policy, artifacts: contract.allow.artifacts, applicationEdits: contract.allow.application,
-    enforcement: contract.enforcement, next: contract.next };
+    enforcement: contract.enforcement, toolProtocol: mutationToolProtocol(contract), next: contract.next };
+}
+
+/** Tool-form errors are recoverable in the same bound turn, not lifecycle failures. */
+export function mutationToolProtocol(contract) {
+  return { read: 'Use native file-read tools for captured CLI output; do not run shell parsers or wrappers in a restricted turn.',
+    staging: 'Use a file-edit tool only at an exact kernel-issued staging path. No shell writers, mkdir or arbitrary temporary paths.',
+    terminal: 'Run one standalone registered SFlow command with cwd=repositoryPath; no pipes, redirects, substitutions or command chains.',
+    retry: 'Correct the tool form without re-asking settled questions or changing lifecycle state.',
+    mode: contract.turnMode };
 }
 
 export function mutationDenial(contract, reason, paths = []) {

@@ -107,7 +107,8 @@ test('prepublish routes authored findings to same-phase correction, then enables
   assert.equal(ready.readiness.lifecycle, true);
   assert.equal(ready.readiness.knownRecoveryBlockers, true);
   assert.match(ready.commands.publish, /phase publish planning --authored governed-agent/u);
-  assert.equal(ready.commandGuidance.publish.copilotStatus, 'unavailable');
+  assert.equal(ready.commandGuidance.publish.copilotStatus, 'available');
+  assert.equal(ready.commandGuidance.publish.copilotCommand, '/sf-publish planning');
   assert.notEqual(ready.draftFingerprint, red.draftFingerprint);
 });
 

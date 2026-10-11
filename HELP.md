@@ -3589,6 +3589,8 @@ singularity-flow phase prepublish [PHASE] [--for-agent] [--json]
 singularity-flow initiative phase draft-check [PHASE] [--initiative INIT-ID] [--json]
 singularity-flow phase rollover [PHASE] [--json|--confirm CURRENT-DIGEST]
 singularity-flow phase publish [PHASE] [--usage-json FILE]
+# Copilot: /sf-publish <phase> publishes an existing draft after a fresh prepublish check.
+# It never authors, submits or approves. VS Code model-free: @sflow /publish <phase>.
 singularity-flow artifact add <PATH...> [--kind KIND] [--phase PHASE]
 singularity-flow artifact scan [--phase PHASE]
 singularity-flow submit [PHASE] [--work-id WORK-ID] [--phase PHASE] [--decision NAME=VALUE]...
@@ -3599,6 +3601,7 @@ singularity-flow decision show [WORK-ID] [--json]
 singularity-flow decision choose [WORK-ID] [--fetch] (--option ID | --to PHASE|end) --reason TEXT [--expected KEY]
 singularity-flow decision applicability [WORK-ID] [--fetch] --responsibility scope|plan|implement|verify|review --reason TEXT
 singularity-flow review-source context|status <specification|planning> [--json]
+singularity-flow review-source stage <phase> --report-json '<completed-report-json>' --json
 singularity-flow review-source submit <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
 singularity-flow review-source decide <specification|planning> --finding ID --reason TEXT [--json]
 singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE

@@ -179,7 +179,9 @@ function shellAllowed(call, mode, value) {
   const powershell = call.name === 'powershell' || /^\s*&\s+/u.test(command);
   const normalized = command.trim().replace(/^&\s+(?=['"]?(?:singularity-flow|sflow)\b)/u, '')
     .replace(/^(['"])(singularity-flow|sflow)\1(?=\s|$)/u, '$2');
-  const safe = validateSafeSflowCommand(normalized, { shell: powershell ? 'powershell' : 'posix' });
+  const staging = /^(?:singularity-flow|sflow)\s+(?:review-source|'review-source'|"review-source")\s+(?:stage|'stage'|"stage")\s/u.test(normalized);
+  const safe = validateSafeSflowCommand(normalized, { shell: powershell ? 'powershell' : 'posix',
+    maximumLength: staging ? 65536 : 2000 });
   if (!safe?.copyable) return false;
   const { positionals, options } = parseArgs(safe.argv);
   if (['hook', 'run', 'exec'].includes(positionals[0])) return false;
@@ -197,7 +199,11 @@ function shellAllowed(call, mode, value) {
   if (classification === 'read') return true;
   if (mode === 'session-only') return ['session', 'agent', 'resume'].includes(positionals[0])
     || positionals[0] === 'workspace' && ['use', 'switch'].includes(positionals[1]);
-  if (mode === 'read-only-review') return positionals[0] === 'review-source' && ['check', 'submit'].includes(positionals[1]);
+  if (mode === 'read-only-review') return positionals[0] === 'review-source'
+    && ['stage', 'check', 'submit'].includes(positionals[1]) && positionals[2] === value.contract.phaseId
+    && (!options['work-id'] || options['work-id'] === value.contract.workId);
+  if (mode === 'publish-only') return positionals[0] === 'phase' && positionals[1] === 'publish'
+    && positionals[2] === value.contract.phaseId && (!options['work-id'] || options['work-id'] === value.contract.workId);
   if (mode === 'read') return false;
   return !['approve', 'reject'].includes(positionals[0]);
 }
@@ -260,7 +266,7 @@ export async function mutationToolGuard(payload = {}) {
       if (!kernel && value.findings.length) return mutationDenial({ ...contract, next: recoveryRoutes(contract) }, 'PHASE_MUTATION_REPAIR_REQUIRED');
       if (!kernel) {
         if (contract.turnMode !== 'authoring')
-          return mutationDenial(contract, 'PHASE_MUTATION_TURN_READ_ONLY');
+          return mutationDenial(contract, 'PHASE_MUTATION_TOOL_PROTOCOL: use native file-read tools for output; write only exact issued staging files with a file-edit tool (source review also supports review-source stage --report-json). Run permitted SFlow commands standalone with the bound cwd. Correct the tool form in this turn; this refusal does not invalidate the phase or require repeating clarification');
         if (mentionsKernelExecution(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED: run one standalone registered SFlow command; no chains or wrappers. Use a file-edit tool for the exact issued staging file. Preserve human answers and repair recording, not the questions');
       }

@@ -298,14 +298,19 @@ test('initial phase skills require interactive clarification instead of silently
   const epicRequirements = await readFile(path.join(pluginRoot, 'skills', 'sflow-epic-requirements', 'SKILL.md'), 'utf8');
   for (const content of [phase, requirements, code, epicRequirements]) {
     assert.match(content, /ask_user/);
-    assert.match(content, /wait/i);
-    assert.match(content, /(?:stop before (?:authoring|preparation)|record before (?:preparation|preparing|mutation); (?:stop if unavailable|if unavailable, display the questions and stop)|required[^\n]*(?:stop if unavailable|stop before|unavailable: show questions and stop))/i);
+    if (content !== epicRequirements) {
+      assert.match(content, /ask only unanswered\/(?:materially )?changed questions/i);
+      assert.match(content, /unavailable: show (?:them|questions) and stop/i);
+      assert.match(content, /record before (?:preparation|code mutation)/i);
+    } else {
+      assert.match(content, /wait/i);
+      assert.match(content, /(?:stop before (?:authoring|preparation)|record before (?:preparation|preparing|mutation); (?:stop if unavailable|if unavailable, display the questions and stop)|required[^\n]*(?:stop if unavailable|stop before|unavailable: show questions and stop))/i);
+    }
   }
   for (const content of [phase, code]) {
     assert.match(content, /clarification\.responseStagingPath/i);
-    assert.match(content, /never (?:at `singularity\/work-items\/\*\*\/context\/clarifications-\*\.json`|in Story context)/i);
-    assert.match(content, /Delete on success/i);
-    assert.match(content, /never[^.\n]*pass Markdown/i);
+    assert.match(content, /No Story-context writes or Markdown/i);
+    assert.match(content, /Remove staging only on success/i);
     assert.match(content, /"responses"/);
   }
   assert.match(workflowAgent, /skills\/sflow-phase\/SKILL.md/);
@@ -319,7 +324,8 @@ test('initial phase skills require interactive clarification instead of silently
   assert.match(next, /never pair `\/sf-phase` with `singularity-flow next`/i);
   assert.match(workflowAgent, /skills\/sflow-next\/SKILL.md/);
   assert.match(workflowAgent, /do not inline or chain the returned skill/i);
-  assert.match(requirements, /`required`, use `ask_user`, wait and record before preparation/);
+  assert.match(requirements, /Follow entry `clarification\.checkpoint`/);
+  assert.match(requirements, /`ask_user`, then record before preparation/);
   assert.match(epicRequirements, /epic sources answer/);
   assert.match(code, /Missing\/invalid\/ambiguous\/policy-blocked runner: returned recovery\/adoption/i);
   assert.match(code, /never edit protected config, disable hooks or fabricate results/i);
@@ -475,30 +481,17 @@ test('requirements skill authors qualified acceptance-criteria identifiers', asy
 test('generic generation skills branch on the resolved clarification mode before asking or recording', async () => {
   for (const name of ['sflow-phase', 'sflow-code']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
-    const status = content.indexOf('4. `clarification.checkpoint`');
+    const status = content.indexOf('4. Follow `clarification.checkpoint`');
     const firstQuestion = content.indexOf('`ask_user`');
     const firstRecord = content.indexOf('record before', status);
-    const offStart = content.indexOf('`off`', status);
-    const whenNeededStart = content.indexOf('`when-needed`', offStart);
-    const requiredStart = content.indexOf('`required`', whenNeededStart);
-    const branchesEnd = content.indexOf('Stage ', requiredStart);
-    const off = content.slice(offStart, whenNeededStart);
-    const whenNeeded = content.slice(whenNeededStart, requiredStart);
-    const required = content.slice(requiredStart, branchesEnd);
-
     assert.ok(status >= 0, `${name} must read the phase's pinned clarification mode`);
     assert.ok(firstQuestion > status, `${name} asks before reading the clarification mode`);
     assert.ok(firstRecord > status, `${name} records before reading the clarification mode`);
-    assert.ok(offStart > status && whenNeededStart > offStart && requiredStart > whenNeededStart
-      && branchesEnd > requiredStart, `${name} must define ordered off/when-needed/required branches`);
-    assert.match(off, /skips/i, `${name} must skip clarification in off mode`);
-    assert.match(whenNeeded, /asks material ambiguities/i,
-      `${name} must condition questions and recording on material ambiguity`);
-    assert.match(required, /derives evidence-grounded questions or confirms interpretation/i,
-      `${name} must formulate a concrete question, never request an unspecified answer`);
-    assert.match(required, /`ask_user`[^.]*wait[^.]*record before/i,
-      `${name} must always pause and persist the required checkpoint`);
-    assert.match(required, /before (?:preparation|code mutation)/i,
+    assert.match(content, /off skips/i, `${name} must skip clarification in off mode`);
+    assert.match(content, /Reuse same-binding human replies; ask only unanswered\/changed questions/i);
+    assert.match(content, /`checkpoint\.recordAction` alone/);
+    assert.match(content, /On refusal preserve replies\/staging; repair recording, not questions/);
+    assert.match(content, /record before (?:preparation|code mutation)/i,
       `${name} must complete required clarification before authoring begins`);
   }
 });
@@ -1013,18 +1006,18 @@ test('source review follows the returned schema and a bounded read-only format c
   assert.match(skill, /reportTemplate.*reportSchema/);
   assert.match(skill, /singular `clauseId`.*`plannedTests`/);
   assert.match(skill, /review-source check <phase> --report-file/);
-  assert.ok(skill.indexOf('review-source check') < skill.indexOf('review-source submit'));
+  assert.ok(skill.indexOf('review-source check') < skill.indexOf('`stagingProtocol.retain`'));
   assert.match(skill, /at most two changed-packet repair attempts/);
   assert.match(skill, /Never mark a real gap supported merely to pass validation/);
   assert.match(skill, /`retentionReady` is false.*stop without commit\/push/s);
   assert.match(agent, /never examples from other Stories/);
   assert.match(agent, /Test-only rows need tests, not product paths/);
   assert.match(agent, /Repair format\s+only, at most twice/);
-  assert.match(skill, /never set up\/create\/select an agent/);
-  assert.match(skill, /authored-content, not full-file hashes/);
+  assert.match(skill, /no agent setup\/selection/);
+  assert.match(skill, /Compare authored-content hashes/);
   assert.match(skill, /`canReview: false`: relay `continuation.actions`, stop/);
   assert.match(skill, /only the author prepares\/publishes successors/);
-  assert.match(skill, /End with `continuation.actions`: returned routes, target generation\/owner/);
+  assert.match(skill, /End with `continuation.actions`, target generation\/owner/);
   assert.match(skill, /in order: Copilot, Shell, VS Code \(model-free\)/);
   assert.match(agent, /do not search for, create, or persistently select an\s+agent/);
   for (const instructions of [skill, agent]) {
@@ -1167,10 +1160,10 @@ test('World Model and review skills dispatch exact operations and return lifecyc
   assert.match(review, /Correction, review, human disposition and recovery precede Submit/);
   assert.match(review, /Never submit or approve automatically/);
   const source = await read('sflow-review-source');
-  assert.match(source, /`status`: only/);
-  assert.match(source, /`decide`: read status/);
-  assert.match(source, /obtain human confirmation/);
-  assert.match(source, /Never decide as reviewer or rerun review instead/);
+  assert.match(source, /`status`: read\/handoff/);
+  assert.match(source, /`decide`: show finding\/hash\/authority\/reason, require human confirmation/);
+  assert.match(source, /never decide as reviewer/i);
+  assert.match(source, /relay supplied arguments once, no new review/);
   assert.match(await read('sflow-inputs'), /continuation.actions/);
 });
 

@@ -10166,8 +10166,8 @@ async function reviewSourceCommand(positionals, options) {
     return console.log(JSON.stringify(await sourceReviewAgentContext({ phaseId: positionals[2] ?? null }), null, 2));
   }
   const action = requirePositional(positionals, 1, 'source review action');
-  if (!['context', 'check', 'submit', 'decide', 'status'].includes(action)) {
-    throw new SingularityFlowError("Source review action must be context, check, submit, decide, or status.");
+  if (!['context', 'stage', 'check', 'submit', 'decide', 'status'].includes(action)) {
+    throw new SingularityFlowError("Source review action must be context, stage, check, submit, decide, or status.");
   }
   const phaseId = requirePositional(positionals, 2, 'step that defines the scope or plans the claims');
   const root = repoRoot();
@@ -10226,6 +10226,14 @@ async function reviewSourceCommand(positionals, options) {
     throw new SingularityFlowError(`Source review ${action} requires current in-progress phase '${phaseId}'.`);
   }
   if (action !== 'check') await assertNoPendingPublication(root, config, workflow, `record source review ${action}`);
+  if (action === 'stage') {
+    const { stageSourceReviewReport } = await import('./source-review-staging.mjs');
+    const result = await stageSourceReviewReport(root, config, workflow, phaseId, optionString(options, 'report-json'));
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Review draft staged: ${result.stagingPath}; no review, submission or approval retained.`);
+    console.log(commandRouteLines(result.commandGuidance).join('\n'));
+    return;
+  }
   if (action === 'check' || action === 'submit') {
     const reportFile = optionString(options, 'report-file');
     if (!reportFile || path.resolve(reportFile) !== path.resolve(stagingPath)) {

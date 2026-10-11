@@ -11,6 +11,10 @@ import { captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMut
 import { createHash } from 'node:crypto';
 import { setCopilotPaused } from '../src/copilot-mode.mjs';
 import { assertPhaseSequence } from '../src/sequence.mjs';
+import { readFileSync } from 'node:fs';
+import YAML from 'yaml';
+import { resolveWorkType } from '../src/config.mjs';
+import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
 
 async function fixture(t, phaseOverrides = {}) {
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'sflow-pmc-'));
@@ -125,6 +129,91 @@ test('issued reviewer staging is allowed without granting artifact/source writes
   assert.equal((await mutationToolGuard({ ...payload, toolArgs: { path: staging } })).permissionDecision, undefined);
   assert.equal((await mutationToolGuard({ ...payload, toolArgs: { path: `${staging}.other` } })).permissionDecision, 'deny');
   assert.equal((await mutationToolGuard(payload)).permissionDecision, 'deny');
+});
+
+test('review tool protocol recovers in the same turn; standalone check/stage/retain remain permitted', async t => {
+  const f = await fixture(t); const payload = await f.enter('/sf-review-source');
+  const staging = path.join(f.root, '.git/singularity-flow/source-reviews/PMC-1-custom-step-gen1.json');
+  await issueMutationStaging(f.root, staging, 'source-review');
+  const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  for (const command of [`jq . output.json`, `printf '{}' > '${staging}'`,
+    `singularity-flow review-source check custom-step --report-file '${staging}' --json && echo done`]) {
+    const refusal = await shell(command);
+    assert.match(refusal.permissionDecisionReason, /PHASE_MUTATION_TOOL_PROTOCOL/);
+    assert.doesNotMatch(refusal.permissionDecisionReason, /PHASE_MUTATION_TURN_READ_ONLY/);
+    assert.match(refusal.permissionDecisionReason, /\/sf-review-source custom-step/);
+  }
+  const reportJson = JSON.stringify({ binding: { phase: 'custom-step' }, rows: [], rationale: 'literal [data] > not a redirect', detail: 'x'.repeat(4000) });
+  assert.deepEqual(await shell(`singularity-flow review-source stage custom-step --report-json '${reportJson}' --json`), {});
+  const quoted = JSON.stringify({ rows: [], rationale: "Story's literal [data] > $HOME; `not executed`; FILE <input> ...", detail: 'x'.repeat(4000) });
+  for (const platform of ['darwin', 'win32']) {
+    const command = renderPlatformCommand(['singularity-flow', 'review-source', 'stage', 'custom-step', '--report-json', quoted, '--json'], platform);
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: platform === 'win32' ? 'powershell' : 'bash', toolArgs: { command, cwd: f.root } }), {});
+  }
+  for (const operation of ['check', 'submit']) {
+    const command = `singularity-flow review-source ${operation} custom-step --report-file '${staging}' --json`;
+    assert.deepEqual(await shell(command), {});
+    const powershell = `& 'singularity-flow' 'review-source' '${operation}' 'custom-step' '--report-file' '${staging}' '--json'`;
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'powershell', toolArgs: { command: powershell, cwd: f.root } }), {});
+  }
+  for (const command of ['singularity-flow review-source submit other-step --report-file x',
+    'singularity-flow review-source submit custom-step --report-file x --work-id OTHER',
+    'singularity-flow review-source decide custom-step --finding F1 --reason accepted',
+    'singularity-flow phase publish custom-step --authored governed-agent --channel copilot-host']) {
+    assert.equal((await shell(command)).permissionDecision, 'deny');
+  }
+  for (const command of [`singularity-flow review-source stage custom-step --report-json '${quoted}' && echo unsafe`,
+    `singularity-flow status --json --long '${'x'.repeat(4000)}'`,
+    'singularity-flow review-source stage <PHASE> --report-json \'{"finding":"..."}\' --json']) {
+    assert.equal((await shell(command)).permissionDecision, 'deny', command);
+  }
+  assert.deepEqual(await mutationToolGuard({ ...payload, toolArgs: { path: staging } }), {});
+  assert.equal((await mutationToolGuard(payload)).permissionDecision, 'deny');
+});
+
+test('publish-only permits one bound publication, never authoring or lifecycle decisions', async t => {
+  const f = await fixture(t); const payload = await f.enter('/sf-publish custom-step');
+  assert.equal(mutationTurnMode('sf-publish'), 'publish-only');
+  assert.equal(f.contract('publish-only').allow.application, false);
+  assert.deepEqual(f.contract('publish-only').allow.artifacts, []);
+  const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  for (const command of ['singularity-flow phase prepublish custom-step --for-agent --json',
+    'singularity-flow phase publish custom-step --authored governed-agent --channel copilot-host']) {
+    assert.deepEqual(await shell(command), {});
+  }
+  for (const command of ['singularity-flow prepare custom-step', 'singularity-flow phase begin custom-step',
+    'singularity-flow clarification record custom-step --question Q --answer A',
+    'singularity-flow phase publish other-step --authored governed-agent --channel copilot-host',
+    'singularity-flow submit custom-step', 'singularity-flow approve custom-step']) {
+    assert.equal((await shell(command)).permissionDecision, 'deny', command);
+  }
+  for (const target of ['src/App.jsx', 'singularity/work-items/PMC-1/artifacts/custom-step/doc.md', f.workflowFile]) {
+    assert.equal((await mutationToolGuard({ ...payload, toolArgs: { path: target } })).permissionDecision, 'deny');
+  }
+});
+
+test('all seeded and example phases plus future custom phases share explicit restricted-mode protocols', () => {
+  let checked = 0;
+  for (const file of ['../templates/workflow.yml', '../examples/workflow-with-quality-gates.yml']) {
+    const definition = YAML.parse(readFileSync(new URL(file, import.meta.url), 'utf8'));
+    for (const workType of Object.keys(definition.workTypes)) for (const resolved of resolveWorkType(definition, workType).phases) {
+      const phase = { ...resolved, generationPolicy: resolved.generation, status: 'in_progress', generation: 1 };
+      const workflow = { workItem: { id: 'MATRIX-1' }, currentPhase: phase.id, phaseOrder: [phase.id], phases: { [phase.id]: phase } };
+      for (const turnMode of ['read-only-review', 'publish-only', 'read', 'approval-only', 'kernel-only']) {
+        const contract = deriveMutationContract({ definition, workflow, turnMode });
+        assert.equal(contract.allow.application, false, `${workType}/${phase.id}/${turnMode}`);
+        assert.deepEqual(contract.allow.artifacts, []);
+        assert.ok(contract.next.length);
+        assert.ok(contract.next.every(action => action.commandGuidance?.copilotCommand));
+      }
+      checked++;
+    }
+  }
+  assert.ok(checked >= 50);
+  const phase = { id: 'team-invented-scope', status: 'in_progress', generation: 3, generationPolicy: { task: 'document' } };
+  const contract = deriveMutationContract({ definition: {}, workflow: { workItem: { id: 'FUTURE' },
+    currentPhase: phase.id, phaseOrder: [phase.id], phases: { [phase.id]: phase } }, turnMode: 'read-only-review' });
+  assert.equal(contract.next[0].copilotCommand, '/sf-review-source team-invented-scope');
 });
 
 test('workflow/ref changes refuse edits until a verified refresh', async t => {

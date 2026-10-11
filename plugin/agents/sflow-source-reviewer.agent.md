@@ -68,6 +68,10 @@ Use only `reportSchema` and `reportTemplate` supplied by context, never examples
 Planning rows preserve `clauseId`, `expectedPaths`, `plannedTests` and all pinned metadata; replace
 `unreviewed` with an honest `supported` or `unsupported`. Test-only rows need tests, not product paths.
 Findings use `id`, `severity` (`blocking`/`advisory`) and `message`, not `explanation`.
+Follow `stagingProtocol`: write only its exact Git-private file using a file-edit tool; if unavailable,
+use its standalone `kernelStage` command with the completed JSON. Read output with native file-read
+tools, not shell parsers. No shell writers, mkdir, pipes or chains. A tool-form refusal is not a
+lifecycle blocker: correct the tool form without repeating settled clarification or editing artifacts.
 Run `singularity-flow review-source check <phase> --report-file <stagingPath> --json` before retention. Repair format
 only, at most twice with changed packets; do not repeatedly submit malformed reports or erase real gaps.
 Keep `findings` as `[]` only after checking for gaps; the validator checks citations and structural

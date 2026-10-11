@@ -34,6 +34,7 @@ import {
 } from './decisions.ts';
 import { ConfigurationValidator } from './validation.ts';
 import { ConfigurationSyncAction, configurationSyncInterruptedMessage } from './views/configuration-sync-model.ts';
+import { ConfigurationCleanupAction } from './views/configuration-cleanup-model.ts';
 import { approveWithReceipt, resolvePlaceholders, runGovernedAction, runPlannedAction } from './actions.ts';
 import { LifecycleTreeProvider } from './views/lifecycle.ts';
 import type { JourneyMessage } from './views/journey.ts';
@@ -909,6 +910,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openApprovals', 'singularityFlow.openInbox', 'singularityFlow.openWorkspaceStories', 'singularityFlow.openReviews', 'singularityFlow.startWork',
     'singularityFlow.openConfigurationApprovals',
     'singularityFlow.recreateAndSyncConfiguration',
+    'singularityFlow.cleanupConfigurationHistory',
     'singularityFlow.openAdhocWork',
     'singularityFlow.openDeveloperHome',
     'singularityFlow.openGoals', 'singularityFlow.openFaultRepairs', 'singularityFlow.openJournal',
@@ -7161,6 +7163,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     if (message.action === 'after-install') await vscode.commands.executeCommand('singularityFlow.afterInstall');
     else if (message.action === 'recreate-sync') await vscode.commands.executeCommand('singularityFlow.recreateAndSyncConfiguration');
+    else if (message.action === 'cleanup-history') await vscode.commands.executeCommand('singularityFlow.cleanupConfigurationHistory');
     else if (message.action === 'repository-setup') await vscode.commands.executeCommand(
       'singularityFlow.repairRepositorySetup', { repositoryPath: client.repository }
     );
@@ -7370,6 +7373,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     run: argv => client.run(argv), refresh: async () => {
       await refreshAfterKnownMutation();
       await lazyPanels().WorkflowStudioPanel.refreshAfterConfigurationSync();
+    }
+  });
+  const configurationCleanupAction = new ConfigurationCleanupAction({
+    run: argv => client.run(argv),
+    confirm: async preview => {
+      output.appendLine(JSON.stringify(preview, null, 2));
+      const detail = preview.candidates.map(item => `${item.branch}@${item.commit} → ${item.archiveRef}`).join('\n');
+      return await showCompactWarningMessage(
+        `Archive ${preview.candidates.length} old configuration history branches?`,
+        { modal: true, compactDetail: 'The latest 10 and current configuration remain. Exact commits are preserved as tags. Application code, Stories and approvals are unchanged.',
+          detail }, 'Archive branches') === 'Archive branches';
     }
   });
   const reviewAndActivateWorkflowProposal = async (branch: string): Promise<string | null> => {
@@ -7644,6 +7658,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           : `Configuration recreated and synced at ${result.targetCommit.slice(0, 12)}. `
             + `${result.proposals.length} proposals archived. Application code and Stories unchanged.`);
       });
+    },
+    'singularityFlow.cleanupConfigurationHistory': async () => {
+      try {
+        const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+          title: 'Inspecting configuration history', cancellable: false }, () => configurationCleanupAction.run());
+        if (!result) return;
+        output.appendLine(JSON.stringify(result, null, 2));
+        if (result.status === 'preview' && !result.candidates.length || result.status === 'current') {
+          void showCompactInformationMessage('No eligible configuration history branches to archive. Current and recent history retained.');
+        } else if (result.status === 'cleaned') {
+          void showCompactInformationMessage(`${result.archived?.length ?? 0} history branches archived as tags. `
+            + (result.remaining ? `${result.remaining} more eligible snapshots; run cleanup again for the next bounded batch.` : 'Stories and approvals unchanged.'));
+        } else showRefusal(result.failure?.message ?? `History cleanup is ${result.status}; inspect a fresh preview.`,
+          { headline: 'Configuration history cleanup needs attention' });
+      } catch (error) {
+        showRefusal(error instanceof CliError && error.result ? error
+          : `History cleanup did not return a confirmed result: ${(error as Error).message}. Preview again to reconcile; do not assume branches were deleted.`,
+        { headline: 'Configuration history cleanup needs attention' });
+      }
     },
     // Backward-compatible command ID for old keybindings and links; it never opens a second home.
     'singularityFlow.openDeveloperHome': async () =>

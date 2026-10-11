@@ -266,6 +266,11 @@
         "icon": "$(sync)"
       },
       {
+        "command": "singularityFlow.cleanupConfigurationHistory",
+        "title": "Singularity Flow: Clean Configuration History Branches",
+        "icon": "$(archive)"
+      },
+      {
         "command": "singularityFlow.createWorkspace",
         "title": "Singularity Flow: Create a Workspace",
         "icon": "$(root-folder)"

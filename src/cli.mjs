@@ -14751,6 +14751,12 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
       recreateAndSyncConfiguration(root, { apply: optionBoolean(options, 'apply') }));
     if (['not-synced', 'outcome-unknown'].includes(result.status)) process.exitCode = 2;
   }
+  else if (subcommand === 'cleanup-history') {
+    result = await import('./configuration-history-cleanup.mjs').then(({ cleanupConfigurationHistory }) =>
+      cleanupConfigurationHistory(root, { apply: optionBoolean(options, 'apply'),
+        confirm: optionString(options, 'confirm'), keep: Number(optionString(options, 'keep-recent', '10')) }));
+    if (['not-cleaned', 'outcome-unknown'].includes(result.status)) process.exitCode = 2;
+  }
   else if (subcommand === 'explain') result = await import('./initialization/explain.mjs').then(({ explainSmartInitialization }) => (
     explainSmartInitialization(root, { pointer: optionString(options, 'pointer') })
   ));

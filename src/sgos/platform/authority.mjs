@@ -13,8 +13,9 @@ import {
   configurationReadRoot, isConfigurationReadPath
 } from '../../configuration-read-scope.mjs';
 import { stateConfigurationHistoryBranch } from '../../configuration-branch.mjs';
+import { configurationHistoryRefs, retainedConfigurationHistoryRef } from '../../configuration-history-refs.mjs';
 import { identity } from '../../git.mjs';
-import { runRemoteGitAsync } from '../../git-execution.mjs';
+import { GitRemoteSession, requireRemoteObservation, runRemoteGitAsync } from '../../git-execution.mjs';
 import { frozenRemoteTransport } from '../../git-remote-diagnostics.mjs';
 import { gitReadOutput, SingularityFlowError, run } from '../../util.mjs';
 import { withTrustedSgosConfigurationRead } from '../authority-trust.mjs';
@@ -156,9 +157,25 @@ async function historicalAuthorityWorkflow(root, authority, sourceCommit, revisi
     // New state mirrors retain source history behind an immutable advertised branch. Existing v2
     // mirrors predate that receipt; retain their legacy raw-object lookup only for compatibility,
     // with a precise repair if the server refuses unadvertised wants or has collected the object.
-    const fetched = await runRemoteGitAsync(namedBranch ? [
+    let namedRef = namedBranch ? `refs/heads/${namedBranch}` : null;
+    if (namedBranch === expectedHistoryBranch) {
+      try {
+        const refs = configurationHistoryRefs(sourceCommit);
+        const observed = await new GitRemoteSession({ env: transport.env }).observeAsync(transport.remote, {
+          refs: [refs.branch, refs.archive], includeHead: false
+        });
+        requireRemoteObservation(observed, 'retained configuration history');
+        namedRef = retainedConfigurationHistoryRef(observed.refs, sourceCommit);
+        if (!namedRef) fail('Pinned configuration history is missing; restore its retained branch or archive tag.',
+          'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED');
+      } catch (error) {
+        await rm(temporary, { recursive: true, force: true });
+        throw error;
+      }
+    }
+    const fetched = await runRemoteGitAsync(namedRef ? [
       'fetch', '--quiet', '--no-tags', '--force', '--', transport.remote,
-      `+refs/heads/${namedBranch}:refs/sgos-authority/source`
+      `+${namedRef}:refs/sgos-authority/source`
     ] : [
       'fetch', '--quiet', '--no-tags', '--force', '--', transport.remote,
       `+${sourceCommit}:refs/sgos-authority/source`
@@ -190,10 +207,14 @@ async function historicalAuthorityWorkflow(root, authority, sourceCommit, revisi
           approvedConfigurationCommit: sourceCommit
         });
     }
-    const retained = authorityGitRead(root, [
-      'rev-parse', '--verify', '--quiet', `refs/heads/${expectedHistoryBranch}^{commit}`
-    ], `Configuration history ref '${expectedHistoryBranch}'`, { absentStatus: 1 })?.trim() ?? '';
-    if (retained !== sourceCommit) {
+    const refs = configurationHistoryRefs(sourceCommit);
+    const local = new Map();
+    for (const ref of [refs.branch, refs.archive]) {
+      const value = authorityGitRead(root, ['rev-parse', '--verify', '--quiet', ref],
+        `Configuration history ref '${ref}'`, { absentStatus: 1 })?.trim();
+      if (value) local.set(ref, value);
+    }
+    if (!retainedConfigurationHistoryRef(local, sourceCommit)) {
       fail('Verified local state authority is missing its retained configuration history ref.',
         'SGOS_PLATFORM_CONFIGURATION_UNAPPROVED', {
           approvedConfigurationCommit: sourceCommit,

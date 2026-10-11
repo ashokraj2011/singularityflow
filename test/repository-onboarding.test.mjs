@@ -76,7 +76,7 @@ async function repositoryFixture(name = 'application', { objectFormat = null } =
 }
 
 async function publishStateMirror(fixture, {
-  retainHistory = false, subjectBound = true
+  retainHistory = false, subjectBound = true, archiveHistory = false
 } = {}) {
   const approved = path.join(fixture.base, 'approved');
   const publisher = path.join(fixture.base, 'state-publisher');
@@ -132,7 +132,7 @@ async function publishStateMirror(fixture, {
   run('git', ['remote', 'add', 'origin', fixture.remote], { cwd: publisher });
   run('git', ['push', '-q', 'origin', 'state'], { cwd: publisher });
   if (retainHistory) {
-    run('git', ['push', '-q', 'origin', `${sourceCommit}:refs/heads/${historyBranch}`], {
+    run('git', ['push', '-q', 'origin', `${sourceCommit}:refs/${archiveHistory ? 'tags' : 'heads'}/${historyBranch}`], {
       cwd: approved
     });
   }
@@ -1120,6 +1120,28 @@ test('restore prefers the immutable retained configuration history commit', asyn
     assert.equal(run('git', [
       'show-ref', '--verify', '--quiet', `refs/heads/${CONFIGURATION_BRANCH}`
     ], { cwd: fixture.remote, allowFailure: true }).status, 1);
+  } finally {
+    if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;
+    await rm(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test('archive tags restore exact configuration and still bind legacy state mirrors after history branch cleanup', async () => {
+  const fixture = await repositoryFixture();
+  const previousRegistry = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = path.join(fixture.base, 'leads.json');
+  try {
+    await ensureConfigurationBranch(fixture.remote, { capability });
+    const mirror = await publishStateMirror(fixture, { retainHistory: true, subjectBound: false, archiveHistory: true });
+    run('git', ['update-ref', '-d', `refs/heads/${CONFIGURATION_BRANCH}`], { cwd: fixture.remote });
+    const plan = await inspectRepositoryOnboarding(fixture.remote);
+    assert.equal(plan.state.repositoryBound, true);
+    assert.equal(plan.status, 'ready-to-restore');
+    assert.equal(plan.observedRefs[`refs/tags/sflow/config-history/${mirror.sourceCommit}`], mirror.sourceCommit);
+    const result = await applyRepositoryOnboarding(fixture.remote, { confirmPlan: plan.planId });
+    assert.equal(result.status, 'configuration-review-required');
+    assert.equal(result.proposal.commit, mirror.sourceCommit);
   } finally {
     if (previousRegistry == null) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
     else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previousRegistry;

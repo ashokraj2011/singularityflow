@@ -52,6 +52,7 @@ import {
 } from './configuration-assets.mjs';
 import { withConfigurationReadRoot } from './configuration-read-scope.mjs';
 import { recordSha256 } from './records.mjs';
+import { configurationHistoryRefs, retainedConfigurationHistoryRef } from './configuration-history-refs.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import {
   assertSkillPackagePath, inspectSkillPackageContents, SKP_CAPTURE_LIMITS
@@ -354,6 +355,7 @@ export async function retainStateConfigurationHistory(root, remote, sourceCommit
   const gitEnv = enterpriseGitEnvironment(env);
   const branch = stateConfigurationHistoryBranch(sourceCommit);
   const ref = `refs/heads/${branch}`;
+  const archive = configurationHistoryRefs(sourceCommit).archive;
   const available = run('git', ['rev-parse', '--verify', `${sourceCommit}^{commit}`], {
     cwd: root, env: gitEnv, allowFailure: true
   }).stdout.trim();
@@ -391,7 +393,7 @@ export async function retainStateConfigurationHistory(root, remote, sourceCommit
   });
   const observe = async ({ refresh = false } = {}) => {
     const observed = await session.observeAsync(endpoint, {
-      refs: [ref], includeHead: false, refresh
+      refs: [ref, archive], includeHead: false, refresh
     });
     if (!observed.ok) {
       if (observed.failure?.code === 'REMOTE_SYMBOLIC_REF_UNSUPPORTED') {
@@ -413,7 +415,7 @@ export async function retainStateConfigurationHistory(root, remote, sourceCommit
         }
       );
     }
-    return observed.refs?.get(ref) ?? null;
+    return retainedConfigurationHistoryRef(observed.refs, sourceCommit) ? sourceCommit : null;
   };
 
   // Git can report an update to a symbolic remote ref as "Everything up-to-date" when its target

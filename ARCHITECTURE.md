@@ -257,6 +257,22 @@ singularity/work-items/ENG-142/
 
 Input declarations are validated in all modes, including ordering and work-type membership. `off` is inert, `record` records warnings, and `enforce` blocks required missing/unapproved inputs and every present hash mismatch. Collection verifies the producer's active approval, registered approved hash, current artifact hash, and resolved producer path. The marker-delimited input block is replaceable; the accompanying context record captures declarations, status, bytes, truncation, approved hashes, and rendered-block hash. Publication recollects rather than trusting preparation.
 
+### Configuration history retention
+
+Approved snapshots use source-addressed `sflow/config-history/<commit>` identities. A confirmed
+`configuration cleanup-history` plan archives older canonical branch refs as lightweight tags of
+the same identity before deleting the branch refs, atomically and with exact leases. The latest
+10 snapshots and current approved snapshot remain by default. Each push is bounded to 100 snapshot
+retirements, and the inventory is bounded to 1,000 branches. Archive collisions, symbolic refs,
+stale confirmations and failed observations do not authorize deletion. Post-push observation,
+not exit status alone, establishes completion.
+
+Readers and retention accept either the direct branch or exact archive tag; tags cannot mask a
+conflicting branch or object. Archived configuration remains fetchable for legacy mirror binding,
+onboarding restoration and historical platform authority. Cleanup does not change configuration,
+Stories, approvals, application worktrees or the index, and never removes proposal/application refs.
+Archive tags remain durable recovery data; no object pruning or implicit background deletion occurs.
+
 ### Shared phase-authoring contract
 
 `src/phase-authoring-contract.mjs` derives installed defaults from accepted responsibilities,

@@ -604,6 +604,13 @@
       },
       "digest": "0df12f32366fb36b70ad797f2dc223d7080362283547aa20921272f45f4805d3"
     },
+    "src/configuration-history-cleanup.mjs": {
+      "counts": {
+        "command-git": 2,
+        "command-run": 1
+      },
+      "digest": "230eb050e213692ac47656f843e6ca9d8b13c92f3ed4e6023d20b53895b62b78"
+    },
     "src/configuration-reference-sync.mjs": {
       "counts": {
         "command-git-literal": 1

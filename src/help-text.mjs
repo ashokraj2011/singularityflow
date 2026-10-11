@@ -764,6 +764,7 @@ Usage:
   singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] [--git-shadow] --json
   singularity-flow configuration validate --json
   singularity-flow configuration recreate-sync [--apply] [--json]  Replay pending configuration intent, archive old refs, and sync without a Git merge; preview unless --apply
+  singularity-flow configuration cleanup-history [--keep-recent 10] [--apply --confirm <HASH>] [--json]  Preview exact snapshot branches; archive commits as tags before retiring old branch refs (up to 100 per confirmed batch)
   singularity-flow configuration transactions [--json]     Inspect retained configuration operations; the journal grants no authority
   singularity-flow configuration reconcile <CFT-ID> [--json]  Reconcile a committed operation and finish reference sync; never retry a push blindly
   singularity-flow configuration explain [--pointer JSON-POINTER] [--json]

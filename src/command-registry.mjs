@@ -1354,6 +1354,9 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
       : never('init.smart-detect.activate', definition, 'mutation');
   }
   if (definition.name === 'configuration') {
+    if (positionals[1] === 'cleanup-history') return optionBoolean(options, 'apply')
+      ? never('configuration.cleanup-history.apply', definition, 'mutation')
+      : never('configuration.cleanup-history.preview', definition, 'read');
     return CONFIGURATION_READ_SUBCOMMANDS.includes(positionals[1])
       ? never(`configuration.${positionals[1]}`, definition, 'read')
       : never('configuration.edit', definition, 'mutation');
@@ -1648,6 +1651,8 @@ export function operationCatalog() {
     never('precheck.run.execute', precheckDefinition, 'mutation'),
     ...CONFIGURATION_READ_SUBCOMMANDS.map((name) => never(`configuration.${name}`, configurationDefinition, 'read')),
     never('configuration.edit', configurationDefinition, 'mutation'),
+    never('configuration.cleanup-history.preview', configurationDefinition, 'read'),
+    never('configuration.cleanup-history.apply', configurationDefinition, 'mutation'),
     never('jira.status', jiraDefinition, 'read'),
     never('jira', jiraDefinition, 'mutation'),
     ...PROMPT_LOG_READ_SUBCOMMANDS.map((name) => never(`prompt-log.${name}`, promptLogDefinition, 'read')),

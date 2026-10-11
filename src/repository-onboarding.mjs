@@ -27,6 +27,7 @@ import {
   capabilityTree, flattenCapabilityTree, loadCapabilities
 } from './capabilities.mjs';
 import { initializeDefinition, loadDefinition } from './config.mjs';
+import { configurationHistoryRefs, retainedConfigurationHistoryRef } from './configuration-history-refs.mjs';
 import {
   CAPABILITY_AUTHORITY_LINK_PATH, validateCapabilityAuthorityLink
 } from './capability-authority-link.mjs';
@@ -1492,11 +1493,16 @@ async function proveLegacyMirrorBinding(repository, state, {
   const queueRoot = repositoryOnboardingCleanupQueueRoot({ env, root: cleanupQueueRoot });
   if (state.kind !== 'configuration-mirror' || state.subjectBound === true
       || !state.history?.branch || !state.history?.commit) return state;
-  const ref = `refs/heads/${state.history.branch}`;
+  const historyRefs = configurationHistoryRefs(state.history.commit);
   const observed = await session.observeAsync(repository, {
-    includeHead: false, refs: [ref]
+    includeHead: false, refs: [historyRefs.branch, historyRefs.archive]
   });
-  if (!observed.ok || observed.refs.get(ref) !== state.history.commit) return state;
+  if (!observed.ok) return state;
+  try { if (!retainedConfigurationHistoryRef(observed.refs, state.history.commit)) return state; }
+  catch (error) {
+    if (error.code === 'STATE_CONFIGURATION_HISTORY_COLLISION') return state;
+    throw error;
+  }
   const retained = await cloneObservedBranch(
     repository, state.history.branch, state.history.commit, {
       env, runRemoteCommand, prefix: 'sflow-onboarding-legacy-proof-', cleanupQueueRoot: queueRoot
@@ -1862,7 +1868,7 @@ export async function inspectRepositoryOnboarding(remote, {
   const stateRef = `refs/heads/${branch}`;
   let observation = await session.observeAsync(repository, {
     includeHead: true, refs: [CONFIGURATION_REF, stateRef,
-      'refs/heads/sflow/config-history/*', `refs/heads/${ONBOARDING_REVIEW_PREFIX}*`]
+      'refs/heads/sflow/config-history/*', 'refs/tags/sflow/config-history/*', `refs/heads/${ONBOARDING_REVIEW_PREFIX}*`]
   });
   if (!observation.ok) {
     // A provider may refuse/overflow retained-history inventory while answering the exact current
@@ -1931,9 +1937,9 @@ export async function inspectRepositoryOnboarding(remote, {
   const relevantRefs = [CONFIGURATION_REF, stateRef];
   const supplementalRefs = [];
   if (state.kind === 'configuration-mirror' && state.history?.branch) {
-    const historyRef = `refs/heads/${state.history.branch}`;
-    relevantRefs.push(historyRef);
-    supplementalRefs.push(historyRef);
+    const historyRefs = configurationHistoryRefs(state.history.commit);
+    relevantRefs.push(historyRefs.branch, historyRefs.archive);
+    supplementalRefs.push(historyRefs.branch, historyRefs.archive);
   }
   if (!configurationCommit && setup.effects.some((effect) =>
     effect.kind === 'configuration-recreate' && effect.action === 'create')) {
@@ -2414,7 +2420,7 @@ async function restoreConfiguration(remote, plan, context) {
   const historyBranch = plan.state.history?.branch;
   const historyCommit = plan.state.history?.commit;
   if (historyBranch && historyCommit
-      && plan.observedRefs[`refs/heads/${historyBranch}`] === historyCommit) {
+      && retainedConfigurationHistoryRef(new Map(Object.entries(plan.observedRefs)), historyCommit)) {
     const retained = await cloneObservedBranch(remote, historyBranch, historyCommit, {
       env: context.env, runRemoteCommand: context.runRemoteCommand,
       prefix: 'sflow-onboarding-history-', cleanupQueueRoot: context.cleanupQueueRoot

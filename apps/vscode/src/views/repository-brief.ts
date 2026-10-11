@@ -15,7 +15,8 @@ import {
   BRIEF_PHASES, BRIEF_TABS, REPOSITORY_BRIEF_SCRIPT, REPOSITORY_BRIEF_STYLES, repositoryBriefBody,
   type BriefPageState, type RepositoryBrief
 } from './repository-brief-page.ts';
-import { contentSecurityPolicy, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import { navigateTo } from './navigate.ts';
 
 export class RepositoryBriefPanel {
   private static current: RepositoryBriefPanel | null = null;
@@ -68,7 +69,11 @@ export class RepositoryBriefPanel {
         if (file) void this.openFile(file, line ?? 0);
       }
     });
-    panel.webview.onDidReceiveMessage((raw) => router.route(raw));
+    panel.webview.onDidReceiveMessage((raw) => {
+      const navigation = navigationTarget(raw);
+      if (navigation) return void navigateTo(navigation);
+      router.route(raw);
+    });
     panel.onDidDispose(() => this.dispose());
     this.render();
     void this.load('read');

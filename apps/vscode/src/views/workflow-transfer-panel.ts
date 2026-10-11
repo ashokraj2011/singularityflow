@@ -1,6 +1,8 @@
 import { showCompactWarningMessage } from "../compact-message.ts";
 import * as vscode from 'vscode';
-import { contentSecurityPolicy, nonce, page } from './webview.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import { navigateTo } from './navigate.ts';
+import { integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import { workflowMutationPlanDetail, workflowMutationPlanSummary, type WorkflowMutationPreview, type WorkflowImportChoice } from './workflow-transfer-presentation.ts';
 import type { StudioChangeOutcome } from './workflow-studio.ts';
 
@@ -19,25 +21,31 @@ export class WorkflowTransferPanel {
       let current: WorkflowMutationPreview | null = null, choices: Choices = {}, revision = -1, sequence = 0, applying = false, settled = false;
       const finish = (outcome: StudioChangeOutcome) => { if (!settled) { settled = true; resolve(outcome); } };
       panel.onDidDispose(() => finish({ outcome: 'cancelled', error: null }));
-      panel.webview.onDidReceiveMessage(async (message: unknown) => {
-        const request = message as { type?: string; choices?: Choices; revision?: number; planSha256?: string };
-        if (!request || applying || settled) return;
-        if (request.type === 'transfer.cancel') { panel.dispose(); return; }
-        if (!Number.isSafeInteger(request.revision) || request.revision! < 0) return;
-        if (request.type === 'transfer.preview') {
-          if (request.revision! <= revision) return;
-          const ticket = ++sequence; current = null; revision = request.revision!;
+      const revisionOf = (message: InboundMessage) => {
+        const value = integerField(message, 'revision');
+        return value != null && Number.isSafeInteger(value) ? value : null;
+      };
+      const router = registerMessageRouter('singularityFlow.workflowTransfer', {
+        'transfer.cancel': () => { panel.dispose(); },
+        'transfer.preview': async (message) => {
+          const requested = revisionOf(message);
+          if (requested == null || requested <= revision) return;
+          const ticket = ++sequence; current = null; revision = requested;
           try {
-            if (!request.choices || typeof request.choices !== 'object' || Array.isArray(request.choices)
-                || JSON.stringify(request.choices).length > 512 * 1024) throw new Error('Invalid identity choices.');
-            choices = structuredClone(request.choices);
+            const requestedChoices = message.choices;
+            if (!requestedChoices || typeof requestedChoices !== 'object' || Array.isArray(requestedChoices)
+                || JSON.stringify(requestedChoices).length > 512 * 1024) throw new Error('Invalid identity choices.');
+            choices = structuredClone(requestedChoices as Choices);
             const next = await preview(choices);
             if (ticket !== sequence || settled) return;
             current = next;
             await panel.webview.postMessage({ type: 'transfer.plan', plan: next, revision });
           } catch (error) { if (ticket === sequence) await panel.webview.postMessage({ type: 'transfer.failed', message: (error as Error).message, revision }); }
-        } else if (request.type === 'transfer.apply') {
-          if (!current || revision !== request.revision || current.status !== 'ready' || request.planSha256 !== current.planSha256) return;
+        },
+        'transfer.apply': async (message) => {
+          const requested = revisionOf(message);
+          if (requested == null || !current || revision !== requested || current.status !== 'ready'
+              || stringField(message, 'planSha256') !== current.planSha256) return;
           const reviewed = current, selected = structuredClone(choices); applying = true;
           const accepted = await showCompactWarningMessage('Create this exact workflow proposal?',
             { modal: true, detail: workflowMutationPlanDetail(reviewed), compactDetail: workflowMutationPlanSummary(reviewed) }, 'Create proposal');
@@ -49,6 +57,13 @@ export class WorkflowTransferPanel {
             else { finish(outcome); panel.dispose(); }
           } catch (error) { applying = false; current = null; await panel.webview.postMessage({ type: 'transfer.failed', message: (error as Error).message, revision }); }
         }
+      });
+      panel.webview.onDidReceiveMessage((raw: unknown) => {
+        const navigation = navigationTarget(raw);
+        if (navigation) return void navigateTo(navigation);
+        // An apply in progress or a settled panel takes no further input.
+        if (applying || settled) return;
+        return router.route(raw);
       });
     });
   }

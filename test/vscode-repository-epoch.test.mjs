@@ -52,7 +52,10 @@ test('every repository-bound auxiliary and status publication carries an epoch g
   assert.ok((readiness.match(/repositoryEpoch\.isCurrent\(scope\)/g) ?? []).length >= 3,
     'both readiness reads and their error publication need repository guards');
 
-  assert.match(extension, /repositoryEpoch\.moved\(canonicalTarget\);\s*repository = canonicalTarget/);
+  // Nothing asynchronous may run between moving the epoch and switching the repository; capturing
+  // the new selection's epoch is synchronous.
+  assert.match(extension,
+    /repositoryEpoch\.moved\(canonicalTarget\);\s*(?:const selectionEpoch = repositoryEpoch\.capture\(\);\s*)?repository = canonicalTarget/);
   assert.match(extension, /const renderedScope = repositoryEpoch\.capture\(\)/);
   assert.match(extension, /statusChromeFor\(renderedFor, renderedScope\)/);
   assert.match(extension, /statusChromeFor\(null, renderedScope\)/);

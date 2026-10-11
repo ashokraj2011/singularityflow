@@ -1156,7 +1156,7 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
   assert.match(navigation.webview.html, /<span>Singularity Flow<\/span>/);
   const primary = navigation.webview.html.match(/<nav aria-label="Singularity Flow">([\s\S]*?)<\/nav>/)?.[1] ?? '';
   assert.deepEqual([...primary.matchAll(/data-action="([^"]+)"/g)].map(match => match[1]),
-      ['my-work', 'stories', 'artifacts', 'story-analytics', 'code-explainer', 'reviews', 'configuration-approvals', 'workspace-manage', 'configuration-center']);
+      ['my-work', 'stories', 'artifacts', 'story-analytics', 'code-explainer', 'reviews', 'configuration-approvals', 'workspace-manage', 'configuration-center', 'configuration-sync', 'after-install']);
   assert.match(navigation.webview.html, /data-state-key="pinned-shortcuts"/);
   assert.match(navigation.webview.html, /data-action="setup-wizard"/);
   assert.doesNotMatch(navigation.webview.html, /sf-help|help-popover|title=|mouseover|last-opened/);
@@ -1941,8 +1941,9 @@ test('packaged agents open from the active CLI without weakening the repository 
     readOnly: true
   });
   assert.equal(registered.errors.length, 0);
-  assert.equal(registered.openedDocuments.at(-1).fsPath,
-    path.join(packageRoot, 'templates', 'agents', 'architect.agent.md'));
+  // Markdown opens as its rendered preview.
+  const preview = registered.executedCommands.filter((entry) => entry.id === 'markdown.showPreview').at(-1);
+  assert.equal(preview?.args[0]?.fsPath, path.join(packageRoot, 'templates', 'agents', 'architect.agent.md'));
   assert.equal(registered.panels.filter((entry) => entry.id === 'singularityFlow.result').length, 0,
     'a permitted open raises no refusal');
 
@@ -2346,11 +2347,19 @@ test('the journey panel opens with a strict CSP and no remote origins', async (t
     'the selected phase exposes its governed artifacts as recognizable clickable links');
   const artifactId = panel.webview.html.match(/data-open="([^"]+)"/)?.[1];
   assert.ok(artifactId, 'the selected phase has an artifact link bound to a governed artifact id');
-  const openedBefore = registered.openedDocuments.length;
+  // A Markdown artifact opens as its rendered preview, anything else in the text editor; one not
+  // generated yet says so instead of opening an empty file. This fresh Epic has generated nothing.
+  const opened = () => registered.openedDocuments.length
+    + registered.executedCommands.filter((entry) => entry.id === 'markdown.showPreview').length;
+  const notGenerated = () => registered.warnings.filter((message) => /has not been generated yet/.test(message));
+  const openedBefore = opened();
+  const noticesBefore = notGenerated().length;
   await panel.post({ type: 'open', id: artifactId });
-  await until(() => registered.openedDocuments.length > openedBefore ? true : null);
-  assert.equal(registered.openedDocuments.length, openedBefore + 1,
-    'activating a journey artifact link opens exactly one governed document');
+  await until(() => opened() > openedBefore || notGenerated().length > noticesBefore ? true : null);
+  assert.equal(opened() - openedBefore + notGenerated().length - noticesBefore, 1,
+    'activating a journey artifact link handles exactly one governed document');
+  if (opened() === openedBefore) assert.match(notGenerated().at(-1), /artifacts\/[^/]+\/[^/]+\.md$/,
+    'the notice names the artifact the link is bound to');
 });
 
 test('approving from the editor still demands the exact confirmation a terminal would', async (t) => {

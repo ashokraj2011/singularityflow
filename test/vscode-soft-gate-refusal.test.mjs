@@ -41,15 +41,14 @@ async function storyPastIntake() {
   return { root, file };
 }
 
-// The editor learns about a soft gate only from the refusal the CLI prints. Its error message is the
-// refusal's headline, so the detector has to read the rest of stderr, where the override is named.
+// The editor learns about a soft gate only from the refusal the CLI prints, so the detector reads all
+// of stderr: the override may be named in the headline or in a later line.
 test('the editor recognises a real soft-gate refusal and its retry with the override succeeds', async () => {
   const { root, file } = await storyPastIntake();
   const invoke = (args) => invokeCli({ executable: process.execPath, cli: bin, repository: root, args, env, json: false, commandClass: 'mutation', timeoutMs: 120_000 });
   const upload = ['documents', 'upload', file, '--name', 'Late note', '--store', 'git'];
   const refusal = await invoke(upload).then(() => null, (error) => error);
   assert.ok(refusal instanceof CliError, `expected a CLI refusal, got ${refusal}`);
-  assert.doesNotMatch(refusal.message, /--confirm-override/, 'the headline alone does not carry the override');
   assert.equal(softSequenceGate(refusal), 'documentPhase');
   await invoke([...upload, '--confirm-override', 'continue:documentPhase']);
   const listed = JSON.parse(run(process.execPath, [bin, 'documents', 'list', '--json'], root).stdout);

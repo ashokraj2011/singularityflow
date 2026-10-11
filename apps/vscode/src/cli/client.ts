@@ -349,7 +349,9 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     return ['list', 'read', 'show', 'history', 'op-status', 'preview', 'catalog'].includes(args[2] ?? 'list') ? 'read' : 'mutation';
   }
   if (args[0] === 'workflow' && args[1] === 'studio') {
-    return (args[2] ?? 'show') === 'show' || enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
+    // `workflow studio --json` is the default show action; a flag is not an action.
+    const action = args[2] && !args[2].startsWith('-') ? args[2] : 'show';
+    return action === 'show' || enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
   }
   if (args[0] === 'workflow') return ['list', 'proposals', 'proposal', 'proposal-status'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'phase') return ['show', 'draft-check', 'prepublish'].includes(args[1] ?? '')
@@ -404,6 +406,10 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     if (action === 'cache') return (args[3] ?? 'status') === 'status' ? 'read' : 'mutation';
     if (action === 'preference') return (args[3] ?? 'show') === 'show' ? 'read' : 'mutation';
     return 'mutation';
+  }
+  // Repository knowledge only reads; the three reviews write docs/knowledge/confirmations.yml.
+  if (args[0] === 'wm' && args[1] === 'knowledge') {
+    return ['confirm', 'correct', 'reject'].includes(args[2] ?? '') ? 'mutation' : 'read';
   }
   if (args[0] === 'intent') {
     return ['show', 'validate', 'workflow-guide'].includes(args[1] ?? 'show')

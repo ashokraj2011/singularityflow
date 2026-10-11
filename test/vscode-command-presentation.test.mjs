@@ -38,7 +38,8 @@ test('approval presentation pins the phase and Story in the validated Copilot ha
     argv: ['approve', 'poc-review-v2', '--work-id', 'STORY-17']
   });
   assert.equal(guidance?.copilotCommand, expected);
-  assert.equal(commandGuidanceText(command), `Shell: ${command}\nCopilot: ${expected}`);
+  assert.equal(commandGuidanceText(command),
+    `Shell: ${command}\nCopilot: ${expected}\nVS Code (model-free): @sflow /approve poc-review-v2 --work-id STORY-17`);
   assert.match(commandGuidanceHtml({ command, copilotCommand: expected }), /\/sf-approve poc-review-v2 --work-id STORY-17/);
   assert.equal(safeCommandPair({ command, copilotCommand: '/sf-approve' }), null,
     'an asserted route cannot discard the reviewed phase or Story');

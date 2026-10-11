@@ -22,7 +22,7 @@ const { resultCardHtml } = await import(view('result-card-page.ts'));
 const { commandGuidance } = await import(path.join(root, 'apps', 'vscode', 'src', 'copilot-command.ts'));
 const { terminalCommand } = await import(path.join(root, 'apps', 'vscode', 'src', 'cli', 'runner.ts'));
 
-function expectedGuidance(command, argv, skill, copilotCommand = skill) {
+function expectedGuidance(command, argv, skill, copilotCommand = skill, modelFreeCommand = null) {
   const rendered = ['singularity-flow', ...argv].map((entry) => `'${entry}'`).join(' ');
   return {
     command,
@@ -30,6 +30,7 @@ function expectedGuidance(command, argv, skill, copilotCommand = skill) {
     argv,
     skill,
     copilotCommand,
+    modelFreeCommand,
     copyable: true,
     platformCommands: {
       darwin: rendered,
@@ -414,7 +415,7 @@ test('VS Code accepts only canonical registered command and skill pairs', () => 
   assert.deepEqual(commandGuidance('singularity-flow --help'),
     expectedGuidance('singularity-flow --help', ['--help'], '/sf-help'));
   assert.deepEqual(commandGuidance('singularity-flow status --json'),
-    expectedGuidance('singularity-flow status --json', ['status', '--json'], '/sf-status'),
+    expectedGuidance('singularity-flow status --json', ['status', '--json'], '/sf-status', '/sf-status', '@sflow /status'),
     'a missing producer skill is derived from the closed crosswalk');
   assert.equal(commandGuidance('singularity-flow definitely-unknown --json'), null);
   assert.equal(commandGuidance({
@@ -483,7 +484,7 @@ test('VS Code accepts a registered policy-selected generation skill without wide
   }), expectedGuidance(
     'singularity-flow phase publish convergence --authored deterministic',
     ['phase', 'publish', 'convergence', '--authored', 'deterministic'],
-    '/sf-converge'
+    '/sf-converge', '/sf-converge', '@sflow /publish convergence'
   ));
   assert.equal(commandGuidance({
     command: 'singularity-flow status --json',

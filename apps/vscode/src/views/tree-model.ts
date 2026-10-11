@@ -135,7 +135,7 @@ function packTerminalPhase(phaseOrder: string[], members: Array<{ phase: string 
   return terminal;
 }
 
-function artifactNode(output: InitiativeOutput, phaseId: string, initiativeId: string): TreeNode {
+function artifactNode(output: InitiativeOutput & { repositoryPath: string }, phaseId: string, initiativeId: string): TreeNode {
   const pinned = output.status === 'approved' && Boolean(output.sha256);
   const icon = output.status === 'approved' ? 'statusSuccess' : 'artifact';
   return {
@@ -144,10 +144,10 @@ function artifactNode(output: InitiativeOutput, phaseId: string, initiativeId: s
     label: output.label ?? output.id,
     description: output.sha256 ? output.status : (output.required ? 'not generated' : 'optional, not generated'),
     tooltip: output.sha256
-      ? `${output.path}\nsha256 ${output.sha256}`
-      : `${output.path}\nNot generated yet.`,
+      ? `${output.repositoryPath}\nsha256 ${output.sha256}`
+      : `${output.repositoryPath}\nNot generated yet.`,
     icon,
-    path: output.path,
+    path: output.repositoryPath,
     readOnly: pinned,
     // Only an artifact that exists and is not already approved can be approved. Offering the action
     // on an unwritten artifact would produce a refusal the reviewer could have been spared.

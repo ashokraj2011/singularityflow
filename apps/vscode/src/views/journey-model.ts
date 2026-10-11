@@ -400,7 +400,7 @@ function initiativeJourneyOf(initiative: InitiativeSnapshot, selectedStageId: st
         label: output.label ?? output.id,
         status: output.status,
         required: output.required !== false,
-        path: output.path,
+        path: output.repositoryPath,
         sha256: output.sha256,
         approvable: Boolean(output.sha256) && output.status !== 'approved',
         approvals

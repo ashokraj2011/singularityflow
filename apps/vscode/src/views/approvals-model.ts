@@ -11,8 +11,9 @@
  * arrives with the engine's own reason. It must never *hide* an approval the engine would accept,
  * so every uncertain case is treated as actionable.
  */
-import type {
-  ApprovalPolicy, RepositorySnapshot, InitiativeSnapshot, StoryWorkflow
+import {
+  initiativeOutputRepositoryPath,
+  type ApprovalPolicy, type RepositorySnapshot, type InitiativeSnapshot, type StoryWorkflow
 } from '../cli/snapshot.ts';
 
 export type Standing = 'yours' | 'others' | 'blocked';
@@ -48,7 +49,7 @@ export interface PendingApproval {
   /** Earlier phases this exact gate is configured to return work to. */
   rejectTo: string[];
   signatures: Array<{ actor: string; at: string | null }>;
-  /** Exact governed file shown when this decision represents a Story phase. */
+  /** Exact governed file, from the repository root: a Story phase's artifact or an Epic output. */
   artifactPath?: string | null;
   workId?: string;
   /** Exact submitted packet and source revision this decision is bound to. */
@@ -345,6 +346,7 @@ function approvalsOf(snapshot: RepositorySnapshot, initiative: InitiativeSnapsho
       const signed = recordsFor(phaseId, 'output', output.id);
       const chain = chainProgress(policy, openStepFrom(gateErrors, output.id));
       const { standing, reason, authorities } = standingFor(snapshot, actor, policy, chain);
+      const artifactPath = initiativeOutputRepositoryPath(initiative, phaseId, output);
       pending.push({
         source: 'initiative',
         id: `output:${phaseId}/${output.id}`,
@@ -352,7 +354,8 @@ function approvalsOf(snapshot: RepositorySnapshot, initiative: InitiativeSnapsho
         phase: phaseId,
         subject: output.id,
         label: output.label ?? output.id,
-        detail: output.path,
+        detail: artifactPath,
+        artifactPath,
         sha256: output.sha256,
         expected: `${phaseId}:${output.id}`,
         standing,

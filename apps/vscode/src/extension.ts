@@ -6609,13 +6609,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const { approval } = message;
     const initiative = store.current.snapshot?.initiative;
     if (message.type === 'open') {
-      const output = approval.source === 'initiative'
-        ? initiative?.state.phases[approval.phase]?.outputs?.[approval.subject]
-        : null;
-      const artifactPath = output?.path ?? approval.artifactPath;
-      if (artifactPath) {
+      if (approval.artifactPath) {
         await openArtifact(repository, {
-          kind: 'artifact', id: approval.id, label: approval.label, path: artifactPath
+          kind: 'artifact', id: approval.id, label: approval.label, path: approval.artifactPath
         });
       }
       return;

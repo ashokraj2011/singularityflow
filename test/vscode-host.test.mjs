@@ -23,7 +23,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import YAML from 'yaml';
 import { initializeDefinition } from '../src/config.mjs';
 import { buildRepositoryReadinessPlan, executeRepositoryReadinessPlan } from '../src/initialization/runtime-readiness.mjs';
-import { createInitiative, initiativeDir, saveInitiative } from '../src/initiative-state.mjs';
+import { createInitiative, initiativeDir, prepareInitiativePhase, saveInitiative } from '../src/initiative-state.mjs';
 import { createAutoFlightState, readAutoFlightState } from '../src/auto/auto-flight-store.mjs';
 import { publishOrganisationCapabilityMap } from '../src/organisation.mjs';
 import { run } from '../src/util.mjs';
@@ -2388,6 +2388,80 @@ test('the journey panel opens with a strict CSP and no remote origins', async (t
     'activating a journey artifact link handles exactly one governed document');
   if (opened() === openedBefore) assert.match(notGenerated().at(-1), /artifacts\/[^/]+\/[^/]+\.md$/,
     'the notice names the artifact the link is bound to');
+});
+
+test('a generated Epic artifact opens from the journey, the Lifecycle tree and Approvals', async (t) => {
+  if (!requireBundle(t)) return;
+  // Epic outputs are recorded relative to the Epic directory (artifacts/<phase>/<file>). Resolving
+  // that from the repository root found nothing, so every generated Epic artifact reported "not
+  // generated yet" from the journey, the tree's phases and packs, and Approvals, while the Inbox,
+  // which used the snapshot's repository-relative path, opened it.
+  const root = await demoRepository();
+  const prepared = await prepareInitiativePhase(root, 'INIT-CHECKOUT');
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Prepare the first phase'], { cwd: root });
+  const phaseId = prepared.phase.id;
+  const generated = prepared.outputs.find((output) => output.sha256 && output.path.endsWith('.md'));
+  assert.ok(generated, 'preparing the first phase generated a Markdown artifact');
+  const output = prepared.initiative.phases[phaseId].outputs[generated.id];
+  assert.ok(!existsSync(path.join(root, output.path)), 'the recorded path is not repository-relative');
+
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  await loadExtension(api).activate(context());
+  const previews = () => registered.executedCommands.filter((entry) => entry.id === 'markdown.showPreview');
+  const missing = () => registered.warnings.filter((warning) => /has not been generated yet/.test(warning));
+  const opened = async (before, surface, file = generated.path) => {
+    const refusals = missing().length;
+    await until(() => previews().length > before || missing().length > refusals ? true : null,
+      { what: `${surface} to open ${file}` });
+    assert.deepEqual(missing().slice(refusals), [], `${surface} found the generated file`);
+    assert.equal(await realpath(previews().at(-1).args[0].fsPath), await realpath(path.join(root, file)),
+      `${surface} opened the generated file`);
+  };
+
+  await registered.commands.get('singularityFlow.openJourney')();
+  const journey = registered.panels.find((entry) => entry.id === 'singularityFlow.journey');
+  await journey.post({ type: 'phase', id: phaseId });
+  const linkId = `initiative:${phaseId}:${generated.id}`;
+  assert.match(journey.webview.html, new RegExp(`data-open="${linkId}"`));
+  let before = previews().length;
+  await journey.post({ type: 'open', id: linkId });
+  await opened(before, 'the journey panel');
+  assert.ok(journey.webview.html.includes(`<small>${generated.path}</small>`),
+    'the journey names the artifact by its repository path');
+
+  const lifecycle = section(registered, 'lifecycle');
+  await until(() => lifecycle.getChildren().some((node) => node.id === 'initiative:INIT-CHECKOUT') ? true : null);
+  const initiativeRoot = lifecycle.getChildren().find((node) => node.id === 'initiative:INIT-CHECKOUT');
+  const phases = lifecycle.getChildren(lifecycle.getChildren(initiativeRoot).find((node) => node.id === 'phases'));
+  const artifact = lifecycle.getChildren(phases.find((node) => node.id === `phase:${phaseId}`))
+    .find((node) => node.id === `artifact:${phaseId}/${generated.id}`);
+  assert.ok(artifact, 'the Lifecycle tree lists the generated artifact');
+  assert.equal(artifact.path, generated.path);
+  before = previews().length;
+  await registered.commands.get('singularityFlow.openArtifact')(artifact);
+  await opened(before, 'the Lifecycle tree');
+
+  // Artifact packs list the same outputs, read through the pack rather than the phase.
+  const packs = lifecycle.getChildren(lifecycle.getChildren(initiativeRoot).find((node) => node.id === 'packs'));
+  const generatedById = new Map(prepared.outputs.filter((entry) => entry.sha256)
+    .map((entry) => [`artifact:${phaseId}/${entry.id}`, entry]));
+  const member = packs.flatMap((pack) => lifecycle.getChildren(pack)).find((node) => generatedById.has(node.id));
+  assert.ok(member, 'an Artifact pack lists a generated output');
+  assert.equal(member.path, generatedById.get(member.id).path);
+  before = previews().length;
+  await registered.commands.get('singularityFlow.openArtifact')(member);
+  await opened(before, 'an Artifact pack', member.path);
+
+  await registered.commands.get('singularityFlow.openApprovals')();
+  const approvals = registered.panels.find((entry) => entry.id === 'singularityFlow.approvals');
+  const cardId = `output:${phaseId}/${generated.id}`;
+  assert.match(approvals.webview.html, new RegExp(`data-open="${cardId}"`));
+  before = previews().length;
+  await approvals.post({ type: 'open', id: cardId });
+  await opened(before, 'the Approvals card');
+  assert.deepEqual(missing(), []);
 });
 
 test('approving from the editor still demands the exact confirmation a terminal would', async (t) => {

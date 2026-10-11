@@ -111,6 +111,45 @@ all seven selectable authoring skills reuse phase-entry context. Actual native
 Story tool-call, document-read, latency and billed-token savings still require a
 complete exported host trace. No model was called by this fixture.
 
+## Live measurement — 2026-10-11
+
+One complete Classic Delivery Story (change an exported value from 1 to 2 and its unit
+test) was driven through Copilot CLI 1.0.95 over ACP, model Auto (it chose
+`gpt-6-luna`). A fresh clone at `4e81b3fa` with the plugin and direct skills installed in an
+isolated `COPILOT_HOME` was used, with all 16 messages in one conversation, typed as a user would:
+`/sf-next`, `/sf-session TOK-1`, `/sf-next`, the clarification answers, `/sf-submit`, and so
+on. Readiness, Story start and the four approvals were human CLI steps outside the chat.
+Usage is Copilot's own per-model-call record (`session.usage_record` in its session log).
+
+| | Session + Intake | Code | Testing | Code checking | Total |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| User messages (= premium requests) | 5 | 3 | 2 | 6 | 16 |
+| Model calls | 39 | 29 | 23 | 55 | 146 |
+| Input tokens | 1,338,691 | 2,305,218 | 2,944,829 | 10,359,940 | 16,948,678 |
+| Tool calls | 36 | 30 | 28 | 51 | 145 |
+
+- 95.9% of input tokens were cache reads, 4.1% cache writes; output was 41,915 tokens
+  (18,207 reasoning). Copilot reported 19.2 AI units.
+- Cost follows conversation length times model calls, not phase prompt size. The
+  composed phase prompts were 8.9–20.4 KB; the first model call (system prompt, skills,
+  `/sf-next`) was 15,127 tokens. The context re-sent on each call grew from 15K to
+  217K tokens (the window is 272K): the CLI returned 375 KB of JSON over 80 calls, and
+  that stays in the conversation. Copilot spilled 17 large results to temporary files
+  and read them back 23 times.
+- Repair loops: two turns spent 5.0M input tokens (30%) adding a missing self-approval
+  disclosure through `appeal repair-plan/run/resume`. The first Code edit added the clause
+  tag but not the change, so publication failed its tests and was repaired. Two `/sf-next`
+  turns only rendered inputs and named the drafting skill (0.86M tokens, 2 extra premium
+  requests). `/sf-phase` declined to submit when asked, which cost one more turn.
+- Waits: one model call hung for 15 minutes and the session was resumed
+  (`session/load`). The final submit failed with `grounding is not defined`, fixed in
+  `06533b54`. Cache writes after those pauses were 160K and 202K tokens, although the
+  reported cache TTL was 1,800 s.
+- `npm run audit:copilot -- --trace` over the 80 SFlow tool events reported 0 duplicate
+  candidates. Its duplicate rule is per turn and covers status lookups only, while
+  `phase enter` and `nextsteps` each ran 6 times across turns, and `phase show` ran
+  after every publication and submission.
+
 ## Regression checks
 
 ```sh

@@ -34,6 +34,8 @@ export function phaseAuthoringContract(definition, workflow, phase) {
   const evidenceRoot = path.posix.join(definition.workItemRoot ?? 'singularity/work-items', workflow?.workItem?.id ?? '<WORK-ID>', 'evidence');
   return Object.freeze({ revision: 'phase-authoring-v1', phase: phase.id, roles: [...roles].sort(),
     priorApprovalsImmutable: true, revalidatePriorDraftQuality: false,
+    executionEvidence: { authority: 'immutable-submission-packets', discoveryIsExecution: false,
+      commandSuccessIsCriterionAcceptance: false, priorReportsMutable: false },
     draftDefectsPreventRepair: false, repairIsApproval: false,
     clauseAuthority: 'approved-active-clause-capsule', evidenceRoot,
     ...(plans ? { planning: {

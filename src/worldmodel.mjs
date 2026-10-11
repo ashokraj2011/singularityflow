@@ -40,6 +40,7 @@ import {
 } from './manual-authorship.mjs';
 import { renderDesignSourcePromptContext } from './design-sources.mjs';
 import { renderActiveStoryEvidence } from './evidence-context.mjs';
+import { phaseExecutionEvidence, renderExecutionEvidence, withExecutionEvidenceRefresh } from './phase-execution-evidence.mjs';
 import { resolveReference } from './harness-imports.mjs';
 import {
   clearCompositionCache, compositionCacheEnabled, compositionCacheStatus, memoizeComposition
@@ -649,7 +650,9 @@ async function compose(root, options, {
       // stopped, after the immutable pair was published. A material context refresh belongs to a
       // new phase generation.
       console.error(`Grounding composition reused: ${existing.file}`);
-      const replyPrompt = withReplyPersonalization(existing.text, resolvePersonalization({ root }));
+      const executionEvidence = await phaseExecutionEvidence(root, definition, workflow, phase);
+      const replyPrompt = withReplyPersonalization(
+        withExecutionEvidenceRefresh(existing.text, existing.record, executionEvidence), resolvePersonalization({ root }));
       if (!renderOnly && options['skip-prompt-audit'] !== true) {
         await recordCompositionPromptAudit(root, {
           text: replyPrompt,
@@ -665,13 +668,16 @@ async function compose(root, options, {
             key: existing.record.compositionCache.key,
             hit: true
           } : null,
-          composition: existing.record.promptBudget ?? null,
+          composition: { ...existing.record.promptBudget, executionEvidence: {
+            ...existing.record.promptBudget?.executionEvidence,
+            projectionSha256: executionEvidence.projectionSha256,
+            deliveredRefresh: existing.record.promptBudget?.executionEvidence?.projectionSha256 !== executionEvidence.projectionSha256 } },
           executionContext: existing.record.executionContext ?? { mode: 'historical-unproven' }
         });
       }
       const destination = optionString(options, 'out');
       if (destination) {
-        await writeFile(path.resolve(root, destination), existing.text);
+        await writeFile(path.resolve(root, destination), replyPrompt);
         console.log(`Composed prompt written to ${destination}.`);
       } else if (!options['return-only']) process.stdout.write(replyPrompt);
       return replyPrompt;
@@ -825,6 +831,7 @@ async function compose(root, options, {
       // Even a damaged diagnostic helper cannot block or alter the selected legacy prompt.
     }
   }
+  const executionEvidence = workflow ? await phaseExecutionEvidence(root, definition, workflow, phase) : null;
   const promptCompilation = compilePromptSections([
     { id: 'phase-contract', text: governed.contract, mandatory: true, priority: 0 },
     { id: 'work-source', text: workSource.text, mandatory: true, priority: 0 },
@@ -848,6 +855,7 @@ async function compose(root, options, {
     },
     { id: 'stakeholder-change-requests', text: stakeholderContext.text, mandatory: true, priority: 0 },
     { id: 'approved-phase-inputs', text: inputEvidence, mandatory: true, priority: 0 },
+    { id: 'governed-execution-evidence', text: renderExecutionEvidence(executionEvidence), mandatory: true, priority: 0 },
     { id: 'final-clarification-guard', text: clarificationGuard, mandatory: true, priority: 0 }
   ], tokenEconomyPolicy, {
     ...(tokenReductionRuntime ? {
@@ -882,6 +890,9 @@ async function compose(root, options, {
   };
   promptComposition.inputProjection = promptInputs.projection;
   promptComposition.stakeholderProjection = stakeholderContext.projection;
+  if (executionEvidence) promptComposition.executionEvidence = {
+    projectionSha256: executionEvidence.projectionSha256, packets: executionEvidence.entries.length,
+    omittedPackets: executionEvidence.omittedPackets, diagnostics: executionEvidence.diagnostics };
   promptComposition.skillLoading = remote.loading ?? [];
   const deduplicatedPromptBytes = approvedReferences.deduplicated
     .reduce((total, entry) => total + (entry.previewBytes ?? 0), 0);
@@ -971,6 +982,7 @@ async function compose(root, options, {
     files: files.map((file) => ({ path: file.path, sha256: file.sha256, injectedBytes: file.injectedBytes })),
     remoteSkills: remote.loading ?? remote.skills.map((skill) => ({ id: skill.id, sha256: skill.sha256 })),
     supportingEvidence: governed.evidenceEntries,
+    executionEvidenceSha256: executionEvidence?.projectionSha256 ?? null,
     references: approvedReferences.previews.map((preview) => ({
       handle: preview.handle, rawSha256: preview.rawSha256,
       previewSha256: preview.previewSha256, previewBytes: preview.previewBytes,

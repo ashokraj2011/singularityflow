@@ -25,6 +25,7 @@ import { BUILD_INFO, versionLine } from './build-info.mjs';
 import { assertStoryNotArchived } from './governance-archive.mjs';
 import { deriveMutationContract, mutationContractPresentation } from './phase-mutation-contract.mjs';
 import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
+import { phaseExecutionEvidence } from './phase-execution-evidence.mjs';
 
 /** Verified per-invocation binding shared by phase entry, nextsteps and inputs. */
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
@@ -96,6 +97,7 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   });
   const references = await verifyReferenceRepositories(root,
     await storyReferenceRepositories(root, definition, workflow));
+  const retainedExecutionEvidence = await phaseExecutionEvidence(root, definition, workflow, phase);
   const requiresDecision = recovery.actions.some(action => action.id === 'working-tree'
     && action.confirmation !== 'none');
   const contextAdmission = phaseContextAdmission({ authoring, recovery, references,
@@ -176,7 +178,7 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   return { ...base, status, authoringAllowed, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
-    authoring, recovery, references, clarification, context,
+    authoring, recovery, retainedExecutionEvidence, references, clarification, context,
     contextComposition: !compose ? 'not-requested' : context ? 'delivered' : 'not-admitted',
     next: clarificationAction ? [checkpoint.nextAction, ...nextActions.filter(action =>
       action.id !== `resolve-clarification:${phase.id}`)] : nextActions,

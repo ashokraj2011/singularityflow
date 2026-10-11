@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals, phase-appeals, nextsteps]
-version: 10
+version: 11
 ---
 # Compact phase entry for Copilot
 
@@ -27,6 +27,42 @@ pause/session/status, recovery, clarification and reference lookups with one ver
 No production token-reduction composer or unqualified cache policy is enabled by this change.
 Existing approved-input briefs and exact clause capsules remain the context authority. Token and
 Git-call savings depend on workflow content; fewer CLI calls are not a claim of fewer validators.
+
+## Governed execution evidence across phases
+
+Every phase entry includes `retainedExecutionEvidence`, including custom phase names and future
+workflows. Composed prompts include the same read-only facts. They come from the latest generation's
+immutable submission packets in this Story's Git ancestry, not mutable test-report files or agent
+narratives. Each entry names the producer phase, generation, packet hash, evidence commit, source
+binding and retained structured test counts when available. Command output and command arguments
+are not copied into the prompt.
+
+Keep these distinctions when authoring Verification, Release or any other phase:
+
+- An earlier report written before publication may describe an initial failed command even though
+  the governed publication/submission later ran tests successfully. Cite both observations and
+  their provenance; use retained execution facts for the governed outcome.
+- An IDE saying **No tests found** is a discovery failure. It neither erases a governed passing
+  execution nor establishes a new passing test run. This phase having no configured tests does
+  not mean its upstream phases have no execution evidence.
+- Reuse requires matching source and separately hashed test inputs, committed execution ancestry,
+  unchanged check inventory and no pending runner revalidation. A changed binding makes the
+  result historical, not current. The recorded runtime describes where the test ran; opening the
+  same evidence on another host does not pretend that host ran it.
+- A successful command is not proof that every criterion passed. Use exact bound witness results,
+  required assurance and any visual/inspection obligations. Missing, failed, skipped or omitted
+  results never become acceptance through this projection.
+
+Repair the current open draft to reconcile contradictory prose, using the returned correction
+route. Preserve approved reports and decisions. If policy requires new execution or an earlier
+phase correction, use the normal owner/human return route; do not edit approved evidence or change
+partial conformance verdicts to matched without proof. The projection grants no new authority and
+does not run tests, publish, approve or create an extra blocker when old history is unavailable.
+
+Projection bytes and record counts are bounded. Omissions are explicit; inlined records include
+immutable packet paths, and inspection routes provide more detail. They are not zero failures. A reused older
+generation prompt receives a read-only evidence refresh when necessary; its canonical prompt and
+receipt remain unchanged, and the delivered prompt audit records the refresh.
 
 ## Use it from each surface
 

@@ -176,6 +176,11 @@ test('Classic delivery commits passing test results before Testing and Code chec
     '--title', 'Change the value', '--description', 'Prove committed executable-test evidence.');
   const item = path.join(root, 'singularity/work-items', workId);
   const workflow = () => readFile(path.join(item, 'workflow.json'), 'utf8').then(JSON.parse);
+  // Starting the Story is the selection a Copilot conversation asks for: the first agent entry is
+  // ready, and it carries the request near its top.
+  const firstEntry = JSON.parse(cli('nextsteps', '--for-agent', '--json').stdout);
+  assert.equal(firstEntry.ready, true, JSON.stringify(firstEntry.phaseAgent));
+  assert.deepEqual([firstEntry.story?.title, firstEntry.story?.outcome], ['Change the value', 'Prove committed executable-test evidence.']);
   cli('prepare', 'intake');
   await writeFile(path.join(item, 'artifacts/intake/intake.md'), [
     `# ${workId} — Classic delivery intake`, '',
@@ -192,6 +197,10 @@ test('Classic delivery commits passing test results before Testing and Code chec
     '## Initial evidence', '', 'The baseline module and executable test at the pinned main revision.', ''
   ].join('\n'));
   cli('wm', 'compose', '--phase', 'intake');
+  const composed = await readFile(path.join(item, 'context/prompts/intake-gen1.md'), 'utf8');
+  assert.match(composed.split('\n').slice(0, 5).join('\n'),
+    /^- Requested outcome: Change the value — Prove committed executable-test evidence\. \(full request: Pinned Story source below\)$/mu,
+    'the request leads the composed prompt');
   measureEntry();
   cli('clarification', 'record', 'intake', '--question', 'Is the new value 2 the approved outcome?',
     '--answer', 'Yes; keep the exported interface and add the matching unit test.');

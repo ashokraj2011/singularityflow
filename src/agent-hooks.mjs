@@ -24,6 +24,7 @@ import {
 import { DEFAULT_WORK_ITEM_ROOT, workItemWorkflowRelative } from './work-item-location.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 import { readCopilotMode } from './copilot-mode.mjs';
+import { pendingContextBoundary } from './context-policy.mjs';
 import { parseArgs } from './util.mjs';
 import { resolveOperation } from './command-registry.mjs';
 
@@ -157,10 +158,15 @@ export async function sessionStartAgentHook(root, definition, workflow, payload 
   const workspaceSelectionGate = previous?.source === 'workspace'
     && previous?.repositoryRoot === root
     && previous?.workItemSelectionRequired === true;
+  // A conversation opened after the context boundary of the approval that opened this phase
+  // continues the Story this checkout already selected: the reset was requested by SFlow, so asking
+  // for the selection again would only cost a turn. Once the phase is prepared, prompt applies again.
+  const handedOver = Boolean(workflow && previous?.repositoryRoot === root && previous?.workId === activeWorkId
+    && previous?.workItemSelectionRequired !== true && pendingContextBoundary(workflow));
   const workItemSelectionRequired = workspaceSelectionGate
     ? true
     : policy.workItemSelection === 'prompt'
-      ? !previousSelectionStillActive
+      ? !(previousSelectionStillActive || handedOver)
       : policy.workItemSelection === 'reuse'
         ? !activeWorkId
         : false;

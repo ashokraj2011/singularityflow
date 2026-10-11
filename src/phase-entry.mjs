@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
@@ -13,6 +14,7 @@ import { readCopilotMode, copilotModePresentation } from './copilot-mode.mjs';
 import { resolvePersonalization } from './personalization.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile, resolveWorkspaceExecutionContext } from './workspace-context.mjs';
 import { pendingContextBoundary } from './context-policy.mjs';
+import { storyRequestSummary } from './story-request-summary.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
@@ -49,8 +51,11 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
     { code: 'PHASE_DRAFT_NOT_ACTIVE', details: { requestedPhase: phaseId, currentPhase: workflow.currentPhase } });
   const session = await agentSessionStatus(root, definition, workflow);
   const ready = (selected?.selectionStatus ?? 'ready') === 'ready' && (phase ? session.ready : true);
+  // The request near the top, so an agent that reads only the start of the packet still has it.
+  const story = await readFile(path.join(root, definition.workItemRoot, actualId, 'source.json'), 'utf8')
+    .then((text) => storyRequestSummary(JSON.parse(text))).catch(() => null);
   const binding = { ready, repositoryPath: root, workItemRoot: definition.workItemRoot,
-    workId: actualId, phase: phase?.id ?? null, phaseStatus: phase?.status ?? null, generation: phase?.generation ?? null,
+    workId: actualId, ...(story ? { story } : {}), phase: phase?.id ?? null, phaseStatus: phase?.status ?? null, generation: phase?.generation ?? null,
     inspectionGeneration: phase ? phaseInspectionGeneration(workflow, phase) : null,
     activeAgent: session.activeAgent, phaseAgent: session.phaseAgent,
     selectionSource: selected?.selectionSource ?? 'cwd', branch: branch(root), head: head(root) };

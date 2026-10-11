@@ -386,3 +386,32 @@ test('Copilot cannot mutate a consumed code generation or claim human authorship
   assert.equal(wrongConfiguredProducer.permissionDecision, 'deny');
   assert.match(wrongConfiguredProducer.permissionDecisionReason, /--authored deterministic --channel kernel-generator/);
 });
+
+test('a conversation opened after the approval boundary keeps the Story this checkout selected', async () => {
+  const story = (contextPolicy) => ({
+    workItem: { id: 'HOOK-1' }, currentPhase: 'implementation', phaseOrder: ['design', 'implementation'],
+    phases: {
+      design: { id: 'design', status: 'approved', defaultAgent: 'architect' },
+      implementation: { id: 'implementation', status: 'in_progress', defaultAgent: 'developer', generation: 0 }
+    },
+    resolution: { session: definition.session, contextPolicy }
+  });
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-handover-hook-'));
+  const current = story({ onApproval: 'new' });
+  // The approval's activation selected the Story for this checkout in the earlier conversation.
+  await activateWorkItemSession(root, definition, current);
+  const fresh = await sessionStartAgentHook(root, definition, current, { sessionId: 'chat-after-approval', source: 'startup' });
+  assert.doesNotMatch(JSON.stringify(fresh), /select|choose/i, 'SFlow asked for this reset, so it does not ask for the Story again');
+  assert.equal((await agentSessionStatus(root, definition, current)).ready, true);
+
+  // Once the phase is prepared, the prompt policy applies to a new conversation again.
+  current.phases.implementation.authoringBaseline = { generation: 1 };
+  await sessionStartAgentHook(root, definition, current, { sessionId: 'chat-later', source: 'startup' });
+  assert.equal((await agentSessionStatus(root, definition, current)).ready, false);
+
+  const keep = await mkdtemp(path.join(os.tmpdir(), 'sflow-handover-keep-'));
+  const kept = story({ onApproval: 'keep' });
+  await activateWorkItemSession(keep, definition, kept);
+  await sessionStartAgentHook(keep, definition, kept, { sessionId: 'chat-other', source: 'startup' });
+  assert.equal((await agentSessionStatus(keep, definition, kept)).ready, false, 'without a requested reset nothing is handed over');
+});

@@ -20,6 +20,7 @@ import { injectAgentPrompt, readPromptGeneration, recordInjection, supersedeProm
 import { loadSession } from './session.mjs';
 import { renderAgentSkills } from './agents.mjs';
 import { collectInputs } from './inputs.mjs';
+import { requestedOutcomeLine } from './story-request-summary.mjs';
 import { renderPromptInputsBlock } from './prompt-input-projection.mjs';
 import { assertNoPendingPublication, saveStoryDraft } from './state-stores.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
@@ -409,7 +410,7 @@ export function renderFinalClarificationGuard(phaseId, clarificationPolicy) {
   ].join('\n');
 }
 
-async function workflowPromptContext(root, definition, workflow, phase, workItemRoot, executionContext = null) {
+async function workflowPromptContext(root, definition, workflow, phase, workItemRoot, executionContext = null, requestedOutcome = null) {
   if (!workflow || !phase) return { contract: '', inputResult: { mode: 'off', records: [] }, inputRecords: [], evidence: '', evidenceFiles: [], evidenceEntries: [], warnings: [] };
   const itemDirectory = path.join(root, workItemRoot, workflow.workItem.id);
   const itemRelative = posix(path.join(workItemRoot, workflow.workItem.id));
@@ -444,6 +445,8 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
     `# Active Story phase contract: ${phase.label ?? phase.id}`,
     '',
     `- Work ID: \`${workflow.workItem.id}\``,
+    // The request leads the prompt; the complete pinned source follows the artifact template.
+    ...(requestedOutcome ? [requestedOutcome] : []),
     `- Work type: \`${workflow.workItem.workType}\``,
     `- Phase: \`${phase.id}\``,
     `- Generation to author: ${nextPhaseGeneration(phase)}`,
@@ -708,7 +711,7 @@ async function compose(root, options, {
     executionContext: config.executionContext
   }) : { text: '', skills: [], warnings: [] };
   const governed = await workflowPromptContext(
-    root, definition, workflow, phase, workItemRoot, config.executionContext
+    root, definition, workflow, phase, workItemRoot, config.executionContext, requestedOutcomeLine(source)
   );
   const referenceRepositories = workflow
     ? await referenceRepositoryGroundingContext(

@@ -3526,6 +3526,11 @@ export async function startCommand(positionals, options) {
     if (supportingDocuments.length) console.log(`Supporting documents: ${supportingDocuments.length} uploaded and published.`);
     console.log(`Optional AST warm-up: ${astWarm.command}`);
   }
+  // Starting a Story is the explicit choice a Copilot conversation's work-item selection asks for.
+  // Record it for this checkout, as session attach does, so the first /sf-next after a start is not
+  // refused for a missing selection. A local record never turns a durable start into a failure.
+  await activateWorkItemSession(root, config, workflow).catch((error) => console.warn(
+    `Warning: Story '${workflow.workItem.id}' started, but this checkout's Copilot selection was not recorded: ${error.message}`));
   emitCommandResult(startResult, { json: optionBoolean(options, 'json'), postState: workflow });
   return startResult;
   } catch (error) {

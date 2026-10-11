@@ -169,7 +169,9 @@ Both runs followed the CLI's approval output, "Context boundary: new … /clear,
 | Largest context per call | 216,524 | 101,394 | 71,925 |
 
 - Code checking passed its draft check first time in both runs: the report arrived with the self-approval disclosures already written. No repair loop ran.
-- Each fresh conversation pays for its own attach turn: `/sf-session` cost 120K–173K tokens and one premium request each time. That is why premium requests stayed flat even though input tokens halved. Carrying the Story selection across a context boundary that SFlow itself requested would remove that turn.
+- Correction: the `/sf-session` turn that opened each fresh conversation (120K–173K tokens and one premium request each time) was mostly unnecessary. The Story selection is recorded per checkout, so it survives a new conversation. Only the first conversation after a start lacked it, and a start now records it too. Without those four turns, run 3 would have used 12 premium requests and about 7.4M input tokens, and run 2 about 11 and 3.8M.
+- A hand-wired `session-start` hook, which re-asks for the Story in each new conversation under `workItemSelection: prompt`, now hands the selection over while the phase opened by an approval's `new` or `compact` boundary is unprepared.
+- The request now leads both what the agent reads first and the composed prompt. Agent entry packets carry a bounded `story` summary right after `workId`. The phase contract opens with a "Requested outcome" line, and the full pinned source still follows.
 - Run 3's model needed three corrective messages. It tagged an unapproved clause, published an Agent brief it could not correct without a new generation, and missed the committed test receipt. Model choice moves these numbers as much as the workflow does.
 - An agent that extracts chosen fields with `python3` or truncates with `head -c` can miss what it did not extract. Run 2's agent never read `contextBoundary` in an old conversation. It also missed the Story description, which sits deep in the composed context. Field-only hints are not enough on their own; the surface that approves should start the fresh conversation.
 

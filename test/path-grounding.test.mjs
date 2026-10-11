@@ -16,10 +16,11 @@ import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { saveStoryDraft } from '../src/state-stores.mjs';
 import { buildSpecIndex, canonicalJson, derivePlannedClaimMap } from '../src/specifications.mjs';
 import { removeTemporaryTree, snapshot } from '../src/util.mjs';
+import { PHASE_ENTRY_SKILLS } from '../src/copilot-mode.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'bin', 'singularity-flow.mjs');
-const boundary = 'Resolve the active Story checkout from this invocation\'s verified phase-entry packet';
+const boundary = 'Resolve the active Story checkout from this invocation\'s verified entry packet';
 
 function git(repository, ...args) {
   const result = spawnSync('git', args, { cwd: repository, encoding: 'utf8' });
@@ -33,6 +34,18 @@ function sflow(repository, ...args) {
     encoding: 'utf8',
     env: { ...process.env, NODE_ENV: 'test' }
   });
+}
+
+/**
+ * The Copilot route these assertions read, whatever model mode the test runner exports.
+ *
+ * With SINGULARITY_FLOW_NO_MODEL set, the planner offers the model-free manual route instead, so a
+ * routing assertion would depend on how the suite was launched. Only operations declared
+ * `modelPolicy: never` (inputs, phase show) run through this helper, so no model can be called.
+ */
+function sflowCopilotRouting(repository, ...args) {
+  const { SINGULARITY_FLOW_NO_MODEL: _runnerMode, ...env } = process.env;
+  return spawnSync(process.execPath, [cli, ...args], { cwd: repository, encoding: 'utf8', env: { ...env, NODE_ENV: 'test' } });
 }
 
 async function markdownFiles(directory) {
@@ -54,7 +67,8 @@ test('every packaged and template agent rebinds tools to the active repository a
       const content = await readFile(path.join(directory, name), 'utf8');
       assert.match(content, new RegExp(boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), name);
       assert.match(content, /Require `ready`, bind `workId`, and use its absolute `repositoryPath` as cwd for every shell and file tool/, name);
-      assert.match(content, /otherwise run `singularity-flow session current --json`/, name);
+      // Without a skill entry the agent resolves the Story once, pause-aware (one call, not pause then session).
+      assert.match(content, /Without a skill entry, run `singularity-flow session current --for-agent --json` once and obey `paused`/, name);
       assert.match(content, /Never search `\$HOME`, a parent directory, or outside that repository/, name);
       assert.match(content, /Use CLI-returned `workItemRoot` and artifact or packet paths for governed Story reads and writes/, name);
       assert.match(content, /keep them within the bound `workId`/, name);
@@ -136,9 +150,9 @@ test('every generated skill boundary forbids home search and uses only its decla
       assert.doesNotMatch(declared, /session current|ready.*workId/, name);
     } else {
       assert.equal(executionBoundary, 'story', `${name} declares an unknown execution boundary`);
-      if (['sflow-code', 'sflow-phase'].includes(name)) {
-        assert.match(declared, /reuse the entry packet.*`ready`\/`workId`.*cwd=`repositoryPath`/, name);
-        assert.match(declared, /returned `workItemRoot`\/artifact paths/, name);
+      if (PHASE_ENTRY_SKILLS.includes(name) && !['sflow-next', 'sflow-inputs', 'sflow-review-source'].includes(name)) {
+        assert.match(declared, /reuse entry `ready`\/`workId`, valid `phaseAgent`; cwd=`repositoryPath`/, name);
+        assert.match(declared, /Returned `workItemRoot`\/artifact paths only/, name);
       } else if (['sflow-next', 'sflow-inputs'].includes(name)) {
         assert.match(declared, /reuse this invocation's entry.*`ready`\/`workId`.*cwd=`repositoryPath`/, name);
         assert.match(declared, /valid `phaseAgent` for active phases/, name);
@@ -148,8 +162,9 @@ test('every generated skill boundary forbids home search and uses only its decla
         assert.match(declared, /valid `phaseAgent`/, name);
         assert.match(declared, /Git-private staging paths/, name);
       } else {
-        assert.match(declared, /`singularity-flow session current --json` → `ready`\/`workId`, cwd=`repositoryPath`/, name);
-        assert.match(declared, /use CLI\/`workItemRoot` paths/, name);
+        assert.match(declared, /reuse entry `ready`\/`workId`, cwd=`repositoryPath`; CLI\/`workItemRoot` paths only/, name);
+        // The entry it reuses is the one pause-aware session lookup, run once per invocation.
+        assert.match(content, /singularity-flow session current --for-agent --json/, `${name} resolves its Story through the verified session entry`);
       }
       assert.doesNotMatch(content, /singularity\/work-items\/<WORK-ID>/, name);
     }
@@ -418,7 +433,7 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
   const preparedJson = JSON.parse(prepared.stdout);
   assert.equal(preparedJson.outcome.slots.path, `${itemRelative}/artifacts/implementation/implementation-summary.md`);
 
-  const inputs = sflow(repository, 'inputs', 'implementation', '--json');
+  const inputs = sflowCopilotRouting(repository, 'inputs', 'implementation', '--json');
   assert.equal(inputs.status, 0, inputs.stderr);
   const inputsJson = JSON.parse(inputs.stdout);
   assert.equal(inputsJson.workItemDirectory, itemRelative);
@@ -429,7 +444,7 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
 
   // Displaying an authored generation-zero draft cannot offer its post-publication Submit route.
   const beforeDocumentView = { head: git(repository, 'rev-parse', 'HEAD'), status: git(repository, 'status', '--porcelain') };
-  const shownDraft = sflow(repository, 'phase', 'show', 'implementation', '--json');
+  const shownDraft = sflowCopilotRouting(repository, 'phase', 'show', 'implementation', '--json');
   assert.equal(shownDraft.status, 0, shownDraft.stderr);
   const draft = JSON.parse(shownDraft.stdout);
   assert.equal(draft.generation, 0);
@@ -438,7 +453,7 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
   assert.equal(draft.continuation.nextCommand, 'singularity-flow prepare implementation');
   assert.equal(draft.continuation.copilotCommand, '/sf-code');
   assert.equal(draft.continuation.automaticAdvance, false);
-  const displayed = sflow(repository, 'phase', 'show', 'implementation', '--show-artifact');
+  const displayed = sflowCopilotRouting(repository, 'phase', 'show', 'implementation', '--show-artifact');
   assert.equal(displayed.status, 0, displayed.stderr);
   assert.match(displayed.stdout, /Next action:[\s\S]*Shell: singularity-flow prepare implementation[\s\S]*Copilot: \/sf-code/);
   assert.equal(git(repository, 'rev-parse', 'HEAD'), beforeDocumentView.head);
@@ -455,7 +470,7 @@ test('prepare, inputs, and compose replay complete repository-rooted paths witho
   for (let index = firstPathLine + 1; /^ {8}\S/.test(lines[index] ?? ''); index += 1) renderedPath.push(lines[index].slice(8));
   assert.equal(renderedPath.join(''), repositoryPath);
   const headBeforeInputs = git(repository, 'rev-parse', 'HEAD');
-  const recordedInputs = sflow(repository, 'inputs', 'implementation');
+  const recordedInputs = sflowCopilotRouting(repository, 'inputs', 'implementation');
   assert.equal(recordedInputs.status, 0, recordedInputs.stderr);
   assert.match(recordedInputs.stdout, /Next action:/);
   assert.match(recordedInputs.stdout, /Shell: singularity-flow prepare implementation/);

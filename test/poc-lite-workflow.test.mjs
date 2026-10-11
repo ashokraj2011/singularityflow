@@ -199,21 +199,14 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
   );
   lifecycle('prepare', 'poc-lite-finalize');
   publish('poc-lite-finalize');
-  lifecycle('submit', 'poc-lite-finalize');
 
-  const awaitingDecision = JSON.parse(await readFile(
-    path.join(root, 'singularity/work-items/POC-LITE-1/workflow.json'), 'utf8'
-  ));
-  assert.equal(awaitingDecision.currentPhase, 'poc-lite-finalize');
-  assert.equal(awaitingDecision.phases['poc-lite-finalize'].status, 'awaiting_approval');
-  assert.deepEqual(awaitingDecision.phases['poc-lite-finalize'].approvals, []);
-
-  // POC Lite omits scope; its final approval is refused until someone in the omission's group says
-  // why scope does not apply to this Story, and the refusal writes nothing.
+  // POC Lite omits scope; submitting its final step is refused until someone in the omission's
+  // group says why scope does not apply to this Story, and the refusal writes nothing. The terminal
+  // evaluation runs at the final submission, before anyone is asked to approve.
   const statePath = path.join(root, 'singularity/work-items/POC-LITE-1/workflow.json');
   const stateBefore = await readFile(statePath, 'utf8');
   const headBefore = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
-  const refused = run(process.execPath, [CLI, '--no-model', 'approve', 'poc-lite-finalize', '--yes'], root, { allowFailure: true });
+  const refused = run(process.execPath, [CLI, '--no-model', 'submit', 'poc-lite-finalize'], root, { allowFailure: true });
   assert.notEqual(refused.status, 0);
   assert.match(refused.stdout + refused.stderr, /cannot finish yet[\s\S]*ends without scope; someone in quality-reviewers must record why it does not apply/);
   assert.match(refused.stdout + refused.stderr, /decision applicability --responsibility scope/);
@@ -222,7 +215,7 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
   assert.equal(run('git', ['status', '--porcelain'], root).stdout, '');
 
   // An identical retry is answered from memory, in the one refusal shape every surface renders.
-  const unchanged = run(process.execPath, [CLI, '--no-model', 'approve', 'poc-lite-finalize', '--yes', '--json'], root, { allowFailure: true });
+  const unchanged = run(process.execPath, [CLI, '--no-model', 'submit', 'poc-lite-finalize', '--json'], root, { allowFailure: true });
   assert.notEqual(unchanged.status, 0);
   const envelope = JSON.parse(unchanged.stdout);
   assert.equal(envelope.error.code, 'REFUSAL_UNCHANGED');
@@ -235,11 +228,11 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
   assert.equal(await readFile(statePath, 'utf8'), stateBefore);
   assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), headBefore);
 
-  // The guidance offers the decision before the approval it unblocks.
+  // The guidance offers the decision before the submission it unblocks.
   const next = JSON.parse(lifecycle('nextsteps', '--json').stdout).actions;
-  assert.equal(next[0].command, 'singularity-flow decision applicability POC-LITE-1 --responsibility scope --reason <reason>');
-  assert.equal(next[0].timing, 'now');
-  assert.ok(next.some((entry) => entry.timing === 'then' && /approve/.test(entry.command)), JSON.stringify(next.map((entry) => [entry.timing, entry.command])));
+  const decide = next.find((entry) => entry.timing === 'now');
+  assert.equal(decide.command, 'singularity-flow decision applicability POC-LITE-1 --responsibility scope --reason <reason>');
+  assert.ok(next.some((entry) => entry.timing === 'then' && entry.command === 'singularity-flow submit poc-lite-finalize'), JSON.stringify(next.map((entry) => [entry.timing, entry.command])));
   const shown = JSON.parse(lifecycle('decision', 'show', '--json').stdout);
   assert.deepEqual(shown.applicability.map((entry) => [entry.responsibility, entry.authority, entry.satisfied]), [['scope', 'quality-reviewers', false]]);
   const short = run(process.execPath, [CLI, '--no-model', 'decision', 'applicability', '--responsibility', 'scope', '--reason', 'n/a'], root, { allowFailure: true });
@@ -253,6 +246,11 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
   assert.match(decided.stdout, /Recorded that scope does not apply to POC-LITE-1, decided by .+ through quality-reviewers/);
   assert.equal(JSON.parse(lifecycle('decision', 'show', '--json').stdout).applicability[0].satisfied, true);
 
+  lifecycle('submit', 'poc-lite-finalize');
+  const awaitingDecision = JSON.parse(await readFile(statePath, 'utf8'));
+  assert.equal(awaitingDecision.currentPhase, 'poc-lite-finalize');
+  assert.equal(awaitingDecision.phases['poc-lite-finalize'].status, 'awaiting_approval');
+  assert.deepEqual(awaitingDecision.phases['poc-lite-finalize'].approvals, []);
   lifecycle('approve', 'poc-lite-finalize', '--yes');
 
   const completed = JSON.parse(await readFile(

@@ -1,11 +1,15 @@
 import { isConvergencePhase } from '../phase-roles.mjs';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { branch, gitDir, repoRoot } from '../git.mjs';
 import { nextStepsSnapshot, nextStepsText } from '../nextsteps.mjs';
 import { readPendingPublication } from '../publication-pending.mjs';
 import { buildRepositorySubjectIndex, resolveContext } from '../repository-subject-index.mjs';
 import { exists, optionBoolean, readJson } from '../util.mjs';
+import { phaseNeedsGeneration } from '../sequence.mjs';
+import { groundingRecordRelative } from '../grounding.mjs';
 import { validateAgentEntryRequest } from '../agent-entry-options.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
@@ -95,6 +99,18 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
     reason: 'Select the governed agent that will remain active for this terminal session before generation.'
   });
 
+  // The lifecycle's own freshness rule: a phase reopened as downstream rework or by a skill
+  // amendment needs a new generation, and a prompt composed for it, as much as a never-published
+  // one. Entry-capable authoring skills fold this into their entry; any other skill keeps it.
+  if (active?.status === 'in_progress' && !deterministicConvergence && phaseNeedsGeneration(workflow, active)) {
+    const { loadDefinition } = await import('../config.mjs');
+    definition ??= await loadDefinition(root);
+    if (!(await composedPromptCurrent(root, definition, workflow, active))) prerequisites.push({
+      timing: 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
+      route: 'grounding-composition',
+      reason: 'Compose the governed prompt for this generation before authoring and publishing it.'
+    });
+  }
   if (authoring && activeSessionAgent && !deterministicConvergence) {
     const { agentStatus, remoteOutputConflicts } = await import('../agents.mjs');
     // Accepted agents execute their verified closure, not today's mutable live catalog.
@@ -109,6 +125,14 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
     for (const conflict of await remoteOutputConflicts(active, { itemDirectory })) prerequisites.push({ timing: 'now', skill: null, command: `singularity-flow agents refresh-output ${conflict.resource}`, reason: `Remote output ${conflict.target} has local changes; review them before deciding whether to add --replace.` });
   }
   return prerequisites;
+}
+
+/** Whether the phase's next generation has a composed prompt whose snapshot still matches its record. */
+async function composedPromptCurrent(root, definition, workflow, phase) {
+  const record = await readJson(path.join(root, groundingRecordRelative(definition, workflow, phase))).catch(() => null);
+  if (typeof record?.promptPath !== 'string' || typeof record.renderedSha256 !== 'string') return false;
+  const prompt = await readFile(path.join(root, record.promptPath)).catch(() => null);
+  return prompt != null && createHash('sha256').update(prompt).digest('hex') === record.renderedSha256.replace(/^sha256:/u, '');
 }
 
 export async function resolveSnapshot(positionals, { root = repoRoot() } = {}) {

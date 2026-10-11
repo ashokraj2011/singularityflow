@@ -113,7 +113,11 @@ export function workflowNextSteps(workflow, {
     action('alternative', '/sf-cancel', `singularity-flow cancel ${workId} --reason <reason> --confirm ${workId}`, 'Cancel this Story, preserve its artifacts, and move it to Archived.')
   ];
 
-  const undecided = phase.status === 'awaiting_approval' ? applicabilityActions(workflow, phase) : [];
+  // The final submission runs the terminal evaluation, so a published last step asks for its
+  // applicability decisions before the submit they unblock, not after a refused one.
+  const submitsTheEnd = phase.status === 'in_progress' && !phaseNeedsGeneration(workflow, phase)
+    && ((workflow.phaseOrder ?? []).at(-1) === phase.id || upcomingDecision(workflow, phase)?.outcome?.kind === 'end');
+  const undecided = phase.status === 'awaiting_approval' || submitsTheEnd ? applicabilityActions(workflow, phase) : [];
   let immediate = workflowGuide(workflow, { sourceReviewEvidence }).nextActions.map((item, index) => action(
     item.optional ? 'alternative' : undecided.length ? (index === 0 ? 'then' : 'alternative')
       : phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : 'now',
@@ -150,7 +154,7 @@ export function workflowNextSteps(workflow, {
         )
       : entry);
   }
-  const actions = [...prerequisites.map(copilotAction), ...immediate];
+  const actions = [...prerequisites.map(copilotAction), ...undecided, ...immediate];
   if (needsGeneration && !modelMode.enabled) {
     if (modelFreeProducer === 'human') actions.unshift(action(
       'now', generationSkillForPhase(phase, workflow), phasePublicationCommandForProducer(

@@ -66,6 +66,13 @@ async function customizeCapabilityProposal(root, branch) {
     label: 'Review remediation POC',
     description: 'Exercises the complete saved-Story path.',
     phases: ['planning', 'verification'],
+    // A two-step POC route defines no requirements step, and Planning without its artifact set is
+    // not a plan owner. Story obligations require such a route to declare what it omits and who
+    // records why each omission applies, as the packaged work types do.
+    omits: [
+      { responsibility: 'scope', reason: 'The POC route takes its requirement from the pinned Story source; it has no separate requirements step.', authority: 'quality-reviewers' },
+      { responsibility: 'plan', reason: 'The POC route plans in a free-form Planning note rather than a planned-claims table.', authority: 'quality-reviewers' }
+    ],
     phaseOverrides: {
       planning: { inputs: [] },
       verification: {
@@ -105,7 +112,9 @@ async function writePhaseArtifact(root, accepted, phaseId, detail) {
   );
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, `# ${phase.label}\n\n## Scope\n\n${detail}\n\n## Evidence\n\n`
-    + 'This public POC uses the normal publication, submission, and approval boundaries.\n');
+    + 'This public POC uses the normal publication, submission, and approval boundaries.\n\n'
+    + '## Boundaries\n\nThe change is limited to app.mjs in the delivery repository. A second checkout resumes the saved Story '
+    + 'and must run the agent and instructions pinned at start, not the files currently in its working tree.\n');
 }
 
 test('FIX:AC-605 complete public review-remediation path survives a second checkout', {
@@ -242,6 +251,11 @@ test('FIX:AC-605 complete public review-remediation path survives a second check
   invoke(env, second, [
     'phase', 'publish', 'verification', '--authored', 'human', '--channel', 'manual-in-place'
   ]);
+  // The final evaluation needs the applicability decisions the declared omissions call for.
+  for (const responsibility of ['scope', 'plan']) {
+    invoke(env, second, ['decision', 'applicability', '--responsibility', responsibility,
+      '--reason', `This POC route deliberately omits ${responsibility}; the reviewed Planning note and the pinned Story source stand in for it.`]);
+  }
   invoke(env, second, ['submit', 'verification', '--skip-checks']);
   invoke(env, second, ['approve', 'verification', '--yes']);
   accepted = await loadAcceptedStoryExecution(second, workId);

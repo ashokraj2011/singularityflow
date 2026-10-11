@@ -188,10 +188,13 @@ test('compact routing folds composition only into entry-capable authoring; other
   assert.deepEqual(projected.preparation.actions, [snapshot.actions[0]]);
   assert.equal(snapshot.actions[0].route, 'grounding-composition', 'projection cannot mutate full routing');
   assert.equal(snapshotContinuation(state, projected).nextAction, projected.actions[0]);
-  for (const copilotCommand of ['/sf-design', '/sf-custom-draft']) {
-    const custom = { ...snapshot, actions: snapshot.actions.map(action => action.argv?.[0] === 'prepare'
-      ? { ...action, copilotCommand } : action) };
-    assert.equal(agentNextSteps(custom), custom, 'custom skills need their own explicit compose route');
+  const withDraftingSkill = (copilotCommand) => ({ ...snapshot, actions: snapshot.actions.map(action => action.argv?.[0] === 'prepare'
+    ? { ...action, copilotCommand } : action) });
+  // A selectable drafting skill (the authoring-skill catalog) composes on entry like /sf-phase.
+  assert.equal(agentNextSteps(withDraftingSkill('/sf-design')).actions.some(action => action.route === 'grounding-composition'), false);
+  for (const copilotCommand of ['/sf-verify', '/sf-custom-draft']) {
+    const custom = withDraftingSkill(copilotCommand);
+    assert.equal(agentNextSteps(custom), custom, 'skills outside the authoring catalog need their own explicit compose route');
   }
   const integrity = { ...snapshot, actions: [{ ...snapshot.actions[0], route: 'integrity-repair' }, ...snapshot.actions.slice(1)] };
   assert.equal(agentNextSteps(integrity), integrity);

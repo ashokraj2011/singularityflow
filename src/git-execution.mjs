@@ -100,8 +100,9 @@ export function repoRoot(cwd = process.cwd()) {
  * they left rather than the one they are on. That is a correctness bug, not a stale number.
  *
  * The read scope is what makes it safe. It is opened only by operations that declare themselves
- * read-only, so nothing that can switch a branch is ever inside one, and outside a scope this is
- * the plain Git call it always was.
+ * read-only, so nothing that can switch a branch is ever inside one. Outside a scope this is the
+ * plain Git call, which `run()` answers from git-fact-cache.mjs only while HEAD and the branch's
+ * ref file are unchanged, so a checkout mid-run is always seen.
  */
 export function branch(root) {
   return scopedReadSync(`git.branch:${root}`, () => {

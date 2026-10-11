@@ -16,6 +16,7 @@ import { displayWidth, padDisplay, terminalWidth, truncateDisplay } from './styl
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { assertLocalReadDeadline, localReadDeadlineRemainingMs, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
 import { APPLE_GIT_UNAVAILABLE_MESSAGE, gitDeveloperToolsUnavailable, gitHostChildEnvironment } from './git-host-selection.mjs';
+import { cachedGitFact, gitFactRequest, gitFactSnapshot, rememberGitFact } from './git-fact-cache.mjs';
 
 export class SingularityFlowError extends Error {
   constructor(message, { exitCode = 1, code = null, details = null, cause = undefined } = {}) {
@@ -648,7 +649,13 @@ export function run(command, args = [], {
     }
     return { status: 1, stdout: '', stderr: '', error: undefined, timedOut: false, blocked: true };
   }
-  const probe = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? performance.now() : 0;
+  // A repeated local question whose files have not changed is answered without a process; see
+  // git-fact-cache.mjs for what qualifies. The answer still passes through every check below.
+  const factRequest = command === 'git' ? gitFactRequest(args, {
+    cwd, env, stdio, input, encoding, shell, injected: spawnSyncCommand !== spawnSync
+  }) : null;
+  const cachedFact = cachedGitFact(factRequest);
+  const probe = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE && !cachedFact ? performance.now() : 0;
   let launch;
   try {
     launch = shell
@@ -678,14 +685,18 @@ export function run(command, args = [], {
     // A synchronous timeout must not wait indefinitely for a child that ignores SIGTERM.
     killSignal = 'SIGKILL';
   }
-  const ownsGitTiming = command === 'git' && recordGitTiming;
+  const ownsGitTiming = command === 'git' && recordGitTiming && !cachedFact;
   const serviceStarted = ownsGitTiming ? performance.now() : 0;
   if (ownsGitTiming) {
     incrementCommandCounter('git.requests');
     incrementCommandCounter('git.spawns');
+  } else if (cachedFact && recordGitTiming) {
+    incrementCommandCounter('git.requests');
+    incrementCommandCounter('git.fact-cache-hits');
   }
-  let result;
-  try {
+  const factBefore = factRequest && !cachedFact ? gitFactSnapshot(factRequest) : null;
+  let result = cachedFact;
+  if (!cachedFact) try {
     result = spawnSyncCommand(launch.executable, launch.arguments, {
       cwd, encoding, stdio, timeout: timeoutMs, killSignal,
       env: command === 'git' ? gitHostChildEnvironment(
@@ -713,6 +724,7 @@ export function run(command, args = [], {
       incrementCommandCounter('git.service-ms', Math.max(0, Math.round(performance.now() - serviceStarted)));
     }
   }
+  if (!cachedFact && factRequest) rememberGitFact(factRequest, result, { before: factBefore });
   if (scopedGitRead) {
     try { assertLocalReadDeadline(); } catch (error) {
       // Direct-child exit is not a portable process-tree proof. The projection owner retains

@@ -64,7 +64,8 @@ test('every shipped contract class routes somewhere', async () => {
       `${contractClass} must distinguish source repair from dispatch`);
   }
   const boundary = source.slice(source.indexOf('function executionBoundary'), source.indexOf('function referencedModelOperations'));
-  assert.match(boundary, /singularity-flow session current --json/);
+  // Story skills reuse the one pause-aware session entry; the boundary names what to take from it.
+  assert.match(boundary, /reuse (?:this invocation's )?entry/);
   assert.match(boundary, /ready.*workId/);
   assert.match(boundary, /cwd=`repositoryPath`/);
   assert.match(boundary, /never `\$HOME`/);

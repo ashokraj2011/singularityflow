@@ -91,7 +91,7 @@ test('a workflow, a new step and its new agent land together, and a dry run writ
   assert.match(agent, /sflow-default-for: "vendor-analysis"/);
   assert.match(agent, /sflow-phases: "vendor-analysis"/, "a new agent is eligible for exactly the steps it drafts");
   assert.match(agent, /tools: \[ ?read, search, edit, ask_user ?\]/);
-  assert.match(agent, /singularity-flow session current --json/, 'a new agent carries the shared operating rules');
+  assert.match(agent, /Without a skill entry, run `singularity-flow session current --for-agent --json` once and obey `paused`/, 'a new agent carries the shared operating rules');
   const after = json(root, ['workflow', 'studio']);
   const created = after.workflows.find((workflow) => workflow.id === 'vendor-assessment');
   assert.deepEqual(created.steps.map((step) => [step.id, step.agent, step.output]), [['intake', 'product-owner', 'document'], ['vendor-analysis', 'vendor-analyst', 'analysis']]);

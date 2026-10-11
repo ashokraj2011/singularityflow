@@ -6526,7 +6526,9 @@ async function createReworkForwardCheckpoint(root, config, workflow, {
       repairBudgets: structuredClone(workflow.repairBudgets ?? null),
       lineage: structuredClone(workflow.lineage ?? null),
       measurement: structuredClone(workflow.measurement ?? null),
-      spec: structuredClone(workflow.spec ?? null)
+      spec: structuredClone(workflow.spec ?? null),
+      // A reopen clears the final evaluation; abandoning it restores the one the Story passed.
+      completion: structuredClone(workflow.completion ?? null)
     }
   };
   return { ...checkpoint, integrity: { sha256: reworkCheckpointIntegrity(checkpoint) } };
@@ -8175,6 +8177,11 @@ export async function rollForwardRework(root, config, workflow, {
   else workflow.measurement = structuredClone(checkpoint.state.measurement);
   if (checkpoint.state.spec == null) delete workflow.spec;
   else workflow.spec = structuredClone(checkpoint.state.spec);
+  // Abandoning a reopen restores the finished Story exactly, with the final evaluation it passed,
+  // so restoring it does not judge the old closure again under whatever rules apply today. A
+  // checkpoint taken before this field existed keeps the earlier behaviour: evaluate again.
+  if (checkpoint.state.completion == null) delete workflow.completion;
+  else workflow.completion = structuredClone(checkpoint.state.completion);
   const abandonedGenerations = [];
   for (const phaseId of checkpoint.state.affectedPhaseIds) {
     const restoredGeneration = Number(checkpoint.state.phases[phaseId]?.generation ?? 0);

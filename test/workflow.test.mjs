@@ -154,7 +154,8 @@ test('off-mode clarification record emits recovery before reading response input
     'clarification', 'record', 'implement', '--response-file', 'does-not-exist.json', '--json'
   ], { allowFailure: true, selection: selection('quick-fix', 'developer') });
   assert.notEqual(refused.status, 0);
-  assert.equal(refused.stdout, '');
+  // A --json refusal is one document on stdout; stderr carries no second copy.
+  assert.equal(refused.stderr, '');
   const envelope = JSON.parse(refused.stdout);
   assert.equal(envelope.error.code, 'CLARIFICATION_MODE_OFF');
   assert.deepEqual(envelope.remediationPlan.steps.slice(0, 2).map((entry) => entry.command), [
@@ -717,7 +718,7 @@ test('feature profile publishes generations, records tokens, approvals, and conf
         '// @clause:FEATURE-101:IFC-001 exposes the value as a named export',
         '// @clause:FEATURE-101:REQ-001 returns the requested feature value',
         'export const feature = true; // SPEC-001', ''
-      ].join('\n')); await writeFile(path.join(root, 'tests/feature.test.mjs'), '// @ac:FEATURE-101:AC-001 SPEC-001\n');
+      ].join('\n')); await writeFile(path.join(root, 'tests/feature.test.mjs'), ["import test from 'node:test';", "import assert from 'node:assert/strict';", '// @ac:FEATURE-101:AC-001 SPEC-001', "test('feature', () => assert.ok(true));", ''].join('\n'));
     }
     const usagePath = path.join(root, '.git/usage.json'); await writeFile(usagePath, JSON.stringify({ provider: 'test', model: 'test-model', inputTokens: 10, outputTokens: 5, totalTokens: 15 }));
     if (phaseId === 'conformance') {
@@ -749,7 +750,10 @@ test('feature profile publishes generations, records tokens, approvals, and conf
       await writeFile(completedArtifact, submitted.replace(/^\| `FEATURE-101:REQ-001` \| approved \|.*\n/m, ''));
       const blocked = flow(root, ['approve', '--yes'], { allowFailure: true, selection: selection('feature', agents[phaseId]) });
       assert.notEqual(blocked.status, 0);
-      assert.match(`${blocked.stdout}\n${blocked.stderr}`, /cannot be approved while its conformance comparison is incomplete/);
+      // An edit to the submitted report is refused before approval by the authored-change review gate,
+      // ahead of (and broader than) the conformance comparison.
+      assert.match(`${blocked.stdout}\n${blocked.stderr}`, /Authored changes need review before this lifecycle decision/);
+      assert.notEqual(JSON.parse(await readFile(workflowFile, 'utf8')).phases.conformance.status, 'approved');
       await writeFile(completedArtifact, submitted);
     }
     flow(root, ['approve', '--yes'], { selection: selection('feature', agents[phaseId]) });
@@ -829,7 +833,7 @@ test('figma-mobile completes the governed design-to-visual-conformance lifecycle
         '// @clause:MOBILE-101:IFC-001 exposes the screen component',
         'export const mobile = true; // SPEC-001', ''
       ].join('\n'));
-      await writeFile(path.join(root, 'tests/mobile.test.mjs'), '// @ac:MOBILE-101:AC-001 SPEC-001\n');
+      await writeFile(path.join(root, 'tests/mobile.test.mjs'), ["import test from 'node:test';", "import assert from 'node:assert/strict';", '// @ac:MOBILE-101:AC-001 SPEC-001', "test('mobile', () => assert.ok(true));", ''].join('\n'));
     }
     if (phaseId === 'visual-verification') {
       for (const profile of workflow.resolution.verification.profiles) {
@@ -950,6 +954,9 @@ test('completed work can be reopened only through an authorized governed change 
   }
   workflow.status = 'closed'; workflow.currentPhase = null;
   for (const phaseId of workflow.phaseOrder) workflow.phases[phaseId].status = 'approved';
+  // A real closure records the final evaluation it passed; restoring that checkpoint evaluates once only.
+  workflow.completion = { label: 'Complete', kind: 'complete', mode: 'decision', boundary: 'terminal',
+    evaluatedAt: '2026-10-01T00:00:00.000Z' };
   await writeFile(workflowFile, JSON.stringify(workflow, null, 2));
   execute('git', ['add', path.join(root, 'singularity/work-items', workId)], root); execute('git', ['commit', '-m', 'simulate completed story'], root);
 
@@ -1178,7 +1185,10 @@ test('returned phase rework can be discarded and rolled forward from an exact ch
   assert.equal(projection.event.type, 'rework-rolled-forward');
   assert.equal(projection.event.generation, workflow.phases.reproduction.generation);
   assert.equal(projection.event.payload.decision, 'abandoned');
-  assert.equal(projection.event.payload.reviewPacketSha256, null);
+  // Rolling forward restores the submitted review, so its event names that exact packet.
+  const restoredSubmission = workflow.lineage.submissions.findLast((entry) => entry.phase === 'reproduction'
+    && entry.generation === workflow.phases.reproduction.generation);
+  assert.equal(projection.event.payload.reviewPacketSha256, restoredSubmission.packetSha256);
   const phaseUsage = workflow.phaseOrder.flatMap((phaseId) => workflow.phases[phaseId].usage ?? []);
   assert.equal(workflow.usage.records, phaseUsage.length);
   assert.equal(workflow.usage.totalTokens, phaseUsage.reduce((sum, usage) => sum + (usage.totalTokens ?? 0), 0));

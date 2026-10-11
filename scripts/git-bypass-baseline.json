@@ -933,10 +933,10 @@
     },
     "src/ledger.mjs": {
       "counts": {
-        "command-git": 72,
+        "command-git": 80,
         "command-run": 2
       },
-      "digest": "b7589ec74ba57bf3f1c9212feff0d8648506fc42783580c8d895d1a992604219"
+      "digest": "fd6b1a9c8209318b86a50f51af8aa9cac8392ae77cbec35c1d5b0129f3ed4a0f"
     },
     "src/local-evidence-review.mjs": {
       "counts": {

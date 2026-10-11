@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { access, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -1842,9 +1843,8 @@ async function appendOnce(root, config, intent, publishedCommit, {
 }
 
 /** Write and commit one ledger entry on `head`, its idempotency and event records, and the new head. */
-async function commitLedgerEntry(worktree, config, intent, publishedCommit, idempotency, head, pin, {
-  env = process.env, commitIdentity, commitSigning
-} = {}) {
+/** The four records one ledger append writes, and the message of the commit that records them. */
+function ledgerEntryFiles(config, intent, publishedCommit, idempotency, head, pin) {
   const entry = entryFromIntent(intent, publishedCommit, idempotency.value);
   entry.transport.pinRef = pin;
   entry.transport.pinTransport = config.pinTransport;
@@ -1858,31 +1858,150 @@ async function commitLedgerEntry(worktree, config, intent, publishedCommit, idem
     previousHeadHash: sha256(canonicalJson(head)),
     updatedAt: nowIso()
   };
-  await writeCanonicalJson(path.join(worktree, location.path), entry);
-  await writeCanonicalJson(path.join(worktree, idempotencyPath(idempotency.hash)), {
-    schemaVersion: LEDGER_SCHEMA_VERSION,
-    eventId: intent.eventId,
-    idempotencyKey: idempotency.value,
-    idempotencyHash: idempotency.hash,
+  return {
+    files: [
+      { path: location.path, text: canonicalJson(entry) },
+      { path: idempotencyPath(idempotency.hash), text: canonicalJson({
+        schemaVersion: LEDGER_SCHEMA_VERSION,
+        eventId: intent.eventId,
+        idempotencyKey: idempotency.value,
+        idempotencyHash: idempotency.hash,
+        entryHash: location.hash,
+        entryPath: location.path,
+        sequence: nextHead.sequence
+      }) },
+      { path: eventPath(intent.eventId), text: canonicalJson({
+        schemaVersion: LEDGER_SCHEMA_VERSION,
+        eventId: intent.eventId,
+        idempotencyHash: idempotency.hash,
+        entryHash: location.hash,
+        sequence: nextHead.sequence
+      }) },
+      { path: HEAD_PATH, text: canonicalJson(nextHead) }
+    ],
     entryHash: location.hash,
-    entryPath: location.path,
-    sequence: nextHead.sequence
-  });
-  await writeCanonicalJson(path.join(worktree, eventPath(intent.eventId)), {
-    schemaVersion: LEDGER_SCHEMA_VERSION,
-    eventId: intent.eventId,
-    idempotencyHash: idempotency.hash,
-    entryHash: location.hash,
-    sequence: nextHead.sequence
-  });
-  await writeCanonicalJson(path.join(worktree, HEAD_PATH), nextHead);
-  git(worktree, ['add', location.path, idempotencyPath(idempotency.hash), eventPath(intent.eventId), HEAD_PATH], { env });
-  git(worktree, commitArgs(
-    config, `[ledger:${nextHead.sequence}] ${intent.eventType} ${intent.subject.workId}`,
-    commitIdentity, commitSigning
-  ), { env: gitCommitIdentityEnvironment(env, commitIdentity) });
+    sequence: nextHead.sequence,
+    message: `[ledger:${nextHead.sequence}] ${intent.eventType} ${intent.subject.workId}`
+  };
+}
+
+async function commitLedgerEntry(worktree, config, intent, publishedCommit, idempotency, head, pin, {
+  env = process.env, commitIdentity, commitSigning
+} = {}) {
+  const prepared = ledgerEntryFiles(config, intent, publishedCommit, idempotency, head, pin);
+  for (const file of prepared.files) await writeAtomic(path.join(worktree, file.path), file.text);
+  git(worktree, ['add', ...prepared.files.map((file) => file.path)], { env });
+  git(worktree, commitArgs(config, prepared.message, commitIdentity, commitSigning),
+    { env: gitCommitIdentityEnvironment(env, commitIdentity) });
   const ledgerCommit = git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
-  return { entryHash: location.hash, sequence: nextHead.sequence, ledgerCommit };
+  return { entryHash: prepared.entryHash, sequence: prepared.sequence, ledgerCommit };
+}
+
+/**
+ * Hooks the worktree append can run: committing in a checkout runs the commit hooks, adding the
+ * checkout runs post-checkout, and moving its HEAD runs reference-transaction.
+ */
+const LEDGER_WORKTREE_HOOKS = Object.freeze([
+  'pre-commit', 'prepare-commit-msg', 'commit-msg', 'post-commit', 'post-checkout',
+  'reference-transaction', 'post-index-change'
+]);
+
+/** Whether any of those hooks is installed. The append built from Git objects runs none of them. */
+async function ledgerWorktreeHooksInstalled(root, env) {
+  const located = git(root, ['rev-parse', '--git-path', 'hooks'], { env, allowFailure: true });
+  const directory = located.status === 0 ? located.stdout.trim() : '';
+  if (!directory) return true;
+  for (const name of LEDGER_WORKTREE_HOOKS) {
+    try {
+      await access(path.join(path.resolve(root, directory), name),
+        process.platform === 'win32' ? fsConstants.F_OK : fsConstants.X_OK);
+      return true;
+    } catch { /* Absent, or not executable, so Git would not run it. */ }
+  }
+  return false;
+}
+
+/**
+ * The bytes at `commit:path` for each path, absent paths omitted; null when Git could not answer.
+ *
+ * Arguments only, never standard input: see hashExactStateBlob for the stdin pipe Node 20 can hang.
+ */
+function ledgerFilesAtCommit(root, commit, paths, env) {
+  const objectEnv = { ...env, ...LOCAL_OBJECT_ENV };
+  const listed = git(root, ['ls-tree', '-z', commit, '--', ...paths], { env: objectEnv, allowFailure: true });
+  if (listed.status !== 0) return null;
+  const files = new Map();
+  for (const record of listed.stdout.split('\0').filter(Boolean)) {
+    const match = /^100644 blob ([0-9a-f]{40,64})\t(.+)$/u.exec(record);
+    if (!match || !paths.includes(match[2])) return null;
+    const blob = git(root, ['cat-file', 'blob', match[1]], { env: objectEnv, encoding: 'buffer', allowFailure: true });
+    if (blob.status !== 0 || !Buffer.isBuffer(blob.stdout)) return null;
+    files.set(match[2], blob.stdout);
+  }
+  return files;
+}
+
+/**
+ * Build the append commit from Git objects, without checking out the state branch. `[perf]`
+ *
+ * The worktree append checked out every state-branch file into a temporary directory to add four,
+ * then deleted them: 473 files for a repository with a few dozen Stories, three more with every
+ * lifecycle event. Here the parent's tree is read into a private index, the four records are
+ * written as blobs, and `write-tree` and `commit-tree` make the same commit: the same records,
+ * parent, message, identity and signing. Returns undefined, so the worktree append runs instead,
+ * when a hook it would run is installed, when Git cannot read the parent's records, or when
+ * `SINGULARITY_FLOW_LEDGER_APPEND_WORKTREE=1` asks for it.
+ */
+async function prepareLedgerAppendFromObjects(root, config, base, intent, publishedCommit, idempotency, pin, operation, env) {
+  if (env.SINGULARITY_FLOW_LEDGER_APPEND_WORKTREE === '1') return undefined;
+  if (await ledgerWorktreeHooksInstalled(root, env)) return undefined;
+  const recordedPath = idempotencyPath(idempotency.hash);
+  const files = ledgerFilesAtCommit(root, base, [recordedPath, HEAD_PATH], env);
+  if (!files) return undefined;
+  if (files.has(recordedPath)) {
+    readRecord('ledger-entry', files.get(recordedPath));
+    return null;
+  }
+  if (!files.has(HEAD_PATH)) throw new SingularityFlowError(`Ledger branch is missing ${HEAD_PATH}.`);
+  const head = readRecord('ledger-entry', files.get(HEAD_PATH)).record;
+  const prepared = ledgerEntryFiles(config, intent, publishedCommit, idempotency, head, pin);
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-ledger-index-'));
+  try {
+    const indexEnv = { ...env, GIT_INDEX_FILE: path.join(scratch, 'index') };
+    git(root, ['read-tree', base], { env: indexEnv });
+    const sources = [];
+    for (const [index, file] of prepared.files.entries()) {
+      const source = path.join(scratch, `record-${index}`);
+      await writeFile(source, file.text);
+      sources.push(source);
+    }
+    // The records are canonical LF-only JSON, which every end-of-line setting stores unchanged.
+    // Files as arguments, bounded like hashExactStateBlob: no stdin pipe.
+    const blobs = git(root, ['hash-object', '-w', '--no-filters', '--', ...sources], {
+      env, timeoutMs: 30_000
+    }).stdout.trim().split('\n');
+    if (blobs.length !== prepared.files.length || !blobs.every((blob) => /^[0-9a-f]{40,64}$/u.test(blob))) {
+      throw new SingularityFlowError('Git did not store the ledger records as blobs.', { code: 'state_branch.commit_unavailable' });
+    }
+    git(root, ['update-index', '--add',
+      ...prepared.files.flatMap((file, index) => ['--cacheinfo', `100644,${blobs[index]},${file.path}`])], { env: indexEnv });
+    const tree = git(root, ['write-tree'], { env: indexEnv }).stdout.trim();
+    const signed = config.signing === 'commit';
+    const ledgerCommit = git(root, [
+      ...(operation.commitIdentity ? gitCommitIdentityArgs(operation.commitIdentity) : []),
+      ...(signed ? gitCommitSigningArgs(operation.commitSigning) : []),
+      'commit-tree', tree, '-p', base, ...(signed ? ['-S'] : []), '-m', prepared.message
+    ], { env: gitCommitIdentityEnvironment(env, operation.commitIdentity) }).stdout.trim();
+    if (!/^[0-9a-f]{40,64}$/u.test(ledgerCommit)) {
+      throw new SingularityFlowError('Git did not create the ledger commit.', { code: 'state_branch.commit_unavailable' });
+    }
+    return Object.freeze({
+      branch: config.branch, eventId: intent.eventId, entryHash: prepared.entryHash,
+      sequence: prepared.sequence, ledgerCommit, pinRef: pin, expectedRemoteSha: base
+    });
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
 }
 
 /** The atomic append's lease check; its slowest measured office answer was about 3 s. */
@@ -2141,6 +2260,10 @@ export async function prepareLedgerAppend(root, rawConfig, intent, publishedComm
   if (!expectedRemoteSha || ledgerHead(root, config, { env }) !== tracked) return null;
   const idempotency = ledgerIdempotencyKey(intent, publishedCommit);
   const pin = pinRef(config, intent);
+  const fromObjects = await prepareLedgerAppendFromObjects(
+    root, config, expectedRemoteSha, intent, publishedCommit, idempotency, pin, operation, env
+  );
+  if (fromObjects !== undefined) return fromObjects;
   return temporaryWorktree(root, tracked, async (worktree) => {
     if (await eventAlreadyRecorded(worktree, idempotency.hash)) return null;
     const head = await loadHead(worktree);

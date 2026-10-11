@@ -23,6 +23,7 @@ import {
   ledgerStatus,
   materializeStateBranchPublicationAuthority,
   persistLedgerIntent,
+  prepareLedgerAppend,
   publishBranchWithLedgerEntry,
   publishToStateBranch,
   reconcileLedger,
@@ -410,6 +411,43 @@ const appendIntent = (workId) => createLedgerIntent({
   capabilityId: `story-${workId}`,
   subject: { workId, phase: 'specification', generation: 1 },
   actor: { name: 'Reviewer', email: 'reviewer@example.com' }
+});
+
+test('the append built from Git objects is the commit the worktree append makes', async (t) => {
+  const { root } = await repository();
+  await initializeLedger(root, enabled);
+  const publishedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const intent = appendIntent('WORK-OBJECTS');
+  const worktreesBefore = git(root, ['worktree', 'list', '--porcelain']).stdout;
+  // The records carry the time they were written; one frozen clock makes both appends write the
+  // same bytes, so the comparison below can demand the same tree rather than similar records.
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-12T00:00:00.000Z') });
+  const fromObjects = await prepareLedgerAppend(root, enabled, intent, publishedCommit);
+  const fromWorktree = await prepareLedgerAppend(root, enabled, intent, publishedCommit, {
+    env: { ...process.env, SINGULARITY_FLOW_LEDGER_APPEND_WORKTREE: '1' }
+  });
+  t.mock.timers.reset();
+  assert.equal(git(root, ['worktree', 'list', '--porcelain']).stdout, worktreesBefore);
+  const { ledgerCommit: objectCommit, ...objectFacts } = fromObjects;
+  const { ledgerCommit: worktreeCommit, ...worktreeFacts } = fromWorktree;
+  assert.deepEqual(objectFacts, worktreeFacts);
+  assert.equal(git(root, ['rev-parse', `${objectCommit}^{tree}`]).stdout, git(root, ['rev-parse', `${worktreeCommit}^{tree}`]).stdout);
+  // Git stamps the commit with its own clock; everything else in the commit object matches.
+  const header = (commit) => git(root, ['cat-file', '-p', commit]).stdout.replace(/ \d+ [+-]\d{4}$/gmu, '');
+  assert.equal(header(objectCommit), header(worktreeCommit), 'tree, parent, author, committer and message match');
+});
+
+test('an installed hook the worktree append would run keeps the worktree append', { skip: process.platform === 'win32' }, async () => {
+  const { root, parent } = await repository();
+  await initializeLedger(root, enabled);
+  const publishedCommit = git(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const marker = path.join(parent, 'post-checkout-ran');
+  const hook = path.join(root, '.git', 'hooks', 'post-checkout');
+  await writeFile(hook, `#!/bin/sh\ntouch '${marker}'\n`);
+  await chmod(hook, 0o755);
+  const prepared = await prepareLedgerAppend(root, enabled, appendIntent('WORK-HOOKED'), publishedCommit);
+  assert.ok(prepared?.ledgerCommit);
+  assert.equal(await readFile(marker, 'utf8'), '', 'the hook ran because the worktree append ran');
 });
 
 test('a ledger entry and its pin land together in one atomic push after one observation', async () => {

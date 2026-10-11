@@ -11304,7 +11304,7 @@ async function hookCommand(positionals) {
         'boundary-guard': boundary.repositoryDiscoveryGuard, 'boundary-end': boundary.endRepositoryBoundaryTurn }[event];
       return console.log(JSON.stringify(await handler(payload)));
     }
-    if (readCopilotMode().paused) return console.log('{}');
+    if ((await import('./copilot-mode.mjs')).readCopilotMode().paused) return console.log('{}');
     const candidate = typeof payload.cwd === 'string' && existsSync(payload.cwd) ? payload.cwd : process.cwd();
     const root = event === 'agent-start'
       ? await (await import('./copilot-repository-boundary.mjs')).resolveCopilotHookRoot({ ...payload, cwd: candidate })
@@ -15588,7 +15588,7 @@ async function workspaceCommand(positionals, options) {
   // Refresh and reinitialization are the recovery boundary for old repositories. Removing their
   // registration based on a stale application-checkout workflow before either command can inspect
   // approved sflow/config turns repair into a misleading zero-target success.
-  await discardUnsupportedWorkflowWorkspaces(registry, selectionFile, {
+  const compatibility = await discardUnsupportedWorkflowWorkspaces(registry, selectionFile, {
     preserveForRecovery: [
       'list', 'current', 'prompt', 'use', 'switch', 'refresh-configuration', 'reinitialize',
       'migrate-schemas'
@@ -18347,7 +18347,7 @@ export async function main(argv) {
     const started = Date.now();
     log.info('command.start', null, { argv: persistedArgv.slice(0, 24) });
     try {
-      const result = await dispatch(command, positionals, options);
+      const result = await dispatch(command, positionals, options, argv);
       log.info('command.ok', null, { durationMs: Date.now() - started });
       if (harness) await completeHarnessInvocation(harness.root, harness.started, {
         exitCode: 0,
@@ -18363,10 +18363,10 @@ export async function main(argv) {
       throw error;
     }
   }
-  return dispatch(command, positionals, options);
+  return dispatch(command, positionals, options, argv);
 }
 
-async function dispatch(command, positionals, options) {
+async function dispatch(command, positionals, options, argv) {
   const handlers = validateCommandHandlers({
     about: () => console.log(ABOUT),
     help: () => helpCommand(positionals, options),

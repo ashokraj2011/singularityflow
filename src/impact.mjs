@@ -5,7 +5,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { deriveReport } from './report.mjs';
 import { identity } from './git.mjs';
-import { nowIso, readJson, secureRepositoryPath, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
+import { nowIso, posix, readJson, secureRepositoryPath, SingularityFlowError, snapshot, writeJson, writeText } from './util.mjs';
 import {
   DEFAULT_IMPACT_METRIC_AUTHORITIES, deterministicStudyGroup, eligibleImpactStudies, IMPACT_BANDS, IMPACT_METRICS
 } from './impact-config.mjs';

@@ -277,7 +277,10 @@ test('Classic delivery commits passing test results before Testing and Code chec
       assert.equal((await workflow()).currentPhase, phase);
       await writeFile(path.join(root, 'src/value.mjs'), approvedSource);
     }
-    cli('phase', 'publish', phase, '--authored', 'human', '--channel', 'manual-in-place');
+    // Code checking is published the way Copilot publishes it, so the terminal evaluation runs the
+    // governed-agent checks (the clarification audit) that a human-authored final phase skips.
+    if (phase === 'conformance') cli('phase', 'publish', phase, '--authored', 'governed-agent', '--channel', 'copilot-host');
+    else cli('phase', 'publish', phase, '--authored', 'human', '--channel', 'manual-in-place');
     cli('submit', phase);
     cli('approve', phase, '--yes');
   }

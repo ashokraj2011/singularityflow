@@ -466,7 +466,7 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       }
       const authorship = generationAuthorship(phase, generation);
       if (authorship?.producer === 'governed-agent') {
-        const clarification = await verifyClarificationRecord(root, config, workflow, phase, { generation, groundingRecord: grounding.record });
+        const clarification = await verifyClarificationRecord(root, config, workflow, phase, { generation });
         refuseEach('gate.clarification.invalid', clarification.errors, { phase: phaseId }); warnings.push(...clarification.warnings); passes.push(...clarification.passes);
         if (clarification.path && clarification.record && found) {
           if (run('git', ['cat-file', '-e', `${found[0]}:${clarification.path}`], { cwd: root, allowFailure: true }).status !== 0) refuse('gate.clarification.uncommitted', `clarification record was not committed with ${phaseId} generation ${generation}`, { phase: phaseId });

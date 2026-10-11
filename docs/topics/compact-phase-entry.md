@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals, phase-appeals, nextsteps]
-version: 9
+version: 10
 ---
 # Compact phase entry for Copilot
 
@@ -56,7 +56,7 @@ Git-call savings depend on workflow content; fewer CLI calls are not a claim of 
 3. If entry returns `status: successor-preparation-required`, run the returned preparation once
    through `/sf-phase`, then refresh entry.
 4. Compose once with `--compose` and use the returned `context.text`.
-5. Author the draft, then run `phase prepublish PHASE --for-agent --json` once.
+5. Resolve `clarification.checkpoint`, then author the draft and run `phase prepublish PHASE --for-agent --json` once.
 6. Follow the returned continuation. It does not authorize another lifecycle action in the same
    turn.
 
@@ -70,6 +70,25 @@ commands are never interpreted as implicit permission or guessed slash commands.
 retained screenshot has a scoped evidence-contract review route, not a request to delete it or
 commit unrelated source merely to clear the worktree. The reviewed correction can restore draft
 ownership without changing prior publications or claiming that visual acceptance passed.
+
+### Clarification is a conversation, not a missing question file
+
+`clarification.checkpoint` is presented before large recovery/context bodies. `derive-questions`
+permits questions from the pinned evidence while artifact authoring remains blocked. Load the
+returned composed context once, derive specific material ambiguities, and ask the human; never
+ask the human to supply the questions or unspecified “clarification answers.” In required mode,
+if there is no material ambiguity, ask for confirmation of a concise interpretation. A menu
+selection promising an answer is not an answer. Record actual replies through the returned
+`responseStagingPath` and response-file command; do not invent answers or edit governed records.
+
+`assess-ambiguity` applies the same process only when needed; `off` neither asks nor records.
+`inspect-binding` preserves an existing invalid/stale record for exact binding inspection, not
+automatic re-questioning or reuse. Question permission never overrides an integrity, ownership,
+agent or lifecycle admission refusal. These stages derive from phase policy, not phase names.
+
+Read complete control fields. Arbitrary character slices of a large JSON/context string can hide
+the checkpoint and are not evidence that instructions are missing. Read complete named sections
+in bounded portions from the same saved packet, without repeated composition or document searches.
 
 ### Context admission
 

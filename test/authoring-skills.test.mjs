@@ -181,6 +181,11 @@ test('the authoring contract audit checks the route, the built-in steps and the 
   const body = await readFile(path.join(packageRoot, 'plugin', 'skills', 'sflow-design', 'SKILL.md'), 'utf8');
   const errors = (text, entry = design) => authoringSkillContractErrors(entry, text);
   assert.deepEqual(errors(body), []);
+  for (const entry of authoringSkillCatalog()) {
+    const text = await readFile(path.join(packageRoot, 'plugin', 'skills', entry.sourceId, 'SKILL.md'), 'utf8');
+    assert.ok(authoringSkillContractErrors(entry, text.replace('missing answers permit questions, not drafting',
+      'missing answers forbid questions')).some(error => error.includes('checkpoint instruction')), entry.id);
+  }
   // Moving the selection check out of step 1 leaves the skill working before it re-reads its route.
   const [firstStep] = body.match(/^1\. .*$/m);
   assert.ok(errors(body.replace(firstStep, '1. Read the inputs.').replace(/^2\. /m, `2. ${firstStep.slice(3)} `)).some((error) => error.startsWith('step 1')));

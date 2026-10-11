@@ -373,8 +373,13 @@ function withCopilotPauseGuard(text, enabled, file, name, boundary) {
  * Guidance safety admits any catalog skill for a step's commands on the strength of this check.
  */
 export function authoringSkillContractErrors(entry, body) {
-  if (!entry || entry.id === 'sf-code') return [];
+  if (!entry) return [];
   const errors = [];
+  for (const required of ['`clarification.checkpoint`', 'missing answers permit questions, not drafting',
+    'Never ask users to supply questions or slice control instructions']) {
+    if (!body.includes(required)) errors.push(`selectable authoring skills must preserve the shared checkpoint instruction '${required}'`);
+  }
+  if (entry.id === 'sf-code') return errors;
   const steps = [...body.matchAll(/^(\d+)\. (.*)$/gmu)];
   const first = steps.find((match) => match[1] === '1')?.[2] ?? '';
   const last = steps.at(-1)?.[2] ?? '';

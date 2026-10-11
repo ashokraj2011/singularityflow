@@ -47,6 +47,24 @@ test('every selectable drafting skill composes inline; other prerequisites and a
   assert.equal(agentNextSteps(snapshot), snapshot);
 });
 
+test('large phase packets keep the complete clarification control before context without slicing governed bytes', () => {
+  const packet = { ready: true, recovery: { large: 'r'.repeat(12000) },
+    context: { text: 'x'.repeat(6800) + '\n# Human clarification checkpoint\nDerive questions, never answers.' },
+    clarification: { mode: 'required', checkpoint: { stage: 'derive-questions',
+      questioningAllowed: true, instruction: 'Ask evidence-grounded questions; never invent answers.' } } };
+  const entry = phaseEntryAgentPresentation(packet);
+  assert.ok(JSON.stringify(entry).indexOf('"questioningAllowed":true') < 3000);
+  assert.deepEqual(entry.context, packet.context);
+  assert.deepEqual(entry.clarification, packet.clarification);
+  assert.match(entry.agentGuide.instruction, /Never truncate control instructions/);
+  assert.match(entry.agentGuide.instruction, /same saved packet; do not recompose/);
+  const existing = { ...packet, clarification: { record: { text: 'a'.repeat(12000) },
+    mode: 'required', checkpoint: { stage: 'inspect-binding', questioningAllowed: false } } };
+  const existingEntry = phaseEntryAgentPresentation(existing);
+  assert.ok(JSON.stringify(existingEntry).indexOf('"stage":"inspect-binding"') < 3000);
+  assert.deepEqual(existingEntry.clarification, existing.clarification);
+});
+
 test('trace metrics distinguish complete runs, unknown usage, exact reviews and legitimate refreshes', () => {
   const event = { invocationId: 'turn-1', bindingKey: 'head:phase:generation', phase: 'coding',
     command: 'singularity-flow session current --for-agent --json', responseBytes: 100, durationMs: 25 };

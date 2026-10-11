@@ -247,13 +247,40 @@ export async function recordClarificationResponses(root, definition, workflow, p
 export async function verifyClarificationRecord(root, definition, workflow, phase, {
   generation = nextPhaseGeneration(phase), groundingRecord = null
 } = {}) {
+  const result = await inspectClarificationRecord(root, definition, workflow, phase, { generation, groundingRecord });
+  return { checkpoint: clarificationCheckpoint(resolvedPolicy(definition, workflow, phase), result), ...result };
+}
+
+/** Conversation permission is not artifact-authoring or publication permission. No model call. */
+export function clarificationCheckpoint(policy, verification) {
+  const { mode, maxQuestions, topics } = normalizeClarificationPolicy(policy);
+  const missing = verification.recordState === 'missing';
+  const stage = mode === 'off' ? 'off' : missing ? mode === 'required' ? 'derive-questions' : 'assess-ambiguity'
+    : verification.errors.length ? 'inspect-binding' : 'complete';
+  const questioningAllowed = ['derive-questions', 'assess-ambiguity'].includes(stage);
+  return {
+    stage, questioningAllowed, maxQuestions, topics,
+    requiresHumanResponse: stage === 'derive-questions',
+    instruction: questioningAllowed
+      ? 'Read the pinned Story and exact composed context. Formulate specific questions from material ambiguities; questions are agent-derived, not a missing predefined list. If required and no ambiguity remains, ask the human to confirm a concise interpretation. Offer proposals as proposals. Never invent answers or ask the user to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer. Record actual answers only after the human responds.'
+      : stage === 'inspect-binding'
+        ? 'Inspect the existing answer and its exact prompt/generation binding. Preserve prior answers; do not automatically re-ask, overwrite or treat stale answers as accepted.'
+        : stage === 'off' ? 'Do not ask or record phase clarification.'
+          : 'Reuse the verified answers; do not re-ask settled questions.'
+  };
+}
+
+async function inspectClarificationRecord(root, definition, workflow, phase, {
+  generation, groundingRecord
+}) {
   const policy = resolvedPolicy(definition, workflow, phase);
   const relative = clarificationRecordRelative(definition, workflow, phase, generation);
-  if (policy.mode === 'off') return { mode: policy.mode, errors: [], warnings: [], passes: [], record: null, path: null, sha256: null };
+  if (policy.mode === 'off') return { mode: policy.mode, recordState: 'not-applicable', errors: [], warnings: [], passes: [], record: null, path: null, sha256: null };
   if (!(await exists(path.join(root, relative)))) {
-    const message = `clarification response is missing for ${phase.id} generation ${generation}; ask the human checkpoint questions, then run singularity-flow clarification record ${phase.id} --question "..." --answer "..."`;
+    const message = `clarification response is missing for ${phase.id} generation ${generation}; read the composed context, derive specific questions from the pinned evidence, and ask the human. Do not ask the human to provide the questions or fabricate answers. Record the actual answers with the returned response-staging route.`;
     return {
       mode: policy.mode,
+      recordState: 'missing',
       errors: policy.mode === 'required' ? [message] : [],
       warnings: [],
       passes: policy.mode === 'when-needed' ? [`clarification checkpoint: ${phase.id} generation ${generation} had no recorded material ambiguity`] : [],
@@ -265,7 +292,7 @@ export async function verifyClarificationRecord(root, definition, workflow, phas
   let record;
   try { record = readRecord('clarification-record', await readJson(path.join(root, relative))).record; }
   catch (error) {
-    return { mode: policy.mode, errors: [`clarification record is invalid for ${phase.id} generation ${generation}: ${error.message}`], warnings: [], passes: [], record: null, path: relative, sha256: null };
+    return { mode: policy.mode, recordState: 'invalid', errors: [`clarification record is invalid for ${phase.id} generation ${generation}: ${error.message}`], warnings: [], passes: [], record: null, path: relative, sha256: null };
   }
   const problems = [];
   if (record.workId !== workflow.workItem.id || record.phase !== phase.id || record.generation !== generation) problems.push(`clarification record identity mismatch: ${relative}`);
@@ -295,6 +322,7 @@ export async function verifyClarificationRecord(root, definition, workflow, phas
   const info = await snapshot(path.join(root, relative));
   return {
     mode: policy.mode,
+    recordState: problems.length ? 'stale-or-incomplete' : 'complete',
     errors: problems,
     warnings: [],
     passes: problems.length ? [] : [`clarification checkpoint: ${phase.id} generation ${generation} (${record.responses.length} human response${record.responses.length === 1 ? '' : 's'})`],
@@ -361,6 +389,7 @@ export function renderClarificationProtocol(value, phaseId, { intentRecoveryInSo
     ...required.map((line) => `- ${line}`),
     `- Ask one concise batch of no more than ${policy.maxQuestions} questions with the interactive \`ask_user\` tool.`,
     '- Derive every question only from the current Story’s pinned sources, approved upstream artifacts, repository world model, or contradictions among them. Never reuse example questions or placeholder text from templates.',
+    '- Formulating evidence-grounded questions is permitted even while artifact authoring awaits clarification. Never ask the human to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer.',
     '- Do not re-ask established facts or infer answers from generic knowledge. Label hypotheses/design proposals; they become acceptance or specification decisions only with human confirmation.',
     intentRecoveryInSource
       ? '- For intent conflicts, confirm the human change and follow Conflict recovery in the Pinned Story source; never silently overwrite intent.'

@@ -57,6 +57,13 @@ Install the updated package/plugin and reload the Copilot host to activate chang
 skill instructions. Direct skills alone carry the bootstrap instruction; hook enforcement
 requires the plugin to be loaded by the host.
 
+Plugin hooks use a packaged launcher instead of assuming `singularity-flow` is on the GUI host's
+PATH. The launcher resolves Node and a validated SFlow package through PATH applications or fixed
+installation prefixes; it never searches repositories, sources a shell profile or downloads a
+runtime. A missing/broken runtime returns `SFLOW_HOOK_RUNTIME_UNAVAILABLE` with a human-terminal
+installation repair and reload route, rather than the opaque “hook errored”/exit-127 failure.
+Nonstandard Node/npm installation prefixes must remain available in the host's PATH.
+
 ## Evidence and the Repository brief
 
 Use `/sf-upload` or `/sflow-upload` to register files, directories, screenshots, exported designs,

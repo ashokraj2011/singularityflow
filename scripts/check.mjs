@@ -173,9 +173,9 @@ if (Object.keys(hooksJson.hooks ?? {}).sort().join(',') !== Object.keys(expected
 for (const [event, action] of Object.entries(expectedHooks)) {
   const entries = hooksJson.hooks?.[event];
   if (!Array.isArray(entries) || entries.length !== 1 || entries[0]?.type !== 'command'
-      || entries[0].bash !== `singularity-flow hook ${action}`
-      || entries[0].powershell !== `singularity-flow hook ${action}`) {
-    fail(`plugin/hooks.json ${event} must use singularity-flow hook ${action}`);
+      || entries[0].bash !== `/bin/bash "\${COPILOT_PLUGIN_ROOT}/hook-launcher.sh" ${action}`
+      || entries[0].powershell !== `& "$env:COPILOT_PLUGIN_ROOT/hook-launcher.ps1" ${action}`) {
+    fail(`plugin/hooks.json ${event} must use the packaged hook launcher for ${action}`);
   }
 }
 if (hooksJson.hooks?.preToolUse?.[0]?.matcher !== '.*'

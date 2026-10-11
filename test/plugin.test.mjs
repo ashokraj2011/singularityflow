@@ -302,10 +302,10 @@ test('initial phase skills require interactive clarification instead of silently
     assert.match(content, /(?:stop before (?:authoring|preparation)|record before (?:preparation|preparing|mutation); (?:stop if unavailable|if unavailable, display the questions and stop)|required[^\n]*(?:stop if unavailable|stop before|unavailable: show questions and stop))/i);
   }
   for (const content of [phase, code]) {
-    assert.match(content, /git rev-parse --git-path singularity-flow\/clarification-responses/i);
+    assert.match(content, /clarification\.responseStagingPath/i);
     assert.match(content, /never (?:at `singularity\/work-items\/\*\*\/context\/clarifications-\*\.json`|in Story context)/i);
     assert.match(content, /Delete on success/i);
-    assert.match(content, /Never pass Markdown/i);
+    assert.match(content, /never[^.\n]*pass Markdown/i);
     assert.match(content, /"responses"/);
   }
   assert.match(workflowAgent, /skills\/sflow-phase\/SKILL.md/);
@@ -475,13 +475,13 @@ test('requirements skill authors qualified acceptance-criteria identifiers', asy
 test('generic generation skills branch on the resolved clarification mode before asking or recording', async () => {
   for (const name of ['sflow-phase', 'sflow-code']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
-    const status = content.indexOf('Use its `clarification`');
+    const status = content.indexOf('4. `clarification.checkpoint`');
     const firstQuestion = content.indexOf('`ask_user`');
-    const firstRecord = content.indexOf('ask and record', status);
-    const offStart = content.indexOf('For `off`', status);
-    const whenNeededStart = content.indexOf('For `when-needed`', offStart);
-    const requiredStart = content.indexOf('For `required`', whenNeededStart);
-    const branchesEnd = content.indexOf('Stage only', requiredStart);
+    const firstRecord = content.indexOf('record before', status);
+    const offStart = content.indexOf('`off`', status);
+    const whenNeededStart = content.indexOf('`when-needed`', offStart);
+    const requiredStart = content.indexOf('`required`', whenNeededStart);
+    const branchesEnd = content.indexOf('Stage ', requiredStart);
     const off = content.slice(offStart, whenNeededStart);
     const whenNeeded = content.slice(whenNeededStart, requiredStart);
     const required = content.slice(requiredStart, branchesEnd);
@@ -491,14 +491,11 @@ test('generic generation skills branch on the resolved clarification mode before
     assert.ok(firstRecord > status, `${name} records before reading the clarification mode`);
     assert.ok(offStart > status && whenNeededStart > offStart && requiredStart > whenNeededStart
       && branchesEnd > requiredStart, `${name} must define ordered off/when-needed/required branches`);
-    assert.match(off, /do not ask/i, `${name} must not ask in off mode`);
-    assert.match(off, /do not ask or record/i,
-      `${name} must not record in off mode`);
-    assert.match(off, /continue/i, `${name} must continue in off mode`);
-    assert.match(whenNeeded, /ask and record[^.]*only for material ambiguity/i,
+    assert.match(off, /skips/i, `${name} must skip clarification in off mode`);
+    assert.match(whenNeeded, /asks material ambiguities/i,
       `${name} must condition questions and recording on material ambiguity`);
-    assert.match(whenNeeded, /otherwise continue/i,
-      `${name} must let when-needed continue without a fabricated checkpoint`);
+    assert.match(required, /derives evidence-grounded questions or confirms interpretation/i,
+      `${name} must formulate a concrete question, never request an unspecified answer`);
     assert.match(required, /`ask_user`[^.]*wait[^.]*record before/i,
       `${name} must always pause and persist the required checkpoint`);
     assert.match(required, /before (?:preparation|code mutation)/i,
@@ -792,13 +789,13 @@ test('plugin hooks avoid session prompt tax and scope discovery guards to explic
   assert.equal(hooks.hooks.sessionStart, undefined);
   assert.equal(hooks.hooks.subagentStart.length, 1);
   assert.equal(hooks.hooks.subagentStart[0].type, 'command');
-  assert.equal(hooks.hooks.subagentStart[0].bash, 'singularity-flow hook agent-start');
-  assert.equal(hooks.hooks.subagentStart[0].powershell, 'singularity-flow hook agent-start');
+  assert.equal(hooks.hooks.subagentStart[0].bash, '/bin/bash "${COPILOT_PLUGIN_ROOT}/hook-launcher.sh" agent-start');
+  assert.equal(hooks.hooks.subagentStart[0].powershell, '& "$env:COPILOT_PLUGIN_ROOT/hook-launcher.ps1" agent-start');
   for (const [event, action] of [['userPromptSubmitted', 'boundary-turn'],
     ['preToolUse', 'boundary-guard'], ['postToolUse', 'boundary-after'], ['sessionEnd', 'boundary-end']]) {
     assert.equal(hooks.hooks[event].length, 1);
-    assert.equal(hooks.hooks[event][0].bash, `singularity-flow hook ${action}`);
-    assert.equal(hooks.hooks[event][0].powershell, `singularity-flow hook ${action}`);
+    assert.equal(hooks.hooks[event][0].bash, `/bin/bash "\${COPILOT_PLUGIN_ROOT}/hook-launcher.sh" ${action}`);
+    assert.equal(hooks.hooks[event][0].powershell, `& "$env:COPILOT_PLUGIN_ROOT/hook-launcher.ps1" ${action}`);
   }
   assert.doesNotMatch(JSON.stringify(hooks), /agent-guard|turn-intent|turn-end/);
 });

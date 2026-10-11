@@ -116,6 +116,24 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     await (await import('./copilot-mutation-guard.mjs')).issueMutationStaging(root, clarification.responseStagingPath, 'clarification');
   }
   const authoringAllowed = Boolean(canCompose && clarification.errors.length === 0);
+  const checkpoint = clarification.checkpoint;
+  checkpoint.questioningAllowed &&= canCompose;
+  checkpoint.contextRequired = checkpoint.questioningAllowed && !context;
+  checkpoint.contextDelivered = Boolean(context);
+  checkpoint.artifactAuthoringAllowed = authoringAllowed;
+  // A missing answer blocks drafting, not loading the evidence needed to ask a question.
+  // Do not offer another status lookup or a record command with invented Q/A placeholders.
+  const clarificationAction = checkpoint.questioningAllowed ? {
+    id: `clarify:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
+    scope: 'clarification-only', skill: authoring.effectiveAuthoringSkill,
+    command: context ? null : `singularity-flow phase enter ${phase.id} --work-id ${actualId} --compose --for-agent --json`,
+    detail: context ? checkpoint.instruction : 'Load the exact composed context once, then derive and ask specific questions from its pinned evidence. Missing answers do not forbid question formulation.',
+    agentAction: context ? 'derive-and-ask' : 'load-context',
+    ...(context ? { copilotCommand: authoring.effectiveAuthoringSkill, modelFreeCommand: null } : {})
+  } : null;
+  checkpoint.nextAction = clarificationAction ? context
+    ? { ...clarificationAction, commandGuidance: null, modelFreeStatus: 'unavailable' }
+    : recoveryActionGuidance(clarificationAction) : null;
   const preparationAdmitted = authoring.policyVerified
     && authoring.entry?.status === 'successor-preparation-required'
     && !recovery.requiresRecovery && !requiresDecision && references.status !== 'blocked';
@@ -141,7 +159,8 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, references, clarification, context,
     contextComposition: !compose ? 'not-requested' : context ? 'delivered' : 'not-admitted',
-    next: nextActions,
+    next: clarificationAction ? [checkpoint.nextAction, ...nextActions.filter(action =>
+      action.id !== `resolve-clarification:${phase.id}`)] : nextActions,
     inspectionCommands: { recovery: `singularity-flow recover ${actualId} --phase ${phase.id} --json`,
       documents: `singularity-flow phase show ${phase.id} --json` } };
 }

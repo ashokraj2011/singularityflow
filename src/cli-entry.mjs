@@ -615,7 +615,7 @@ async function runMain(argv) {
     const operation = resolveOperation({ requestedCommand: 'hook', positionals, options });
     return withOperationContext({ operation, modelMode, root: null, argvSha256,
       argvHash: `sha256:${argvSha256}`, command: 'hook', startedAt: new Date().toISOString() }, async () => {
-      if (['boundary-turn', 'boundary-guard', 'boundary-end'].includes(positionals[1])) {
+      if (['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end'].includes(positionals[1])) {
         return (await import('./copilot-repository-boundary.mjs')).runRepositoryBoundaryHook(positionals[1]);
       }
       if (readCopilotMode().paused) return console.log('{}');

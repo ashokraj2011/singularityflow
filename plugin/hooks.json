@@ -2,22 +2,22 @@
   "version": 1,
   "hooks": {
     "userPromptSubmitted": [
-      { "type": "command", "bash": "singularity-flow hook boundary-turn", "powershell": "singularity-flow hook boundary-turn", "timeoutSec": 10 }
+      { "type": "command", "bash": "/bin/bash \"${COPILOT_PLUGIN_ROOT}/hook-launcher.sh\" boundary-turn", "powershell": "& \"$env:COPILOT_PLUGIN_ROOT/hook-launcher.ps1\" boundary-turn", "timeoutSec": 10 }
     ],
     "preToolUse": [
-      { "type": "command", "matcher": ".*", "bash": "singularity-flow hook boundary-guard", "powershell": "singularity-flow hook boundary-guard", "timeoutSec": 10 }
+      { "type": "command", "matcher": ".*", "bash": "/bin/bash \"${COPILOT_PLUGIN_ROOT}/hook-launcher.sh\" boundary-guard", "powershell": "& \"$env:COPILOT_PLUGIN_ROOT/hook-launcher.ps1\" boundary-guard", "timeoutSec": 10 }
     ],
     "postToolUse": [
-      { "type": "command", "matcher": "bash|powershell|run_in_terminal|execute|exec_command|write_stdin", "bash": "singularity-flow hook boundary-after", "powershell": "singularity-flow hook boundary-after", "timeoutSec": 10 }
+      { "type": "command", "matcher": "bash|powershell|run_in_terminal|execute|exec_command|write_stdin", "bash": "/bin/bash \"${COPILOT_PLUGIN_ROOT}/hook-launcher.sh\" boundary-after", "powershell": "& \"$env:COPILOT_PLUGIN_ROOT/hook-launcher.ps1\" boundary-after", "timeoutSec": 10 }
     ],
     "sessionEnd": [
-      { "type": "command", "bash": "singularity-flow hook boundary-end", "powershell": "singularity-flow hook boundary-end", "timeoutSec": 10 }
+      { "type": "command", "bash": "/bin/bash \"${COPILOT_PLUGIN_ROOT}/hook-launcher.sh\" boundary-end", "powershell": "& \"$env:COPILOT_PLUGIN_ROOT/hook-launcher.ps1\" boundary-end", "timeoutSec": 10 }
     ],
     "subagentStart": [
       {
         "type": "command",
-        "bash": "singularity-flow hook agent-start",
-        "powershell": "singularity-flow hook agent-start",
+        "bash": "/bin/bash \"${COPILOT_PLUGIN_ROOT}/hook-launcher.sh\" agent-start",
+        "powershell": "& \"$env:COPILOT_PLUGIN_ROOT/hook-launcher.ps1\" agent-start",
         "timeoutSec": 10
       }
     ]

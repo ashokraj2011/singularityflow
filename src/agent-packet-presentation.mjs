@@ -19,13 +19,21 @@ export function agentPacketPresentation(packet, platform = process.platform) {
 
 export function phaseEntryAgentPresentation(packet) {
   if (packet.paused) return packet;
+  const projected = agentPacketPresentation(packet);
   return { agentGuide: {
-    readOrder: [...(packet.contextBoundary ? ['contextBoundary'] : []), 'ready', 'phase', 'mutationContract', 'authoring', 'contextAdmission', 'recovery', 'intent',
-      'recovery.testExecution', 'clarification', 'references', 'context.text', 'next'],
+    readOrder: [...(packet.contextBoundary ? ['contextBoundary'] : []), 'ready', 'phase', 'mutationContract', 'authoring', 'clarification', 'contextAdmission', 'recovery', 'intent',
+      'recovery.testExecution', 'references', 'context.text', 'next'],
     testExecutionPath: 'recovery.testExecution',
     platform: process.platform,
-    instruction: 'Read authority fields together once, without key enumeration. Reuse context.text; changed bindings need fresh checks. Never reuse approval consent.'
-  }, ...agentPacketPresentation(packet) };
+    instruction: 'Read authority fields together once, without key enumeration. Read clarification.checkpoint before interpreting authoringAllowed. Never truncate control instructions with arbitrary string/byte slices. If a tool truncates context.text, read complete named sections in bounded portions from the same saved packet; do not recompose or infer absent instructions. Reuse context.text; changed bindings need fresh checks. Never reuse approval consent.'
+  },
+  // Keep the complete small checkpoint ahead of the large recovery/context bodies so a host
+  // preview cannot hide the conversation protocol. Hash-bound context bytes are never sliced.
+  clarification: projected.clarification ? {
+    checkpoint: projected.clarification.checkpoint,
+    ...Object.fromEntries(Object.entries(projected.clarification).filter(([key]) => key !== 'checkpoint'))
+  } : projected.clarification,
+  ...Object.fromEntries(Object.entries(projected).filter(([key]) => key !== 'clarification')) };
 }
 
 const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\n[\s\S]*?\n-->\n?/u;

@@ -24,7 +24,7 @@ function git(root, ...args) {
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
-async function fixture(t, { planningInputs = false } = {}) {
+async function fixture(t, { planningInputs = false, customPhase = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-phase-entry-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   git(root, 'init', '-qb', 'main');
@@ -39,15 +39,33 @@ async function fixture(t, { planningInputs = false } = {}) {
   if (planningInputs) source.workTypes['spec-driven-standard'].phaseOverrides.planning.inputs = [
     { phase: 'specification', projection: 'full' }
   ];
+  if (customPhase) {
+    source.phases[customPhase] = {
+      ...structuredClone(source.phases.specification), artifactSet: undefined,
+      specificationQuality: undefined, label: 'Team-owned discovery',
+      artifact: { path: `artifacts/${customPhase}/discovery.md`, kind: 'requirements', minimumBytes: 100 },
+      approval: { authorities: ['product-approvers'], minimum: 1, rejectTo: [customPhase] }
+    };
+    source.workTypes['team-owned-workflow'] = {
+      label: 'Team-owned workflow', phases: [customPhase],
+      omits: ['scope', 'plan', 'implement', 'verify'].map(responsibility => ({ responsibility,
+        reason: 'A conversation-only fixture with no repository delivery.', authority: 'product-approvers' }))
+    };
+    const agentFile = path.join(root, '.github/agents/product-owner.agent.md');
+    await writeFile(agentFile, (await readFile(agentFile, 'utf8'))
+      .replace('sflow-phases: "intake,', `sflow-phases: "${customPhase},intake,`)
+      .replace('sflow-default-for: "intake,', `sflow-default-for: "${customPhase},intake,`));
+  }
   await writeFile(file, YAML.stringify(source));
   git(root, 'add', '.');
   git(root, 'commit', '-qm', 'fixture authority');
   git(root, 'switch', '-c', 'ENTRY-1');
   const config = await loadConfig(root);
-  const resolved = resolveWorkType(config, 'spec-driven-standard');
+  const workType = customPhase ? 'team-owned-workflow' : 'spec-driven-standard';
+  const resolved = resolveWorkType(config, workType);
   const workflow = await createWorkflow(root, config, {
     id: 'ENTRY-1', title: 'Bundle verified phase context', baseBranch: 'main',
-    workType: 'spec-driven-standard', agent: 'product-owner', resolved,
+    workType, agent: 'product-owner', resolved,
     source: { type: 'manual', key: 'ENTRY-1', title: 'Bundle verified phase context',
       description: 'Preserve phase checks while reducing repeated tool calls.',
       acceptanceCriteria: ['The phase entry operation never advances the Story.'] }
@@ -155,9 +173,35 @@ test('entry bundles a custom-root Story without changing files, HEAD, index or l
   assert.ok(entry.authoring.policyVerified);
   assert.equal(entry.references.status, 'not-configured');
   assert.ok(['off', 'when-needed', 'required'].includes(entry.clarification.mode));
+  assert.equal(entry.authoringAllowed, false, 'required answers remain mandatory before drafting');
+  assert.equal(entry.clarification.checkpoint.stage, 'derive-questions');
+  assert.equal(entry.clarification.checkpoint.questioningAllowed, true);
+  assert.equal(entry.clarification.checkpoint.contextRequired, true);
+  assert.equal(entry.next[0].agentAction, 'load-context');
+  assert.equal(entry.next[0].copilotCommand, '/sf-phase');
+  assert.equal(entry.next[0].command, 'singularity-flow phase enter specification --work-id ENTRY-1 --compose --for-agent --json');
   assert.equal(git(item.root, 'rev-parse', 'HEAD'), before.head);
   assert.equal(git(item.root, 'status', '--porcelain=v1'), before.status);
   assert.equal(await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8'), before.workflow);
+});
+
+test('a future user-created workflow composes a question-only checkpoint for its own phase name', async t => {
+  const item = await fixture(t, { customPhase: 'team-discovery' });
+  const statePath = path.join(item.root, 'team/stories/ENTRY-1/workflow.json');
+  const before = await readFile(statePath, 'utf8');
+  const result = item.invoke('phase', 'enter', '--compose', '--for-agent', '--json');
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const entry = JSON.parse(result.stdout);
+  assert.equal(entry.phase, 'team-discovery');
+  assert.equal(entry.contextComposition, 'delivered');
+  assert.equal(entry.authoringAllowed, false);
+  assert.equal(entry.clarification.checkpoint.questioningAllowed, true);
+  assert.equal(entry.next[0].agentAction, 'derive-and-ask');
+  assert.equal(entry.next[0].copilotCommand, '/sf-phase');
+  assert.match(entry.context.text, /Formulating evidence-grounded questions is permitted/);
+  assert.equal(await readFile(statePath, 'utf8'), before);
+  assert.equal(entry.effects.testsRun, false);
+  assert.equal(entry.effects.storyAdvanced, false);
 });
 
 test('session agent entry retains the verified custom-root binding with no Story mutation', async t => {
@@ -336,6 +380,9 @@ test('manual worktree review prevents composition while preserving changes and e
   assert.equal(entry.context, null);
   assert.equal(entry.contextComposition, 'not-admitted');
   assert.equal(entry.contextAdmission.allowed, false);
+  assert.equal(entry.clarification.checkpoint.questioningAllowed, false,
+    'missing answers cannot override a worktree/integrity admission boundary');
+  assert.equal(entry.clarification.checkpoint.nextAction, null);
   assert.deepEqual(entry.contextAdmission.blockers.map(item => item.code), ['PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED']);
   assert.deepEqual(entry.contextAdmission.blockers[0].paths, ['README.md']);
   assert.equal(entry.next[0].scope, 'read-only');
@@ -401,6 +448,13 @@ test('explicit entry composition returns the governed prompt once and reuses imm
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const entry = JSON.parse(result.stdout);
   assert.equal(entry.contextComposition, 'delivered', JSON.stringify(entry.recovery));
+  assert.equal(entry.authoringAllowed, false);
+  assert.equal(entry.clarification.checkpoint.questioningAllowed, true);
+  assert.equal(entry.clarification.checkpoint.contextRequired, false);
+  assert.equal(entry.next[0].agentAction, 'derive-and-ask');
+  assert.equal(entry.next[0].command, null, 'asking questions is not a fabricated shell command');
+  assert.equal(entry.next[0].copilotCommand, '/sf-phase');
+  assert.equal(entry.next[0].modelFreeCommand, null);
   assert.match(entry.context.text, /Bundle verified phase context/);
   const promptPath = path.join(item.root, 'team/stories/ENTRY-1/context/prompts', `${entry.phase}-gen1.md`);
   const initial = await readFile(promptPath, 'utf8');

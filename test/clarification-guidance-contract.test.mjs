@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import YAML from 'yaml';
 
-import { renderClarificationProtocol } from '../src/clarifications.mjs';
+import { clarificationCheckpoint, renderClarificationProtocol } from '../src/clarifications.mjs';
 import { generationSkillForPhase } from '../src/code-delivery-policy.mjs';
 import { resolveWorkType, validateDefinition } from '../src/config.mjs';
 import { workflowGuide } from '../src/guide.mjs';
@@ -54,6 +54,9 @@ test('every catalogued phase route preserves its clarification policy in prompt 
         const skill = generationSkillForPhase(phase);
         const contract = phasePromptExecutionContract(definition, workflow, phase);
         const protocol = renderClarificationProtocol(contract.clarification, phase.id);
+        const checkpoint = clarificationCheckpoint(contract.clarification, {
+          recordState: 'missing', record: null, errors: []
+        });
         const guide = workflowGuide(workflow);
         const key = `${contract.clarification.mode}:${skill}`;
 
@@ -65,6 +68,8 @@ test('every catalogued phase route preserves its clarification policy in prompt 
           `${label} routed to a different Copilot generation skill`);
 
         if (contract.clarification.mode === 'off') {
+          assert.equal(checkpoint.questioningAllowed, false, label);
+          assert.equal(checkpoint.stage, 'off', label);
           assert.equal(protocol, '', `${label} injected a clarification/recording protocol while off`);
           assert.ok(contract.lines.includes(
             '- Clarification mode: `off`; do not ask phase clarification questions or run `clarification record`'
@@ -75,6 +80,11 @@ test('every catalogued phase route preserves its clarification policy in prompt 
             `${label} allowed the off-mode guard to grant authoring authority`
           );
         } else {
+          assert.equal(checkpoint.questioningAllowed, true, label);
+          assert.equal(checkpoint.stage, contract.clarification.mode === 'required'
+            ? 'derive-questions' : 'assess-ambiguity', label);
+          assert.match(checkpoint.instruction, /Never invent answers/, label);
+          assert.match(checkpoint.instruction, /not a missing predefined list/, label);
           assert.match(protocol, /# Human clarification checkpoint/, `${label} omitted its checkpoint`);
           assert.match(protocol, new RegExp('mode `' + contract.clarification.mode + '`'),
             `${label} rendered the wrong checkpoint mode`);
@@ -99,4 +109,22 @@ test('every catalogued phase route preserves its clarification policy in prompt 
     'starter:spec-driven-standard/planning',
     'starter:poc-lite/poc-lite-act'
   ]) assert.ok(routes.includes(expected), `${expected} was not covered`);
+});
+
+test('future custom phase names use the same policy-derived checkpoint without a predefined question list', () => {
+  for (const phaseId of ['team-discovery', 'custom-plan', 'build-csharp', 'visual-check', 'handover']) {
+    const policy = { mode: 'required', topics: ['boundary behavior'], maxQuestions: 2 };
+    const checkpoint = clarificationCheckpoint(policy, { recordState: 'missing', record: null, errors: ['missing'] });
+    assert.equal(checkpoint.stage, 'derive-questions', phaseId);
+    assert.equal(checkpoint.questioningAllowed, true, phaseId);
+    assert.equal(checkpoint.maxQuestions, 2, phaseId);
+    assert.deepEqual(checkpoint.topics, policy.topics, phaseId);
+    assert.match(renderClarificationProtocol(policy, phaseId), /Formulating evidence-grounded questions is permitted/);
+    for (const recordState of ['invalid', 'stale-or-incomplete']) {
+      const invalid = clarificationCheckpoint(policy, { recordState, record: null, errors: ['binding error'] });
+      assert.equal(invalid.stage, 'inspect-binding');
+      assert.equal(invalid.questioningAllowed, false);
+    }
+    assert.equal(clarificationCheckpoint(policy, { recordState: 'complete', record: {}, errors: [] }).stage, 'complete');
+  }
 });

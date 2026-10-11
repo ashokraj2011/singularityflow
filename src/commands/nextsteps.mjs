@@ -126,8 +126,7 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
 
 /** Whether the phase's next generation has a composed prompt whose snapshot still matches its record. */
 async function composedPromptCurrent(root, definition, workflow, phase) {
-  // Lazy: grounding.mjs reaches the initiative and Jira domains, which `nextsteps` must not load.
-  const { groundingRecordRelative } = await import('../grounding.mjs');
+  const { groundingRecordRelative } = await import('./nextsteps-deferred.mjs');
   const record = await readJson(path.join(root, groundingRecordRelative(definition, workflow, phase))).catch(() => null);
   if (typeof record?.promptPath !== 'string' || typeof record.renderedSha256 !== 'string') return false;
   const prompt = await readFile(path.join(root, record.promptPath)).catch(() => null);
@@ -166,10 +165,9 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
   const active = activePhase(workflow);
   const consumedGenerationChanged = active?.generationIntent?.status === 'consumed'
     && Number(active.generationIntent.generation) === Number(active.generation);
-  // Lazy, like grounding and inputs: source review reaches the agent, workspace and Jira domains.
   const sourceReviewEvidence = active?.status === 'in_progress' && active.generation > 0
     && sourceReviewRequired(workflow, active.id)
-    ? await (await import('../source-review-lifecycle.mjs'))
+    ? await (await import('./nextsteps-deferred.mjs'))
       .readSourceReviewStatus(root, definition, workflow, active.id).catch(() => null) : null;
   // Full publication preflight can inspect a large source change set. `nextsteps` only needs it
   // automatically at the lifecycle state that otherwise causes the retry loop: a consumed code
@@ -244,7 +242,7 @@ export async function nextStepsAgentPacket(workId = null) {
   const first = snapshot.actions.find(action => action.timing === 'now');
   let inputs = null;
   if (first?.argv?.[0] === 'inputs' && first.argv[1] === packet.phase) {
-    const { collectInputs } = await import('../inputs.mjs');
+    const { collectInputs } = await import('./nextsteps-deferred.mjs');
     const resolved = await collectInputs(entry.root, entry.workflow, entry.phase, {
       definition: entry.definition,
       itemDirectory: path.join(entry.root, entry.definition.workItemRoot, packet.workId),

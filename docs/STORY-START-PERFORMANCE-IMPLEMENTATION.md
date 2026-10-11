@@ -194,6 +194,31 @@ Replay of the measured reference-driven start (local mirrors of the real reposit
 
 The harness rewrites the repository's transport URL, so its authority and repository listings stay separate there; with an ordinary remote they are one listing. Network savings are projected from the measured per-operation cost, not measured on the real network.
 
+## 2026-10-12: fewer local Git processes and parses
+
+With the network round trips down to two, a start in a 37-file repository still took 5 to 22
+seconds. A CPU profile of a replayed start (a local mirror of the same repository, a receipt-backed
+intake, a quiet machine) put 3.0 of its 5.1 seconds in synchronous `spawnSync`: about 375 local Git
+processes, a hundred of them questions the same process had already asked. YAML parsing took
+another 0.46 seconds, mostly the same `workflow.yml` and `portfolio.yml` parsed again.
+
+| Change | Delivered | Safeguard retained |
+|---|---|---|
+| Git fact cache (`src/git-fact-cache.mjs`) | `run()` answers a repeated branch, HEAD, repository-location or configuration question without a process. | Each answer records the files Git answered from (`HEAD`, the branch ref file, `packed-refs`, the configuration files, the `.git` marker) and is used only while their inode, size and timestamps are unchanged, so a write by any program is seen. Branch and remote-tracking refs are never cached, and neither are object reads: a read also proves the object is present now, which destructive readiness checks rely on. Errors, timeouts, relocated repositories, configuration includes, stdin, injected runners and Windows go to Git. `SINGULARITY_FLOW_GIT_FACT_CACHE=off` turns it off. |
+| One asset policy per commit | The configuration asset policy of an exact commit is derived once per process instead of five times. | Exact object names only, and only when the commit's files could be read. |
+| One admission per prospective tree | A successful exact prospective-tree admission is remembered; Start admitted the same tree four times, each with eleven Git processes and a full secret scan. | Every input is immutable and the request's configuration overlay is part of the key. A refusal is never remembered. |
+| One parse per configuration text | `workflow.yml` and `portfolio.yml` text is parsed once per process (`src/yaml-parse-cache.mjs`). | Keyed by the text's digest, so a rewritten file is parsed again; every caller gets its own copy. |
+| Ledger append from Git objects | The atomic ledger append builds its commit with `read-tree`, `hash-object`, `update-index`, `write-tree` and `commit-tree` in a private index, instead of checking out the whole state branch (473 files in the measured repository, three more per lifecycle event) to add four. | The same records, tree, parent, message, identity and signing (a test compares both paths). Any installed hook the worktree append would run (commit hooks, post-checkout, reference-transaction, post-index-change) keeps the worktree append, and `SINGULARITY_FLOW_LEDGER_APPEND_WORKTREE=1` asks for it. No standard-input pipe is used. |
+| One failed GitHub lookup per minute | A failed `gh api user` is remembered by the process for a minute; Start asked five times. | Still never written to disk; a success replaces it. |
+
+Measured on the same replay, alternating four starts of each build: 4.95 to 5.36 seconds and 402 to
+408 Git processes before, 3.60 to 3.84 seconds and 302 to 308 after. YAML parsing fell from 0.46 to
+0.21 seconds. These are local measurements; the network round trips are unchanged.
+
+Not adopted: reusing the intake preview's verified configuration in Start. The validators it would
+skip cost about 80 ms on this replay, and their running on every read is a safeguard this ledger
+keeps (S1).
+
 ## Deliberately remaining
 
 - The publication-permission dry run (one round trip). Dropping it would turn a revoked permission
@@ -207,7 +232,11 @@ The harness rewrites the repository's transport URL, so its authority and reposi
 - The warm-up (`workspace branches --intake --warm`) and its sealed approved-identity prelude were
   not built. Without them no read may start before approved identity is verified, so the catalog's
   listing and a preview's dry run still follow the authority listing rather than overlap it.
-- Trimming the roughly 475 local Git processes a start spawns.
+- The remaining 300 or so local Git processes. Ref reads are not cached on purpose; ledger
+  reconciliation still walks the history of every remote Story branch that carries intents, one
+  process each, so that part grows with the number of Stories.
+- Committing the copied approved configuration into the Story branch (267 files in the measured
+  repository) instead of pinning it by reference: a design decision, not an optimization.
 - A shared G10 configuration/state object service, Windows cache qualification, and transform-aware
   projection reuse. This restricted configuration cache does not complete G10.
 - Fully local-only activation discovery, independently proven snapshot slices and persistent

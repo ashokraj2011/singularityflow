@@ -5,12 +5,43 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { copilotHookCommand } from '../src/copilot-hook-commands.mjs';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const pluginRoot = path.join(packageRoot, 'plugin');
 const bootstrap = path.join(pluginRoot, 'hook-launcher.mjs');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
 const actions = ['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start'];
+const events = ['userPromptSubmitted', 'preToolUse', 'postToolUse', 'sessionEnd', 'subagentStart'];
+// Restrict execution-policy bypass to these disposable test processes, not the machine policy.
+const powershellArgs = ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command'];
+const powershell = ['pwsh', ...(process.platform === 'win32' ? ['powershell'] : [])].find(command =>
+  spawnSync(command, [...powershellArgs, '$PSVersionTable.PSVersion.ToString()'],
+    { encoding: 'utf8', timeout: 10_000 }).status === 0);
+
+function rootEnvironment(env, roots) {
+  const next = { ...env };
+  delete next.PLUGIN_ROOT;
+  delete next.COPILOT_PLUGIN_ROOT;
+  return { ...next, ...roots };
+}
+
+async function manifestCommands(shell) {
+  const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'hooks.json'), 'utf8'));
+  return events.map((event, index) => [actions[index], manifest.hooks[event][0][shell]]);
+}
+
+function assertRootUnavailable(result, action) {
+  assert.equal(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  if (action === 'boundary-guard') {
+    assert.equal(output.permissionDecision, 'deny');
+    assert.match(output.permissionDecisionReason, /SFLOW_HOOK_PLUGIN_ROOT_UNAVAILABLE/);
+    assert.match(output.permissionDecisionReason, /plugin install/);
+  } else assert.deepEqual(output, {});
+  assert.match(result.stderr, /SFLOW_HOOK_PLUGIN_ROOT_UNAVAILABLE/);
+  assert.doesNotMatch(result.stderr, /No such file or directory|CommandNotFoundException/);
+}
 
 async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-hook-launcher-'));
@@ -108,23 +139,127 @@ test('a global user-prefix install works when the GUI starts from its non-Git pa
   assert.equal(JSON.parse(item.invoke('boundary-guard', [entry]).stdout).permissionDecision, 'deny');
 });
 
-test('packaged bash hook resolves quoted plugin roots and forwards input through an absolute Node runtime', {
+test('every packaged bash hook accepts VS Code and CLI roots, preferring the current host root', {
   skip: process.platform === 'win32'
 }, async t => {
   const item = await fixture(t);
   const bin = path.join(item.directory, 'host-bin');
   await mkdir(bin);
-  const mountedPlugin = path.join(item.directory, 'loaded plugin with spaces');
+  const mountedPlugin = path.join(item.directory, "loaded plugin ' & with spaces");
   await symlink(pluginRoot, mountedPlugin, 'dir');
   await symlink(process.execPath, path.join(bin, 'node'));
   await symlink(cli, path.join(bin, 'singularity-flow'));
-  const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'hooks.json'), 'utf8'));
-  const result = spawnSync('/bin/bash', ['-c', manifest.hooks.preToolUse[0].bash], {
-    cwd: item.cwd, env: { ...item.env, COPILOT_PLUGIN_ROOT: mountedPlugin, PATH: `${bin}:/usr/bin:/bin` },
-    input: '{}', encoding: 'utf8', timeout: 10_000
-  });
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), {});
+  for (const roots of [
+    { PLUGIN_ROOT: mountedPlugin }, { COPILOT_PLUGIN_ROOT: mountedPlugin },
+    { PLUGIN_ROOT: mountedPlugin, COPILOT_PLUGIN_ROOT: '/stale/plugin' },
+    { PLUGIN_ROOT: '', COPILOT_PLUGIN_ROOT: mountedPlugin }
+  ]) for (const [action, command] of await manifestCommands('bash')) {
+    const result = spawnSync('/bin/bash', ['-c', command], {
+      cwd: item.cwd, env: { ...rootEnvironment(item.env, roots), PATH: `${bin}:/usr/bin:/bin` },
+      input: '{}', encoding: 'utf8', timeout: 10_000
+    });
+    assert.equal(result.status, 0, `${action}: ${result.stderr}`);
+    assert.equal(result.stderr, '', action);
+    assert.deepEqual(JSON.parse(result.stdout), {}, action);
+  }
+});
+
+test('every bash hook diagnoses missing, empty or stale plugin roots before launching', {
+  skip: process.platform === 'win32'
+}, async t => {
+  const item = await fixture(t);
+  await mkdir(path.join(item.cwd, 'relative-plugin'));
+  await writeFile(path.join(item.cwd, 'relative-plugin/hook-launcher.sh'), 'printf NOT_INSTALLED\n');
+  for (const roots of [{}, { PLUGIN_ROOT: '', COPILOT_PLUGIN_ROOT: '' },
+    { PLUGIN_ROOT: item.directory },
+    { PLUGIN_ROOT: 'relative-plugin', COPILOT_PLUGIN_ROOT: pluginRoot },
+    { PLUGIN_ROOT: path.join(item.directory, 'missing plugin'), COPILOT_PLUGIN_ROOT: pluginRoot }
+  ]) for (const [action, command] of await manifestCommands('bash')) {
+    assertRootUnavailable(spawnSync('/bin/bash', ['-c', command], {
+      cwd: item.cwd, env: rootEnvironment(item.env, roots), input: '{}', encoding: 'utf8', timeout: 10_000
+    }), action);
+  }
+});
+
+test('every PowerShell hook invokes the literal host root and forwards the action and stdin', {
+  skip: !powershell && 'PowerShell host unavailable'
+}, async t => {
+  const item = await fixture(t);
+  const mountedPlugin = path.join(item.directory, "loaded plugin ' & with spaces");
+  await mkdir(mountedPlugin);
+  await writeFile(path.join(mountedPlugin, 'hook-launcher.ps1'),
+    'param([string]$Action)\n@{ action = $Action; input = [Console]::In.ReadToEnd() } | ConvertTo-Json -Compress\n');
+  for (const roots of [
+    { PLUGIN_ROOT: mountedPlugin }, { COPILOT_PLUGIN_ROOT: mountedPlugin },
+    { PLUGIN_ROOT: mountedPlugin, COPILOT_PLUGIN_ROOT: path.join(item.directory, 'stale') },
+    { PLUGIN_ROOT: '', COPILOT_PLUGIN_ROOT: mountedPlugin }
+  ]) for (const [action, command] of await manifestCommands('powershell')) {
+    const result = spawnSync(powershell, [...powershellArgs, command], {
+      cwd: item.cwd, env: rootEnvironment(item.env, roots), input: '{"sessionId":"exact"}', encoding: 'utf8', timeout: 10_000
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stderr, '');
+    assert.deepEqual(JSON.parse(result.stdout), { action, input: '{"sessionId":"exact"}' });
+  }
+});
+
+test('every PowerShell hook returns structured diagnostics for missing, empty or stale roots', {
+  skip: !powershell && 'PowerShell host unavailable'
+}, async t => {
+  const item = await fixture(t);
+  await mkdir(path.join(item.cwd, 'relative-plugin'));
+  await writeFile(path.join(item.cwd, 'relative-plugin/hook-launcher.ps1'), "Write-Output 'NOT_INSTALLED'\n");
+  for (const roots of [{}, { PLUGIN_ROOT: '', COPILOT_PLUGIN_ROOT: '' },
+    { PLUGIN_ROOT: item.directory },
+    { PLUGIN_ROOT: 'relative-plugin', COPILOT_PLUGIN_ROOT: pluginRoot },
+    { PLUGIN_ROOT: path.join(item.directory, 'missing plugin'), COPILOT_PLUGIN_ROOT: pluginRoot }
+  ]) for (const [action, command] of await manifestCommands('powershell')) {
+    assertRootUnavailable(spawnSync(powershell, [...powershellArgs, command], {
+      cwd: item.cwd, env: rootEnvironment(item.env, roots), input: '{}', encoding: 'utf8', timeout: 10_000
+    }), action);
+  }
+});
+
+test('packaged PowerShell launcher finds the Windows-style APPDATA runtime and forwards stdin', {
+  skip: !powershell && 'PowerShell host unavailable'
+}, async t => {
+  const item = await fixture(t);
+  const appData = path.join(item.directory, 'Windows app data');
+  const hostBin = path.join(item.directory, 'host-bin');
+  await mkdir(hostBin);
+  // Shadow any real installed CLI without executing it. Its missing adjacent package forces the
+  // launcher to use this test's APPDATA package, even on a fully configured Windows host.
+  await writeFile(path.join(hostBin, process.platform === 'win32' ? 'singularity-flow.cmd' : 'singularity-flow'),
+    process.platform === 'win32' ? '@exit /b 99\r\n' : '#!/bin/sh\nexit 99\n', { mode: 0o755 });
+  const runtime = path.join(appData, 'npm/node_modules/singularity-flow');
+  await mkdir(path.join(runtime, 'bin'), { recursive: true });
+  await mkdir(path.join(runtime, 'src'));
+  await writeFile(path.join(runtime, 'package.json'), JSON.stringify({ name: 'singularity-flow', type: 'module',
+    bin: { 'singularity-flow': 'bin/singularity-flow.mjs' } }));
+  await writeFile(path.join(runtime, 'bin/singularity-flow.mjs'), '// installed runtime fixture\n');
+  await writeFile(path.join(runtime, 'src/cli-entry.mjs'),
+    'export async function main(argv) { let input=""; for await (const chunk of process.stdin) input+=chunk; console.log(JSON.stringify({argv,input})); }\n');
+  for (const [action, command] of await manifestCommands('powershell')) {
+    const result = spawnSync(powershell, [...powershellArgs, command], {
+      cwd: item.cwd, env: { ...rootEnvironment(item.env, { PLUGIN_ROOT: pluginRoot }), APPDATA: appData,
+        PATH: `${hostBin}${path.delimiter}${path.dirname(process.execPath)}${path.delimiter}${item.env.PATH ?? ''}` },
+      input: '{"sessionId":"exact"}', encoding: 'utf8', timeout: 10_000
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), { argv: ['hook', action], input: '{"sessionId":"exact"}' });
+  }
+});
+
+test('all shipped hook commands use the closed host-neutral command composer', async () => {
+  for (const shell of ['bash', 'powershell']) for (const [action, command] of await manifestCommands(shell)) {
+    assert.equal(command, copilotHookCommand(action, shell));
+    assert.match(command, /PLUGIN_ROOT/);
+    assert.match(command, /COPILOT_PLUGIN_ROOT/);
+    assert.match(command, /SFLOW_HOOK_PLUGIN_ROOT_UNAVAILABLE/);
+    assert.doesNotMatch(command, /Invoke-Expression|eval |\$HOME|Get-ChildItem/);
+  }
+  assert.throws(() => copilotHookCommand('approve', 'bash'), /Unsupported Copilot hook action/);
+  assert.throws(() => copilotHookCommand('boundary-guard', 'cmd'), /Unsupported Copilot hook shell/);
 });
 
 test('PowerShell hook uses applications and closed operations without profile or expression evaluation', async () => {

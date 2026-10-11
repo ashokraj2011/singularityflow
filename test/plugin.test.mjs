@@ -789,13 +789,14 @@ test('plugin hooks avoid session prompt tax and scope discovery guards to explic
   assert.equal(hooks.hooks.sessionStart, undefined);
   assert.equal(hooks.hooks.subagentStart.length, 1);
   assert.equal(hooks.hooks.subagentStart[0].type, 'command');
-  assert.equal(hooks.hooks.subagentStart[0].bash, '/bin/bash "${COPILOT_PLUGIN_ROOT}/hook-launcher.sh" agent-start');
-  assert.equal(hooks.hooks.subagentStart[0].powershell, '& "$env:COPILOT_PLUGIN_ROOT/hook-launcher.ps1" agent-start');
+  const { copilotHookCommand } = await import('../src/copilot-hook-commands.mjs');
+  assert.equal(hooks.hooks.subagentStart[0].bash, copilotHookCommand('agent-start', 'bash'));
+  assert.equal(hooks.hooks.subagentStart[0].powershell, copilotHookCommand('agent-start', 'powershell'));
   for (const [event, action] of [['userPromptSubmitted', 'boundary-turn'],
     ['preToolUse', 'boundary-guard'], ['postToolUse', 'boundary-after'], ['sessionEnd', 'boundary-end']]) {
     assert.equal(hooks.hooks[event].length, 1);
-    assert.equal(hooks.hooks[event][0].bash, `/bin/bash "\${COPILOT_PLUGIN_ROOT}/hook-launcher.sh" ${action}`);
-    assert.equal(hooks.hooks[event][0].powershell, `& "$env:COPILOT_PLUGIN_ROOT/hook-launcher.ps1" ${action}`);
+    assert.equal(hooks.hooks[event][0].bash, copilotHookCommand(action, 'bash'));
+    assert.equal(hooks.hooks[event][0].powershell, copilotHookCommand(action, 'powershell'));
   }
   assert.doesNotMatch(JSON.stringify(hooks), /agent-guard|turn-intent|turn-end/);
 });

@@ -9,7 +9,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import path from 'node:path';
 import {
-  lstat, mkdir, open, readFile, readdir, rename, rm, writeFile
+  lstat, mkdir, open, readFile, readdir, realpath, rename, rm, writeFile
 } from 'node:fs/promises';
 import YAML from 'yaml';
 import {
@@ -1752,7 +1752,9 @@ function targetTemplatePath(asset, storyValue, initiativeValue) {
 }
 
 async function targetSnapshot(root, bundle) {
-  const targetRoot = configurationReadRoot(root);
+  // Secure configuration reads return canonical filenames. Use that same root for every target
+  // and result path, including macOS /var aliases and Windows directory junctions.
+  const targetRoot = await realpath(configurationReadRoot(root));
   const story = await readYamlDocument(targetRoot, STORE.story, {
     optional: !Object.keys(bundle.objects.story.workTypes ?? {}).length
   });
@@ -2428,7 +2430,7 @@ async function importPlan(root, destination, original, chosen) {
   if (writes.some((item) => item.kind === 'import-record')) changedPaths.add(IMPORTS_LOCK_PATH);
   if (writes.some((item) => item.kind === 'workflow-skill-attachments')) changedPaths.add(SKILL_ATTACHMENTS_PATH);
   for (const item of writes) {
-    if (['agent', 'template', 'vendored', 'skill', 'asset', 'skill-package-file', 'skill-package-attributes'].includes(item.kind)) changedPaths.add(item.id);
+    if (['agent', 'template', 'vendored', 'skill', 'instruction', 'asset', 'skill-package-file', 'skill-package-attributes'].includes(item.kind)) changedPaths.add(item.id);
   }
   // What is still open, one entry per subject: why, which of the repository's workflows use it,
   // and the choices, with a free new name ready for rename.

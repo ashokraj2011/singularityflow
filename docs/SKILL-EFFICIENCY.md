@@ -29,6 +29,18 @@ each skill's unchanged domain-prose budget. Ordinary native turns load no SFlow 
 Paused hooks inject no context and do no repository reads. Restart chat with the host's default
 Agent to discard instructions already loaded before pausing.
 
+### Installed hook compatibility
+
+The packaged hooks accept VS Code's `PLUGIN_ROOT` and the CLI host's
+`COPILOT_PLUGIN_ROOT`; the current host's `PLUGIN_ROOT` takes precedence if both
+are present. Bash and PowerShell invoke the literal installed path, including
+spaces and quotes, without evaluating it or searching repositories. A missing
+root or launcher returns `SFLOW_HOOK_PLUGIN_ROOT_UNAVAILABLE`, not a raw
+`/hook-launcher.sh` or PowerShell command-not-found failure. The pre-tool hook
+refuses execution; other hooks emit a diagnostic without inventing lifecycle state.
+After updating the installed SFlow build, run `singularity-flow plugin install`
+and reload VS Code. Existing Stories do not need recreation.
+
 Every skill also carries a generated execution boundary. Relative paths resolve
 from the root reported by Flow, Story artifacts remain under
 `singularity/work-items/<WORK-ID>/`, and filesystem-wide discovery is forbidden.

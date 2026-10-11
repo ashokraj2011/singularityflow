@@ -12,6 +12,7 @@ import { discoverAgents, validateAgentCatalog } from '../src/agents.mjs';
 import { allCommands, documentedCommands, overviewCommands, synopsisFor } from '../src/help-pages.mjs';
 import { canonicalCommand, COMMAND_REGISTRY } from '../src/command-registry.mjs';
 import { COMMAND_SKILLS } from '../src/command-skills.mjs';
+import { copilotHookCommand } from '../src/copilot-hook-commands.mjs';
 import { BOOLEAN_OPTIONS, defaultTimeoutFor, run } from '../src/util.mjs';
 import { SOURCE_LINE_BUDGETS, sourceSizeFailures } from './source-size-policy.mjs';
 import { validatePortfolio } from '../src/initiative-config.mjs';
@@ -173,8 +174,8 @@ if (Object.keys(hooksJson.hooks ?? {}).sort().join(',') !== Object.keys(expected
 for (const [event, action] of Object.entries(expectedHooks)) {
   const entries = hooksJson.hooks?.[event];
   if (!Array.isArray(entries) || entries.length !== 1 || entries[0]?.type !== 'command'
-      || entries[0].bash !== `/bin/bash "\${COPILOT_PLUGIN_ROOT}/hook-launcher.sh" ${action}`
-      || entries[0].powershell !== `& "$env:COPILOT_PLUGIN_ROOT/hook-launcher.ps1" ${action}`) {
+      || entries[0].bash !== copilotHookCommand(action, 'bash')
+      || entries[0].powershell !== copilotHookCommand(action, 'powershell')) {
     fail(`plugin/hooks.json ${event} must use the packaged hook launcher for ${action}`);
   }
 }

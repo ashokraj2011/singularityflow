@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -23,6 +23,23 @@ import {
 import { changedLines, foldYamlFile } from './helpers/folded-yaml.mjs';
 
 process.env.NODE_ENV = 'test';
+
+test('workflow import returns the exact preview paths through root aliases and directory junctions', async t => {
+  const source = await initializedRepository(t, 'sflow-transfer-alias-source-');
+  const target = await initializedRepository(t, 'sflow-transfer-alias-target-');
+  const parent = await mkdtemp(path.join(os.tmpdir(), 'sflow-transfer-alias-'));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const alias = path.join(parent, 'selected repository');
+  await symlink(target, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  const bundle = await exportWorkflowBundle(source, ['feature']);
+  const resolutions = { 'workflow:feature': { action: 'rename', to: 'aliased-feature' } };
+  const plan = await planWorkflowImport(alias, bundle, { resolutions });
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.unresolved));
+  const applied = await applyWorkflowImport(alias, bundle, { resolutions, expectedPlanSha256: plan.planSha256 });
+  assert.deepEqual(applied.paths, plan.changedPaths);
+  assert.deepEqual(applied.paths, ['singularity/workflow.yml']);
+  assert.ok((await loadDefinition(target)).workTypes['aliased-feature']);
+});
 
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);

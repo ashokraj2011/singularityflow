@@ -57,4 +57,8 @@ Catalog listing returns names, purposes, references and hashes, not every defini
 
 Workflow v8 export carries only the exact instruction definitions referenced by included catalog skills. Import and independent duplication show instruction identities alongside agents and skills, validate collisions and rewrite skill references when definitions are renamed. Linked copies intentionally share definitions. Missing, extra, malformed, conflicting or tampered definitions are refused with a named finding; repair configuration or references, never generated snapshots. Historical bundles without references remain readable.
 
+The import preview's changed-file list includes new, replaced and renamed instruction files;
+kept or reused definitions are not listed as changed. The applied result reports the same
+repository-relative paths, including when the selected checkout uses a filesystem root alias.
+
 Definitions are bounded to 64 KiB; each skill may reference up to 32 unique IDs. IDs are not paths or URLs. Definitions cannot recursively reference other definitions. A remote catalog `SKILL.md` may carry these references, but the definitions must also exist in approved configuration (or arrive in its workflow bundle). Arbitrary remote agent Markdown dependencies do not gain implicit catalog references.

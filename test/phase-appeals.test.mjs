@@ -247,7 +247,9 @@ for (const surface of ['terminal', 'browser']) test(`reviewed evidence typing vi
   assert.equal(entry.contextComposition, 'delivered');
   if (surface === 'terminal') {
     assert.equal(entry.contextAdmission.pendingEvidence.evidenceAccepted, false);
-    assert.equal(entry.next[0].scope, 'draft-only');
+    // A when-needed clarification assessment may lead (8f74557f); the held-evidence draft
+    // continuation is still offered and stays draft-only.
+    assert.equal(entry.next.find(action => action.id === 'continue-draft:implementation')?.scope, 'draft-only');
   }
   assert.deepEqual(await readFile(path.join(f.root, evidencePath)), imageBytes);
   assert.equal(f.git('ls-files', '--stage').stdout, indexBefore, 'composition never stages held evidence or source');

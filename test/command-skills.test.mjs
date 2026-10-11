@@ -243,7 +243,7 @@ test('standalone publication has a dedicated route even when the producer suppli
     skill: '/sflow-code'
   });
   assert.ok(guidance);
-  assert.equal(guidance.skill, '/sf-code');
+  assert.equal(guidance.skill, '/sf-publish');
   assert.equal(guidance.copilotCommand, '/sf-publish build-api');
 });
 
@@ -284,7 +284,7 @@ test('structured command argv is authoritative and disagreement fails closed', (
   });
   assert.ok(matching);
   assert.equal(matching.argv.at(-1), 'copilot-host');
-  assert.equal(matching.skill, '/sf-code');
+  assert.equal(matching.skill, '/sf-publish');
 
   assert.equal(safeCommandGuidance({
     command: 'singularity-flow resume WORK-123 --fetch',

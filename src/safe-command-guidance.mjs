@@ -337,7 +337,9 @@ export function safeCommandGuidance(value) {
 
   return Object.freeze({
     ...safe,
-    skill: selectedSkill,
+    // Older producers can assert their authoring skill, but every consumer must see the
+    // publication-only route, including consumers that read `skill` instead of copilotCommand.
+    skill: safe.argv[0] === 'phase' && safe.argv[1] === 'publish' ? canonicalSkill : selectedSkill,
     copilotCommand: canonicalCopilotCommand,
     modelFreeCommand: modelFreeCommandForArgv(safe.argv)
   });

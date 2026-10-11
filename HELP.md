@@ -1810,6 +1810,16 @@ singularity-flow clarification status requirements --json
 
 The record contains the human actor, governed agent, prompt hash, composition-record hash, phase, and prospective generation. Required model-assisted publication rejects a missing or stale record and rejects a materially deferred decision. Human-authored artifacts use the explicit `--authored human` path instead of fabricating a Copilot checkpoint.
 
+A missing record does not mean the contributor has not answered. For the same Story, phase,
+generation and reviewed context, Copilot reuses actual replies already supplied, stages JSON with
+a file-edit tool at the issued `clarification.responseStagingPath`, then runs
+`clarification.checkpoint.recordAction` as a standalone command. A refused write preserves replies
+and staging for recording repair; it must not restart the questions. An exact recording retry
+reuses the receipt without changing its bytes, IDs, actor or timestamp. Conflicting replies or
+changed prompt bindings require review before explicit replacement. This shared contract applies
+to seeded workflows and custom phase names; it does not grant application edits to document
+phases or relax reviewer, publication or approval authority.
+
 ## governed agents and approval authority
 
 Governed agents supply role instructions. Starter agents include product owner, architect, developer, and QA. They never represent a real user and never grant approval capability. Story phases reference `approvalAuthorities`; decisions are authorized from a normalized Git email or authenticated GitHub login and record the matched group.

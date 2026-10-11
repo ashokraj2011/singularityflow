@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -13,23 +13,23 @@ import {
 } from '../src/clarifications.mjs';
 import { snapshot } from '../src/util.mjs';
 
-async function clarificationFixture(mode = 'required') {
+async function clarificationFixture(mode = 'required', phaseId = 'requirements') {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-clarification-'));
   const definition = {
     workItemRoot: 'singularity/work-items',
-    phases: { requirements: { clarification: { mode, maxQuestions: 3, topics: ['scope'] } } }
+    phases: { [phaseId]: { clarification: { mode, maxQuestions: 3, topics: ['scope'] } } }
   };
-  const phase = { id: 'requirements', generation: 0 };
+  const phase = { id: phaseId, generation: 0 };
   const workflow = {
     workItem: { id: 'WORK-1' },
-    resolution: { phases: [{ id: 'requirements', clarification: definition.phases.requirements.clarification }] }
+    resolution: { phases: [{ id: phaseId, clarification: definition.phases[phaseId].clarification }] }
   };
   const context = path.join(root, 'singularity/work-items/WORK-1/context');
   await mkdir(path.join(context, 'prompts'), { recursive: true });
-  const promptPath = 'singularity/work-items/WORK-1/context/prompts/requirements-gen1.md';
+  const promptPath = `singularity/work-items/WORK-1/context/prompts/${phaseId}-gen1.md`;
   await writeFile(path.join(root, promptPath), '# Governed prompt\n\nAsk the human.\n');
   const prompt = await snapshot(path.join(root, promptPath));
-  const groundingPath = 'singularity/work-items/WORK-1/context/requirements-gen1.json';
+  const groundingPath = `singularity/work-items/WORK-1/context/${phaseId}-gen1.json`;
   await writeFile(path.join(root, groundingPath), `${JSON.stringify({
     promptPath,
     renderedSha256: prompt.sha256,
@@ -223,16 +223,70 @@ test('a versioned durable clarification record is never mistaken for same-path s
   const destination = path.join(value.root, first.path);
   const before = await readFile(destination, 'utf8');
 
-  await assert.rejects(
-    recordClarificationResponses(value.root, value.definition, value.workflow, value.phase, {
+  const retry = await recordClarificationResponses(value.root, value.definition, value.workflow, value.phase, {
       actor: { name: 'Product Owner', email: 'owner@example.com' },
       agent: 'product-owner',
       responses: first.record.responses,
       responseFile: destination
-    }),
-    /duplicated/
-  );
+    });
+  assert.equal(retry.reused, true, 'a durable receipt is reused, never adopted as raw staging');
+  assert.equal(retry.sha256, first.sha256);
   assert.equal(await readFile(destination, 'utf8'), before);
+});
+
+test('exact recording retries reuse bytes and IDs across seeded and future custom phase names', async t => {
+  for (const phaseId of ['specification', 'planning', 'implementation', 'verification', 'release', 'team-custom']) {
+    await t.test(phaseId, async t => {
+      const value = await clarificationFixture('required', phaseId);
+      t.after(() => rm(value.root, { recursive: true, force: true }));
+      const args = { actor: { name: 'Human Reviewer' }, agent: 'phase-author',
+        responses: [{ question: 'Which inputs?', answer: 'Non-negative integers.' }, { question: 'Which output?', answer: 'Lowercase.' }] };
+      const first = await recordClarificationResponses(value.root, value.definition, value.workflow, value.phase, args);
+      const before = await readFile(path.join(value.root, first.path), 'utf8');
+      for (const responses of [args.responses, first.record.responses, [args.responses[1]], [...args.responses, ...args.responses]]) {
+        const result = await recordClarificationResponses(value.root, value.definition, value.workflow, value.phase, { ...args, responses });
+        assert.equal(result.reused, true); assert.equal(result.sha256, first.sha256);
+        assert.equal(await readFile(path.join(value.root, first.path), 'utf8'), before);
+      }
+      const verified = await verifyClarificationRecord(value.root, value.definition, value.workflow, value.phase);
+      assert.equal(verified.checkpoint.stage, 'complete');
+      assert.equal(verified.checkpoint.questioningAllowed, false);
+      assert.match(verified.checkpoint.instruction, /do not re-ask settled questions/);
+      const extended = await recordClarificationResponses(value.root, value.definition, value.workflow, value.phase,
+        { ...args, responses: [{ question: 'Remote calls?', answer: 'None.' }] });
+      assert.deepEqual(extended.record.responses.map(row => row.id), ['Q-001', 'Q-002', 'Q-003']);
+    });
+  }
+});
+
+test('conflicting replies and changed checkpoint bindings never silently reuse accepted answers', async t => {
+  const value = await clarificationFixture();
+  t.after(() => rm(value.root, { recursive: true, force: true }));
+  const args = { actor: { name: 'Human Reviewer' }, agent: 'product-owner',
+    responses: [{ question: 'Which inputs?', answer: 'Non-negative integers.' }] };
+  const first = await recordClarificationResponses(value.root, value.definition, value.workflow, value.phase, args);
+  const file = path.join(value.root, first.path), before = await readFile(file, 'utf8');
+  for (const response of [{ question: 'Which inputs?', answer: 'Negative integers too.' },
+    { id: 'Q-001', question: 'A different question?', answer: 'Yes.' }]) {
+    await assert.rejects(recordClarificationResponses(value.root, value.definition, value.workflow, value.phase,
+      { ...args, responses: [response] }), error => error.code === 'CLARIFICATION_RESPONSE_CONFLICT');
+    assert.equal(await readFile(file, 'utf8'), before);
+  }
+  await writeFile(file, JSON.stringify({ ...first.record, workId: 'OTHER-STORY' }));
+  await assert.rejects(recordClarificationResponses(value.root, value.definition, value.workflow, value.phase, args),
+    error => error.code === 'CLARIFICATION_RECORD_BINDING_MISMATCH');
+  await writeFile(file, before);
+  const groundingFile = path.join(value.root, first.record.groundingRecordPath);
+  const grounding = JSON.parse(await readFile(groundingFile, 'utf8'));
+  await writeFile(value.root + '/' + value.promptPath, '# Changed scope\n');
+  grounding.renderedSha256 = (await snapshot(path.join(value.root, value.promptPath))).sha256;
+  await writeFile(groundingFile, JSON.stringify(grounding));
+  await assert.rejects(recordClarificationResponses(value.root, value.definition, value.workflow, value.phase, args), /older prompt/);
+  assert.equal(await readFile(file, 'utf8'), before);
+  const verification = await verifyClarificationRecord(value.root, value.definition, value.workflow, value.phase);
+  assert.equal(verification.checkpoint.stage, 'inspect-binding');
+  assert.equal(verification.checkpoint.questioningAllowed, false);
+  assert.match(verification.checkpoint.instruction, /Preserve prior answers/);
 });
 
 test('materially deferred clarification remains a hard publication blocker', async () => {

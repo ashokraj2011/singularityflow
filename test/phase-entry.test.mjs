@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,7 +25,7 @@ function git(root, ...args) {
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
-async function fixture(t, { planningInputs = false, customPhase = null } = {}) {
+async function fixture(t, { planningInputs = false, customPhase = null, clarificationActor = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-phase-entry-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   git(root, 'init', '-qb', 'main');
@@ -37,6 +37,7 @@ async function fixture(t, { planningInputs = false, customPhase = null } = {}) {
   const source = YAML.parse(await readFile(file, 'utf8'));
   source.workItemRoot = 'team/stories';
   source.session.workItemSelection = 'reuse';
+  if (clarificationActor) source.approvalAuthorities['product-approvers'].members = [{ email: 'entry@example.invalid' }];
   if (planningInputs) source.workTypes['spec-driven-standard'].phaseOverrides.planning.inputs = [
     { phase: 'specification', projection: 'full' }
   ];
@@ -208,6 +209,8 @@ test('entry bundles a custom-root Story without changing files, HEAD, index or l
   assert.equal(entry.clarification.checkpoint.stage, 'derive-questions');
   assert.equal(entry.clarification.checkpoint.questioningAllowed, true);
   assert.equal(entry.clarification.checkpoint.contextRequired, true);
+  assert.equal(entry.clarification.checkpoint.recordAction, null, 'context must be reviewed before answer recording');
+  assert.equal(entry.clarification.checkpoint.missingRecordMeansUnanswered, false);
   assert.equal(entry.next[0].agentAction, 'load-context');
   assert.equal(entry.next[0].copilotCommand, '/sf-phase');
   assert.equal(entry.next[0].command, 'singularity-flow phase enter specification --work-id ENTRY-1 --compose --for-agent --json');
@@ -232,10 +235,60 @@ test('a future user-created workflow composes a question-only checkpoint for its
   assert.equal(entry.next[0].commandGuidance.copilotCommand, '/sf-phase');
   assert.equal(entry.next[0].commandGuidance.command, null, 'asking has no fabricated shell answer');
   assert.equal(entry.next[0].commandGuidance.copyable, false);
+  assert.equal(entry.clarification.checkpoint.answerBinding.workId, 'ENTRY-1');
+  assert.equal(entry.clarification.checkpoint.answerBinding.phase, 'team-discovery');
+  assert.equal(entry.clarification.checkpoint.answerBinding.generation, entry.context.generation);
+  assert.equal(entry.clarification.checkpoint.answerBinding.promptSha256, entry.context.deliveredSha256);
+  const recordAction = entry.clarification.checkpoint.recordAction;
+  assert.equal(recordAction.requiresActualHumanReplies, true);
+  assert.equal(recordAction.automatic, false);
+  assert.deepEqual(recordAction.commandGuidance.argv, ['clarification', 'record', 'team-discovery',
+    '--response-file', entry.clarification.responseStagingPath, '--json']);
+  assert.equal(recordAction.commandGuidance.copilotCommand, '/sf-phase');
   assert.match(entry.context.text, /Formulating evidence-grounded questions is permitted/);
   assert.equal(await readFile(statePath, 'utf8'), before);
   assert.equal(entry.effects.testsRun, false);
   assert.equal(entry.effects.storyAdvanced, false);
+});
+
+test('CLI recording retries preserve the receipt and re-entry does not restart clarification', async t => {
+  for (const customPhase of [null, 'team-discovery']) await t.test(customPhase ?? 'specification', async t => {
+    const item = await fixture(t, { customPhase, clarificationActor: true });
+    const invokeJson = (...args) => {
+      const result = item.invoke(...args, '--json');
+      assert.equal(result.status, 0, result.stdout + result.stderr);
+      return JSON.parse(result.stdout);
+    };
+    const entry = invokeJson('phase', 'enter', '--compose', '--for-agent');
+    assert.equal(entry.authoringAllowed, false);
+    const staging = entry.clarification.responseStagingPath;
+    const replies = [{ question: 'Is this interpretation complete?', answer: 'Yes; preserve the existing work.' }];
+    await mkdir(path.dirname(staging), { recursive: true });
+    await writeFile(staging, JSON.stringify({ responses: replies }));
+    const args = entry.clarification.checkpoint.recordAction.commandGuidance.argv.filter(arg => arg !== '--json');
+    const first = invokeJson(...args);
+    assert.equal(first.data.reused, false);
+    assert.equal(first.effects.filesChanged, true);
+    const receipt = path.join(item.root, first.data.path);
+    const bytes = await readFile(receipt, 'utf8');
+    const retry = invokeJson(...args);
+    assert.equal(retry.data.reused, true);
+    assert.equal(retry.effects.filesChanged, false);
+    assert.equal(retry.data.sha256, first.data.sha256);
+    assert.equal(await readFile(receipt, 'utf8'), bytes);
+    const resumed = invokeJson('phase', 'enter', '--compose', '--for-agent');
+    assert.equal(resumed.authoringAllowed, true);
+    assert.equal(resumed.clarification.checkpoint.stage, 'complete');
+    assert.equal(resumed.clarification.checkpoint.questioningAllowed, false);
+    assert.equal(resumed.clarification.checkpoint.recordAction, null);
+    assert.equal(resumed.context.deliveredSha256, entry.context.deliveredSha256);
+    await writeFile(staging, JSON.stringify({ responses: [{ ...replies[0], answer: 'Different scope.' }] }));
+    const conflict = item.invoke(...args, '--json');
+    assert.notEqual(conflict.status, 0);
+    assert.equal(JSON.parse(conflict.stdout).error.code, 'CLARIFICATION_RESPONSE_CONFLICT');
+    assert.equal(await readFile(receipt, 'utf8'), bytes);
+    assert.match(await readFile(staging, 'utf8'), /Different scope/);
+  });
 });
 
 test('session agent entry retains the verified custom-root binding with no Story mutation', async t => {
@@ -417,6 +470,7 @@ test('manual worktree review prevents composition while preserving changes and e
   assert.equal(entry.clarification.checkpoint.questioningAllowed, false,
     'missing answers cannot override a worktree/integrity admission boundary');
   assert.equal(entry.clarification.checkpoint.nextAction, null);
+  assert.equal(entry.clarification.checkpoint.recordAction, null, 'a recording route cannot override failed admission');
   assert.deepEqual(entry.contextAdmission.blockers.map(item => item.code), ['PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED']);
   assert.deepEqual(entry.contextAdmission.blockers[0].paths, ['README.md']);
   assert.equal(entry.next[0].scope, 'read-only');

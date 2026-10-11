@@ -123,13 +123,22 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   checkpoint.contextRequired = checkpoint.questioningAllowed && !context;
   checkpoint.contextDelivered = Boolean(context);
   checkpoint.artifactAuthoringAllowed = authoringAllowed;
+  checkpoint.answerBinding = { workId: actualId, phase: phase.id, generation: base.inspectionGeneration,
+    promptSha256: context?.deliveredSha256 ?? clarification.record?.promptSha256 ?? null };
+  checkpoint.recordAction = checkpoint.questioningAllowed && context ? recoveryActionGuidance({
+    id: `record-clarification:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
+    scope: 'clarification-only', requiresActualHumanReplies: true,
+    detail: 'After matching actual human replies to answerBinding, stage the issued JSON with a file-edit tool and run this command alone. Recording failure does not require repeating the questions.',
+    ...safeCommandGuidance({ argv: ['clarification', 'record', phase.id,
+      '--response-file', clarification.responseStagingPath, '--json'] })
+  }) : null;
   // A missing answer blocks drafting, not loading the evidence needed to ask a question.
   // Do not offer another status lookup or a record command with invented Q/A placeholders.
   const clarificationAction = checkpoint.questioningAllowed ? {
     id: `clarify:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
     scope: 'clarification-only', skill: authoring.effectiveAuthoringSkill,
     command: context ? null : `singularity-flow phase enter ${phase.id} --work-id ${actualId} --compose --for-agent --json`,
-    detail: context ? checkpoint.instruction : 'Load the exact composed context once, then derive and ask specific questions from its pinned evidence. Missing answers do not forbid question formulation.',
+    detail: context ? checkpoint.instruction : 'Load the exact composed context once; match existing human replies before deriving unanswered questions. A missing record does not mean unanswered. Missing answers do not forbid question formulation.',
     agentAction: context ? 'derive-and-ask' : 'load-context',
     ...(context ? { copilotCommand: authoring.effectiveAuthoringSkill, modelFreeCommand: null } : {})
   } : null;

@@ -8,7 +8,7 @@ import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
 import { parseArgs } from './util.mjs';
 import { resolveOperation } from './command-registry.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { safeCommandGuidance, validateSafeSflowCommand } from './safe-command-guidance.mjs';
 
 const MAX_AGE = 30 * 60 * 1000;
 const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', 'exec_command', 'write_stdin']);
@@ -173,10 +173,15 @@ function scopedShellCommand(call, value) {
 
 function shellAllowed(call, mode, value) {
   const command = scopedShellCommand(call, value);
-  if (typeof command !== 'string' || /[;&|`$<>\n]/u.test(command)) return false;
-  const tokens = command.trim().match(/'[^']*'|"[^"]*"|\S+/gu)?.map(token => token.replace(/^(['"])(.*)\1$/u, '$2')) ?? [];
-  if (!['singularity-flow', 'sflow'].includes(tokens.shift())) return false;
-  const { positionals, options } = parseArgs(tokens);
+  if (typeof command !== 'string') return false;
+  // Reuse the guidance lexer: punctuation inside literal answers/paths is data, not a
+  // command separator. Accept its quoted executable and PowerShell call-operator forms.
+  const powershell = call.name === 'powershell' || /^\s*&\s+/u.test(command);
+  const normalized = command.trim().replace(/^&\s+(?=['"]?(?:singularity-flow|sflow)\b)/u, '')
+    .replace(/^(['"])(singularity-flow|sflow)\1(?=\s|$)/u, '$2');
+  const safe = validateSafeSflowCommand(normalized, { shell: powershell ? 'powershell' : 'posix' });
+  if (!safe?.copyable) return false;
+  const { positionals, options } = parseArgs(safe.argv);
   if (['hook', 'run', 'exec'].includes(positionals[0])) return false;
   let classification;
   try { classification = resolveOperation({ requestedCommand: positionals[0], positionals, options }).classification; }
@@ -195,6 +200,15 @@ function shellAllowed(call, mode, value) {
   if (mode === 'read-only-review') return positionals[0] === 'review-source' && ['check', 'submit'].includes(positionals[1]);
   if (mode === 'read') return false;
   return !['approve', 'reject'].includes(positionals[0]);
+}
+
+function mentionsKernelExecution(call, value) {
+  const command = scopedShellCommand(call, value) ?? call.args.command ?? call.args.cmd ?? call.args.script ?? '';
+  // A directory or file prefixed with sflow/singularity-flow is not a CLI invocation.
+  // Match a complete executable token, not a word boundary inside a literal path.
+  // Keep rejecting unverified wrappers, substitutions and executable paths; never grant kernel authority
+  // to a raw shell. Its file mutations still undergo the normal before/after path checks.
+  return /\b(?:singularity-flow|sflow)(?:\.(?:exe|cmd|bat))?(?=$|[\s'";&|`$<>()])/iu.test(command);
 }
 
 function bootstrapAllowed(call, record) {
@@ -245,8 +259,10 @@ export async function mutationToolGuard(payload = {}) {
       const kernel = shellAllowed(call, contract.turnMode, value);
       if (!kernel && value.findings.length) return mutationDenial({ ...contract, next: recoveryRoutes(contract) }, 'PHASE_MUTATION_REPAIR_REQUIRED');
       if (!kernel) {
-        if (contract.turnMode !== 'authoring' || /\b(?:singularity-flow|sflow)\b/u.test(call.args.command ?? call.args.cmd ?? ''))
+        if (contract.turnMode !== 'authoring')
           return mutationDenial(contract, 'PHASE_MUTATION_TURN_READ_ONLY');
+        if (mentionsKernelExecution(call, value)) return mutationDenial(contract,
+          'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED: run one standalone registered SFlow command; no chains or wrappers. Use a file-edit tool for the exact issued staging file. Preserve human answers and repair recording, not the questions');
       }
       // Baseline BEFORE execution, refreshed after kernel-owned operations at the CLI boundary.
       if (!kernel && !value.baseline) {

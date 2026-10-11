@@ -57,6 +57,7 @@ test('every catalogued phase route preserves its clarification policy in prompt 
         const checkpoint = clarificationCheckpoint(contract.clarification, {
           recordState: 'missing', record: null, errors: []
         });
+        assert.equal(checkpoint.missingRecordMeansUnanswered, false, label);
         const guide = workflowGuide(workflow);
         const key = `${contract.clarification.mode}:${skill}`;
 
@@ -84,6 +85,10 @@ test('every catalogued phase route preserves its clarification policy in prompt 
           assert.equal(checkpoint.stage, contract.clarification.mode === 'required'
             ? 'derive-questions' : 'assess-ambiguity', label);
           assert.match(checkpoint.instruction, /Never invent answers/, label);
+          assert.match(checkpoint.instruction, /First reuse actual human replies/, label);
+          assert.match(checkpoint.instruction, /refused write requires recording repair, not repeated questions/, label);
+          assert.match(protocol, /same Story, phase, generation and reviewed context/, label);
+          assert.match(protocol, /file-edit tool/, label);
           assert.match(checkpoint.instruction, /not a missing predefined list/, label);
           assert.match(protocol, /# Human clarification checkpoint/, `${label} omitted its checkpoint`);
           assert.match(protocol, new RegExp('mode `' + contract.clarification.mode + '`'),
@@ -109,6 +114,22 @@ test('every catalogued phase route preserves its clarification policy in prompt 
     'starter:spec-driven-standard/planning',
     'starter:poc-lite/poc-lite-act'
   ]) assert.ok(routes.includes(expected), `${expected} was not covered`);
+});
+
+test('record failures never turn stale or complete answers into permission to re-ask or draft', () => {
+  for (const mode of ['required', 'when-needed']) {
+    const missing = clarificationCheckpoint({ mode }, { recordState: 'missing', record: null, errors: [] });
+    assert.equal(missing.missingRecordMeansUnanswered, false);
+    assert.match(missing.instruction, /same Story, phase, generation and reviewed context/);
+    const stale = clarificationCheckpoint({ mode }, { recordState: 'present', errors: ['binding changed'] });
+    assert.equal(stale.stage, 'inspect-binding');
+    assert.equal(stale.questioningAllowed, false);
+    assert.match(stale.instruction, /do not automatically re-ask, overwrite or treat stale answers as accepted/);
+    const complete = clarificationCheckpoint({ mode }, { recordState: 'present', errors: [] });
+    assert.equal(complete.stage, 'complete');
+    assert.equal(complete.questioningAllowed, false);
+    assert.match(complete.instruction, /Reuse the verified answers/);
+  }
 });
 
 test('future custom phase names use the same policy-derived checkpoint without a predefined question list', () => {

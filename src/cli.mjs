@@ -5442,11 +5442,14 @@ async function clarificationCommand(positionals, options) {
       replace: optionBoolean(options, 'replace'),
       responseFile: responseFile ? path.resolve(responseFile) : null
     }));
-  console.log(`Recorded ${result.record.responses.length} human clarification response${result.record.responses.length === 1 ? '' : 's'} for ${phase.id} generation ${result.record.generation}.`);
-  console.log(`Record: ${result.path} · SHA-256: ${result.sha256}`);
-  console.log(result.record.completed
-    ? `Next: author the phase artifact, then run ${phasePublicationCommand(phase)}`
-    : 'Publication remains blocked because at least one material decision is unresolved.');
+  const json = optionBoolean(options, 'json');
+  if (!json) {
+    console.log(`${result.reused ? 'Reused the exact recorded' : 'Recorded'} ${result.record.responses.length} human clarification response${result.record.responses.length === 1 ? '' : 's'} for ${phase.id} generation ${result.record.generation}.`);
+    console.log(`Record: ${result.path} · SHA-256: ${result.sha256}`);
+    console.log(result.record.completed
+      ? `Next: author the phase artifact, then run ${phasePublicationCommand(phase)}`
+      : 'Publication remains blocked because at least one material decision is unresolved.');
+  }
   emitCommandResult(commandResult({
     operation: { id: 'clarification.record', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -5455,10 +5458,10 @@ async function clarificationCommand(positionals, options) {
       generation: result.record.generation,
       responses: result.record.responses.length
     }),
-    effects: effects({ filesChanged: true }),
+    effects: effects({ filesChanged: !result.reused }),
     restState: 'informational',
-    data: { path: result.path, sha256: result.sha256, completed: result.record.completed }
-  }));
+    data: { path: result.path, sha256: result.sha256, completed: result.record.completed, reused: result.reused === true }
+  }), { json });
 }
 
 async function inputsCommand(positionals, options) {

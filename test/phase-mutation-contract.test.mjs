@@ -266,3 +266,42 @@ test('documented Copilot edit aliases, string arguments, and VS Code-compatible 
     tool_name: 'Write', tool_input: { file_path: 'src/App.jsx' } })).permissionDecision, 'deny');
   assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'str_replace_editor', toolArgs: { command: 'view', path: 'src/App.jsx' } }), {});
 });
+
+test('clarification staging paths are data in every authoring phase, not CLI executions', async t => {
+  for (const [id, skill, code] of [['specification', '/sf-phase', false], ['planning', '/sf-phase', false],
+    ['implementation', '/sf-code', true], ['verification', '/sf-phase', false],
+    ['release', '/sf-release', false], ['team-custom', '/sf-phase', false]]) {
+    await t.test(id, async t => {
+      const f = await fixture(t, { id, ...(code ? { writeScope: 'source-and-artifact',
+        generationPolicy: { task: 'code', requirement: 'required' }, generationIntent: { status: 'open', generation: 1 } } : {}) });
+      const payload = await f.enter(skill);
+      const staging = path.join(f.root, '.git', 'singularity-flow', 'clarification-responses', `${id}-gen1.json`);
+      await issueMutationStaging(f.root, staging, 'clarification');
+      const shell = command => ({ ...payload, toolName: 'bash', toolArgs: { command } });
+      assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'write_file', toolArgs: { path: staging } }), {});
+      const writer = shell(`printf '%s' '{}' > '${staging}'`);
+      assert.deepEqual(await mutationToolGuard(writer), {}, 'directory name is not an invocation');
+      await writeFile(staging, '{"responses":[]}');
+      assert.deepEqual(await mutationPostToolGuard(writer), {});
+      assert.deepEqual(await mutationToolGuard(shell(`singularity-flow clarification record ${id} --response-file '${staging}' --json`)), {});
+      assert.deepEqual(await mutationToolGuard(shell(`singularity-flow phase publish ${id} --authored governed-agent --channel copilot-host`)), {});
+      assert.equal((await mutationToolGuard({ ...payload, toolName: 'write_file', toolArgs: { path: `${staging}.other` } })).permissionDecision, 'deny');
+      if (!code) assert.equal((await mutationToolGuard(payload)).permissionDecision, 'deny', 'no application-edit permission was widened');
+    });
+  }
+});
+
+test('literal answer punctuation and PowerShell argv do not become shell operators', async t => {
+  const f = await fixture(t); const payload = await f.enter('/sf-phase');
+  const shell = (command, toolName = 'bash') => ({ ...payload, toolName, toolArgs: { command } });
+  assert.deepEqual(await mutationToolGuard(shell('singularity-flow clarification record custom-step --question "Which input?" --answer "No negatives; lowercase & integer only."')), {});
+  assert.deepEqual(await mutationToolGuard(shell("& 'singularity-flow' 'clarification' 'record' 'custom-step' '--question' 'What''s valid?' '--answer' 'Integers; lowercase & local.'", 'powershell')), {});
+  for (const command of ['singularity-flow status --json && singularity-flow phase publish custom-step',
+    'bash -c "singularity-flow approve custom-step"', 'singularity-flow clarification record custom-step --answer "$(touch src/App.jsx)"',
+    'singularity-flow phase publish custom-step > output.json']) {
+    const refused = await mutationToolGuard(shell(command));
+    assert.equal(refused.permissionDecision, 'deny');
+    assert.match(refused.permissionDecisionReason, /PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED/);
+    assert.doesNotMatch(refused.permissionDecisionReason, /PHASE_MUTATION_TURN_READ_ONLY/);
+  }
+});

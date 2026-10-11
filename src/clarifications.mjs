@@ -123,6 +123,24 @@ function normalizeResponse(value, index) {
   };
 }
 
+/** Exact replay preserves the receipt; conflicting replies need an explicit reviewed replacement. */
+function mergeResponses(previous, responses) {
+  const combined = (previous ?? []).map(normalizeResponse);
+  for (const value of responses) {
+    const response = normalizeResponse(value, combined.length);
+    const existing = combined.find(existing => existing.question === response.question
+      || value?.id != null && existing.id === value.id);
+    if (value?.id == null && existing) response.id = existing.id;
+    if (existing) {
+      if (JSON.stringify(existing) !== JSON.stringify(response)) throw new SingularityFlowError(
+        'An existing clarification reply differs. Preserve the accepted answers; review the change before using --replace.',
+        { code: 'CLARIFICATION_RESPONSE_CONFLICT', details: { questionId: existing.id } }
+      );
+    } else combined.push(response);
+  }
+  return combined;
+}
+
 function normalizedFilesystemPath(value) {
   const resolved = path.resolve(value);
   return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
@@ -208,13 +226,16 @@ export async function recordClarificationResponses(root, definition, workflow, p
   if (!replace && !stagedAtDestination && await exists(destination)) {
     previous = readRecord('clarification-record', await readJson(destination)).record;
   }
+  if (previous && (previous.workId !== workflow.workItem.id || previous.phase !== phase.id
+      || previous.generation !== generation || previous.mode !== policy.mode
+      || previous.promptPath !== promptPath || previous.groundingRecordPath !== groundingPath)) {
+    throw new SingularityFlowError('The existing clarification record belongs to another checkpoint. Preserve it for binding review.',
+      { code: 'CLARIFICATION_RECORD_BINDING_MISMATCH' });
+  }
   if (previous && (previous.promptSha256 !== promptInfo.sha256 || previous.groundingRecordSha256 !== groundingInfo.sha256)) {
     throw new SingularityFlowError(`The existing clarification record is bound to an older prompt. Re-run with --replace after reviewing the current prompt.`);
   }
-  const combined = [
-    ...(replace ? [] : previous?.responses ?? []),
-    ...responses
-  ].map(normalizeResponse);
+  const combined = mergeResponses(replace ? [] : previous?.responses, responses);
   if (combined.length > policy.maxQuestions) {
     throw new SingularityFlowError(`Phase '${phase.id}' permits no more than ${policy.maxQuestions} clarification questions.`);
   }
@@ -222,6 +243,10 @@ export async function recordClarificationResponses(root, definition, workflow, p
   for (const response of combined) {
     if (ids.has(response.id)) throw new SingularityFlowError(`Clarification response ID '${response.id}' is duplicated.`);
     ids.add(response.id);
+  }
+  if (previous && JSON.stringify(combined) === JSON.stringify(previous.responses)) {
+    const info = await snapshot(destination);
+    return { record: previous, path: relative, sha256: info.sha256, reused: true };
   }
   const record = {
     schemaVersion: currentSchemaVersion('clarification-record'),
@@ -261,8 +286,9 @@ export function clarificationCheckpoint(policy, verification) {
   return {
     stage, questioningAllowed, maxQuestions, topics,
     requiresHumanResponse: stage === 'derive-questions',
+    missingRecordMeansUnanswered: false,
     instruction: questioningAllowed
-      ? 'Read the pinned Story and exact composed context. Formulate specific questions from material ambiguities; questions are agent-derived, not a missing predefined list. If required and no ambiguity remains, ask the human to confirm a concise interpretation. Offer proposals as proposals. Never invent answers or ask the user to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer. Record actual answers only after the human responds.'
+      ? 'Read the pinned Story and exact composed context. A missing durable record is not an unanswered question. First reuse actual human replies in this conversation or the issued staging file only for this same Story, phase, generation and reviewed context. A refused write requires recording repair, not repeated questions. Use a file-edit tool for issued JSON and the standalone recordAction; preserve replies on failure. Ask only unanswered or materially changed questions: questions are agent-derived, not a missing predefined list. If required, no matching human reply exists, and evidence has no material ambiguity, ask once to confirm a concise interpretation. Offer proposals as proposals. Never invent answers or ask the user to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer. Recording remains required before authoring.'
       : stage === 'inspect-binding'
         ? 'Inspect the existing answer and its exact prompt/generation binding. Preserve prior answers; do not automatically re-ask, overwrite or treat stale answers as accepted.'
         : stage === 'off' ? 'Do not ask or record phase clarification.'
@@ -277,7 +303,7 @@ async function inspectClarificationRecord(root, definition, workflow, phase, {
   const relative = clarificationRecordRelative(definition, workflow, phase, generation);
   if (policy.mode === 'off') return { mode: policy.mode, recordState: 'not-applicable', errors: [], warnings: [], passes: [], record: null, path: null, sha256: null };
   if (!(await exists(path.join(root, relative)))) {
-    const message = `clarification response is missing for ${phase.id} generation ${generation}; read the composed context, derive specific questions from the pinned evidence, and ask the human. Do not ask the human to provide the questions or fabricate answers. Record the actual answers with the returned response-staging route.`;
+    const message = `clarification response is missing for ${phase.id} generation ${generation}; this does not mean the human has not answered. Match existing replies to this checkpoint and reviewed context, then repair recording with the returned staging route. Ask only unanswered or materially changed questions from pinned evidence; never fabricate answers or ask the human to provide the questions.`;
     return {
       mode: policy.mode,
       recordState: 'missing',
@@ -391,11 +417,12 @@ export function renderClarificationProtocol(value, phaseId, { intentRecoveryInSo
     '- Derive every question only from the current Story’s pinned sources, approved upstream artifacts, repository world model, or contradictions among them. Never reuse example questions or placeholder text from templates.',
     '- Formulating evidence-grounded questions is permitted even while artifact authoring awaits clarification. Never ask the human to supply the questions or generic clarification answers. A menu promise to provide answers is not an answer.',
     '- Do not re-ask established facts or infer answers from generic knowledge. Label hypotheses/design proposals; they become acceptance or specification decisions only with human confirmation.',
+    '- Missing record does not mean unanswered. Reuse actual human replies only for the same Story, phase, generation and reviewed context. A failed tool/record write requires recording repair, not repeated questions; preserve the replies and staging file on failure. Changed bindings require review, never automatic answer adoption.',
     intentRecoveryInSource
       ? '- For intent conflicts, confirm the human change and follow Conflict recovery in the Pinned Story source; never silently overwrite intent.'
       : '- For intent conflicts, confirm the human change. After scope approval use `singularity-flow story intent-amendment propose --file <FILE> --reason "<REASON>"` from any active phase/workflow (no convergence finding or loop required); have the authorized scope reviewer decide, acknowledge approval, then recompose. Before scope approval, record the human change in clarification and revise/review the scope draft normally. Never rewrite the pinned source.',
     '- Explain each question’s impact; offer an evidence-supported default. Accept explicit “unknown” or non-blocking deferral. Record confirmed decisions in the artifact and deferred items in Open questions with impact and owner.',
-    `- Stage only {"responses":[...]} at the Git-private path returned by \`git rev-parse --git-path singularity-flow/clarification-responses/${phaseId}-gen<N>.json\`, then run \`singularity-flow clarification record ${phaseId} --response-file <that-path>\` and remove the staging file after success. Never write response input to the CLI-owned \`singularity/work-items/**/context/clarifications-*.json\` durable path.`,
+    `- Use a file-edit tool to stage only {"responses":[...]} at the issued responseStagingPath (standalone discovery: \`git rev-parse --git-path singularity-flow/clarification-responses/${phaseId}-gen<N>.json\`). Run the returned recordAction or standalone \`singularity-flow clarification record ${phaseId} --response-file <that-path>\`, without shell chains, then remove staging with a file-edit tool only after success. Never write response input to the CLI-owned \`singularity/work-items/**/context/clarifications-*.json\` durable path.`,
     '- Material unresolved decisions block specification publication; recommendations/placeholders cannot hide them.',
     '- If `ask_user` is unavailable, print numbered questions and stop before authoring or publication; never assume answers.',
     '- Do not author or publish the governed output until the checkpoint is complete.'

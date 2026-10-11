@@ -44,8 +44,10 @@ async function repository(t) {
   definition.repositoryReadiness = { ...(definition.repositoryReadiness ?? {}), requiredBeforeStory: false };
   definition.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(definition.approvalAuthorities)) authority.allowAnyGitIdentity = true;
-  // The packaged convergence step as an older release shipped it.
+  // The packaged convergence step exactly as an older release shipped it (a registered historical
+  // value): the generic artifact kind and that release's World Model views, both since retired.
   definition.phases.convergence.artifact.kind = 'verification-report';
+  definition.phases.convergence.worldModel = { views: ['development'], depth: 'quick' };
   // A repository workflow that ends a Story without verifying or reviewing anything.
   definition.workTypes['team-sketch'] = { label: 'Team sketch', phases: ['intake', 'implementation'] };
   await writeFile(file, YAML.stringify(definition));

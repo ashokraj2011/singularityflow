@@ -5,7 +5,15 @@ import { commandFunction } from './helpers/command-source.mjs';
 
 test('convergence advancement pins its selected Story through submission', async () => {
   const advance = await commandFunction('storyAdvanceCommand');
-  assert.match(advance, /loadStoryAggregate\(root, config, optionString\(options, 'work-id'\)\)/);
+  // Advancement resolves the selected Story through its accepted execution closure (bba7bf81),
+  // then reloads that same Story under its lock.
+  assert.match(advance,
+    /const \{ config, workflow: selected \} = await loadAcceptedStoryExecution\(root, optionString\(options, 'work-id'\)\)/,
+    'advancement did not resolve the caller-selected Story');
+  assert.match(advance, /loadStoryAggregate\(root, config, selected\.workItem\.id\)/,
+    'advancement did not pin its locked reload to the selected Story');
+  assert.doesNotMatch(advance, /loadStoryAggregate\(root, config\)/,
+    'advancement can reload whichever Story is globally active');
   assert.match(advance, /'work-id': workflow\.workItem\.id/,
     'advancement delegated without the explicitly selected Work ID');
   assert.match(advance, /submitConfirmedConvergenceCommand/,

@@ -259,14 +259,14 @@ async function quickFixStory(t, id, { configure = () => {} } = {}) {
     flow(['phase', 'publish', 'implement', '--authored', 'deterministic']); flow(['submit', 'implement']);
     publish('verify'); return flow(['submit', 'verify']);
   };
-  return { root, file, flow, state, publish, source, complete };
+  return { root, file, git, flow, state, publish, source, complete };
 }
 
 const gateResult = (result) => JSON.parse(result.stdout);
 const holdsDisposition = (phase) => Object.hasOwn(phase, 'approvalDisposition') || Object.hasOwn(phase, 'approvalWaiver');
 
 test('a waiver from an earlier round never outlives rework, and a stale one never fails a phase people approved', async (t) => {
-  const { root, file, flow, state, publish, source, complete } = await quickFixStory(t, 'QF-STALE');
+  const { root, file, git, flow, state, publish, source, complete } = await quickFixStory(t, 'QF-STALE');
   await complete(2);
   let workflow = await state();
   assert.equal(workflow.status, 'closed');
@@ -297,7 +297,10 @@ test('a waiver from an earlier round never outlives rework, and a stale one neve
   workflow = await state();
   assert.equal(workflow.phases.verify.status, 'awaiting_approval');
   assert.equal(holdsDisposition(workflow.phases.verify), false, 'submission for review kept a waiver it was not granted');
+  // An older build's submission carried the record, so fold it into that commit: an approval refuses
+  // an uncommitted record (a5253bca) and any ungoverned commit after the review evidence.
   await leaveStaleRecord();
+  git('add', path.relative(root, file)); git('commit', '-q', '--amend', '--no-edit');
   flow(['approve', 'verify', '--yes']);
   workflow = await state();
   assert.equal(workflow.status, 'closed');

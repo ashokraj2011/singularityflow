@@ -183,7 +183,12 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
     cwd: second, encoding: 'utf8', input: JSON.stringify({ cwd: second, sessionId: 'copilot-second-2', source: 'startup' }),
     env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Second Contributor' }
   });
-  assert.match(JSON.parse(restarted.stdout).additionalContext, /work-item selection is required/);
+  // The intake approval opened requirements behind an `onApproval: new` boundary and requirements is
+  // still unprepared, so a new conversation continues the Story this checkout attached (e78669dd).
+  // The clone's first conversation above still had to choose it.
+  const handedOver = JSON.parse(restarted.stdout).additionalContext;
+  assert.doesNotMatch(handedOver, /work-item selection is required/);
+  assert.match(handedOver, /work item HAND-101 is at requirements/);
   flow(second, ['session', 'attach', 'HAND-101']);
   assert.equal(await readFile(path.join(second, 'handoff-note.txt'), 'utf8'), 'Remote handoff update\n');
   assert.equal(run('git', ['status', '--porcelain'], second).stdout.trim(), '');

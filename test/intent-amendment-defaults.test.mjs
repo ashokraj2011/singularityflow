@@ -87,8 +87,11 @@ test('existing pins with read-side role interpretation gain the default without 
 
 test('Copilot guidance distinguishes unapproved drafts from universally available approved-intent amendments', async () => {
   const protocol = renderClarificationProtocol({ mode: 'required' }, 'custom-build');
-  assert.match(protocol, /no convergence finding or revision loop is required/);
+  assert.match(protocol, /intent-amendment propose[^\n]*no convergence finding or loop required/);
   assert.match(protocol, /Before scope approval.*revise\/review the scope draft/);
+  // When the composed prompt carries the pinned source, the protocol points to its Conflict recovery.
+  assert.match(renderClarificationProtocol({ mode: 'required' }, 'custom-build', { intentRecoveryInSource: true }),
+    /follow Conflict recovery in the Pinned Story source/);
   const skill = await readFile(new URL('../plugin/skills/sflow-reject/SKILL.md', import.meta.url), 'utf8');
   assert.match(skill, /intent-amendment propose --work-id/);
   assert.match(skill, /do not invent an `update-intent` convergence/);

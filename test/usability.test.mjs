@@ -58,7 +58,10 @@ test('assignments are durable and guided run stops at the authoring boundary', a
 
 test('safe recovery remains plan-first and Copilot hook emits read-only phase context', async () => {
   const root = await repository(); flow(root, 'start', 'EASY-3', '--from-branch', 'main', '--title', 'Recover safely');
-  const recovery = flow(root, 'recover').stdout; assert.match(recovery, /Recovery plan — EASY-3/); assert.match(recovery, /No recoverable publication/);
+  // Plain recover also inspects the active phase (fb036910): a fresh intake shows its authoring blockers.
+  const recovery = flow(root, 'recover').stdout; assert.match(recovery, /Recovery plan — EASY-3/);
+  assert.match(recovery, /Published generations are preserved; recovery never discards authored work or rewrites history\./);
+  assert.match(recovery, /BLOCKED artifact\.placeholder\.unresolved/);
   const before = run('git', ['status', '--porcelain'], root).stdout;
   const phaseRecovery = JSON.parse(flow(root, 'recover', '--phase', 'intake', '--json').stdout);
   assert.equal(phaseRecovery.schemaVersion, 1);

@@ -68,14 +68,15 @@ function assertSequenceFailure(result, ...patterns) {
   // guarantees rather than the old wording: the refusal explains itself with a cataloged reason,
   // states what it preserved — derived from declared effects, not a sentence beside the throw — and
   // offers at least one runnable command instead of a Copilot skill name.
+  // Printed diagnostics are redacted onto one line (fc96bbbf, b8b7c5ca), so the sections below are
+  // matched by content and order, not by line layout.
   if (/Out of sequence/.test(result.stderr)) {
     // Hard refusals carry a narrated result. Soft warnings do not yet, and still use the legacy
     // guidance prose; they are asserted below on the wording they still own.
-    assert.match(result.stderr, /\nWhy:\n/);
-    assert.match(result.stderr, /\nNext:\n/);
-    assert.match(result.stderr, /^ {2}NOW\s+\S/m, 'a ranked next action is offered');
-    assert.match(result.stderr, /^ {8}Shell: singularity-flow \S/m, 'the next action has a runnable shell command');
-    assert.match(result.stderr, /^ {8}Copilot: \/sf-\S/m, 'the next action has a runnable Copilot command');
+    assert.match(result.stderr, /\bWhy:\s+-\s/, 'the refusal states a reason');
+    assert.match(result.stderr, /\bNext:\s+NOW\s+\S/, 'a ranked next action is offered');
+    assert.match(result.stderr, /\bNext:\s[\s\S]*?\bShell: singularity-flow \S/, 'the next action has a runnable shell command');
+    assert.match(result.stderr, /\bNext:\s[\s\S]*?\bCopilot: \/sf-\S/, 'the next action has a runnable Copilot command');
     assert.match(result.stderr, /No governed state, files, publications or external systems were changed\./);
   } else {
     assert.match(result.stderr, /Required next action:/);
@@ -86,7 +87,7 @@ function assertSequenceFailure(result, ...patterns) {
       'the guidance pairs its Copilot action with a runnable shell command');
     assert.match(result.stderr, /^Copilot: \/sf-\S+/m,
       'the guidance includes a Copilot command');
-    assert.doesNotMatch(result.stderr, /^[A-Za-z ]*in Copilot: \/sf-\S+\n(Run|Then|Alternative)/mi,
+    assert.doesNotMatch(result.stderr, /\bin Copilot: \/sf-\S+\s+(Run|Then|Alternative)\b/i,
       'a Copilot skill is headlining a command instead of annotating it');
   }
   for (const pattern of patterns) assert.match(result.stderr, pattern);

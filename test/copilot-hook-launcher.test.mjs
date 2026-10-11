@@ -92,6 +92,22 @@ test('import failure is a structured refusal instead of a raw hook crash', async
   assert.match(JSON.parse(result.stdout).permissionDecisionReason, /SFLOW_HOOK_RUNTIME_UNAVAILABLE/);
 });
 
+test('a global user-prefix install works when the GUI starts from its non-Git parent', async t => {
+  const item = await fixture(t);
+  const runtime = path.join(item.cwd, '.node-prefix/lib/node_modules/singularity-flow');
+  await mkdir(path.join(runtime, 'bin'), { recursive: true });
+  await mkdir(path.join(runtime, 'src'));
+  await writeFile(path.join(runtime, 'package.json'), JSON.stringify({ name: 'singularity-flow', type: 'module',
+    bin: { 'singularity-flow': 'bin/singularity-flow.mjs' } }));
+  const entry = path.join(runtime, 'bin/singularity-flow.mjs');
+  await writeFile(entry, '// global-prefix fixture\n');
+  await writeFile(path.join(runtime, 'src/cli-entry.mjs'), 'export async function main() { console.log("{}"); }\n');
+  assert.deepEqual(JSON.parse(item.invoke('boundary-guard', [entry]).stdout), {});
+  // The same dependency location inside a checkout is not an installed-runtime fallback.
+  await mkdir(path.join(item.cwd, '.git'));
+  assert.equal(JSON.parse(item.invoke('boundary-guard', [entry]).stdout).permissionDecision, 'deny');
+});
+
 test('packaged bash hook resolves quoted plugin roots and forwards input through an absolute Node runtime', {
   skip: process.platform === 'win32'
 }, async t => {

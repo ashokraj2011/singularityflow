@@ -1,4 +1,4 @@
-import { realpathSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -16,7 +16,12 @@ function packageFor(candidate) {
     const entry = realpathSync(candidate);
     const root = path.dirname(path.dirname(entry));
     const relative = path.relative(process.cwd(), root);
-    if (!relative || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))) return null;
+    const underCwd = !relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative);
+    const dependencyPrefix = root.split(`${path.sep}node_modules${path.sep}`)[0];
+    // A neutral GUI cwd may be the user's home, which legitimately contains a global npm/nvm
+    // installation. Reject repository/local dependencies, not every package below a non-Git cwd.
+    if (!relative || (underCwd && (relative.split(path.sep)[0] === 'node_modules'
+      || [process.cwd(), root, dependencyPrefix].some(directory => existsSync(path.join(directory, '.git')))))) return null;
     if (path.basename(entry) !== 'singularity-flow.mjs' || path.basename(path.dirname(entry)) !== 'bin'
         || !statSync(entry).isFile()) return null;
     const manifest = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));

@@ -134,6 +134,10 @@ export interface InitiativeOutput {
   kind: string;
   /** Relative to the initiative directory in phase state; already repository-relative in `documents`. */
   path: string;
+  /**
+   * From the repository root: set in `documents` and on outputs read through `phasesInOrder`. Open
+   * and show this one; `initiativeOutputRepositoryPath` resolves it for raw phase state.
+   */
   repositoryPath?: string;
   phase?: string;
   required: boolean;
@@ -1515,13 +1519,28 @@ export interface VisualAssuranceSnapshot {
   readiness: { status: 'not-configured' | 'blocked' | 'attention' | 'ready'; errors: string[]; warnings: string[]; passes: string[] };
 }
 
-/** The phases in declared order, joined to the state each one is in. */
+/**
+ * The path to open or show for an Epic output, from the repository root.
+ *
+ * Phase state records an output relative to the Epic directory (`artifacts/<phase>/<file>`), so
+ * resolving that from the repository finds nothing. The engine resolves each one into `documents`;
+ * a snapshot without them (an older engine) keeps the recorded path.
+ */
+export function initiativeOutputRepositoryPath(
+  initiative: InitiativeSnapshot, phaseId: string, output: InitiativeOutput
+): string {
+  return output.repositoryPath
+    ?? initiative.documents?.find((document) => document.phase === phaseId && document.id === output.id)?.repositoryPath
+    ?? output.path;
+}
+
+/** The phases in declared order, joined to the state each one is in. Outputs carry `repositoryPath`. */
 export function phasesInOrder(initiative: InitiativeSnapshot): Array<{
   id: string;
   label: string;
   status: PhaseStatus;
   current: boolean;
-  outputs: InitiativeOutput[];
+  outputs: Array<InitiativeOutput & { repositoryPath: string }>;
 }> {
   const { state } = initiative;
   return state.phaseOrder.map((id) => {
@@ -1532,6 +1551,7 @@ export function phasesInOrder(initiative: InitiativeSnapshot): Array<{
       status: phase?.status ?? 'pending',
       current: state.currentPhase === id,
       outputs: Object.values(phase?.outputs ?? {})
+        .map((output) => ({ ...output, repositoryPath: initiativeOutputRepositoryPath(initiative, id, output) }))
     };
   });
 }
@@ -1545,7 +1565,10 @@ export function phasesInOrder(initiative: InitiativeSnapshot): Array<{
 export function packsWithMembers(initiative: InitiativeSnapshot): Array<{
   id: string;
   label: string;
-  members: Array<{ phase: string; output: string; authored: boolean; artifact: InitiativeOutput | null }>;
+  members: Array<{
+    phase: string; output: string; authored: boolean;
+    artifact: (InitiativeOutput & { repositoryPath: string }) | null;
+  }>;
 }> {
   const packs = initiative.state.resolution.packs ?? [];
   return packs.map((pack) => ({
@@ -1555,7 +1578,10 @@ export function packsWithMembers(initiative: InitiativeSnapshot): Array<{
       const separator = member.indexOf('/');
       const phase = separator < 0 ? member : member.slice(0, separator);
       const output = separator < 0 ? '' : member.slice(separator + 1);
-      const artifact = initiative.state.phases[phase]?.outputs?.[output] ?? null;
+      const recorded = initiative.state.phases[phase]?.outputs?.[output];
+      const artifact = recorded
+        ? { ...recorded, repositoryPath: initiativeOutputRepositoryPath(initiative, phase, recorded) }
+        : null;
       return { phase, output, authored: Boolean(artifact?.sha256), artifact };
     })
   }));

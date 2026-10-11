@@ -146,7 +146,7 @@ test('generative requirements retains interactive clarification and governed pub
   assert.match(content, /reuse never carries approval consent/);
 });
 
-test('phase handoffs always show the Copilot action and terminal equivalent', async () => {
+test('phase handoffs show Copilot, Shell and exact available model-free alternatives', async () => {
   const phaseSkills = [
     'sflow-phase', 'sflow-requirements', 'sflow-design',
     'sflow-review', 'sflow-release', 'sflow-verify', 'sflow-next',
@@ -155,15 +155,16 @@ test('phase handoffs always show the Copilot action and terminal equivalent', as
   ];
   for (const name of phaseSkills) {
     const content = await readFile(path.join(root, 'plugin', 'skills', name, 'SKILL.md'), 'utf8');
+    assert.match(content, /in order: Copilot, Shell, VS Code \(model-free\) using `modelFreeCommand`/);
+    assert.match(content, /if absent, say "not available for this action"/);
     if (name === 'sflow-next') {
-      assert.match(content, /Next action \(choose one surface\):/);
-      assert.match(content, /`Copilot: \/sf-\.\.\.`/);
-      assert.match(content, /`Shell: singularity-flow \.\.\.`/);
+      assert.match(content, /first `NOW` action's `copilotCommand` and `command` from that same action object/);
+      assert.match(content, /render all three surfaces per the Output contract/);
     } else {
       // Dynamic handoffs retain exact decision arguments; a literal slash command is not required.
       const boundHandoff = /`handoff`[^\n]*`copilotCommand`[^\n]*`command`/.test(content)
         || /relay the returned handoff[^\n]*Copilot\/Shell pairs/.test(content)
-        || /Relay `continuation\.actions`: phase and Shell\/Copilot pair/.test(content);
+        || /Relay `continuation\.actions`: phase and all three surfaces/.test(content);
       assert.ok(boundHandoff || /Next in Copilot: \/sf-|next: Copilot `\/sf-/.test(content), `${name} must relay the verified Copilot command`);
       assert.ok(boundHandoff || /Terminal equivalent: singularity-flow |Shell `singularity-flow /.test(content), `${name} must include the terminal equivalent`);
     }

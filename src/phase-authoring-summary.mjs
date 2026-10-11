@@ -39,7 +39,8 @@ export async function phaseAuthoringSummary(root, config, workflow, phase, {
     }) } : {}),
     handoff: phase.status === 'in_progress'
       ? phaseHandoff(workflow, phase, { sourceReviewEvidence, ...(documents === null ? {} : { hasDocuments: phase.generation > 0 && documents.length > 0 }) })
-        .map(({ skill, command, copilotCommand, reason, optional }) => ({ skill, command, copilotCommand, reason, ...(optional ? { optional } : {}) }))
+        .map(({ skill, command, copilotCommand, modelFreeCommand, reason, optional }) => ({ skill, command, copilotCommand,
+          modelFreeCommand: modelFreeCommand ?? null, reason, ...(optional ? { optional } : {}) }))
       : [],
     ...(includeContinuation ? {
       handoffScope: 'after-publication',

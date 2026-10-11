@@ -822,6 +822,13 @@ async function runMain(argv) {
       : execute;
     const result = await withCommandTiming(timer, guardedExecute);
     timer.stage('execute');
+    // A private refresh cannot turn a successful publication into a replayable failure.
+    if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && definition.name !== 'hook' && root) {
+      await import('./copilot-mutation-guard.mjs').then(module => module.refreshMutationContracts(root, null, {
+        decisionEnded: ['approve', 'reject'].includes(definition.name),
+        advanceBaseline: operation.classification === 'mutation'
+      })).catch(() => {});
+    }
     /**
      * Private return memory is downstream of authority, never inside its transaction.
      *
@@ -854,6 +861,9 @@ async function runMain(argv) {
     if (options.timings === true) writeCommandTimings(event);
     return result;
   } catch (error) {
+    if (root && ['approve', 'reject'].includes(definition.name)) {
+      await import('./copilot-mutation-guard.mjs').then(module => module.endMutationDecisionTurns(root)).catch(() => {});
+    }
     timer.stage('execute');
     timer.feedback();
     const terminal = commandFailureTiming(error);

@@ -5,7 +5,10 @@
       { "type": "command", "bash": "singularity-flow hook boundary-turn", "powershell": "singularity-flow hook boundary-turn", "timeoutSec": 10 }
     ],
     "preToolUse": [
-      { "type": "command", "matcher": "bash|powershell|run_in_terminal|execute|grep|rg|glob|search_code_subagent", "bash": "singularity-flow hook boundary-guard", "powershell": "singularity-flow hook boundary-guard", "timeoutSec": 10 }
+      { "type": "command", "matcher": ".*", "bash": "singularity-flow hook boundary-guard", "powershell": "singularity-flow hook boundary-guard", "timeoutSec": 10 }
+    ],
+    "postToolUse": [
+      { "type": "command", "matcher": "bash|powershell|run_in_terminal|execute|exec_command|write_stdin", "bash": "singularity-flow hook boundary-after", "powershell": "singularity-flow hook boundary-after", "timeoutSec": 10 }
     ],
     "sessionEnd": [
       { "type": "command", "bash": "singularity-flow hook boundary-end", "powershell": "singularity-flow hook boundary-end", "timeoutSec": 10 }

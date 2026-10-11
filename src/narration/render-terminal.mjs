@@ -50,8 +50,9 @@ function whyLines(result) {
       if (entry.topic) {
         const guidance = safeCommandGuidance(`sflow explain ${entry.topic}`);
         if (guidance) {
-          lines.push(`      ↳ Shell: ${guidance.command}`);
-          lines.push(`        Copilot: ${guidance.copilotCommand}`);
+          lines.push(`      ↳ Copilot: ${guidance.copilotCommand}`);
+          lines.push(`        Shell: ${guidance.command}`);
+          lines.push(`        VS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}`);
         }
       }
       return lines.join('\n');
@@ -62,7 +63,7 @@ function nextLines(result) {
   const order = { NOW: 0, SOON: 1, LATER: 2 };
   return [...result.next]
     .sort((a, b) => (order[a.rank] - order[b.rank]) || a.id.localeCompare(b.id))
-    // Every continuation has two equivalent entry points. Keeping the labels explicit prevents a
+    // Every continuation names its supported entry points. Keeping the labels explicit prevents a
     // terminal command from being mistaken for the only supported route, and prevents Copilot from
     // guessing a slash command from prose.
     .map((entry) => {
@@ -70,12 +71,16 @@ function nextLines(result) {
       return guidance
         ? [
           `  ${style.detail(entry.rank.padEnd(5))} ${entry.label}`,
+          `        Copilot: ${style.action(guidance.copilotCommand)}`,
           `        Shell: ${style.action(guidance.command)}`,
-          `        Copilot: ${style.action(guidance.copilotCommand)}`
+          `        VS Code (model-free): ${style.action(guidance.modelFreeCommand ?? 'not available for this action')}`
         ].join('\n')
         : [
           `  ${style.detail(entry.rank.padEnd(5))} ${entry.label}`,
-          `        ${style.detail('Command guidance unavailable: the supplied route was not safe or did not match.')}`
+          `        ${style.detail('Command guidance unavailable: the supplied route was not safe or did not match.')}`,
+          `        Copilot: ${style.detail('no verified equivalent')}`,
+          `        Shell: ${style.detail('unavailable — the supplied route was not safe or did not match')}`,
+          `        VS Code (model-free): ${style.detail('not available for this action')}`
         ].join('\n');
     });
 }

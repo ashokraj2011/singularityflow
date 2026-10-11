@@ -6,7 +6,7 @@ export function safeCommandPair(value: unknown): CommandGuidance | null {
   return commandGuidance(value);
 }
 
-/** Render both equivalent routes. Callers must include `COMMAND_GUIDANCE_COPY_SCRIPT`. */
+/** Render three surfaces; advertise @ only for an exact supported equivalent. */
 export function commandGuidanceHtml(value: unknown, options: {
   shellCopy?: string;
   shellLabel?: string;
@@ -20,12 +20,12 @@ export function commandGuidanceHtml(value: unknown, options: {
   const copilotButton = guidance.copyable
     ? `<button type="button" class="secondary" data-copy-command="${escape(guidance.copilotCommand)}">Copy Copilot</button>` : '';
   return `<div class="command-guidance">
-    <p><strong>${escape(options.shellLabel ?? 'Shell')}:</strong> <code>${escape(guidance.command)}</code>
-      ${shellButton}</p>
     <p><strong>${escape(options.copilotLabel ?? 'Copilot')}:</strong> <code>${escape(guidance.copilotCommand)}</code>
       ${copilotButton}</p>
+    <p><strong>${escape(options.shellLabel ?? 'Shell')}:</strong> <code>${escape(guidance.command)}</code>
+      ${shellButton}</p>
     ${guidance.modelFreeCommand ? `<p><strong>VS Code (model-free):</strong> <code>${escape(guidance.modelFreeCommand)}</code>
-      <button type="button" class="secondary" data-copy-command="${escape(guidance.modelFreeCommand)}">Copy @sflow</button></p>` : ''}
+      <button type="button" class="secondary" data-copy-command="${escape(guidance.modelFreeCommand)}">Copy @sflow</button></p>` : '<p class="muted">VS Code (model-free): not available for this action.</p>'}
     ${guidance.copyable ? '' : '<p class="muted">Replace the shown placeholders before running this command.</p>'}
   </div>`;
 }
@@ -34,7 +34,7 @@ export function commandGuidanceHtml(value: unknown, options: {
 export function commandGuidanceText(value: unknown): string | null {
   const guidance = safeCommandPair(value);
   return guidance
-    ? `Shell: ${guidance.command}\nCopilot: ${guidance.copilotCommand}${guidance.modelFreeCommand ? `\nVS Code (model-free): ${guidance.modelFreeCommand}` : ''}`
+    ? `Copilot: ${guidance.copilotCommand}\nShell: ${guidance.command}\nVS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}`
     : null;
 }
 

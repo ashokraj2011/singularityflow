@@ -7,7 +7,7 @@ import { verifyClarificationRecord } from './clarifications.mjs';
 import { phaseInspectionGeneration } from './code-submission-evidence.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
-import { branch, head, repoRoot } from './git.mjs';
+import { branch, head, repoRoot, gitDir } from './git.mjs';
 import { agentSessionStatus } from './session.mjs';
 import { storyReferenceRepositories, verifyReferenceRepositories } from './reference-repositories.mjs';
 import { readCopilotMode, copilotModePresentation } from './copilot-mode.mjs';
@@ -23,6 +23,7 @@ import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { PHASE_JOURNEY_CONTRACT } from './phase-journey.mjs';
 import { BUILD_INFO, versionLine } from './build-info.mjs';
 import { assertStoryNotArchived } from './governance-archive.mjs';
+import { deriveMutationContract, mutationContractPresentation } from './phase-mutation-contract.mjs';
 
 /** Verified per-invocation binding shared by phase entry, nextsteps and inputs. */
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
@@ -62,6 +63,7 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
   const contextBoundary = phase ? pendingContextBoundary(workflow) : null;
   const packet = { schemaVersion: 1, resultType: 'sflow-phase-entry', paused: false,
     personalization: resolvePersonalization({ root }), ...binding,
+    mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase })),
     build: { description: versionLine(), ...BUILD_INFO },
     continuationReview: phase ? { contractRevision: PHASE_JOURNEY_CONTRACT, readOnly: true,
       commandGuidance: safeCommandGuidance({ executable: 'singularity-flow', argv: ['appeal', 'resolve',
@@ -108,6 +110,11 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   const clarification = await verifyClarificationRecord(root, definition, workflow, phase, {
     generation: base.inspectionGeneration
   });
+  if (clarification.mode !== 'off') {
+    clarification.responseStagingPath = path.join(gitDir(root), 'singularity-flow', 'clarification-responses',
+      `${phase.id}-gen${base.inspectionGeneration}.json`);
+    await (await import('./copilot-mutation-guard.mjs')).issueMutationStaging(root, clarification.responseStagingPath, 'clarification');
+  }
   const authoringAllowed = Boolean(canCompose && clarification.errors.length === 0);
   const preparationAdmitted = authoring.policyVerified
     && authoring.entry?.status === 'successor-preparation-required'

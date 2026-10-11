@@ -29,6 +29,7 @@ import { resolveLifecycleCapability } from './capability-context.mjs';
 import { worldModelDisabledForWorkflow } from './intelligence-policy.mjs';
 import { artifactContentContractLines } from './publication-preflight.mjs';
 import { stepResponsibilities } from './phase-roles.mjs';
+import { deriveMutationContract } from './phase-mutation-contract.mjs';
 import { requiredStructuralPromptContext } from './structural-prompt-context.mjs';
 import { recordPromptAudit } from './prompt-audit.mjs';
 import {
@@ -371,6 +372,7 @@ export function phasePromptExecutionContract(definition, workflow, phase) {
     || stepResponsibilities(workflow, phase.id).includes('plan');
   const command = publication.command;
   const lines = [
+    `- Changes allowed: ${deriveMutationContract({ definition, workflow, phase: effectivePhase }).summary}`,
     `- Generation requirement: \`${generationPolicy.requirement}\``,
     `- Default publication producer: \`${publication.producer}\``,
     `- Allowed publication producers: ${allowedProducers.map((producer) => `\`${producer}\``).join(', ')}`,

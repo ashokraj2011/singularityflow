@@ -4,9 +4,11 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { explicitSflowSkill, recordRepositoryBoundaryTurn, endRepositoryBoundaryTurn,
+import { explicitSflowSkill, recordRepositoryBoundaryTurn as recordTurn, endRepositoryBoundaryTurn,
   repositoryDiscoveryGuard, resolveCopilotHookRoot, resolveCopilotDiscoveryRoot } from '../src/copilot-repository-boundary.mjs';
 import { setCopilotPaused } from '../src/copilot-mode.mjs';
+const recordRepositoryBoundaryTurn = (payload, options = {}) => recordTurn(payload, { ...options,
+  captureMutation: async () => {} });
 
 async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-discovery-'));
@@ -129,7 +131,7 @@ test('pause and resume invalidate the old scope; expired or corrupt records stay
   assert.deepEqual(await item.guard('find /Users'), {});
   const file = path.join(item.directory, 'copilot-boundaries', (await readdir(path.join(item.directory, 'copilot-boundaries')))[0]);
   const record = JSON.parse(await readFile(file, 'utf8'));
-  assert.deepEqual(Object.keys(record).sort(), ['modeChangedAt', 'recordedAt', 'schemaVersion', 'sessionId', 'skill']);
+  assert.deepEqual(Object.keys(record).sort(), ['modeChangedAt', 'recordedAt', 'schemaVersion', 'sessionId', 'skill', 'turnId']);
   await writeFile(file, '{bad');
   assert.deepEqual(await item.guard('find /Users'), {});
 });

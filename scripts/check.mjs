@@ -163,12 +163,12 @@ if (pluginJson.hooks !== 'hooks.json') fail('plugin.json hooks path must be hook
 const hooksJson = JSON.parse(await readFile(path.join(root, 'plugin', 'hooks.json'), 'utf8'));
 if (hooksJson.version !== 1) fail('plugin/hooks.json version must be 1');
 if (hooksJson.hooks?.sessionStart != null) fail('plugin/hooks.json must not inject a model prompt at every session start');
-// No blanket lifecycle guard: directory discovery is restricted only during an explicit SFlow
+// No blanket lifecycle guard: discovery and file edits are restricted only during an explicit SFlow
 // invocation. Keep the closed hook map so native turns cannot acquire an unrelated policy gate.
 const expectedHooks = { userPromptSubmitted: 'boundary-turn', preToolUse: 'boundary-guard',
-  sessionEnd: 'boundary-end', subagentStart: 'agent-start' };
+  postToolUse: 'boundary-after', sessionEnd: 'boundary-end', subagentStart: 'agent-start' };
 if (Object.keys(hooksJson.hooks ?? {}).sort().join(',') !== Object.keys(expectedHooks).sort().join(',')) {
-  fail('plugin/hooks.json must contain only the opt-in discovery and custom-agent mapping hooks');
+  fail('plugin/hooks.json must contain only the explicit-turn boundary and custom-agent mapping hooks');
 }
 for (const [event, action] of Object.entries(expectedHooks)) {
   const entries = hooksJson.hooks?.[event];
@@ -178,8 +178,9 @@ for (const [event, action] of Object.entries(expectedHooks)) {
     fail(`plugin/hooks.json ${event} must use singularity-flow hook ${action}`);
   }
 }
-if (hooksJson.hooks?.preToolUse?.[0]?.matcher !== 'bash|powershell|run_in_terminal|execute|grep|rg|glob|search_code_subagent') {
-  fail('plugin/hooks.json discovery guard must match only search and terminal tools');
+if (hooksJson.hooks?.preToolUse?.[0]?.matcher !== '.*'
+    || hooksJson.hooks?.postToolUse?.[0]?.matcher !== 'bash|powershell|run_in_terminal|execute|exec_command|write_stdin') {
+  fail('plugin/hooks.json explicit-turn mutation guard must cover edit payloads and post-terminal detection');
 }
 checked.push('plugin/hooks.json');
 if (pluginJson.skills !== 'skills/') fail('plugin.json skills path must be skills/');

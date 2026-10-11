@@ -788,14 +788,14 @@ test('plugin hooks avoid session prompt tax and scope discovery guards to explic
   const manifest = JSON.parse(await readFile(path.join(pluginRoot, 'plugin.json'), 'utf8'));
   const hooks = JSON.parse(await readFile(path.join(pluginRoot, manifest.hooks), 'utf8'));
   assert.equal(hooks.version, 1);
-  assert.deepEqual(Object.keys(hooks.hooks).sort(), ['preToolUse', 'sessionEnd', 'subagentStart', 'userPromptSubmitted']);
+  assert.deepEqual(Object.keys(hooks.hooks).sort(), ['postToolUse', 'preToolUse', 'sessionEnd', 'subagentStart', 'userPromptSubmitted']);
   assert.equal(hooks.hooks.sessionStart, undefined);
   assert.equal(hooks.hooks.subagentStart.length, 1);
   assert.equal(hooks.hooks.subagentStart[0].type, 'command');
   assert.equal(hooks.hooks.subagentStart[0].bash, 'singularity-flow hook agent-start');
   assert.equal(hooks.hooks.subagentStart[0].powershell, 'singularity-flow hook agent-start');
   for (const [event, action] of [['userPromptSubmitted', 'boundary-turn'],
-    ['preToolUse', 'boundary-guard'], ['sessionEnd', 'boundary-end']]) {
+    ['preToolUse', 'boundary-guard'], ['postToolUse', 'boundary-after'], ['sessionEnd', 'boundary-end']]) {
     assert.equal(hooks.hooks[event].length, 1);
     assert.equal(hooks.hooks[event][0].bash, `singularity-flow hook ${action}`);
     assert.equal(hooks.hooks[event][0].powershell, `singularity-flow hook ${action}`);
@@ -1026,7 +1026,8 @@ test('source review follows the returned schema and a bounded read-only format c
   assert.match(skill, /authored-content, not full-file hashes/);
   assert.match(skill, /`canReview: false`: relay `continuation.actions`, stop/);
   assert.match(skill, /only the author prepares\/publishes successors/);
-  assert.match(skill, /End with `continuation.actions`: Shell\/Copilot pair, target generation\/owner/);
+  assert.match(skill, /End with `continuation.actions`: returned routes, target generation\/owner/);
+  assert.match(skill, /in order: Copilot, Shell, VS Code \(model-free\)/);
   assert.match(agent, /do not search for, create, or persistently select an\s+agent/);
   for (const instructions of [skill, agent]) {
     assert.match(instructions, /clarificationsReviewed/);
@@ -1178,7 +1179,7 @@ test('World Model and review skills dispatch exact operations and return lifecyc
 test('phase document display uses current lifecycle continuation, never the future publication handoff', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase-documents', 'SKILL.md'), 'utf8');
   assert.match(content, /Distinguish unpublished drafts from published or submitted evidence/);
-  assert.match(content, /End with `continuation.nextAction` and its exact Shell\/Copilot pair/);
+  assert.match(content, /End with `continuation.nextAction` on all three surfaces per the Output contract/);
   assert.match(content, /`handoff` describes what follows publication/);
   assert.match(content, /never use it as the immediate action/);
   assert.match(content, /If continuation is absent, read `singularity-flow nextsteps <WORK-ID> --json`/);

@@ -140,14 +140,14 @@ export async function runLifecycleChat(
       }
       for (const name of ['next', 'recheck', 'recover']) {
         const guidance = commandGuidance(plan.publicationReadiness.commands?.[name]);
-        if (guidance) stream.markdown(`- Repair/check: ${inline(guidance.command)} · Copilot: ${inline(guidance.copilotCommand ?? 'no verified equivalent')}\n`);
+        if (guidance) stream.markdown(`- Repair/check — Copilot: ${inline(guidance.copilotCommand)} · Shell: ${inline(guidance.command)} · Model-free: ${inline(guidance.modelFreeCommand ?? 'not available for this action')}\n`);
       }
       return;
     }
     const next = await active.client.run<{ actions?: unknown[] }>(['nextsteps', active.workId, '--json'], signal);
     for (const item of (next.actions ?? []).slice(0, 3)) {
       const guidance = commandGuidance(item);
-      if (guidance) stream.markdown(`- Shell: ${inline(guidance.command)} · Copilot: ${inline(guidance.copilotCommand ?? 'no verified equivalent')}\n`);
+      if (guidance) stream.markdown(`- Copilot: ${inline(guidance.copilotCommand)} · Shell: ${inline(guidance.command)} · Model-free: ${inline(guidance.modelFreeCommand ?? 'not available for this action')}\n`);
     }
     return;
   }
@@ -210,7 +210,7 @@ export async function runLifecycleChat(
     const next = await active.client.run<{ actions?: unknown[] }>(['nextsteps', active.workId, '--json'], signal);
     for (const item of (next.actions ?? []).slice(0, 3)) {
       const guidance = commandGuidance(item);
-      if (guidance) stream.markdown(`- Next: ${inline(guidance.modelFreeCommand ?? guidance.copilotCommand ?? 'no verified equivalent')} · Shell: ${inline(guidance.command)}\n`);
+      if (guidance) stream.markdown(`- Next — Copilot: ${inline(guidance.copilotCommand)} · Shell: ${inline(guidance.command)} · Model-free: ${inline(guidance.modelFreeCommand ?? 'not available for this action')}\n`);
     }
   } catch { stream.markdown('The command completed, but next-action refresh is unavailable. Run `@sflow /next`; do not repeat the mutation.\n'); }
 }

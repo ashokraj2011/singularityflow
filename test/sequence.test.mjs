@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -81,9 +81,9 @@ function assertSequenceFailure(result, ...patterns) {
     assert.match(result.stderr, /Required next action:/);
     // Soft warnings still use the legacy guidance prose, which ranks its actions — "Run next",
     // "Then", "Alternative". What matters is that the runnable command leads the line, whichever
-    // rank it carries, rather than sitting under a Copilot skill name.
-    assert.match(result.stderr, /^(Run next|Then|Alternative|Run):\nShell: singularity-flow \S/m,
-      'the guidance leads with a runnable command');
+    // rank it carries. Each action now orders Copilot, Shell, and the optional @ equivalent.
+    assert.match(result.stderr, /^(Run next|Then|Alternative|Run):\nCopilot: \/sf-\S+\nShell: singularity-flow \S/m,
+      'the guidance pairs its Copilot action with a runnable shell command');
     assert.match(result.stderr, /^Copilot: \/sf-\S+/m,
       'the guidance includes a Copilot command');
     assert.doesNotMatch(result.stderr, /^[A-Za-z ]*in Copilot: \/sf-\S+\n(Run|Then|Alternative)/mi,
@@ -338,4 +338,34 @@ test('submitted work blocks generation mutations and rejection requires regenera
   assertSequenceFailure(flow(root, ['submit'], { allowFailure: true }), /returned for correction and has not been regenerated/, /Regenerate and publish phase 'intake'/);
   assert.equal(await readFile(workflowFile, 'utf8'), rejectedWorkflow);
   assert.equal(execute('git', ['status', '--porcelain'], root).stdout.trim(), '');
+});
+
+test('agent approval emits one bounded receipt; an already-approved phase never sends the model into authoring', async t => {
+  const root = await repository();
+  t.after(async () => { await rm(root, { recursive: true, force: true }); await rm(`${root}.git`, { recursive: true, force: true }); });
+  const file = path.join(root, 'singularity/work-items/SEQ-1/workflow.json');
+  const workflow = JSON.parse(await readFile(file, 'utf8'));
+  const artifact = path.join(root, 'singularity/work-items/SEQ-1', workflow.phases.intake.requiredArtifact.path);
+  await writeFile(artifact, (await readFile(artifact, 'utf8')).replace(/TODO:[^\n]*/g, 'Complete measurable intake evidence.'));
+  flow(root, ['phase', 'publish', 'intake']);
+  flow(root, ['submit', 'intake']);
+  const result = flow(root, ['approve', 'intake', '--yes', '--for-agent', '--json']);
+  const receipt = JSON.parse(result.stdout);
+  assert.equal(receipt.resultType, 'sflow-approval-agent-result');
+  assert.equal(receipt.turnBoundary, 'end');
+  assert.equal(receipt.decision.pushed, false);
+  assert.ok(receipt.decision.commit);
+  assert.ok(Buffer.byteLength(result.stdout) < 4096);
+  assert.equal(receipt.next[0].modelFreeCommand, '@sflow /next');
+  assert.doesNotMatch(result.stdout, /Source repository bindings|prepare requirements|sf-code/);
+  const after = JSON.parse(await readFile(file, 'utf8'));
+  assert.equal(after.phases.intake.status, 'approved');
+  assert.equal(after.currentPhase, 'requirements');
+  await writeFile(path.join(root, 'unrelated-human-draft.txt'), 'preserve this draft');
+  const repeated = flow(root, ['approve', 'intake', '--yes', '--for-agent', '--json'], { allowFailure: true });
+  assert.notEqual(repeated.status, 0);
+  const refusal = JSON.parse(repeated.stdout);
+  assert.equal(refusal.data.turnBoundary, 'end');
+  assert.doesNotMatch(JSON.stringify(refusal.next), /prepare|publish|sf-code/);
+  assert.equal(await readFile(path.join(root, 'unrelated-human-draft.txt'), 'utf8'), 'preserve this draft');
 });

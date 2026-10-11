@@ -422,6 +422,17 @@ export function applySequenceDecision(workflow, decision, at) {
 }
 
 export async function assertPhaseSequence(root, workflow, action, { requestedPhase = null, allowedStatuses = ['in_progress'] } = {}) {
+  if (action === 'approve' && requestedPhase && workflow.phases?.[requestedPhase]?.status === 'approved') {
+    const phase = workflow.phases[requestedPhase];
+    const error = new SingularityFlowError(`Phase '${requestedPhase}' was already approved by ${phase.approvedBy ?? 'the recorded authority'} at ${phase.approvedAt ?? 'the retained decision'}. End this approval turn; inspect the next action in a new turn.`, {
+      code: 'PHASE_ALREADY_APPROVED', details: { phase: requestedPhase, approvedBy: phase.approvedBy,
+        approvedAt: phase.approvedAt, currentPhase: workflow.currentPhase, turnBoundary: 'end' }
+    });
+    throw withCommandResult(error, commandResult({ operation: { id: 'approve', classification: 'mutation' },
+      subject: { kind: 'story', id: workflow.workItem.id }, outcome: refused('approve.refused', { phase: requestedPhase }),
+      effects: noEffects(), next: [actionForApprovalHandoff()], data: { turnBoundary: 'end',
+        previousDecision: error.details } }));
+  }
   for (let pass = 0; pass < 3; pass += 1) {
     const decision = evaluateSequence(workflow, { requestedPhase, allowedStatuses });
     if (decision.allowed) return workflow.phases[decision.phaseId];
@@ -441,4 +452,9 @@ export async function assertPhaseSequence(root, workflow, action, { requestedPha
   throw sequenceError(workflow, action, {
     gate: 'phaseStatus', requestedPhase, reason: 'Sequence reconciliation did not reach a stable state.'
   });
+}
+
+function actionForApprovalHandoff() {
+  return action({ id: 'inspect-next-turn', label: 'End this turn; inspect the next action in a new turn',
+    command: 'singularity-flow nextsteps --json', kind: 'informational' });
 }

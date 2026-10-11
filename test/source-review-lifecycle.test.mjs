@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -9,6 +9,8 @@ import test from 'node:test';
 import { sourceReviewBinding } from '../src/source-grounded-review.mjs';
 import { LIFECYCLE_EVENT } from '../src/lifecycle-event.mjs';
 import { recordSha256 } from '../src/records.mjs';
+import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
+import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
 import {
   checkSourceReviewReport, evaluateSubmittedSourceReview, readSourceReviewStatus, retainSourceReview,
   retainSourceReviewDecision, scopedSourceReviewerSession, sourceReviewContext, sourceReviewInput
@@ -149,6 +151,28 @@ async function readyReviewFixture(t) {
   assert.equal((await readSourceReviewStatus(root, config, workflow, 'specification')).status, 'ready');
   return { ...fixtureData, retainedDecision };
 }
+
+test('real reviewer context issues exact usable staging without unlocking the artifact', async t => {
+  const f = await fixture(t);
+  const root = await realpath(f.root);
+  const previous = process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+  process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = path.join(root, '.git', 'pmc-machine', 'mode.json');
+  t.after(() => {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE;
+    else process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE = previous;
+  });
+  const payload = { cwd: root, sessionId: 'source-review', prompt: '/sf-review-source' };
+  await recordRepositoryBoundaryTurn(payload, { captureMutation: (value, record) => captureMutationTurn(value, record,
+    { resolveRoot: async () => root, load: async () => ({ definition: f.config, workflow: f.workflow }) }) });
+  const staging = path.join(root, '.git', 'singularity-flow', 'source-reviews', 'EXAMPLE-specification-gen1.json');
+  const packet = await sourceReviewContext(root, f.config, f.workflow, 'specification', staging);
+  assert.equal(packet.canReview, true);
+  assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'create', toolArgs: { path: staging } }), {});
+  await writeFile(staging, JSON.stringify(packet.reportTemplate));
+  assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: `${ITEM}/artifacts/spec.md` } })).permissionDecision, 'deny');
+  const status = await readSourceReviewStatus(root, f.config, f.workflow, 'specification');
+  assert.equal(status.generation, 1);
+});
 
 test('review context binds Story snapshot, exact attachment bytes, and published artifact', async (t) => {
   const { root, config, workflow } = await fixture(t);

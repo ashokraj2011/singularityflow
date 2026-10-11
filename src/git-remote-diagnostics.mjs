@@ -336,7 +336,7 @@ export function assertCredentialFreeRemote(value) {
 }
 
 /** Remove common credential material before a diagnostic is written to durable local state. */
-export function redactDiagnosticText(value) {
+export function redactDiagnosticText(value, { multiline = false } = {}) {
   const source = String(value ?? '');
   const omitted = Math.max(0, source.length - MAX_DIAGNOSTIC_CHARS);
   let text = normalizeDiagnosticSyntax(boundedDiagnosticInput(source));
@@ -361,7 +361,10 @@ export function redactDiagnosticText(value) {
   text = text.replace(/\S+/g,
     (token) => remoteContainsEmbeddedSecret(token) ? '[REDACTED]' : token);
   for (const pattern of DIAGNOSTIC_SECRET_VALUES) text = text.replace(pattern, '[REDACTED]');
-  text = text.replace(UNSAFE_DIAGNOSTIC_CONTROLS, ' ');
+  // Human CLI guidance is multiline. Preserve only line feeds, never cursor/control escapes;
+  // secret redaction remains whole-text so a multiline key cannot evade it.
+  if (multiline) text = text.replace(/\r\n?/g, '\n');
+  text = text.replace(UNSAFE_DIAGNOSTIC_CONTROLS, character => multiline && character === '\n' ? '\n' : ' ');
   const expansionOmitted = source.length <= MAX_DIAGNOSTIC_CHARS
     ? Math.max(0, text.length - MAX_DIAGNOSTIC_CHARS)
     : 0;

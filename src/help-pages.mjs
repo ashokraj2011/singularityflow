@@ -1224,7 +1224,8 @@ const PAGES = Object.freeze({
     ],
     options: [
       ['--yes', 'Skip the interactive confirmation.'],
-      ['--selection-receipt TOKEN', 'Approve using a Copilot selection receipt.']
+      ['--selection-receipt TOKEN', 'Approve using a Copilot selection receipt.'],
+      ['--for-agent --json', 'Emit a compact approval-only decision and new-turn handoff; authority and checks are unchanged.']
     ],
     examples: [['singularity-flow approve --yes', 'Approves the phase currently awaiting review.']],
     seeAlso: ['submit', 'reject', 'reopen']

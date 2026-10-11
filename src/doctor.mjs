@@ -68,6 +68,10 @@ export async function doctorSnapshot(root, {
   execution = null
 } = {}) {
   const checks = [];
+  const mutationGuard = await (await import('./copilot-mutation-guard.mjs')).mutationGuardDiagnostics(root);
+  checks.push(check('phase-mutation-guard', mutationGuard.active.length ? 'warn' : 'pass',
+    mutationGuard.active.length ? mutationGuard.detail : 'No active explicit SFlow mutation turn; native chat is unchanged.',
+    'Inspect explicit-turn hook coverage on the running host; installation is not prevention proof.', { mutationGuard }));
   let performanceReport = null;
   let schemaReport = null;
   const major = Number(process.versions.node.split('.')[0]);

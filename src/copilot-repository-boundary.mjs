@@ -1,4 +1,4 @@
-/** Opt-in discovery guard, not a filesystem sandbox or lifecycle authority. */
+/** Explicit-turn discovery and mutation interception; not a filesystem sandbox. */
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -46,29 +46,64 @@ async function removeRecord(file) {
 }
 
 /** Reset on EVERY prompt, including native turns; never retain the prompt or its attachments. */
-export async function recordRepositoryBoundaryTurn(payload = {}, { now = Date.now() } = {}) {
+export async function recordRepositoryBoundaryTurn(payload = {}, { now = Date.now(), captureMutation = null } = {}) {
   const file = recordPath(payload);
   if (!file) return {};
   const mode = readCopilotMode();
   const skill = mode.paused ? null : explicitSflowSkill(payload.prompt);
-  if (!skill || ['sf-pause', 'sflow-pause'].includes(skill)) { await removeRecord(file); return {}; }
+  if (!skill || ['sf-pause', 'sflow-pause'].includes(skill)) {
+    await removeRecord(file);
+    await removeRecord(file.replace(/\.json$/u, '.mutation.json'));
+    return {};
+  }
   const directory = path.dirname(file);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const stat = await lstat(directory);
   if (!stat.isDirectory() || stat.isSymbolicLink()) return {};
-  const record = { schemaVersion: currentSchemaVersion(FAMILY), sessionId: sessionId(payload), skill,
+  const record = { schemaVersion: currentSchemaVersion(FAMILY), sessionId: sessionId(payload), skill, turnId: randomUUID(),
     recordedAt: now, modeChangedAt: mode.changedAt };
   const temporary = path.join(directory, `.${randomUUID()}.tmp`);
   try {
     await writeFile(temporary, `${JSON.stringify(record)}\n`, { flag: 'wx', mode: 0o600 });
     await rename(temporary, file);
   } finally { await removeRecord(temporary); }
+  if (captureMutation) await captureMutation(payload, record);
+  else await (await import('./copilot-mutation-guard.mjs')).captureMutationTurn(payload, record);
   return {};
 }
 
 export async function endRepositoryBoundaryTurn(payload = {}) {
   await removeRecord(recordPath(payload));
+  const file = recordPath(payload);
+  if (file) await removeRecord(file.replace(/\.json$/u, '.mutation.json'));
   return {};
+}
+
+/** File permissions and discovery share explicit-turn opt-in, never native lifecycle gating. */
+export async function repositoryToolGuard(payload = {}) {
+  if (!(await hasBoundaryTurn(payload))) return {};
+  try {
+    const mutation = await (await import('./copilot-mutation-guard.mjs')).mutationToolGuard(payload);
+    return mutation.permissionDecision === 'deny' ? mutation : repositoryDiscoveryGuard(payload);
+  } catch { return boundaryGuardUnavailable(); }
+}
+
+export async function repositoryPostToolGuard(payload = {}) {
+  if (!(await hasBoundaryTurn(payload))) return {};
+  try { return await (await import('./copilot-mutation-guard.mjs')).mutationPostToolGuard(payload); }
+  catch { const refusal = boundaryGuardUnavailable(); return { ...refusal, continue: false, additionalContext: refusal.permissionDecisionReason }; }
+}
+
+function boundaryGuardUnavailable() {
+  return { permissionDecision: 'deny', permissionDecisionReason: 'PHASE_MUTATION_GUARD_UNAVAILABLE: preserve work and refresh the exact boundary. Copilot: /sf-phase. Shell: singularity-flow phase enter --for-agent --json. VS Code (model-free): not available for this action.' };
+}
+
+async function hasBoundaryTurn(payload) {
+  if (readCopilotMode().paused) return false;
+  const file = recordPath(payload);
+  if (!file) return false;
+  return Boolean(await lstat(file).catch(() => null)
+    ?? await lstat(file.replace(/\.json$/u, '.mutation.json')).catch(() => null));
 }
 
 async function currentTurn(payload, now = Date.now()) {
@@ -216,7 +251,8 @@ export async function runRepositoryBoundaryHook(event, input = process.stdin) {
     const payload = JSON.parse(text || '{}');
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return console.log('{}');
     const handler = { 'boundary-turn': recordRepositoryBoundaryTurn,
-      'boundary-guard': repositoryDiscoveryGuard, 'boundary-end': endRepositoryBoundaryTurn }[event];
+      'boundary-guard': repositoryToolGuard, 'boundary-end': endRepositoryBoundaryTurn,
+      'boundary-after': repositoryPostToolGuard }[event];
     return console.log(JSON.stringify(await handler(payload)));
   } catch { return console.log('{}'); }
 }

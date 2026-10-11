@@ -639,6 +639,7 @@ export async function sourceReviewContext(root, config, workflow, phaseId, stagi
   // the evaluator compares it with that, so a renamed or copied step's review is accepted too.
   const reportTemplate = sourceReviewReportTemplate(input);
   const conflict = sourceReviewAuthorConflict(workflow, workflow.phases[phaseId]);
+  if (!conflict && stagingPath) await (await import('./copilot-mutation-guard.mjs')).issueMutationStaging(root, stagingPath, 'source-review');
   const hashView = (artifact, binding) => ({ path: artifact.path, sha256: binding.sha256,
     sha256Domain: 'authored-content', authoredContentSha256: binding.sha256,
     registeredFileSha256: artifact.registeredFileSha256,

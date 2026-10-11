@@ -20,7 +20,7 @@ export function agentPacketPresentation(packet, platform = process.platform) {
 export function phaseEntryAgentPresentation(packet) {
   if (packet.paused) return packet;
   return { agentGuide: {
-    readOrder: [...(packet.contextBoundary ? ['contextBoundary'] : []), 'ready', 'phase', 'authoring', 'contextAdmission', 'recovery', 'intent',
+    readOrder: [...(packet.contextBoundary ? ['contextBoundary'] : []), 'ready', 'phase', 'mutationContract', 'authoring', 'contextAdmission', 'recovery', 'intent',
       'recovery.testExecution', 'clarification', 'references', 'context.text', 'next'],
     testExecutionPath: 'recovery.testExecution',
     platform: process.platform,

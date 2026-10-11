@@ -8,6 +8,12 @@
 
 **Date:** 2026-10-11
 
+**Implementation notes:** [Phase mutation contracts](PHASE-MUTATION-CONTRACT.md) describe the
+implemented corrections and limits. Test-authoring phases do not require invented code intents;
+permissions are session/turn-scoped, and corrupt explicit caches fail closed. Installed host
+qualification is still outstanding: installation alone never proves prevention. These notes
+supersede the draft's broad source-writing and enforcement assumptions below.
+
 **Related work:** Copilot repository boundary (`copilot-repository-boundary.mjs`), agent hooks
 (`agent-hooks.mjs`), code-generation assurance (`generation-boundary.mjs`), compact phase entry,
 World Model is guidance (never authority)

@@ -340,7 +340,7 @@ export function commandGuidanceForCommands(commands) {
 
 export function commandGuidanceLines(guidance, label) {
   if (!guidance) return [];
-  return [`${label}:`, `Shell: ${guidance.command ?? 'unavailable — unsafe command'}`,
-    `Copilot: ${guidance.copilotCommand ?? guidance.copilotReason}`,
-    ...(guidance.modelFreeCommand ? [`VS Code (model-free): ${guidance.modelFreeCommand}`] : [])];
+  return [`${label}:`, `Copilot: ${guidance.copilotCommand ?? guidance.copilotReason}`,
+    `Shell: ${guidance.command ?? 'unavailable — unsafe command'}`,
+    `VS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}`];
 }

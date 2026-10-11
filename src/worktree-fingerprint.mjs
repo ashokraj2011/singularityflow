@@ -183,7 +183,8 @@ export function worktreeFingerprint(root, {
   dirty = null,
   visiblePaths = null,
   env = process.env,
-  exhaustive = false
+  exhaustive = false,
+  includeManifest = false
 } = {}) {
   const compute = () => {
     const headResult = run('git', ['rev-parse', '--verify', 'HEAD^{tree}'], {
@@ -272,6 +273,8 @@ export function worktreeFingerprint(root, {
       dirty: statusDirty || hiddenChanges.length > 0 || (exhaustive
         && (exhaustiveChanges.length > 0 || splitNull(untracked).length > 0 || unmergedIndex)),
       paths: Object.freeze(paths),
+      ...(includeManifest ? { fileDigests: Object.freeze(Object.fromEntries(manifest.map(entry =>
+        [entry.path, sha256(canonicalJson(entry))]))) } : {}),
       hiddenChanges: Object.freeze(hiddenChanges),
       ...(exhaustive ? { exhaustiveChanges: Object.freeze(exhaustiveChanges) } : {}),
       diagnosticCodes: Object.freeze([
@@ -284,7 +287,7 @@ export function worktreeFingerprint(root, {
   // Revision boundaries must always observe new bytes. Other read-model consumers may reuse one
   // fingerprint inside a scoped operation, but caching the coordinator's before/after values under
   // one key would make a mid-read edit invisible.
-  return fresh ? compute() : scopedReadSync(`git.worktree-fingerprint:${root}`, compute);
+  return fresh ? compute() : scopedReadSync(`git.worktree-fingerprint:${root}:${includeManifest}`, compute);
 }
 
 /**

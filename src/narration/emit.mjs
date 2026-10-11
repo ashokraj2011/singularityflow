@@ -11,8 +11,9 @@ import { renderCommandResultJson } from './render-json.mjs';
 import { markCommandFeedback } from '../dx-timing-context.mjs';
 import { resolvePersonalization } from '../personalization.mjs';
 import { operationContext } from '../operation-context.mjs';
+import { approvalAgentResult } from '../approval-agent-result.mjs';
 
-export function emitCommandResult(result, { json = false, postState = null, publicationPending = false, modelMode, restStateWhenIdle = null, stepActionHold = null } = {}) {
+export function emitCommandResult(result, { json = false, forAgent = false, postState = null, publicationPending = false, modelMode, restStateWhenIdle = null, stepActionHold = null } = {}) {
   // Presentation is attached only at delivery, after planning/confirmation digests were computed.
   // A paused or failed pause preference must not load SFlow personalization or query Git.
   if (result.data?.paused !== true) {
@@ -29,7 +30,9 @@ export function emitCommandResult(result, { json = false, postState = null, publ
     { requireEnvelope: true }
   ));
   markCommandFeedback();
-  console.log(json ? renderCommandResultJson(complete) : renderCommandResult(complete));
+  console.log(forAgent && complete.operation.id === 'approve'
+    ? JSON.stringify(approvalAgentResult(complete))
+    : json ? renderCommandResultJson(complete) : renderCommandResult(complete));
   return complete;
 }
 

@@ -84,6 +84,7 @@ export function action({ id, label, command, skill = null, rank = 'NOW', kind = 
     command,
     skill: skillId,
     copilotCommand: copilotCommandForCommand(command, skill ?? skillId),
+    modelFreeCommand: safeCommandGuidance({ command, skill: skillId })?.modelFreeCommand ?? null,
     rank,
     kind,
     modelPolicy
@@ -178,6 +179,10 @@ export function validateCommandResult(result, { requireEnvelope = false } = {}) 
     }
     if (!safeCommandGuidance(entry)) {
       invalid(`next[] command guidance for '${entry.command}' must be a safe registered Shell/Copilot pair`);
+    }
+    if (entry.modelFreeCommand !== undefined && entry.modelFreeCommand !== null
+        && entry.modelFreeCommand !== safeCommandGuidance(entry).modelFreeCommand) {
+      invalid('next[].modelFreeCommand must be the exact supported equivalent, not an asserted route');
     }
     if (!NEXT_RANKS.has(entry.rank)) invalid(`next[].rank '${entry.rank}' must be one of ${[...NEXT_RANKS].join(', ')}`);
     if (!NEXT_KINDS.has(entry.kind)) invalid(`next[].kind '${entry.kind}' must be one of ${[...NEXT_KINDS].join(', ')}`);

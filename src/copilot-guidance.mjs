@@ -240,8 +240,8 @@ export function actionCommandLines({ skill, command }, label = 'Run') {
   const modelFreeCommand = modelFreeCommandForCommand(command);
   return [
     `${label}:`,
-    `Shell: ${command}`,
     `Copilot: ${copilotCommandForCommand(command, skill)}`,
-    ...(modelFreeCommand ? [`VS Code (model-free): ${modelFreeCommand}`] : [])
+    `Shell: ${command}`,
+    `VS Code (model-free): ${modelFreeCommand ?? 'not available for this action'}`
   ];
 }

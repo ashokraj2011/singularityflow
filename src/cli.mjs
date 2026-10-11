@@ -341,7 +341,7 @@ import { VERSION } from './version.mjs';
 import { HELP } from './help-text.mjs';
 
 /**
- * Print one actionable CLI instruction through both supported user surfaces.
+ * Print one actionable CLI instruction through all supported user surfaces.
  *
  * Keep this at the presentation boundary: callers still execute exactly one governed mutation,
  * while a reader can choose either the shell command or the owning Copilot skill without having
@@ -353,13 +353,14 @@ function printCommandRoutes(command, { skill = null, indent = '', label = null }
     ? { command, skill }
     : { ...command, skill });
   if (!guidance) {
-    console.log(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
     console.log(`${indent}Copilot: unavailable — ask /sf-next for a current governed action.`);
+    console.log(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
+    console.log(`${indent}VS Code (model-free): not available for this action`);
     return;
   }
-  console.log(`${indent}Shell: ${guidance.command}`);
   console.log(`${indent}Copilot: ${guidance.copilotCommand}`);
-  if (guidance.modelFreeCommand) console.log(`${indent}VS Code (model-free): ${guidance.modelFreeCommand}`);
+  console.log(`${indent}Shell: ${guidance.command}`);
+  console.log(`${indent}VS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}`);
 }
 
 /**
@@ -7819,8 +7820,11 @@ async function tokensCommand(positionals, options) {
 async function decisionWorkflow(positionals, options, action) {
   const root = repoRoot();
   const receiptToken = optionString(options, 'selection-receipt');
-  if (receiptToken) assertLifecycleWorktreeClean(root, null, null, { workId: optionString(options, 'work-id') ?? branch(root) });
   const { requestedPhase, definition: config, workflow } = await loadStoryDecisionExecution(root, positionals, options, action);
+  if (action === 'approve' && requestedPhase && workflow.phases[requestedPhase]?.status === 'approved') {
+    await assertPhaseSequence(root, workflow, action, { requestedPhase });
+  }
+  if (receiptToken) assertLifecycleWorktreeClean(root, null, null, { workId: optionString(options, 'work-id') ?? branch(root) });
   if (action === 'approve') assertLifecycleWorktreeClean(root, config, workflow);
   const workId = workflow.workItem.id;
   const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
@@ -7988,18 +7992,21 @@ async function withRefusalMemory(root, subject, transition) {
 }
 
 async function approveCommand(positionals, options) {
+  const forAgent = optionBoolean(options, 'for-agent');
+  if (forAgent && !optionBoolean(options, 'json')) throw new SingularityFlowError('--for-agent approval requires --json; it changes presentation only.');
   if (optionString(options, 'selection-receipt') && optionBoolean(options, 'yes')) {
     throw new SingularityFlowError('Do not combine --selection-receipt with --yes; the receipt already carries the reviewer\'s exact phase confirmation.');
   }
   const { root, config, workflow, phase, session, receipt, receiptToken } = await decisionWorkflow(positionals, options, 'approve');
   const selfApproval = (phase.generatedBy?.login ?? phase.generatedBy?.email ?? phase.generatedBy?.name) === (session.actor.login ?? session.actor.email ?? session.actor.name);
-  printPhaseReview(await phaseReview(root, config, workflow, phase), { showArtifact: optionBoolean(options, 'show-artifact') });
+  if (!forAgent) printPhaseReview(await phaseReview(root, config, workflow, phase), { showArtifact: optionBoolean(options, 'show-artifact') });
   const approvalAuthority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
     phase.approvalPolicy,
     session.actor,
     { preferredAuthorities: remainingRequiredAuthorities(phase.approvalPolicy, phase.approvals) }
   );
+  if (!forAgent) {
   console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id}`);
   console.log(`Reviewer: ${session.actor.name ?? session.actor.email ?? session.actor.login} · authority: ${approvalAuthority.authorityLabel} (${approvalAuthority.authorityGroup})`);
   console.log(`governed agent: ${session.agent} (prompt/audit context only)`);
@@ -8008,6 +8015,7 @@ async function approveCommand(positionals, options) {
   console.log(`Tokens: ${phase.usage.map((item) => item.totalTokens ?? item.status).join(', ') || 'unavailable'}`);
   console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? item.actor?.email ?? 'unknown'} via ${item.authorityGroup ?? 'unrecorded authority'}; agent ${item.agent ?? 'unavailable'} (${item.decision})`).join(', ') || 'none'}`);
   if (selfApproval) console.warn('Warning: this identity generated the phase; approval will be recorded as self-approval.');
+  }
   if (!receipt && !optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
   const checklist = await checklistDecisions(options);
   const witnessMappings = witnessMappingDecisions(options);
@@ -8102,17 +8110,17 @@ async function approveCommand(positionals, options) {
     const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
     return activateWorkItemSession(root, accepted.config, accepted.workflow);
   });
-  console.log(publication.pushed
+  if (!forAgent) console.log(publication.pushed
     ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
-  console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; governed agent ${result.approval.agent}.`);
+  if (!forAgent) console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; governed agent ${result.approval.agent}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
   const receiptsLine = await recordRequiredReceiptsAfterTransition(root, workflow);
-  if (receiptsLine) console.log(receiptsLine);
-  formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
+  if (receiptsLine && !forAgent) console.log(receiptsLine);
+  if (!forAgent) formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
   // The last approval ends the Story only after its transaction passed the final evaluation.
   const completion = result.next ? null : recordedCompletion(workflow);
-  if (completion) printCompletionVerdict(completion);
+  if (completion && !forAgent) printCompletionVerdict(completion);
   emitCommandResult(commandResult({
     operation: { id: 'approve', classification: 'mutation' },
     subject: { kind: 'story', id: workflow.workItem.id },
@@ -8124,9 +8132,13 @@ async function approveCommand(positionals, options) {
     ...completionContinuation(completion),
     data: {
       commit: publication.sha, pushed: publication.pushed, authorityGroup: result.approval.authorityGroup,
+      turnBoundary: 'end', selfApproval: result.approval.selfApproval === true,
+      reviewer: result.approval.approvedBy, reviewPacketSha256: result.approval.reviewPacketSha256,
+      artifactSetSha256: result.approval.artifactSetSha256,
       ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
     }
-  }), { postState: workflow, stepActionHold: await stepActionHoldAfterTransition(root, config, workflow) });
+  }), { postState: workflow, json: optionBoolean(options, 'json'), forAgent,
+    stepActionHold: await stepActionHoldAfterTransition(root, config, workflow) });
 }
 
 /** A Story that reached its end rests complete only when the final check passed; otherwise it says how to recover. */
@@ -11291,7 +11303,7 @@ async function cockpitCommand() {
   ]) printCommandRoutes(command, { indent: '  ' });
 }
 
-const HOOK_EVENTS = ['turn-intent', 'turn-end', 'agent-start', 'session-start', 'agent-guard', 'boundary-turn', 'boundary-guard', 'boundary-end'];
+const HOOK_EVENTS = ['turn-intent', 'turn-end', 'agent-start', 'session-start', 'agent-guard', 'boundary-turn', 'boundary-guard', 'boundary-end', 'boundary-after'];
 
 async function hookCommand(positionals) {
   const event = requirePositional(positionals, 1, 'hook event');
@@ -11308,7 +11320,8 @@ async function hookCommand(positionals) {
     if (event.startsWith('boundary-')) {
       const boundary = await import('./copilot-repository-boundary.mjs');
       const handler = { 'boundary-turn': boundary.recordRepositoryBoundaryTurn,
-        'boundary-guard': boundary.repositoryDiscoveryGuard, 'boundary-end': boundary.endRepositoryBoundaryTurn }[event];
+        'boundary-guard': boundary.repositoryToolGuard, 'boundary-end': boundary.endRepositoryBoundaryTurn,
+        'boundary-after': boundary.repositoryPostToolGuard }[event];
       return console.log(JSON.stringify(await handler(payload)));
     }
     if ((await import('./copilot-mode.mjs')).readCopilotMode().paused) return console.log('{}');

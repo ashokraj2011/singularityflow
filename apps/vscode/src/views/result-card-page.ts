@@ -231,9 +231,10 @@ function button(action: CardAction, className: string): string {
 function actionRoutes(action: CardAction): string {
   if (!action.command && !action.copilotCommand && !action.skill) return '';
   return `<span class="sf-action-routes">
-    ${action.command ? `<span>Shell: <code>${escape(action.command)}</code></span>` : ''}
     ${action.copilotCommand || action.skill
       ? `<span>Copilot: <code>${escape(action.copilotCommand ?? action.skill ?? '')}</code></span>` : ''}
+    ${action.command ? `<span>Shell: <code>${escape(action.command)}</code></span>
+    <span>VS Code (model-free): ${action.modelFreeCommand ? `<code>${escape(action.modelFreeCommand)}</code>` : 'not available for this action'}</span>` : ''}
   </span>`;
 }
 
@@ -392,12 +393,14 @@ function guidanceHtml(view: ResultCardView): string {
       ?? effectLabels.mutation)}${guidance.recommendation.confirmationRequired
     ? ' Nothing runs until you explicitly authorize the governed action.' : ''}</p>
     <div class="sf-guidance-routes" aria-label="Recommended command">
-      <p class="sf-guidance-command"><b>Shell</b><code>${escape(guidance.recommendation.command)}</code>
-        ${guidance.recommendation.copyable
-    ? `<button type="button" data-copy-route="${escape(guidance.recommendation.command)}">Copy shell</button>` : ''}</p>
       <p class="sf-guidance-command"><b>Copilot</b><code>${escape(guidance.recommendation.copilotCommand)}</code>
         ${guidance.recommendation.copyable
     ? `<button type="button" data-copy-route="${escape(guidance.recommendation.copilotCommand)}">Copy Copilot</button>` : ''}</p>
+      <p class="sf-guidance-command"><b>Shell</b><code>${escape(guidance.recommendation.command)}</code>
+        ${guidance.recommendation.copyable
+    ? `<button type="button" data-copy-route="${escape(guidance.recommendation.command)}">Copy shell</button>` : ''}</p>
+      <p class="sf-guidance-command"><b>VS Code (model-free)</b>${guidance.recommendation.modelFreeCommand
+    ? `<code>${escape(guidance.recommendation.modelFreeCommand)}</code>` : 'not available for this action'}</p>
       ${guidance.recommendation.copyable ? '' : '<p class="muted">Replace the shown placeholders before running this command.</p>'}
     </div>` : '';
   const preflight = guidance.preflight.length ? `<details><summary>Before you continue</summary>
@@ -436,8 +439,9 @@ function autoHtml(view: ResultCardView): string {
       ${card.actions.length ? `<div class="sf-auto-actions">${card.actions.map((action) => `
         <span class="sf-auto-action">
           <button type="button" data-auto-action-id="${escape(action.id)}">${escape(action.label)}</button>
-          <span>Shell: <code>${escape(action.command)}</code></span>
           <span>Copilot: <code>${escape(action.copilotCommand)}</code></span>
+          <span>Shell: <code>${escape(action.command)}</code></span>
+          <span>VS Code (model-free): ${action.modelFreeCommand ? `<code>${escape(action.modelFreeCommand)}</code>` : 'not available for this action'}</span>
         </span>`).join('')}</div>` : ''}
     </article>`).join('')}</section>`;
 }

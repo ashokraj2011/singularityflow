@@ -211,12 +211,14 @@ export function journeyBodyHtml(journey: Journey, deliveries: JourneyDeliveries 
     : '<p class="muted">Replace the shown placeholders before continuing.</p>'}
       ${journey.decisionAhead ? `<p class="muted">Then: ${escape(journey.decisionAhead.text)}</p>` : ''}
       <div class="command-hint journey-command-routes">
-        <p><b>Shell:</b> <code>${escape(journey.nextAction.command)}</code>
-          ${journey.nextAction.copyable
-    ? `<button type="button" class="secondary" data-copy-route="${escape(journey.nextAction.command)}">Copy shell</button>` : ''}</p>
         <p><b>Copilot:</b> <code>${escape(journey.nextAction.copilotCommand)}</code>
           ${journey.nextAction.copyable
     ? `<button type="button" class="secondary" data-copy-route="${escape(journey.nextAction.copilotCommand)}">Copy Copilot</button>` : ''}</p>
+        <p><b>Shell:</b> <code>${escape(journey.nextAction.command)}</code>
+          ${journey.nextAction.copyable
+    ? `<button type="button" class="secondary" data-copy-route="${escape(journey.nextAction.command)}">Copy shell</button>` : ''}</p>
+        <p><b>VS Code (model-free):</b> ${journey.nextAction.modelFreeCommand
+    ? `<code>${escape(journey.nextAction.modelFreeCommand)}</code>` : 'not available for this action'}</p>
       </div>
     </section>` : ''}
 

@@ -101,11 +101,11 @@ export function phasePrepublishDecision(
   const nextCopilot = line(nextGuidance?.copilotCommand, 500);
   if (nextCopilot && /^\/sf-[a-z0-9-]+(?:\s|$)/u.test(nextCopilot)) details.push(`Next in Copilot: ${nextCopilot}`);
   else if (exactSkill && !nextGuidance) details.push(`Next in Copilot: ${exactSkill}`);
-  const modelFree = line(nextGuidance?.modelFreeCommand, 500);
-  if (modelFree?.startsWith('@sflow /')) details.push(`VS Code (model-free): ${modelFree}`);
   if (exactSkill && nextGuidance && nextCopilot !== exactSkill) details.push(`Repair in Copilot: ${exactSkill}`);
   const next = line(commands?.next, 500);
   if (next?.startsWith('singularity-flow ')) details.push(`Next in Shell: ${next}`);
+  const modelFree = line(nextGuidance?.modelFreeCommand, 500);
+  if (modelFree?.startsWith('@sflow /')) details.push(`VS Code (model-free): ${modelFree}`);
   details.push(`Shell: singularity-flow phase prepublish ${expected.phaseId} --json`);
   return {
     ready: false,

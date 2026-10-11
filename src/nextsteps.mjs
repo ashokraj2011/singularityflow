@@ -3,7 +3,7 @@ import { phaseNeedsGeneration, workflowGuide } from './guide.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { copilotAction, copilotSkillForCommand } from './copilot-guidance.mjs';
-import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import {
   effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer
@@ -276,18 +276,16 @@ export function nextStepsText(snapshot) {
     snapshot.workId ? 'Guided router: Copilot /sf-next · Shell singularity-flow next' : null,
     ''
   ].filter((line) => line !== null);
-  // Every action names both equivalent entry points. The reason leads; neither the shell nor
-  // Copilot is presented as the secondary product surface.
+  // Every action names its three entry points in the contract order: Copilot, Shell, then the
+  // model-free VS Code route. The reason leads; no surface is presented as the secondary product.
   snapshot.actions.forEach((item, index) => {
     lines.push(`${index + 1}. ${item.timing.toUpperCase()} — ${item.reason}`);
     const guidance = safeCommandGuidance(item);
-    if (guidance) {
-      lines.push(`   Shell: ${guidance.command}`);
-      lines.push(`   Copilot: ${guidance.copilotCommand}`);
-      if (guidance.modelFreeCommand) lines.push(`   VS Code (model-free): ${guidance.modelFreeCommand}`);
-    } else {
-      lines.push('   Shell: unavailable — the supplied command was not safe to display.');
+    if (guidance) lines.push(...commandRouteLines(guidance, '   '));
+    else {
       lines.push('   Copilot: unavailable — ask /sf-next for a current governed action.');
+      lines.push('   Shell: unavailable — the supplied command was not safe to display.');
+      lines.push('   VS Code (model-free): not available for this action');
     }
   });
   return `${lines.join('\n')}\n`;

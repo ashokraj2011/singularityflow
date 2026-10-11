@@ -3411,7 +3411,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           'singularity-flow workspace doctor --network --repository <REPOSITORY-URL> --json'
         ) : null);
         const recoveryText = recoveryRoute
-          ? `Shell: ${recovery}\nCopilot: ${recoveryRoute.copilotCommand}`
+          ? `Copilot: ${recoveryRoute.copilotCommand}\nShell: ${recovery}\nVS Code (model-free): ${recoveryRoute.modelFreeCommand ?? 'not available for this action'}`
           : null;
         output.appendLine(`No registered workspace matched the requested repository.${recoveryText
           ? ` Recover with:\n${recoveryText}` : ''}`);

@@ -10,7 +10,7 @@ import { runGovernanceGate } from './governance.mjs';
 import { recoveryActionsForFindings } from './gate-recovery.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
-import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { expectedPhaseEvidencePaths, expectedPreparationContextPaths } from './recovery-preparation-context.mjs';
 import { inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
@@ -389,20 +389,16 @@ export function recoveryText(plan) {
     lines.push(`${action.safe ? '✓' : '!'} ${action.id}: ${action.detail}${action.automatic ? ' [can apply]' : ''}`);
     if (action.command) {
       const guidance = safeCommandGuidance(action);
-      if (guidance) {
-        lines.push(`  Shell: ${guidance.command}`);
-        lines.push(`  Copilot: ${guidance.copilotCommand}`);
-      } else lines.push('  Command guidance unavailable: the supplied route was not safe or did not match.');
+      if (guidance) lines.push(...commandRouteLines(guidance, '  '));
+      else lines.push('  Command guidance unavailable: the supplied route was not safe or did not match.');
     }
   }
   if (!plan.applied && plan.actions.some((item) => item.automatic)) {
     const command = plan.applyCommand ?? recoveryApplyCommand(plan);
     const guidance = safeCommandGuidance({ command, skill: '/sf-recover' });
     lines.push('', 'Apply safe actions:');
-    if (guidance) {
-      lines.push(`  Shell: ${guidance.command}`);
-      lines.push(`  Copilot: ${guidance.copilotCommand}`);
-    } else lines.push('  Command guidance unavailable: the supplied route was not safe or did not match.');
+    if (guidance) lines.push(...commandRouteLines(guidance, '  '));
+    else lines.push('  Command guidance unavailable: the supplied route was not safe or did not match.');
   }
   if (plan.applied) lines.push('', `Applied ${plan.completed.length} safe action(s). No history was reset or rewritten.`);
   if (plan.reviewedCommit) lines.push('', `Committed reviewed authoring changes: ${plan.reviewedCommit.commit}. No publication, approval or test waiver was performed. Continue with the returned current phase actions.`);

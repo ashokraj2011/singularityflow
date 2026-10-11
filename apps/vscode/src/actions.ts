@@ -234,7 +234,7 @@ export async function runGovernedAction(
           `The published ${rolloverPhase} generation changed. Start generation ${preview.toGeneration} with the exact current bytes?`,
           {
             modal: true,
-            detail: `Shell: ${guidance.command}\nCopilot: ${guidance.copilotCommand}\n\nGeneration ${preview.fromGeneration} remains preserved. No code is discarded, stashed, or rewritten.`
+            detail: `Copilot: ${guidance.copilotCommand}\nShell: ${guidance.command}\nVS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}\n\nGeneration ${preview.fromGeneration} remains preserved. No code is discarded, stashed, or rewritten.`
           },
           'Start new generation'
         );
@@ -350,7 +350,7 @@ export async function runPlannedAction(
     `Run the exact governed action “${choice.action.reason}”?`,
     {
       modal: true,
-      detail: `Shell: ${choice.guidance.command}\nCopilot: ${choice.guidance.copilotCommand}\n\nPlan ${plan.planId} is bound to ${plan.revision.branch}@${plan.revision.head.slice(0, 12)}. Any repository or lifecycle change invalidates it.`
+      detail: `Copilot: ${choice.guidance.copilotCommand}\nShell: ${choice.guidance.command}\nVS Code (model-free): ${choice.guidance.modelFreeCommand ?? 'not available for this action'}\n\nPlan ${plan.planId} is bound to ${plan.revision.branch}@${plan.revision.head.slice(0, 12)}. Any repository or lifecycle change invalidates it.`
     },
     'Run exact action'
   );

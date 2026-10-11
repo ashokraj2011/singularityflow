@@ -2,6 +2,7 @@ import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import { phaseNeedsGeneration, sequenceGateMode } from './sequence.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill, copilotSkillForCommand } from './copilot-guidance.mjs';
+import { modelFreeCommandForCommand } from './model-free-commands.mjs';
 import { phaseAuthoredReviewArtifacts } from './publication-preflight.mjs';
 import { changedFiles } from './git.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
@@ -430,7 +431,9 @@ export function submissionReadinessText(snapshot) {
     snapshot.reason ?? null,
     ...(snapshot.terminal?.blockers ?? []).slice(0, 5).map((blocker) => `Open obligation: ${blocker}`),
     `Full artifact, test, policy, and evidence validation: ${snapshot.validation}`,
+    snapshot.nextSkill ? `Copilot: ${snapshot.nextSkill}` : null,
     snapshot.nextCommand ? `Shell: ${snapshot.nextCommand}` : null,
-    snapshot.nextSkill ? `Copilot: ${snapshot.nextSkill}` : null
+    snapshot.nextCommand
+      ? `VS Code (model-free): ${modelFreeCommandForCommand(snapshot.nextCommand) ?? 'not available for this action'}` : null
   ].filter(Boolean).join('\n');
 }

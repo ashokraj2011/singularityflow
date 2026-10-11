@@ -148,8 +148,9 @@ function skillVersionNext(guidance) {
 function printSkillVersionGuidance(argv, label) {
   const guidance = skillVersionGuidance(argv);
   console.log(`${label}:`);
-  console.log(`  Shell: ${guidance?.command ?? 'unavailable — review story skill-version --help'}`);
   console.log(`  Copilot: ${guidance?.copilotCommand ?? '/sf-story-skill-version'}`);
+  console.log(`  Shell: ${guidance?.command ?? 'unavailable — review story skill-version --help'}`);
+  console.log(`  VS Code (model-free): ${guidance?.modelFreeCommand ?? 'not available for this action'}`);
   return guidance;
 }
 

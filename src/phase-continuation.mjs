@@ -1,6 +1,6 @@
 import { workflowNextSteps } from './nextsteps.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
-import { safeCommandGuidance } from './safe-command-guidance.mjs';
+import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 
 /** Presentation of post-state only: this neither executes a next action nor grants authority. */
 export function phaseContinuation(workflow, { reviewedPhaseId = null, primary = null, snapshot = null, ...options } = {}) {
@@ -24,6 +24,5 @@ export function phaseContinuationLines(continuation) {
   const guidance = safeCommandGuidance(first);
   if (!guidance) return ['Next action: inspect the returned diagnostics; no safe command pair was verified.'];
   return ['Next action:', first.reason ?? 'Follow the current lifecycle; this inspection is not approval.',
-    `Shell: ${guidance.command}`, `Copilot: ${guidance.copilotCommand}`,
-    ...(guidance.modelFreeCommand ? [`VS Code (model-free): ${guidance.modelFreeCommand}`] : [])];
+    ...commandRouteLines(guidance)];
 }

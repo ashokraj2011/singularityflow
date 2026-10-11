@@ -3441,7 +3441,7 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
       || (currentTestInput && receipt.tree.testInputSha256 !== currentTestInput)) {
     const repairTarget = reviewRepairTarget(workflow, phase);
     const testingRepairRoute = repairTarget
-      ? ` Review the exact repair preview with Shell: singularity-flow reject ${phase.id} --to ${repairTarget.id} --repair --reason <REASON>. Copilot: /sf-reject. The confirmed return preserves changed bytes and requires new Code tests.`
+      ? ` Review the exact repair preview with Copilot: /sf-reject. Shell: singularity-flow reject ${phase.id} --to ${repairTarget.id} --repair --reason <REASON>. VS Code (model-free): not available for this action. The confirmed return preserves changed bytes and requires new Code tests.`
       : ' Return to Code.';
     throw refuse(`application source or separately hashed test inputs changed after the approved execution.${testingRepairRoute}`);
   }

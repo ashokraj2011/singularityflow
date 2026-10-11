@@ -94,6 +94,8 @@ export interface Journey {
     command: string; reason: string; label?: string;
     executable: 'singularity-flow'; argv: readonly string[];
     execution?: 'run' | 'prefill' | 'decide'; skill: string; copilotCommand: string; copyable: boolean;
+    /** The exact `@sflow` route, present only when one is equivalent to the command. */
+    modelFreeCommand?: string;
     /** Values the decision after this phase reads; the host asks for them before running. */
     decisionInputs?: DecisionInputSpec[];
   } | null;
@@ -304,6 +306,7 @@ function storyJourneyOf(
           argv: decisionRoutes.argv,
           copilotCommand: decisionRoutes.copilotCommand,
           copyable: decisionRoutes.copyable,
+          ...(decisionRoutes.modelFreeCommand ? { modelFreeCommand: decisionRoutes.modelFreeCommand } : {}),
           reason: pending.reason === 'limit'
             ? `'${pending.label}' used all ${pending.maxRounds} rounds. Choose what happens next.`
             : `'${pending.label}' waits for a person to choose what happens next.`,
@@ -316,6 +319,7 @@ function storyJourneyOf(
           argv: actionRoutes.argv,
           copilotCommand: actionRoutes.copilotCommand,
           copyable: actionRoutes.copyable,
+          ...(actionRoutes.modelFreeCommand ? { modelFreeCommand: actionRoutes.modelFreeCommand } : {}),
           reason: presentation.statusLabel,
           label: decisionInputs.length ? 'Record the decision values and submit' : 'Submit for approval',
           execution: 'run', skill: actionRoutes.skill,
@@ -328,6 +332,7 @@ function storyJourneyOf(
             argv: actionRoutes.argv,
             copilotCommand: actionRoutes.copilotCommand,
             copyable: actionRoutes.copyable,
+            ...(actionRoutes.modelFreeCommand ? { modelFreeCommand: actionRoutes.modelFreeCommand } : {}),
             reason: presentation.statusLabel,
             label: `Generate and publish ${currentStage?.label ?? 'current phase'}`,
             execution: 'prefill', skill: actionRoutes.skill
@@ -339,6 +344,7 @@ function storyJourneyOf(
               argv: actionRoutes.argv,
               copilotCommand: actionRoutes.copilotCommand,
               copyable: actionRoutes.copyable,
+              ...(actionRoutes.modelFreeCommand ? { modelFreeCommand: actionRoutes.modelFreeCommand } : {}),
               reason: presentation.detail,
               label: stepActionHoldLabel(readiness?.nextCommand),
               execution: 'run', skill: actionRoutes.skill
@@ -350,6 +356,7 @@ function storyJourneyOf(
               argv: actionRoutes.argv,
               copilotCommand: actionRoutes.copilotCommand,
               copyable: actionRoutes.copyable,
+              ...(actionRoutes.modelFreeCommand ? { modelFreeCommand: actionRoutes.modelFreeCommand } : {}),
               reason: presentation.statusLabel,
               label: `Review ${currentStage?.label ?? 'current phase'} against its sources`,
               execution: 'prefill', skill: actionRoutes.skill
@@ -491,6 +498,7 @@ function initiativeJourneyOf(initiative: InitiativeSnapshot, selectedStageId: st
       skill: nextRoutes.skill,
       copilotCommand: nextRoutes.copilotCommand,
       copyable: nextRoutes.copyable,
+      ...(nextRoutes.modelFreeCommand ? { modelFreeCommand: nextRoutes.modelFreeCommand } : {}),
       reason: next?.reason ?? 'Continue with the next governed step.',
       execution: 'run'
     } : null,

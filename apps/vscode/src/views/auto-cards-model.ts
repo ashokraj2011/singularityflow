@@ -11,6 +11,8 @@ export type AutoCardActionView = {
   readonly skill: string;
   /** Exact Copilot prefill including the Auto operation and reviewed arguments. */
   readonly copilotCommand: string;
+  /** The exact `@sflow` route, present only when one is equivalent to the command. */
+  readonly modelFreeCommand?: string;
   /** The CAS/hash authority already embedded in command, when the action requires one. */
   readonly confirmation: string | null;
 };
@@ -153,7 +155,8 @@ function action(
   if (!guidance) return null;
   return Object.freeze({
     id: `auto:${kind}:${subject}:${verb}`, label, command,
-    skill: guidance.skill, copilotCommand: guidance.copilotCommand, confirmation
+    skill: guidance.skill, copilotCommand: guidance.copilotCommand, confirmation,
+    ...(guidance.modelFreeCommand ? { modelFreeCommand: guidance.modelFreeCommand } : {})
   });
 }
 

@@ -170,11 +170,12 @@ function answerHtml(answer: HelpAnswerView | null): string {
   }
   const handoff = answer.handoff ? commandGuidance(answer.handoff) : null;
   const handoffHtml = handoff ? `<div class="command-guidance">
-    <p><strong>Shell:</strong> <code>${escape(handoff.command)}</code>
-      ${handoff.copyable ? `<button class="secondary" data-copy="${escape(handoff.command)}" data-help-copy-topic="${escape(answer.topic.id)}">Copy Shell</button>` : ''}</p>
     <p><strong>Copilot:</strong> <code>${escape(handoff.copilotCommand)}</code>
       ${handoff.copyable ? `<button class="secondary" data-copy="${escape(handoff.copilotCommand)}" data-help-copy-topic="${escape(answer.topic.id)}">Copy Copilot</button>
       <button class="secondary" data-prefill-help="${escape(handoff.skill)}" data-prefill-topic="${escape(answer.topic.id)}">Prepare ${escape(handoff.skill)}</button>` : ''}</p>
+    <p><strong>Shell:</strong> <code>${escape(handoff.command)}</code>
+      ${handoff.copyable ? `<button class="secondary" data-copy="${escape(handoff.command)}" data-help-copy-topic="${escape(answer.topic.id)}">Copy Shell</button>` : ''}</p>
+    <p><strong>VS Code (model-free):</strong> ${handoff.modelFreeCommand ? `<code>${escape(handoff.modelFreeCommand)}</code>` : 'not available for this action'}</p>
     ${handoff.copyable ? '' : '<p class="muted">Replace the shown placeholders before running this command.</p>'}
   </div>` : '';
   const actions = `<div class="form-actions">

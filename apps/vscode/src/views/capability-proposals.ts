@@ -78,8 +78,9 @@ function commandPair(label: string, value: unknown): string {
   const guidance = commandGuidance(value);
   if (!guidance) return '';
   return `<small><strong>${escape(label)}</strong></small>
+    <small>Copilot: <code>${escape(guidance.copilotCommand)}</code></small>
     <small>Shell: <code>${escape(guidance.command)}</code></small>
-    <small>Copilot: <code>${escape(guidance.copilotCommand)}</code></small>`;
+    <small>VS Code (model-free): ${guidance.modelFreeCommand ? `<code>${escape(guidance.modelFreeCommand)}</code>` : 'not available for this action'}</small>`;
 }
 
 function remediation(value: unknown): string {

@@ -771,8 +771,9 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
                     ${pendingInspectionMatches ? `<ul>${pendingInspectionMatches}</ul>
                       <p><button type="button" class="secondary" data-map-review-pending>Review all pending proposals</button></p>` : ''}
                     ${inspectionRecovery
-                      ? `<div class="command-pair"><p>Shell: <code>${escape(inspectionRecovery.command)}</code></p>
-                          <p>Copilot: <code>${escape(inspectionRecovery.copilotCommand)}</code></p>
+                      ? `<div class="command-pair"><p>Copilot: <code>${escape(inspectionRecovery.copilotCommand)}</code></p>
+                          <p>Shell: <code>${escape(inspectionRecovery.command)}</code></p>
+                          <p>VS Code (model-free): ${inspectionRecovery.modelFreeCommand ? `<code>${escape(inspectionRecovery.modelFreeCommand)}</code>` : 'not available for this action'}</p>
                           ${inspectionRecovery.copyable ? `<p><button type="button" class="secondary" data-map-copy-command="${escape(inspectionRecovery.command)}">Copy shell command</button>
                             <button type="button" class="secondary" data-map-copy-copilot="${escape(inspectionRecovery.copilotCommand)}">Copy Copilot command</button></p>`
     : '<p class="muted">Replace the shown placeholders before running this command.</p>'}</div>`

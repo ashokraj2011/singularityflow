@@ -152,11 +152,12 @@ export function formHtml(view: FormView, {
    */
   const guidance = commandGuidance(terminal);
   const equivalent = guidance
-    ? `<details class="sf-terminal" data-terminal-equivalent><summary>Terminal equivalent — Shell and Copilot</summary>
-      <strong>Shell</strong><pre data-terminal>${escape(guidance.command)}</pre>
-      <button type="button" data-copy-terminal="shell" ${guidance.copyable ? '' : 'hidden'}>Copy Shell</button>
+    ? `<details class="sf-terminal" data-terminal-equivalent><summary>Terminal equivalent — Copilot and Shell</summary>
       <strong>Copilot</strong><pre data-copilot-terminal>${escape(guidance.copilotCommand)}</pre>
       <button type="button" data-copy-terminal="copilot" ${guidance.copyable ? '' : 'hidden'}>Copy Copilot</button>
+      <strong>Shell</strong><pre data-terminal>${escape(guidance.command)}</pre>
+      <button type="button" data-copy-terminal="shell" ${guidance.copyable ? '' : 'hidden'}>Copy Shell</button>
+      <strong>VS Code (model-free)</strong><p>${guidance.modelFreeCommand ? `<code>${escape(guidance.modelFreeCommand)}</code>` : 'not available for this action'}</p>
       <p data-terminal-placeholders ${guidance.copyable ? 'hidden' : ''}>Replace the shown placeholders before running this command.</p>
     </details>`
     : '';

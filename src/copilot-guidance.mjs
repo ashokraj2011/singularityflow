@@ -230,11 +230,10 @@ export function submissionReadinessPresentation(readiness) {
 }
 
 /**
- * The paired routes that offer one action: the shell command, then the Copilot skill that wraps it.
- *
- * The command leads. This rendered the other way round — the skill as the headline and the command
- * beneath it — which told someone reading a terminal that the thing in front of them was the
- * secondary way to use the product. `label` is retained for callers that introduce the pair.
+ * The routes that offer one action, in the skill output contract's order: the Copilot skill, the
+ * shell command it wraps, then the model-free VS Code route or "not available for this action".
+ * Each route is a full line of its own, so none reads as the secondary way to use the product.
+ * `label` is retained for callers that introduce the routes.
  */
 export function actionCommandLines({ skill, command }, label = 'Run') {
   const modelFreeCommand = modelFreeCommandForCommand(command);

@@ -59,6 +59,8 @@ export type CardAction = {
   readonly command: string | null;
   readonly skill: string | null;
   readonly copilotCommand: string | null;
+  /** The exact `@sflow` route, present only when one is equivalent to the command. */
+  readonly modelFreeCommand?: string;
   readonly copyable: boolean;
 };
 
@@ -150,6 +152,7 @@ export type ResultCardView = {
     readonly context: { readonly workspace: string | null; readonly workId: string | null; readonly phase: string | null };
     readonly recommendation: {
       readonly command: string; readonly skill: string; readonly copilotCommand: string;
+      readonly modelFreeCommand?: string;
       readonly copyable: boolean;
       readonly reason: string | null;
       readonly confirmationRequired: boolean; readonly effect: string;
@@ -264,6 +267,7 @@ function actionOf(entry: any): CardAction {
     command: routes?.command ?? null,
     skill: routes?.skill ?? null,
     copilotCommand: routes?.copilotCommand ?? null,
+    ...(routes?.modelFreeCommand ? { modelFreeCommand: routes.modelFreeCommand } : {}),
     copyable: routes?.copyable ?? false
   };
 }
@@ -423,6 +427,7 @@ export function buildResultCard(result: any, { acknowledgement }: ResultCardOpti
             command: routes.command,
             skill: routes.skill,
             copilotCommand: routes.copilotCommand,
+            ...(routes.modelFreeCommand ? { modelFreeCommand: routes.modelFreeCommand } : {}),
             copyable: routes.copyable,
             reason: rawRecommendation.reason ?? null,
             confirmationRequired: rawRecommendation.confirmation?.required === true,

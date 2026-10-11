@@ -180,7 +180,12 @@ export function workflowNextSteps(workflow, {
     { operationId: 'phase', route: 'configured-producer' }
   ));
   const resolvedPhase = workflow.resolution?.phases?.find((item) => item.id === phase.id);
-  if (needsGeneration && workflow.resolution?.inputsMode === 'enforce' && resolvedPhase?.inputs?.length && phase.inputContext?.generation !== nextPhaseGeneration(phase)) {
+  // Preparing the artifact renders and records the same enforced inputs (preparePhaseInputs), and
+  // composition resolves them itself. A separate input action ahead of a pending prepare costs the
+  // agent one more turn that does nothing the authoring turn does not.
+  const preparesThisPhase = actions.some((entry) => entry.timing === 'now'
+    && entry.command?.split(' ').slice(0, 3).join(' ') === `singularity-flow prepare ${phase.id}`);
+  if (needsGeneration && !preparesThisPhase && workflow.resolution?.inputsMode === 'enforce' && resolvedPhase?.inputs?.length && phase.inputContext?.generation !== nextPhaseGeneration(phase)) {
     actions.unshift(action('now', '/sflow-inputs', `singularity-flow inputs ${phase.id}`, 'Resolve and render every enforced approved phase input before generation.'));
   }
   if (needsGeneration && convergenceProjectionRequired) {

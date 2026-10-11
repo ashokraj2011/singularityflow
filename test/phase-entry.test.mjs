@@ -256,18 +256,22 @@ test('inputs agent entry cannot write historical phases or operate without its a
   assert.equal(git(item.root, 'status', '--porcelain=v1'), '');
 });
 
-test('delegated enforced inputs need only nextsteps plus recording, with exact custom-root paths', async t => {
+test('enforced inputs go straight to authoring, whose prepare renders them; direct recording keeps exact custom-root paths', async t => {
   const item = await fixture(t, { planningInputs: true });
   const before = git(item.root, 'rev-parse', 'HEAD');
   const initial = item.invoke('nextsteps', '--for-agent', '--json');
   assert.equal(initial.status, 0, initial.stderr || initial.stdout);
   const packet = JSON.parse(initial.stdout);
-  assert.equal(packet.actions.find(action => action.timing === 'now').command, 'singularity-flow inputs planning');
-  assert.equal(packet.inputs.phase, 'planning');
-  assert.equal(packet.inputs.records[0].status, 'captured');
-  assert.equal(packet.inputs.records[0].repositoryPath,
+  // Preparation renders and records the same inputs, so a separate input turn would add nothing.
+  assert.ok(packet.actions.some(action => action.timing === 'now' && action.command === 'singularity-flow prepare planning'));
+  assert.equal(packet.actions.some(action => action.command === 'singularity-flow inputs planning'), false);
+  assert.equal(packet.inputs, null);
+  const dryRun = item.invoke('inputs', 'planning', '--dry-run', '--json');
+  assert.equal(dryRun.status, 0, dryRun.stderr || dryRun.stdout);
+  const previewed = JSON.parse(dryRun.stdout);
+  assert.equal(previewed.records[0].status, 'captured');
+  assert.equal(previewed.records[0].repositoryPath,
     'team/stories/ENTRY-1/artifacts/specification/spec.md');
-  assert.equal(packet.inputs.records[0].content, undefined);
   assert.equal(git(item.root, 'status', '--porcelain=v1'), '');
   const recorded = item.invoke('inputs', 'planning', '--for-agent', '--json');
   assert.equal(recorded.status, 0, recorded.stderr || recorded.stdout);
@@ -285,16 +289,19 @@ test('delegated enforced inputs need only nextsteps plus recording, with exact c
     JSON.parse(full.stdout).actions.find(action => action.timing === 'now'));
 });
 
-test('a delegated input preview never authorizes stale approved bytes at recording time', async t => {
+test('an input preview never authorizes stale approved bytes, at recording or at preparation', async t => {
   const item = await fixture(t, { planningInputs: true });
-  const initial = item.invoke('nextsteps', '--for-agent', '--json');
+  const initial = item.invoke('inputs', 'planning', '--dry-run', '--json');
   assert.equal(initial.status, 0, initial.stderr || initial.stdout);
-  assert.equal(JSON.parse(initial.stdout).inputs.records[0].status, 'captured');
+  assert.equal(JSON.parse(initial.stdout).records[0].status, 'captured');
   await writeFile(path.join(item.root, 'team/stories/ENTRY-1/artifacts/specification/spec.md'), '# Unreviewed edit\n');
   const before = await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8');
   const result = item.invoke('inputs', 'planning', '--for-agent', '--json');
   assert.notEqual(result.status, 0);
   assert.match(JSON.parse(result.stdout).error.message, /approved hash|inputs are not ready/);
+  const prepared = item.invoke('prepare', 'planning', '--json');
+  assert.notEqual(prepared.status, 0, 'preparation renders the same inputs and refuses the same stale bytes');
+  assert.match(prepared.stdout + prepared.stderr, /approved hash|inputs are not ready/);
   assert.equal(await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8'), before);
 });
 

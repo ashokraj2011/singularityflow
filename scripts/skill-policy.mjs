@@ -236,14 +236,14 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /state=publication_pending[^.]*first `NOW` command equals `singularity-flow sync`/i,
       /singularity-flow sync <WORK-ID>[^.]*once in the verified cwd/i,
       /never follow `THEN`, invoke `\/sf-nextsteps` or `\/sf-next`, or retry/i,
-      /Before approval run `singularity-flow phase show <phase> --json`/i,
+      /Before approval run `singularity-flow phase show <phase> --for-agent --json`/i,
       /singularity-flow recover <WORK-ID> --phase <phase> --json/i,
       /copy the first `NOW` action's `copilotCommand` and `command` from that same action object/i,
       /never pair `\/sf-phase` with `singularity-flow next`/i
     ],
     forbidden: [
       /Then run `singularity-flow next` once/i,
-      /run `phase show <phase> --json`/i,
+      /run `phase show <phase> --for-agent --json`/i,
       /run `recover`/i
     ]
   },

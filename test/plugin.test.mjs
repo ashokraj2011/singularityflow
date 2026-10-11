@@ -371,7 +371,7 @@ test('code skill reads readiness and task policy from their real structured sour
   assert.match(content, /Require entry `phase`, `phaseAgent.valid: true`, `generatesCode: true`, `authoring.policyVerified`/);
   assert.match(content, /never draft sign-off/);
   assert.match(content, /No duplicate pause\/session\/status/);
-  assert.match(content, /phase show <phase> --json`: viewing only/);
+  assert.match(content, /phase show <phase> --for-agent --json`: viewing only/);
 });
 
 test('code skill treats a prepared draft as authoring work without bypassing genuine recovery', async () => {
@@ -853,7 +853,7 @@ test('inbox skill presents remote pending approvals before an explicit reviewer 
   assert.match(content, /singularity-flow inbox --json/);
   assert.match(content, /ask_user/);
   assert.match(content, /session attach <WORK-ID>/);
-  assert.match(content, /phase show <PHASE> --json/);
+  assert.match(content, /phase show <PHASE> --for-agent --json/);
   assert.match(content, /never decide or approve automatically/i);
   assert.match(content, /disable-model-invocation:\s*true/);
 });
@@ -961,8 +961,8 @@ test('approval skill reuses only an exact complete review and accepts a human ph
   assert.match(content, /approve <TYPED-PHASE> --work-id <WORK-ID> --fetch --selection-receipt <TOKEN>/);
   assert.match(content, /Never add `--yes`/);
   assert.match(content, /receipt is consumed once/i);
-  assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('phase show <phase> --json'));
-  assert.ok(content.indexOf('phase show <phase> --json') < content.indexOf('Render once per exact display binding'));
+  assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('phase show <phase> --for-agent --json'));
+  assert.ok(content.indexOf('phase show <phase> --for-agent --json') < content.indexOf('Render once per exact display binding'));
   assert.match(content, /exactly matching non-null `displayBinding`/);
   assert.match(content, /New chat, changed\/null binding, omissions or truncation require full display/);
   assert.match(content, /Truncated content: stop/);
@@ -1247,7 +1247,7 @@ test('authoring preserves sanitized telemetry; next relays returned telemetry wi
 test('submission renders review once and approval reuses only that complete bound display', async () => {
   for (const name of ['sflow-submit', 'sflow-approve']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
-    assert.match(content, /phase show <phase> --json/i, `${name} must load artifact content as JSON`);
+    assert.match(content, /phase show <phase> --for-agent --json/i, `${name} must load artifact content as JSON`);
     assert.match(content, /visible same-chat (?:display|bodies)/i,
       `${name} must establish visible review`);
     assert.match(content, /--- BEGIN <path> ---[\s\S]*--- END <path> ---/i, `${name} must delimit exact artifact bodies`);

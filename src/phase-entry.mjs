@@ -12,6 +12,7 @@ import { storyReferenceRepositories, verifyReferenceRepositories } from './refer
 import { readCopilotMode, copilotModePresentation } from './copilot-mode.mjs';
 import { resolvePersonalization } from './personalization.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile, resolveWorkspaceExecutionContext } from './workspace-context.mjs';
+import { pendingContextBoundary } from './context-policy.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
@@ -53,6 +54,7 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
     inspectionGeneration: phase ? phaseInspectionGeneration(workflow, phase) : null,
     activeAgent: session.activeAgent, phaseAgent: session.phaseAgent,
     selectionSource: selected?.selectionSource ?? 'cwd', branch: branch(root), head: head(root) };
+  const contextBoundary = phase ? pendingContextBoundary(workflow) : null;
   const packet = { schemaVersion: 1, resultType: 'sflow-phase-entry', paused: false,
     personalization: resolvePersonalization({ root }), ...binding,
     build: { description: versionLine(), ...BUILD_INFO },
@@ -61,7 +63,8 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
         '--work-id', actualId, '--phase', phase.id, '--json'] }),
       detail: 'Inspect one preserved-work journey when blocked. This route does not repair, run tests, accept evidence or approve.' } : null,
     generationPolicy: phase?.generationPolicy ?? null, generatesCode: phase ? phaseRequiresCodeDelivery(phase) : false,
-    intent: phase?.generationIntent ?? null };
+    intent: phase?.generationIntent ?? null,
+    ...(contextBoundary ? { contextBoundary } : {}) };
   return { packet, root, ...accepted, phase, session };
 }
 

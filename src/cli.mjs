@@ -6669,7 +6669,9 @@ async function phaseCommand(positionals, options) {
     const phase = workflow.phases[phaseId];
     if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
     const review = await phaseReview(root, config, workflow, phase, { includeContinuation: true });
-    if (optionBoolean(options, 'json')) console.log(JSON.stringify(review, null, 2));
+    if (optionBoolean(options, 'for-agent') && !optionBoolean(options, 'json')) throw new SingularityFlowError('--for-agent requires --json.');
+    if (optionBoolean(options, 'for-agent')) console.log(JSON.stringify((await import('./agent-packet-presentation.mjs')).phaseReviewAgentPresentation(review)));
+    else if (optionBoolean(options, 'json')) console.log(JSON.stringify(review, null, 2));
     else {
       printPhaseReview(review, { showArtifact: optionBoolean(options, 'show-artifact') });
       if (review.continuation) console.log(`\n${phaseContinuationLines(review.continuation).join('\n')}`);

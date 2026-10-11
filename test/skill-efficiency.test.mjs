@@ -180,9 +180,9 @@ test('approval remains explicit-only with one bound artifact review per conversa
   assert.match(content, /sflow-output-contract: governed-review/);
   assert.match(content, /Render every text\/brief with identity, hash and `--- BEGIN <path> ---` \/ `--- END <path> ---`/);
   assert.match(content, /exact phase name|exact phase ID/i);
-  assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('phase show <phase> --json'),
+  assert.ok(content.indexOf('choices begin approve <WORK-ID>') < content.indexOf('phase show <phase> --for-agent --json'),
     'approval must resolve the requested Story and phase before reading artifacts');
-  assert.ok(content.indexOf('phase show <phase> --json') < content.indexOf('Render once per exact display binding'),
+  assert.ok(content.indexOf('phase show <phase> --for-agent --json') < content.indexOf('Render once per exact display binding'),
     'current packet must be revalidated before prior display is reused');
   assert.match(content, /Match receipt, `reviewBinding`, artifacts and briefs to `approvalContext`; mismatch or missing binding stops/);
   assert.match(content, /Do not repeat document lookup/);

@@ -93,15 +93,17 @@ test('post-completion guidance skips only phases preserved by an approved skill 
     'singularity-flow prepare requirements', 'unapproved independence claims never skip a phase');
 });
 
-test('input preparation follows the next unused generation after abandoned rework', () => {
+test('a pending prepare renders the next generation\'s inputs, so no separate input action precedes it', () => {
   const story = workflow({ generation: 1 });
   story.phases.intake.rejectedAt = '2026-10-02T00:00:00.000Z';
   story.phases.intake.generationHighWatermark = 2;
   story.resolution = { inputsMode: 'enforce', phases: [{ id: 'intake', inputs: [{ phase: 'prior' }] }] };
-  story.phases.intake.inputContext = { generation: 2 };
-  assert.equal(workflowNextSteps(story)[0].command, 'singularity-flow inputs intake');
-  story.phases.intake.inputContext.generation = 3;
-  assert.equal(workflowNextSteps(story).some((entry) => entry.command === 'singularity-flow inputs intake'), false);
+  for (const generation of [2, 3]) {
+    story.phases.intake.inputContext = { generation };
+    const steps = workflowNextSteps(story);
+    assert.equal(steps[0].command, 'singularity-flow prepare intake', `inputs rendered for generation ${generation}`);
+    assert.equal(steps.some((entry) => entry.command === 'singularity-flow inputs intake'), false);
+  }
 });
 
 test('rejection, pending publication, and completion produce safe action plans', () => {

@@ -200,7 +200,12 @@ test('Classic delivery commits passing test results before Testing and Code chec
   cli('approve', 'intake', '--yes');
 
   measuredPhase = 'implementation';
+  // Intake was approved here, outside any Copilot conversation: the next agent entry repeats the
+  // boundary that approval owes until Code is prepared.
+  const owed = JSON.parse(cli('nextsteps', '--for-agent', '--json').stdout);
+  assert.deepEqual([owed.contextBoundary?.mode, owed.contextBoundary?.phase, owed.contextBoundary?.commands], ['new', 'intake', ['/clear', '/sf-next']]);
   cli('prepare', 'implementation');
+  assert.equal(JSON.parse(cli('nextsteps', '--for-agent', '--json').stdout).contextBoundary, undefined);
   measureEntry();
   await writeFile(path.join(root, 'src/value.mjs'), approvedSource);
   await writeFile(path.join(root, 'test/value.test.mjs'), [
@@ -283,6 +288,17 @@ test('Classic delivery commits passing test results before Testing and Code chec
     // governed-agent checks (the clarification audit) that a human-authored final phase skips.
     if (phase === 'conformance') cli('phase', 'publish', phase, '--authored', 'governed-agent', '--channel', 'copilot-host');
     else cli('phase', 'publish', phase, '--authored', 'human', '--channel', 'manual-in-place');
+    if (phase === 'conformance') {
+      // The agent review view sends authored text and references the engine-written blocks; it names
+      // the same documents and display binding as the full review.
+      const full = JSON.parse(cli('phase', 'show', phase, '--json').stdout);
+      const agent = JSON.parse(cli('phase', 'show', phase, '--for-agent', '--json').stdout);
+      assert.deepEqual(agent.displayBinding, full.displayBinding);
+      const [fullReport, agentReport] = [full, agent].map((review) => review.documents.find((document) => document.kind === 'conformance-report'));
+      assert.equal(agentReport.sha256, fullReport.sha256);
+      assert.deepEqual(agentReport.managedBlocks.map((block) => block.kind), ['metadata', 'inputs']);
+      assert.ok(Buffer.byteLength(agentReport.content) < Buffer.byteLength(fullReport.content) / 2);
+    }
     cli('submit', phase);
     cli('approve', phase, '--yes');
   }

@@ -206,13 +206,14 @@ test('initiative and Epic routes are closed over real skill names', () => {
   assert.equal(copilotSkillForCommand('singularity-flow epic unknown'), '/sf-epic-next');
 });
 
-test('rendered action guidance leads with the command, then the Copilot skill', () => {
+test('rendered action guidance reads Copilot, Shell, then the model-free VS Code route', () => {
   const action = copilotAction({ skill: '/sflow-phase', command: 'singularity-flow prepare intake' });
   assert.equal(action.copilotCommand, '/sf-phase');
   assert.deepEqual(actionCommandLines(action), [
     'Run:',
+    'Copilot: /sf-phase',
     'Shell: singularity-flow prepare intake',
-    'Copilot: /sf-phase'
+    'VS Code (model-free): not available for this action'
   ]);
 });
 

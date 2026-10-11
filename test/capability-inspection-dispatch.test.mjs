@@ -159,7 +159,7 @@ test('direct inspection retains partial-coverage warning and safe diagnostic rou
   assert.equal(direct.result.proposalCoverage, 'partial');
   assert.equal(direct.result.failures.length, 1);
   assert.match(direct.warnings.join('\n'), /pending proposal coverage: partial .*no new mapping is authorized/);
-  assert.match(direct.logs.join('\n'), /Diagnose:\n\s+Shell: singularity-flow workspace doctor --network --repository/);
+  assert.match(direct.logs.join('\n'), /Diagnose:\n\s+Copilot: \/sf-workspace-bootstrap\n\s+Shell: singularity-flow workspace doctor --network --repository/);
   assert.match(direct.logs.join('\n'), /Copilot: \/sf-workspace-bootstrap/);
   assert.deepEqual(direct.logs, legacy.logs);
   assert.deepEqual(direct.warnings, legacy.warnings);

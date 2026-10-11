@@ -69,7 +69,7 @@ test('direct skills install as personal bare-command aliases and update only man
   assert.match(directSubmit, /Otherwise render every document\/brief/);
   assert.match(directSubmit, /always show the fresh `reviewBinding`/);
   assert.match(directSubmit, /never approve/);
-  assert.match(directSubmit, /available `modelFreeCommand` as "VS Code \(model-free\)"/);
+  assert.match(directSubmit, /in order: Copilot, Shell, VS Code \(model-free\) using `modelFreeCommand`/);
   assert.equal(directSubmit, renderDirectSkill(sourceSubmit, 'sflow-submit'));
 
   await writeFile(path.join(targetRoot, 'sf-submit', 'SKILL.md'), directSubmit.replace('Validate and submit', 'OLD Validate and submit'));

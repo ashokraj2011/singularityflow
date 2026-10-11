@@ -100,7 +100,7 @@ test('return previews and reconstructs a published Story in a fresh clone withou
   });
   // Quick fix opens with its Scope and plan phase; the route is the phase's drafting skill, never
   // one guessed from the phase ID.
-  assert.match(applied.stdout, /Next:\nShell: singularity-flow prepare intake\nCopilot: \/sf-phase\n/);
+  assert.match(applied.stdout, /Next:\nCopilot: \/sf-phase\nShell: singularity-flow prepare intake\nVS Code \(model-free\): not available for this action\n/);
   assert.doesNotMatch(applied.stdout, /Copilot: \/sf-intake/);
   assert.equal(git(second, ['branch', '--show-current']).stdout.trim(), 'WRK-RETURN-2');
   assert.equal(git(second, ['rev-parse', 'HEAD']).stdout.trim(), plan.sourceCommit);

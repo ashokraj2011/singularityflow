@@ -13,8 +13,9 @@ test('command guidance distinguishes a Copilot journey from an exact phase opera
   assert.equal(guidance.recover.copilotCommand, '/sf-recover');
   assert.equal(guidance.recheck.command, commands.recheck);
   assert.equal(guidance.recheck.copilotCommand, null);
+  // Every action reads Copilot, Shell, then the model-free VS Code route (2e600393).
   assert.match(commandGuidanceLines(guidance.recheck, 'Recheck').join('\n'),
-    /Shell: singularity-flow phase prepublish specification --json\nCopilot: No dedicated Copilot equivalent/);
+    /Copilot: No dedicated Copilot equivalent[^\n]*\nShell: singularity-flow phase prepublish specification --json\nVS Code \(model-free\): not available for this action/);
   assert.equal(guidance.publish, null);
   for (const key of ['unsafe', 'unknown']) {
     assert.equal(guidance[key].command, null);
@@ -34,7 +35,7 @@ test('phase document display has a read-only Copilot route with the exact phase 
 });
 
 test('all bundled and direct Copilot skills require command pairs or an explicit absence', async () => {
-  assert.match(COMMAND_PRESENTATION_CONTRACT, /available `modelFreeCommand` as "VS Code \(model-free\)"/);
+  assert.match(COMMAND_PRESENTATION_CONTRACT, /in order: Copilot, Shell, VS Code \(model-free\) using `modelFreeCommand`; if absent, say "not available for this action"/);
   const root = new URL('../plugin/skills/', import.meta.url);
   for (const entry of await readdir(root, { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.startsWith('sflow-')) continue;

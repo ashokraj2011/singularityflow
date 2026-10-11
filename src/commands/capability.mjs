@@ -36,12 +36,14 @@ async function printCommandRoutes(command, { skill = null, label = null, indent 
   if (label) console.log(`${indent}${label}:`);
   const guidance = safeCommandGuidance({ command, skill });
   if (!guidance) {
-    console.log(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
     console.log(`${indent}Copilot: unavailable — ask /sf-next for a current governed action.`);
+    console.log(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
+    console.log(`${indent}VS Code (model-free): not available for this action`);
     return;
   }
-  console.log(`${indent}Shell: ${guidance.command}`);
   console.log(`${indent}Copilot: ${guidance.copilotCommand}`);
+  console.log(`${indent}Shell: ${guidance.command}`);
+  console.log(`${indent}VS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}`);
 }
 
 function isDirect(context = {}) {

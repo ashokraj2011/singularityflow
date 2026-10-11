@@ -19,7 +19,7 @@ test('shared VS Code continuation presentation renders and copies both validated
   assert.match(html, /Copy Shell/);
   assert.match(html, /Copy Copilot/);
   assert.equal(commandGuidanceText('singularity-flow doctor --json'),
-    'Shell: singularity-flow doctor --json\nCopilot: /sf-doctor');
+    'Copilot: /sf-doctor\nShell: singularity-flow doctor --json\nVS Code (model-free): not available for this action');
 });
 
 test('placeholder routes remain visible but cannot be copied as executable commands', () => {
@@ -39,7 +39,7 @@ test('approval presentation pins the phase and Story in the validated Copilot ha
   });
   assert.equal(guidance?.copilotCommand, expected);
   assert.equal(commandGuidanceText(command),
-    `Shell: ${command}\nCopilot: ${expected}\nVS Code (model-free): @sflow /approve poc-review-v2 --work-id STORY-17`);
+    `Copilot: ${expected}\nShell: ${command}\nVS Code (model-free): @sflow /approve poc-review-v2 --work-id STORY-17`);
   assert.match(commandGuidanceHtml({ command, copilotCommand: expected }), /\/sf-approve poc-review-v2 --work-id STORY-17/);
   assert.equal(safeCommandPair({ command, copilotCommand: '/sf-approve' }), null,
     'an asserted route cannot discard the reviewed phase or Story');

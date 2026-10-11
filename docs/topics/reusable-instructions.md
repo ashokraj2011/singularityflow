@@ -10,7 +10,7 @@ related:
   - skill-master
   - workflow-authoring
   - importing-assets
-version: 3
+version: 4
 ---
 
 ## Purpose and prerequisites
@@ -101,6 +101,13 @@ repairer is a different agent, and every repaired revision returns to the indepe
 Automatic route selection retains human approval checkpoints, including closure; closing reports
 preserve repair history and residual risk. No browser service is mandatory: use approved existing
 repository commands or an explicitly authorized Playwright/equivalent tool.
+
+Adoption from either the canvas or CLI includes the agents' skills and referenced instructions in
+the reviewed configuration change. Repository configuration refresh restores missing packaged
+instructions without overwriting customized definitions. Merely updating the installed CLI does
+not require an older repository to install this optional demo: new Story snapshots offer compatible
+agents for that Story's phases, plus its configured independent reviewer, and retain only applicable
+skills. A missing skill actually used by that Story still requires configuration repair.
 
 ## Use it from each surface
 

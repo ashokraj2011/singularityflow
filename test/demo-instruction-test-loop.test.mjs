@@ -1,18 +1,19 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
+import { initializeDefinition, loadDefinition, resolveWorkType, snapshotResolution } from '../src/config.mjs';
 import { renderAgentSkills } from '../src/agents.mjs';
 import { phaseRequiresCodeDelivery } from '../src/code-delivery-policy.mjs';
 import { decisionOutcome } from '../src/workflow-decisions.mjs';
 import { installWorkflow, simulateWorkflow } from '../src/workflow-catalog.mjs';
 import { instructionPath, loadInstructionLibrary } from '../src/instruction-library.mjs';
-import { loadSkillLibrary, librarySkillPath } from '../src/skill-library.mjs';
+import { loadSkillLibrary, librarySkillPath, librarySkillText } from '../src/skill-library.mjs';
+import { packagedWorkflowSkills } from '../src/packaged-workflow-skills.mjs';
 import { copyWorkflow, exportWorkflowBundle, planWorkflowCopy } from '../src/workflow-transfer.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
 import { resolveStoryExecutionContext } from '../src/story-execution-context.mjs';
@@ -28,6 +29,15 @@ async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-instruction-loop-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await initializeDefinition(root); return root;
+}
+async function withoutInstructionDemo(root) {
+  const file = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(file, 'utf8')); delete config.workTypes[ID];
+  for (const id of PHASES) delete config.phases[id];
+  await writeFile(file, YAML.stringify(config));
+  for (const id of AGENTS) await rm(path.join(root, `.github/agents/${id}.agent.md`));
+  for (const id of SKILLS) await rm(path.join(root, librarySkillPath(id)));
+  for (const id of REFERENCES) await rm(path.join(root, instructionPath(id)));
 }
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8', timeout: 30000 });
@@ -80,13 +90,7 @@ test('custom checker prompt receives three exact instructions in order, never in
 });
 
 test('starter adoption carries instruction closure without overwriting reviewed local definitions', async t => {
-  const root = await fixture(t); const file = path.join(root, 'singularity/workflow.yml');
-  const config = YAML.parse(await readFile(file, 'utf8')); delete config.workTypes[ID];
-  for (const id of PHASES) delete config.phases[id];
-  await writeFile(file, YAML.stringify(config));
-  for (const id of AGENTS) await rm(path.join(root, `.github/agents/${id}.agent.md`));
-  for (const id of SKILLS) await rm(path.join(root, librarySkillPath(id)));
-  for (const id of REFERENCES) await rm(path.join(root, instructionPath(id)));
+  const root = await fixture(t); await withoutInstructionDemo(root);
   const preview = await installWorkflow(root, ID, { dryRun: true });
   for (const id of REFERENCES) assert.ok(preview.files.includes(instructionPath(id)), id);
   await installWorkflow(root, ID);
@@ -95,6 +99,87 @@ test('starter adoption carries instruction closure without overwriting reviewed 
   const custom = (await readFile(item, 'utf8')) + '\nPreserve the team convention.\n';
   await writeFile(item, custom); await installWorkflow(root, ID, { replace: true });
   assert.equal(await readFile(item, 'utf8'), custom);
+});
+
+test('uninstalled optional demo agents cannot block any existing workflow catalog or ordinary Story snapshot', async t => {
+  const root = await fixture(t); await withoutInstructionDemo(root);
+  const definition = await loadDefinition(root);
+  assert.ok(AGENTS.every(id => definition.agentCatalog.some(agent => agent.id === id && agent.scope === 'bundled')),
+    'the upgraded package still discovers its new optional agents');
+  for (const id of Object.keys(definition.workTypes)) {
+    const selected = await snapshotResolution(root, definition, resolveWorkType(definition, id));
+    for (const agent of AGENTS) assert.equal(selected.agents[agent], undefined, `${id} must not offer dormant ${agent}`);
+  }
+  git(root, 'init', '-q', '-b', 'main');
+  git(root, 'config', 'user.name', 'Instruction Tester'); git(root, 'config', 'user.email', 'instruction@example.invalid');
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'older approved configuration'); git(root, 'switch', '-c', 'ORDINARY-1');
+  const config = await loadConfig(root); const resolved = resolveWorkType(config, 'spec-driven-standard');
+  const workflow = await createWorkflow(root, config, { id: 'ORDINARY-1', title: 'Ordinary Story',
+    baseBranch: 'main', workType: 'spec-driven-standard', agent: 'product-owner', resolved,
+    source: { type: 'manual', key: 'ORDINARY-1', title: 'Ordinary Story', description: 'Keep the original workflow usable.', acceptanceCriteria: ['No optional demo dependency is required.'] } });
+  const manifest = JSON.parse(await readFile(path.join(root, workflow.workflowSnapshot.manifestPath), 'utf8'));
+  assert.ok(manifest.assets.some(asset => asset.logicalId === 'agent:product-owner'));
+  assert.ok(manifest.assets.some(asset => asset.logicalId === 'agent:sflow-source-reviewer'));
+  assert.ok(!manifest.assets.some(asset => /demo-instruction/.test(asset.logicalId)));
+});
+
+test('Story agent catalogs retain compatible alternatives, unscoped agents and explicit independent reviewers only', async t => {
+  const root = await fixture(t); const definition = await loadDefinition(root);
+  const resolved = resolveWorkType(definition, 'spec-driven-standard');
+  resolved.sourceReview = { ...resolved.sourceReview, reviewerAgent: 'review-bot' };
+  const agent = (id, phases) => ({ id, phases, defaultFor: [], source: `${id}.md`, sha256: 'a'.repeat(64) });
+  definition.agentCatalog.push(agent('alternative', ['implementation']), agent('unscoped', []),
+    agent('unrelated', ['demo-instruction-test']), agent('review-bot', ['review-only']));
+  const snapshot = await snapshotResolution(root, definition, resolved);
+  for (const id of ['alternative', 'unscoped', 'review-bot']) assert.ok(snapshot.agents[id], id);
+  assert.equal(snapshot.agents.unrelated, undefined);
+  resolved.sourceReview.mode = 'off';
+  assert.equal((await snapshotResolution(root, definition, resolved)).agents['review-bot'], undefined,
+    'a disabled review policy cannot introduce an unrelated dependency');
+});
+
+test('canvas starter adoption includes agent skills and all referenced instructions atomically', async t => {
+  const root = await fixture(t); await withoutInstructionDemo(root);
+  const request = { schema: STUDIO_CHANGE_SET_SCHEMA, changes: [{ op: 'workflow.install', id: ID }] };
+  const preview = await planStudioChangeSet(root, request);
+  assert.equal(preview.valid, true, JSON.stringify(preview.problems));
+  for (const id of SKILLS) assert.ok(preview.files.some(file => file.path === librarySkillPath(id)), id);
+  for (const id of REFERENCES) assert.ok(preview.files.some(file => file.path === instructionPath(id)), id);
+  assert.equal((await loadSkillLibrary(root)).skills.has(SKILLS[0]), false, 'preview is read-only');
+  await planStudioChangeSet(root, request, { write: true });
+  assert.deepEqual(resolveWorkType(await loadDefinition(root), ID).phases.map(phase => phase.defaultAgent), AGENTS);
+  const rendered = await renderAgentSkills(root, { workItem: { id: 'CANVAS', workType: ID } },
+    { id: PHASES[1] }, { agent: AGENTS[1] });
+  assert.match(rendered.text, /Use the approved repository test tool/);
+  assert.doesNotMatch(rendered.text, /<!-- sflow-instruction:/);
+});
+
+test('starter dependency planning preserves valid repository-only agent skills instead of looking them up in the package', async t => {
+  const root = await fixture(t); const id = 'repository-only';
+  const file = path.join(root, librarySkillPath(id)); await mkdir(path.dirname(file), { recursive: true });
+  const text = librarySkillText({ id, label: 'Repository skill', description: 'Team guidance for repository changes.',
+    instructions: 'Follow the team convention.', instructionRefs: [REFERENCES[0]] });
+  await writeFile(file, text);
+  const files = await packagedWorkflowSkills(root, 'custom-workflow', new Set(), [{ id }]);
+  assert.deepEqual(files, []); assert.equal(await readFile(file, 'utf8'), text);
+});
+
+test('canvas adoption resolves instructions from a skill created in that same atomic candidate', async t => {
+  const root = await fixture(t); await withoutInstructionDemo(root);
+  const changes = [
+    { op: 'instruction.create', id: 'team-check-rule', description: 'Team checking rule.', instructions: 'Inspect the team-specific behavior.' },
+    { op: 'skill.create', id: SKILLS[1], description: 'Team check policy.', instructions: 'Follow the explicit team check.', instructionRefs: ['team-check-rule'] },
+    { op: 'workflow.install', id: ID }
+  ];
+  const request = { schema: STUDIO_CHANGE_SET_SCHEMA, changes };
+  const preview = await planStudioChangeSet(root, request);
+  assert.equal(preview.valid, true, JSON.stringify(preview.problems));
+  await planStudioChangeSet(root, request, { write: true });
+  const skill = (await loadSkillLibrary(root)).skills.get(SKILLS[1]);
+  assert.deepEqual(skill.instructionRefs, ['team-check-rule']);
+  const rendered = await renderAgentSkills(root, { workItem: { id: 'ATOMIC', workType: ID } },
+    { id: PHASES[1] }, { agent: AGENTS[1] });
+  assert.match(rendered.text, /Inspect the team-specific behavior/);
 });
 
 test('independent workflow duplication exports instructions and rewrites all live placement identities', async t => {

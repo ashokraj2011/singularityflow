@@ -1928,7 +1928,17 @@ export async function snapshotResolution(root, definition, resolved) {
   });
   const definitionSnapshot = await snapshot(workflow.absolute);
   const agents = {};
+  // Discovery includes optional packaged agents whose workflows are not installed here. A
+  // Story's portable selection catalog must contain only agents it can actually use, otherwise
+  // capture tries to retain unrelated (and legitimately uninstalled) skills and instructions.
+  const phaseIds = new Set(resolved.phases.map((phase) => phase.id));
+  const requiredAgents = new Set([
+    ...resolved.phases.map((phase) => phase.defaultAgent).filter(Boolean),
+    resolved.sourceReview?.mode !== 'off' ? resolved.sourceReview?.reviewerAgent : null
+  ].filter(Boolean));
   for (const agent of definition.agentCatalog ?? []) {
+    if (agent.phases?.length && !agent.phases.some((id) => phaseIds.has(id))
+        && !requiredAgents.has(agent.id)) continue;
     agents[agent.id] = {
       source: agent.source,
       sha256: agent.sha256,

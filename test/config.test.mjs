@@ -301,6 +301,7 @@ test('every shipped workflow profile resolves an explicit safe code-delivery con
     'bugfix/implementation',
     'classic-delivery/implementation',
     'demo-check-repair-close/demo-repair',
+    'demo-instruction-test-loop/demo-instruction-repair',
     'demo-web-e2e-testing/demo-web-repair',
     'document-test-repair/scenario-repair',
     'feature/implementation',
@@ -479,7 +480,7 @@ test('every shipped Story workflow phase renders a contract-consistent guarded a
   const example = YAML.parse(await readFile(new URL('../examples/workflow-with-quality-gates.yml', import.meta.url), 'utf8'));
   validateDefinition(example);
   const matrices = [
-    { name: 'starter', definition: starter, expectedProfiles: 16, expectedPhases: 80 },
+    { name: 'starter', definition: starter, expectedProfiles: 17, expectedPhases: 84 },
     { name: 'quality-gates-example', definition: example, expectedProfiles: 1, expectedPhases: 6 }
   ];
 

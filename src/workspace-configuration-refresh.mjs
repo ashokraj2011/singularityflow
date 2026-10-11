@@ -21,6 +21,9 @@ import {
 } from './configuration-assets.mjs';
 import { loadDefinition, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { SMART_INITIALIZATION_ASSETS } from './initialization-assets.mjs';
+import { parseAgentDependencies } from './agents.mjs';
+import { librarySkillPath, parseLibrarySkill, parseSkillAttachments, SKILL_ATTACHMENTS_PATH } from './skill-library.mjs';
+import { instructionPath } from './instruction-library.mjs';
 import { gitCommitIdentity, refHead } from './git.mjs';
 import {
   enterpriseGitEnvironment, withoutGitProcessOverrides
@@ -1063,7 +1066,47 @@ async function packagedAssets(templatesRoot) {
   await walkPackageDirectory(
     path.join(PACKAGE_ROOT, 'templates', 'skill-library'), 'singularity/skill-library', output
   );
+  await walkPackageDirectory(
+    path.join(PACKAGE_ROOT, 'templates', 'instruction-library'), 'singularity/instruction-library', output
+  );
   return new Map([...output.entries()].sort(([left], [right]) => left.localeCompare(right)));
+}
+
+/** Smart init keeps omitted starters omitted, but an explicitly adopted starter keeps its closure. */
+async function selectedSmartDependencyAssets(root, workflow, assets) {
+  const selected = new Set(); const agents = new Set(); const skills = new Set();
+  const phases = new Set(Object.keys(workflow.phases ?? {}));
+  const applies = (entry) => !entry.phases.length || entry.phases.some((id) => phases.has(id));
+  const localText = async (relative) => readFile(await assertSafeTarget(root, relative), 'utf8')
+    .catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));
+  for (const [relative, bytes] of assets) {
+    if (!relative.startsWith('.github/agents/')) continue;
+    const bundled = parseAgentDependencies(bytes.toString('utf8'), { source: relative });
+    const local = await localText(relative);
+    // Do not materialize every alternative from the installed product. A missing agent is
+    // restored only when it is a default for an installed phase; existing alternatives stay.
+    if (local == null && !bundled.defaultFor.some((id) => phases.has(id))) continue;
+    for (const agent of [bundled, ...(local == null ? [] : [parseAgentDependencies(local, { source: relative })])]) {
+      if (!applies(agent)) continue;
+      agents.add(agent.id); selected.add(relative);
+      for (const skill of agent.librarySkills) if (applies(skill)) skills.add(skill.id);
+    }
+  }
+  const attachments = await localText(SKILL_ATTACHMENTS_PATH);
+  for (const entry of attachments == null ? [] : parseSkillAttachments(attachments)) {
+    if (applies(entry) && (entry.workflow ? workflow.workTypes?.[entry.workflow] : agents.has(entry.agent))) skills.add(entry.id);
+  }
+  for (const id of skills) {
+    const relative = librarySkillPath(id); const bundled = assets.get(relative);
+    // Repository-only missing dependencies remain a reviewable error, never a package fallback.
+    if (!bundled) continue;
+    selected.add(relative);
+    const local = await localText(relative);
+    for (const text of [bundled.toString('utf8'), ...(local == null ? [] : [local])]) {
+      for (const reference of parseLibrarySkill(text, { id }).instructionRefs) selected.add(instructionPath(reference));
+    }
+  }
+  return selected;
 }
 
 function productIdentity() {
@@ -1466,6 +1509,8 @@ export async function refreshPackagedConfiguration(root, {
   await assertRegularConfigurationTargets(root, [
     ...assets.keys(), ...Object.keys(priorAssets)
   ]);
+  const selectedDependencies = preserveSmartInitSelections
+    ? await selectedSmartDependencyAssets(root, merged.value, assets) : new Set();
   const conflicts = [...merged.conflicts];
   const changedFiles = new Set();
   const removedFiles = new Set();
@@ -1489,7 +1534,8 @@ export async function refreshPackagedConfiguration(root, {
       throw new SingularityFlowError(`Packaged configuration asset must be a regular file: ${relative}`);
     }
     if (preserveSmartInitSelections && !info
-        && !selectedSmartInitializationAsset(relative, merged.value.templatesRoot ?? 'singularity/templates')) {
+        && !selectedSmartInitializationAsset(relative, merged.value.templatesRoot ?? 'singularity/templates')
+        && !selectedDependencies.has(relative)) {
       assetOwnership[relative] = PACKAGE_OWNERSHIP_REPOSITORY;
       continue;
     }

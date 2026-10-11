@@ -22,9 +22,10 @@ import { loadDefinition, mergePhaseOverride, resolveWorkType, validateDefinition
 import { AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies, parseAttachedSkills } from './agents.mjs';
 import {
   SKILL_ATTACHMENTS_PATH, effectiveLibrarySkills, librarySkillPath, librarySkillText, loadSkillLibrary, normalizeSkillUse,
-  parseLibrarySkill, readSkillAttachments, skillAttachmentsText, withoutAttachedSkills
+  parseLibrarySkill, parseSkillAttachments, readSkillAttachments, skillAttachmentsText, withoutAttachedSkills
 } from './skill-library.mjs';
 import { instructionPath, instructionText, parseInstruction, loadInstructionLibrary } from './instruction-library.mjs';
+import { packagedWorkflowSkills } from './packaged-workflow-skills.mjs';
 
 function instructionCatalogHash(catalog) {
   return sha256(JSON.stringify({ entries: [...catalog.instructions].map(([id, item]) => [id, item.sha256]), problems: catalog.problems }));
@@ -1918,7 +1919,7 @@ class StudioCandidate {
     this.summary.push(`Agent ${agent.label} updated.`);
   }
 
-  installBlueprint({ id }) {
+  async installBlueprint({ id }) {
     const workflowId = requireId(id, 'A blueprint');
     const starter = this.sources.starter;
     const profile = starter.workTypes[workflowId];
@@ -1969,6 +1970,31 @@ class StudioCandidate {
         tools: [...new Set([...(current.tools ?? []), ...(packaged.tools ?? [])])]
       };
       this.document.setIn(['mcpServers', serverId], this.document.createNode(merged));
+    }
+    // Canvas adoption carries the same dependency closure as CLI adoption, in the same atomic
+    // candidate. Installing just phases/agents leaves the next Story without its skill master.
+    const agentIds = new Set([...this.agents.values()]
+      .filter((agent) => agent.defaultFor.some((phase) => installedPhases.has(phase))).map((agent) => agent.id));
+    const agentSkills = [...agentIds].flatMap((id) => this.attachedSkills(this.agents.get(id)));
+    const candidateFiles = new Map([...this.skillFiles, ...this.instructionFiles]);
+    if (this.attachmentsChanged) candidateFiles.set(SKILL_ATTACHMENTS_PATH, skillAttachmentsText(this.attachments));
+    for (const file of await packagedWorkflowSkills(this.sources.configRoot, workflowId, agentIds, agentSkills, { candidateFiles })) {
+      if (file.path === SKILL_ATTACHMENTS_PATH) {
+        const entries = parseSkillAttachments(file.text);
+        const added = entries.filter((entry) => !this.attachments.some((current) => current.id === entry.id
+          && current.agent === entry.agent && current.workflow === entry.workflow));
+        if (added.length) this.setFileAttachments([...this.attachments, ...added]);
+      } else if (file.path.startsWith('singularity/skill-library/')) {
+        const id = file.path.split('/')[2];
+        if (!this.skills.has(id)) {
+          this.skills.set(id, parseLibrarySkill(file.text, { id })); this.skillFiles.set(file.path, file.text);
+        }
+      } else {
+        const id = file.path.split('/')[2];
+        if (!this.instructions.has(id)) {
+          this.instructions.set(id, parseInstruction(file.text, { id })); this.instructionFiles.set(file.path, file.text);
+        }
+      }
     }
     this.workflows.set(workflowId, { newlyCreated: true });
     this.summary.push(`Installed blueprint ${profile.label ?? workflowId}: ${profile.phases.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);

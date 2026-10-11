@@ -150,6 +150,35 @@ test('a Story snapshot closes policy, template, and governed-agent bytes for off
   }
 });
 
+test('Story snapshots omit an agent library skill scoped only to phases outside this Story', async t => {
+  const value = await fixture(); t.after(() => rm(value.root, { recursive: true, force: true }));
+  const table = '\n## Attached skills\n\n| Skill | Phases | When to use it |\n| --- | --- | --- |\n| uninstalled-skill | optional-step | Only in the optional workflow. |\n';
+  const text = (await readFile(path.join(value.root, value.agentPath), 'utf8')) + table;
+  await writeFile(path.join(value.root, value.agentPath), text);
+  value.config.agentCatalog[0].sha256 = digest(text);
+  value.config.agentCatalog[0].librarySkills = [{ id: 'uninstalled-skill', phases: ['optional-step'], use: 'Only in the optional workflow.' }];
+  value.workflow.workflowSnapshot = await captureWorkflowSnapshot(value.root, value.config, value.workflow);
+  const manifest = JSON.parse(await readFile(path.join(value.root, value.workflow.workflowSnapshot.manifestPath), 'utf8'));
+  assert.ok(!manifest.executionDependencies.some(entry => entry.dependencyId === 'uninstalled-skill'));
+  await acceptSnapshot(value);
+  const context = await resolveStoryExecutionContext(value.root, value.config, value.workflow, {
+    agentId: 'developer', phaseId: 'implementation'
+  });
+  const rendered = await renderAgentSkills(value.root, value.workflow, value.workflow.resolution.phases[0],
+    { agent: 'developer' }, { executionContext: context });
+  assert.doesNotMatch(rendered.text, /uninstalled-skill/);
+  assert.ok(!rendered.warnings.some(warning => warning.includes('uninstalled-skill')));
+});
+
+test('Story snapshots still refuse missing applicable or unscoped agent library skills', async t => {
+  for (const phases of [['implementation'], []]) {
+    const value = await fixture(); t.after(() => rm(value.root, { recursive: true, force: true }));
+    value.config.agentCatalog[0].librarySkills = [{ id: 'required-skill', phases, use: 'Required for this agent.' }];
+    await assert.rejects(captureWorkflowSnapshot(value.root, value.config, value.workflow),
+      error => error.code === 'WFA_DEPENDENCY_UNAVAILABLE' && error.message.includes('required-skill'));
+  }
+});
+
 test('accepted Story snapshot hydrates only immutable closure blobs from a blobless checkout', async () => {
   const value = await fixture();
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-wfa-partial-'));

@@ -14,6 +14,7 @@ import { currentSchemaVersion } from '../src/schema-migrations.mjs';
 import { gitCommonDir } from '../src/git.mjs';
 import { loadDefinition } from '../src/config.mjs';
 import { refreshPackagedConfiguration } from '../src/workspace-configuration-refresh.mjs';
+import { installWorkflow } from '../src/workflow-catalog.mjs';
 
 const packageRoot = path.resolve(import.meta.dirname, '..');
 const executable = path.join(packageRoot, 'bin', 'singularity-flow.mjs');
@@ -151,6 +152,27 @@ test('seeded reinitialization keeps the accepted smart catalog and repository wo
 
   const repeated = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
   assert.equal(repeated.changed, false);
+});
+
+test('smart reinitialization restores an adopted demo skill and instruction without installing other optional starters', async t => {
+  const root = await repository({ 'package.json': '{"name":"smart-demo","scripts":{"test":"node --test"}}\n' });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const snapshot = await captureSmartInitSnapshot(root);
+  const rendered = await buildSmartInitProposal(snapshot, runSmartInitDetectors(snapshot));
+  await activateSmartInit(root, rendered, { confirmation: rendered.proposal.proposalSha256 });
+  await installWorkflow(root, 'demo-instruction-test-loop');
+  await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  const before = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  const paths = ['singularity/skill-library/demo-instruction-check/SKILL.md',
+    'singularity/instruction-library/demo-fresh-test-evidence/INSTRUCTIONS.md'];
+  for (const relative of paths) await rm(path.join(root, relative));
+  const preview = await refreshPackagedConfiguration(root, { restorePackagedSeeds: true, dryRun: true });
+  for (const relative of paths) assert.ok(preview.files.includes(relative), relative);
+  await refreshPackagedConfiguration(root, { restorePackagedSeeds: true });
+  await loadDefinition(root);
+  const after = YAML.parse(await readFile(path.join(root, 'singularity/workflow.yml'), 'utf8'));
+  assert.deepEqual(Object.keys(after.workTypes).sort(), Object.keys(before.workTypes).sort());
+  for (const relative of paths) assert.ok((await readFile(path.join(root, relative))).byteLength > 0);
 });
 
 test('seeded reinitialization restores selected phase dependencies when its work type is customized', async (t) => {

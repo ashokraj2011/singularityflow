@@ -283,9 +283,10 @@ async function captureInstalledAgent(root, config, workId, agent) {
  * the configuration the agent file came from. Skills the attachments file attaches are kept the same
  * way, and the Story policy keeps those attachments (`skillAttachments`).
  */
-async function captureAttachedLibrarySkills(root, config, workId, agent) {
+async function captureAttachedLibrarySkills(root, config, workId, agent, phaseIds) {
   const assets = []; const dependencies = [];
   for (const attachment of effectiveLibrarySkills(agent)) {
+    if (attachment.phases.length && !attachment.phases.some((id) => phaseIds.has(id))) continue;
     const logicalId = `agent:${agent.id}:skill:${attachment.id}`;
     const label = `Skill '${attachment.id}' attached to governed agent '${agent.id}'`;
     const source = await secureRepositoryPath(configurationReadRoot(root), librarySkillPath(attachment.id), { label, type: 'file' });
@@ -313,8 +314,8 @@ async function captureAttachedLibrarySkills(root, config, workId, agent) {
   return { assets, dependencies };
 }
 
-async function captureAgentExecutionDependencies(root, config, workId, agent) {
-  const library = await captureAttachedLibrarySkills(root, config, workId, agent);
+async function captureAgentExecutionDependencies(root, config, workId, agent, phaseIds) {
+  const library = await captureAttachedLibrarySkills(root, config, workId, agent, phaseIds);
   const remote = await captureRemoteAgentDependencies(root, config, workId, agent);
   return { assets: [...remote.assets, ...library.assets], dependencies: [...remote.dependencies, ...library.dependencies] };
 }
@@ -1078,6 +1079,7 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
   // Skills the attachments file attaches are not in the saved agent text, so the policy keeps
   // which skills each agent uses and when; the skill bytes are kept under the agent like its own.
   const skillAttachments = {};
+  const phaseIds = new Set((workflow.resolution.phases ?? []).map((phase) => phase.id));
   for (const agentId of [...selectedAgentIds].sort()) {
     const agent = agents.get(agentId);
     if (!agent?.file || !agent?.sha256) {
@@ -1085,12 +1087,13 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
     }
     assets.push(await captureInstalledAgent(root, config, workId, agent));
     const capturedDependencies = await captureAgentExecutionDependencies(
-      root, config, workId, agent
+      root, config, workId, agent, phaseIds
     );
     assets.push(...capturedDependencies.assets);
     executionDependencies.push(...capturedDependencies.dependencies);
     const own = new Set((agent.librarySkills ?? []).map((entry) => entry.id));
-    const attached = (agent.attachedSkills ?? []).filter((entry) => !own.has(entry.id));
+    const attached = (agent.attachedSkills ?? []).filter((entry) => !own.has(entry.id)
+      && (!entry.phases.length || entry.phases.some((id) => phaseIds.has(id))));
     if (attached.length) {
       skillAttachments[agentId] = attached.map((entry) => ({ id: entry.id, phases: [...entry.phases], use: entry.use }));
     }

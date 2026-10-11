@@ -46,6 +46,7 @@ const INITIAL_FILES = [
   ['artifacts', 'singularity/templates'],
   ['agents', '.github/agents'],
   ['skill-library', 'singularity/skill-library'],
+  ['instruction-library', 'singularity/instruction-library'],
   ['copilot-planning.md', 'singularity/prompts/copilot-planning.md']
 ];
 
@@ -929,6 +930,26 @@ test('repository refresh restores additive policy and missing assets without ove
   const repeated = await refreshPackagedConfiguration(root);
   assert.equal(repeated.changed, false);
   assert.deepEqual(repeated.files, []);
+});
+
+test('repository refresh restores seeded instruction closure and preserves customized instruction bytes', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-instruction-refresh-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await initializeFixture(root);
+  const missing = 'singularity/instruction-library/demo-fresh-test-evidence/INSTRUCTIONS.md';
+  const customized = 'singularity/instruction-library/demo-source-interpretation/INSTRUCTIONS.md';
+  const local = (await readFile(path.join(root, customized), 'utf8')) + '\nPreserve the team convention.\n';
+  await writeFile(path.join(root, customized), local);
+  await rm(path.join(root, missing));
+  const preview = await refreshPackagedConfiguration(root, { dryRun: true });
+  assert.ok(preview.files.includes(missing));
+  await assert.rejects(readFile(path.join(root, missing)), { code: 'ENOENT' });
+  await refreshPackagedConfiguration(root);
+  assert.equal(await readFile(path.join(root, missing), 'utf8'),
+    await readFile(path.join(ROOT, 'templates/instruction-library/demo-fresh-test-evidence/INSTRUCTIONS.md'), 'utf8'));
+  assert.equal(await readFile(path.join(root, customized), 'utf8'), local);
+  const definition = await loadDefinition(root);
+  assert.ok(definition.workTypes['demo-instruction-test-loop']);
 });
 
 test('repository refresh changes only the lines it restores in a workflow folded at 80 columns', async (t) => {

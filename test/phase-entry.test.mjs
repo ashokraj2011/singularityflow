@@ -198,6 +198,9 @@ test('a future user-created workflow composes a question-only checkpoint for its
   assert.equal(entry.clarification.checkpoint.questioningAllowed, true);
   assert.equal(entry.next[0].agentAction, 'derive-and-ask');
   assert.equal(entry.next[0].copilotCommand, '/sf-phase');
+  assert.equal(entry.next[0].commandGuidance.copilotCommand, '/sf-phase');
+  assert.equal(entry.next[0].commandGuidance.command, null, 'asking has no fabricated shell answer');
+  assert.equal(entry.next[0].commandGuidance.copyable, false);
   assert.match(entry.context.text, /Formulating evidence-grounded questions is permitted/);
   assert.equal(await readFile(statePath, 'utf8'), before);
   assert.equal(entry.effects.testsRun, false);

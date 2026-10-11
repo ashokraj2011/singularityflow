@@ -132,7 +132,15 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     ...(context ? { copilotCommand: authoring.effectiveAuthoringSkill, modelFreeCommand: null } : {})
   } : null;
   checkpoint.nextAction = clarificationAction ? context
-    ? { ...clarificationAction, commandGuidance: null, modelFreeStatus: 'unavailable' }
+    ? { ...clarificationAction, commandGuidance: {
+      // Verify the configured Copilot route through the same crosswalk as the context-loading
+      // action, but do not present its shell command as another composition or a fabricated answer.
+      copilotCommand: safeCommandGuidance({ ...clarificationAction,
+        command: `singularity-flow phase enter ${phase.id} --work-id ${actualId} --compose --for-agent --json`
+      })?.copilotCommand ?? null,
+      command: null, copyable: false, modelFreeCommand: null,
+      shellReason: 'Formulate the questions and ask the human in Copilot; record only the actual reply.'
+    }, modelFreeStatus: 'unavailable' }
     : recoveryActionGuidance(clarificationAction) : null;
   const preparationAdmitted = authoring.policyVerified
     && authoring.entry?.status === 'successor-preparation-required'

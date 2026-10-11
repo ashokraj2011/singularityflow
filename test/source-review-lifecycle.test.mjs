@@ -201,6 +201,22 @@ test('private kernel staging refuses stale bindings, malformed JSON, conflicts a
   assert.deepEqual(await readFile(path.join(root, `${ITEM}/workflow.json`)), before);
 });
 
+test('kernel staging in a linked Story checkout stays in its own Git-private directory', async t => {
+  const f = await fixture(t);
+  const checkout = path.join(f.root, 'review-checkout');
+  git(f.root, 'worktree', 'add', '-b', 'review-checkout', checkout, 'HEAD');
+  const before = await readFile(path.join(checkout, `${ITEM}/artifacts/spec.md`));
+  const head = git(checkout, 'rev-parse', 'HEAD');
+  const input = await sourceReviewInput(checkout, f.config, f.workflow, 'specification');
+  const staged = await stageSourceReviewReport(checkout, f.config, f.workflow, 'specification', JSON.stringify(review(input)));
+  assert.match(staged.stagingPath.replaceAll('\\', '/'), /\/\.git\/worktrees\/review-checkout\/singularity-flow\/source-reviews\//);
+  assert.deepEqual(JSON.parse(await readFile(staged.stagingPath, 'utf8')), review(input));
+  await assert.rejects(readFile(path.join(f.root, '.git/singularity-flow/source-reviews/EXAMPLE-specification-gen1.json')), { code: 'ENOENT' });
+  assert.deepEqual(await readFile(path.join(checkout, `${ITEM}/artifacts/spec.md`)), before);
+  assert.equal(git(checkout, 'rev-parse', 'HEAD'), head);
+  assert.equal(staged.effects.stateChanged, false);
+});
+
 test('review context binds Story snapshot, exact attachment bytes, and published artifact', async (t) => {
   const { root, config, workflow } = await fixture(t);
   const packet = await sourceReviewContext(root, config, workflow, 'specification', '/tmp/report.json');

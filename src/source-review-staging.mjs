@@ -12,6 +12,7 @@ export const SOURCE_REVIEW_STAGE_MAXIMUM_BYTES = 65536;
 export function sourceReviewStagingProtocol(phaseId, stagingPath) {
   return { readTool: 'native-file-read', writeTool: 'file-edit', path: stagingPath,
     terminal: 'standalone-sflow-command', shellWritersAllowed: false,
+    maximumReportJsonBytes: SOURCE_REVIEW_STAGE_MAXIMUM_BYTES,
     kernelStage: safeCommandGuidance({ argv: ['review-source', 'stage', phaseId, '--report-json', '<REPORT-JSON>', '--json'] }),
     check: safeCommandGuidance({ argv: ['review-source', 'check', phaseId, '--report-file', stagingPath, '--json'] }),
     retain: safeCommandGuidance({ argv: ['review-source', 'submit', phaseId, '--report-file', stagingPath, '--json'] }),

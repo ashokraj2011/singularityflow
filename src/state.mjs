@@ -166,6 +166,8 @@ import {
   readBoundSpecificationClaimMap,
   predecessorSpecClauses, plannedClaimsForObservedPhase
 } from './specifications.mjs';
+import { activeClauseCapsule } from './active-clause-capsule.mjs';
+import { phasePlansDelivery, plannedDeliveryCodeSteps, scaffoldPlanningRows } from './phase-authoring-contract.mjs';
 import { acceptedClauses, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
 import { reviewBindings } from './implementation-bindings.mjs';
 import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
@@ -1766,17 +1768,9 @@ function placeholderTestReason(reason) {
 /** The code step a definition step plans claims for, with the policy that judges the plan, or null. */
 function plannedClaimsTarget(config, workflow, phase) {
   const policy = specificationPolicy(config, workflow);
-  const plannedPolicy = plannedClaimsPolicy(workflow);
-  const configuredCodePhases = plannedPolicy?.mode === 'required'
-    ? Object.entries(plannedPolicy.owners ?? {})
-      .filter(([, ownerId]) => ownerId === phase.id)
-      .map(([codePhaseId]) => workflow.phases[codePhaseId])
-      .filter(Boolean)
-    : [];
-  const upcoming = configuredCodePhases[0]
-    ?? (plannedPolicy == null ? nextPhase(workflow, phase) : null);
+  const codeSteps = plannedDeliveryCodeSteps(workflow, phase);
+  const upcoming = workflow.phases[codeSteps[0]];
   if (policy.mode === 'off' || policy.acceptance === 'off' || !phaseRequiresCodeDelivery(upcoming)) return null;
-  const codeSteps = (configuredCodePhases.length ? configuredCodePhases : [upcoming]).map((entry) => entry.id).sort();
   return { policy, upcoming, codeSteps, enforce: plannedClaimsEnforced(workflow, policy) };
 }
 
@@ -2567,6 +2561,10 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       templateSnapshot: workflow.resolution.templates?.[phase.id],
       retainedTemplate: executionCatalog?.phaseTemplates?.[phase.id]
     });
+    if (!artifactExistedBeforePreparation && phasePlansDelivery(workflow, phase)) {
+      const { capsule } = await activeClauseCapsule(itemDirectory, workflow, phase, null, { root });
+      text = scaffoldPlanningRows(text, (capsule?.clauses ?? []).map(clause => clause.id));
+    }
     text = applyInputsBlock(text, rendered.text, inputs.mode);
     // The immutable reference set is already captured by the WFA snapshot and its Story manifest.
     // Put only its bounded identifiers and local detached paths into a newly created phase artifact

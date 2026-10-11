@@ -19,6 +19,7 @@ import { SUPPORTING_CHANGE_CLASSES, classifySupportingChange } from './supportin
 import { accountedAmendmentPaths, planAmendmentRecord } from './plan-amendments.mjs';
 import { normalizeVerificationContracts, parseVerificationContracts, validateRetainedEvidenceDeclarations } from './verification/contracts.mjs';
 import { applyPlanEvidenceAmendments, verifyPlanEvidenceAmendments } from './plan-evidence-amendments.mjs';
+import { collectDraftDiagnostic, draftDiagnosticSummary, inspectDraftValue } from './draft-diagnostics.mjs';
 
 const CLAUSE_TYPES = new Set(GOVERNED_CLAUSE_TYPES);
 const VERDICTS = new Set(['matched', 'partial', 'missing', 'deviated', 'unplanned']);
@@ -521,6 +522,9 @@ function parseClauseCell(cell, known, label) {
 function parseBacktickedPathCell(cell, label) {
   const source = String(cell ?? '').trim();
   if (!source || /^(?:-|—)$/.test(source)) return [];
+  if (/^`(?:-|—)`$/u.test(source)) throw new SingularityFlowError(
+    `${label}: a backticked dash names a file, not an empty cell. Use an unquoted dash for no paths, or name the exact required source/test/evidence path.`,
+    { code: 'SPEC_PLANNED_PATH_SENTINEL_INVALID' });
   const paths = [];
   const remainder = source.replace(/`([^`\n]+)`/g, (_whole, value) => {
     paths.push(exactStructuredPath(value, label));
@@ -730,10 +734,14 @@ function supportingFilesFromPlan(lines) {
  * contract. Prose, guessed filenames, globs, and unqualified clause IDs are
  * deliberately ignored/refused rather than interpreted.
  */
-export function derivePlannedClaimMap(markdown, { clauseIds = [], policy = {}, evidenceRoot = null } = {}) {
+export function inspectPlannedClaimMap(markdown, { clauseIds = [], policy = {}, evidenceRoot = null,
+  requireComplete = false } = {}) {
   if (typeof markdown !== 'string') throw new SingularityFlowError('Planned claim source must be UTF-8 Markdown.');
   const known = new Set(clauseIds.map((id) => String(id).toUpperCase()));
   const claims = {};
+  const diagnostics = [];
+  const seen = new Set();
+  const locations = new Map();
   const lines = plannedClaimSource(markdown).split(/\r?\n/);
   for (let index = 0; index < lines.length - 1; index += 1) {
     const cells = markdownCells(lines[index]);
@@ -741,14 +749,17 @@ export function derivePlannedClaimMap(markdown, { clauseIds = [], policy = {}, e
     if (!headers || headers.slice(0, 3).join('|') !== 'clause|expected paths|planned tests') continue;
     const optional = headers.slice(3);
     if (optional.some((name) => !PLANNED_OPTIONAL_COLUMNS.includes(name)) || new Set(optional).size !== optional.length) {
-      throw new SingularityFlowError(
+      collectDraftDiagnostic(diagnostics, new SingularityFlowError(
         `Planned claim table at line ${index + 1} may add only these columns, each once: Fulfillment, Steps, Observable result.`,
         { code: 'SPEC_PLANNED_TABLE_INVALID' }
-      );
+      ), { line: index + 1, field: 'header' });
+      continue;
     }
     const column = (row, name) => (headers.indexOf(name) < 0 ? null : row[headers.indexOf(name)]);
     if (!tableDivider(markdownCells(lines[index + 1]), headers.length)) {
-      throw new SingularityFlowError(`Planned claim table at line ${index + 1} must be followed by a Markdown divider row.`);
+      collectDraftDiagnostic(diagnostics, new SingularityFlowError(`Planned claim table at line ${index + 1} must be followed by a Markdown divider row.`),
+        { line: index + 1, field: 'divider' });
+      continue;
     }
     index += 2;
     for (; index < lines.length; index += 1) {
@@ -758,49 +769,85 @@ export function derivePlannedClaimMap(markdown, { clauseIds = [], policy = {}, e
         break;
       }
       if (row.length !== headers.length) {
-        throw new SingularityFlowError(`Planned claim table row at line ${index + 1} must contain exactly ${headers.length === 3 ? 'three' : headers.length} columns.`);
+        collectDraftDiagnostic(diagnostics, new SingularityFlowError(`Planned claim table row at line ${index + 1} must contain exactly ${headers.length === 3 ? 'three' : headers.length} columns.`),
+          { line: index + 1, field: 'row' });
+        continue;
       }
-      const id = parseClauseCell(row[0], known, `Planned claim table row ${index + 1}`);
-      if (claims[id]) throw new SingularityFlowError(`Planned claim table defines clause ${id} more than once.`);
-      const expectedPaths = parseBacktickedPathCell(row[1], `${id}.expectedPaths`);
-      const notApplicableReason = parseNotApplicable(row[2], `${id}.plannedTests`);
-      const tests = notApplicableReason == null
-        ? parseBacktickedPathCell(row[2], `${id}.tests`)
-        : [];
-      const fulfillment = parseFulfillmentCell(column(row, 'fulfillment'), `${id}.fulfillment`);
-      const steps = parseStepsCell(column(row, 'steps'), `${id}.steps`);
-      const observableResult = parseObservableResultCell(column(row, 'observable result'), `${id}.observableResult`);
-      claims[id] = {
-        expectedPaths,
-        tests,
-        testDisposition: notApplicableReason == null
-          ? (tests.length ? 'applicable' : 'unspecified')
-          : 'not-applicable',
-        testReason: notApplicableReason,
+      const identity = inspectDraftValue(diagnostics, () => parseClauseCell(row[0], known, `Planned claim table row ${index + 1}`),
+        { line: index + 1, field: 'clause', actual: row[0] });
+      const id = identity.value;
+      if (identity.valid && seen.has(id)) {
+        collectDraftDiagnostic(diagnostics, new SingularityFlowError(`Planned claim table defines clause ${id} more than once.`),
+          { line: index + 1, clauseId: id, field: 'clause' });
+        continue;
+      }
+      if (identity.valid) { seen.add(id); locations.set(id, index + 1); }
+      const field = (name, actual, read) => inspectDraftValue(diagnostics, read,
+        { line: index + 1, clauseId: id, field: name, actual });
+      const expected = field('expectedPaths', row[1], () => parseBacktickedPathCell(row[1], `${id ?? 'Clause'}.expectedPaths`));
+      const reason = field('plannedTests', row[2], () => parseNotApplicable(row[2], `${id ?? 'Clause'}.plannedTests`));
+      const tests = reason.valid && reason.value != null ? { valid: true, value: [] }
+        : field('plannedTests', row[2], () => parseBacktickedPathCell(row[2], `${id ?? 'Clause'}.tests`));
+      const fulfillment = field('fulfillment', column(row, 'fulfillment'), () => parseFulfillmentCell(column(row, 'fulfillment'), `${id ?? 'Clause'}.fulfillment`));
+      const steps = field('steps', column(row, 'steps'), () => parseStepsCell(column(row, 'steps'), `${id ?? 'Clause'}.steps`));
+      const observable = field('observableResult', column(row, 'observable result'), () => parseObservableResultCell(column(row, 'observable result'), `${id ?? 'Clause'}.observableResult`));
+      if (![identity, expected, reason, tests, fulfillment, steps, observable].every(value => value.valid)) continue;
+      const claim = {
+        expectedPaths: expected.value,
+        tests: tests.value,
+        testDisposition: reason.value == null ? (tests.value.length ? 'applicable' : 'unspecified') : 'not-applicable',
+        testReason: reason.value,
         deviation: null,
-        ...(fulfillment ? { fulfillment } : {}),
-        ...(steps.length ? { steps } : {}),
-        ...(observableResult ? { observableResult } : {})
+        ...(fulfillment.value ? { fulfillment: fulfillment.value } : {}),
+        ...(steps.value.length ? { steps: steps.value } : {}),
+        ...(observable.value ? { observableResult: observable.value } : {})
       };
+      const normalized = inspectDraftValue(diagnostics, () => normalizeClaimMap({ claims: { [id]: claim } },
+        { kind: 'planned', clauseIds: [...known], policy }), { line: index + 1, clauseId: id });
+      if (normalized.valid) claims[id] = normalized.value.claims[id];
     }
   }
-  const supportingFileDetails = supportingFilesFromPlan(lines);
+  const supporting = inspectDraftValue(diagnostics, () => supportingFilesFromPlan(lines), { field: 'supportingFiles' });
+  const supportingFileDetails = supporting.value ?? [];
   const supportingFiles = supportingFileDetails.map((entry) => entry.path);
-  const claimMap = normalizeClaimMap({ claims, supportingFiles, supportingFileDetails }, { kind: 'planned', clauseIds: [...known], policy });
-  validatePlannedEvidenceTypes(claimMap.claims, { evidenceRoot });
-  validateRetainedEvidenceDeclarations(plannedClaimSource(markdown), claimMap.claims, { evidenceRoot });
-  const contracts = parseVerificationContracts(plannedClaimSource(markdown), { clauseIds: [...known], plannedClaims: claimMap.claims });
-  if (contracts.length) claimMap.verificationContracts = contracts;
+  const normalized = inspectDraftValue(diagnostics, () => normalizeClaimMap({ claims, supportingFiles, supportingFileDetails },
+    { kind: 'planned', clauseIds: [...known], policy }));
+  const claimMap = normalized.value;
+  for (const [id, claim] of Object.entries(claims)) inspectDraftValue(diagnostics,
+    () => validatePlannedEvidenceTypes({ [id]: claim }, { evidenceRoot }),
+    { line: locations.get(id), clauseId: id, field: 'expectedPaths' });
+  inspectDraftValue(diagnostics, () => validateRetainedEvidenceDeclarations(plannedClaimSource(markdown), claims, { evidenceRoot }),
+    { field: 'retainedEvidence' });
+  const contracts = parseVerificationContracts(plannedClaimSource(markdown), {
+    clauseIds: [...known], plannedClaims: claims, diagnostics });
+  if (contracts.length && claimMap) claimMap.verificationContracts = contracts;
+  const missingClauseIds = [...known].filter((id) => !claims[id]).sort();
+  const missingTestClauseIds = [...known].filter((id) => !claims[id]
+    || (!claims[id].tests.length && claims[id].testDisposition !== 'not-applicable')).sort();
+  if (requireComplete) for (const id of [...new Set([...missingClauseIds, ...missingTestClauseIds])]) {
+    collectDraftDiagnostic(diagnostics, new SingularityFlowError(
+      `Clause ${id} has no exact planned test or reviewed not-applicable reason. Complete its approved clause row.`,
+      { code: 'SPEC_PLANNED_ROW_REQUIRED' }), { clauseId: id, line: locations.get(id), field: 'plannedTests' });
+  }
   return {
-    claimMap,
+    valid: diagnostics.length === 0, diagnostics, diagnosticSummary: draftDiagnosticSummary(diagnostics),
+    claimMap: diagnostics.length ? null : claimMap,
     supportingFiles,
     supportingFileDetails,
-    missingClauseIds: [...known].filter((id) => !claims[id]).sort(),
-    missingTestClauseIds: [...known].filter((id) => {
-      const claim = claims[id];
-      return !claim || (!claim.tests.length && claim.testDisposition !== 'not-applicable');
-    }).sort()
+    missingClauseIds, missingTestClauseIds
   };
+}
+
+/** Strict publication reader: all diagnostics are returned, but no partial map is admitted. */
+export function derivePlannedClaimMap(markdown, options = {}) {
+  const inspected = inspectPlannedClaimMap(markdown, options);
+  if (!inspected.valid) {
+    const first = inspected.diagnostics[0];
+    throw new SingularityFlowError(first.message, { code: first.code,
+      details: { ...first.details, diagnostics: inspected.diagnostics, diagnosticSummary: inspected.diagnosticSummary } });
+  }
+  const { valid, diagnostics, diagnosticSummary, ...derived } = inspected;
+  return derived;
 }
 
 /** Each supporting file's class and reason, exactly one per listed path when present. */

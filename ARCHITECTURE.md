@@ -257,6 +257,49 @@ singularity/work-items/ENG-142/
 
 Input declarations are validated in all modes, including ordering and work-type membership. `off` is inert, `record` records warnings, and `enforce` blocks required missing/unapproved inputs and every present hash mismatch. Collection verifies the producer's active approval, registered approved hash, current artifact hash, and resolved producer path. The marker-delimited input block is replaceable; the accompanying context record captures declarations, status, bytes, truncation, approved hashes, and rendered-block hash. Publication recollects rather than trusting preparation.
 
+### Shared phase-authoring contract
+
+`src/phase-authoring-contract.mjs` derives installed defaults from accepted responsibilities,
+artifact kinds and code-step allocations, never from a phase's name. Entry, prompt composition,
+preparation, prepublish and the publication planner use the same ownership resolver. Seeded,
+duplicated, imported and future user-created workflows inherit it without another YAML opt-in.
+The workflow designer discloses these defaults; it does not change seeded definitions.
+
+An approval seals its producer's generation under its pinned rules. Current draft checks do not
+re-lint earlier approved documents against new template requirements. Their approval receipts,
+index anchors and input hashes are still authenticated: changed approved bytes require exact
+restoration or an authorized amendment, never silently accepted replacement evidence. Prior
+phase documents and decisions are not editable targets of a current-phase repair.
+
+The configured producer may repair an open draft even when its document quality or traceability
+is unfinished. Independent current-draft checks report their defects together instead of hiding
+code/test or conformance findings behind a missing summary. Integrity, lifecycle, unowned edits
+and human decisions retain their distinct boundaries. Kernel artifacts are regenerated, not
+hand-edited. Publication, fresh tests, source review and approval remain separate operations;
+hidden approved runner arguments are not missing configuration. Exhausting the persistent
+automatic repair budget does not prohibit manual repair or erase work.
+
+For a newly created plan, preparation scaffolds one row per verified approved REQ and AC from the
+active clause capsule. It never invents paths, tests, fulfillment or passing judgments. Repeat
+preparation preserves existing authored rows and prior publications. The shared prompt explains
+the exact Story evidence root and typed verification cells; the capsule supplies clause meanings
+once rather than reconstructing them from summaries.
+
+`inspectPlannedClaimMap` and the strict publication reader share field validators. A bad evidence
+path, malformed witness cells, duplicate/foreign IDs and missing approved rows are reported in one
+read-only inspection, with line, field and clause identity. A backticked dash is refused with an
+explicit empty-cell correction. Diagnostics are capped at 256 with explicit omission counts;
+invalid or truncated inspections never expose a partial claim map as passing proof. The generic
+`planningRepair` projection identifies only the current artifact/generation and its hash, while
+the narrower evidence-repair helper still requires an exact unambiguous declaration before
+suggesting patches. No semantic remapping, test waiver or visual pass is inferred.
+
+VS Code shows the bounded field list rather than only its first five entries. Next Copilot,
+Shell and available model-free actions come from the same command binding; the producer's repair
+prefill is displayed separately from a read-only document inspection. Regression fixtures cover
+the failed retained-evidence plan, actual preparation/re-preparation, all phase roles, renamed
+steps, prior-format compatibility, upstream tampering, bounded diagnostics and repair restarts.
+
 ## Remote dependency trust boundary
 
 Only links in exact agent dependency tables are executable configuration. Fetching accepts non-empty UTF-8 Markdown over public HTTPS, uses bounded redirects and timeouts, rejects embedded credentials and local/private literal hosts, and enforces a 10 MiB hard ceiling. The lock stores source-agent and resource hashes. First trust and updates are interactive; sync never changes hashes. Cache and audit writes are atomic.

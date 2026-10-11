@@ -31,6 +31,20 @@ test('dependency warnings remain visible advisories and never become publication
   assert.deepEqual(decision.advisories, ['Approved input is advisory.', 'The recorded grounding is stale under warn policy.']);
 });
 
+test('all field diagnostics remain visible and next-action surfaces come from one command binding', () => {
+  const decision = phasePrepublishDecision({ ...ready, status: 'correction-required',
+    findings: Array.from({ length: 12 }, (_, index) => ({ message: `Fix witness field ${index}.`, line: index + 10,
+      details: { field: 'method' } })),
+    correction: { skill: '/sf-code' }, commands: { publish: null, next: 'singularity-flow phase show implementation --json' },
+    commandGuidance: { next: { copilotCommand: '/sf-phase-documents implementation', modelFreeCommand: '@sflow /documents implementation' } }
+  }, expected);
+  for (let index = 0; index < 12; index += 1) assert.ok(decision.details.some(line => line.includes(`Fix witness field ${index}.`)));
+  assert.ok(decision.details.includes('Next in Copilot: /sf-phase-documents implementation'));
+  assert.ok(decision.details.includes('VS Code (model-free): @sflow /documents implementation'));
+  assert.ok(decision.details.includes('Repair in Copilot: /sf-code'));
+  assert.equal(decision.skill, '/sf-code', 'the repair prefill is separate from the read-only next action');
+});
+
 test('VS Code Publish accepts only an exact fresh read-only ready projection', () => {
   assert.equal(phasePrepublishDecision(ready, expected).ready, true);
   const withPendingTests = phasePrepublishDecision({

@@ -30,13 +30,14 @@ import {
   isSpecificationDefinitionPhase, loadActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
   predecessorSpecClauses
 } from './specifications.mjs';
-import { exists, posix, secureRepositoryPath, snapshot } from './util.mjs';
+import { exists, posix, secureRepositoryPath, snapshot, SingularityFlowError } from './util.mjs';
 import { phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { planningEvidenceRepair } from './planning-evidence-repair.mjs';
+import { phaseAuthoringContract, phasePlansDelivery } from './phase-authoring-contract.mjs';
 
 function findingKey(finding) {
   return [finding.code, finding.path ?? '', finding.line ?? '',
-    finding.details?.clauseId ?? finding.value ?? ''].join('\0');
+    finding.details?.clauseId ?? finding.value ?? '', finding.details?.field ?? ''].join('\0');
 }
 
 /** Render only safe, read-only test-plan facts for the human CLI route. */
@@ -57,17 +58,7 @@ export function prepublishTestExecutionLines(testExecution) {
 }
 
 function plannedClaimOwner(workflow, phase) {
-  const policy = workflow.resolution?.plannedClaims;
-  if (policy?.mode === 'required') {
-    return Object.entries(policy.owners ?? {})
-      .some(([codeId, ownerId]) => ownerId === phase.id
-        && phaseRequiresCodeDelivery(workflow.phases?.[codeId]));
-  }
-  if (policy) return false;
-  const order = workflow.phaseOrder ?? workflow.resolution?.phases?.map((entry) => entry.id)
-    ?? Object.keys(workflow.phases ?? {});
-  const next = workflow.phases?.[order[order.indexOf(phase.id) + 1]];
-  return phaseRequiresCodeDelivery(next);
+  return phasePlansDelivery(workflow, phase);
 }
 
 function plannedClaimsEnforced(workflow, specPolicy) {
@@ -88,6 +79,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
   const blockers = [];
   const actions = [];
   let evidenceRepair = null;
+  let planningContract = null;
   if (!draft.artifact?.exists) return { blockers, actions };
 
   const artifactPath = draft.artifact.path;
@@ -158,6 +150,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
       : records.indexes;
     const clauseIds = [...new Set(indexes.flatMap((index) =>
       (index.clauses ?? []).map((clause) => String(clause.id).toUpperCase())))].sort();
+    planningContract = { clauseIds, evidenceRoot: `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence` };
     if (!clauseIds.length && plannedPolicy?.mode === 'required') {
       add('specification.clause-source-required', 'planning-table',
         `No authoritative specification clauses exist before the code phase owned by '${phase.id}'. Add stable fully qualified anchors before planning tests.`);
@@ -171,7 +164,8 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
         plannedSource = await readFile(source.absolute, 'utf8');
         const authored = authoredArtifactText(plannedSource);
         const derived = derivePlannedClaimMap(authored, { clauseIds, policy: specPolicy,
-          evidenceRoot: `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence` });
+          evidenceRoot: `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence`,
+          requireComplete: plannedClaimsEnforced(workflow, specPolicy) });
         // Derivation already validates contracts through the author-owned visibility boundary.
         // Re-parsing raw authored comments/examples would disagree with publication [E2G-013].
         const contracts = derived.claimMap.verificationContracts ?? [];
@@ -200,7 +194,8 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
           if (existing.kind !== 'planned' || existing.workId !== workflow.workItem.id
               || existing.phase !== phase.id
               || Number(existing.generation) !== Number(draft.generation)) {
-            throw new Error('Existing planned claim map does not bind this phase generation.');
+            throw new SingularityFlowError('Existing planned claim map does not bind this phase generation.',
+              { code: 'SPECIFICATION_CLAIM_MAP_BINDING_STALE', details: { path: claimPath } });
           }
           normalizeClaimMap(existing, { kind: 'planned', clauseIds, policy: specPolicy });
           const expected = {
@@ -210,7 +205,8 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
               bytes: sourceSnapshot.size }
           };
           if (canonicalJson(raw) !== canonicalJson(expected)) {
-            throw new Error(`Existing planned claim map ${claimPath} does not match the reviewed Markdown in ${artifactPath}.`);
+            throw new SingularityFlowError(`Existing planned claim map ${claimPath} does not match the reviewed Markdown in ${artifactPath}.`,
+              { code: 'SPECIFICATION_CLAIM_MAP_BINDING_STALE', details: { path: claimPath } });
           }
         }
         const effectiveGaps = evaluateSpecAcceptance({ indexes, planned: [derived.claimMap] },
@@ -222,8 +218,16 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
           }
         }
       } catch (error) {
-        add('specification.planned-test-invalid', 'planning-table', error.message,
-          { details: { ...error.details, sourceCode: error.code ?? null } });
+        const diagnostics = error.details?.diagnostics ?? [{ code: error.code, message: error.message, details: error.details }];
+        planningContract.diagnosticSummary = error.details?.diagnosticSummary ?? { complete: true, omitted: 0 };
+        for (const diagnostic of diagnostics) add(
+          diagnostic.code === 'SPEC_PLANNED_ROW_REQUIRED' ? 'specification.planned-test-missing' : 'specification.planned-test-invalid',
+          'planning-table', diagnostic.message, { line: diagnostic.line ?? diagnostic.details?.line ?? null,
+            details: { ...diagnostic.details, sourceCode: diagnostic.code ?? null,
+              ownerPhase: phase.id, repairScope: 'current-draft' } });
+        if (planningContract.diagnosticSummary.omitted) add('specification.planned-diagnostics-bounded', 'planning-table',
+          `${planningContract.diagnosticSummary.omitted} further draft diagnostics were omitted from this bounded packet. Repair the listed fields, then recheck; this is not a complete or passing plan.`,
+          { details: { ownerPhase: phase.id, repairScope: 'current-draft' } });
         if (plannedSource != null && ['SPEC_VERIFICATION_CONTRACT_INVALID',
           'SPEC_PLANNED_EVIDENCE_TYPE_INVALID'].includes(error.code)) {
           evidenceRepair = planningEvidenceRepair(plannedSource, { clauseIds, policy: specPolicy,
@@ -238,7 +242,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
     detail: 'Get a reviewed answer for each unresolved marker, record it as a clarification, then update the specification and recheck.'
   });
   if (blockers.some((blocker) => blocker.category !== 'clarification')) actions.push(repair);
-  return { blockers, actions, evidenceRepair };
+  return { blockers, actions, evidenceRepair, planningContract };
 }
 
 async function staticPublicationBlockers(root, config, workflow, phase, { retained = false } = {}) {
@@ -521,10 +525,15 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     next: ready ? retainedReadiness?.nextCommand ?? null : action?.command ?? null,
     publish: ready && !retained ? draft.commands.publish : null
   });
-  const planningRepairAllowed = specificationChecks.evidenceRepair?.status === 'producer-repair'
+  const planningRepairCandidate = specificationChecks.evidenceRepair?.status === 'producer-repair'
     && specificationChecks.evidenceRepair.sourceSha256 === String(draft.artifact?.sha256 ?? '').replace(/^sha256:/u, '')
     && !retained && lifecycleReady && !hardBlocker && !repairDependencies.length && agentOwnsRepair
     && (ownedRecoveryRepair || draft.correction.sameTurn);
+  const sameTurnCorrection = !retained && lifecycleReady && !ready && !hardBlocker && !repairDependencies.length
+    && ![...findings.values()].some(entry => phaseFindingPolicy(entry).classification === 'integrity-or-authority')
+    && (draft.status !== 'ready' ? draft.correction.sameTurn
+      : (briefOnly || authoringRepairOnly) && agentOwnsRepair);
+  const planningRepairAllowed = planningRepairCandidate && sameTurnCorrection;
   const { phaseResolutionProjection } = await import('./phase-resolution.mjs');
   return Object.freeze({
     schemaVersion: 1,
@@ -536,6 +545,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     inspectionStage: draft.inspectionStage,
     submissionReadiness: retainedReadiness,
     phaseStatus: phase.status,
+    authoringContract: phaseAuthoringContract(config, workflow, phase),
     producer: draft.producer,
     qualityDisposition: draft.qualityDisposition,
     acceptedQualityRisks: draft.acceptedQualityRisks,
@@ -555,11 +565,9 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     coverage: draft.coverage,
     traceabilityRepair: draft.traceabilityRepair ? Object.freeze({
       ...draft.traceabilityRepair,
-      sameTurn: lifecycleReady && !hardBlocker && !repairDependencies.length
-        && draft.correction.sameTurn && draft.traceabilityRepair.sameTurn,
+      sameTurn: sameTurnCorrection && draft.traceabilityRepair.sameTurn,
       actions: Object.freeze(draft.traceabilityRepair.actions.map((entry) => Object.freeze({
-        ...entry, sameTurn: lifecycleReady && !hardBlocker && !repairDependencies.length
-          && draft.correction.sameTurn && entry.sameTurn
+        ...entry, sameTurn: sameTurnCorrection && entry.sameTurn
       })))
     }) : null,
     // Suggestions belong only to this producer's open draft. They never amend a publication,
@@ -572,6 +580,16 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
       status: specificationChecks.evidenceRepair.status === 'author-review' ? 'author-review'
         : planningRepairAllowed ? 'producer-repair' : 'owner-review',
       patches: planningRepairAllowed ? specificationChecks.evidenceRepair.patches : []
+    }) : null,
+    planningRepair: specificationChecks.planningContract ? Object.freeze({
+      ...specificationChecks.planningContract, scope: 'current-draft',
+      artifact: { path: draft.artifact.path, sha256: draft.artifact.sha256 },
+      generation: draft.generation, mutates: false, previousPhasesEditable: false,
+      sameTurn: sameTurnCorrection && agentOwnsRepair
+        && specificationChecks.blockers.every(entry => phaseFindingPolicy(entry).repairableByProducer),
+      // Diagnostic values are inert data. They cannot authorize patches or supply clause meaning.
+      fields: specificationChecks.blockers.map(entry => ({ clauseId: entry.details?.clauseId ?? null,
+        line: entry.line ?? null, field: entry.details?.field ?? null, code: entry.details?.sourceCode ?? entry.code }))
     }) : null,
     grounding: Object.freeze(dependencies.grounding),
     warnings: Object.freeze(dependencies.warnings),
@@ -605,9 +623,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
         ? needsHumanClarification ? 'human-input'
           : authoringRepairOnly && agentOwnsRepair ? 'agent-authoring' : 'phase-recovery'
         : draft.correction.class,
-      sameTurn: !retained && lifecycleReady && !ready && !hardBlocker && !repairDependencies.length && (draft.status !== 'ready'
-        ? draft.correction.sameTurn
-        : (briefOnly || authoringRepairOnly) && agentOwnsRepair),
+      sameTurn: sameTurnCorrection,
       guidance: ready ? null : !lifecycleReady || repairDependencies.length ? action.detail : draft.status !== 'ready'
         ? draft.correction.guidance
         : action?.detail ?? 'Resolve the reported phase-scoped blocker, then recheck before publication.',

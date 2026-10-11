@@ -72,9 +72,17 @@ export function phasePrepublishDecision(
       details: [], skill: null, advisories
     };
   }
-  const details = (findings ?? []).slice(0, 5)
-    .map((finding) => line(record(finding)?.message))
+  const details = (findings ?? []).slice(0, 256)
+    .map((finding) => {
+      const value = record(finding);
+      const location = record(value?.details);
+      const message = line(value?.message);
+      const field = line(location?.field, 60);
+      const at = Number.isSafeInteger(value?.line) ? `line ${value?.line}` : null;
+      return message && (field || at) ? `${[at, field].filter(Boolean).join(' · ')}: ${message}` : message;
+    })
     .filter((message): message is string => Boolean(message));
+  if (findings && findings.length > 256) details.push(`${findings.length - 256} additional findings are available in the phase check JSON.`);
   const guidance = line(record(projection.correction)?.guidance, 500);
   if (guidance) {
     // The correction usually restates the finding that blocked: show it once, in its fuller form.
@@ -89,7 +97,13 @@ export function phasePrepublishDecision(
   }
   const skill = line(record(projection.correction)?.skill, 80);
   const exactSkill = skill && /^\/sf-[a-z0-9-]+$/u.test(skill) ? skill : null;
-  if (exactSkill) details.push(`Next in Copilot: ${exactSkill}`);
+  const nextGuidance = record(record(projection.commandGuidance)?.next);
+  const nextCopilot = line(nextGuidance?.copilotCommand, 500);
+  if (nextCopilot && /^\/sf-[a-z0-9-]+(?:\s|$)/u.test(nextCopilot)) details.push(`Next in Copilot: ${nextCopilot}`);
+  else if (exactSkill && !nextGuidance) details.push(`Next in Copilot: ${exactSkill}`);
+  const modelFree = line(nextGuidance?.modelFreeCommand, 500);
+  if (modelFree?.startsWith('@sflow /')) details.push(`VS Code (model-free): ${modelFree}`);
+  if (exactSkill && nextGuidance && nextCopilot !== exactSkill) details.push(`Repair in Copilot: ${exactSkill}`);
   const next = line(commands?.next, 500);
   if (next?.startsWith('singularity-flow ')) details.push(`Next in Shell: ${next}`);
   details.push(`Shell: singularity-flow phase prepublish ${expected.phaseId} --json`);

@@ -24,6 +24,7 @@ import { PHASE_JOURNEY_CONTRACT } from './phase-journey.mjs';
 import { BUILD_INFO, versionLine } from './build-info.mjs';
 import { assertStoryNotArchived } from './governance-archive.mjs';
 import { deriveMutationContract, mutationContractPresentation } from './phase-mutation-contract.mjs';
+import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
 
 /** Verified per-invocation binding shared by phase entry, nextsteps and inputs. */
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
@@ -64,6 +65,7 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
   const packet = { schemaVersion: 1, resultType: 'sflow-phase-entry', paused: false,
     personalization: resolvePersonalization({ root }), ...binding,
     mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase })),
+    authoringContract: phaseAuthoringContract(definition, workflow, phase),
     build: { description: versionLine(), ...BUILD_INFO },
     continuationReview: phase ? { contractRevision: PHASE_JOURNEY_CONTRACT, readOnly: true,
       commandGuidance: safeCommandGuidance({ executable: 'singularity-flow', argv: ['appeal', 'resolve',

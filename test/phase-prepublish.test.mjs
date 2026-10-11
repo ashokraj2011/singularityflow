@@ -32,6 +32,32 @@ async function fixture(t) {
   return { root, absolute, config: { workItemRoot: 'singularity/work-items' }, workflow, phase, session };
 }
 
+test('a prior approval is not re-linted under later template rules, for any current phase name', async t => {
+  for (const id of ['specification', 'planning', 'verification', 'release', 'custom-team-phase']) {
+    const item = await fixture(t);
+    item.phase.id = id;
+    item.workflow.currentPhase = id;
+    const previous = { id: 'previous-approved', status: 'approved', generation: 1,
+      requiredArtifact: { path: 'artifacts/previous-approved/old.md', minimumBytes: 100_000,
+        validation: { requiredHeadings: ['New header that did not exist at approval'] } },
+      artifacts: [], approvals: [{ reviewer: 'human-reviewer', decision: 'approved' }] };
+    const old = path.join(item.root, 'singularity/work-items/PRE-1', previous.requiredArtifact.path);
+    await mkdir(path.dirname(old), { recursive: true });
+    await writeFile(old, '# Old approved format\n\nTODO was permitted by its pinned policy.\n');
+    item.workflow.phases = { 'previous-approved': previous, [id]: item.phase };
+    item.workflow.phaseOrder = ['previous-approved', id];
+    const prior = structuredClone(previous);
+    const bytes = await readFile(old);
+    await writeFile(item.absolute, '# Plan\n\nThe current author completes the approved delivery and proof.\n');
+    const result = await phasePrepublish(item.root, item.config, item.workflow, item.phase,
+      { session: { ...item.session, phaseId: id } });
+    assert.equal(result.status, 'ready', JSON.stringify(result.findings));
+    assert.equal(result.authoringContract.revalidatePriorDraftQuality, false);
+    assert.deepEqual(previous, prior);
+    assert.deepEqual(await readFile(old), bytes);
+  }
+});
+
 test('human prepublish test preview prints inferred argv and withholds configured secrets', () => {
   const plan = {
     status: 'not-run', commands: [
@@ -457,6 +483,26 @@ test('prepublish checks every approved clause against the planning table without
   assert.equal(blocked.correction.sameTurn, true);
   assert.equal(blocked.commands.publish, null);
 
+  await writeFile(item.absolute, ['# Plan', '', 'Preserve the approved payment requirements.',
+    '| Clause | Expected paths | Planned tests | Fulfillment |', '|---|---|---|---|',
+    '| [PRE-1:REQ-001] | `-` | `test/payment.test.mjs` | evidence |',
+    '', '## Verification contracts', '| Criterion | Slot | Method | Witness | Role | Required assurance |',
+    '|---|---|---|---|---|---|',
+    '| Payment screenshot | Primary visual | screenshot prose | `screen` | product owner | browser confidence |'
+  ].join('\n'));
+  const aggregate = await phasePrepublish(item.root, item.config, item.workflow, item.phase, { session: item.session });
+  assert.equal(aggregate.status, 'correction-required');
+  assert.equal(aggregate.correction.sameTurn, true);
+  assert.equal(aggregate.planningRepair.sameTurn, true);
+  assert.equal(aggregate.planningRepair.previousPhasesEditable, false);
+  assert.deepEqual(aggregate.planningRepair.clauseIds, ['PRE-1:AC-001', 'PRE-1:REQ-001']);
+  for (const field of ['expectedPaths', 'criterion', 'slot', 'method', 'role', 'required assurance']) {
+    assert.ok(aggregate.findings.some(finding => finding.details?.field === field && finding.line), field);
+  }
+  assert.ok(aggregate.findings.some(finding => finding.details?.clauseId === 'PRE-1:AC-001'
+    && finding.code === 'specification.planned-test-missing'));
+  assert.equal(aggregate.commands.publish, null);
+
   await writeFile(item.absolute, [
     '# Plan', '', 'Implement payment and receipt handling.', '',
     '| Clause | Expected paths | Planned tests |',
@@ -505,6 +551,9 @@ test('prepublish checks every approved clause against the planning table without
   assert.equal(stale.status, 'correction-required');
   assert.ok(stale.findings.some((finding) => finding.code === 'specification.planned-test-invalid'
     && /does not match the reviewed Markdown/u.test(finding.message)));
+  assert.equal(stale.correction.sameTurn, false);
+  assert.equal(stale.planningRepair.sameTurn, false);
+  assert.ok(stale.findings.some(finding => finding.details?.sourceCode === 'SPECIFICATION_CLAIM_MAP_BINDING_STALE'));
   assert.equal(await readFile(seedPath, 'utf8'), seededBytes);
 });
 

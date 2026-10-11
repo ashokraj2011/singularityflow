@@ -22,6 +22,8 @@ import { traceabilityDraftFingerprint, traceabilityRepairProjection } from './tr
 import { phaseAgentMutationRestriction } from './phase-actor-policy.mjs';
 import { pendingIntentAmendmentAcknowledgement } from './source-review-policy.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
+import { phaseFindingPolicy } from './phase-finding-policy.mjs';
+import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
 
 function correctionClass(producer) {
   if (producer === 'deterministic') return 'kernel-regenerate';
@@ -138,7 +140,10 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       line: null, value: null, message: error.message, fingerprint: null });
   }
 
-  if (!findings.length && artifact?.exists) {
+  // Owned prose defects must not hide independent conformance or source/test diagnostics. Never
+  // inspect through a failed integrity/lifecycle boundary, or inspect another phase's draft.
+  const inspectOwnedDraft = () => findings.every(finding => phaseFindingPolicy(finding).repairableByProducer);
+  if (inspectOwnedDraft() && artifact?.exists) {
     const comparison = await inspectPhaseQualifiedConformance(root, config, workflow, phase);
     findings.push(...comparison.map((finding) => ({
       code: finding.code, category: 'traceability', path: finding.path,
@@ -149,7 +154,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
 
   // Surface the exact missing source/test witness while the code generation is still editable. The
   // preflight is read-only; other code-delivery failures remain owned by the recovery projection.
-  if (!findings.length && phaseRequiresCodeDelivery(phase)
+  if (inspectOwnedDraft() && phaseRequiresCodeDelivery(phase)
       && editableCode && (workflow.resolution?.codeDelivery?.traceability?.sourceBindings === 'enforce'
         || config.governance?.requireAcceptanceCriteriaTags)) {
     try {
@@ -273,6 +278,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     generation: phaseInspectionGeneration(workflow, phase),
     inspectionStage: retained ? 'published' : prospective ? 'authoring' : 'inactive',
     phaseStatus: phase.status,
+    authoringContract: phaseAuthoringContract(config, workflow, phase),
     configuredProducer,
     producer,
     qualityDisposition: artifactQuality.acceptedFindings.length ? 'accepted-risk' : 'checked',

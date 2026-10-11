@@ -16,6 +16,7 @@ import path from 'node:path';
 
 import { recordSha256 } from '../records.mjs';
 import { SingularityFlowError } from '../util.mjs';
+import { collectDraftDiagnostic, draftDiagnosticSummary, inspectDraftValue } from '../draft-diagnostics.mjs';
 
 export const VERIFICATION_METHODS = Object.freeze(['test', 'inspection', 'visual']);
 const UNSUPPORTED_METHODS = Object.freeze(['measurement', 'analysis', 'browser-check', 'security-scan', 'operational', 'manual']);
@@ -121,7 +122,8 @@ function witnessCell(method, cell, label) {
  * IDs and `plannedClaims` its planned claim map claims, so a test slot can be checked against the
  * criterion's planned tests. Returns the contracts sorted by criterion; throws on any defect.
  */
-export function parseVerificationContracts(markdown, { clauseIds = [], plannedClaims = {} } = {}) {
+export function parseVerificationContracts(markdown, { clauseIds = [], plannedClaims = {}, diagnostics: suppliedDiagnostics = null } = {}) {
+  const diagnostics = suppliedDiagnostics ?? [];
   const known = new Set(clauseIds.map((id) => String(id).toUpperCase()));
   const lines = visibleLines(markdown);
   const rows = [];
@@ -135,16 +137,24 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
     const names = header.map((cell) => cell.toLowerCase().replace(/\s+/gu, ' '));
     if (names.slice(0, 4).join('|') !== REQUIRED_COLUMNS.join('|')
         || names.slice(4).some((name) => !OPTIONAL_COLUMNS.includes(name)) || new Set(names).size !== names.length) {
-      throw invalid(`The verification contracts table at line ${index + 1} must start with Criterion | Slot | Method | Witness and may add Role, Required assurance, Combination and Reason, each once.`);
+      collectDraftDiagnostic(diagnostics, invalid(`The verification contracts table at line ${index + 1} must start with Criterion | Slot | Method | Witness and may add Role, Required assurance, Combination and Reason, each once.`),
+        { line: index + 1, field: 'header' });
+      inside = false; continue;
     }
     const divider = cells(lines[index + 1] ?? '');
     if (!divider || divider.length !== names.length || !divider.every((cell) => /^:?-{3,}:?$/u.test(cell))) {
-      throw invalid(`The verification contracts table at line ${index + 1} must be followed by a Markdown divider row.`);
+      collectDraftDiagnostic(diagnostics, invalid(`The verification contracts table at line ${index + 1} must be followed by a Markdown divider row.`),
+        { line: index + 1, field: 'divider' });
+      inside = false; continue;
     }
     for (index += 2; index < lines.length; index += 1) {
       const row = cells(lines[index]);
       if (!row) { index -= 1; break; }
-      if (row.length !== names.length) throw invalid(`Verification contract row at line ${index + 1} must have ${names.length} columns.`);
+      if (row.length !== names.length) {
+        collectDraftDiagnostic(diagnostics, invalid(`Verification contract row at line ${index + 1} must have ${names.length} columns.`),
+          { line: index + 1, field: 'row' });
+        continue;
+      }
       if (rows.length >= MAX_ROWS) throw invalid(`A plan may state at most ${MAX_ROWS} verification contract rows.`);
       rows.push({ line: index + 1, value: (name) => (names.indexOf(name) < 0 ? '' : row[names.indexOf(name)]) });
     }
@@ -154,34 +164,56 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
   for (const row of rows) {
     const where = `Verification contract row at line ${row.line}`;
     const clauseId = unwrap(row.value('criterion')).toUpperCase();
-    if (!AC_ID.test(clauseId)) throw invalid(`${where} must name one namespace-qualified acceptance criterion, such as ORDER:AC-001.`);
-    if (known.size && !known.has(clauseId)) throw invalid(`${where} names ${clauseId}, which is not a criterion of this Story.`);
+    let rowValid = true;
+    const check = (field, read) => {
+      const result = inspectDraftValue(diagnostics, read, { line: row.line,
+        clauseId: AC_ID.test(clauseId) ? clauseId : null, field, actual: row.value(field) });
+      rowValid &&= result.valid;
+      return result.value;
+    };
+    check('criterion', () => {
+      if (!AC_ID.test(clauseId)) throw invalid(`${where} must name one namespace-qualified acceptance criterion, such as ORDER:AC-001.`);
+      if (known.size && !known.has(clauseId)) throw invalid(`${where} names ${clauseId}, which is not a criterion of this Story.`);
+    });
     const slot = unwrap(row.value('slot')).toLowerCase();
-    if (!SLOT_ID.test(slot)) throw invalid(`${where} needs a slot name of lowercase letters, digits and hyphens, such as unit or review.`);
+    check('slot', () => { if (!SLOT_ID.test(slot)) throw invalid(`${where} needs a slot name of lowercase letters, digits and hyphens, such as unit or review.`); });
     const method = unwrap(row.value('method')).toLowerCase();
-    if (!VERIFICATION_METHODS.includes(method)) {
+    check('method', () => { if (!VERIFICATION_METHODS.includes(method)) {
       throw invalid(UNSUPPORTED_METHODS.includes(method)
         ? `${where} uses ${method}, which this repository cannot verify yet; use ${VERIFICATION_METHODS.join(', ')}, or record a risk decision when the Story ends.`
         : `${where} must use one method of ${VERIFICATION_METHODS.join(', ')}.`, { clauseId, method });
-    }
+    } });
     const role = unwrap(row.value('role')).toLowerCase() || 'primary';
-    if (!['primary', 'supporting'].includes(role)) throw invalid(`${where} must be primary or supporting.`);
+    check('role', () => { if (!['primary', 'supporting'].includes(role)) throw invalid(`${where} must be primary or supporting.`); });
     const requiredAssurance = unwrap(row.value('required assurance')).toLowerCase() || null;
+    check('required assurance', () => {
     if (requiredAssurance === 'exact-authenticated') {
       throw invalid(`${where} requires exact-authenticated, which needs qualified execution this repository does not have; require exact-local-observed or less.`);
     }
-    if (requiredAssurance && !METHOD_ASSURANCE[method].includes(requiredAssurance)) {
+    if (requiredAssurance && !Object.values(METHOD_ASSURANCE).flat().includes(requiredAssurance)) {
+      throw invalid(`${where} requires a known assurance value, not scenario or reviewer prose.`);
+    }
+    if (requiredAssurance && METHOD_ASSURANCE[method] && !METHOD_ASSURANCE[method].includes(requiredAssurance)) {
       throw invalid(`${where} may require only ${METHOD_ASSURANCE[method].join(' or ')} for a ${method} witness.`);
     }
+    });
     const combination = unwrap(row.value('combination')).toLowerCase() || null;
-    if (combination && !['all', 'any'].includes(combination)) throw invalid(`${where} must combine with all or any.`);
+    check('combination', () => { if (combination && !['all', 'any'].includes(combination)) throw invalid(`${where} must combine with all or any.`); });
     const reason = String(row.value('reason') ?? '').trim() || null;
+    check('reason', () => {
     if (reason && (reason.length < 10 || reason.length > 500 || /[\0-\x1f\x7f]/u.test(reason))) {
       throw invalid(`${where} needs a reason of 10 to 500 characters.`);
     }
-    const witness = witnessCell(method, row.value('witness'), `${where}'s witness`);
+    });
+    const witness = VERIFICATION_METHODS.includes(method)
+      ? check('witness', () => witnessCell(method, row.value('witness'), `${where}'s witness`)) : null;
+    if (!rowValid) continue;
     const contract = byClause.get(clauseId) ?? { clauseId, combinations: new Set(), reasons: [], slots: [] };
-    if (contract.slots.some((entry) => entry.slot === slot)) throw invalid(`${clauseId} names slot ${slot} more than once.`);
+    if (contract.slots.some((entry) => entry.slot === slot)) {
+      collectDraftDiagnostic(diagnostics, invalid(`${clauseId} names slot ${slot} more than once.`),
+        { line: row.line, clauseId, field: 'slot' });
+      continue;
+    }
     if (combination) contract.combinations.add(combination);
     if (reason) contract.reasons.push(reason);
     contract.slots.push({ slot, method, role, witness, requiredAssurance });
@@ -189,6 +221,7 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
   }
   const contracts = [];
   for (const contract of [...byClause.values()].sort((left, right) => left.clauseId.localeCompare(right.clauseId))) {
+    const inspected = inspectDraftValue(diagnostics, () => {
     if (contract.combinations.size > 1) throw invalid(`${contract.clauseId} combines its witnesses with both all and any; choose one.`);
     const combination = [...contract.combinations][0] ?? 'all';
     if (combination === 'any' && !contract.reasons.length) {
@@ -206,28 +239,35 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
         throw invalid(`${contract.clauseId}'s test slot ${entry.slot} names ${entry.witness.path}, which is not among its planned tests (${planned.tests.join(', ')}).`);
       }
     }
-    contracts.push({
+    return {
       clauseId: contract.clauseId, combination,
       ...(contract.reasons.length ? { reason: contract.reasons.join(' ') } : {}),
       slots: contract.slots.sort((left, right) => left.slot.localeCompare(right.slot))
-    });
+    };
+    }, { clauseId: contract.clauseId, field: 'contract' });
+    if (inspected.valid) contracts.push(inspected.value);
   }
   for (const [id, planned] of Object.entries(plannedClaims)) {
     if (planned.fulfillment !== 'evidence' || !AC_ID.test(id)) continue;
     if (!contracts.find((contract) => contract.clauseId === id)?.slots.some((slot) =>
       slot.role === 'primary' && ['inspection', 'visual'].includes(slot.method))) {
-      throw invalid(`${id} delivers retained evidence: name a primary visual or inspection contract; file presence alone cannot verify the criterion.`);
+      collectDraftDiagnostic(diagnostics, invalid(`${id} delivers retained evidence: name a primary visual or inspection contract; file presence alone cannot verify the criterion.`),
+        { clauseId: id, field: 'primaryWitness' });
     }
   }
   for (const declaration of proseVerificationDeclarations(markdown)) {
     for (const clauseId of declaration.clauseIds) {
       if (!contracts.some(contract => contract.clauseId === clauseId && contract.slots.some(slot =>
-        slot.role === 'primary' && slot.method === declaration.method))) throw invalid(
+        slot.role === 'primary' && slot.method === declaration.method))) collectDraftDiagnostic(diagnostics, invalid(
         `${clauseId} declares a primary ${declaration.method} contract in prose, but has no matching primary slot in the Verification contracts table. Prose never replaces the structured verification contract.`,
-        { clauseId, line: declaration.line, correction: 'register-verification-contract' });
+        { clauseId, line: declaration.line, correction: 'register-verification-contract' }), { field: 'primaryWitness' });
     }
   }
-  return contracts;
+  if (!suppliedDiagnostics && diagnostics.length) {
+    const first = diagnostics[0];
+    throw invalid(first.message, { ...first.details, diagnostics, diagnosticSummary: draftDiagnosticSummary(diagnostics) });
+  }
+  return diagnostics.length ? [] : contracts;
 }
 
 /** Validate contracts read back from a record: the same rules, without the Markdown. */

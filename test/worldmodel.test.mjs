@@ -47,7 +47,9 @@ test('phase prompts bind deterministic convergence to its exact publication and 
 
 test('evidence-planning instructions follow ownership for custom agents/phases, not a built-in planner name', () => {
   const phase = { id: 'team-solution', generationPolicy: { requirement: 'required', producer: 'governed-agent', allowedProducers: ['governed-agent'] } };
-  const workflow = { phases: { 'team-solution': phase }, resolution: { phases: [], plannedClaims: { owners: { 'team-build': phase.id } } } };
+  const workflow = { workItem: { id: 'TEAM-1' }, phases: { 'team-solution': phase,
+    'team-build': { id: 'team-build', generationPolicy: { task: 'code' } } },
+    resolution: { phases: [], plannedClaims: { mode: 'required', owners: { 'team-build': phase.id } } } };
   assert.match(phasePromptExecutionContract({ phases: {} }, workflow, phase).lines.join('\n'), /Fulfillment `evidence`/u);
   assert.match(phasePromptExecutionContract({ phases: {} }, workflow, phase).lines.join('\n'), /actual `## Verification contracts` table/u);
   workflow.resolution.plannedClaims.owners = {};

@@ -7,7 +7,8 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import YAML from 'yaml';
 import { initializeDefinition, resolveWorkType } from '../src/config.mjs';
-import { createWorkflow, loadConfig } from '../src/state.mjs';
+import { createWorkflow, loadConfig, preparePhaseInputs } from '../src/state.mjs';
+import { buildSpecIndex } from '../src/specifications.mjs';
 import { setAgentSession, restoreAgentSession } from '../src/session.mjs';
 import { resolveOperation, operationCatalog } from '../src/command-registry.mjs';
 import { phaseAgentResult } from '../src/phase-agent-result.mjs';
@@ -96,6 +97,36 @@ async function fixture(t, { planningInputs = false, customPhase = null } = {}) {
   });
   return { root, workflow, config, invoke };
 }
+
+test('preparing a new plan scaffolds verified clauses while repeat preparation preserves the authored draft and prior approval', async t => {
+  const item = await fixture(t, { planningInputs: true });
+  const producer = item.workflow.phases.specification;
+  const sourceRelative = `team/stories/ENTRY-1/${producer.requiredArtifact.path}`;
+  const sourcePath = path.join(item.root, sourceRelative);
+  const approvedText = '# Approved specification\n\n[ENTRY-1:REQ-001]\nPreserve exact input identity.\n\n[ENTRY-1:AC-001]\nThe approved result is returned.\n';
+  await writeFile(sourcePath, approvedText);
+  producer.artifacts = [{ path: sourceRelative, status: 'approved', ...await snapshot(sourcePath) }];
+  const indexPath = 'team/stories/ENTRY-1/context/spec-indexes/specification-gen1.json';
+  const index = await buildSpecIndex(item.root, sourceRelative, { workId: 'ENTRY-1', phase: 'specification',
+    generation: 1, outputPath: indexPath, policy: item.workflow.resolution.spec });
+  producer.specIndex = { generation: 1, path: indexPath, clauses: index.clauses.length,
+    indexSha256: index.indexSha256, sourceSha256: index.source.sha256 };
+  const approval = structuredClone(producer);
+  const result = await preparePhaseInputs(item.root, item.config, item.workflow, 'planning');
+  const file = path.join(item.root, result.path);
+  const first = await readFile(file, 'utf8');
+  for (const id of ['ENTRY-1:REQ-001', 'ENTRY-1:AC-001']) assert.ok(first.includes(`| [${id}] | - | TODO | - | TODO |`));
+  const privateDraft = first.replace('| [ENTRY-1:REQ-001] | - | TODO | - | TODO |',
+    '| [ENTRY-1:REQ-001] | `src/pay.js` | `test/pay.test.js` | modified | Preserves exact identity. |');
+  await writeFile(file, privateDraft);
+  await preparePhaseInputs(item.root, item.config, item.workflow, 'planning');
+  assert.ok((await readFile(file, 'utf8')).includes('`src/pay.js`'));
+  assert.equal(await readFile(sourcePath, 'utf8'), approvedText);
+  assert.deepEqual(producer, approval);
+  await writeFile(sourcePath, `${approvedText}\nAn unauthorized edit.\n`);
+  // A changed immutable input remains an integrity failure, not a waiver of prior approvals.
+  await assert.rejects(preparePhaseInputs(item.root, item.config, item.workflow, 'planning'), /hash|changed|approved|fingerprint/iu);
+});
 
 test('phase entry is a model-free read; composition is an explicit registered mutation', () => {
   for (const compose of [false, true]) {

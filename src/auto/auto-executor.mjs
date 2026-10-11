@@ -422,6 +422,13 @@ async function ensureAutoRepairGeneration({
   return { workflow: currentWorkflow, phase: currentPhase };
 }
 
+// A failure before the attempt record exists leaves no refusal to review or repair.
+function refusalReview(refusal, then) {
+  const refusalId = refusal?.refusal?.refusalId;
+  return refusalId ? `Review refusal ${refusalId}; ${then}`
+    : 'Auto stopped before it recorded a refusal; read the last error, then take over the preserved Story.';
+}
+
 async function assertActive(root, flightId, expectedCheckpoint = null) {
   const current = await readAutoFlightState(root, flightId);
   if (expectedCheckpoint && current.checkpointSha256 !== expectedCheckpoint) {
@@ -1605,7 +1612,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         refusal?.secondFailure || repairDisabled
           ? 'Take over the preserved Story manually; Auto will not run another repair.'
           : attemptConsumed
-            ? `Review refusal ${refusal?.refusal.refusalId}; Auto will not repair until its exact Repair Plan is confirmed.`
+            ? refusalReview(refusal, 'Auto will not repair until its exact Repair Plan is confirmed.')
             : 'Repair the deterministic preflight and resume with the exact checkpoint; no authoring attempt was consumed.', {
           lastError: { code: error.code ?? 'MODEL_PROVIDER_FAILED', message: error.message }
         });
@@ -1780,7 +1787,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           : repairDisabled ? 'repair-disabled' : 'repair-review-required',
         refusal?.secondFailure || repairDisabled
           ? 'Take over the preserved Story manually; Auto will not run another repair.'
-          : `Review refusal ${refusal?.refusal.refusalId}; confirm at most one bounded repair or take over.`, {
+          : refusalReview(refusal, 'confirm at most one bounded repair or take over.'), {
           lastError: { code: error.code ?? 'AUTO_LIFECYCLE_STEP_FAILED', message: error.message }
         });
       if (refusal?.refusal.repair?.eligibility !== 'auto-eligible'
@@ -2006,7 +2013,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           : repairDisabled ? 'repair-disabled' : 'repair-review-required',
         refusal?.secondFailure || repairDisabled
           ? 'Take over the preserved Story manually; Auto will not run another repair.'
-          : `Review refusal ${refusal?.refusal.refusalId}; confirm at most one bounded repair or take over.`, {
+          : refusalReview(refusal, 'confirm at most one bounded repair or take over.'), {
           lastError: { code: error.code ?? 'AUTO_LIFECYCLE_STEP_FAILED', message: error.message }
         });
     }

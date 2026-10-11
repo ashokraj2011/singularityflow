@@ -819,8 +819,15 @@ async function previewChangeFlightPlanInScope(root, input = {}) {
       ? { status: structural.envelopeStatus === 'partial' ? 'partial' : 'not-evaluated', reason: structural.unavailable }
       : { status: 'evaluated' };
   }
-  findings.push(...predictedPathFindings(input.predictedPaths, baseline.revision));
-  findings = dedupeFindings(findings).slice(0, budgets.maxFindings);
+  // The finding budget bounds discovered evidence. Predicted paths are the scope a person confirms
+  // with the Plan and the submission boundary compares changes against, so the budget never cuts
+  // them: a broad intent whose words match many files used to push them out of the plan.
+  findings = dedupeFindings(findings);
+  const evidenceTruncated = findings.length > budgets.maxFindings;
+  findings = dedupeFindings([
+    ...findings.slice(0, budgets.maxFindings),
+    ...predictedPathFindings(input.predictedPaths, baseline.revision)
+  ]);
 
   const unknowns = Object.entries(categories).filter(([, value]) => value.status === 'not-evaluated').map(([category, value]) => makeFinding({
     classification: 'unknown', kind: 'evidence-category', subject: category,
@@ -834,7 +841,7 @@ async function previewChangeFlightPlanInScope(root, input = {}) {
     source: { type: target.kind, reference: target.reference, revision: null },
     explanation: `No authenticated ${target.kind} provider imported a revision-bound snapshot for this preview.`
   }));
-  const partial = truncatedFiles || findings.length >= budgets.maxFindings || Object.values(categories).some((category) => category.status === 'partial');
+  const partial = truncatedFiles || evidenceTruncated || findings.length >= budgets.maxFindings || Object.values(categories).some((category) => category.status === 'partial');
   const completedCategories = Object.entries(categories).filter(([, value]) => value.status === 'evaluated').map(([name]) => name);
   const pendingCategories = Object.entries(categories).filter(([, value]) => value.status !== 'evaluated').map(([name]) => name);
   const planCore = {

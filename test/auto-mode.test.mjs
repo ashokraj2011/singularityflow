@@ -303,7 +303,22 @@ for await (const line of lines) {
   };
   workflow.auto.ceilings = { tokenBudget: { maximum: 30000, assurance: 'best-available' } };
   workflow.auto.repair = { policy: repairPolicy, maximumAttempts: repairPolicy === 'never' ? 0 : 1 };
-  workflow.workTypes['quick-fix'].auto = {
+  // These scenarios exercise the executor from the first code-delivery generation. The packaged
+  // quick-fix now opens with a human-approved Scope and plan phase, and Auto binds every model
+  // attempt to a code generation intent, so keep the code-first rail this suite was written for
+  // and record why scope and plan have no phase of their own.
+  const quickFix = workflow.workTypes['quick-fix'];
+  quickFix.phases = ['implement', 'verify'];
+  delete quickFix.plannedClaims;
+  delete quickFix.templateOverrides.intake;
+  delete quickFix.phaseOverrides.intake;
+  quickFix.phaseOverrides.implement = {};
+  quickFix.phaseOverrides.verify = { inputs: ['implement'] };
+  quickFix.omits = ['scope', 'plan'].map((responsibility) => ({
+    responsibility, authority: 'engineering-reviewers',
+    reason: 'The confirmed Auto Plan carries the exact requirement and predicted paths for this fixture.'
+  }));
+  quickFix.auto = {
     eligibility: 'bounded', allowedPaces: ['phase'], defaultUntil: 'phase-complete:implement'
   };
   workflow.workTypes['quick-fix'].intelligence = { worldModel: 'off', ast: 'off', agentBriefs: 'off' };

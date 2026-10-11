@@ -112,6 +112,22 @@ test('outside paths and symlink targets are refused before analysis', async () =
   await assert.rejects(() => previewChangeFlightPlan(root, { file: 'linked.mjs', ast: false }), /symbolic link/);
 });
 
+test('predicted paths survive a finding budget that discovered evidence fills', async () => {
+  const root = await repository();
+  // Every intent word matches tracked files, so text references alone fill the budget. The
+  // predicted test file has no text match: it is in the plan only because it was predicted.
+  const plan = await previewChangeFlightPlan(root, {
+    intent: 'payment notifier send checkout', ast: false, persist: false,
+    budgets: { maxFindings: 2 }, predictedPaths: ['src/payment/notifier.mjs', 'test/payment-event.test.mjs']
+  });
+  const predicted = plan.findings.filter((finding) => finding.relationship === 'ratifiable-predicted-scope')
+    .map((finding) => finding.subject).sort();
+  assert.deepEqual(predicted, ['src/payment/notifier.mjs', 'test/payment-event.test.mjs']);
+  assert.equal(plan.findings.filter((finding) => finding.relationship !== 'ratifiable-predicted-scope').length, 2,
+    'discovered evidence stays within its budget');
+  assert.equal(plan.status, 'partial', 'the truncated evidence is reported');
+});
+
 test('start refuses a stale binding without creating work', async () => {
   const root = await repository();
   const plan = await previewChangeFlightPlan(root, { symbol: 'PaymentNotifier.send', ast: false });

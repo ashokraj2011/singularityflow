@@ -4,17 +4,18 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "616d5eed7782effebb70ef00904123c078f5abae",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-10-WORKFLOW-BUNDLE-V8.md",
+    "reviewedAtCommit": "c815d908ffed78fa18fd3ea37020eaceaeefaac4",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-11-MUTATION-CONTRACT-AND-INSTRUCTION-DEMO.md",
     "companionIds": [
-      "migration-registry"
+      "migration-registry",
+      "workflow-configuration"
     ]
   },
   "companions": [
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:dae5059f63781e9ed25b159cc6c2f8d6ae7202d83ceeaddd15eab423c8ce6216"
+      "sha256": "sha256:bc2438fef7d062036e1576f9d57b4117b5e26afcb8ee4bca9dc92989f3c87b18"
     },
     {
       "id": "sgos-portable-schema",
@@ -94,7 +95,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:775b67f5211646883259a7b2773ca7c4fe81e5d7d712149bbfd8ba5e2e86f8a6"
+      "sha256": "sha256:418bf1c7a738d6edb7d7f22db76b0b220b30c49f21122f88b29b25b99422b42f"
     },
     {
       "id": "smart-initialization-v1",

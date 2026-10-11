@@ -151,6 +151,11 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-driven/spec.md': Object.freeze([
     '27424a624b1dab57323fd7482ac62708bd42d11ba42e41c102f94e15182fe485'
   ]),
+  // Before the instruction demo agents carried the active-repository boundary.
+  '.github/agents/demo-instruction-analyst.agent.md': Object.freeze(['5c527291e89f935e0586657bcffc3a8317dfdddfa140f2701d2fe4a7eea3a478']),
+  '.github/agents/demo-instruction-tester.agent.md': Object.freeze(['1b7c1a81bceb26860dcb74210ea3ac993c5e0d1ffffaa57461c19345e296b496']),
+  '.github/agents/demo-instruction-developer.agent.md': Object.freeze(['e63c417149a151a0aa6155126d40d397918e1810d4d5384b95a4ced0e307bd53']),
+  '.github/agents/demo-instruction-closer.agent.md': Object.freeze(['46dfd20f054f900fb603bba672bc47b303e640951f3f308c90c6958340b5bb4b']),
   // Before Story documents needed a name, the import instruction had no --name.
   'singularity/templates/figma-mobile/design-intake.md': Object.freeze([
     'f84db46cdf86cf8c4da4de0062d7150466d5dd291baf6495bd9523affa9a6453'
@@ -362,10 +367,10 @@ const AGENTS_BEFORE_NATIVE_ENTRY_REUSE = Object.freeze({
 
 /** Current release digests, kept separate so a known current file is never offered as repairable. */
 export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
-  '.github/agents/demo-instruction-analyst.agent.md': '5c527291e89f935e0586657bcffc3a8317dfdddfa140f2701d2fe4a7eea3a478',
-  '.github/agents/demo-instruction-tester.agent.md': '1b7c1a81bceb26860dcb74210ea3ac993c5e0d1ffffaa57461c19345e296b496',
-  '.github/agents/demo-instruction-developer.agent.md': 'e63c417149a151a0aa6155126d40d397918e1810d4d5384b95a4ced0e307bd53',
-  '.github/agents/demo-instruction-closer.agent.md': '46dfd20f054f900fb603bba672bc47b303e640951f3f308c90c6958340b5bb4b',
+  '.github/agents/demo-instruction-analyst.agent.md': 'b54384818163336db79044d2fb1ac84d609f3ffbd742e1cf4fd213af3584d8bb',
+  '.github/agents/demo-instruction-tester.agent.md': '2ebc9462131857eba426721f2bcf33d411b9a343960a5a29a7e17daa9694a26c',
+  '.github/agents/demo-instruction-developer.agent.md': 'fbd448e6e0f480f933a1d5091af6ec8f380da84077442fabd6150132514954e7',
+  '.github/agents/demo-instruction-closer.agent.md': '20639a730771566688d5a9e83a35d2b6a0437dc926504ab4b07dcf4b0eaefa70',
   'singularity/skill-library/demo-instruction-intake/SKILL.md': '94cf220f19beaebdf607fd15a0141a725157094fc8041e1c7f545f9ad14667cb',
   'singularity/skill-library/demo-instruction-check/SKILL.md': '2c5e5c781fd40e0acfe53c840be85aaad3b287ea03be3ab061e232213b9982bc',
   'singularity/skill-library/demo-instruction-repair/SKILL.md': 'bfc145eb0865f1705a759527142de6fe6906123670c28f8b71874bc0f47452ce',

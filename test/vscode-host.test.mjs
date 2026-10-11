@@ -436,8 +436,11 @@ function stubVscode() {
       if (registered.reviewConfirmationManual) return;
       if (/data-typed="true"/.test(html)) {
         const typed = registered.answers.length ? registered.answers.shift() : registered.typed;
-        return void panel.post(typed == null || typed === ''
-          ? { type: 'confirmation.cancel' } : { type: 'confirmation.accept', confirmation: String(typed) });
+        if (typed == null || typed === '') return void panel.post({ type: 'confirmation.cancel' });
+        // A value the host refuses leaves the page open. The person then closes it, so a near miss
+        // ends the decision rather than leaving the command pending, which would cancel the file.
+        return void panel.post({ type: 'confirmation.accept', confirmation: String(typed) })
+          .then(() => panel.visible && panel.post({ type: 'confirmation.cancel' }));
       }
       // An acknowledgement is accepted only by the answer naming its button, as clicking it would.
       const label = html.match(/<div class="confirmation-actions"><button type="submit"[^>]*>([^<]*)<\/button>/)?.[1];
@@ -2406,15 +2409,21 @@ test('approving from the editor still demands the exact confirmation a terminal 
   const review = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation') ?? null);
   assert.match(review.webview.html, /Type this exact value: <code>discover-define:business-case<\/code>/,
     'the confirmation was asked for, naming the exact value');
+  assert.doesNotMatch(review.webview.html, /<input[^>]*data-confirmation[^>]*\svalue=/,
+    'the box starts empty; the expected value is shown, never prefilled');
 
-  // Anything but the exact string leaves the decision open.
-  await review.post({ type: 'confirmation.accept', confirmation: 'discover-define:business' });
-  const settledEarly = await Promise.race([approving.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 300))]);
-  assert.equal(settledEarly, false, 'a near-miss is not a confirmation');
+  // Anything but the exact string leaves the decision open: a near miss, an empty box, or a bare
+  // acknowledgement sent straight to the host, whatever the page's own button allowed.
+  for (const answer of [{ confirmation: 'discover-define:business' }, { confirmation: '' }, { acknowledged: true }]) {
+    await review.post({ type: 'confirmation.accept', ...answer });
+    assert.equal(review.visible, true, `${JSON.stringify(answer)} is not a confirmation`);
+  }
 
   // The person cancels: nothing is approved and nothing is an error.
   await review.post({ type: 'confirmation.cancel' });
   await approving;
+  assert.equal(registered.output.some((line) => /\$ singularity-flow initiative approve /.test(line)), false,
+    'nothing was approved');
   assert.deepEqual(registered.errors, [], 'declining to confirm is not an error');
 });
 

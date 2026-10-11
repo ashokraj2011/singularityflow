@@ -280,6 +280,13 @@ function replaceOption(args, option, value) {
   return next;
 }
 
+// A --json refusal is one JSON document on stdout with stderr empty (4833e936).
+function refusalMessage(result) {
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stderr, '');
+  return JSON.parse(result.stdout).error.message;
+}
+
 test('CLI creates two non-overwriting review files and stops before authority', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-sgos-workflow-guide-'));
   t.after(async () => { await import('node:fs/promises').then(({ rm }) => rm(root, { recursive: true, force: true })); });
@@ -336,26 +343,22 @@ test('CLI creates two non-overwriting review files and stops before authority', 
     root, 'singularity/sgos-drafts/verified-report/workflow-declaration.json'
   ), '{"reviewed":"different"}\n');
   const refused = flow(root, ...args);
-  assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /never overwritten/);
+  assert.match(refusalMessage(refused), /never overwritten/);
 
   const protectedOutput = flow(root, ...replaceOption(
     args, '--declaration-out', 'singularity/templates/unsafe.json'
   ));
-  assert.notEqual(protectedOutput.status, 0);
-  assert.match(protectedOutput.stderr, /protected configuration path/);
+  assert.match(refusalMessage(protectedOutput), /protected configuration path/);
 
   const gitOutput = flow(root, ...replaceOption(
     args, '--out', 'singularity/sgos-drafts/vendor/.git/unsafe.json'
   ));
-  assert.notEqual(gitOutput.status, 0);
-  assert.match(gitOutput.stderr, /Git administrative storage/);
+  assert.match(refusalMessage(gitOutput), /Git administrative storage/);
 
   const caseAlias = flow(root, ...replaceOption(replaceOption(
     args, '--declaration-out', 'singularity/sgos-drafts/case-alias/Draft.json'
   ), '--out', 'singularity/sgos-drafts/case-alias/draft.json'));
-  assert.notEqual(caseAlias.status, 0);
-  assert.match(caseAlias.stderr, /two distinct repository files/);
+  assert.match(refusalMessage(caseAlias), /two distinct repository files/);
 
   await symlink(
     process.platform === 'win32'
@@ -367,8 +370,7 @@ test('CLI creates two non-overwriting review files and stops before authority', 
   const linkedParent = flow(root, ...replaceOption(replaceOption(
     args, '--declaration-out', 'singularity/sgos-drafts/safe-before-link/workflow-declaration.json'
   ), '--out', 'singularity/sgos-drafts/draft-link/workflow-ir.json'));
-  assert.notEqual(linkedParent.status, 0);
-  assert.match(linkedParent.stderr, /symbolic-link or non-directory ancestor/);
+  assert.match(refusalMessage(linkedParent), /symbolic-link or non-directory ancestor/);
   await assert.rejects(() => readFile(path.join(
     root, 'singularity/sgos-drafts/safe-before-link', 'workflow-declaration.json'
   )));

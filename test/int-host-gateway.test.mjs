@@ -7,6 +7,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -21,6 +22,13 @@ import {
   assertModelInvocationAllowed, operationContext, withOperationContext
 } from '../src/operation-context.mjs';
 import { run } from '../src/util.mjs';
+
+// The local presentation profile outranks the Git name (311c5b5a). Redirect it so a developer's own
+// ~/.singularity-flow profile never decides which greeting source these tests observe.
+const profileState = mkdtempSync(path.join(tmpdir(), 'sflow-host-profile-'));
+test.after(() => rm(profileState, { recursive: true, force: true }));
+process.env.SINGULARITY_FLOW_PRESENTATION_PROFILE_FILE = path.join(profileState, 'presentation-profile.json');
+delete process.env.SINGULARITY_FLOW_REPLY_NAME;
 
 async function repository() {
   const root = await mkdtemp(path.join(tmpdir(), 'sflow-host-'));

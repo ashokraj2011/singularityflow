@@ -358,6 +358,11 @@ function stubVscode() {
   registered.typed = null;
   registered.informationAnswer = undefined;
   registered.selfApprovalAnswer = undefined;
+  // Exact confirmations and acknowledgements are review pages (c4ca42e4). The stub answers them the
+  // way the person above would: the typed value, or the self-approval answer. A test that drives
+  // the page itself sets this, and every page shown is kept for assertions.
+  registered.reviewConfirmationManual = false;
+  registered.reviewConfirmations = [];
   registered.pickedLens = 'first';
   registered.pickedFile = null;
   registered.pickedFolder = null;
@@ -420,7 +425,27 @@ function stubVscode() {
       }
     };
     registered.panels.push(panel);
+    if (id === 'singularityFlow.reviewConfirmation') answerReviewConfirmation(panel, () => handler);
     return panel;
+  };
+  const answerReviewConfirmation = (panel, currentHandler) => {
+    const respond = () => {
+      if (!panel.webview.html || !currentHandler()) return void setImmediate(respond);
+      const html = panel.webview.html;
+      registered.reviewConfirmations.push({ title: panel.title, html });
+      if (registered.reviewConfirmationManual) return;
+      if (/data-typed="true"/.test(html)) {
+        const typed = registered.answers.length ? registered.answers.shift() : registered.typed;
+        return void panel.post(typed == null || typed === ''
+          ? { type: 'confirmation.cancel' } : { type: 'confirmation.accept', confirmation: String(typed) });
+      }
+      // An acknowledgement is accepted only by the answer naming its button, as clicking it would.
+      const label = html.match(/<div class="confirmation-actions"><button type="submit"[^>]*>([^<]*)<\/button>/)?.[1];
+      const answers = [registered.selfApprovalAnswer, registered.informationAnswer, ...(registered.warningAnswers ?? [])];
+      void panel.post(label && answers.includes(label)
+        ? { type: 'confirmation.accept', acknowledged: true } : { type: 'confirmation.cancel' });
+    };
+    setImmediate(respond);
   };
   api.window.registerWebviewViewProvider = (id, provider, options) => {
     let handler = null;
@@ -2375,17 +2400,22 @@ test('approving from the editor still demands the exact confirmation a terminal 
     }
   };
 
-  registered.typed = null; // the person dismissed the box
-  await registered.commands.get('singularityFlow.approve')(node);
-  assert.equal(registered.inputBoxes.length, 1, 'the confirmation was asked for');
-  assert.match(registered.inputBoxes[0].prompt, /discover-define:business-case/);
-  assert.deepEqual(registered.errors, [], 'declining to confirm is not an error');
+  // The confirmation is a scrollable review page (c4ca42e4), not an input box.
+  registered.reviewConfirmationManual = true;
+  const approving = registered.commands.get('singularityFlow.approve')(node);
+  const review = await until(() => registered.panels.find((entry) => entry.id === 'singularityFlow.reviewConfirmation') ?? null);
+  assert.match(review.webview.html, /Type this exact value: <code>discover-define:business-case<\/code>/,
+    'the confirmation was asked for, naming the exact value');
 
-  // And the box refuses anything that is not the exact string.
-  const { validateInput } = registered.inputBoxes[0];
-  assert.match(validateInput('discover-define:business'), /Type exactly/);
-  assert.equal(validateInput('discover-define:business-case'), null);
-  assert.equal(validateInput(''), null, 'an empty box is not yet an error, just not a confirmation');
+  // Anything but the exact string leaves the decision open.
+  await review.post({ type: 'confirmation.accept', confirmation: 'discover-define:business' });
+  const settledEarly = await Promise.race([approving.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 300))]);
+  assert.equal(settledEarly, false, 'a near-miss is not a confirmation');
+
+  // The person cancels: nothing is approved and nothing is an error.
+  await review.post({ type: 'confirmation.cancel' });
+  await approving;
+  assert.deepEqual(registered.errors, [], 'declining to confirm is not an error');
 });
 
 for (const approvalSurface of ['native', 'chat']) test(`${approvalSurface} starter Story approval does not ask the six legacy specification-quality questions`, async (t) => {
@@ -2593,8 +2623,8 @@ test('a self-approval is refused by the engine and re-asked as an explicit ackno
   registered.selfApprovalAnswer = undefined; // the person declined the modal
 
   await registered.commands.get('singularityFlow.approve')(node);
-  assert.ok(registered.warnings.some((message) => /not independent review/.test(message)),
-    'the self-approval was surfaced as a modal decision');
+  assert.ok(registered.reviewConfirmations.some(({ html }) => /not independent review/.test(html)),
+    'the self-approval was surfaced as an explicit acknowledgement');
   assert.deepEqual(registered.errors, [], 'declining is a decision, not a failure');
 
   // Nothing was approved.
@@ -3588,8 +3618,6 @@ test('the packaged POC release candidate journey survives publication, review, C
     /POC-RC-1/.test(item.text) && /poc-impact-analysis/.test(item.text)) ? true : null,
   { what: 'the VS Code status bar to show the advanced POC phase' });
 
-  const grounded = cli(['wm', 'build', '--phase', 'poc-impact-analysis'], reviewer.name);
-  assert.equal(grounded.status, 0, grounded.stderr);
   await reviewHost.registered.commands.get('singularityFlow.openCopilot')();
   const handoff = reviewHost.registered.executedCommands
     .filter((entry) => entry.id === 'workbench.action.chat.open').at(-1);
@@ -3673,6 +3701,17 @@ test('the packaged POC release candidate journey survives publication, review, C
         ''
       ].join('\n'));
     }
+    // The final evaluation runs at the final submit (56a871ea), so the reviewer dispositions every
+    // source requirement statement before the last phase is submitted.
+    if (phaseId === 'poc-publication-review') {
+      const scope = cli(['evidence', 'scope', '--json'], reviewer.name);
+      assert.equal(scope.status, 0, scope.stderr);
+      for (const item of JSON.parse(scope.stdout).data.scope.items.filter((entry) => entry.disposition === 'unresolved')) {
+        const decision = cli(['decision', 'scope', '--item', item.id, '--as', 'included', '--clause', 'POC:AC-001',
+          '--reason', 'This offline lifecycle fixture accepts the checkout requirement through its exact test-only clause.'], reviewer.name);
+        assert.equal(decision.status, 0, decision.stderr);
+      }
+    }
     const authorSession = cli(['agent', '--agent', before.phases[phaseId].defaultAgent], 'Release Author');
     assert.equal(authorSession.status, 0, `select release author session failed:\n${authorSession.stderr}`);
     for (const args of [
@@ -3687,13 +3726,6 @@ test('the packaged POC release candidate journey survives publication, review, C
     const firstApproval = cli(['approve', phaseId, '--yes'], reviewer.name);
     assert.equal(firstApproval.status, 0, `approve ${phaseId} failed:\n${firstApproval.stderr}`);
     if (phaseId === 'poc-publication-review') {
-      const scope = cli(['evidence', 'scope', '--json'], reviewer.name);
-      assert.equal(scope.status, 0, scope.stderr);
-      for (const item of JSON.parse(scope.stdout).data.scope.items.filter((entry) => entry.disposition === 'unresolved')) {
-        const decision = cli(['decision', 'scope', '--item', item.id, '--as', 'included', '--clause', 'POC:AC-001',
-          '--reason', 'This offline lifecycle fixture accepts the checkout requirement through its exact test-only clause.'], reviewer.name);
-        assert.equal(decision.status, 0, decision.stderr);
-      }
       const afterQuality = JSON.parse(await readFile(workflowStateFile, 'utf8'));
       assert.equal(afterQuality.currentPhase, phaseId, 'one functional approval cannot complete publication');
       const secondApproval = cli(['approve', phaseId, '--yes'], 'Initiative Owner');
@@ -4955,11 +4987,13 @@ test('Workspaces host rejects direct apply messages without an exact seeded-only
   ];
   for (const preview of unsafePreviews) {
     nextPreview = preview;
-    const promptsBefore = registered.inputBoxes.length;
+    // The exact confirmation is a review page (c4ca42e4); an unsafe preview must never open one.
+    const promptsBefore = registered.reviewConfirmations.length + registered.inputBoxes.length;
     await panel.post({ type: 'configuration-preview', scope: 'selected' });
     // Send the native message directly. A disabled webview button is presentation, not authority.
     await panel.post({ type: 'configuration-apply' });
-    assert.equal(registered.inputBoxes.length, promptsBefore,
+    await settle();
+    assert.equal(registered.reviewConfirmations.length + registered.inputBoxes.length, promptsBefore,
       `unsafe preview ${preview.planId} was rejected before confirmation`);
   }
   assert.equal(requests.some((request) => request.dryRun === false), false,
@@ -4967,16 +5001,18 @@ test('Workspaces host rejects direct apply messages without an exact seeded-only
   assert.match(panel.webview.html, /Apply refused:[\s\S]*exact seeded-only workspace reinitialization contract/);
 
   // Reference equality is insufficient: a retained result can be mutated while the asynchronous
-  // native confirmation box is open. The host must re-prove the contract immediately afterward.
+  // confirmation page is open. The host must re-prove the contract immediately afterward.
   const mutable = safe();
   nextPreview = mutable;
   await panel.post({ type: 'configuration-preview', scope: 'selected' });
-  api.window.showInputBox = async (options) => {
-    registered.inputBoxes.push(options);
-    mutable.capabilityPortability.changed = true;
-    return mutable.planId;
-  };
-  await panel.post({ type: 'configuration-apply' });
+  registered.reviewConfirmationManual = true;
+  const confirmationsBefore = registered.panels.filter((entry) => entry.id === 'singularityFlow.reviewConfirmation').length;
+  const applying = panel.post({ type: 'configuration-apply' });
+  const review = await until(() => registered.panels
+    .filter((entry) => entry.id === 'singularityFlow.reviewConfirmation')[confirmationsBefore] ?? null);
+  mutable.capabilityPortability.changed = true;
+  await review.post({ type: 'confirmation.accept', confirmation: mutable.planId });
+  await applying;
   assert.equal(requests.some((request) => request.dryRun === false), false,
     'a preview mutated during confirmation is rejected before the apply callback');
   assert.match(panel.webview.html, /Apply refused:[\s\S]*exact seeded-only workspace reinitialization contract/);
@@ -6069,8 +6105,6 @@ test('clicking an ahead local Story opens its checkout and resumes Copilot there
   ]);
   assert.equal(started.status, 0, started.stderr);
   const storyRoot = JSON.parse(started.stdout).data.repositoryPath;
-  const grounded = cli(['wm', 'build', '--phase', 'intake'], storyRoot);
-  assert.equal(grounded.status, 0, grounded.stderr);
   run('git', ['push', '-q', '-u', 'origin', workId], { cwd: storyRoot });
   await writeFile(path.join(storyRoot, 'ahead.txt'), 'unpublished Story commit\n');
   run('git', ['add', 'ahead.txt'], { cwd: storyRoot });
@@ -6325,8 +6359,6 @@ test('clicking a remote Story without a local checkout attaches it and opens Cop
   assert.equal(pending?.workId, 'STORY-OPEN-REMOTE');
   assert.equal(path.resolve(pending.repository), path.resolve(second));
 
-  const grounded = cli(['wm', 'build', '--phase', 'intake'], second);
-  assert.equal(grounded.status, 0, grounded.stderr);
   const resumedHost = stubVscode();
   resumedHost.api.workspace.workspaceFolders = [{ uri: { fsPath: second } }];
   const resumedExtension = loadExtension(resumedHost.api);
@@ -6444,9 +6476,6 @@ test('a pending Copilot handoff resumes in a fresh chat after the repository win
     cwd: root, encoding: 'utf8', env: process.env
   });
   assert.equal(started.status, 0, started.stderr);
-  const grounded = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
-    'wm', 'build', '--phase', 'intake'], { cwd: root, encoding: 'utf8', env: process.env });
-  assert.equal(grounded.status, 0, grounded.stderr);
   const isolated = await mkdtemp(path.join(os.tmpdir(), 'sflow-copilot-resume-'));
   const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
   const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;

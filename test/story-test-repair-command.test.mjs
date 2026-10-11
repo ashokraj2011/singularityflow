@@ -7,6 +7,8 @@ import { createTrpFixture } from './test-recovery-policy.fixture.mjs';
 const BASE = 'a'.repeat(40);
 const REPAIR = 'b'.repeat(40);
 const PLAN = trpDigest('reviewed readiness plan');
+// The Story's pinned test runtime, which the repair run must reuse (b55bf54a).
+const TEST_RUNTIME = { nodeOptions: ['--no-experimental-webstorage'] };
 function fixture() {
   const f = createTrpFixture();
   const agreement = sealTrpRecord({ ...f.agreement, repositories: f.agreement.repositories.map(row => ({ ...row, baselineDisposition: 'fix' })) });
@@ -14,7 +16,7 @@ function fixture() {
     { repositoryId: 'service', baseCommit: BASE, status: 'unknown', receiptSha256: null }
   ] };
   const workflow = { workItem: { id: 'story-1' }, currentPhase: 'code',
-    resolution: { testRecoveryInitialReadiness: structuredClone(original) },
+    resolution: { testRecoveryInitialReadiness: structuredClone(original), testRuntime: TEST_RUNTIME },
     testRecovery: { agreementSha256: agreement.recordSha256, readiness: structuredClone(original) } };
   const core = { schemaVersion: 1, kind: 'repository-readiness-receipt', scope: 'dependency-test',
     sourceTrackedOnly: true, status: 'pass', sourceCommit: REPAIR,
@@ -95,7 +97,7 @@ test('passing repair appends exact evidence inside one normal transaction and pr
   const transaction = f.calls.find(call => call[0] === 'transaction');
   assert.equal(transaction[1].type, 'test-readiness-repaired');
   assert.equal(transaction[3].expectedLocalHead, REPAIR);
-  assert.deepEqual(f.calls.find(call => call[0] === 'execute')[1], { confirmation: PLAN, scope: 'dependency-test' });
+  assert.deepEqual(f.calls.find(call => call[0] === 'execute')[1], { confirmation: PLAN, scope: 'dependency-test', testRuntime: TEST_RUNTIME });
   assert.deepEqual(f.workflow.resolution.testRecoveryInitialReadiness, f.original);
   assert.deepEqual(f.workflow.testRecovery.readinessHistory, [f.original]);
   assert.equal(f.workflow.testRecovery.readiness.repositories[0].originalBaseCommit, BASE);

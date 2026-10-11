@@ -8207,7 +8207,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
         if (note === undefined) return;
         await client.run(['wm', 'knowledge', action.value, picked.item.id, ...(note.trim() ? ['--note', note.trim()] : []), '--json']);
-        void vscode.window.showInformationMessage(`Recorded in docs/knowledge/confirmations.yml. Commit it with your change.`);
+        void showCompactInformationMessage('Recorded in docs/knowledge/confirmations.yml. Commit it with your change.');
       } catch (error) {
         showRefusal(error, { headline: 'Could not record the review' });
       }

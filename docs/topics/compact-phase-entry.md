@@ -3,14 +3,64 @@ id: compact-phase-entry
 title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
-related: [artifacts-and-generation, approvals]
-version: 8
+related: [artifacts-and-generation, approvals, phase-appeals, nextsteps]
+version: 9
 ---
 # Compact phase entry for Copilot
 
 `singularity-flow phase enter --for-agent --json` combines pause, selected checkout and agent
 binding, accepted phase policy, recovery, clarification and reference verification. It is a
 model-free read. Pause is checked before Git, workspace discovery or loading Story context.
+
+## Purpose and prerequisites
+
+Use this topic to understand the compact JSON packets that Copilot skills read before they author,
+code or review a phase, and what those packets do and do not permit. They replace separate
+pause/session/status, recovery, clarification and reference lookups with one verified read.
+
+- Run the reads from a governed checkout with the Story attached. A different Story must be
+  attached first; entry never switches Stories for you.
+- `--for-agent` is a boolean flag that requires `--json`.
+- Phase entry is a model-free read. With `--compose` it writes preparation context/audit only
+  (see the guided workflow).
+
+No production token-reduction composer or unqualified cache policy is enabled by this change.
+Existing approved-input briefs and exact clause capsules remain the context authority. Token and
+Git-call savings depend on workflow content; fewer CLI calls are not a claim of fewer validators.
+
+## Use it from each surface
+
+- **Shell:** the packets are ordinary CLI reads, so you can run them yourself to see what Copilot
+  sees: `singularity-flow phase enter --for-agent --json`,
+  `singularity-flow phase enter PHASE --work-id WORK-ID --compose --for-agent --json`,
+  `singularity-flow nextsteps --for-agent --json`, `singularity-flow inputs PHASE --for-agent --json`,
+  `singularity-flow inputs --dry-run --for-agent --json`,
+  `singularity-flow phase prepublish PHASE --for-agent --json` and
+  `singularity-flow review-source context --for-agent --json`. Run `singularity-flow phase --help`
+  for the exact forms supported by this build.
+- **Copilot:** `/sf-phase` and `/sf-code` start with phase entry; `/sf-next` starts with
+  nextsteps and delegates to `/sf-inputs`; `/sf-review-source` starts with the source-review
+  context packet. `/sf-appeal` opens the guided evidence-correction review described under State
+  and safety.
+- **VS Code:** there is no separate phase-entry view. When the current phase needs a generation,
+  its **Generate and publish** action in the Story tree (**Singularity Flow: Generate and Publish
+  Current Story Phase in Copilot**) only prefills the engine-selected phase skill in Copilot Chat for your review; that
+  skill then runs entry. For an evidence correction use **Resolve phase issues → Review evidence
+  correction** (also reachable through **Singularity Flow: Resolve Phase Issues and Appeals**).
+
+## Guided workflow
+
+1. Read the entry packet with `singularity-flow phase enter --for-agent --json` and inspect its
+   binding, recovery actions, clarification status and `contextAdmission`.
+2. If composition is not admitted, relay the blockers and the returned `next` route, then stop.
+3. If entry returns `status: successor-preparation-required`, run the returned preparation once
+   through `/sf-phase`, then refresh entry.
+4. Compose once with `--compose` and use the returned `context.text`.
+5. Author the draft, then run `phase prepublish PHASE --for-agent --json` once.
+6. Follow the returned continuation. It does not authorize another lifecycle action in the same
+   turn.
+
+### Read the entry packet
 
 `ready` describes the checkout/session binding, not publication, passing tests or approval.
 Inspect the returned recovery actions and clarification status. Protected/unrelated changes,
@@ -20,6 +70,8 @@ commands are never interpreted as implicit permission or guessed slash commands.
 retained screenshot has a scoped evidence-contract review route, not a request to delete it or
 commit unrelated source merely to clear the worktree. The reviewed correction can restore draft
 ownership without changing prior publications or claiming that visual acceptance passed.
+
+### Context admission
 
 `contextAdmission.allowed` and `contextAdmission.blockers` report the actual composition guards.
 They are distinct from `recovery.blockers`, which can contain incomplete draft/tag findings that
@@ -37,52 +89,7 @@ the verified draft while preserving each held file's bytes and the index; do not
 stage, delete or use it as passing proof. Staged/tracked unknown evidence, links, protected/unrelated
 edits, unsafe Git operations and lifecycle/authority failures cannot use this continuation.
 
-Prepublish and publication independently re-read pending evidence contracts and refuse with
-`PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED` until ownership is reviewed. An evidence-correction
-preview retains the interactive terminal route and also returns `guidedReview`: the exact
-`/sf-appeal evidence-accept ... --review-ui` command. Copilot may open this review once, but must
-never answer the form or infer confirmation from chat. In VS Code use **Resolve phase issues →
-Review evidence correction**. The engine opens a scrollable local browser page displaying the
-captured screenshot, file hash, original/proposed contract, authority and exact confirmation.
-CLI flags, stdin answers or fabricated receipts cannot substitute for this review. Cancel, browser failure or
-15-minute expiry leaves Story state unchanged. After confirmation, the engine independently
-rechecks the file, worktree, owner map, policy and identity before recording an append-only decision.
-No phase approval, passing screenshot or test waiver is implied.
-
-This is configured-local human review, not cryptographically authenticated Copilot identity or
-protection against another process already controlling the user's desktop. Its private one-shot
-loopback page serves only the captured raster, rejects cross-origin requests, embeds no external
-resources, and closes after the ceremony. The terminal route remains available on headless hosts.
-
-Prepublish can return `draftRepair.scope: draft-only` and same-turn owned corrections while that
-decision is pending. It freshly rechecks the same worktree hold; unknown/protected edits cannot
-use it. The bounded repair coordinator may repair other owned findings, but retains the evidence
-review in the condition/readiness hash. Fixing the draft never clears or records that human decision.
-This also applies to owned coverage gaps found only by recovery while the Markdown draft is ready:
-the bound author can repair the planned source/test bindings in the same open generation. Unclaimed
-paths, invalid evidence, withdrawn claims and lifecycle/authority findings retain their owner routes.
-
-Prevent that classification mismatch while the plan is still a draft. New/modified obligations
-name product source in Expected paths; a retained screenshot or document instead uses fulfillment
-`evidence` and its exact current-Story evidence path. An evidence acceptance criterion also needs
-a primary visual/inspection row in `## Verification contracts`; prose and passing unit tests alone
-do not establish visual correctness. Planned tests remain required by the execution policy.
-
-For any phase configured to own a downstream code phase's planned claims, prepublish can return
-`planningEvidenceRepair`: artifact/author-owned hashes, exact before/after patches and their clause,
-path and method. It only suggests an explicit, unambiguous declaration, validates the candidate with
-the publication parser and never writes it. The bound producer must compare its meaning with the
-approved criteria; apply only when `sameTurn` is true and the draft hash still matches, preserving
-managed inputs and unrelated clauses, then recheck. Ambiguous/unapproved clauses, unsafe paths,
-duplicate anchors and conflicting explicit witness contracts need author reconciliation; existing
-primary tests, combinations and assurance are not silently replaced. Reference existing clause IDs
-in backticks, not as new bracketed declarations, when the same phase also defines the clauses.
-
-These draft patches are not an amendment or visual acceptance. An already published/approved plan
-keeps its exact bytes and uses the reviewed append-only evidence correction or a reviewed successor.
-The repaired draft's eventual contract owns its retained file during implementation, without a late
-classification appeal. File presence still cannot pass the visual criterion: fresh tests, exact
-witness review and the normal phase approval remain independent gates.
+### Compose preparation context
 
 After reviewing that entry packet, use:
 
@@ -95,6 +102,8 @@ composer. It returns `context.text` once and reuses verified immutable prompts w
 It does not begin or prepare a generation, run tests, commit, push or advance a phase. A retained
 publication is not implicitly replaced by a successor. A different Story must be attached first.
 
+### Successor preparation
+
 A current, verified source review requiring author correction returns
 `status: successor-preparation-required`, `successor.targetGeneration` and the exact
 `successor.preparation.command`. `/sf-phase` reviews recovery/diffs, executes that explicit
@@ -102,6 +111,8 @@ preparation once and refreshes entry before composing. Read-only entry, includin
 cannot reserve the successor or edit the retained publication. Submitted phases, pending human
 dispositions, unverifiable bindings and consumed code intents keep their guarded routes.
 This classification uses phase policy, not built-in phase names, including copied/custom workflows.
+
+### Skills that consume the packets
 
 `/sf-code` and `/sf-phase` consume these packets instead of separate pause/session/status,
 recovery, clarification and reference commands. Standalone agents retain a boundary fallback;
@@ -126,15 +137,15 @@ Use the returned continuation instead of another nextsteps or phase-show call. T
 authorize another lifecycle action in the same turn. Repeated identical budget warnings print
 once per CLI operation; different observations and later invocations retain their warnings.
 
+### Prepublish once
+
 Authoring skills use `phase prepublish PHASE --for-agent --json` once. Prepublish already runs
 draft-check internally. Compact checks preserve all findings, correction/repair/risk choices,
 fingerprints, warnings, exact commands and test requirements. Omitted verbose observations have
 an explicit full-inspection command; the ordinary `--json` contract is unchanged. Required tests
 still run freshly at the governed execution transition, not during these read-only checks.
 
-No production token-reduction composer or unqualified cache policy is enabled by this change.
-Existing approved-input briefs and exact clause capsules remain the context authority. Token and
-Git-call savings depend on workflow content; fewer CLI calls are not a claim of fewer validators.
+### Source review entry
 
 `/sf-review-source` starts review with `singularity-flow review-source context --for-agent --json`
 (optionally name the current phase). The packet includes pause/session binding and every exact
@@ -143,3 +154,87 @@ schema and report template. The authoritative inventory appears once at `reportT
 no review material is summarized or truncated. `reviewGuide.readOrder` avoids key-enumeration and
 repeated inventory/hash lookups. The ordinary context JSON stays unchanged. Explicit status and
 human decisions retain their pause/session checks; compact entry cannot make either decision.
+
+## State and safety
+
+Phase entry, nextsteps, the `inputs --dry-run` preview, prepublish and source-review context are
+reads. Composition writes only preparation context/audit and does not prepare a generation, run
+tests, commit, push or advance a phase. Recording inputs (`inputs PHASE` without `--dry-run`) is a
+mutation that revalidates its binding, hashes, sequence, agents and preparation gates first. No
+guard or human confirmation is waived by any of these packets.
+
+### Evidence-correction review
+
+Prepublish and publication independently re-read pending evidence contracts and refuse with
+`PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED` until ownership is reviewed. An evidence-correction
+preview retains the interactive terminal route and also returns `guidedReview`: the exact
+`/sf-appeal evidence-accept ... --review-ui` command. Copilot may open this review once, but must
+never answer the form or infer confirmation from chat. In VS Code use **Resolve phase issues →
+Review evidence correction**. The engine opens a scrollable local browser page displaying the
+captured screenshot, file hash, original/proposed contract, authority and exact confirmation.
+CLI flags, stdin answers or fabricated receipts cannot substitute for this review. Cancel, browser failure or
+15-minute expiry leaves Story state unchanged. After confirmation, the engine independently
+rechecks the file, worktree, owner map, policy and identity before recording an append-only decision.
+No phase approval, passing screenshot or test waiver is implied.
+
+This is configured-local human review, not cryptographically authenticated Copilot identity or
+protection against another process already controlling the user's desktop. Its private one-shot
+loopback page serves only the captured raster, rejects cross-origin requests, embeds no external
+resources, and closes after the ceremony. The terminal route remains available on headless hosts.
+
+### Draft repair while that decision is pending
+
+Prepublish can return `draftRepair.scope: draft-only` and same-turn owned corrections while that
+decision is pending. It freshly rechecks the same worktree hold; unknown/protected edits cannot
+use it. The bounded repair coordinator may repair other owned findings, but retains the evidence
+review in the condition/readiness hash. Fixing the draft never clears or records that human decision.
+This also applies to owned coverage gaps found only by recovery while the Markdown draft is ready:
+the bound author can repair the planned source/test bindings in the same open generation. Unclaimed
+paths, invalid evidence, withdrawn claims and lifecycle/authority findings retain their owner routes.
+
+### Preventing the classification mismatch
+
+Prevent that classification mismatch while the plan is still a draft. New/modified obligations
+name product source in Expected paths; a retained screenshot or document instead uses fulfillment
+`evidence` and its exact current-Story evidence path. An evidence acceptance criterion also needs
+a primary visual/inspection row in `## Verification contracts`; prose and passing unit tests alone
+do not establish visual correctness. Planned tests remain required by the execution policy.
+
+For any phase configured to own a downstream code phase's planned claims, prepublish can return
+`planningEvidenceRepair`: artifact/author-owned hashes, exact before/after patches and their clause,
+path and method. It only suggests an explicit, unambiguous declaration, validates the candidate with
+the publication parser and never writes it. The bound producer must compare its meaning with the
+approved criteria; apply only when `sameTurn` is true and the draft hash still matches, preserving
+managed inputs and unrelated clauses, then recheck. Ambiguous/unapproved clauses, unsafe paths,
+duplicate anchors and conflicting explicit witness contracts need author reconciliation; existing
+primary tests, combinations and assurance are not silently replaced. Reference existing clause IDs
+in backticks, not as new bracketed declarations, when the same phase also defines the clauses.
+
+These draft patches are not an amendment or visual acceptance. An already published/approved plan
+keeps its exact bytes and uses the reviewed append-only evidence correction or a reviewed successor.
+The repaired draft's eventual contract owns its retained file during implementation, without a late
+classification appeal. File presence still cannot pass the visual criterion: fresh tests, exact
+witness review and the normal phase approval remain independent gates.
+
+## Troubleshooting
+
+- If entry reports `paused`, Copilot stays native. Only `/sf-pause off` resumes SFlow guidance;
+  skills never resume it implicitly.
+- If entry is not `ready` or returns no Work ID, select the work first with `/sf-session` or
+  `/sf-workspaces` (shell: `singularity-flow session candidates`) and run entry again.
+- If a command refuses with `--for-agent requires --json`, add `--json`.
+- If composition is not admitted, relay `contextAdmission.blockers` and `next`. Do not retry
+  composition or rerun the unchanged authoring skill.
+- If prepublish or publication refuses with `PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED`, open the
+  evidence-correction review once (Copilot guided review, VS Code **Review evidence correction**,
+  or the terminal route). Repairing the draft does not clear it.
+- If the browser review is cancelled, fails or expires, Story state is unchanged; start the review
+  again, or use the terminal route on a headless host.
+- If entry returns `status: successor-preparation-required`, let `/sf-phase` run the returned
+  `successor.preparation.command` once; read-only entry cannot reserve the successor.
+- If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a
+  command from the label.
+
+## Related topics
+
+Continue with `sflow explain artifacts-and-generation`, `sflow explain approvals`, `sflow explain phase-appeals`, `sflow explain nextsteps`.

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "03501e9a4044fb54537699198833f6dbc865cdd2",
+  "sourceCommit": "b173caeeef662162e2142b5956d09035899d5c28",
   "topicCount": 81,
-  "contentSha256": "2429edef51145f5d01c6c75143358ae401794951f0cf2afb436dcd54571f7e59",
+  "contentSha256": "c3c9ae62eddac59f30d06b267c68d71d07da534253d9518d2a743f76d38e5621",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -104,9 +104,9 @@
     {
       "id": "compact-phase-entry",
       "title": "Compact phase entry for Copilot",
-      "version": 8,
-      "sha256": "3b60dbcbf69812ae9e7362fd8f7b63245e5bd3428bcd715d987be15664dac658",
-      "routingSha256": "f3f91248858b483c276225037aa2cfb5e5f05530385dba62614ecfe8c4a8a1e6",
+      "version": 9,
+      "sha256": "ae85d0043ad4b42ac593feaf05a362945ac3d43dcbc9acf33aae8e67a1970cee",
+      "routingSha256": "bcd885145db0455bd1ec31c50649b5056e38b66b77e10123514a20c5f3d1d0cb",
       "file": "compact-phase-entry.md"
     },
     {
@@ -144,8 +144,8 @@
     {
       "id": "demo-web-e2e-testing",
       "title": "Demo Web E2E Testing starter",
-      "version": 1,
-      "sha256": "1883e2543a802a0f6819b53a0f34a488f4f3a43b37c266a9d3e3dd0f97e9ca0e",
+      "version": 2,
+      "sha256": "cd9a0e1d17d19df3dd61483c297d4029c29303013662b9d0ab82cb0d14d79bdd",
       "routingSha256": "8c6c3fda058b00f112dfbe50f35ecc483d64754062529ebb58db5e13da9decff",
       "file": "demo-web-e2e-testing.md"
     },
@@ -168,8 +168,8 @@
     {
       "id": "document-test-repair",
       "title": "Document-led acceptance and repair workflow",
-      "version": 2,
-      "sha256": "6c90d841d1579ae54e2d849bfc782726cc8d4ac6a62e1cf0c7d87a8b301eab8e",
+      "version": 3,
+      "sha256": "0dfde94f62384268288dab5c1e23e3c6d3e3e1bf12e8fd65a7b9477a6954eac5",
       "routingSha256": "792cf7b684167734fcd9235d375f6b9e9d282154a97c01d6788e45e31674d8e9",
       "file": "document-test-repair.md"
     },
@@ -384,9 +384,9 @@
     {
       "id": "phase-appeals",
       "title": "Phase appeals and recoverable blockers",
-      "version": 3,
-      "sha256": "7762d9f0b759fe2c3a82db716e4616e3aa2c6e36cd15dbafebf5beed018aab2d",
-      "routingSha256": "10bdea3b1c2cf7abfb8fff98ab9bca35ed4e2fad27caa60f4f572d10684d6a28",
+      "version": 4,
+      "sha256": "fc0d74606957ca2bd299b5c04e3deaf132da9bcd1245c5e56fee0b42e4445168",
+      "routingSha256": "e2a804ba23d067717ab94a3b915334324e81bcc4ec14f67c09990e97295fed67",
       "file": "phase-appeals.md"
     },
     {
@@ -472,8 +472,8 @@
     {
       "id": "reusable-instructions",
       "title": "Reusable instructions referenced by skills",
-      "version": 1,
-      "sha256": "a3725943992992c76933f60fef14d0fff89b98cca839d598c88afc1f12c59d88",
+      "version": 2,
+      "sha256": "f114b5f98062803e090b5f6824cceef02c0122e5440636818e32ab8d28d9f3e3",
       "routingSha256": "819508e7d86f0c94478e4e14ff69d396888fe9a2769c18b780d25b0d43747622",
       "file": "reusable-instructions.md"
     },
@@ -536,8 +536,8 @@
     {
       "id": "source-grounded-review",
       "title": "Independent source-grounded review",
-      "version": 2,
-      "sha256": "92eb5af12891aa186d6b1368e30b9e69b617ffb72d0d8b0f8b808081f72e78a3",
+      "version": 3,
+      "sha256": "3569e5f1d55cfc605d7689165ef2323aa55710363580a3b38033ed732003341b",
       "routingSha256": "0c3fb5640f1493f14d8795c3e77b63917c630b28fba11bb13f20bb2add4d808c",
       "file": "source-grounded-review.md"
     },
@@ -560,9 +560,9 @@
     {
       "id": "story-lifecycle",
       "title": "Story lifecycle, phases, and generations",
-      "version": 5,
+      "version": 6,
       "sha256": "465b2154bb8539a77868f5732103b881d4047d34b8c45b109b4ac7cc03ff0ae9",
-      "routingSha256": "ba05ed458214e52a31a5cf002c0104c63bb35ae9dc202dd81fca74cac023a886",
+      "routingSha256": "3b0bff2625cc67700ca6c85dbe9fdae373732b590782d27cc064bb74649fea18",
       "file": "story-lifecycle.md"
     },
     {
@@ -648,8 +648,8 @@
     {
       "id": "world-model",
       "title": "World Model and the Repository brief",
-      "version": 39,
-      "sha256": "8836d63836cd2e3aef2f0ceece2f4d508bc67ae63d5392013f05009628ca844d",
+      "version": 40,
+      "sha256": "f6441633a54492c876d4ac7d9d6a98fc386f695714bfe71c70297e42d369fc76",
       "routingSha256": "e8bc81fa19c1360eb38defcc0c51657bfdbe20101662beb54d403fa0bccefa68",
       "file": "world-model.md"
     }

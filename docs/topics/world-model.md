@@ -11,16 +11,18 @@ related:
   - agents-and-routing
   - model-independence
   - knowledge-and-remote-assets
-version: 39
+version: 40
 ---
+## Purpose and prerequisites
+
 The World Model is the **Repository brief** that every phase prompt gets: a few cited bullets about
 the code the Story touches, read from the committed source with no build and no model call. It
 covers the rules that apply (with their messages and HTTP statuses), contracts, flows, what the
 Story's change touches, and the risky places. Each bullet ends with its source as a file and line;
 what could not be determined is one closing "Not known" line.
 
-The brief is guidance. It never blocks, refuses or authorizes anything. If it cannot be built, the
-prompt goes out without it and a warning says why.
+Phase prompts get it in a governed repository, where it is on by default; `wm knowledge` also reads a
+plain Git repository. No build, model or network access is required.
 
 ## What a phase receives
 
@@ -36,7 +38,7 @@ Knowledge is cached by content on this machine, so every Story worktree reuses i
 files a repository is not read whole: a phase builds only the areas the Story changes or names, and a
 Story that names no area gets a warning instead of a brief.
 
-## See it
+## Guided workflow
 
 ```bash
 singularity-flow wm brief --phase PHASE [--work-id ID]   # exactly what that phase receives; records nothing
@@ -85,7 +87,14 @@ Run `sflow doctor --performance --offline` to see scoped and total file counts.
   shows every view of the brief with branch and phase pickers, and **Review Repository Knowledge**
   records a confirm, correct or reject review.
 
-## Upgrading
+## State and safety
+
+The brief is guidance. It never blocks, refuses or authorizes anything. If it cannot be built, the
+prompt goes out without it and a warning says why. Previewing it with `wm brief` records nothing;
+repository knowledge is a content-addressed cache on this machine, and the only committed state is a
+person's review in `docs/knowledge/confirmations.yml`.
+
+### Upgrading
 
 The registered World Model (views such as `dev.impact` and `biz.rules`, built and published to the
 state branch), the CALM architecture projection and Story architecture intent were removed. Their

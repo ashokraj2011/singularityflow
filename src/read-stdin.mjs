@@ -1,4 +1,4 @@
-/** Shared command input transport, without command-router dependencies. */
+/** Shared command input transport with no dependencies, so the router can import it statically. */
 export async function readStdinText() {
   const chunks = [];
   for await (const chunk of process.stdin) chunks.push(chunk);

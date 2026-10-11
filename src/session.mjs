@@ -289,6 +289,35 @@ export async function bindAgentToCopilotSession(root, definition, workId, copilo
   return record;
 }
 
+/**
+ * Record a Story this checkout just started as its Copilot selection.
+ *
+ * Start has already bound the first phase's governed agent, so there is nothing to resolve: going
+ * through activateWorkItemSession re-verified the pinned snapshot and cost every start about 25 Git
+ * processes. A conversation that already carries a session ID still takes that full path, which
+ * also binds the agent to it.
+ */
+export async function recordStartedWorkItemSelection(root, definition, workflow) {
+  const [copilot, session] = await Promise.all([loadCopilotSession(root), loadSession(root, { required: false })]);
+  if (copilot?.sessionId) return activateWorkItemSession(root, definition, workflow);
+  const workId = workflow.workItem.id;
+  const phaseId = workflow.currentPhase ?? null;
+  return recordCopilotSession(root, {
+    ...(copilot ?? {}),
+    sessionId: null,
+    source: copilot?.source ?? 'startup',
+    repositoryRoot: root,
+    workId,
+    candidateWorkId: workId,
+    phase: phaseId,
+    policy: normalizeSessionPolicy(workflow.resolution?.session ?? definition.session ?? {}),
+    workItemSelectionRequired: false,
+    selectionRequired: false,
+    selectedAgent: session?.workId === workId && session.phaseId === phaseId ? session.agent ?? null : null,
+    workItemSelectedAt: nowIso()
+  });
+}
+
 export async function activateWorkItemSession(root, definition, workflow) {
   const catalog = await resolveStoryExecutionCatalog(root, definition, workflow);
   definition = catalog.effectiveDefinition;

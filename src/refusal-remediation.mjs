@@ -270,7 +270,9 @@ const UPGRADE_KNOWN = Object.freeze({
   ],
   COMMAND_REMOVED: () => [
     step('read-repository-brief', 'Phase prompts get the Repository brief read from the source; see what a phase receives.',
-      'singularity-flow wm brief --phase PHASE')
+      'singularity-flow wm brief --phase PHASE'),
+    step('read-repository-contracts', 'Read the endpoints, seams and storage the code declares, with no model.',
+      'singularity-flow wm knowledge show contracts')
   ],
   WFA_RUNTIME_INCOMPATIBLE: () => [
     step('inspect-snapshot-runtime',

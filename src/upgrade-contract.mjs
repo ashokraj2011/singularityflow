@@ -15,8 +15,6 @@ export const VERSION_SENSITIVE_CODE = /(VERSION|MIGRATION|UPGRADE|NEWER|EARLIER_
 export const AUTOMATIC_UPGRADE_REPAIRS = Object.freeze({
   'product-alignment':
     'Every product surface is brought to the installed build on a new build\'s first run and in VS Code.',
-  'reviewed-registry-admission':
-    'A World Model from an earlier reviewed build stays readable, and current when every change since was mechanical.',
   'transition-publication-repair':
     'A phase transition finishes a Story\'s retained publication instead of refusing it.'
 });
@@ -31,11 +29,9 @@ export const UPGRADE_CONTRACT = Object.freeze({
   SCHEMA_VERSION_FUTURE: guided('product-alignment'),
   SCHEMA_VERSION_ARCHIVED: guided(),
   DOCS_MANIFEST_MISMATCH: guided('product-alignment'),
-  WMB_EARLIER_BUILD_MODEL_INCOMPATIBLE: guided('reviewed-registry-admission'),
-  WMB_MIGRATION_REQUIRED: guided(),
-  WMB_FORMAT_RETIRED: guided(),
-  WMB_SEED_VIEWS_UNDECLARED: guided(),
-  WMB_VIEW_VERSION_UNSUPPORTED: guided(),
+  // The registered World Model and its commands were removed; the refusal points to the Repository brief.
+  WMB_REMOVED: guided(),
+  COMMAND_REMOVED: guided(),
   WFA_RUNTIME_INCOMPATIBLE: guided(),
   WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED: guided(),
   CONVERGENCE_LEGACY_MIGRATION_REQUIRED: guided(),
@@ -55,10 +51,6 @@ export const UPGRADE_CONTRACT = Object.freeze({
   SCHEMA_MIGRATION_NONDETERMINISTIC: integrity('A registered migration is not deterministic; this is a product defect.'),
   SCHEMA_VERSION_MISSING: integrity('A durable record without a schema version cannot be classified.'),
   SCHEMA_VERSION_INVALID: integrity('A schema census finding for a record whose version is not an integer.'),
-  WMB_MIGRATION_RECEIPT_INVALID: integrity('A legacy World-Model migration receipt does not verify.'),
-  WMB_MIGRATION_SOURCE_INVALID: integrity('A legacy World-Model migration source does not verify.'),
-  WMB_MIGRATION_CATALOG_INVALID: integrity('The approved view catalog is invalid; an upgrade must not invent or weaken its assignments.'),
-  WMB_MIGRATION_CAPABILITY_VIEW_UNDECLARED: integrity('A required capability view is absent from the approved catalog; migration cannot silently remove the requirement.'),
   AUTO_CONTEXT_MANIFEST_MISMATCH: integrity('A model transport receipt differs from the admitted Auto prompt.'),
 
   // Development and release gates: never reached by an installed build at runtime.
@@ -69,7 +61,8 @@ export const UPGRADE_CONTRACT = Object.freeze({
   SCHEMA_UPGRADE_OPTIONS_INVALID: development('An API misuse: invalid schema-upgrade options.'),
 
   // The name matches, the meaning does not.
-  WORKSPACE_ARCHIVED: unrelated('An archived workspace, not an archived schema.')
+  WORKSPACE_ARCHIVED: unrelated('An archived workspace, not an archived schema.'),
+  MODEL_SESSION_INCOMPATIBLE: unrelated('A prompt that differs from its model session\'s provider, model or tool policy, not a build or schema version.')
 });
 
 /** Transition refusals raised by a sequence gate rather than a code. */

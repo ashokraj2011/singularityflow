@@ -6,7 +6,7 @@ import { loadStoryConfigurationSnapshot } from '../configuration-branch.mjs';
 import { head } from '../git.mjs';
 import { GitRemoteSession } from '../git-execution.mjs';
 import { fosStoryConfigurationAuthority } from '../onboard.mjs';
-import { loadConfig } from '../state.mjs';
+import { loadConfig } from '../state-stores.mjs';
 import { prepareStoryWorktree, preparedStoryWorktreePath, samePlatformPath, storyWorktreePath } from '../story-worktree.mjs';
 import { normalizeTestRecoveryPolicy } from '../test-recovery-intake.mjs';
 import { trpDigest } from '../test-recovery-policy.mjs';

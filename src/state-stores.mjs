@@ -228,7 +228,7 @@ export {
 export {
   actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, completionPhaseOf,
   CONFIG_PATH, createWorkflow, currentPhase, decideStory, decideStorySkillVersion,
-  generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, publishGeneration,
+  generationResultDigest, generationResultMatches, loadConfig, loadStoryTestRecoveryAgreement, preparePhase, preparePhaseInputs, publishGeneration,
   inspectRequiredArtifactRegistration, previewReworkRollForward, previewStorySkillVersionDecision,
   previewStorySkillVersionProposal, previewTestingRepair, promoteDesignSource,
   proposeStorySkillVersion, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow,

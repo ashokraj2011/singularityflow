@@ -2,7 +2,7 @@ import { recordCompletenessReview, recordScopeDecision, scopeAuthorities } from 
 import { planAuthorities, recordPlanAmendment } from './plan-amendments.mjs';
 import { recordRiskDecision, recordRiskRevocation, riskAuthorities } from './evidence/risk-decisions.mjs';
 import { normalizeQualityGateMode } from './phase-quality-risk.mjs';
-import { readStdinText as stdinText } from './commands/read-stdin.mjs';
+import { readStdinText as stdinText } from './read-stdin.mjs';
 import { recordWitness } from './verification/witness-records.mjs';
 import { isConvergencePhase, scopeStepOf, sourceReviewKind, stepResponsibilities } from './phase-roles.mjs';
 import readline from 'node:readline/promises';
@@ -121,7 +121,7 @@ import {
 } from './change-flight-plan.mjs';
 import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
-import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, requireCopilotWorkItemSelection, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
+import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, recordStartedWorkItemSelection, requireCopilotWorkItemSelection, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, browseEpicSources, detachDocuments, documentCatalog, fetchRemoteDocument, importableEpicSources, jiraAttachments, listRemoteDocuments, pendingPromptRelative, previewDocument, scopeDocuments, storeDocumentInGit, viewDocument } from './documents.mjs';
 import { documentOfferedToPhase, resolveDocumentRecord } from './document-identity.mjs';
 import { phaseArtifactCatalog, viewPhaseArtifact } from './phase-artifact-browser.mjs';
@@ -268,7 +268,6 @@ import { markCliFailureLogged } from './cli-failure.mjs';
 import {
   loadLegacyMaterializedStoryDefinition, loadLegacyStoryBaseContext, storyConfigurationUnavailableError,
 } from './story-start-base-configuration.mjs';
-import { bindIsolatedStoryConfiguration, sealIsolatedStoryConfiguration } from './commands/start-configuration.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
 import {
   activateWorkspaceContext, activateWorkspaceStoryContext, activeWorkspaceFile, buildWorkspaceContext,
@@ -1668,6 +1667,7 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
   const {
     completeStoryWorktree, prepareStoryWorktree, rollbackFailedStoryWorktree
   } = await import('./story-worktree.mjs');
+  const { bindIsolatedStoryConfiguration, sealIsolatedStoryConfiguration } = await import('./commands/start-configuration.mjs');
   // The operator's file paths are relative to where the command ran, not to the Story worktree the
   // start continues in after it changes directory.
   const launchDirectory = process.cwd();
@@ -3529,7 +3529,7 @@ export async function startCommand(positionals, options) {
   // Starting a Story is the explicit choice a Copilot conversation's work-item selection asks for.
   // Record it for this checkout, as session attach does, so the first /sf-next after a start is not
   // refused for a missing selection. A local record never turns a durable start into a failure.
-  await activateWorkItemSession(root, config, workflow).catch((error) => console.warn(
+  await recordStartedWorkItemSelection(root, config, workflow).catch((error) => console.warn(
     `Warning: Story '${workflow.workItem.id}' started, but this checkout's Copilot selection was not recorded: ${error.message}`));
   emitCommandResult(startResult, { json: optionBoolean(options, 'json'), postState: workflow });
   return startResult;

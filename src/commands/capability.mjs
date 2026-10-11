@@ -447,19 +447,21 @@ async function runOnboard(context) {
     console.log(`  plan: ${result.planId}`);
   } else {
     console.log(`  changed: ${result.changed ? 'yes' : 'no'}`);
-    if (result.proposal?.reviewRequired) {
-      console.log(`  review branch: ${result.proposal.branch}`);
-      console.log(`Shell: ${result.review?.inspectCommand ?? result.nextActions?.shell}`);
-    }
+    if (result.proposal?.reviewRequired) console.log(`  review branch: ${result.proposal.branch}`);
     if (result.stateRefresh?.pending) {
       console.log('  configuration is ready; state refresh is pending.');
     }
   }
   for (const warning of result.localCleanupWarnings ?? []) console.log(`Warning: ${warning}`);
-  if (result.nextActions?.shell && !result.proposal?.reviewRequired) {
-    console.log(`Shell: ${result.nextActions.shell}`);
-  }
+  // While a setup proposal awaits review, its inspection command is the Shell route.
+  const shell = result.proposal?.reviewRequired
+    ? (result.dryRun ? null : result.review?.inspectCommand ?? result.nextActions?.shell)
+    : result.nextActions?.shell;
   if (result.nextActions?.copilot) console.log(`Copilot: ${result.nextActions.copilot}`);
+  if (shell) {
+    console.log(`Shell: ${shell}`);
+    console.log('VS Code (model-free): not available for this action');
+  }
   return result;
 }
 

@@ -658,7 +658,7 @@ async function handleChatRevision(
     if (token.isCancellationRequested) return 'resolved';
     stream.markdown(renderRevisionInspection(value, action.kind, intervalId));
     const shell = `singularity-flow ${argv.join(' ')}`;
-    stream.markdown(`\n**Shell:** ${inlineCode(shell)}\n\n**Copilot:** ${inlineCode(`/sf-revise ${action.kind}${intervalId ? ` ${intervalId}` : ''}`)}\n`);
+    stream.markdown(`\n**Copilot:** ${inlineCode(`/sf-revise ${action.kind}${intervalId ? ` ${intervalId}` : ''}`)}\n\n**Shell:** ${inlineCode(shell)}\n`);
     stream.button({
       command: 'singularityFlow.copyParticipantCommand', title: 'Copy Shell',
       arguments: [shell, 'revise']
@@ -788,7 +788,7 @@ function renderRevisionChecksRoutes(
   routes: { shell: string; copilot: string },
   { copy = true }: { copy?: boolean } = {}
 ): void {
-  stream.markdown(`\n**Shell:** ${inlineCode(routes.shell)}\n\n**Copilot:** ${inlineCode(routes.copilot)}\n`);
+  stream.markdown(`\n**Copilot:** ${inlineCode(routes.copilot)}\n\n**Shell:** ${inlineCode(routes.shell)}\n`);
   if (copy) stream.button({
     command: 'singularityFlow.copyParticipantCommand', title: 'Copy Shell',
     arguments: [routes.shell, 'revision-checks']
@@ -925,6 +925,15 @@ function renderedCommand(value: unknown): Pick<ParticipantRendered, 'shell' | 's
     : { shell: null, shellCopyable: false, copilot: null };
 }
 
+/** Copilot, Shell, then the model-free VS Code route: the order every returned action reads in. */
+function routeMarkdown(value: unknown): string {
+  const commands = renderedCommand(value);
+  if (!commands.shell || !commands.copilot) return '';
+  const modelFree = commandGuidance(value)?.modelFreeCommand;
+  return `\n**Copilot:** ${inlineCode(commands.copilot)}\n\n**Shell:** ${inlineCode(commands.shell)}\n`
+    + `\n**VS Code (model-free):** ${modelFree ? inlineCode(modelFree) : 'not available for this action'}\n`;
+}
+
 function renderNextAction(value: unknown): ParticipantRendered {
   const result = jsonObject(value) ?? {};
   const actions = jsonArray(result.actions).map(jsonObject).filter((entry): entry is JsonObject => Boolean(entry));
@@ -935,10 +944,7 @@ function renderNextAction(value: unknown): ParticipantRendered {
   markdown += `- Why: ${markdownValue(action.reason ?? 'No reason returned.', 1000)}\n`;
   markdown += `- Availability: ${markdownValue(action.availability ?? 'unknown')}\n`;
   const commands = renderedCommand(action);
-  if (commands.shell) markdown += `\n**Shell:** ${inlineCode(commands.shell)}\n`;
-  if (commands.copilot) markdown += `\n**Copilot:** ${inlineCode(commands.copilot)}\n`;
-  const guidance = commandGuidance(action);
-  if (guidance?.modelFreeCommand) markdown += `\n**VS Code, model-free:** ${inlineCode(guidance.modelFreeCommand)}\n`;
+  markdown += routeMarkdown(action);
   markdown += '\nNothing was executed. Review or prefill the returned action.\n';
   return { markdown, ...commands };
 }
@@ -996,8 +1002,7 @@ function renderRouter(value: unknown): ParticipantRendered {
   if (!next) return { markdown: `${markdown}\nNo next action was returned.\n` };
   markdown += `\n- ${markdownValue(next.label ?? next.id ?? 'Next action', 1000)}\n`;
   const commands = renderedCommand(next);
-  if (commands.shell) markdown += `\n**Shell:** ${inlineCode(commands.shell)}\n`;
-  if (commands.copilot) markdown += `\n**Copilot:** ${inlineCode(commands.copilot)}\n`;
+  markdown += routeMarkdown(next);
   markdown += '\nThe returned action was not executed.\n';
   return { markdown, ...commands };
 }
@@ -1100,8 +1105,12 @@ function renderParticipantRefusal(error: unknown): ParticipantRendered {
   for (const step of steps.slice(0, 3)) {
     markdown += `- ${markdownValue(step.label ?? step.id ?? 'Review the blocker.', 800)}\n`;
     const commands = renderedCommand(step);
-    if (commands.shell) markdown += `  - Shell: ${inlineCode(commands.shell)}\n`;
     if (commands.copilot) markdown += `  - Copilot: ${inlineCode(commands.copilot)}\n`;
+    if (commands.shell) {
+      const modelFree = commandGuidance(step)?.modelFreeCommand;
+      markdown += `  - Shell: ${inlineCode(commands.shell)}\n`
+        + `  - VS Code (model-free): ${modelFree ? inlineCode(modelFree) : 'not available for this action'}\n`;
+    }
   }
   const first = steps[0];
   return { markdown, ...renderedCommand(first) };
@@ -1483,7 +1492,8 @@ export function registerSflowChat(
     if (answer.handoff) {
       const guidance = commandGuidance(answer.handoff);
       if (guidance) {
-        stream.markdown(`\n**Shell:** ${inlineCode(guidance.command)}\n\n**Copilot:** ${inlineCode(guidance.copilotCommand)}\n`);
+        stream.markdown(`\n**Copilot:** ${inlineCode(guidance.copilotCommand)}\n\n**Shell:** ${inlineCode(guidance.command)}\n`
+          + `\n**VS Code (model-free):** ${guidance.modelFreeCommand ? inlineCode(guidance.modelFreeCommand) : 'not available for this action'}\n`);
         if (guidance.copyable) {
           stream.button({
             command: 'singularityFlow.copyHelpCommand',

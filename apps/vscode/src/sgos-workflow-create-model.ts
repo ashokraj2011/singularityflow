@@ -235,8 +235,9 @@ export function sgosWorkflowCreateReview(selection: SgosWorkflowCreateSelection)
     `Workflow IR: ${selection.workflowOut}`,
     '',
     'Exact command:',
-    guidance ? `Shell: ${guidance.command}` : 'Shell: not displayed because the payload has no safe command route',
     guidance ? `Copilot: ${guidance.copilotCommand}` : 'Copilot: not displayed because the payload has no safe command route',
+    guidance ? `Shell: ${guidance.command}` : 'Shell: not displayed because the payload has no safe command route',
+    `VS Code (model-free): ${guidance?.modelFreeCommand ?? 'not available for this action'}`,
     '',
     'This creates two reviewable files. It does not ratify, compile, approve, or run the Workflow.'
   ].join('\n');

@@ -1734,8 +1734,9 @@ export function humanError(stderr: string): string {
       const safeHeadline = safeDisplayDiagnosticText(headline);
       if (guidance) return [
         safeHeadline,
+        `Copilot: ${safeDisplayDiagnosticText(guidance.copilotCommand)}`,
         `Shell: ${safeDisplayDiagnosticText(guidance.command)}`,
-        `Copilot: ${safeDisplayDiagnosticText(guidance.copilotCommand)}`
+        `VS Code (model-free): ${safeDisplayDiagnosticText(guidance.modelFreeCommand ?? 'not available for this action')}`
       ].join('\n');
       return safeHeadline;
     }

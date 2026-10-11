@@ -345,5 +345,5 @@ test('a required after-step delivery of an earlier step holds the current one un
   assert.equal(elsewhere.stepActionHold.runnableHere, false);
   assert.equal(submissionReadinessSnapshot(workflow({ status: 'awaiting_approval' }), { stepActionHold: hold }).classification, 'already-submitted', 'a step in review is not held');
   assert.equal(submissionReadinessSnapshot(workflow({ generation: 0, publication: false })).classification, 'generation-required');
-  assert.match(submissionReadinessText(held), /Classification: step-action-required\nPhase status: in_progress[\s\S]*The next step waits: the required after-step action audit → audit-log[\s\S]*Shell: singularity-flow integrations retry sad_1{40}\nCopilot: \/sf-integrations$/);
+  assert.match(submissionReadinessText(held), /Classification: step-action-required\nPhase status: in_progress[\s\S]*The next step waits: the required after-step action audit → audit-log[\s\S]*Copilot: \/sf-integrations\nShell: singularity-flow integrations retry sad_1{40}\nVS Code \(model-free\): not available for this action$/);
 });

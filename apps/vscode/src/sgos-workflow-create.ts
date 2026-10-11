@@ -323,7 +323,7 @@ class SgosWorkflowCreatePanel {
     const guidance = commandGuidance(sgosCommand(ratificationArgs));
     const action = await showCompactInformationMessage(
       `Created ${selection.declarationOut} and ${selection.workflowOut}. The Workflow is not ratified or executable.${guidance
-        ? `\nShell: ${guidance.command}\nCopilot: ${guidance.copilotCommand}` : ''}`,
+        ? `\nCopilot: ${guidance.copilotCommand}\nShell: ${guidance.command}\nVS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}` : ''}`,
       ...(guidance?.copyable ? ['Copy Shell preview', 'Copy Copilot preview'] : []), 'Open Command Center'
     );
     if (action === 'Copy Shell preview' && guidance?.copyable) {

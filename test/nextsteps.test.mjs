@@ -154,16 +154,15 @@ test('a no-approval phase never offers review actions and post-submit state targ
   assert.equal(afterActions.some((item) => /(?:prepare|submit|phase publish) intake/.test(item.command)), false);
 });
 
-test('nextsteps text preserves timing and reason and shows both Shell and Copilot routes', () => {
+test('nextsteps text preserves timing and reason and reads Copilot, Shell, then the model-free route', () => {
   const snapshot = nextStepsSnapshot({ workflow: workflow() });
   const text = nextStepsText(snapshot);
   assert.match(text, /NEXT-1 — next actions/);
   assert.match(text, /Guided router: Copilot \/sf-next · Shell singularity-flow next/);
-  assert.match(text, /NOW — .*\n   Shell: singularity-flow prepare intake/);
-  assert.match(text, /THEN — .*\n   Shell: singularity-flow phase publish intake --authored governed-agent --channel copilot-host/);
-  assert.match(text, /THEN — .*\n   Shell: singularity-flow submit intake/);
-  assert.match(text, /ALTERNATIVE — .*\n   Shell: singularity-flow reject/);
-  assert.match(text, /Copilot: \/sf-phase/);
+  assert.match(text, /NOW — .*\n   Copilot: \/sf-phase\n   Shell: singularity-flow prepare intake\n   VS Code \(model-free\): not available for this action\n/);
+  assert.match(text, /THEN — .*\n   Copilot: \/sf-phase\n   Shell: singularity-flow phase publish intake --authored governed-agent --channel copilot-host\n   VS Code \(model-free\): @sflow \/publish intake\n/);
+  assert.match(text, /THEN — .*\n   Copilot: \/sf-submit\n   Shell: singularity-flow submit intake\n   VS Code \(model-free\): @sflow \/submit intake\n/);
+  assert.match(text, /ALTERNATIVE — .*\n   Copilot: \/sf-reject\n   Shell: singularity-flow reject/);
 });
 
 test('agent trust and synchronization prerequisites precede generation', () => {

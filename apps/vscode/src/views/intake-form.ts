@@ -1322,10 +1322,11 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
     ${form.error ? `<div class="notice error" role="alert">${escape(form.error)}</div>` : ''}
     ${form.recoveryCommand && recoveryRoute ? `<div class="notice warning" role="status" aria-live="polite"><strong>Continue safely</strong>
       <p>The command is bound to this repository and preserves every argument exactly.</p>
-      <p><strong>Shell:</strong></p><pre class="terminal-command"><code>${escape(form.recoveryCommand)}</code></pre>
-      ${recoveryRoute.copyable ? `<button type="button" class="secondary" data-copy-command="${escape(form.recoveryCommand)}">Copy Shell</button>` : ''}
       <p><strong>Copilot:</strong> <code>${escape(recoveryRoute.copilotCommand)}</code></p>
       ${recoveryRoute.copyable ? `<button type="button" class="secondary" data-copy-command="${escape(recoveryRoute.copilotCommand)}">Copy Copilot</button>` : ''}
+      <p><strong>Shell:</strong></p><pre class="terminal-command"><code>${escape(form.recoveryCommand)}</code></pre>
+      ${recoveryRoute.copyable ? `<button type="button" class="secondary" data-copy-command="${escape(form.recoveryCommand)}">Copy Shell</button>` : ''}
+      <p><strong>VS Code (model-free):</strong> ${recoveryRoute.modelFreeCommand ? `<code>${escape(recoveryRoute.modelFreeCommand)}</code>` : 'not available for this action'}</p>
       ${recoveryRoute.copyable ? '' : '<p>Replace the shown placeholders before running this command.</p>'}
       ${form.shape === 'story' ? '<button type="button" class="secondary" data-submit="recover-start">Check and open created Story</button>' : ''}</div>` : ''}
     <p>

@@ -410,8 +410,9 @@ function printStashRecoveryCommand(command, { indent = '', label = null } = {}) 
     throw new SingularityFlowError('The retained stash recovery command was malformed.');
   }
   if (label) console.log(`${indent}${label}:`);
-  console.log(`${indent}Shell: ${command}`);
   console.log(`${indent}Copilot: unavailable — local Git stash restoration is intentionally Shell-only.`);
+  console.log(`${indent}Shell: ${command}`);
+  console.log(`${indent}VS Code (model-free): not available for this action`);
 }
 
 async function confirmExact(prompt, expected) {
@@ -4467,8 +4468,9 @@ async function actionCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(authorization, null, 2));
     console.log(`One-time authorization: ${authorization.token}`);
     console.log('Execute:');
-    console.log(`Shell (private one-time token): singularity-flow action execute ${plan.planId} --action ${action.actionId} --authorization ${authorization.token}`);
     console.log('Copilot: /sf-continue');
+    console.log(`Shell (private one-time token): singularity-flow action execute ${plan.planId} --action ${action.actionId} --authorization ${authorization.token}`);
+    console.log('VS Code (model-free): not available for this action');
     return;
   }
   const authorization = action.confirmation?.required
@@ -4555,7 +4557,7 @@ async function nextCommand(options) {
     console.log(`Review and decide submitted phase '${phase.id}'.`);
     return approveCommand(['approve', workflow.workItem.id], { ...options, fetch: optionBoolean(options, 'fetch', true) });
   }
-  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}.\nShell: singularity-flow nextsteps ${workflow.workItem.id}\nCopilot: /sf-nextsteps ${workflow.workItem.id}`);
+  if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}.\nCopilot: /sf-nextsteps ${workflow.workItem.id}\nShell: singularity-flow nextsteps ${workflow.workItem.id}\nVS Code (model-free): not available for this action`);
   if (!phaseNeedsGeneration(workflow, phase)) {
     if (isConvergencePhase(phase)) {
       printCommandRoutes(`singularity-flow story advance --work-id ${workflow.workItem.id}`, {
@@ -7851,8 +7853,8 @@ async function decisionWorkflow(positionals, options, action) {
   if (testingRepairPlan && optionString(options, 'confirm') !== testingRepairPlan.confirmation) {
     throw new SingularityFlowError(
       `The review contains source or test edits. Review ${testingRepairPlan.changedPaths.join(', ')} and return them to Code only after confirmation. `
-      + `Shell: singularity-flow reject ${testingRepairPlan.phase} --to ${testingRepairPlan.targetPhase} --repair --reason <REASON> --confirm ${testingRepairPlan.confirmation}. `
-      + 'Copilot: /sf-reject.',
+      + 'Copilot: /sf-reject. '
+      + `Shell: singularity-flow reject ${testingRepairPlan.phase} --to ${testingRepairPlan.targetPhase} --repair --reason <REASON> --confirm ${testingRepairPlan.confirmation}. VS Code (model-free): not available for this action.`,
       { code: 'TESTING_REPAIR_CONFIRMATION_REQUIRED', details: { plan: testingRepairPlan } }
     );
   }

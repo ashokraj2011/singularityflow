@@ -1707,7 +1707,7 @@ export class BootstrapPanel {
       const message = failure?.message ?? failure?.code ?? 'Capability-map authority could not be inspected.';
       const guidance = commandGuidance(failure?.diagnosticAction);
       const action = guidance
-        ? ` Shell: ${guidance.command} Copilot: ${guidance.copilotCommand}` : '';
+        ? ` Copilot: ${guidance.copilotCommand} Shell: ${guidance.command} VS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}` : '';
       return `${failure?.lead ? `${failure.lead}: ` : ''}${message}${action}`;
     });
     const recoveryGuidance = (inspected.failures ?? [])

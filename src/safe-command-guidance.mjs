@@ -338,6 +338,12 @@ export function commandGuidanceForCommands(commands) {
   })));
 }
 
+/** One action's routes in the contract order: Copilot, Shell, then the model-free VS Code route. */
+export function commandRouteLines(guidance, indent = '') {
+  return [`${indent}Copilot: ${guidance.copilotCommand}`, `${indent}Shell: ${guidance.command}`,
+    `${indent}VS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}`];
+}
+
 export function commandGuidanceLines(guidance, label) {
   if (!guidance) return [];
   return [`${label}:`, `Copilot: ${guidance.copilotCommand ?? guidance.copilotReason}`,

@@ -10,7 +10,7 @@
 import { localGitHookFailure, redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { requiredTestExecutionForRefusal } from './test-execution-diagnostics.mjs';
 import {
-  safeCommandGuidance, validateSafeSflowCommand
+  commandRouteLines, safeCommandGuidance, validateSafeSflowCommand
 } from './safe-command-guidance.mjs';
 import { projectGateRefusal } from './evidence/gate-refusal.mjs';
 
@@ -889,8 +889,8 @@ export function renderRefusalPlan(plan) {
   for (const [index, entry] of plan.steps.entries()) {
     lines.push(`  ${index + 1}. ${entry.label}`);
     if (entry.command) {
-      lines.push(`     Shell: ${entry.command}`);
-      lines.push(`     Copilot: ${entry.copilotCommand}`);
+      const modelFreeCommand = safeCommandGuidance(entry)?.modelFreeCommand ?? null;
+      lines.push(...commandRouteLines({ ...entry, modelFreeCommand }, '     '));
     }
   }
   lines.push(`  Then: ${plan.retry.label}`);

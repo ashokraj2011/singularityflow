@@ -5,7 +5,7 @@
   "entries": {
     "extension.cjs": { "maximumBytes": 1370000, "maximumModules": 140 },
     "gateway-context-runtime.cjs": { "maximumBytes": 8192, "maximumModules": 4 },
-    "gateway-runtime.cjs": { "maximumBytes": 7300000, "maximumModules": 676 },
+    "gateway-runtime.cjs": { "maximumBytes": 7305000, "maximumModules": 676 },
     "gateway-status-worker.cjs": { "maximumBytes": 200000, "maximumModules": 30 },
     "help-runtime.cjs": { "maximumBytes": 655000, "maximumModules": 128 },
     "lazy-panels-runtime.cjs": { "maximumBytes": 2935000, "maximumModules": 244 },

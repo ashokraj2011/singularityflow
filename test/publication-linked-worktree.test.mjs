@@ -183,6 +183,24 @@ test('divergent shared and worktree-private records fail closed without deleting
   assert.equal(await exists(legacy), true);
 });
 
+test('a legacy record in a worktree added after an earlier lookup is still found and migrated', async (t) => {
+  // The linked-worktree list is remembered per command and keyed by the worktrees directory, so a
+  // worktree created later (as Story start does) must still be searched.
+  const { base, root } = await fixture(t);
+  const subject = { kind: 'story', id: 'LATE-1' };
+  assert.equal(await readPendingPublication(root, subject), null);
+  const late = path.join(base, 'late');
+  run('git', ['worktree', 'add', '-q', '-b', 'STORY-LATE', late], { cwd: root });
+  const legacy = path.join(gitDir(late), 'singularity-flow', 'pending-publication',
+    path.basename(localPendingPublicationPath(root, 'story', 'LATE-1')));
+  await mkdir(path.dirname(legacy), { recursive: true });
+  await writeFile(legacy, `${JSON.stringify(pendingRecord('LATE-1'), null, 2)}\n`);
+  const found = await readPendingPublication(root, subject);
+  assert.equal(found.record.subject.id, 'LATE-1');
+  assert.equal(await exists(legacy), false, 'the legacy copy migrated into the shared store');
+  assert.equal(await exists(localPendingPublicationPath(root, 'story', 'LATE-1')), true);
+});
+
 test('a symlinked worktree-private recovery directory is refused without touching its target', async (t) => {
   const { base, root, linked } = await fixture(t);
   const external = path.join(base, 'outside-recovery');

@@ -22,6 +22,8 @@ import {
 } from './bootstrap.mjs';
 import { loadCapabilities } from './capabilities.mjs';
 import { gitCommitIdentity } from './git.mjs';
+import { repositoryGitDirectory } from './git-directory.mjs';
+import { realpathSync as canonicalPathSync } from 'node:fs';
 import {
   GitRemoteSession, requireRemoteObservation, runRemoteGit, runRemoteGitAsync,
   sealTemporaryGitReadTransport
@@ -483,6 +485,8 @@ function yamlAtRef(root, ref, relative, { env = process.env } = {}) {
  * one derivation answers them all. Only an exact object name is remembered (never `HEAD` or a
  * branch), and only when at least one file was read, which proves the commit is present: a commit
  * missing from a shallow or partial clone reads as "no files" and a later fetch can change that.
+ * Keyed by the shared Git directory, so the main checkout and its linked Story worktrees (one
+ * object store) derive it once; a separate clone keeps its own entry and its own presence proof.
  */
 const ASSET_POLICY_BY_COMMIT = new Map();
 
@@ -496,14 +500,25 @@ async function yamlInDirectory(root, relative) {
   return parseYamlText(await readFile(target, 'utf8')) ?? {};
 }
 
+/** The canonical shared Git directory, so every spelling of one checkout's path names one store. */
+function policyStoreKey(root) {
+  const store = repositoryGitDirectory(path.resolve(root)) ?? path.resolve(root);
+  try { return canonicalPathSync(store); } catch { return store; }
+}
+
 export function configurationAssetPolicyFromRef(root, ref = 'HEAD', { env = process.env } = {}) {
   const key = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u.test(ref)
-    ? `${path.resolve(root)}\0${ref}\0${env.GIT_NO_REPLACE_OBJECTS ?? ''}` : null;
+    ? `${policyStoreKey(root)}\0${env.GIT_DIR ?? ''}\0${ref}\0${env.GIT_NO_REPLACE_OBJECTS ?? ''}` : null;
   if (key && ASSET_POLICY_BY_COMMIT.has(key)) return ASSET_POLICY_BY_COMMIT.get(key);
   const workflow = yamlAtRef(root, ref, 'singularity/workflow.yml', { env });
   const portfolio = yamlAtRef(root, ref, 'singularity/portfolio.yml', { env });
   const policy = configurationAssetPolicy(workflow.value, portfolio.value);
-  if (key && (workflow.found || portfolio.found)) ASSET_POLICY_BY_COMMIT.set(key, policy);
+  // Neither file read: remember the default policy only once the commit itself is proven present
+  // (Git's "path does not exist" message also appears for a missing commit, so it proves nothing).
+  const present = workflow.found || portfolio.found || (key != null && run('git', ['cat-file', '-e', `${ref}^{commit}`], {
+    cwd: root, env, allowFailure: true
+  }).status === 0);
+  if (key && present) ASSET_POLICY_BY_COMMIT.set(key, policy);
   return policy;
 }
 

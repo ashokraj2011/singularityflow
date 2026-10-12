@@ -2657,13 +2657,16 @@ async function remoteLedgerIntents(root, config, { offline = false } = {}) {
     // all-heads fetch as Story discovery; a failed fetch must not silently reconcile stale refs.
     await fetchRemote(root, config.remote);
   }
-  const refs = ledgerGitRead(root, [
+  const tips = new Map(ledgerGitRead(root, [
     'for-each-ref',
-    '--format=%(refname:short)',
+    '--format=%(refname:short)%00%(objectname)',
     `refs/remotes/${config.remote}`
   ], `Git remote '${config.remote}' branches`).trim().split('\n').filter(Boolean)
-    .filter((ref) => ref !== `${config.remote}/HEAD` && ref !== `${config.remote}/${config.branch}`);
+    .map((line) => line.split('\0'))
+    .filter(([ref]) => ref !== `${config.remote}/HEAD` && ref !== `${config.remote}/${config.branch}`));
+  const refs = [...tips.keys()];
   const listed = batchedRefIntentFiles(root, refs);
+  const publishing = await publishingCommitCache(root);
   const bodies = presentObjects(root, [...listed.values()].filter(Boolean).flat().map((file) => file.oid), 'blob');
   const candidates = [];
   for (const ref of refs) {
@@ -2674,14 +2677,93 @@ async function remoteLedgerIntents(root, config, { offline = false } = {}) {
     }
     // A ref with no intent files contributed nothing before either; its publishing walk was unused.
     if (!files.length) continue;
-    const published = publishingCommits(root, ref);
+    const published = publishing.commits(ref, tips.get(ref));
     for (const { intentPath, oid } of files) {
       const text = bodies.has(oid) ? bodies.get(oid).toString('utf8') : showRefFile(root, ref, intentPath);
       const candidate = intentCandidate(text, intentPath, published, ref);
       if (candidate) candidates.push(candidate);
     }
   }
+  await publishing.save();
   return candidates;
+}
+
+/**
+ * Publishing-commit maps by exact branch commit. `[perf]`
+ *
+ * Reconciliation walks the whole history of every remote Story branch that holds intents, so the
+ * walks grew with the number of Stories (49 in one Story start, each its own Git process). The
+ * history reachable from one commit never changes, so its map is reused: within this process, and
+ * from one private file under the Git common directory that keeps only the commits still at a
+ * branch tip. Skipped when the repository is shallow or rewrites history with replace refs or
+ * grafts, where reachable history can change. A missing, unreadable or malformed file is ignored and
+ * recomputed; this is an acceleration, never evidence.
+ */
+const PUBLISHING_CACHE_FORMAT = 'sflow-publishing-commits/v1';
+const PUBLISHING_CACHE_MAX_BYTES = 8 * 1024 * 1024;
+const publishingCommitMemo = new Map();
+const COMMIT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+
+async function publishingHistoryIsStable(common) {
+  for (const relative of ['shallow', path.join('info', 'grafts'), path.join('refs', 'replace')]) {
+    if (await lstat(path.join(common, relative)).then(() => true, () => false)) return false;
+  }
+  const packed = await readFile(path.join(common, 'packed-refs'), 'utf8').catch(() => '');
+  return !/ refs\/replace\//u.test(packed);
+}
+
+async function readPublishingCacheFile(file) {
+  try {
+    const info = await lstat(file);
+    if (!info.isFile() || info.isSymbolicLink() || info.size > PUBLISHING_CACHE_MAX_BYTES) return new Map();
+    const parsed = JSON.parse(await readFile(file, 'utf8'));
+    if (parsed?.format !== PUBLISHING_CACHE_FORMAT || typeof parsed.commits !== 'object' || !parsed.commits) return new Map();
+    const entries = new Map();
+    for (const [commit, rows] of Object.entries(parsed.commits)) {
+      if (!COMMIT_ID.test(commit) || !Array.isArray(rows)) return new Map();
+      const map = new Map();
+      for (const row of rows) {
+        if (!Array.isArray(row) || row.length !== 2 || typeof row[0] !== 'string' || !COMMIT_ID.test(row[1])) return new Map();
+        map.set(row[0], row[1]);
+      }
+      entries.set(commit, map);
+    }
+    return entries;
+  } catch { return new Map(); }
+}
+
+async function publishingCommitCache(root) {
+  const common = gitCommonDir(root);
+  const stable = await publishingHistoryIsStable(common);
+  const file = path.join(common, 'singularity-flow', 'cache', 'publishing-commits.json');
+  const stored = stable ? await readPublishingCacheFile(file) : new Map();
+  const used = new Map();
+  let changed = false;
+  return {
+    commits(ref, tip) {
+      if (!stable || !COMMIT_ID.test(tip ?? '')) return publishingCommits(root, ref);
+      const key = `${common}\0${tip}`;
+      let map = publishingCommitMemo.get(key) ?? stored.get(tip);
+      if (!map) {
+        // Walk the exact commit that keys the entry, so a branch that moves meanwhile cannot store
+        // one commit's history under another's id.
+        map = publishingCommits(root, tip);
+        changed = true;
+      }
+      publishingCommitMemo.set(key, map);
+      used.set(tip, map);
+      return map;
+    },
+    async save() {
+      const sameCommits = used.size === stored.size && [...used.keys()].every((commit) => stored.has(commit));
+      if (!stable || (!changed && sameCommits)) return;
+      const commits = Object.fromEntries([...used.entries()].sort(([left], [right]) => left.localeCompare(right))
+        .map(([commit, map]) => [commit, [...map.entries()]]));
+      try {
+        await writeAtomic(file, `${JSON.stringify({ format: PUBLISHING_CACHE_FORMAT, commits })}\n`, { mode: 0o600 });
+      } catch { /* An acceleration only; the next reconciliation walks again. */ }
+    }
+  };
 }
 
 /** One intent read from a ref, parsed exactly as before; unreadable or non-intent bytes are skipped. */

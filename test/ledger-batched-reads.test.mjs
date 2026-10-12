@@ -3,7 +3,7 @@
  * intent discovery — use a bounded number of Git processes and keep their exact answers.
  */
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -167,6 +167,78 @@ test('remote intent discovery reads shared trees once and keeps the per-ref answ
   assert.ok(!status.pending.some((entry) => entry.workId === 'quoted'), 'a quoted-path intent stays unadmitted');
   // 25 remote refs, 9 intents: a per-ref read cost ~3 processes per ref plus one per intent.
   assert.ok(spawns < 45, `ledger status spawned ${spawns} processes for 25 remote refs`);
+});
+
+test('publishing walks are reused per branch commit and redone when a Story branch moves', async (t) => {
+  const { parent, remote, root } = await repository(t);
+  await initializeLedger(root, enabled);
+  const addIntents = async (workId, generations) => {
+    git(root, ['checkout', '-q', workId === 'main' ? 'main' : '-B', ...(workId === 'main' ? [] : [workId, `origin/${workId}`])], { allowFailure: true });
+    const paths = [];
+    for (const generation of generations) {
+      const intent = createLedgerIntent({ eventType: 'phase-approved', capabilityId: `story-${workId}`,
+        subject: { workId, phase: 'specification', generation }, actor: { email: 'reviewer@example.com' } });
+      paths.push(await persistLedgerIntent(root, path.join('singularity', 'work-items', workId), intent));
+    }
+    git(root, ['add', '-A']);
+    git(root, ['commit', '-qm', `${workId} intents`]);
+    git(root, ['push', '-q', 'origin', workId]);
+    return { paths, commit: git(root, ['rev-parse', 'HEAD']).stdout.trim() };
+  };
+  const added = {};
+  for (const workId of ['STORY-A', 'STORY-B', 'STORY-C']) {
+    git(root, ['checkout', '-q', '-b', workId, 'main']);
+    added[workId] = await addIntents(workId, [1, 2]);
+  }
+  git(root, ['checkout', '-q', 'main']);
+  const reader = path.join(parent, 'reader');
+  run('git', ['clone', '-q', remote, reader]);
+  git(reader, ['fetch', '-q', 'origin', 'state:refs/remotes/origin/state']);
+  const status = async () => {
+    const timer = commandTimer('ledger-status-publishing', { commandClass: 'read' });
+    const result = await withCommandTiming(timer, () => ledgerStatus(reader, enabled, { offline: true }));
+    return { pending: new Set(result.pending.map((entry) => `${entry.path}@${entry.source}`)),
+      spawns: timer.finish().counters['git.spawns'] ?? 0 };
+  };
+  const cacheFile = path.join(reader, '.git', 'singularity-flow', 'cache', 'publishing-commits.json');
+  const cached = async () => JSON.parse(await readFile(cacheFile, 'utf8')).commits;
+  const expectMaps = async (expected) => {
+    const commits = await cached();
+    assert.deepEqual(Object.keys(commits).sort(), Object.keys(expected).sort(), 'only commits at a branch tip are kept');
+    // The map covers every path under singularity/; intents are the entries reconciliation reads.
+    for (const [tip, rows] of Object.entries(expected)) {
+      assert.deepEqual(Object.fromEntries(commits[tip].filter(([relative]) => relative.includes('/ledger-intents/'))), rows);
+    }
+  };
+
+  const first = await status();
+  await expectMaps(Object.fromEntries(Object.values(added).map(({ paths, commit }) =>
+    [commit, Object.fromEntries(paths.map((relative) => [relative, commit]))])));
+  const second = await status();
+  assert.deepEqual(second.pending, first.pending);
+  assert.ok(second.spawns <= first.spawns - 3, `unchanged branches were walked again: ${first.spawns} then ${second.spawns}`);
+
+  // STORY-A moves: its new tip is walked, its old tip leaves the cache, and older intents keep the
+  // commit that first published them.
+  git(root, ['checkout', '-q', 'STORY-A']);
+  const moved = await addIntents('STORY-A', [3]);
+  git(root, ['checkout', '-q', 'main']);
+  git(reader, ['fetch', '-q', 'origin']);
+  const third = await status();
+  assert.equal(third.pending.size, first.pending.size + 1);
+  await expectMaps({
+    [moved.commit]: { ...Object.fromEntries(added['STORY-A'].paths.map((relative) => [relative, added['STORY-A'].commit])),
+      [moved.paths[0]]: moved.commit },
+    [added['STORY-B'].commit]: Object.fromEntries(added['STORY-B'].paths.map((relative) => [relative, added['STORY-B'].commit])),
+    [added['STORY-C'].commit]: Object.fromEntries(added['STORY-C'].paths.map((relative) => [relative, added['STORY-C'].commit]))
+  });
+
+  // A shallow clone's reachable history can grow with a fetch, so it keeps no cache.
+  const shallow = path.join(parent, 'shallow');
+  run('git', ['clone', '-q', '--depth', '1', '--no-single-branch', `file://${remote}`, shallow]);
+  git(shallow, ['fetch', '-q', 'origin', 'state:refs/remotes/origin/state']);
+  await ledgerStatus(shallow, enabled, { offline: true });
+  await assert.rejects(readFile(path.join(shallow, '.git', 'singularity-flow', 'cache', 'publishing-commits.json')), { code: 'ENOENT' });
 });
 
 test('a state refresh does not fetch again when the tracking ref already names the observed tip', async (t) => {

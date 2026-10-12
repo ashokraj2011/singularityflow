@@ -99,11 +99,19 @@ export function revisionImplementationSha256(packageDirectory = INSTALLED_PACKAG
   return `sha256:${digest.digest('hex')}`;
 }
 
-const PRODUCER_IMPLEMENTATION_SHA256 = revisionImplementationSha256();
-const PRODUCER = Object.freeze({
-  id: 'singularity-flow-revision-kernel', version: '1',
-  implementationSha256: PRODUCER_IMPLEMENTATION_SHA256
-});
+/**
+ * The revision producer's identity, computed on first use. Hashing it reads every engine source
+ * file, so doing it at import made every command (Story intake included) pay ~1,000 file reads
+ * that only revision operations need. The engine files do not change within one process.
+ */
+let producerValue = null;
+function producer() {
+  producerValue ??= Object.freeze({
+    id: 'singularity-flow-revision-kernel', version: '1',
+    implementationSha256: revisionImplementationSha256()
+  });
+  return producerValue;
+}
 
 function fail(code, message, details = null) {
   throw new SingularityFlowError(message, { code, details });
@@ -408,7 +416,7 @@ export function buildRevisionFeedbackRecords({
     feedbackId: `REVFB-${exactFeedbackSha256.slice(7, 31).toUpperCase()}`,
     subject: active.subject, author: creator.feedback, text: feedbackText,
     bytes: Buffer.byteLength(feedbackText), feedbackSha256: exactFeedbackSha256,
-    capturedAt, producer: PRODUCER
+    capturedAt, producer: producer()
   });
   const binding = buildRevisionCriteriaBinding({
     subject: active.subject, feedbackSha256: feedback.feedbackSha256, mode: criteria.mode,
@@ -416,7 +424,7 @@ export function buildRevisionFeedbackRecords({
       clauseId: clause.id, clauseSha256: clause.clauseSha256
     })),
     binder: { id: 'revision-criteria-binder', version: 1,
-      implementationSha256: PRODUCER.implementationSha256 }, producer: PRODUCER
+      implementationSha256: producer().implementationSha256 }, producer: producer()
   });
   const humanResolution = disposition.human ? {
     decision: disposition.result, decidedBy: creator.feedback.id, decidedAt: capturedAt,
@@ -428,7 +436,7 @@ export function buildRevisionFeedbackRecords({
     result: disposition.result,
     predicateResults: [{ predicateId: disposition.predicateId,
       result: disposition.result === 'ambiguous' ? 'unavailable' : 'pass' }],
-    humanResolution, producer: PRODUCER
+    humanResolution, producer: producer()
   });
   return { feedback, binding, disposition: dispositionRecord, creator };
 }
@@ -512,7 +520,7 @@ export async function packetInputFor({
     skeletons: retained.candidate.resources.map((resource) => ({
       path: resource.path, operation: resource.operation, type: resource.type
     })),
-    effectPolicy, expansions: [], producer: PRODUCER
+    effectPolicy, expansions: [], producer: producer()
   };
 }
 
@@ -521,7 +529,7 @@ export function revisionLoopStore(active, {
 } = {}) {
   let store;
   store = createRevisionLoopStore({
-    root: active.root, ...active.subject, producer: PRODUCER,
+    root: active.root, ...active.subject, producer: producer(),
     assertCurrentContext: async ({ scope, context }) => {
       if (revisionDigest(scope) !== revisionDigest(active.subject)) return false;
       try {
@@ -561,4 +569,4 @@ export function revisionLoopStore(active, {
   return store;
 }
 
-export function producerIdentity() { return PRODUCER; }
+export function producerIdentity() { return producer(); }

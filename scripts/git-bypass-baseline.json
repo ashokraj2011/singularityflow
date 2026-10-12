@@ -567,9 +567,9 @@
     },
     "src/configuration-branch.mjs": {
       "counts": {
-        "command-run": 22
+        "command-run": 23
       },
-      "digest": "52ded824c91821b4c795db3777392b55e80c828453aad248b61a39e53a9018fe"
+      "digest": "4b9cf8f5606028687391f6109c30635fac6a0d5202bec3271debb4a74f032bc2"
     },
     "src/configuration-people.mjs": {
       "counts": {

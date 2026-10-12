@@ -56,14 +56,34 @@ export async function prepareSharedPublicationStorage(root, directory, label) {
   return path.join(common, RUNTIME_ROOT, directory);
 }
 
+/**
+ * Per process, keyed by the `worktrees` directory's identity and mtime: adding, removing or
+ * replacing a linked worktree changes it. Every recovery-record lookup asked for this list, which
+ * canonicalized each linked worktree again; with dozens of Story worktrees that was thousands of
+ * filesystem calls per command.
+ */
+const worktreeDirectoryLists = new Map();
+
 async function worktreePrivateGitDirectories(root) {
   const common = gitCommonDir(root);
+  const current = gitDir(root);
+  const worktrees = path.join(common, 'worktrees');
+  const stamp = await lstat(worktrees).then(
+    (info) => `${info.isDirectory() && !info.isSymbolicLink()}:${info.ino}:${info.mtimeMs}`,
+    (error) => { if (error?.code === 'ENOENT') return 'absent'; throw error; });
+  const key = `${common}\0${current}`;
+  const remembered = worktreeDirectoryLists.get(key);
+  if (remembered?.stamp === stamp) return [...remembered.selected];
+  const selected = await listWorktreePrivateGitDirectories(common, current, worktrees);
+  worktreeDirectoryLists.set(key, { stamp, selected });
+  return [...selected];
+}
+
+async function listWorktreePrivateGitDirectories(common, current, worktrees) {
   const canonicalCommon = await realpath(common);
   const selected = new Set();
-  const current = gitDir(root);
   const canonicalCurrent = await realpath(current);
   if (canonicalCurrent !== canonicalCommon) selected.add(canonicalCurrent);
-  const worktrees = path.join(common, 'worktrees');
   let entries = [];
   try { entries = await readdir(worktrees, { withFileTypes: true }); }
   catch (error) { if (error?.code !== 'ENOENT') throw error; }
@@ -119,6 +139,13 @@ export async function resolveSharedPublicationFile(root, {
     }))
   ];
   for (const store of stores) {
+    // A legacy worktree store with no record at this exact path has nothing to read, link or
+    // remove, so its directory chain need not be proven. Any store that holds one (through a
+    // symlink or not) still gets the full check below before it is read.
+    if (store.target !== target && !(await lstat(store.target).then(() => true, (error) => {
+      if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return false;
+      throw error;
+    }))) continue;
     if (!(await safeStorageDirectory(store.base, directory, label))) continue;
     const candidate = store.target;
     if (!(await existingRegularFile(candidate, label))) continue;

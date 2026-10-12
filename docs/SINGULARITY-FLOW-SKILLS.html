@@ -10650,7 +10650,7 @@ TRP: read and follow `singularity-flow explain test-recovery`; returned legal ac
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1032 body tokens</span>
+          <span class="pill">~1026 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-submit</code></dd></div>
@@ -10683,7 +10683,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 
 1. Run `singularity-flow status &lt;WORK-ID&gt; --submission-readiness --json`; require matching work/phase and its readiness fields. Trust `lifecycleReady`; never republish. For `terminal-obligations-required`, relay blockers/actions and stop—no submit or generic recovery.
 2. `lifecycleReady: true`: **Published generation &lt;N&gt; — ready to submit**; otherwise disable Submit. Generation zero means unpublished, not missing code. `generation-required`: relay `authoringProgress.stage`, preservation instruction and exact `nextCommand`/`nextSkill`. Finish missing summary/planned bindings or validate the authored draft; never redo existing code, infer publication from manual tests, use session UUID as WORK-ID or generate/publish here.
-3. Pinned review-required routes, including copies or renamed steps: `singularity-flow review-source status &lt;phase&gt; --json`; unless `not-required`/`ready`, relay findings and exact recovery/review actions. Reviewer reports are not approval. Pending amendment acknowledgement requires the person&#39;s explicit choice.
+3. Source review is part of readiness: only when it reports `source-review-required`, relay `sourceReviewFindings` and its exact review actions; never run a separate review check. Reviewer reports are not approval. Pending amendment acknowledgement requires the person&#39;s explicit choice.
 4. `confirmationRequired: true`: show full warning and returned Work-ID-pinned command; human provides `continue`.
 5. Convergence: never generic `singularity-flow submit`. Run returned `singularity-flow story advance` without `--confirm`; show review/digest, stop on unresolved dispositions. Human confirms exact `--confirm sha256:&lt;DIGEST&gt;` once. Changed digest requires fresh review.
 6. Run returned Work-ID-pinned submit command. `--skip-checks` requires authorization.

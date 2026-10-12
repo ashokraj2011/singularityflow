@@ -79,6 +79,9 @@ async function documentStory(t) {
 
 test('an approved earlier document is amended in place; a later step keeps its approval once revalidated', async (t) => {
   const { root, cli, attempt, state, artifact } = await documentStory(t);
+  // Asking whether a step needs source review is answered for every step, never refused.
+  const review = JSON.parse(cli('review-source', 'status', 'design', '--json').stdout);
+  assert.deepEqual([review.status, review.mode], ['not-required', 'not-applicable']);
   const intake = artifact('intake');
   const approved = await readFile(intake, 'utf8');
   // The intake's approver corrects it in the working tree and proposes the correction.

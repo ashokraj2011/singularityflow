@@ -986,10 +986,12 @@ test('submit skill links generated documents without treating a summary as appro
   assert.match(content, /`generation-required`: relay `authoringProgress\.stage`, preservation instruction and exact `nextCommand`\/`nextSkill`/);
   assert.match(content, /never redo existing code, infer publication from manual tests/);
   assert.match(content, /or generate\/publish here/);
-  assert.match(content, /review-source status <phase> --json/);
-  assert.match(content, /unless `not-required`\/`ready`, relay findings and exact recovery\/review actions/);
+  // Readiness decides whether source review applies (by what a step does, so copies and renamed
+  // steps are covered); the skill never guesses from step names or runs a separate check.
+  assert.match(content, /Source review is part of readiness: only when it reports `source-review-required`/);
+  assert.match(content, /never run a separate review check/);
+  assert.doesNotMatch(content, /review-source status/);
   assert.match(content, /Reviewer reports are not approval/);
-  assert.match(content, /including copies or renamed steps/);
   assert.match(content, /Pending amendment acknowledgement requires the person's explicit choice/);
   assert.match(content, /confirmationRequired: true.*human provides `continue`/s);
   assert.match(content, /Work-ID-pinned submit command/);

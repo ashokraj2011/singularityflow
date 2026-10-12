@@ -10214,7 +10214,15 @@ async function reviewSourceCommand(positionals, options) {
   const phaseId = requirePositional(positionals, 2, 'step that defines the scope or plans the claims');
   const root = repoRoot();
   const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
-  // Reviewable by what the step does, not what it is called [E2G-001].
+  // Reviewable by what the step does, not what it is called [E2G-001]. Asking whether a review is
+  // needed is answered for every step, so a caller never stops on a step that needs none.
+  if (action === 'status' && !sourceReviewKind(workflow, phaseId) && workflow.phases?.[phaseId]) {
+    const result = { schemaVersion: 1, resultType: 'source-review-status', workId: workflow.workItem.id, phase: phaseId,
+      mode: 'not-applicable', status: 'not-required', findings: [], pendingDispositions: [],
+      reason: `'${phaseId}' neither defines the scope nor plans the claims, so it has no source review.` };
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    return console.log(`Source review: not required for ${workflow.workItem.id} ${phaseId}; ${result.reason}`);
+  }
   if (!sourceReviewKind(workflow, phaseId)) {
     throw new SingularityFlowError(`Source review applies only to a step that defines the scope or plans the claims; '${phaseId}' does neither.`);
   }

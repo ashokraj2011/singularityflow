@@ -222,7 +222,9 @@ test('repair preview only reads the reviewed dependency/test plan and requires e
   const options = { agreement: f.agreement, repositoryId: 'service', baseCommit: BASE, repairCommit: REPAIR, buildPlan };
   const preview = await previewTrpReadinessRepair('/reviewed/service', options);
   assert.equal(builds, 1);
-  assert.equal(preview.requiresHumanConfirmation, true);
+  // A digest is exact-plan confirmation, never human authentication; the preview must not claim one.
+  assert.equal(preview.requiresHumanConfirmation, false);
+  assert.deepEqual(preview.confirmationPolicy, { kind: 'exact-plan-digest', authenticatesHuman: false, acceptsRisk: false });
   assert.equal(preview.featureCodingAllowed, false);
   assert.deepEqual(preview.execution, { function: 'executeRepositoryReadinessPlan', scope: 'dependency-test', confirmation: hash('plan') });
   assert.ok(preview.permittedRepairScope.includes('tests'));

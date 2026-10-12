@@ -214,7 +214,20 @@ export async function previewTrpReadinessRepair(root, { agreement, repositoryId,
     agreementSha256: agreement.recordSha256, originalBaseCommit: originalBase,
     repairCommit: checkpoint, plan, confirmation: plan.planId,
     permittedRepairScope: ['dependency-configuration', 'test-infrastructure', 'documents', 'tests'],
-    featureCodingAllowed: false, requiresHumanConfirmation: true,
+    /**
+     * Exact-plan confirmation, not human authentication, and the flag says so.
+     *
+     * This advertised `requiresHumanConfirmation: true` while `--run` checked only the digest, so a
+     * client could believe a person had been authenticated when nobody was. The digest is the
+     * intended contract: the same exact-plan confirmation as `precheck --run --confirm-plan`, which
+     * runs the same readiness runner. A repair records an objective, complete passing receipt at a
+     * reviewed checkpoint inside a bounded scope; it accepts no risk and cannot turn a failure into
+     * a pass, so an agent may relay a person's review of the plan. Consent decisions (risk
+     * acceptance, baseline admission) are different, and keep their delegated authority and live
+     * terminal review.
+     */
+    featureCodingAllowed: false, requiresHumanConfirmation: false,
+    confirmationPolicy: { kind: 'exact-plan-digest', authenticatesHuman: false, acceptsRisk: false },
     execution: { function: 'executeRepositoryReadinessPlan', scope, confirmation: plan.planId },
     publication: 'Commit the complete assessment through the normal governed Story transaction.' });
 }

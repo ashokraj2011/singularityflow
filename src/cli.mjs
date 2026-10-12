@@ -164,6 +164,7 @@ import {
 import { createReviewBundle, reviewHtml, reviewMarkdown, reviewContinuationLines, witnessMappingReview } from './review.mjs';
 import { phaseContinuationLines } from './phase-continuation.mjs';
 import { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
+import { phaseUpstreamDiscrepancies } from './phase-upstream-discrepancies.mjs';
 export { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { criterionResults, describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import { capabilityLines } from './verification/capability.mjs';
@@ -6488,6 +6489,7 @@ async function phaseReview(root, config, workflow, phase, { includeContinuation 
     } : null,
     witnessReview,
     documents,
+    upstreamDiscrepancies: phaseUpstreamDiscrepancies(documents, workflow, phase.id),
     ...(await phaseAuthoringSummary(root, config, workflow, phase, { documents, includeContinuation }))
   };
 }
@@ -6570,6 +6572,10 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
       process.stdout.write(document.content.endsWith('\n') ? document.content : `${document.content}\n`);
       console.log(`--- END ${document.path} ---`);
     }
+  }
+  if (review.upstreamDiscrepancies?.length) {
+    console.log(`\n${style.heading('Upstream discrepancies')} ${style.detail(`${review.upstreamDiscrepancies.length} recorded; each needs its producer phase to return, amend or accept the risk`)}`);
+    for (const item of review.upstreamDiscrepancies) console.log(`  - ${item.phase ? `${item.phase}: ` : ''}${item.text}`);
   }
   const readable = review.documents.filter((document) => !document.error && !document.binary && document.content != null);
   const viewRoute = review.handoff?.find((entry) => entry.optional && entry.skill === '/sf-phase-documents');

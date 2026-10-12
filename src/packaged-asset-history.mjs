@@ -167,6 +167,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'f84db46cdf86cf8c4da4de0062d7150466d5dd291baf6495bd9523affa9a6453'
   ]),
   '.github/agents/architect.agent.md': Object.freeze([
+    '41052a47c867dfe1eaae3f0ab8686912efc3ae00e42cb0c9198131a19dc5bc88',
     '6b04a0161f445d0d585933d3891e07522cd652683e580752b5497f14ac86deb0',
     '184ad9effaad2977008687601def19a0677bb72c6a02365ef81b945f54ae6443',
     '0c8630b4f5d3bf2bbdabc4f67f4619caa7e537a566111cef40440c6c7abce016',
@@ -198,6 +199,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'edfba1ce014ba9a5cf379303efa3841eb4345dd1602f2b2566c8e5001d4c99d1'
   ]),
   '.github/agents/mobile-architect.agent.md': Object.freeze([
+    '297c4d1a96fb97f38ed362cbc998ec22d562be0bb55e12599d53c7ec32486992',
     'fee53598c1cf2aa27a365979df06c7bd3f42e3d1b7994b9ecfc2214f31772478',
     '06685d32114d1278a825dfc9313d2c1ca6e4b84de9cf1c112b4b84f82367176d',
     '1cc19f6ab0b71a6c3296e8993c3610570c9ccfe82dc30308e5393e7e36f5ac33',
@@ -324,6 +326,7 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
     'fcd6757dbc695423e0df1a9bd906e88569c7e000cd84c35f1a1b532bfcd822e2'
   ]),
   '.github/agents/qa.agent.md': Object.freeze([
+    '1d9963e539be077db1efe3cbd55572c1365c755db98008857ed0aa958f67fd4a',
     'de84f6854724abbda3ba42c8040fdb710147f1574862ea04c8311628ece4e53c',
     '3af12e12be861a865ee17cf3348990798bdc3a89e1263e1abfe7a46c2a10df8a',
     '3c0c9560c422fc616b391277b38d409b004864449b1a9cf4aa06bd5e302233e5',
@@ -406,10 +409,10 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/demo-web-e2e-testing/check.md': '31bc19257b108572d3043066a8747ade34dc0facb9bc75e013a5b5ded599e2c5',
   'singularity/templates/demo-web-e2e-testing/intake.md': '937e5b69f618050e79cb76e384994ba6349d8bbe59914c7d9117920af35e94f7',
   'singularity/templates/demo-web-e2e-testing/repair.md': '5cf8165f7981c55d1b6d2b6f09e23e0230261eeb98312de213f11b93091f332f',
-  '.github/agents/architect.agent.md': '41052a47c867dfe1eaae3f0ab8686912efc3ae00e42cb0c9198131a19dc5bc88',
+  '.github/agents/architect.agent.md': '8770e647612b0c805ad583e7615f2ebe7fbb79b93bab2c1f3ad9237da5ff3d69',
   '.github/agents/developer.agent.md': 'ed77451dc289cdacd4e9276f2238994fc4b19e3de0a35aac6bce2ff79cc8f89f',
   '.github/agents/document-analyst.agent.md': '4d8dba85aa99d9929fa480aa2f208a25aefdf451fcd096a2a0bd529383fb2715',
-  '.github/agents/mobile-architect.agent.md': '297c4d1a96fb97f38ed362cbc998ec22d562be0bb55e12599d53c7ec32486992',
+  '.github/agents/mobile-architect.agent.md': 'f0078e599da77b0b4130c5cbf2fdf2b31ab877e17bc36f7a15bcb7b452adcb30',
   '.github/agents/poc-analyst.agent.md': 'a4c0fb8c793ac6fb09334b181e901b7fd7e145fbe2066a9c183e1974d653c34d',
   '.github/agents/poc-automation.agent.md': 'd952e28e424e85a529e63bcf940806d39f005d807099a2d6a5ef3c1a0409f0af',
   '.github/agents/poc-explorer.agent.md': 'ca9b18f4be9ea42e4a21ff5f06b4ac2613a954f24802829b70ca5c9844ce8176',
@@ -420,7 +423,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   '.github/agents/poc-validator.agent.md': '90c8eae5b84c96e5932b84604715f162977e6ca48bb67707d95d6e7ef6a02fc4',
   '.github/agents/product-designer.agent.md': 'c6194bab94544b46c87fad7102a546103ff09dbbdee5cd73999742d1b3b937ea',
   '.github/agents/product-owner.agent.md': '84b653bdf4c778841221c46552a198deee1a23feb4e5bfc152a117796a673a10',
-  '.github/agents/qa.agent.md': '1d9963e539be077db1efe3cbd55572c1365c755db98008857ed0aa958f67fd4a',
+  '.github/agents/qa.agent.md': '83b59e145e185b27c28a8a96d3f4a6d0499c7d06db4cb2fe78f0999d4404096b',
   '.github/agents/scenario-developer.agent.md': 'daa622886352e3d5abd80d90823f2360028a3ee5acd8f85374653a45ea274cf7',
   '.github/agents/scenario-tester.agent.md': '8149fbf087fedeaca0fcb9db91560e7a6b7d66e8fe580e171b3767a85db83cca',
   'singularity/agent-mappings.yml': '1b39a4f4caa3242749889a291e2259a361c815712bd762abde3db3cbe9f8a688',

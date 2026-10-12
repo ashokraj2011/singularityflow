@@ -6,6 +6,20 @@ import { AUTHORING_SKILL_DECLARATION, parseAuthoringSkills } from '../src/author
 import { copilotPauseGuardForSkill, COPILOT_PAUSE_MARKER, PHASE_ENTRY_SKILLS } from '../src/copilot-mode.mjs';
 
 export const COMMAND_PRESENTATION_CONTRACT = 'For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.';
+/**
+ * How a Story skill that runs governed commands handles a refusal. `[phase-self-repair A2/A4]`
+ *
+ * No skill taught the refusal shape, so agents stopped on routes the CLI had already planned, retried
+ * unchanged conditions, or tried to edit an earlier phase. Engine-owned like the presentation
+ * contracts: fixed overhead added to the budget, not per-skill prose, and only on Story authoring
+ * and mutation skills (approval and review turns never run automatic actions).
+ */
+export const REFUSAL_HANDLING_CONTRACT = 'On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once.';
+
+export function refusalHandlingApplies(rule) {
+  return ['generative', 'mutation'].includes(rule?.class) && (rule?.executionBoundary ?? 'story') === 'story';
+}
+
 export const ARTIFACT_PRESENTATION_CONTRACT = 'Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval.';
 
 const CONTRACT_TEXT = Object.freeze({
@@ -338,13 +352,13 @@ function withAutomaticPolicy(text, automatic, description, file) {
   return `---\n${source}\n---\n${skill.body}`;
 }
 
-function withOutputContract(text, contract, kernelModelPolicy, file, executionBoundaryKind) {
+function withOutputContract(text, contract, kernelModelPolicy, file, executionBoundaryKind, refusalHandling = false) {
   const skill = splitSkill(text, file);
   // Additional blocked/risk prose can separate the generated contract from its boundary. Strip
   // all maintained boundaries first so repeated generation never appends a second lookup.
   const sourceBody = skill.body.replace(/<!-- sflow-execution-boundary -->\r?\n\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?/gu, '');
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
-  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}`;
+  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalHandling ? ` ${REFUSAL_HANDLING_CONTRACT}` : ''}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
   const boundaryText = executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)));
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
@@ -511,7 +525,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     let text = await readFile(file, 'utf8');
     if (write) {
       text = withAutomaticPolicy(text, automatic.has(name), AUTOMATIC_DESCRIPTIONS[name], file);
-      text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file, executionBoundaryKind);
+      text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file, executionBoundaryKind, refusalHandlingApplies(rule));
       text = withCopilotPauseGuard(text, pauseGuardRequired, file, name, executionBoundaryKind);
       await writeFile(file, text);
     }
@@ -523,9 +537,11 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     // allowance to grow per-skill prose. Report both budgets and keep the existing domain cap.
     const commandPresentationTokens = estimatedTokens(` ${COMMAND_PRESENTATION_CONTRACT}`);
     const artifactPresentationTokens = estimatedTokens(` ${ARTIFACT_PRESENTATION_CONTRACT}`);
+    const refusalHandling = refusalHandlingApplies(rule);
+    const refusalHandlingTokens = refusalHandling ? estimatedTokens(` ${REFUSAL_HANDLING_CONTRACT}`) : 0;
     const pauseGuard = copilotPauseGuardForSkill(name, executionBoundaryKind);
     const pauseGuardTokens = pauseGuardRequired ? estimatedTokens(`${COPILOT_PAUSE_MARKER}\n${pauseGuard}\n\n`) : 0;
-    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + pauseGuardTokens;
+    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + refusalHandlingTokens + pauseGuardTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
     const boundaryText = executionBoundary(executionBoundaryKind, name);
@@ -551,6 +567,9 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     }
     if (!skill.body.includes(marker)) errors.push(`${name}: missing '${classPolicy.outputContract}' output contract`);
     if (!skill.body.includes(COMMAND_PRESENTATION_CONTRACT)) errors.push(`${name}: missing Shell/Copilot presentation contract`);
+    if (refusalHandling !== skill.body.includes(REFUSAL_HANDLING_CONTRACT)) {
+      errors.push(`${name}: ${refusalHandling ? 'missing' : 'unexpected'} engine refusal-handling contract`);
+    }
     for (const message of artifactPresentationContractErrors(skill.body)) errors.push(`${name}: ${message}`);
     if (!skill.body.includes(boundaryMarker) || !skill.body.includes(boundaryText)) errors.push(`${name}: missing generated execution boundary`);
     if (skill.body.split(boundaryMarker).length !== 2) errors.push(`${name}: exactly one generated execution boundary is required`);
@@ -588,6 +607,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       bodyTokens,
       commandPresentationTokens,
       artifactPresentationTokens,
+      refusalHandlingTokens,
       pauseGuardTokens,
       warningTokens: classPolicy.warningTokens,
       maximumTokens: maximum,

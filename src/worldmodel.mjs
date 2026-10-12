@@ -386,7 +386,7 @@ export function phasePromptExecutionContract(definition, workflow, phase) {
     '- Clarification authority: this pinned mode overrides generic skill, agent, and template guidance.',
     `- Exact publication command: \`${command}\``,
     '- Publication boundary: Use the exact configured producer, channel, and command. Never substitute a convenient authorship route.',
-    ...phaseAuthoringContractLines(phaseAuthoringContract(definition, workflow, effectivePhase)),
+    ...phaseAuthoringContractLines(phaseAuthoringContract(definition, workflow, effectivePhase), { deterministicOnly }),
     ...(deterministicOnly ? [
       '- Deterministic-only generation: do not author or edit the phase artifact with a model, governed agent, or human. Run only the deterministic kernel action returned by the router; the kernel owns artifact generation.'
     ] : [])
@@ -407,7 +407,7 @@ export function renderFinalClarificationGuard(phaseId, clarificationPolicy) {
     '',
     `The pinned clarification mode for \`${phaseId}\` is \`${clarificationPolicy.mode}\`; this instruction overrides conflicting generic skill, agent, template, or repository prose.`,
     clarificationPolicy.mode === 'off'
-      ? 'Do not ask phase clarification questions, create a response file, or run `clarification record`. Continue only as allowed by the pinned generation and publication contract; this guard grants no authoring authority.'
+      ? 'Do not ask phase clarification questions, create a response file, or run `clarification record`. Where governed evidence is ambiguous, label the reading you choose `Assumption:` with its impact and continue; a problem in an earlier phase goes under `## Upstream discrepancies`. Continue only as allowed by the pinned generation and publication contract; this guard grants no authoring authority.'
       : clarificationPolicy.mode === 'when-needed'
         ? 'Ask and record a bounded batch only if material ambiguity remains after governed evidence is read; otherwise continue without a clarification record.'
         : 'Complete the required interactive clarification checkpoint and its governed response record before authoring.'

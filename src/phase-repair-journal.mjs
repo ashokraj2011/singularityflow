@@ -111,7 +111,10 @@ export async function phaseRepairLoopSummary(root, workflow, phase) {
     commands: { plan: `singularity-flow appeal repair-plan --phase ${phase.id} --json`,
       resume: `singularity-flow appeal repair-resume --phase ${phase.id} --json`,
       status: `singularity-flow appeal repair-status --phase ${phase.id} --json` },
-    protocol: 'Before an owned correction, inspect repair-plan and reserve its exact confirmed repair-run within authorized work. It saves bounded recovery copies without staging or discarding edits. Repair only the bound findings, then repair-resume the same attempt. An active attempt resumes, never reserves again. An exhausted/unchanged loop stops automation, not manual correction or authorized successor. Use the returned preservation command before an authorized manual correction. Inspect returned quality-risk routes for explicit human decisions; never accept risk automatically.',
+    // Precedence matters: the reservation loop is for automation and named refusals. Read as a gate
+    // in front of every same-turn edit, it cost calls and a three-attempt budget for ordinary fixes,
+    // and after exhaustion agents waited for a person nobody needed.
+    protocol: 'Same-turn findings in your open draft: correct them directly and recheck; no reservation is needed. Reserve the exact confirmed repair-run from repair-plan only for automation (appeal resolve, Auto) or when a refusal names it; repair only its bound findings, then repair-resume the same attempt (an active attempt resumes, never reserves again). Reservations save bounded recovery copies without staging or discarding edits. An exhausted or unchanged loop stops automation only: keep correcting your own draft, using the returned preservation command first. A person is needed only for risk, authority or integrity decisions; never accept risk automatically. Never edit an earlier phase to clear a finding.',
     autoAcceptRisk: false, phaseAdvanced: false, journalIsPassingEvidence: false, machineLocal: true };
 }
 export async function assertPhaseRepairSettled(root, workflow, phase) {

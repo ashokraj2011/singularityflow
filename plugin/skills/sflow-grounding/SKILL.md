@@ -16,15 +16,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 
 Before phase reasoning, identify the work or Epic ID, phase, governed agent, real Git identity and exact
-objective. Use the canonical skill's composed prompt and stay within the phase write scope. Its composition order is authoritative:
-
-1. active phase contract and artifact template;
-2. selected governed-agent prompt;
-3. mandatory phase world-model views;
-4. additional governed-agent world-model views;
-5. rule-selected repository domains and task guides;
-6. locked agent Markdown;
-7. approved upstream input projections (the complete artifact or an approval-bound agent brief) and evidence.
+objective. Use the canonical skill's composed prompt and stay within the phase write scope. Its composition order is authoritative: phase contract and template; pinned Story source; approved clause capsule; clarification protocol; governed-agent policy; MCP policy; design sources; repository brief; reference repositories; optional structural context; agent skills; supporting evidence; approved reference previews; change requests; approved upstream inputs (the complete artifact or an approval-bound agent brief); execution evidence; final clarification guard. An approved earlier artifact that is wrong is never edited: record it under `## Upstream discrepancies` and continue, as the phase contract says.
 
 For repository questions after attachment, first request `context.brief` (or
 `singularity-flow session context --work-id <ID> --slice brief --json`); expand only the one
@@ -32,9 +24,7 @@ For repository questions after attachment, first request `context.brief` (or
 Label facts, approved decisions, assumptions, proposals and open questions.
 
 If a required view is missing, stale or unreachable, keep Flow's unavailable context and use ordinary
-repository access.
-Show the exact mutation command emitted by Flow and wait for explicit contributor authorization before optional `singularity-flow wm ensure ...`, disclosing its source, depth, provider and
-publication target; phase work continues meanwhile. Context-integrity errors block. Never infer `--task` from a Story objective.
+repository access. Context-integrity errors block. Never infer `--task` from a Story objective.
 
 An approved agent brief serves ordinary reasoning; expand a source section by its `sfref:v1:` handle only
 for exact wording, and the complete artifact still governs. Fill an artifact's `## Agent brief` with a

@@ -862,9 +862,12 @@ test('bundled workflow agent self-activates and delegates lifecycle procedures t
   // The situational grounding rules load once per conversation from a reference skill, not every turn.
   assert.match(content, /skills\/sflow-grounding\/SKILL.md/);
   const grounding = await readFile(path.join(pluginRoot, 'skills', 'sflow-grounding', 'SKILL.md'), 'utf8');
-  assert.match(grounding, /mandatory phase world-model views/);
-  assert.match(grounding, /additional governed-agent world-model views/);
-  assert.match(grounding, /show the exact mutation command.*wait for explicit contributor authorization/is);
+  // The order is the composer's real section order (worldmodel.mjs compilePromptSections); the
+  // retired World Model views and their rebuild command must not come back.
+  assert.match(grounding, /phase contract and template; pinned Story source; approved clause capsule; clarification protocol; governed-agent policy/);
+  assert.match(grounding, /approved upstream inputs \(the complete artifact or an approval-bound agent brief\); execution evidence; final clarification guard/);
+  assert.match(grounding, /never edited: record it under `## Upstream discrepancies` and continue/);
+  assert.doesNotMatch(grounding, /world-model views|wm ensure/);
   assert.match(grounding, /model-free `wm\.ast\.query`/);
   assert.match(grounding, /lexical `text` symbol is advisory discovery evidence, not proof/);
   assert.match(grounding, /pinned clarification checkpoint/);

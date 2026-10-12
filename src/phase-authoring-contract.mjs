@@ -32,7 +32,7 @@ export function phaseAuthoringContract(definition, workflow, phase) {
   if (isTestEvidencePhase(phase)) roles.add('verification');
   if (isConformancePhase(phase)) roles.add('closure');
   const evidenceRoot = path.posix.join(definition.workItemRoot ?? 'singularity/work-items', workflow?.workItem?.id ?? '<WORK-ID>', 'evidence');
-  return Object.freeze({ revision: 'phase-authoring-v5', phase: phase.id, roles: [...roles].sort(),
+  return Object.freeze({ revision: 'phase-authoring-v6', phase: phase.id, roles: [...roles].sort(),
     priorApprovalsImmutable: true, revalidatePriorDraftQuality: false,
     executionEvidence: { authority: 'immutable-submission-packets', discoveryIsExecution: false,
       commandSuccessIsCriterionAcceptance: false, priorReportsMutable: false },
@@ -55,15 +55,27 @@ export function phaseAuthoringContract(definition, workflow, phase) {
     } } : {}),
     recovery: { currentDraft: 'repair-in-place', publishedDraft: 'reviewed-successor-or-return',
       approvedInputIntegrity: 'restore-reviewed-bytes-or-authorized-amendment',
+      // An approved earlier artifact that is wrong in content is recorded and worked around; it is
+      // never edited here and never a reason to stop. Changed or unapproved bytes are integrity.
+      upstreamDefect: 'record-and-continue',
       exhaustedAutomaticBudget: 'manual-repair-remains-available' }
   });
 }
 
-export function phaseAuthoringContractLines(contract) {
+/**
+ * What an author does with an approved earlier artifact that is wrong, incomplete or contradicts
+ * another input. Without it the only instruction was 'never re-author an earlier phase', and agents
+ * stopped. The section it asks for is optional, so a phase with nothing to report has no extra
+ * heading, and `upstreamDiscrepancies` (phase-upstream-discrepancies.mjs) shows it to reviewers.
+ */
+export const UPSTREAM_DISCREPANCY_PROTOCOL = '- Upstream discrepancies: approved earlier-phase artifacts are fixed evidence. If one is wrong, incomplete or contradicts another input or the pinned source, do not edit it and do not stop: continue on the most conservative reading consistent with the pinned source, and list each item under `## Upstream discrepancies` (producer phase, exact clause or section, problem, assumption used, impact, proposed owner action). Stop only for a refusal about changed or unapproved input bytes (use its restore or return route), or when no reading satisfies the pinned source.';
+
+export function phaseAuthoringContractLines(contract, { deterministicOnly = false } = {}) {
   if (!contract) return [];
   return [
     '- Repair boundary: the configured producer repairs this open draft in place; regenerate kernel-owned artifacts, never hand-edit them. Draft defects do not forbid repairs. Preserve prior approved artifacts and decisions; never re-author an earlier phase to satisfy a new template. Publication and any configured approvals remain separate checks.',
     '- Readiness: advisories are not current blockers. Documentation comments need no human approval; unplanned-path advice names work to account for before approval. When prepublish is ready and returns commands.publish, continue that publication attempt; required tests still run there. A resolved runner does not require editing package scripts just to emit its configured report.',
+    ...(deterministicOnly ? [] : [UPSTREAM_DISCREPANCY_PROTOCOL]),
     '- Configuration: manifests, lockfiles and build/test/CI/runtime settings are configuration, never product code or executable test declarations. Do not add code traceability tags or API documentation to them. Account for tooling under Supporting files with a reason, or use fulfillment configuration for a requirement changing runtime settings. Keep these bytes in scope review, candidate hashes and required tests; governed configuration still uses its separate authority.',
     ...(contract.verificationIntent ? [
       '- Scenario coverage: author S-number situations with substantive Given/When/Then acceptance cases and a `## Scenario coverage` table: Clause | Scenario | Outcome (success/failure/boundary/empty). Cover every behavior and acceptance clause; repeat rows for multiple outcomes. Approved rejection/error behavior needs a distinct invalid-input case with an observable error, not only failure-state prose. Use pinned request/clarification facts, not invented error wording or extra scope. Lexical hints are advisory; independent source review still judges semantic completeness.',

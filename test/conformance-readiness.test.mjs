@@ -122,13 +122,13 @@ test('a conformance report owes its self-approval disclosure before publication,
   const config = { workItemRoot: 'singularity/work-items' };
   const phase = { id: 'release', requiredArtifact: { kind: 'conformance-report', path: 'artifacts/release/conformance.md' } };
   const workflow = { workItem: { id: 'HEX-1' }, phaseOrder: ['planning', 'release'], resolution: { spec: { conformanceRows: 'legacy' } },
-    phases: { planning: { approvals: [{ selfApproval: true, actor: { login: 'ashokraj2011' } }] }, release: { approvals: [] } } };
+    phases: { planning: { approvals: [{ selfApproval: true, actor: { login: 'release-reviewer' } }] }, release: { approvals: [] } } };
   const report = path.join(root, config.workItemRoot, 'HEX-1', phase.requiredArtifact.path);
   assert.deepEqual(await inspectPhaseQualifiedConformance(root, config, workflow, phase), [], 'no report yet, nothing to inspect');
   await mkdir(path.dirname(report), { recursive: true });
   await writeFile(report, '# Conformance\n\n| Clause | Verdict |\n|---|---|\n| AC-001 | matched |\n');
   assert.deepEqual((await inspectPhaseQualifiedConformance(root, config, workflow, phase)).map((finding) => finding.code),
     ['conformance.self-approval-undisclosed']);
-  await writeFile(report, '# Conformance\n\n## Self-approval disclosures\n\n- `planning`: self-approved by ashokraj2011; not an independent review.\n');
+  await writeFile(report, '# Conformance\n\n## Self-approval disclosures\n\n- `planning`: self-approved by release-reviewer; not an independent review.\n');
   assert.deepEqual(await inspectPhaseQualifiedConformance(root, config, workflow, phase), []);
 });

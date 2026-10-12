@@ -275,10 +275,11 @@ test('repository entry initializes an explicitly opened unregistered Git root wi
   assert.equal(report.configurationMode, 'working-tree');
 });
 
-test('sf-next reapplies the repository boundary after clear or compact', async () => {
+test('sf-next relays chat resets and rebuilds its binding after the user resets', async () => {
   const content = await readFile(path.join(root, 'plugin', 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
-  assert.match(content, /run `\/clear` and then `\/sf-next`/);
-  assert.match(content, /After either reset, reapply the Boundary before artifact reads/);
+  // An agent cannot clear or compact its own chat: it relays the returned reset commands and stops.
+  assert.match(content, /Read `contextBoundary` first: an earlier-phase chat relays its ordered reset commands and stops/);
+  assert.match(content, /Relay, never execute, chat resets\. After the user resets, rebuild binding/);
 });
 
 test('model-facing Markdown never instructs a home-wide recursive search', async () => {

@@ -11,6 +11,7 @@ import { storyRequiresStepActions } from './step-actions.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { completionPhaseOf } from './lifecycle-transitions.mjs';
 import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';
+import { owedDecisionLines, owedDecisions, stepsThrough } from './owed-decisions.mjs';
 
 function currentPublication(phase) {
   const generation = Number(phase?.generation ?? 0);
@@ -204,6 +205,13 @@ export async function submissionReadiness(root, config, workflow, {
         nextSkill: '/sf-evidence'
       };
     }
+  }
+  // A step awaiting approval lists the sign-offs and scope decisions its approvers owe the ending,
+  // so they are asked for while the step is reviewed, not first by the final evaluation. Advisory.
+  if (phase?.status === 'awaiting_approval' && phaseId === workflow.currentPhase
+      && completionPhaseOf(workflow)?.id !== phase.id) {
+    const owed = await owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id));
+    if (owed) return { ...readiness, owedDecisions: owed };
   }
   return readiness;
 }
@@ -417,6 +425,7 @@ export function submissionReadinessText(snapshot) {
     snapshot.stepActionHold?.reason ?? null,
     snapshot.reason ?? null,
     ...(snapshot.terminal?.blockers ?? []).slice(0, 5).map((blocker) => `Open obligation: ${blocker}`),
+    ...owedDecisionLines(snapshot.owedDecisions),
     `Full artifact, test, policy, and evidence validation: ${snapshot.validation}`,
     snapshot.nextSkill ? `Copilot: ${snapshot.nextSkill}` : null,
     snapshot.nextCommand ? `Shell: ${snapshot.nextCommand}` : null,

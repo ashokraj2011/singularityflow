@@ -199,6 +199,15 @@ test('a real Story delivers source, configuration, test-only, removal, document 
   await write(SCREEN, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=', 'base64'));
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'implementation');
+  // The approver learns now, not at the Story's last approval, which sign-off its ending needs.
+  const owed = JSON.parse(cli('status', W, '--submission-readiness', '--json').stdout).owedDecisions;
+  assert.equal(owed?.status, 'owed', JSON.stringify(owed));
+  assert.deepEqual(owed.scopeItems, [], 'the code step defines no scope');
+  assert.deepEqual(owed.witnesses.map((entry) => [entry.clauseId, entry.slot, entry.files, entry.owners]),
+    [[ac(6), 'retained-evidence', [SCREEN], ['implementation']]]);
+  assert.match(owed.witnesses[0].command, new RegExp(`decision witness .*--file ${SCREEN.replace(/[.]/gu, '\\.')} `, 'u'));
+  assert.match(cli('status', W, '--submission-readiness').stdout, /Owed sign-offs \(1, human only, not blocking this step\)/u);
+  assert.match(cli('phase', 'show', 'implementation').stdout, /Owed sign-offs \(1/u);
   const beforeWitness = JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix.page.rows.find((row) => row.id === ac(6));
   assert.notEqual(beforeWitness.result, 'satisfied', 'file presence was treated as visual correctness');
   const publishedImage = await readFile(path.join(root, SCREEN));
@@ -213,6 +222,8 @@ test('a real Story delivers source, configuration, test-only, removal, document 
   cli('decision', 'witness', W, '--criterion', ac(6), '--slot', 'retained-evidence', '--file', SCREEN,
     '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change',
     '--reason', 'The isolated fixture image was inspected for this exact candidate.');
+  assert.equal(JSON.parse(cli('status', W, '--submission-readiness', '--json').stdout).owedDecisions, undefined,
+    'a recorded sign-off is no longer owed');
   cli('approve', 'implementation', '--yes');
 
   const workflowState = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));

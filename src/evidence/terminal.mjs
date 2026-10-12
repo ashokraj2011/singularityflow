@@ -10,6 +10,7 @@
 import { runGovernanceGate } from '../governance.mjs';
 import { nowIso, SingularityFlowError } from '../util.mjs';
 import { evaluateEvidence } from './evaluate.mjs';
+import { WITNESS_CHECKLIST } from '../verification/witness-records.mjs';
 import { evidenceGraphFromAggregate } from './graph.mjs';
 import { gateRefusal } from './gate-refusal.mjs';
 import { completionLabel } from './labels.mjs';
@@ -22,9 +23,26 @@ const BLOCKING_RESULTS = new Set(['failed', 'inconclusive', 'missing', 'pending'
 // `decision witness` for it would hand the person a command that is always refused.
 const WITNESSED_METHODS = new Set(['inspection', 'visual']);
 
+/** The planned evidence files of a criterion, from its plan obligations. */
+function plannedEvidenceFiles(row) {
+  const obligations = row.obligations ?? [];
+  const nested = obligations.flatMap((entry) => entry.plannedObligations ?? [])
+    .filter((entry) => entry.fulfillment === 'evidence').flatMap((entry) => entry.expectedPaths ?? []);
+  const direct = obligations.some((entry) => entry.fulfillment === 'evidence') ? row.plan?.expectedPaths ?? [] : [];
+  return [...new Set([...nested, ...direct])];
+}
+
+/**
+ * A runnable witness command: the exact planned file when the criterion has one, and every
+ * checklist item the record requires (a single `--confirm` is refused). The person still inspects
+ * the file before running it; nothing here answers the checklist for them.
+ */
 function witnessAction(workId, row, slot) {
+  const files = slot.method === 'visual' ? plannedEvidenceFiles(row) : [];
   return `singularity-flow decision witness ${workId} --criterion ${row.id} --slot ${slot.slot} `
-    + '--file <PATH> --confirm <CHECKLIST-ITEM> --reason "<why this exact evidence satisfies the slot>"';
+    + `--file ${files.length === 1 ? files[0] : '<EVIDENCE-PATH>'} `
+    + WITNESS_CHECKLIST.map((item) => `--confirm ${item}`).join(' ')
+    + ' --reason "<why this exact evidence satisfies the slot>"';
 }
 
 /**
@@ -83,13 +101,20 @@ export async function evaluateTerminalTransition(root, definition, workflow, { o
   return { evaluation, gate, blockers, recovery, upstream };
 }
 
+// The preview has no real reviewer by design. Approval authority, assurance and threshold are
+// checked by the actual approve command; only findings caused by that synthetic actor are dropped.
+const PREVIEW_APPROVAL_CODES = new Set([
+  'gate.approval.required-authority', 'gate.approval.unauthorized',
+  'gate.approval.assurance-missing', 'gate.approval.minimum', 'gate.approval.threshold'
+]);
+
 /**
- * Read-only projection of the state immediately after a successful approval of the final phase.
- * The synthetic decision exists only in memory and is deliberately not self-approved, attributed
- * or persisted; it removes the two obligations the pending approval itself will satisfy while all
- * scope, evidence, conformance and integrity inputs remain exact.
+ * The Story as it will be immediately after the final phase is approved `at`. The synthetic
+ * decision exists only in memory and is deliberately not self-approved, attributed or persisted.
+ * The ending is dated `at`, as the real approval will be: without it the latest earlier approval
+ * dated the ending, and anything that lapsed since surfaced first at the real approval.
  */
-export async function evaluateTerminalReadiness(root, definition, workflow, { stage = 'approval' } = {}) {
+export function projectFinalApproval(workflow, { at = nowIso() } = {}) {
   const projected = structuredClone(workflow);
   const phaseId = projected.currentPhase ?? projected.phaseOrder?.at(-1) ?? null;
   const phase = phaseId ? projected.phases?.[phaseId] ?? null : null;
@@ -97,6 +122,7 @@ export async function evaluateTerminalReadiness(root, definition, workflow, { st
   if (phase && phase.status === 'in_progress') phase.status = 'awaiting_approval';
   if (phase?.status === 'awaiting_approval') {
     phase.status = 'approved';
+    phase.approvedAt = at;
     phase.approvals ??= [];
     phase.approvals.push({
       decision: 'approved', generation: phase.generation, at: 'terminal-readiness-preview',
@@ -107,21 +133,36 @@ export async function evaluateTerminalReadiness(root, definition, workflow, { st
   projected.currentPhase = null;
   projected.status = 'closed';
   delete projected.completion;
-  const result = await evaluateTerminalTransition(root, definition, projected, { openStory });
-  // The preview has no real reviewer by design. Approval authority, assurance and threshold are
-  // checked by the actual approve command; suppress only findings caused by that synthetic actor.
-  const previewApprovalCodes = new Set([
-    'gate.approval.required-authority', 'gate.approval.unauthorized',
-    'gate.approval.assurance-missing', 'gate.approval.minimum', 'gate.approval.threshold'
-  ]);
-  const omitted = new Set((result.gate.findings ?? [])
-    .filter((finding) => previewApprovalCodes.has(finding.code))
-    .map((finding) => finding.details?.message).filter(Boolean));
-  const gate = {
-    ...result.gate,
-    findings: (result.gate.findings ?? []).filter((finding) => !previewApprovalCodes.has(finding.code)),
-    errors: (result.gate.errors ?? []).filter((message) => !omitted.has(message))
+  return { projected, phaseId, openStory };
+}
+
+/**
+ * The gate without the approval findings of the synthetic decision on `phaseId`. An earlier
+ * step's real approval problem stays, so it surfaces here and not first at the final approval.
+ */
+export function withoutPreviewApproval(gate, phaseId) {
+  const synthetic = (finding) => PREVIEW_APPROVAL_CODES.has(finding.code) && (finding.phase == null || finding.phase === phaseId);
+  const omitted = new Set((gate.findings ?? []).filter(synthetic)
+    .map((finding) => finding.details?.message ?? finding.message).filter(Boolean));
+  return {
+    omitted,
+    gate: {
+      ...gate,
+      findings: (gate.findings ?? []).filter((finding) => !synthetic(finding)),
+      errors: (gate.errors ?? []).filter((message) => !omitted.has(message))
+    }
   };
+}
+
+/**
+ * Read-only projection of the state immediately after a successful approval of the final phase:
+ * it removes the two obligations the pending approval itself will satisfy while all scope,
+ * evidence, conformance and integrity inputs remain exact.
+ */
+export async function evaluateTerminalReadiness(root, definition, workflow, { stage = 'approval' } = {}) {
+  const { projected, phaseId, openStory } = projectFinalApproval(workflow);
+  const result = await evaluateTerminalTransition(root, definition, projected, { openStory });
+  const { gate, omitted } = withoutPreviewApproval(result.gate, phaseId);
   // A visual witness is intentionally recorded only after submission has pinned the exact
   // candidate. Likewise, the final human approval itself supplies pending review obligations.
   // At the submission boundary defer only those two human-after-submission findings; every scope,

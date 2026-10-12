@@ -143,7 +143,8 @@ test('progress and document commands upload, list, and view files, images, and F
   assert.equal(readiness.publicationRecorded, false);
   assert.equal(readiness.lifecycleReady, false);
   assert.equal(readiness.nextSkill, '/sf-phase');
-  assert.equal(readiness.nextCommand, 'singularity-flow prepare intake');
+  // Preparation already ran and the draft is written: the terminal route checks it, never prepares again.
+  assert.equal(readiness.nextCommand, 'singularity-flow phase prepublish intake --for-agent --json');
   const publication = flow(root, ['phase', 'publish', 'intake']);
   assert.match(publication.stdout, /Published intake generation 1 at [0-9a-f]{8}/);
   // The default is the inventory — what was produced, where, and how to read it. Printing every

@@ -1203,6 +1203,22 @@ function expectedSpecIndexPath(root, itemDirectory, phase) {
 export async function readBoundSpecificationIndex(root, itemDirectory, workflow, phase, {
   requireCommitted = false
 } = {}) {
+  return readSpecificationIndexBinding(root, itemDirectory, workflow, phase, { requireCommitted, approvedSource: true });
+}
+
+/**
+ * The index a step awaiting approval submitted, with every binding check except its source bytes:
+ * submission rewrites the artifact's managed status block, and approval re-binds the index to the
+ * approved bytes. For previews of what approval will make true only; never evidence.
+ */
+export async function readSubmittedSpecificationIndex(root, itemDirectory, workflow, phase) {
+  if (phase?.status !== 'awaiting_approval') {
+    throw new SingularityFlowError(`Phase '${phase?.id ?? 'unknown'}' is not awaiting approval.`, { code: 'SPECIFICATION_INDEX_NOT_SUBMITTED' });
+  }
+  return readSpecificationIndexBinding(root, itemDirectory, workflow, phase, { approvedSource: false });
+}
+
+async function readSpecificationIndexBinding(root, itemDirectory, workflow, phase, { requireCommitted = false, approvedSource = true }) {
   const pointer = phase?.specIndex;
   if (!pointer) {
     throw new SingularityFlowError(
@@ -1243,6 +1259,7 @@ export async function readBoundSpecificationIndex(root, itemDirectory, workflow,
       { code: 'SPECIFICATION_INDEX_UNTRUSTED', details: { phase: phase.id, path: boundary.relative } }
     );
   }
+  if (!approvedSource) return index;
   const source = await secureRepositoryPath(root, index.source.path, {
     label: `Specification source for phase '${phase.id}'`, mustExist: true, type: 'file'
   });

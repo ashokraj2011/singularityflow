@@ -130,7 +130,8 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   // What earlier steps left open, and at the closing step the final evaluation's preview [A7, B5].
   const upstream = await upstreamEntrySummary(root, definition, workflow, phase, {
     evaluateTerminalReadiness: endsStory(workflow, phase)
-      ? (await import('./evidence/terminal.mjs')).evaluateTerminalReadiness : null
+      ? (await import('./evidence/terminal.mjs')).evaluateTerminalReadiness : null,
+    owedDecisions: (await import('./owed-decisions.mjs')).owedDecisions
   });
   const requiresDecision = recovery.actions.some(action => action.id === 'working-tree'
     && action.confirmation !== 'none');

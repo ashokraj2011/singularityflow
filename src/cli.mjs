@@ -166,6 +166,7 @@ import { phaseContinuationLines } from './phase-continuation.mjs';
 import { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { phaseUpstreamDiscrepancies } from './phase-upstream-discrepancies.mjs';
 import { openUpstreamIssues, upstreamIssueDecideCommand } from './upstream-issues.mjs';
+import { owedDecisionLines, owedDecisions, stepsThrough } from './owed-decisions.mjs';
 export { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { criterionResults, describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import { capabilityLines } from './verification/capability.mjs';
@@ -6522,6 +6523,7 @@ async function phaseReview(root, config, workflow, phase, { includeContinuation 
       notice: 'A criterion is judged by its own tagged test where the runner reports exact cases (Node, Jest, Vitest, JUnit 5); counts-only Node reports cannot verify it. Local observation is not independent attestation.'
     } : null,
     witnessReview,
+    owedDecisions: reviewBinding ? await owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id)) : null,
     documents,
     upstreamDiscrepancies: phaseUpstreamDiscrepancies(documents, workflow, phase.id),
     upstreamIssues: openUpstreamIssues(workflow).map(({ issue, status }) => ({ id: issue.id, phase: issue.phase, about: issue.about,
@@ -6580,6 +6582,7 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
     console.log(`    Observable: ${safe(mapping.clauseFields?.observable)}`);
     console.log(`    Exact clause:\n${safe(mapping.clauseText).split('\n').map((line) => `      ${line}`).join('\n')}`);
   }
+  owedDecisionLines(review.owedDecisions).forEach((line) => console.log(line));
   if (!review.documents.length) {
     console.log('No generated documents are registered for this phase.');
     return;

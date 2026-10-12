@@ -26,7 +26,7 @@ import { witnessContextBinding, witnessRecordResults } from '../verification/wit
 import { applicabilityStatus } from './applicability.mjs';
 import { pinnedStorySource } from '../story-epic-sources.mjs';
 import {
-  isSpecificationDefinitionPhase, loadActiveSpecRecords, loadSpecRecords, readBoundSpecificationClaimMap,
+  isSpecificationDefinitionPhase, loadActiveSpecRecords, loadSpecRecords, readBoundSpecificationClaimMap, readSubmittedSpecificationIndex,
   readBoundSpecificationIndex, selectActiveSpecRecords, plannedClaimsForObservedPhase
 } from '../specifications.mjs';
 
@@ -287,6 +287,25 @@ async function loadScopeInventory(root, definition, workflow, directory, records
     });
     return null;
   }
+}
+
+/**
+ * The scope inventory as it will be once each step awaiting approval is approved: such a step's
+ * submitted index supplies its clauses, so a statement its clauses carry is not shown as open.
+ * A preview for the people who decide scope; never evidence. Null when it cannot be built.
+ */
+export async function previewScopeInventory(root, definition, workflow) {
+  const directory = itemDirectory(root, { workItemRoot: workflow.resolution?.workItemRoot ?? definition?.workItemRoot }, workflow.workItem.id);
+  const findings = [];
+  const indexes = [...((await loadProjectedSpecRecords(root, directory, workflow, findings)).records.indexes ?? [])];
+  for (const id of workflow.phaseOrder ?? []) {
+    const phase = workflow.phases?.[id];
+    if (phase?.status !== 'awaiting_approval' || !phase.specIndex || !isSpecificationDefinitionPhase(phase)
+      || indexes.some((index) => index.phase === id)) continue;
+    // An index that fails its own binding is reported by the trusted read; the preview omits it.
+    try { indexes.push(await readSubmittedSpecificationIndex(root, directory, workflow, phase)); } catch { /* omitted */ }
+  }
+  return loadScopeInventory(root, definition, workflow, directory, { indexes }, findings);
 }
 
 /** Read one Story's records from its checkout. Never throws for a record problem; reports it. */

@@ -8,7 +8,11 @@ import {
 import { evaluateEvidence } from '../src/evidence/evaluate.mjs';
 import { evidenceGraph } from '../src/evidence/graph.mjs';
 import { COMPLETION_LABELS } from '../src/evidence/labels.mjs';
-import { terminalRecoveryActions, terminalRefusalMessage } from '../src/evidence/terminal.mjs';
+import {
+  projectFinalApproval, terminalRecoveryActions, terminalRefusalMessage, withoutPreviewApproval
+} from '../src/evidence/terminal.mjs';
+import { lapsedWitnessExceptionFindings } from '../src/governance.mjs';
+import { WITNESS_CHECKLIST } from '../src/verification/witness-records.mjs';
 
 const W = 'POC-1';
 const REASON = 'This Story demonstrates the lifecycle on one local change and has no requirements.';
@@ -220,4 +224,51 @@ test('terminal recovery never offers a witness decision for a test slot, which r
   });
   assert.equal(actions.some((command) => command.includes('--slot tests')), false, 'a test slot was offered a witness decision');
   assert.ok(actions.some((command) => /decision witness HEX-1 --criterion HEX-1:AC-002 --slot notes/u.test(command)));
+});
+
+test('a visual witness route names the one planned evidence file and answers no checklist item for the person', () => {
+  const row = (paths) => ({
+    id: 'HEX-1:AC-003', result: 'missing', actions: [],
+    plan: { expectedPaths: ['src/Keypad.tsx'] },
+    obligations: [{ responsibility: 'implement', fulfillment: 'mixed', plannedObligations: [
+      { fulfillment: 'new-or-modified', expectedPaths: ['src/Keypad.tsx'] },
+      { fulfillment: 'evidence', expectedPaths: paths }
+    ] }],
+    verification: { contract: { slots: [{ slot: 'browser-result', method: 'visual', status: 'missing' }] } }
+  });
+  const [single] = terminalRecoveryActions('HEX-1', { decision: { gate: 'pass' }, rows: [row(['evidence/keypad.png'])] });
+  assert.match(single, /--slot browser-result --file evidence\/keypad\.png /u);
+  for (const item of WITNESS_CHECKLIST) assert.ok(single.includes(`--confirm ${item}`), `missing --confirm ${item}`);
+  assert.equal(single.includes('<CHECKLIST-ITEM>'), false);
+  const [two] = terminalRecoveryActions('HEX-1', { decision: { gate: 'pass' }, rows: [row(['evidence/a.png', 'evidence/b.png'])] });
+  assert.match(two, /--file <EVIDENCE-PATH> /u, 'two planned files: the person names the one they inspected');
+});
+
+test('the final-check preview is dated now, so an exception that lapsed since the last approval shows before approval', () => {
+  const workflow = pocStory({ finalize: 'awaiting_approval' });
+  workflow.phases.act.approvedAt = '2026-10-01T00:00:00Z';
+  workflow.phases.act.approvals = [{ decision: 'approved', at: '2026-10-01T00:00:00Z',
+    witnessMappings: [{ clauseId: 'POC-1:AC-001', decision: 'exception', expiresAt: '2026-10-05T00:00:00Z' }] }];
+  const { projected, phaseId, openStory } = projectFinalApproval(workflow, { at: '2026-10-12T00:00:00.000Z' });
+  assert.equal(phaseId, 'finalize');
+  assert.deepEqual(openStory, { phase: 'finalize', status: 'awaiting_approval' });
+  assert.equal(projected.status, 'closed');
+  assert.equal(projected.phases.finalize.approvedAt, '2026-10-12T00:00:00.000Z');
+  assert.equal(workflow.phases.finalize.status, 'awaiting_approval', 'the Story itself is untouched');
+  assert.deepEqual(lapsedWitnessExceptionFindings(projected).map((entry) => entry.clauseId), ['POC-1:AC-001']);
+});
+
+test('the preview drops only the synthetic approval of the ending step; an earlier step keeps its approval problem', () => {
+  const finding = (code, phase, message) => ({ code, phase, details: { message } });
+  const { gate, omitted } = withoutPreviewApproval({
+    errors: ['finalize has 0 distinct approvals; requires 1', 'act approval is missing identity-assurance metadata', 'other'],
+    findings: [
+      finding('gate.approval.threshold', 'finalize', 'finalize has 0 distinct approvals; requires 1'),
+      finding('gate.approval.assurance-missing', 'act', 'act approval is missing identity-assurance metadata'),
+      finding('gate.state.invalid', 'finalize', 'other')
+    ]
+  }, 'finalize');
+  assert.deepEqual([...omitted], ['finalize has 0 distinct approvals; requires 1']);
+  assert.deepEqual(gate.errors, ['act approval is missing identity-assurance metadata', 'other']);
+  assert.deepEqual(gate.findings.map((entry) => entry.phase), ['act', 'finalize']);
 });

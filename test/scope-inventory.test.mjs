@@ -271,3 +271,61 @@ test('the CLI shows the inventory and records a scope decision through the scope
   assert.equal(reviewedState.history.at(-1).event, 'completeness_reviewed');
   assert.equal(reviewedState.completenessReviews.at(-1).inventorySha256, after.inventorySha256);
 });
+
+test('the scope step\'s approver is shown each open statement while reviewing, and a statement its clauses carry is not open', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-scope-owed-'));
+  const remote = `${root}-remote.git`;
+  t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
+  const git = (...args) => run('git', args, root).stdout.trim();
+  const sflow = (...args) => run(process.execPath, [CLI, '--no-model', ...args], root);
+  git('init', '-q', '-b', 'main');
+  git('config', 'user.name', 'Scope Tester');
+  git('config', 'user.email', 'scope@example.test');
+  await writeFile(path.join(root, 'README.md'), '# Scope fixture\n');
+  sflow('init');
+  const file = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(file, 'utf8'));
+  definition.worldModel.grounding = 'off';
+  definition.git.publish = 'off';
+  definition.repositoryReadiness = { ...(definition.repositoryReadiness ?? {}), requiredBeforeStory: false };
+  definition.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(definition.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  await writeFile(file, YAML.stringify(definition));
+  git('add', '.');
+  git('commit', '-qm', 'Govern the fixture');
+  run('git', ['init', '-q', '--bare', '-b', 'main', remote], root);
+  git('remote', 'add', 'origin', remote);
+  git('push', '-q', '-u', 'origin', 'main');
+  sflow('start', 'SCOPE-2', '--from-branch', 'main', '--work-type', 'classic-delivery', '--title', 'Change the value',
+    '--description', 'The exported value must equal 2. The public API must stay stable.');
+  sflow('prepare', 'intake');
+  await writeFile(path.join(root, 'singularity/work-items/SCOPE-2/artifacts/intake/intake.md'), [
+    '# SCOPE-2 — intake', '', '## Request and outcome', '', 'Change the exported value to 2.', '',
+    '## Scope and constraints', '', 'Change only the value module and its test.', '',
+    '## Acceptance criteria', '', '| Clause | Observable outcome |', '|---|---|', '| [SCOPE-2:AC-001] | The exported value must equal 2. |', '',
+    '## Planned implementation evidence', '', '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |', '|---|---|---|---|---|',
+    '| `SCOPE-2:AC-001` | `src/value.mjs` | `test/value.test.mjs` | new | value() returns 2. |', '',
+    '## Initial evidence', '', 'The README at the pinned main revision.', '',
+    '## Agent brief', '', 'Intake for a one-line value change; one criterion.', ''
+  ].join('\n'));
+  sflow('wm', 'compose', '--phase', 'intake');
+  sflow('clarification', 'record', 'intake', '--question', 'Is the value 2?', '--answer', 'Yes.');
+  sflow('phase', 'publish', 'intake', '--authored', 'human', '--channel', 'manual-in-place');
+  sflow('submit', 'intake');
+
+  // Submission rewrote the document's status block, so its index is trusted only once approval
+  // re-binds it; the approver still sees the scope as approval will leave it.
+  const readiness = JSON.parse(sflow('status', 'SCOPE-2', '--submission-readiness', '--json').stdout);
+  assert.equal(readiness.classification, 'already-submitted');
+  const open = readiness.owedDecisions?.scopeItems ?? [];
+  assert.deepEqual(open.map((item) => item.text), ['The public API must stay stable.'], JSON.stringify(readiness.owedDecisions));
+  assert.equal(open[0].command, `singularity-flow decision scope SCOPE-2 --item ${open[0].id} --as <included|existing|excluded|deferred|informative|duplicate|superseded> --reason "<why>"`);
+  assert.deepEqual(readiness.owedDecisions.witnesses, []);
+  assert.match(sflow('phase', 'show', 'intake').stdout, /Open scope items \(1, human only, not blocking this step\):\n {2}SRI-[0-9a-f]{12} story: "The public API must stay stable\."/u);
+
+  sflow('decision', 'scope', '--item', open[0].id, '--as', 'excluded', '--reason', 'The API contract is out of scope for this Story.');
+  assert.equal(JSON.parse(sflow('status', 'SCOPE-2', '--submission-readiness', '--json').stdout).owedDecisions, undefined);
+  sflow('approve', 'intake', '--yes');
+  const workflowState = JSON.parse(await readFile(path.join(root, 'singularity/work-items/SCOPE-2/workflow.json'), 'utf8'));
+  assert.equal(workflowState.phases.intake.status, 'approved', 'a decision recorded during review does not stale the approval');
+});

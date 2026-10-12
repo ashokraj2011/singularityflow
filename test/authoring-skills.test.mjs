@@ -190,7 +190,8 @@ test('the authoring contract audit checks the route, the built-in steps and the 
       'missing answers forbid questions')).some(error => error.includes('checkpoint instruction')), entry.id);
     assert.ok(authoringSkillContractErrors(entry, text.replace(/preparation is not authoring/i, 'Preparation completes authoring'))
       .some(error => error.includes('preparation and writing')), entry.id);
-    assert.ok(authoringSkillContractErrors(entry, text.replace('native file-edit tool', 'inspect the existing template'))
+    // The policy reads both phrases case-insensitively, so the mutation must too.
+    assert.ok(authoringSkillContractErrors(entry, text.replace(/native file-edit tool/i, 'inspect the existing template'))
       .some(error => error.includes('preparation and writing')), entry.id);
   }
   // Moving the selection check out of step 1 leaves the skill working before it re-reads its route.

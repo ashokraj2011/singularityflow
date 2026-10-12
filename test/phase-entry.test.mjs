@@ -110,7 +110,8 @@ test('CLI preparation is an unpublished authoring checkpoint, not a completed te
   assert.equal(result.data.preparation.authoringRequired, true);
   assert.match(result.data.preparation.instruction, /native file-edit tool/);
   assert.equal(result.effects.publicationCreated, false);
-  assert.equal(result.next[0].command, 'singularity-flow prepare team-discovery');
+  // Preparation already ran; its terminal route checks the draft once it is written, never prepares again.
+  assert.equal(result.next[0].command, 'singularity-flow phase prepublish team-discovery');
   assert.equal(result.next[0].copilotCommand, '/sf-phase');
   const draftPath = path.join(item.root, result.data.preparation.path);
   const draft = await readFile(draftPath, 'utf8');

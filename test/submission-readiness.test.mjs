@@ -110,6 +110,8 @@ test('a pinned independent review routes real corrections to the author before S
   source.resolution.sourceReview = {
     mode: 'enforce', phases: ['specification'], reviewerAgent: 'sflow-source-reviewer'
   };
+  // Reviewed because the specification defines the scope, as its pinned obligation graph says.
+  source.resolution.obligationGraph = { nodes: [{ id: 'specification', responsibilities: ['scope'] }] };
   const pending = snapshot(source, {
     sourceReviewEvidence: { status: 'correction-required',
       findings: [{ code: 'source-unmapped', message: 'A source request is not mapped.' }] }

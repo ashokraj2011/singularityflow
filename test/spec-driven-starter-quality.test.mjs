@@ -29,9 +29,12 @@ test('independent review is an explicit pinned policy, not a retroactive Story g
   const current = normalizeSourceReviewPolicy(starter.sourceReview, {
     workTypeId: 'spec-driven-standard', phases: starter.phases
   });
-  assert.equal(sourceReviewRequired({ resolution: { sourceReview: current } }, 'specification'), true);
-  assert.equal(sourceReviewRequired({ resolution: { sourceReview: current } }, 'implementation'), false);
-  assert.equal(sourceReviewRequired({ resolution: {} }, 'specification'), false);
+  // A pinned Story carries each step's responsibilities: the specification defines the scope.
+  const pinned = (resolution) => ({ phases: { specification: {}, implementation: {} }, resolution: { ...resolution,
+    obligationGraph: { nodes: [{ id: 'specification', responsibilities: ['scope'] }, { id: 'implementation', responsibilities: ['implement'] }] } } });
+  assert.equal(sourceReviewRequired(pinned({ sourceReview: current }), 'specification'), true);
+  assert.equal(sourceReviewRequired(pinned({ sourceReview: current }), 'implementation'), false);
+  assert.equal(sourceReviewRequired(pinned({}), 'specification'), false);
   assert.throws(() => normalizeSourceReviewPolicy({ mode: 'enforce', phases: ['nonexistent'],
     reviewerAgent: 'sflow-source-reviewer' }, { workTypeId: 'bad', phases: starter.phases }),
   /distinct active steps/);

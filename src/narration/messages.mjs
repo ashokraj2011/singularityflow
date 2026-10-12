@@ -1064,6 +1064,12 @@ export const REASONS = Object.freeze({
   'fastpath.phase-not-owned': {
     render: (s) => `this Story is at a phase this verb does not route${s.phase ? ` (${slot(s.phase)})` : ''}`
   },
+  'fastpath.not-configured': {
+    render: (s) => `work type ${slot(s.workType ?? 'unknown')} does not configure the fast path, so its steps use the phase commands`
+  },
+  'fastpath.verb-not-configured': {
+    render: (s) => `work type ${slot(s.workType ?? 'unknown')} does not route ${slot(s.verb ?? 'this verb')}`
+  },
   'phase.selected-by-pinned-rail': {
     render: (s) => `${slot(s.phase)} is phase ${slot(s.position)} of the rail this Story pinned when it started`
   },

@@ -198,7 +198,8 @@ export function planFastPath(workflow, definition, verb, {
         ? `Work type '${workType ?? 'unknown'}' does not configure the fast path; its steps use the phase commands.`
         : `'${verb}' is not configured for ${workType}; it offers ${Object.keys(profile.verbs).join(', ')}.` },
       underlyingOperations: [],
-      why: [{ code: !profile ? 'fastpath.not-configured' : 'fastpath.verb-not-configured', source: 'configuration' }],
+      why: [{ code: !profile ? 'fastpath.not-configured' : 'fastpath.verb-not-configured', source: 'config',
+        slots: { workType: workType ?? 'unknown', verb } }],
       next: [{ id: 'fastpath.nextsteps', label: 'Show the deterministic action set', command: 'sflow nextsteps', rank: 'NOW' }]
     });
   }

@@ -1128,10 +1128,11 @@ test('next skill executes one action and preserves explicit approval controls', 
 test('guided run and world-model skills preserve consent and crash-recovery boundaries', async () => {
   const run = await readFile(path.join(pluginRoot, 'skills', 'sflow-run', 'SKILL.md'), 'utf8');
   assert.match(run, /singularity-flow nextsteps --json/);
-  assert.match(run, /separate consent/);
+  // The registered World Model was removed: run never offers its build and the brief never blocks.
+  assert.doesNotMatch(run, /singularity-flow wm (?:ensure|check|availability|build)\b/);
   assert.match(run, /singularity-flow run`/);
   assert.doesNotMatch(run, /run --task "\$ARGUMENTS"/);
-  assert.match(run, /Missing world-model intelligence does not block ordinary file-based work/);
+  assert.match(run, /The Repository brief is guidance and never blocks file-based work/);
   assert.match(run, /pass `--yes` only after that answer/);
   assert.match(run, /If the next action is submission, ask whether to submit/);
 
@@ -1298,22 +1299,14 @@ test('interactive lifecycle skills ask only for durable human choices', async ()
   assert.doesNotMatch(resume, /ask_user/);
 });
 
-test('resume diagnoses world-model readiness without inferring or silently running regeneration', async () => {
+test('resume treats the Repository brief as guidance and never runs a removed World Model check or rebuild', async () => {
   const resume = await readFile(path.join(pluginRoot, 'skills', 'sflow-resume', 'SKILL.md'), 'utf8');
-  assert.match(resume, /wm check` as a read-only inspection/);
-  assert.match(resume, /wm availability --phase <ACTIVE-PHASE> --json/);
-  assert.match(resume, /exact `action\.command` or an exact CLI `Run:` command/);
-  assert.match(resume, /never infer a rebuild command/);
+  // `wm check`, `wm availability` and `wm ensure` refuse with WMB_REMOVED; a skill naming them stops the Story.
+  assert.match(resume, /The Repository brief is guidance: never run a World Model check or rebuild, and never wait for one/);
+  assert.match(resume, /singularity-flow wm brief --phase <ACTIVE-PHASE>/);
+  assert.doesNotMatch(resume, /singularity-flow wm (?:check|availability|ensure|build)\b/);
   assert.doesNotMatch(resume, /If stale, rebuild for the active phase/);
-  assert.doesNotMatch(resume, /singularity-flow wm (?:ensure|build)/,
-    'resume must relay the engine-returned mutation rather than hard-code a model-capable command');
-  assert.match(resume, /source revision, views and depth, resolved model\/provider or zero-token mode/);
-  assert.match(resume, /provider may read the repository and write world-model files/);
-  assert.match(resume, /shared governed state branch or an explicitly configured local target/);
-  assert.match(resume, /explicit affirmative consent and wait/);
-  assert.match(resume, /do not run the command while waiting/);
-  assert.match(resume, /Only an affirmative answer permits that exact command once, unchanged/);
-  assert.match(resume, /If no exact command is returned, stop/);
+  assert.match(resume, /Continue only in the active phase with the drafting route resume returned/);
 });
 
 test('auto skill keeps planning storyless and requires exact human ratification', async () => {

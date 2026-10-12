@@ -1000,6 +1000,13 @@ test('completed work can be reopened only through an authorized governed change 
 
 test('a final-gate-owned phase outside rejectTo reopens only after exact recovery confirmation', async () => {
   const root = await repository(); const workId = 'GATE-REOPEN-1';
+  // A team workflow whose final step cannot return to intake (the packaged chore now can).
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.workTypes.chore.phaseOverrides.conformance.approval.rejectTo = ['implementation', 'verification', 'conformance'];
+  await writeFile(configPath, YAML.stringify(config));
+  execute('git', ['commit', '-am', 'final step returns only to implementation onward'], root);
+  execute('git', ['push', 'origin', 'main'], root);
   flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('chore', 'developer') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
   const workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
@@ -1010,8 +1017,7 @@ test('a final-gate-owned phase outside rejectTo reopens only after exact recover
     workflow.phases[phaseId].status = 'approved';
   }
   workflow.status = 'closed'; workflow.currentPhase = null;
-  const completion = workflow.phases[workflow.phaseOrder.at(-1)];
-  completion.approvalPolicy.rejectTo = completion.approvalPolicy.rejectTo.filter((phaseId) => phaseId !== 'intake');
+  assert.equal(workflow.phases[workflow.phaseOrder.at(-1)].approvalPolicy.rejectTo.includes('intake'), false);
   await writeFile(workflowFile, JSON.stringify(workflow, null, 2));
   execute('git', ['add', path.join(root, 'singularity/work-items', workId)], root);
   execute('git', ['commit', '-m', 'simulate legacy completed story with an intake gate defect'], root);

@@ -26,4 +26,4 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    - reject: `singularity-flow epic review reject <STORY-KEY> --epic <EPIC-KEY> --packet <SHA-256> --selection-receipt <TOKEN> --reason "<REASON>"`.
 7. Show the Story commit, Epic aggregation commit, push results, and self-approval warning.
 
-Approve only when that review's `approval.evidence.ready` and `approval.reviewerAuthority.authorized` are true; otherwise offer `singularity-flow epic checks`. Never infer a target, packet, or confirmation.
+Approve only when that review's `approval.evidence.ready` and `approval.reviewerAuthority.authorized` are true; otherwise offer `singularity-flow epic checks`. Never infer a governed agent, target, packet, or confirmation.

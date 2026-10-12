@@ -65,8 +65,15 @@ export async function commandFunction(name) {
   const source = withoutComments(await commandLayerSource());
   const start = source.search(new RegExp(`^(?:export )?(?:async )?function ${name}\\s*\\(`, 'm'));
   if (start === -1) throw new Error(`${name} is not defined anywhere in the command layer.`);
+  // Skip the whole parameter list first: a destructured default such as `{ authorize = null } = {}`
+  // would otherwise be taken for the body.
   let depth = 0;
-  let index = source.indexOf('{', start);
+  let index = source.indexOf('(', start);
+  for (; index < source.length; index += 1) {
+    if (source[index] === '(') depth += 1;
+    else if (source[index] === ')' && --depth === 0) break;
+  }
+  index = source.indexOf('{', index);
   const open = index;
   for (; index < source.length; index += 1) {
     if (source[index] === '{') depth += 1;

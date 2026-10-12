@@ -20,8 +20,8 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 3. Before drafting, ask one concise batch about any material allocation, repository ownership, dependency, boundary, or acceptance ambiguity. Wait for the human and persist each accepted response with `singularity-flow epic sources answer --epic <EPIC-ID>`; then rerun `singularity-flow epic planning prepare` so the answers become pinned governed context. If questions cannot be asked or persisted, stop rather than infer Story boundaries.
 4. Author `story-plan.yml`, `parent-spec.md`, and one complete Story specification per `STORY-nnn`.
 5. Give every Story a configured repository, workflow type, REQ/AC allocation, dependencies, test expectations, and implementation boundaries. Group Stories by owning repository. Do not invent Jira keys or assignees.
-6. Run `singularity-flow epic planning publish`; it validates the package and refuses on failure.
-7. From the publish result and `singularity-flow epic stories list --json`, print:
+6. Run `singularity-flow epic planning publish`.
+7. Run `singularity-flow epic stories validate` and print:
    - the parent specification;
    - every Story with repository, REQ/AC mappings, dependency, task count, and metadata;
    - every per-Story specification and its hash;

@@ -3320,7 +3320,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">review</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~644 body tokens</span>
+          <span class="pill">~648 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-review-decision</code></dd></div>
@@ -3360,7 +3360,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
    - reject: `singularity-flow epic review reject &lt;STORY-KEY&gt; --epic &lt;EPIC-KEY&gt; --packet &lt;SHA-256&gt; --selection-receipt &lt;TOKEN&gt; --reason &quot;&lt;REASON&gt;&quot;`.
 7. Show the Story commit, Epic aggregation commit, push results, and self-approval warning.
 
-Approve only when that review&#39;s `approval.evidence.ready` and `approval.reviewerAuthority.authorized` are true; otherwise offer `singularity-flow epic checks`. Never infer a target, packet, or confirmation.
+Approve only when that review&#39;s `approval.evidence.ready` and `approval.reviewerAuthority.authorized` are true; otherwise offer `singularity-flow epic checks`. Never infer a governed agent, target, packet, or confirmation.
 </code></pre>
       </div>
     </details>
@@ -3557,7 +3557,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">echo</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~562 body tokens</span>
+          <span class="pill">~581 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-stories</code></dd></div>
@@ -3587,7 +3587,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
 1. Run `singularity-flow epic stories list --json` for the plan rows.
-2. Open only the plan and Story specification paths the CLI returns (`singularity-flow epic planning status --json` outputs); never assume a folder layout. Resolve both inside this repository; never search outside it.
+2. Under the active Epic directory, open `singularity/initiatives/&lt;EPIC-ID&gt;/artifacts/epic-planning/story-plan.yml` and the generated `singularity/initiatives/&lt;EPIC-ID&gt;/artifacts/epic-planning/stories/&lt;PLAN-ID&gt;/story-spec.md` files. Resolve both inside this repository; never search outside it.
 3. Show a compact table with plan ID, title, repository, workflow type, REQ/AC allocation, dependencies, task count, metadata, parent mode, and specification hash.
 4. Use `singularity-flow epic stories update`, `split`, or `adopt` for requested terminal edits. Tasks may be supplied with `--tasks-file`; key/value metadata uses repeatable `--metadata KEY=VALUE`.
 5. Clearly state that any edit invalidates the former Planning package hash and returns it to UI review.
@@ -3614,7 +3614,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">generative</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~805 body tokens</span>
+          <span class="pill">~786 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-epic-story-draft</code></dd></div>
@@ -3648,8 +3648,8 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 3. Before drafting, ask one concise batch about any material allocation, repository ownership, dependency, boundary, or acceptance ambiguity. Wait for the human and persist each accepted response with `singularity-flow epic sources answer --epic &lt;EPIC-ID&gt;`; then rerun `singularity-flow epic planning prepare` so the answers become pinned governed context. If questions cannot be asked or persisted, stop rather than infer Story boundaries.
 4. Author `story-plan.yml`, `parent-spec.md`, and one complete Story specification per `STORY-nnn`.
 5. Give every Story a configured repository, workflow type, REQ/AC allocation, dependencies, test expectations, and implementation boundaries. Group Stories by owning repository. Do not invent Jira keys or assignees.
-6. Run `singularity-flow epic planning publish`; it validates the package and refuses on failure.
-7. From the publish result and `singularity-flow epic stories list --json`, print:
+6. Run `singularity-flow epic planning publish`.
+7. Run `singularity-flow epic stories validate` and print:
    - the parent specification;
    - every Story with repository, REQ/AC mappings, dependency, task count, and metadata;
    - every per-Story specification and its hash;
@@ -5099,7 +5099,7 @@ already initialized.
           <span class="pill">review</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~811 body tokens</span>
+          <span class="pill">~816 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-initiative-approve</code></dd></div>
@@ -5132,7 +5132,7 @@ Approval authority comes from configured local Git name/email groups, not the se
 
 1. Use `/sf-initiative-documents` and `/sf-initiative-checklist` for exact output links/hashes, evidence assurance/freshness, prior approvals, child milestones and self-approval risk. Require the human&#39;s complete review of these bound outputs outside chat; opening a preview or a summary is not review. Changed bindings need fresh review before confirmation.
 2. Run `singularity-flow initiative choices begin approve &lt;INIT-ID&gt; &lt;OUTPUT-ID|phase&gt; --json`.
-3. Present exactly the returned `choiceSets` with Copilot&#39;s `ask_user` (the `phase:subject` confirmation); the phase agent is the default and grants no approval authority.
+3. Present exactly the returned `choiceSets` with Copilot&#39;s `ask_user` (the `phase:subject` confirmation); the phase agent is the default; choosing an agent does not grant approval authority.
 4. The reviewer must choose the confirmation explicitly. Never infer, preselect, or synthesize approval intent.
 5. Record each answer with `singularity-flow initiative choices answer &lt;TOKEN&gt; &lt;CHOICE-ID&gt; &lt;SELECTED-ID&gt; --json`.
 6. Only after `ready: true`, run `singularity-flow initiative approve &lt;OUTPUT-ID|phase&gt; --initiative &lt;INIT-ID&gt; --selection-receipt &lt;TOKEN&gt;`. A self-approval refusal: show it; only if the reviewer explicitly accepts self-approval, rerun with `--acknowledge-self-approval`.
@@ -7320,7 +7320,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1171 body tokens</span>
+          <span class="pill">~1172 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-plan</code></dd></div>
@@ -7349,15 +7349,15 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup.
 Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/expiry and authorized human confirmation. Never auto-accept risk.
 
-1. Run `singularity-flow plan --json`; read its checkpoint, kernel operations and `&lt;PHASE&gt;`; `not-routed`: relay `next[]`, stop.
+1. Run `singularity-flow plan --json`; read its checkpoint, kernel operations and `&lt;PHASE&gt;`, the step its commands name; `not-routed`: relay `next[]`, stop.
 2. Relay `checkpoint.reason` and the ordered `next[]` exactly.
-3. If the checkpoint is `recovery`, route it first; nothing else proceeds until the retained commit reaches its remote.
+3. If the checkpoint is `recovery`, route it first; nothing else proceeds until its commit reaches the remote.
 4. If the checkpoint is `approval`, stop: only an authorized human Git identity approves.
 5. At `model-generation`, require first `NOW` in `next[]` = `singularity-flow prepare &lt;PHASE&gt;`; execute once, use its artifact path. Otherwise relay the route and stop; no seeded/stale drafting. Use the resolved agent, approved inputs and pinned template/constitution. `singularity-flow wm compose --phase &lt;PHASE&gt;`: use supporting evidence; cite used documents as `DOC-nnn — &lt;name&gt;`. Derive the plan from approved specification clauses. In `Test strategy`, fill the planned-evidence table, one row per authoritative clause: fully qualified ID, backticked exact repository-relative paths (never directories, globs, modules or prose), Fulfillment and Observable result. For non-testable clauses use `not-applicable:` with a reviewed explanation, never to hide unknowns. Non-commentable changes (manifest/lockfile/CI config): `## Supporting files` bullets with exact path/reason. Fill `Agent brief`: approach, surfaces, sequence, proof, risks. `tasks.md` is advisory, never a gate.
-6. Before publication run `singularity-flow phase prepublish &lt;PHASE&gt; --for-agent --json` (includes draft-check). Unready: `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;PHASE&gt; --json`; stay here. Correct agent findings from governed evidence when `correction.sameTurn`; else route to its owner. Never invent, pad, blindly delete markers, nest models or overwrite producers. Use returned `commands.publish` when `ready`; absent: relay `commands.next`, stop. A race-time `ARTIFACT_AUTHORING_INCOMPLETE` permits one recheck and at most one publication retry if ready, never a loop. Never submit or approve. Follow returned `repairLoop.protocol` for persistent correction/resume; stop unchanged.
+6. Before publication run `singularity-flow phase prepublish &lt;PHASE&gt; --for-agent --json` (includes draft-check). Unready: `singularity-flow recover &lt;WORK-ID&gt; --phase &lt;PHASE&gt; --json`; stay here. Correct agent findings from governed evidence when `correction.sameTurn`; else route to its owner. Never invent, pad, blindly delete markers, nest models or overwrite producers. Use returned `commands.publish` when `ready`; absent: relay `commands.next`, stop. A race-time `ARTIFACT_AUTHORING_INCOMPLETE` permits one recheck and at most one publication retry if ready, never a loop. Follow returned `repairLoop.protocol` for persistent correction/resume; stop unchanged.
 New/modified `Expected paths`: product source; `Planned tests`: tests. Test-only obligations use fulfillment `test-only` with `Expected paths` = `-`. Retained files: fulfillment `evidence`, exact Story evidence path, primary visual/inspection `Verification contracts` row. Review returned `planningEvidenceRepair` patches only when `sameTurn`; recheck. File presence never proves a visual pass.
 
-7. Report only returned milestones and operations run. Never approve, reject or advance. Show returned next actions as `Next in Copilot: /sf-...` and exact `Terminal equivalent: singularity-flow ...`; never omit or guess routes.
+7. Report only returned milestones and operations run. Never submit, approve, reject or advance. Show returned next actions as `Next in Copilot: /sf-...` and exact `Terminal equivalent: singularity-flow ...`; never omit or guess routes.
 </code></pre>
       </div>
     </details>

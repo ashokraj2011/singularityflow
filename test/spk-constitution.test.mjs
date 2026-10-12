@@ -133,6 +133,20 @@ test('judged prose is immutable after approval', () => {
   assert.match(findings[0].message, /Withdraw it and allocate a new ID/);
 });
 
+test('withdrawn machine articles keep historical bindings while still detecting hand edits', () => {
+  const generated = generateConstitution(SOURCE, RESOLUTION).markdown;
+  const header = /^---\n([\s\S]*?)\n---\n/.exec(generated);
+  const metadata = YAML.parse(header[1]); metadata.articles[0].status = 'withdrawn';
+  const historical = `---\n${YAML.stringify(metadata)}---\n` + generated.slice(header[0].length);
+  const archivedHash = parseConstitution(historical).articles[0].articleSha256;
+  assert.deepEqual(parseConstitution(historical, { resolution: { phases: [] } }).findings, [], 'removed current policy does not invalidate a withdrawn binding');
+  const regenerated = generateConstitution(historical, { phases: [] });
+  assert.deepEqual(regenerated.regenerated, []);
+  assert.match(regenerated.markdown, /Effective value: 1/);
+  assert.equal(parseConstitution(regenerated.markdown).articles[0].articleSha256, archivedHash);
+  assert.ok(parseConstitution(historical.replace('- Effective value: 1', '- Effective value: 99'), { resolution: { phases: [] } }).findings.some(finding => finding.kind === 'hand-edited'));
+});
+
 test('front matter and the visible body must agree', () => {
   // `[SPK:REQ-095]`: the front matter is not what anyone reads, so an article that exists only there
   // is a configuration entry wearing a document's name.

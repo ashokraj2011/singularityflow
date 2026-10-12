@@ -5959,6 +5959,9 @@ test('the retired Designer and templates commands open Workflow Studio, which ex
   await registered.commands.get('singularityFlow.openReusableInstructions')();
   assert.deepEqual(panel.sent.at(-1), { type: 'studio.focus', view: 'instructions' }, 'reusable instructions open in their own catalog, not Agent Designer');
 
+  await registered.commands.get('singularityFlow.openConstitution')();
+  assert.deepEqual(panel.sent.at(-1), { type: 'studio.focus', view: 'constitution' }, 'Constitution opens the reviewed Studio editor');
+
   await panel.post({ type: 'studio.exportWorkflows', workflowIds: ['story:feature'] });
   assert.equal(registered.saveDialogs.at(-1)?.title, 'Export portable workflow bundle');
   assert.deepEqual(registered.saveDialogs.at(-1)?.filters, { 'Workflow bundle': ['json'] });

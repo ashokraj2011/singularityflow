@@ -25,6 +25,8 @@ import {
   parseLibrarySkill, parseSkillAttachments, readSkillAttachments, skillAttachmentsText, withoutAttachedSkills
 } from './skill-library.mjs';
 import { instructionPath, instructionText, parseInstruction, loadInstructionLibrary } from './instruction-library.mjs';
+import { constitutionPolicy, parseConstitution } from './constitution.mjs';
+import { constitutionStudioView, renderStudioConstitution, studioConstitutions } from './studio-constitution.mjs';
 import { packagedWorkflowSkills } from './packaged-workflow-skills.mjs';
 
 function instructionCatalogHash(catalog) {
@@ -48,7 +50,7 @@ import {
   authoringRoute, compiledSkillStep, deterministicOnlyGeneration, legacyAuthoringSkill, stepOutputKind, workflowCodeGeneration
 } from './code-delivery-policy.mjs';
 import { AUTHORING_SKILL_ID, authoringSkillCatalog, authoringSkillEntry } from './authoring-skills.mjs';
-import { configurationReadRoot } from './configuration-read-scope.mjs';
+import { configurationReadRoot, withoutConfigurationReadScope } from './configuration-read-scope.mjs';
 import { KNOWLEDGE_READER_RULES, knowledgePromptPolicy } from './knowledge/render.mjs';
 import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
@@ -398,6 +400,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
   const starter = await packagedDefinition();
   const bundled = await bundledAgents();
   const workTypes = raw.workTypes ?? {};
+  const constitutions = await studioConstitutions(configRoot, raw);
   const protection = await seededWorkflowProtection(raw, portfolioText ? YAML.parse(portfolioText) : {}, discovered);
   const phases = raw.phases ?? {};
   const defaultAgentOf = (phaseId) => discovered.find((agent) => agent.defaultFor.includes(phaseId))?.id ?? null;
@@ -465,11 +468,13 @@ export async function buildStudioModel(root, { authority = null } = {}) {
       agentsSha256: agentsSha256(discovered),
       attachmentsSha256: sha256(attachmentsText ?? ''),
       instructionsSha256: instructionCatalogHash(instructionLibrary),
+      constitutionsSha256: constitutions.sha256,
       ...(portfolioText != null ? { portfolioSha256: sha256(portfolioText) } : {})
     },
     problems,
     protection,
     workflows,
+    constitutions: constitutionStudioView(constitutions, definition ?? raw, protection.workflows),
     epics: epicModel(portfolioText == null ? null : YAML.parse(portfolioText) ?? {}, posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates')),
     integrations: {
       targets: Object.entries(raw.integrations?.targets ?? {}).map(([id, target]) => ({ id, ...structuredClone(target) }))
@@ -646,6 +651,7 @@ const RANK = Object.freeze({
   'epicStep.create': 4.2, 'epicWorkflow.create': 4.7, 'epicStep.update': 5.2, 'epicOutput.set': 5.3, 'epicOutput.remove': 5.4, 'epicWorkflow.update': 7.2,
   'skill.create': 2.2, 'import.librarySkill': 2.3, 'skill.update': 2.4,
   'instruction.create': 2.05, 'instruction.update': 2.1, 'instruction.remove': 11.2,
+  'constitution.policy': 7.4, 'constitution.set': 7.5,
   'phase.agent': 8, 'agent.update': 9, 'skill.attach': 9.5, 'skill.detach': 9.5,
   'import.skill': 10, 'import.generated': 10, 'import.mcpServer': 10.5, 'import.remove': 11, 'skill.remove': 11.1,
   'integration.target.remove': 11.5
@@ -724,6 +730,8 @@ class StudioCandidate {
     this.skillFiles = new Map();
     this.instructions = new Map(sources.instructions?.instructions ?? []);
     this.instructionFiles = new Map();
+    this.constitutionChanges = new Map();
+    this.constitutionPolicies = new Set();
     // Skills attached in the attachments file, and the agents a framework workflow keeps read-only:
     // a skill attaches to those there, so the agent and its workflow stay as they shipped.
     this.attachments = [...(sources.attachments ?? [])];
@@ -903,6 +911,26 @@ class StudioCandidate {
       case 'instruction.create': return this.writeInstruction(change, true);
       case 'instruction.update': return this.writeInstruction(change, false);
       case 'instruction.remove': return this.removeInstruction(change);
+      case 'constitution.set': {
+        if (Object.keys(change).some(key => !['op', 'path', 'articles'].includes(key)) || this.constitutionChanges.has(change.path)) {
+          throw new SingularityFlowError('A constitution must be edited once per change set with only path and articles.', { code: 'STUDIO_CONSTITUTION_INVALID' });
+        }
+        this.constitutionChanges.set(change.path, change);
+        this.summary.push(`Constitution ${change.path} updated; new Stories use it only in workflows whose constitution mode is enabled.`);
+        return;
+      }
+      case 'constitution.policy': {
+        if (Object.keys(change).some(key => !['op', 'id', 'mode'].includes(key)) || !['off', 'warn', 'enforce'].includes(change.mode)
+            || this.constitutionPolicies.has(change.id)) throw new SingularityFlowError('Constitution applicability accepts one explicit Off, Warn or Enforce mode per workflow.', { code: 'STUDIO_CONSTITUTION_INVALID' });
+        const id = requireId(change.id, 'A workflow ID');
+        const workflow = this.content.workTypes?.[id];
+        if (!workflow) throw new SingularityFlowError(`Unknown workflow '${id}'.`, { code: 'STUDIO_WORKFLOW_UNKNOWN' });
+        const policy = constitutionPolicy({ ...constitutionPolicy(workflow.constitution), mode: change.mode });
+        this.document.setIn(['workTypes', id, 'constitution'], this.document.createNode(policy));
+        this.constitutionPolicies.add(id);
+        this.summary.push(`Constitution mode for ${workflow.label || id}: ${policy.mode}. Existing Stories retain their pins.`);
+        return;
+      }
       case 'skill.update': return this.updateSkill(change);
       case 'skill.remove': return this.removeSkill(change);
       case 'skill.attach': return this.attachSkill(change);
@@ -2533,6 +2561,19 @@ class StudioCandidate {
 
   async files() {
     const files = [];
+    for (const [relative, change] of this.constitutionChanges) {
+      const after = renderStudioConstitution(change, this.sources.constitutions, this.content);
+      const before = this.sources.constitutions.files.get(relative)?.text ?? null;
+      if (after !== before) files.push({ path: relative, before, after });
+    }
+    for (const id of this.constitutionPolicies) {
+      const policy = constitutionPolicy(this.content.workTypes[id].constitution);
+      if (policy.mode === 'off') continue;
+      const text = files.find(file => file.path === policy.path)?.after ?? this.sources.constitutions.files.get(policy.path)?.text;
+      if (!text) throw new SingularityFlowError('Define the constitution before enabling it on this workflow.', { code: 'STUDIO_CONSTITUTION_INVALID' });
+      const checked = parseConstitution(text, { resolution: resolveWorkType(validateDefinition(this.content), id), allowExample: false });
+      if (checked.findings.length) throw new SingularityFlowError(checked.findings.map(item => item.message).join('; '), { code: 'STUDIO_CONSTITUTION_INVALID' });
+    }
     if (this.portfolioChanged && this.portfolioDocument) {
       const portfolio = renderPreservingFormatting(this.sources.portfolioText, this.portfolioDocument);
       if (portfolio !== this.sources.portfolioText) files.push({ path: PORTFOLIO_PATH, before: this.sources.portfolioText, after: portfolio });
@@ -2755,6 +2796,7 @@ async function loadSources(root, options = {}) {
     ledger: await loadImportsLedger(configRoot), ledgerText, agentLock, agentLockText,
     library: await loadSkillLibrary(configRoot),
     instructions: await loadInstructionLibrary(configRoot),
+    constitutions: await studioConstitutions(configRoot, raw),
     agentShas: new Map(agents.map((agent) => [agent.id, agent.sha256])),
     imports: options.imports ?? new Map(),
     templatesRoot: posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates'),
@@ -2819,6 +2861,9 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
   if (changeSet.base?.instructionsSha256 && changeSet.base.instructionsSha256 !== instructionCatalogHash(sources.instructions)) {
     throw new SingularityFlowError('Reusable instructions changed since Studio loaded. Reload and review the newer definitions.', { code: 'STUDIO_BASE_CHANGED' });
   }
+  if (changeSet.base?.constitutionsSha256 && changeSet.base.constitutionsSha256 !== sources.constitutions.sha256) {
+    throw new SingularityFlowError('The constitution changed since Studio loaded. Reload and review the newer articles.', { code: 'STUDIO_BASE_CHANGED' });
+  }
   const changes = orderChanges(changeSet.changes);
   const candidate = new StudioCandidate(sources, finalWorkflowPhases(sources, changes));
   const problems = [];
@@ -2832,7 +2877,11 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
     }
   }
   if (!problems.length) candidate.finalize(problems);
-  const files = problems.length ? [] : await candidate.files();
+  let files = [];
+  if (!problems.length) {
+    try { files = await candidate.files(); }
+    catch (error) { problems.push({ code: error?.code ?? 'STUDIO_CHANGE_INVALID', message: error.message }); }
+  }
   if (!problems.length && files.length) {
     try {
       await validateStudioCandidate(sources, files);
@@ -2858,6 +2907,11 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
   if (!write) return plan;
   if (!plan.valid) {
     throw new SingularityFlowError(`Workflow Studio changes were not applied: ${problems[0].message}`, { code: 'STUDIO_CHANGES_INVALID', details: { problems } });
+  }
+  // A configuration proposal checkout may differ from the read-only authority mirror. Prove
+  // every Constitution destination safe before any candidate file is written there too.
+  for (const file of files.filter(file => candidate.constitutionChanges.has(file.path))) {
+    await withoutConfigurationReadScope(() => secureRepositoryPath(root, file.path, { label: 'Constitution destination', type: 'file' }));
   }
   for (const file of files) {
     const target = path.join(root, file.path);

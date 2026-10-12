@@ -941,7 +941,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     'singularityFlow.openConfigurationCenter', 'singularityFlow.configureTests', 'singularityFlow.configureAuto', 'singularityFlow.configureWorldModel',
     'singularityFlow.configureAstIntelligence',
     'singularityFlow.configurePeople', 'singularityFlow.configureMcp',
-    'singularityFlow.configureTemplates', 'singularityFlow.openSkills', 'singularityFlow.openReusableInstructions', 'singularityFlow.configureModels',
+    'singularityFlow.configureTemplates', 'singularityFlow.openSkills', 'singularityFlow.openReusableInstructions', 'singularityFlow.openConstitution', 'singularityFlow.configureModels',
     'singularityFlow.reopenCompleted', 'singularityFlow.rollForwardRework', 'singularityFlow.cancelWork',
     'singularityFlow.expandReference', 'singularityFlow.openHarnessReport'
   ];
@@ -7189,6 +7189,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'templates') { await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'artifacts' }); return null; }
     else if (message.action === 'skills') { await vscode.commands.executeCommand('singularityFlow.openSkills'); return null; }
     else if (message.action === 'instructions') { await vscode.commands.executeCommand('singularityFlow.openReusableInstructions'); return null; }
+    else if (message.action === 'constitution') { await vscode.commands.executeCommand('singularityFlow.openConstitution'); return null; }
     // Absorbed from the Configuration sidebar section, which now only leads here.
     else if (message.action === 'publish-configuration') await vscode.commands.executeCommand('singularityFlow.publishConfiguration');
     else if (message.action === 'reset-jira') await vscode.commands.executeCommand('singularityFlow.resetJira');
@@ -8577,6 +8578,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The skill master: write skills and attach them to any agent, for the steps they are for.
     'singularityFlow.openSkills': () => vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'skills' }),
     'singularityFlow.openReusableInstructions': () => vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'instructions' }),
+    'singularityFlow.openConstitution': () => vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'constitution' }),
     'singularityFlow.configureModels': () => openConfigurationCenter('models'),
     'singularityFlow.openWorkspaceLogs': async () => {
       const { WorkspaceLogsPanel } = lazyPanels();

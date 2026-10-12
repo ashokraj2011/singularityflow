@@ -361,6 +361,7 @@ test('from a Story checkout, Studio changes become one review proposal on the ap
   assert.equal(model.authority.kind, 'approved-configuration-ref');
   assert.equal(model.authority.commit, approved);
   const file = await changeSet(story, [
+    { op: 'constitution.set', path: 'singularity/constitution.md', articles: [{ id: 'ART-001', type: 'judged', status: 'active', title: 'Recoverable delivery', level: 'must', evidenceRequired: true, prose: 'Retain a rollback procedure for every delivery.' }] },
     { op: 'workflow.create', id: 'vendor-assessment', label: 'Vendor assessment', phases: ['intake', 'vendor-analysis'] },
     { op: 'phase.create', id: 'vendor-analysis', label: 'Vendor analysis', output: 'analysis', inputs: ['intake'], approval: { group: 'product-approvers' }, agent: 'vendor-analyst' },
     { op: 'agent.create', id: 'vendor-analyst', label: 'Vendor analyst', description: 'Compares vendor options against the approved intake.', role: 'analyst' }
@@ -370,7 +371,8 @@ test('from a Story checkout, Studio changes become one review proposal on the ap
     '--expected-authority-remote-fingerprint', remoteFingerprint(remote), '--expected-authority-source-commit', model.authority.sourceCommit ?? approved]);
   assert.equal(proposal.reviewRequired, true, JSON.stringify(proposal));
   assert.match(proposal.branch, /^sflow\/config-change\/workflow\/studio-/);
-  assert.deepEqual([...proposal.files].sort(), ['.github/agents/vendor-analyst.agent.md', 'singularity/templates/common/vendor-analysis.md', 'singularity/workflow.yml']);
+  assert.deepEqual([...proposal.files].sort(), ['.github/agents/vendor-analyst.agent.md', 'singularity/constitution.md', 'singularity/templates/common/vendor-analysis.md', 'singularity/workflow.yml']);
+  assert.match(run('git', ['--git-dir', remote, 'show', `${proposal.branch}:singularity/constitution.md`], base).stdout, /Retain a rollback procedure/);
   assert.match(run('git', ['--git-dir', remote, 'show', `${proposal.branch}:.github/agents/vendor-analyst.agent.md`], base).stdout, /sflow-default-for: "vendor-analysis"/);
   assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'], base).stdout.trim(), approved, 'approved configuration is unchanged until review');
   assert.equal(run('git', ['rev-parse', 'HEAD'], story).stdout.trim(), storyHead, 'the Story checkout is unchanged');

@@ -598,6 +598,29 @@ the same read-only setup check as entering its URL. Copilot exposes the same jou
 `/sf-repositories`; it discloses provider-backed names only after an explicit provider/host request
 and labels the private/internal count. Without that request, use the native picker or direct CLI.
 
+### Define a constitution
+
+Open **Configuration → Governance & review → Constitution**, or run **Singularity Flow:
+Constitution** from the VS Code command palette. The editor is also available in Workflow Studio.
+Add articles with a stable ID, title and rule. Human-reviewed principles support **Must/Should**
+and required/optional evidence. Machine articles select an existing phase approval minimum; their
+rule text is generated from the effective configuration, not written or enforced by a model.
+
+Expand **Workflow applicability** to select **Off**, **Warn** or **Enforce** for editable workflows.
+Seeded workflow settings remain read-only; duplicate a workflow before customizing its mode.
+Use **Review changes → Check changes → Publish for review**, then review and activate the resulting
+configuration proposal. With a local working-tree authority, the same Changes screen explicitly
+offers **Write to this repository** instead. Defining an article never silently activates a new
+machine policy or changes a running Story. New Stories pin the approved constitution; existing
+Stories retain their original rules.
+
+Approved article meanings cannot change under the same ID. **Replace** withdraws the old article
+and creates a new ID; **Withdraw** retains its text and history. Existing malformed or hand-edited
+files are reported instead of overwritten. The form supports workflow-declared Markdown paths
+under `singularity/`, outside Story/runtime directories (normally `singularity/constitution.md`).
+Read-only CLI equivalents remain `singularity-flow constitution check --json` and
+`singularity-flow constitution show --json`.
+
 ### Set up or recover one repository
 
 Use one repository-centric command for first setup, recovery, and supported upgrades:

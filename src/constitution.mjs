@@ -221,6 +221,18 @@ export function generatedProse(prose, id) {
   return prose.slice(from + start.length, to).trim();
 }
 
+/** Replace within this anchor only; several articles may start with identical prose. */
+function replaceArticleProse(body, id, before, after) {
+  const lines = body.split('\n');
+  const start = lines.findIndex(line => ANCHOR.exec(line)?.groups.id === id);
+  if (start < 0) throw new SingularityFlowError(`Constitution has no [${id}] section to regenerate.`);
+  const next = lines.findIndex((line, index) => index > start && ANCHOR.test(line));
+  const end = next < 0 ? lines.length : next;
+  const section = lines.slice(start + 1, end).join('\n');
+  lines.splice(start + 1, end - start - 1, ...section.replace(before, after).split('\n'));
+  return lines.join('\n');
+}
+
 /**
  * Parse a constitution into articles joined with their visible text.
  *
@@ -289,7 +301,9 @@ export function parseConstitution(markdown, { resolution = null, allowExample = 
           });
           valid = false;
         }
-        if (resolution) {
+        // Withdrawn rules are historical evidence, not assertions about today's policy values.
+        // Their recorded prose/hash integrity is still checked above.
+        if (resolution && article.status !== 'withdrawn') {
           const value = policyValue(resolution, article.policy);
           /**
            * A path that resolves to nothing is almost always a typo, and its article renders as
@@ -391,6 +405,10 @@ export function generateConstitution(markdown, resolution) {
   const updated = [];
 
   for (const article of declared) {
+    if (article.type === 'enforced' && article.status === 'withdrawn') {
+      updated.push(article); // Never rewrite the historical machine binding on regeneration.
+      continue;
+    }
     if (article.type !== 'enforced') {
       const section = sections.get(article.id);
       updated.push({ ...article, articleSha256: article.articleSha256 ?? articleHash(article, section?.prose ?? '') });
@@ -407,7 +425,7 @@ export function generateConstitution(markdown, resolution) {
       ? section.prose.replace(/\s*$/, `\n\n${block}\n`)
       : section.prose.slice(0, section.prose.indexOf(start)) + block + section.prose.slice(section.prose.indexOf(end) + end.length);
     if (replaced !== section.prose) regenerated.push(article.id);
-    output = output.replace(section.prose, replaced);
+    output = replaceArticleProse(output, article.id, section.prose, replaced);
     updated.push({
       ...article,
       policyValueSha256: sha256(value),

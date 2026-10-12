@@ -40,6 +40,7 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
     { label: 'MCP tools', glyph: 'mcp', tab: 'mcp' }
   ] },
   { label: 'Governance & review', items: [
+    { label: 'Constitution', glyph: 'configuration', action: 'constitution' },
     { label: 'People & approvals', glyph: 'team', tab: 'people' },
     { label: 'Review proposals', glyph: 'merge', action: 'proposals' },
     { label: 'Visual assurance', glyph: 'visual', action: 'visual-assurance' },

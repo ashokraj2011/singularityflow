@@ -19,6 +19,7 @@ const STUDIO_STYLE = `
 .catalog-search label{font-size:12px}
 .agent-prompt pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;font-size:12px;line-height:1.6}
 .agent-prompt{min-width:0}
+.constitution-rule{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;font-size:12px;line-height:1.6}
 .workflow-seeded{border-left:3px solid var(--vscode-charts-blue,#759bbb)}
 .workflow-editable{border-left:3px solid var(--sf-accent)}
 .pill.origin-seeded{color:var(--vscode-charts-blue,#759bbb)}
@@ -288,7 +289,7 @@ body:has(#studio-root) .page-nav .link,body:has(#studio-root) .page-nav .nav-cur
 export const PROPOSAL_BRANCH = /^sflow\/config-change\/[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/;
 const MAX_LISTED_PROPOSALS = 100;
 /** The sections the page can be opened at, for screens that send a person to one. */
-export const STUDIO_FOCUS_VIEWS = Object.freeze(['home', 'agents', 'skills', 'instructions', 'artifacts', 'library', 'people', 'integrations', 'changes'] as const);
+export const STUDIO_FOCUS_VIEWS = Object.freeze(['home', 'agents', 'skills', 'instructions', 'constitution', 'artifacts', 'library', 'people', 'integrations', 'changes'] as const);
 export type StudioFocusView = typeof STUDIO_FOCUS_VIEWS[number];
 
 /** A configuration proposal as the Changes view lists it: names and counts, never file content. */
@@ -338,7 +339,11 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   // ---- The draft and the change set ---------------------------------------------------------
 
   function initialDraft(model) {
-    var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, integrations: {}, order: [], imports: [], templates: {}, artifactSets: {}, skills: {}, instructions: {} };
+    var draft = { workflows: {}, steps: {}, phases: {}, agents: {}, groups: {}, integrations: {}, order: [], imports: [], templates: {}, artifactSets: {}, skills: {}, instructions: {}, constitutions: {}, constitutionModes: {} };
+    (model.constitutions || []).forEach(function (file) {
+      draft.constitutions[file.path] = (file.articles || []).map(constitutionArticleDraft);
+      file.workflows.forEach(function (workflow) { draft.constitutionModes[workflow.id] = workflow.mode; });
+    });
     (model.workflows || []).forEach(function (workflow) {
       draft.order.push(workflow.id);
       draft.workflows[workflow.id] = { id: workflow.id, label: workflow.label, description: workflow.description || '', phases: workflow.phases.slice(), reworkLoops: clone(workflow.reworkLoops || []), decisions: clone(workflow.decisions || []), isNew: false, installFrom: null, readOnly: Boolean(workflow.readOnly),
@@ -553,6 +558,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       if (Object.keys(edit).length > 2) changes.push(edit);
     });
     Object.keys(base.instructions).sort().forEach(function (id) { if (!instructionsNow[id]) changes.push({ op: 'instruction.remove', id: id }); });
+    Object.keys(draft.constitutions || {}).sort().forEach(function (path) {
+      if (!same(base.constitutions[path], draft.constitutions[path])) changes.push({ op: 'constitution.set', path: path, articles: clone(draft.constitutions[path]) });
+    });
+    Object.keys(draft.constitutionModes || {}).sort().forEach(function (id) {
+      if (base.constitutionModes[id] !== draft.constitutionModes[id]) changes.push({ op: 'constitution.policy', id: id, mode: draft.constitutionModes[id] });
+    });
     var skillsNow = draft.skills || {};
     Object.keys(skillsNow).sort().forEach(function (id) {
       var skill = skillsNow[id]; var prior = base.skills[id];
@@ -799,6 +810,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       case 'instruction.create': return 'New reusable instruction ' + (change.label || change.id);
       case 'instruction.update': return 'Reusable instruction ' + change.id + ' changed';
       case 'instruction.remove': return 'Delete reusable instruction ' + change.id;
+      case 'constitution.set': return 'Constitution ' + change.path + ': ' + change.articles.filter(function (article) { return article.status === 'active'; }).length + ' active articles; withdrawn history retained';
+      case 'constitution.policy': return 'Constitution for ' + ((draft.workflows[change.id] || {}).label || change.id) + ': ' + change.mode;
       case 'skill.create': return 'New skill ' + (change.label || change.id) + ' in the skill master';
       case 'skill.update': return 'Skill ' + skillName(change.id) + ': ' + Object.keys(change).filter(function (key) { return ['op', 'id'].indexOf(key) < 0; }).map(function (key) { return { label: 'name', description: 'description', instructions: 'instructions' }[key] || key; }).join(', ') + ' changed';
       case 'skill.remove': return 'Delete skill ' + skillName(change.id) + ' from the skill master';
@@ -829,6 +842,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   window.__workflowStudio = { initialDraft: initialDraft, changeSetFrom: changeSetFrom, copiedPhaseDraft: copiedPhaseDraft, describe: describe, kebab: kebab,
     catalogSearch: catalogSearch, agentPromptPreview: agentPromptPreview, renderHome: renderHome, renderAgents: renderAgents, renderSkills: renderSkills, renderInstructions: renderInstructions, renderInspector: renderInspector,
+    renderConstitution: renderConstitution, openConstitutionForm: openConstitutionForm, saveConstitutionArticle: saveConstitutionArticle,
     renderEpicStep: renderEpicStep, renderSeededWorkflow: renderSeededWorkflow,
     insertSkillInstruction: insertSkillInstruction,
     proposalGroups: function () { return proposalGroups.apply(null, arguments); },
@@ -1219,6 +1233,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       item('agents', 'Agents', 'agent', Object.keys(state.draft.agents).length, false),
       item('skills', 'Skill master', 'spark', Object.keys(state.draft.skills || {}).length || null, false),
       item('instructions', 'Instructions', 'book', Object.keys(state.draft.instructions || {}).length || null, false),
+      item('constitution', 'Constitution', 'book', null, false),
       item('artifacts', 'Artifacts', 'doc', null, false),
       item('library', 'Library', 'book', (state.model.imports || []).length || null, false),
       item('people', 'People & approvals', 'people', blocked || null, blocked > 0),
@@ -4778,6 +4793,136 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     (state.model.instructionProblems || []).forEach(function (problem) { main.appendChild(el('p', { class: 'error', text: problem.message || String(problem) })); });
   }
 
+  // ---- Constitution: standing rules, authored through the same reviewed change set ---------
+
+  function constitutionArticleDraft(article) {
+    var result = { id: article.id, title: article.title, type: article.type, status: article.status || 'active', prose: article.prose || '' };
+    if (article.type === 'judged') { result.level = article.level; result.evidenceRequired = article.evidenceRequired; }
+    else result.policy = article.policy;
+    if (article.withdrawnBy) result.withdrawnBy = article.withdrawnBy;
+    return result;
+  }
+  function constitutionFile(path) { return (state.model.constitutions || []).find(function (file) { return file.path === path; }); }
+  function constitutionChoices(file) {
+    var active = file.workflows.filter(function (workflow) { return state.draft.constitutionModes[workflow.id] !== 'off'; }).map(function (workflow) { return workflow.id; });
+    if (!active.length && file.workflows.length) active = [file.workflows[0].id];
+    var choices = {};
+    (file.policyChoices || []).filter(function (item) { return active.indexOf(item.workflow) >= 0; }).forEach(function (item) {
+      item.choices.forEach(function (choice) { choices[choice.path] = { value: choice.path, label: choice.label + ' (configured: ' + choice.value + ')' }; });
+    });
+    return Object.values(choices);
+  }
+  function openConstitutionForm(path, id, replace) {
+    var articles = state.draft.constitutions[path] || [];
+    var article = articles.find(function (item) { return item.id === id; });
+    var file = constitutionFile(path);
+    if (!file || file.problems.length || (replace && (!article || article.status === 'withdrawn'))) return;
+    var original = file.articles.find(function (item) { return item.id === id; });
+    if (original && !replace) return; // Approved fields are never editable under their existing ID.
+    var next = 1;
+    while (articles.some(function (item) { return item.id === 'ART-' + String(next).padStart(3, '0'); })) next += 1;
+    var value = article ? clone(article) : { type: 'judged', title: '', prose: '', level: 'must', evidenceRequired: true, status: 'active' };
+    if (!article || replace) { value.id = 'ART-' + String(next).padStart(3, '0'); delete value.withdrawnBy; value.status = 'active'; }
+    if (replace && value.type === 'enforced') value.prose = '';
+    state.constitutionForm = { path: path, article: value, editing: article && !replace ? id : null, replaces: replace ? id : null, error: null };
+    render();
+  }
+  function saveConstitutionArticle() {
+    var form = state.constitutionForm;
+    if (!form) return false;
+    var value = constitutionArticleDraft(form.article); var articles = state.draft.constitutions[form.path];
+    var fail = function (message) { form.error = message; return false; };
+    value.id = String(value.id || '').trim(); value.title = String(value.title || '').trim(); value.prose = String(value.prose || '').trim();
+    if (!/^[A-Z][A-Z0-9]*-\d{3,}$/.test(value.id)) return fail('Use a stable ID such as ART-001.');
+    if (articles.some(function (item) { return item.id === value.id && item.id !== form.editing; })) return fail('This article ID is already used, including withdrawn history.');
+    if (!value.title || value.title.length > 120 || /[\r\n]/.test(value.title)) return fail('Enter a single-line title of at most 120 characters.');
+    if (value.type === 'judged' && (!value.prose || value.prose.length > 16000)) return fail('Enter rule text of at most 16,000 characters.');
+    if (value.type === 'enforced') {
+      value.prose = '';
+      if (!constitutionChoices(constitutionFile(form.path)).some(function (choice) { return choice.value === value.policy; })) return fail('Select a supported machine-enforced policy.');
+    }
+    if (form.replaces) {
+      var old = articles.find(function (item) { return item.id === form.replaces; });
+      old.status = 'withdrawn'; old.withdrawnBy = value.id;
+    }
+    var index = articles.findIndex(function (item) { return item.id === form.editing; });
+    if (index >= 0) articles[index] = value; else articles.push(value);
+    state.constitutionForm = null; changed(); return true;
+  }
+  function renderConstitution(main) {
+    backLink(main);
+    main.appendChild(el('h1', { text: 'Constitution' }));
+    main.appendChild(el('p', { class: 'studio-lede', text: 'Standing rules for your Stories. Define human-reviewed principles or link to an existing machine-enforced policy. Changes go through configuration review; running Stories keep their original pins.' }));
+    main.appendChild(el('div', { class: 'callout', text: 'Must/Should principles require human judgement, not a model guarantee. Machine rules restate existing kernel settings; adding an article does not create a new enforcement mechanism.' }));
+    var files = state.model.constitutions || [];
+    if (!files.length) main.appendChild(el('p', { class: 'muted', text: 'No Story workflows declare a constitution path yet. Create a workflow first.' }));
+    files.forEach(function (file) {
+      var articles = state.draft.constitutions[file.path] || [];
+      var section = el('section', { class: 'studio-card', 'data-constitution-file': file.path },
+        el('h2', { text: file.path }), el('p', { class: 'hint', text: file.present ? 'Saved source loaded. Replace or withdraw articles to retain history.' : 'No file yet. Add your first article, then Check changes and Publish for review in Changes.' }));
+      file.problems.forEach(function (problem) { section.appendChild(el('div', { class: 'callout bad', role: 'alert', text: problem })); });
+      var enabled = file.workflows.filter(function (workflow) { return state.draft.constitutionModes[workflow.id] !== 'off'; }).length;
+      var workflows = el('details', null, el('summary', { text: 'Workflow applicability · ' + enabled + ' of ' + file.workflows.length + ' enabled' }));
+      workflows.appendChild(el('p', { class: 'hint', text: 'Off: no constitution checks. Warn: advisory findings. Enforce: constitution checks are gates. Seeded workflow settings are read-only; duplicate a workflow to customize them.' }));
+      file.workflows.forEach(function (workflow) {
+        var key = 'constitution-mode-' + workflow.id;
+        workflows.appendChild(field(key, workflow.label + (workflow.editable ? '' : ' · Seeded'), select(key,
+          [{ value: 'off', label: 'Off' }, { value: 'warn', label: 'Warn' }, { value: 'enforce', label: 'Enforce' }], state.draft.constitutionModes[workflow.id],
+          function (mode) { state.draft.constitutionModes[workflow.id] = mode; changed(); }, { disabled: !workflow.editable })));
+      });
+      section.appendChild(workflows);
+      section.appendChild(button('Add article', function () { openConstitutionForm(file.path); }, { class: 'primary', disabled: file.problems.length > 0 }));
+      if (!articles.length) section.appendChild(el('p', { class: 'muted', text: 'No articles yet.' }));
+      articles.forEach(function (article) {
+        var approved = file.articles.some(function (item) { return item.id === article.id; });
+        var row = el('article', { class: 'studio-card', 'data-constitution-article': article.id },
+          el('div', { class: 'studio-row spread' }, el('h3', { text: article.id + ' — ' + article.title }), el('span', { class: 'pill', text: article.status === 'withdrawn' ? 'Withdrawn' : approved ? 'Saved source' : 'Draft' })),
+          el('p', { class: 'hint', text: article.type === 'enforced' ? 'Machine-enforced · ' + article.policy : 'Human-reviewed · ' + article.level + (article.evidenceRequired ? ' · evidence required' : ' · evidence optional') }),
+          el('pre', { class: 'constitution-rule', text: article.prose || 'Rule text will be generated from the exact configured policy at Check changes.' }));
+        if (article.withdrawnBy) row.appendChild(el('p', { class: 'hint', text: 'Replaced by ' + article.withdrawnBy }));
+        var actions = el('div', { class: 'studio-row' });
+        if (article.status === 'active' && !file.problems.length) {
+          if (approved) {
+            actions.appendChild(button('Replace', function () { openConstitutionForm(file.path, article.id, true); }, { class: 'secondary' }));
+            actions.appendChild(button('Withdraw', function () { article.status = 'withdrawn'; changed(); }, { class: 'secondary' }));
+          } else {
+            actions.appendChild(button('Edit draft', function () { openConstitutionForm(file.path, article.id); }, { class: 'secondary' }));
+            actions.appendChild(button('Remove draft', function () {
+              articles.forEach(function (old) { if (old.withdrawnBy === article.id) { old.status = 'active'; delete old.withdrawnBy; } });
+              state.draft.constitutions[file.path] = articles.filter(function (item) { return item.id !== article.id; }); changed();
+            }, { class: 'secondary' }));
+          }
+        }
+        row.appendChild(actions); section.appendChild(row);
+      });
+      var form = state.constitutionForm;
+      if (form && form.path === file.path) {
+        var value = form.article;
+        var card = el('section', { class: 'studio-card', 'aria-label': 'Constitution article form' }, el('h3', { text: form.replaces ? 'Replace ' + form.replaces + ' with a new ID' : 'Draft article' }));
+        card.appendChild(field('constitution-id', 'Stable article ID', textInput('constitution-id', value.id, function (text) { value.id = text; }, { maxlength: 80, disabled: Boolean(form.editing) })));
+        card.appendChild(field('constitution-title', 'Title', textInput('constitution-title', value.title, function (text) { value.title = text; }, { maxlength: 120 })));
+        card.appendChild(field('constitution-type', 'Rule type', select('constitution-type', [{ value: 'judged', label: 'Human-reviewed principle' }, { value: 'enforced', label: 'Existing machine policy' }], value.type, function (type) {
+          value.type = type; value.prose = ''; value.level = value.level || 'must'; value.evidenceRequired = value.evidenceRequired !== false; render();
+        })));
+        if (value.type === 'judged') {
+          card.appendChild(field('constitution-level', 'Strength', select('constitution-level', [{ value: 'must', label: 'Must' }, { value: 'should', label: 'Should' }], value.level, function (level) { value.level = level; })));
+          card.appendChild(field('constitution-rule', 'Rule (Markdown)', el('textarea', { id: 'constitution-rule', rows: 6, maxlength: 16000, onchange: function (event) { value.prose = event.target.value; } }, value.prose)));
+          card.appendChild(field('constitution-evidence', 'Evidence', select('constitution-evidence', [{ value: 'required', label: 'Required' }, { value: 'optional', label: 'Optional' }], value.evidenceRequired ? 'required' : 'optional', function (choice) { value.evidenceRequired = choice === 'required'; })));
+        } else {
+          var choices = constitutionChoices(file);
+          card.appendChild(field('constitution-policy', 'Machine policy', select('constitution-policy', [{ value: '', label: 'Select a policy' }].concat(choices), value.policy || '', function (policy) { value.policy = policy; }), 'Effective values are verified for every applicable workflow at Check changes.'));
+        }
+        if (form.error) card.appendChild(el('p', { class: 'error', role: 'alert', text: form.error }));
+        card.appendChild(el('div', { class: 'studio-row' },
+          button('Add to changes', function () { saveConstitutionArticle(); render(); }, { class: 'primary' }),
+          button('Cancel', function () { state.constitutionForm = null; render(); }, { class: 'secondary' })));
+        section.appendChild(card);
+      }
+      main.appendChild(section);
+    });
+    main.appendChild(button('Review changes', function () { state.view = 'changes'; render(); }, { class: 'secondary' }));
+  }
+
   function renderSkills(main) {
     var view = skillsView();
     backLink(main);
@@ -5304,6 +5449,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     state.draft = initialDraft(state.model); state.plan = null; state.planKey = null;
     state.adding = null; state.wizard = null; state.agentForm = null; state.newGroup = null; state.returnTo = null;
     state.panel = null; state.decision = null; state.workflow = null; state.step = null;
+    state.constitutionForm = null;
     state.epicForm = null; state.epicOutput = null; state.epicAdding = null; state.epic = null; state.epicStep = null;
     if (state.integrations) state.integrations.form = null;
     if (state.library) { state.library.preview = null; state.library.target = null; state.library.replace = false; state.library.error = null; }
@@ -5375,6 +5521,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     else if (state.view === 'epic') renderEpic(main);
     else if (state.view === 'skills') renderSkills(main);
     else if (state.view === 'instructions') renderInstructions(main);
+    else if (state.view === 'constitution') renderConstitution(main);
     else if (state.view === 'library') renderLibrary(main);
     else if (state.view === 'people') renderPeople(main);
     else if (state.view === 'integrations') renderIntegrations(main);
@@ -5435,7 +5582,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       render();
     } else if (message.type === 'studio.focus') {
       if (typeof message.workflowId === 'string') openWorkflowCanvas(message.workflowId);
-      else if (['home', 'agents', 'skills', 'instructions', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
+      else if (['home', 'agents', 'skills', 'instructions', 'constitution', 'artifacts', 'library', 'people', 'integrations', 'changes'].indexOf(message.view) >= 0) { state.view = message.view; state.returnTo = null; render(); }
     } else if (message.type === 'studio.failed') {
       state.busy = null; state.reviewing = null; setStatus(message.message || 'That did not work.'); if (!state.model) state.error = message.message; render();
     } else if (message.type === 'studio.cancelled') {

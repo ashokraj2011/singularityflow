@@ -29,6 +29,14 @@ const {
 } = await import(source('configuration-center-model.ts'));
 const { configurationCenterHtml, CONFIGURATION_CENTER_SCRIPT } = await import(source('configuration-center-page.ts'));
 
+test('Constitution has a first-class Configuration route into the reviewed Studio editor', async () => {
+  const html = configurationCenterHtml(configurationCenterView(snapshot), 'overview', null, null, null, []);
+  assert.match(html, /data-action="constitution"[^>]*>.*?Constitution/s);
+  const extension = await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8');
+  assert.match(extension, /message.action === 'constitution'.*executeCommand\('singularityFlow.openConstitution'\)/);
+  assert.match(extension, /'singularityFlow.openConstitution':.*view: 'constitution'/);
+});
+
 const snapshot = {
   identities: {
     git: { name: 'Casey Dev', email: 'casey@example.com', login: 'caseydev' },

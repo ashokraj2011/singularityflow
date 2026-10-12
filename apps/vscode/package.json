@@ -536,6 +536,11 @@
         "category": "Singularity Flow"
       },
       {
+        "command": "singularityFlow.openConstitution",
+        "title": "Singularity Flow: Constitution",
+        "category": "Singularity Flow"
+      },
+      {
         "command": "singularityFlow.openSkills",
         "title": "Singularity Flow: Skills",
         "icon": "$(sparkle)"

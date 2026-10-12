@@ -100,24 +100,30 @@ export function inspectQualifiedConformanceReport(markdown, clauseIds) {
   return findings;
 }
 
-/** Inspect only the immutable policy captured by this Story, never the current workspace default. */
+/**
+ * Inspect only the immutable policy captured by this Story, never the current workspace default.
+ *
+ * Qualified clause rows follow the pinned policy. Self-approval disclosure is checked for every
+ * conformance report, because the approval gate checks it for every one: a report authored under
+ * another row policy was published without the disclosure and refused only at approval.
+ */
 export async function inspectPhaseQualifiedConformance(root, config, workflow, phase) {
-  if (workflow.resolution?.spec?.conformanceRows !== 'qualified'
-      || phase?.requiredArtifact?.kind !== 'conformance-report') return [];
+  if (phase?.requiredArtifact?.kind !== 'conformance-report') return [];
+  const qualified = workflow.resolution?.spec?.conformanceRows === 'qualified';
   const itemDirectory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
-  const records = await loadActiveSpecRecords(itemDirectory, workflow);
-  const clauseIds = [...new Set(records.indexes.flatMap((index) =>
-    (index.clauses ?? []).map((clause) => clause.id)))];
   const relative = path.posix.join(
     config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id,
     phase.requiredArtifact.path
   );
   const safe = await secureRepositoryPath(root, relative, {
-    label: `Conformance report for phase '${phase.id}'`, mustExist: true, type: 'file'
+    label: `Conformance report for phase '${phase.id}'`, mustExist: qualified, type: 'file'
   });
+  if (!qualified && !safe.exists) return [];
   const markdown = await readFile(safe.absolute, 'utf8');
+  const clauseIds = qualified ? [...new Set((await loadActiveSpecRecords(itemDirectory, workflow)).indexes
+    .flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)))] : [];
   return [
-    ...inspectQualifiedConformanceReport(markdown, clauseIds),
+    ...(qualified ? inspectQualifiedConformanceReport(markdown, clauseIds) : []),
     ...inspectSelfApprovalDisclosures(markdown, workflow)
   ].map((finding) => ({
     ...finding, path: relative

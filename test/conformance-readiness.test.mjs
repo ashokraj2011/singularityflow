@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { inspectQualifiedConformanceReport, inspectSelfApprovalDisclosures } from '../src/conformance-readiness.mjs';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+
+import {
+  inspectPhaseQualifiedConformance, inspectQualifiedConformanceReport, inspectSelfApprovalDisclosures
+} from '../src/conformance-readiness.mjs';
 
 const clauseIds = [
   'STORY-1:REQ-001', 'STORY-1:BEH-001', 'STORY-1:IFC-001',
@@ -105,4 +111,24 @@ test('self-approval disclosure comes from retained decisions and ignores managed
   ]);
   const disclosed = managedOnly.replace('None.', 'planning was self-approved by reviewer-one.');
   assert.deepEqual(inspectSelfApprovalDisclosures(disclosed, workflow), []);
+});
+
+test('a conformance report owes its self-approval disclosure before publication, whatever its row policy', async (t) => {
+  // The approval gate refuses an undisclosed self-approval for every conformance report. The draft
+  // check asked only under the qualified-row policy, so a release under another policy was published
+  // and then refused at approval.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-conformance-disclosure-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const config = { workItemRoot: 'singularity/work-items' };
+  const phase = { id: 'release', requiredArtifact: { kind: 'conformance-report', path: 'artifacts/release/conformance.md' } };
+  const workflow = { workItem: { id: 'HEX-1' }, phaseOrder: ['planning', 'release'], resolution: { spec: { conformanceRows: 'legacy' } },
+    phases: { planning: { approvals: [{ selfApproval: true, actor: { login: 'ashokraj2011' } }] }, release: { approvals: [] } } };
+  const report = path.join(root, config.workItemRoot, 'HEX-1', phase.requiredArtifact.path);
+  assert.deepEqual(await inspectPhaseQualifiedConformance(root, config, workflow, phase), [], 'no report yet, nothing to inspect');
+  await mkdir(path.dirname(report), { recursive: true });
+  await writeFile(report, '# Conformance\n\n| Clause | Verdict |\n|---|---|\n| AC-001 | matched |\n');
+  assert.deepEqual((await inspectPhaseQualifiedConformance(root, config, workflow, phase)).map((finding) => finding.code),
+    ['conformance.self-approval-undisclosed']);
+  await writeFile(report, '# Conformance\n\n## Self-approval disclosures\n\n- `planning`: self-approved by ashokraj2011; not an independent review.\n');
+  assert.deepEqual(await inspectPhaseQualifiedConformance(root, config, workflow, phase), []);
 });

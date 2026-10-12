@@ -6,6 +6,7 @@ import { open } from 'node:fs/promises';
 import { canonicalJson } from './records.mjs';
 import { EXPLANATION_LIMITS } from './implementation-bindings.mjs';
 import { secureRepositoryPath } from './util.mjs';
+import { isConfigurationPath } from './configuration-paths.mjs';
 
 const MAX_PATHS = 256;
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -13,6 +14,7 @@ const MAX_BYTES = 2 * 1024 * 1024;
 const digest = (value) => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 
 async function repairTarget(root, relative, candidates) {
+  if (isConfigurationPath(relative)) return { path: relative, status: 'configuration-not-code', sha256: null };
   // A planned path is not automatically a permitted current-generation edit. The delivery
   // preflight supplies candidates only after its protected-path, source-boundary and scope checks.
   if (!candidates.has(relative)) return { path: relative, status: 'not-in-candidate', sha256: null };
@@ -66,17 +68,18 @@ export async function traceabilityRepairProjection(root, input, { workId, phase,
   const actions = input.actions.map((action) => {
     const paths = [...new Set(action.expectedPaths)].sort().map((name) => targets.get(name));
     const eligible = action.approved && paths.some((target) => target.status === 'available');
+    const configurationOnly = paths.length > 0 && paths.every(target => target.status === 'configuration-not-code');
     const disposition = !action.approved || !paths.length ? 'clarify-mapping'
       : eligible ? 'verify-existing-behavior' : 'repair-implementation-or-test';
     return Object.freeze({
       kind: action.kind, clauseId: action.clauseId, line: action.line ?? null,
-      tag: `${action.kind.startsWith('acceptance-') ? '@ac' : '@clause'}:${action.clauseId}`,
-      placement: action.kind.startsWith('acceptance-') ? 'directly-before-executable-test'
+      tag: configurationOnly ? null : `${action.kind.startsWith('acceptance-') ? '@ac' : '@clause'}:${action.clauseId}`,
+      placement: configurationOnly ? 'configuration-obligation' : action.kind.startsWith('acceptance-') ? 'directly-before-executable-test'
         : action.kind === 'clause-explanation' ? 'existing-tag-line' : 'source-hunk',
       ...(action.kind.startsWith('acceptance-') ? {} : { explanationLimits: EXPLANATION_LIMITS }),
       ...(action.regions?.length ? { regions: action.regions.filter((region) =>
         paths.some((target) => target.path === region.path && target.status === 'available')) } : {}),
-      paths, disposition, requiresSemanticVerification: true,
+      paths, disposition: configurationOnly ? 'correct-configuration-mapping' : disposition, requiresSemanticVerification: true,
       sameTurn: sameTurn && eligible,
       fingerprint: digest({ workId, phase: phase.id, intent: phase.generationIntent?.id ?? null,
         plan: input.plan, kind: action.kind, clauseId: action.clauseId, line: action.line ?? null, paths })
@@ -86,7 +89,7 @@ export async function traceabilityRepairProjection(root, input, { workId, phase,
     status: sameTurn ? 'producer-repair' : 'owner-review', sameTurn,
     plan: input.plan, actions: Object.freeze(actions),
     fingerprint: digest(actions.map((action) => action.fingerprint)),
-    guidance: 'Use the existing producer repair loop. Read each approved clause and its exact planned paths; annotate only behavior already verified there. Place @ac directly above the executable test, and explain how the change meets @clause in 10 to 300 characters. If behavior or tests are missing, implement them; if the mapping remains ambiguous, ask for clarification. Recheck, then run the configured affected tests before publication. Tags alone prove neither correctness nor a test run.'
+    guidance: 'Use the existing producer repair loop. Read each approved clause and its exact planned paths; annotate only behavior already verified there. Configuration is not code or an executable test: correct its typed plan mapping, never insert tags into it. Place @ac directly above the executable test, and explain how the change meets @clause in 10 to 300 characters. If behavior or tests are missing, implement them; if the mapping remains ambiguous, ask for clarification. Recheck, then run the configured affected tests before publication. Tags alone prove neither correctness nor a test run.'
   });
 }
 

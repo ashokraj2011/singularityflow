@@ -72,7 +72,7 @@ test('each fulfillment type is observed by its own evidence, and none needs new 
   assert.deepEqual(coverage.invalidEvidence ?? [], [], 'test-only and removal evidence are valid');
 });
 
-test('a real Story delivers source, test-only, removal, document and reviewed screenshot evidence in one code step', async (t) => {
+test('a real Story delivers source, configuration, test-only, removal, document and reviewed screenshot evidence in one code step', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-fulfillment-'));
   const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
@@ -95,6 +95,7 @@ test('a real Story delivers source, test-only, removal, document and reviewed sc
   await write('test/guard.test.mjs', testFile(ac(2), ["import { guard } from '../src/guard.mjs';", "test('guard refuses null', () => assert.equal(guard(null), false));"]));
   await write('src/legacy.mjs', 'export const legacy = true;\n');
   await write('docs/usage.md', '# Usage\n\nCall value().\n');
+  await write('config/app.json', '{"mode":"baseline"}\n');
   cli('init');
   const configPath = path.join(root, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
@@ -124,6 +125,7 @@ test('a real Story delivers source, test-only, removal, document and reviewed sc
     `| [${ac(3)}] | A regression test pins the value. |`,
     `| [${ac(4)}] | The legacy flag module no longer exists. |`,
     `| [${ac(5)}] | The usage document explains value(). |`,
+    `| [${ac(7)}] | Runtime mode is governed. |`,
     `| [${TEST_REQ}] | Deliver the regression test for the approved value. |`,
     `| [${SCREEN_REQ}] | Retain the reviewed desktop image. |`,
     `| [${ac(6)}] | The retained desktop image shows the approved outcome. |`, '',
@@ -134,16 +136,18 @@ test('a real Story delivers source, test-only, removal, document and reviewed sc
     `| \`${ac(3)}\` | - | \`test/regression.test.mjs\` | test-only | The regression test passes. |`,
     `| \`${ac(4)}\` | \`src/legacy.mjs\` | \`test/legacy.test.mjs\` | removed | Importing the legacy module fails. |`,
     `| \`${ac(5)}\` | \`docs/usage.md\` | \`test/usage.test.mjs\` | document | The usage page names value(). |`,
+    `| \`${ac(7)}\` | \`config/app.json\` | \`test/config.test.mjs\` | configuration | The runtime mode equals governed. |`,
     `| \`${TEST_REQ}\` | - | \`test/regression.test.mjs\` | test-only | The value regression test is delivered. |`,
     `| \`${SCREEN_REQ}\` | \`${SCREEN}\` | not-applicable: The screenshot is reviewed visually, not executed as a test. | evidence | The captured file is retained. |`,
     `| \`${ac(6)}\` | \`src/value.mjs\` | not-applicable: An authorized reviewer inspects the captured outcome. | modified | The screenshot shows the approved outcome. |`, '',
     '## Visual verification', `Primary visual verification contract for \`${ac(6)}\`. Retain \`${SCREEN}\`.`, '',
+    '## Supporting files', '', '- `vite.config.mjs` — records the reviewed build settings.', '',
     '## Initial evidence', '', 'The baseline modules, tests and usage document at the pinned main revision.', ''
   ].join('\n');
   // A producer reviews an exact suggestion while intake is still an unpublished draft. The
   // resulting approved contract must work all the way through code/tests/visual review, without
   // a late classification appeal or any silent reinterpretation of the approved plan.
-  const repair = planningEvidenceRepair(intakeDraft, { clauseIds: [1, 2, 3, 4, 5, 6].map(ac).concat(TEST_REQ, SCREEN_REQ),
+  const repair = planningEvidenceRepair(intakeDraft, { clauseIds: [1, 2, 3, 4, 5, 6, 7].map(ac).concat(TEST_REQ, SCREEN_REQ),
     evidenceRoot: `singularity/work-items/${W}/evidence` });
   assert.equal(repair.status, 'producer-repair', repair.reason);
   let correctedIntake = intakeDraft;
@@ -164,6 +168,10 @@ test('a real Story delivers source, test-only, removal, document and reviewed sc
   await write('test/legacy.test.mjs', testFile(ac(4), ["import { existsSync } from 'node:fs';",
     "test('legacy module is gone', () => assert.equal(existsSync(new URL('../src/legacy.mjs', import.meta.url)), false));"]));
   await write('docs/usage.md', '# Usage\n\nCall value() to read the approved value.\n');
+  await write('config/app.json', '{"mode":"governed"}\n');
+  await write('vite.config.mjs', 'export function configureBuild() { return {}; }\n');
+  await write('test/config.test.mjs', testFile(ac(7), ["import { readFileSync } from 'node:fs';",
+    "test('runtime settings', () => assert.equal(JSON.parse(readFileSync(new URL('../config/app.json', import.meta.url), 'utf8')).mode, 'governed'));"]));
   await write('test/usage.test.mjs', testFile(ac(5), ["import { readFileSync } from 'node:fs';",
     "test('usage names value()', () => assert.match(readFileSync(new URL('../docs/usage.md', import.meta.url), 'utf8'), /value\\(\\)/));"]));
   const codeArtifact = path.join(item, 'artifacts/implementation/implementation-summary.md');
@@ -202,7 +210,7 @@ test('a real Story delivers source, test-only, removal, document and reviewed sc
   const receipt = JSON.parse(await readFile(path.join(root, workflowState.phases.implementation.deliveryEvidence.receiptPath), 'utf8'));
   assert.deepEqual(receipt.fulfillment.obligations.map((entry) => [entry.clauseId, entry.fulfillment, entry.paths.map((item) => item.state)]), [
     [ac(2), 'existing', ['present']], [ac(4), 'removed', ['absent']], [ac(5), 'document', ['changed']],
-    [ac(6), 'evidence', ['present']], [SCREEN_REQ, 'evidence', ['present']]
+    [ac(6), 'evidence', ['present']], [ac(7), 'configuration', ['changed']], [SCREEN_REQ, 'evidence', ['present']]
   ]);
   assert.equal(observed.claims[SCREEN_REQ].verdict, 'matched');
   assert.deepEqual(observed.claims[SCREEN_REQ].observedPaths, [SCREEN]);
@@ -212,6 +220,12 @@ test('a real Story delivers source, test-only, removal, document and reviewed sc
     'receipt replay accepted a screenshot with the wrong committed hash');
   assert.deepEqual(receipt.traceability.sourceRequired.map((entry) => entry.clauseId), [ac(1)],
     'only the modified obligation carries its clause in source');
+  assert.deepEqual(receipt.changeSet.configurationPaths, ['config/app.json', 'vite.config.mjs']);
+  assert.equal(receipt.changeSet.sourcePaths.includes('config/app.json'), false);
+  assert.equal(receipt.changeSet.sourcePaths.includes('vite.config.mjs'), false);
+  assert.equal(observed.claims[ac(7)].verdict, 'matched');
+  assert.deepEqual(observed.claims[ac(7)].observedPaths, ['config/app.json']);
+  assert.equal((await verifyCodeDeliveryReceipt(root, receipt)).valid, true, 'configuration is retained and has passing test coverage');
   // The modified obligation is bound to its exact hunk, the declaration it touches and its explanation.
   const [binding] = receipt.implementationBindings.bindings;
   assert.equal(binding.clauseId, ac(1));
@@ -224,7 +238,7 @@ test('a real Story delivers source, test-only, removal, document and reviewed sc
   const matrix = JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix;
   const implement = Object.fromEntries(matrix.page.rows.map((row) => [row.id,
     row.obligations.find((entry) => entry.responsibility === 'implement')]));
-  for (const number of [1, 2, 3, 4, 5]) assert.equal(implement[ac(number)].status, 'met', `${ac(number)} is implemented`);
+  for (const number of [1, 2, 3, 4, 5, 7]) assert.equal(implement[ac(number)].status, 'met', `${ac(number)} is implemented`);
   assert.equal(implement[TEST_REQ].status, 'met');
   assert.equal(implement[SCREEN_REQ].status, 'met');
   assert.equal(implement[ac(6)].fulfillment, 'evidence');

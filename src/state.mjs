@@ -81,7 +81,7 @@ import { assertPhaseAgentMayMutate } from './phase-actor-policy.mjs';
 import { assertPhaseGovernanceMayAdvance } from './phase-governance-routing.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import {
-  assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
+  affectedDeliveryPaths, assertReviewCodeEvidenceFresh, evaluateCodeDeliveryPreflight, phaseRequiresCodeDelivery, resolveDeliveryQualityCommands,
   reviewRepairTarget,
   verifyCodeDeliveryReceipt
 } from './delivery-evidence.mjs';
@@ -3861,6 +3861,7 @@ export async function publishGeneration(root, config, workflow, {
         digest: deliveryPreflight.changeSet.digest,
         sourcePaths: deliveryPreflight.sourcePaths,
         deletedSourcePaths: deliveryPreflight.deletedSourcePaths,
+        configurationPaths: deliveryPreflight.configurationPaths,
         executableTestPaths: deliveryPreflight.testPaths,
         supportingTestPaths: deliveryPreflight.supportingTestPaths
       },
@@ -4865,7 +4866,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     selection: trpSelection?.selection });
   if (retainedRisk) {
     if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
-      const paths = phase.sourceBoundary === 'test-automation' ? deliveryEvidence.testPaths : deliveryEvidence.sourcePaths;
+      const paths = affectedDeliveryPaths(deliveryEvidence, phase.sourceBoundary);
       const uncovered = paths.filter(candidate => !commands.some(command => command.affectedRoots.some(affectedRoot =>
         affectedRoot === '.' || candidate === affectedRoot || candidate.startsWith(`${affectedRoot.replace(/\/$/, '')}/`))));
       if (uncovered.length) throw new SingularityFlowError(`No approved test command covers affected paths: ${uncovered.join(', ')}`, { code: 'TEST_MODULE_UNCOVERED' });
@@ -4906,7 +4907,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
             const accepted = await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
               operation: 'publish', generation: observation.subject.generation, observationSha256: observation.recordSha256 });
             if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
-              const paths = phase.sourceBoundary === 'test-automation' ? deliveryEvidence.testPaths : deliveryEvidence.sourcePaths;
+              const paths = affectedDeliveryPaths(deliveryEvidence, phase.sourceBoundary);
               const uncovered = paths.filter(candidate => !commands.some(item => item.affectedRoots.some(affectedRoot =>
                 affectedRoot === '.' || candidate === affectedRoot || candidate.startsWith(`${affectedRoot.replace(/\/$/, '')}/`))));
               if (uncovered.length) throw new SingularityFlowError(`No approved test command covers affected paths: ${uncovered.join(', ')}`, { code: 'TEST_MODULE_UNCOVERED' });
@@ -4952,8 +4953,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
     });
   }
   if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
-    const paths = phase.sourceBoundary === 'test-automation'
-      ? deliveryEvidence.testPaths : deliveryEvidence.sourcePaths;
+    const paths = affectedDeliveryPaths(deliveryEvidence, phase.sourceBoundary);
     const uncovered = paths.filter((candidate) => !passing.some((command) =>
       command.affectedRoots.some((root) => root === '.' || candidate === root
         || candidate.startsWith(`${root.replace(/\/$/, '')}/`))));
@@ -5347,9 +5347,7 @@ async function submitPhaseTransition(root, config, workflow, {
       });
     }
     if (workflow.resolution?.codeDelivery?.tests?.requireAffectedModuleCoverage !== false) {
-      const pathsRequiringCoverage = phase.sourceBoundary === 'test-automation'
-        ? phase.deliveryEvidence.testPaths
-        : phase.deliveryEvidence.sourcePaths;
+      const pathsRequiringCoverage = affectedDeliveryPaths(phase.deliveryEvidence, phase.sourceBoundary);
       const uncovered = pathsRequiringCoverage.filter((candidate) => !testExecutions.some((execution) =>
         execution.affectedRoots.some((affectedRoot) => affectedRoot === '.'
           || candidate === affectedRoot || candidate.startsWith(`${affectedRoot.replace(/\/$/, '')}/`))));

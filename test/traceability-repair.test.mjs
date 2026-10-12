@@ -86,6 +86,28 @@ test('unapproved, unallocated or missing paths cannot receive routine tag repair
   assert.equal(repair.actions[3].paths[0].status, 'missing');
 });
 
+test('a stale code or test mapping never proposes inserting tags into configuration', async t => {
+  const item = await fixture(t);
+  await writeFile(path.join(item.root, 'package.json'), '{"type":"module"}\n');
+  item.input.sourcePaths.push('package.json');
+  item.input.testPaths.push('playwright.config.ts');
+  item.input.actions = [
+    { kind: 'source-tag', clauseId: 'TAG-1:REQ-001', approved: true, expectedPaths: ['package.json'] },
+    { kind: 'acceptance-tag', clauseId: 'TAG-1:AC-001', approved: true, expectedPaths: ['playwright.config.ts'] }
+  ];
+  const before = await readFile(path.join(item.root, 'package.json'));
+  const repair = await item.project();
+  for (const action of repair.actions) {
+    assert.equal(action.tag, null);
+    assert.equal(action.placement, 'configuration-obligation');
+    assert.equal(action.disposition, 'correct-configuration-mapping');
+    assert.equal(action.sameTurn, false);
+    assert.equal(action.paths[0].status, 'configuration-not-code');
+  }
+  assert.match(repair.guidance, /never insert tags/u);
+  assert.deepEqual(await readFile(path.join(item.root, 'package.json')), before);
+});
+
 test('unowned or consumed-generation targets do not authorize same-turn annotations', async (t) => {
   const item = await fixture(t);
   item.options.sameTurn = false;

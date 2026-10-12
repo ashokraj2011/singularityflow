@@ -146,6 +146,37 @@ test('new planning tables reject role collisions before any code generation', ()
   assert.equal(testOnly.claims['APP:REQ-001'].fulfillment, 'test-only');
 });
 
+test('configuration obligations never owe source tags, and approved legacy paths remain exact', () => {
+  const id = 'APP:REQ-001';
+  const original = { claims: { [id]: { expectedPaths: ['src/app.mjs', 'package.json', 'config/app.json'],
+    tests: ['test/app.test.mjs'], fulfillment: 'modified' } } };
+  const before = structuredClone(original);
+  assert.deepEqual(plannedProductSourcePaths(original.claims[id]), ['src/app.mjs']);
+  const delivery = { sourcePaths: ['src/app.mjs'], configurationPaths: ['package.json', 'config/app.json'],
+    testPaths: ['test/app.test.mjs'], traceability: { sourceBindings: [{ clauseId: id, sourcePath: 'src/app.mjs' }] } };
+  const current = deriveObservedClaimMap(original, delivery, { requireSourceBindings: true });
+  assert.equal(current.claims[id].verdict, 'matched');
+  assert.deepEqual(current.claims[id].observedPaths, ['config/app.json', 'package.json', 'src/app.mjs']);
+  assert.equal(mergeObservedClaimRecords([current], original.claims)[id].verdict, 'matched');
+  const legacyReceipt = { ...delivery, sourcePaths: [...delivery.sourcePaths, ...delivery.configurationPaths], configurationPaths: [] };
+  assert.deepEqual(deriveObservedClaimMap(original, legacyReceipt, { requireSourceBindings: true }).claims, current.claims);
+  const missingConfig = deriveObservedClaimMap(original, { ...delivery, configurationPaths: ['package.json'] }, { requireSourceBindings: true });
+  assert.equal(missingConfig.claims[id].verdict, 'partial', 'classification is not a waiver for missing config');
+  const noSource = deriveObservedClaimMap(original, { ...delivery, sourcePaths: [] }, { requireSourceBindings: true });
+  assert.equal(noSource.claims[id].verdict, 'partial', 'config cannot stand in for application source');
+  assert.deepEqual(original, before, 'reviewed maps are never rewritten');
+
+  const table = fulfillment => '| Clause | Expected paths | Planned tests | Fulfillment | Observable result |\n'
+    + '|---|---|---|---|---|\n'
+    + `| ${id} | \`config/app.json\` | \`test/app.test.mjs\` | ${fulfillment} | Settings are validated |\n`;
+  assert.throws(() => derivePlannedClaimMap(table('modified'), { clauseIds: [id] }),
+    error => error.code === 'SPEC_PLANNED_PATH_ROLE_INVALID' && error.details.expectedRole === 'configuration');
+  const configured = derivePlannedClaimMap(table('configuration'), { clauseIds: [id] });
+  assert.equal(configured.claimMap.claims[id].fulfillment, 'configuration');
+  assert.throws(() => derivePlannedClaimMap(table('configuration').replace('test/app.test.mjs', 'vitest.config.ts'), { clauseIds: [id] }),
+    error => error.code === 'SPEC_PLANNED_PATH_ROLE_INVALID' && error.details.correction === 'separate-configuration-from-tests');
+});
+
 test('a later phase cannot redefine a clause an earlier phase defined', () => {
   const earlier = extractClauses('[W-1:REQ-001] Export CSV.\n', { sourcePath: 'requirements.md' });
   assert.throws(

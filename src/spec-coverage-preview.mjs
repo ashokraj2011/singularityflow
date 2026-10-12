@@ -14,6 +14,7 @@ import {
   deriveObservedClaimMap, evaluateSpecCoverage, loadBoundActiveSpecRecords, mergePlannedClaimRecords,
   normalizeSpecPolicy, plannedSupportingFiles, plannedProductSourcePaths
 } from './specifications.mjs';
+import { isConfigurationPath } from './configuration-paths.mjs';
 import { workDir } from './state-stores.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 
@@ -56,17 +57,22 @@ export async function assertStrictCandidateSpecificationCoverage(root, config, w
     const claim = observed.claims[clauseId];
     const expected = plan && (!plan.fulfillment || ['new', 'modified'].includes(plan.fulfillment))
       ? plannedProductSourcePaths(plan) : plan?.expectedPaths ?? [];
-    const missingSourcePaths = expected.filter(candidate => !(claim?.observedPaths ?? []).includes(candidate));
+    const missingSourcePaths = expected.filter(candidate => !isConfigurationPath(candidate)
+      && !(claim?.observedPaths ?? []).includes(candidate));
+    const missingConfigurationPaths = (plan?.expectedPaths ?? []).filter(candidate =>
+      isConfigurationPath(candidate) && !(claim?.observedPaths ?? []).includes(candidate));
     const sourcePaths = new Set([...(delivery.sourcePaths ?? []), ...(delivery.deletedSourcePaths ?? [])]);
     return { clauseId, verdict: claim?.verdict ?? 'missing',
       missingSourcePaths: missingSourcePaths.filter(candidate => !sourcePaths.has(candidate)),
       missingSourceBindings: missingSourcePaths.filter(candidate => sourcePaths.has(candidate)),
-      missingTestPaths: (plan?.tests ?? []).filter(candidate => !(claim?.testResults ?? []).includes(candidate)) };
+      missingTestPaths: (plan?.tests ?? []).filter(candidate => !(claim?.testResults ?? []).includes(candidate)),
+      missingConfigurationPaths };
   });
   const gapText = claimGaps.map(gap => `${gap.clauseId} (${[
     ...(gap.missingSourcePaths.length ? [`source paths: ${gap.missingSourcePaths.join(', ')}`] : []),
     ...(gap.missingSourceBindings.length ? [`source bindings: ${gap.missingSourceBindings.join(', ')}`] : []),
-    ...(gap.missingTestPaths.length ? [`test paths/bindings: ${gap.missingTestPaths.join(', ')}`] : [])
+    ...(gap.missingTestPaths.length ? [`test paths/bindings: ${gap.missingTestPaths.join(', ')}`] : []),
+    ...(gap.missingConfigurationPaths.length ? [`configuration paths: ${gap.missingConfigurationPaths.join(', ')}`] : [])
   ].join('; ') || gap.verdict})`).join('; ');
   if (open.length || (final && coverage.invalidEvidence.length)) throw new SingularityFlowError(
     `Phase '${phase.id}' has incomplete planned delivery before publication: ${gapText || coverage.invalidEvidence.join('; ')}. `

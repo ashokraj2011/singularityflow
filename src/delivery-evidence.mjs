@@ -21,6 +21,7 @@ import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs
 import { committedFilesAtRevisions, exactChangedPathsBetweenObjects, exactFileAtObject, isAncestor } from './git.mjs';
 import { canonicalJson } from './records.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
+import { configurationPathKind, isConfigurationPath } from './configuration-paths.mjs';
 import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import {
@@ -46,6 +47,14 @@ import {
 
 export { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 export { inferRepositoryTestCommands };
+
+/** Configuration is a tested candidate input, even though it is never product source. */
+export function affectedDeliveryPaths(delivery = {}, sourceBoundary = 'unrestricted') {
+  return [...new Set([
+    ...(sourceBoundary === 'test-automation' ? delivery.testPaths ?? [] : delivery.sourcePaths ?? []),
+    ...(delivery.configurationPaths ?? [])
+  ])].sort();
+}
 
 function pinnedTestEvidenceSource(workflow, phase) {
   return workflow.resolution?.phases?.find((entry) => entry.id === phase?.id)?.testEvidenceFrom ?? null;
@@ -275,15 +284,14 @@ export function classifyDeliveryChanges(changeSet, {
     const compilerOutput = /(?:^|\/)(?:target|build|dist|out)(?:\/(?:classes|generated|resources))?(?:\/|$)/i.test(candidate ?? '');
     const migration = /(?:^|\/)(?:migrations?|db\/migrate)(?:\/|$)/i.test(candidate ?? '');
     const test = isAllowedTestAutomationPath(candidate ?? '');
-    const tooling = /(?:^|\/)(?:pom\.xml|build\.gradle(?:\.kts)?|package\.json|pyproject\.toml|go\.mod|Cargo\.toml)$/i.test(candidate ?? '');
+    const configuration = configurationPathKind(candidate);
     const documentation = isDocumentationPath(candidate);
     const generated = configuredGenerated || isGeneratedOutputPath(candidate ?? '');
-    const role = configuredGenerated ? 'generated-source'
+    const role = configuration ? configuration : configuredGenerated ? 'generated-source'
       : testOutput ? 'test-output'
         : compilerOutput ? 'compiler-output'
           : migration ? 'migration'
             : test ? 'test-source'
-              : tooling ? 'build-configuration'
                 : documentation ? 'documentation'
                   : generated ? 'generated-output' : 'product-source';
     const likelyOrigin = configuredGenerated ? 'code-generator'
@@ -707,7 +715,7 @@ function allocatedTo(claim, phaseId) {
 /** Whether delivering a planned obligation changes the product source that carries its clause. */
 function changesProductSource(claim) {
   return (claim.fulfillment == null || SOURCE_CHANGING_FULFILLMENT.includes(claim.fulfillment))
-    && (claim.expectedPaths ?? []).length > 0;
+    && plannedProductSourcePaths(claim).length > 0;
 }
 
 /**
@@ -803,7 +811,7 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
     })
     .sort((left, right) => left.clauseId.localeCompare(right.clauseId));
   const candidates = [...new Set(sourcePaths)]
-    .filter((candidate) => !isAllowedTestAutomationPath(candidate))
+    .filter((candidate) => !isAllowedTestAutomationPath(candidate) && !isConfigurationPath(candidate))
     .sort();
   const tagsByPath = new Map();
   for (const relative of candidates) {
@@ -836,7 +844,7 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
   const named = [...tagsByPath].flatMap(([sourcePath, tags]) => tags.map((tag) => ({ ...tag, path: sourcePath })));
   let carried = null;
   const carriedNow = () => (carried ??= carriedTags(root, changeSet, named, 'clause', (candidate) =>
-    !isAllowedTestAutomationPath(candidate) && !isDocumentationPath(candidate)));
+    !isAllowedTestAutomationPath(candidate) && !isDocumentationPath(candidate) && !isConfigurationPath(candidate)));
   const unapproved = named.filter((tag) => !approved.has(tag.clauseId) && storyOwnsTag(criteria, tag.clauseId, carriedNow))
     .map((tag) => ({ code: 'EVIDENCE_CLAUSE_UNAPPROVED', clauseId: tag.clauseId, sourcePath: tag.path, line: tag.line,
       message: `@clause:${tag.clauseId} at ${tag.path}:${tag.line} names a clause this Story has not approved.` }));
@@ -856,7 +864,7 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
   const own = shared.length ? await storyAddedTagLines(root, workflow, shared.map((binding) => ({
     path: binding.sourcePath, line: binding.line
   })), 'clause', (candidate) => isApplicationPath(candidate, pathContext)
-    && !isAllowedTestAutomationPath(candidate) && !isDocumentationPath(candidate)) : null;
+    && !isAllowedTestAutomationPath(candidate) && !isDocumentationPath(candidate) && !isConfigurationPath(candidate)) : null;
   const othersTags = own ? shared.filter((binding) => !own.has(tagKey(binding.sourcePath, binding.line))) : [];
   const bindings = tagged.filter((binding) => !othersTags.includes(binding));
   const deleted = new Set(deletedSourcePaths);
@@ -906,7 +914,7 @@ async function pathEvidence(root, paths, { changeSet = null } = {}) {
       : false;
     records.push({
       path: relative,
-      kind: isAllowedTestAutomationPath(relative) ? 'test'
+      kind: isConfigurationPath(relative) ? 'configuration' : isAllowedTestAutomationPath(relative) ? 'test'
         : isDocumentationPath(relative) ? 'documentation' : 'source',
       fileKind: gitlink ? 'gitlink' : !info ? 'missing' : info.isSymbolicLink() ? 'symlink' : info.isFile() ? 'regular-file' : 'non-regular',
       exists: gitlink || current.exists,
@@ -1165,13 +1173,15 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     }
   }
   const testPaths = [...new Set([...changedTestPaths, ...reusableTestPaths, ...baselineTestPaths, ...existingTestPaths])].sort();
-  const deletedSourcePaths = applicationEntries
-    .filter((entry) => entry.oldPath && entry.oldPath !== entry.newPath
-      && !isAllowedTestAutomationPath(entry.oldPath) && !isDocumentationPath(entry.oldPath))
+  const deletedPaths = applicationEntries
+    .filter((entry) => entry.oldPath && entry.oldPath !== entry.newPath)
     .map((entry) => entry.oldPath);
+  const deletedSourcePaths = deletedPaths.filter(candidate =>
+    !isAllowedTestAutomationPath(candidate) && !isDocumentationPath(candidate) && !isConfigurationPath(candidate));
+  const configurationPaths = [...new Set([...changedPaths, ...deletedPaths].filter(isConfigurationPath))].sort();
   const changedSourcePaths = [...new Set([
     ...changedPaths.filter((candidate) => !isAllowedTestAutomationPath(candidate)
-      && !isDocumentationPath(candidate)),
+      && !isDocumentationPath(candidate) && !isConfigurationPath(candidate)),
     ...deletedSourcePaths
   ])].sort();
   // A reviewer-returned Testing defect can change only executable tests or their supporting
@@ -1200,7 +1210,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       .filter(Boolean).every(isAllowedTestAutomationPath));
   const reusableSourceCandidates = intentRevalidation || testOnlyRepair || documentationOnlyCorrection
     ? (phase.deliveryEvidence?.sourcePaths ?? []).filter((candidate) =>
-      !changedEndpointPaths.has(candidate) && !isDocumentationPath(candidate))
+      !changedEndpointPaths.has(candidate) && !isDocumentationPath(candidate) && !isConfigurationPath(candidate))
     : [];
   const reusableSourcePaths = await validatedReusablePaths(
     root, reusableSourceCandidates, phase.deliveryEvidence?.paths, { role: 'source' }
@@ -1209,7 +1219,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const errors = [];
   // What this step owes comes from its allocated obligations [E2G-010]: existing behaviour changes
   // nothing, and test-only, document, configuration and removal work need no new product source.
-  const fulfillment = await fulfillmentEvidence(root, obligations, changedPaths, deletedSourcePaths);
+  const fulfillment = await fulfillmentEvidence(root, obligations, changedPaths, deletedPaths);
   const changeRequired = !obligations || obligations.some((obligation) => !['existing', 'evidence'].includes(obligation.fulfillment));
   const sourceRequired = !obligations || obligations.some(changesProductSource);
 
@@ -1217,7 +1227,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     errors.push('no application source or test paths changed during the governed work interval');
   }
   if (phase.sourceBoundary !== 'test-automation' && !sourcePaths.length && sourceRequired) {
-    errors.push('no product source path changed; a summary or test-only edit is not an implementation');
+    errors.push('no product source path changed; a summary, configuration or test-only edit is not an implementation');
   }
   errors.push(...fulfillment.problems);
   if (!testPaths.length) errors.push('no acceptance test is available for the implementation');
@@ -1341,9 +1351,10 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
       pathContext
     }),
     paths: await pathEvidence(root, [...new Set([
-      ...changedPaths, ...deletedSourcePaths, ...reusableSourcePaths, ...reusableTestPaths, ...baselineTestPaths, ...existingTestPaths
+      ...changedPaths, ...deletedPaths, ...reusableSourcePaths, ...reusableTestPaths, ...baselineTestPaths, ...existingTestPaths
     ])].sort(), { changeSet }),
     sourcePaths,
+    configurationPaths,
     deletedSourcePaths: [...new Set(deletedSourcePaths)].sort(),
     testPaths,
     supportingTestPaths,
@@ -1456,6 +1467,7 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
   }
   const deliveryPaths = [...new Set([
     ...(phase.deliveryEvidence?.sourcePaths ?? []),
+    ...(phase.deliveryEvidence?.configurationPaths ?? []),
     ...(phase.deliveryEvidence?.testPaths ?? [])
   ])];
   const modules = new Map();
@@ -1884,9 +1896,9 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     }
   }
   if (requireAffectedModuleCoverage) {
-    for (const sourcePath of receipt.changeSet?.sourcePaths ?? []) {
+    for (const sourcePath of affectedDeliveryPaths(receipt.changeSet)) {
       if (![...executions.values()].some((execution) => pathCoveredByRoots(sourcePath, execution.affectedRoots))) {
-        fail(`affected source path ${sourcePath} has no passing module test receipt`);
+        fail(`affected ${isConfigurationPath(sourcePath) ? 'configuration' : 'source'} path ${sourcePath} has no passing module test receipt`);
       }
     }
   }

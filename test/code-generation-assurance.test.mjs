@@ -12,7 +12,7 @@ import {
 } from '../src/code-delivery-tests.mjs';
 import { generationSkillForPhase, normalizeCodeDeliveryPolicy } from '../src/code-delivery-policy.mjs';
 import { normalizeExternalCommand } from '../src/external-command-policy.mjs';
-import { evaluateCodeDeliveryPreflight, taggedAcceptanceIds, verifyCodeDeliveryReceipt } from '../src/delivery-evidence.mjs';
+import { affectedDeliveryPaths, evaluateCodeDeliveryPreflight, taggedAcceptanceIds, verifyCodeDeliveryReceipt } from '../src/delivery-evidence.mjs';
 import { scanJavaScriptDeclarations } from '../src/verification/javascript-declarations.mjs';
 import { beginCodeGeneration, verifyOpenGenerationIntent } from '../src/generation-boundary.mjs';
 import {
@@ -94,6 +94,41 @@ test('a pure product-source deletion remains first-class code delivery evidence'
   assert.deepEqual(evidence.deletedSourcePaths, ['src/payment.js']);
   assert.ok(evidence.sourcePaths.includes('src/payment.js'));
   assert.equal(evidence.paths.find((entry) => entry.path === 'src/payment.js').fileKind, 'missing');
+});
+
+test('configuration remains tested and hashed separately, and cannot satisfy product-source delivery', async t => {
+  const root = await repository('configuration-separation');
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const original = await readFile(path.join(root, 'src/payment.js'));
+  const phase = { id: 'custom-repair', generation: 0, status: 'in_progress', writeScope: 'source-and-artifact',
+    sourceBoundary: 'unrestricted', generationPolicy: { task: 'code' }, requiredArtifact: { kind: 'implementation-summary' } };
+  const workflow = { workItem: { id: 'CGA-CONFIG', branch: 'CGA-CONFIG' }, currentPhase: phase.id,
+    phaseOrder: [phase.id], phases: { [phase.id]: phase }, history: [], resolution: {
+      templates: {}, capability: { policy: { protectedPaths: [] } }, codeDelivery: normalizeCodeDeliveryPolicy() } };
+  const config = { workItemRoot: 'singularity/work-items', governance: { requireAcceptanceCriteriaTags: false } };
+  const itemDirectory = path.join(root, config.workItemRoot, workflow.workItem.id);
+  await mkdir(itemDirectory, { recursive: true });
+  await ensureWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id, itemDirectory,
+    itemRelative: path.relative(root, itemDirectory).replaceAll(path.sep, '/') });
+  await mkdir(path.join(root, 'tests'), { recursive: true });
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }));
+  await writeFile(path.join(root, 'vite.config.js'), 'export function configure() { return {}; }\n');
+  await writeFile(path.join(root, 'tests/payment.test.js'), 'import test from "node:test";\ntest("payment", () => {});\n');
+  await writeFile(path.join(root, 'src/payment.js'), 'export const payment = false;\n');
+  const delivery = await evaluateCodeDeliveryPreflight(root, config, workflow, phase);
+  assert.deepEqual(delivery.sourcePaths, ['src/payment.js']);
+  assert.deepEqual(delivery.configurationPaths, ['package.json', 'vite.config.js']);
+  assert.deepEqual(delivery.testPaths, ['tests/payment.test.js']);
+  assert.deepEqual(affectedDeliveryPaths(delivery), ['package.json', 'src/payment.js', 'vite.config.js']);
+  for (const candidate of delivery.configurationPaths) {
+    const record = delivery.paths.find(entry => entry.path === candidate);
+    assert.equal(record.kind, 'configuration');
+    assert.match(record.sha256, /^[a-f0-9]{64}$/u);
+    assert.equal(delivery.changeSet.entries.some(entry => entry.newPath === candidate), true);
+  }
+  await writeFile(path.join(root, 'src/payment.js'), original);
+  await assert.rejects(() => evaluateCodeDeliveryPreflight(root, config, workflow, phase), error =>
+    error.code === 'CODE_DELIVERY_EVIDENCE_REQUIRED' && /no product source path changed/u.test(error.message));
 });
 
 test('a confirmed Testing return permits exact prior product source with a new unit test, but not an unbound test-only edit', async (t) => {

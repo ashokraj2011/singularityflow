@@ -16,6 +16,7 @@ import { phaseRequiresCodeDelivery } from './delivery-evidence.mjs';
 import { isTestSourceName } from './code-delivery-tests.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
+import { isConfigurationPath } from './configuration-paths.mjs';
 import { posix } from './util.mjs';
 
 export const CODE_DOCUMENTATION_LIMITS = Object.freeze({
@@ -44,6 +45,7 @@ function summary(status, values = {}) {
 function productSource(relative, itemRoot) {
   return !relative.startsWith('singularity/') && !relative.startsWith(`${itemRoot}/`)
     && !relative.startsWith('.github/') && !isTestAutomationPath(relative) && !isTestSourceName(relative)
+    && !isConfigurationPath(relative)
     && !MIGRATION_OR_DOUBLE.test(relative) && !GENERATED_OR_VENDORED.test(relative);
 }
 

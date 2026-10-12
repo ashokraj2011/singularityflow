@@ -8,6 +8,7 @@ import { normalizeExternalCommand } from './external-command-policy.mjs';
 import { canonicalJson } from './records.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
+import { isConfigurationPath } from './configuration-paths.mjs';
 import { exists, posix, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 import { isDotnetManifest, selectDotnetManifest } from './dotnet-manifests.mjs';
 import { gradleBuildKind, GRADLE_TEST_TARGET_REASON } from './gradle-manifests.mjs';
@@ -70,7 +71,7 @@ export function isSupportingTestResourcePath(candidate) {
   const relative = normalized(candidate);
   const segments = relative.toLowerCase().split('/');
   const basename = segments.at(-1) ?? '';
-  return segments.some((segment) => SUPPORTING_SEGMENTS.has(segment))
+  return isConfigurationPath(relative) || segments.some((segment) => SUPPORTING_SEGMENTS.has(segment))
     || SUPPORTING_BASENAMES.test(basename)
     || SUPPORTING_EXTENSIONS.test(basename)
     || /(?:^|[._-])(?:fixture|snapshot|page-object|pageobject)(?:[._-]|$)/i.test(basename);

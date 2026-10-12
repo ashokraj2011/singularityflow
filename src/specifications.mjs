@@ -15,6 +15,7 @@ import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { validateSkillPhaseBindingHeader } from './skp-contract.mjs';
 import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN, qualifiedClauseIds } from './traceability-ids.mjs';
 import { isTestAutomationPath } from './source-boundary.mjs';
+import { isConfigurationPath } from './configuration-paths.mjs';
 import { SUPPORTING_CHANGE_CLASSES, classifySupportingChange } from './supporting-changes.mjs';
 import { accountedAmendmentPaths, planAmendmentRecord } from './plan-amendments.mjs';
 import { mergedVerificationContracts, normalizeVerificationContracts, parseVerificationContracts, validateRetainedEvidenceDeclarations } from './verification/contracts.mjs';
@@ -552,15 +553,19 @@ export const FULFILLMENT_TYPES = Object.freeze(['new', 'modified', 'existing', '
 export const SOURCE_CHANGING_FULFILLMENT = Object.freeze(['new', 'modified']);
 
 /**
- * Product paths for a source obligation. Older approved plans sometimes repeated an exact test
+ * Exact implementation obligations. Older approved plans sometimes repeated an exact test
  * path in both columns. Its explicit test role and the collector's test boundary agree, so it is
  * still owed as a test, never as product source. Do not rewrite the hash-bound approved map, infer
- * a test-only fulfillment, or excuse an absent product path/test result.
+ * a test-only fulfillment, or excuse an absent product/configuration path or test result.
  */
-export function plannedProductSourcePaths(claim = {}) {
+export function plannedImplementationPaths(claim = {}) {
   const tests = new Set(claim.tests ?? []);
   return (claim.expectedPaths ?? []).filter(candidate =>
     !(tests.has(candidate) && isTestAutomationPath(candidate)));
+}
+/** Configuration keeps its exact obligation, but never becomes product-code tag duty. */
+export function plannedProductSourcePaths(claim = {}) {
+  return plannedImplementationPaths(claim).filter(candidate => !isConfigurationPath(candidate));
 }
 const PLANNED_OPTIONAL_COLUMNS = Object.freeze(['fulfillment', 'steps', 'observable result']);
 const PLANNED_STEP_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
@@ -571,8 +576,16 @@ const DELIVERY_MEDIA = /\.(?:png|jpe?g|gif|webp|svg|pdf|mp4|webm|mov|zip)$/iu;
 /** Authoring-time typing, not a reinterpretation of an already approved legacy plan. */
 export function validatePlannedEvidenceTypes(claims, { evidenceRoot = null } = {}) {
   for (const [id, claim] of Object.entries(claims)) {
+    const configurationTests = (claim.tests ?? []).filter(isConfigurationPath);
+    if (configurationTests.length) throw new SingularityFlowError(
+      `${id}: ${configurationTests.join(', ')} configures tools or runtime behavior; it is not executable test source. Put configuration in its own fulfillment configuration row or the plan's Supporting files, and name actual tests in Planned tests.`,
+      { code: 'SPEC_PLANNED_PATH_ROLE_INVALID', details: { clauseId: id, paths: configurationTests, expectedRole: 'configuration', correction: 'separate-configuration-from-tests' } });
     if (claim.fulfillment == null || SOURCE_CHANGING_FULFILLMENT.includes(claim.fulfillment)) {
       const tests = new Set(claim.tests ?? []);
+      const configurations = (claim.expectedPaths ?? []).filter(isConfigurationPath);
+      if (configurations.length) throw new SingularityFlowError(
+        `${id}: ${configurations.join(', ')} is configuration, not product source. Use fulfillment configuration for a configuration obligation, or list build/tooling dependencies under Supporting files with a reason. Do not insert @clause tags into configuration.`,
+        { code: 'SPEC_PLANNED_PATH_ROLE_INVALID', details: { clauseId: id, paths: configurations, expectedRole: 'configuration', correction: 'separate-configuration-from-source' } });
       const misplaced = (claim.expectedPaths ?? []).filter(candidate => tests.has(candidate) || isTestAutomationPath(candidate));
       if (misplaced.length) throw new SingularityFlowError(
         `${id}: Expected paths for new/modified delivery must contain product source only; ${misplaced.join(', ')} belongs in Planned tests. Use fulfillment test-only with no Expected paths when tests are the entire delivery.`,
@@ -1015,6 +1028,12 @@ export function deriveObservedClaimMap(plannedMap, delivery = {}, {
   });
   const changedPaths = new Set(evidencePaths(delivery,
     ['sourcePaths', 'deletedSourcePaths'], 'delivery source evidence', normalizedPolicy.limits));
+  // Older receipts put configuration in sourcePaths. Project its role without rewriting the
+  // reviewed record; new receipts use configurationPaths. In neither case is a source tag owed.
+  const configurationPaths = new Set([
+    ...evidencePaths(delivery, ['configurationPaths'], 'delivery configuration evidence', normalizedPolicy.limits),
+    ...[...changedPaths].filter(isConfigurationPath)
+  ].filter(isConfigurationPath));
   const testPaths = new Set(evidencePaths(delivery,
     ['testPaths', 'executableTestPaths', 'supportingTestPaths'], 'delivery test evidence', normalizedPolicy.limits));
   const bindings = new Map();
@@ -1078,9 +1097,10 @@ export function deriveObservedClaimMap(plannedMap, delivery = {}, {
     // observed by its exact planned path changing. Requiring a binding here as well left such a row
     // unobservable, so its clause could never be implemented.
     const bindingRequired = requireSourceBindings && plan.testDisposition !== 'not-applicable';
-    const productPaths = plannedProductSourcePaths(plan);
-    const observedPaths = productPaths.filter((candidate) =>
-      changedPaths.has(candidate) && (!bindingRequired || sourceBindings.get(candidate)?.has(id)));
+    const expectedPaths = plannedImplementationPaths(plan);
+    const observedPaths = expectedPaths.filter((candidate) => isConfigurationPath(candidate)
+      ? configurationPaths.has(candidate)
+      : changedPaths.has(candidate) && (!bindingRequired || sourceBindings.get(candidate)?.has(id)));
     const testResults = plan.tests.filter((candidate) => {
       if (!testPaths.has(candidate)) return false;
       const boundIds = bindings.get(candidate);
@@ -1090,8 +1110,8 @@ export function deriveObservedClaimMap(plannedMap, delivery = {}, {
       return !boundIds?.size || boundIds.has(id);
     });
     if (!observedPaths.length && !testResults.length) continue;
-    const sourceComplete = productPaths.length > 0
-      && observedPaths.length === productPaths.length;
+    const sourceComplete = expectedPaths.length > 0
+      && observedPaths.length === expectedPaths.length;
     const testsComplete = plan.tests.length === 0 || testResults.length === plan.tests.length;
     const acceptanceTestOnly = /:AC-\d{3}$/.test(id) && !observedPaths.length && testResults.length;
     claims[id] = {
@@ -1411,7 +1431,7 @@ export function mergeObservedClaimRecords(maps = [], plannedClaims = {}, { workf
       verdict = evidence.length && expected.every((candidate) => evidence.includes(candidate)) ? 'matched'
         : evidence.length ? 'partial' : 'missing';
     } else if (plan) {
-      const expectedPaths = plannedProductSourcePaths(plan);
+      const expectedPaths = plannedImplementationPaths(plan);
       const sourceComplete = expectedPaths.length > 0
         && expectedPaths.every((candidate) => observedPaths.includes(candidate));
       const testsComplete = !(plan.tests ?? []).length

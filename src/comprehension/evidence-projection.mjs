@@ -2,6 +2,7 @@
 import path from 'node:path';
 
 import { recordSha256 } from '../records.mjs';
+import { isConfigurationPath } from '../configuration-paths.mjs';
 import { validateChangeRegionManifest } from './contracts.mjs';
 
 export const CMP_EVIDENCE_PROJECTION_LIMITS = Object.freeze({
@@ -96,7 +97,12 @@ export function buildComprehensionEvidenceProjection({ workflow = null, phaseId 
     CMP_EVIDENCE_PROJECTION_LIMITS.maximumAcceptanceClauses);
   const missing = boundedIds(delivery.acceptanceCriteria?.missing,
     CMP_EVIDENCE_PROJECTION_LIMITS.maximumAcceptanceClauses);
-  const sourcePaths = new Set(Array.isArray(delivery.sourcePaths) ? delivery.sourcePaths : []);
+  const recordedSourcePaths = Array.isArray(delivery.sourcePaths) ? delivery.sourcePaths : [];
+  const sourcePaths = new Set(recordedSourcePaths.filter(candidate => !isConfigurationPath(candidate)));
+  const configurationPaths = new Set([
+    ...(Array.isArray(delivery.configurationPaths) ? delivery.configurationPaths : []),
+    ...recordedSourcePaths.filter(isConfigurationPath)
+  ]);
   const testPaths = new Set(Array.isArray(delivery.testPaths) ? delivery.testPaths : []);
   const supportingPaths = new Set(Array.isArray(delivery.supportingTestPaths)
     ? delivery.supportingTestPaths : []);
@@ -114,6 +120,7 @@ export function buildComprehensionEvidenceProjection({ workflow = null, phaseId 
     const candidate = regionPath(region);
     const roles = [
       ...(sourcePaths.has(candidate) ? ['source'] : []),
+      ...(configurationPaths.has(candidate) ? ['configuration'] : []),
       ...(testPaths.has(candidate) ? ['test'] : []),
       ...(supportingPaths.has(candidate) ? ['test-support'] : [])
     ];

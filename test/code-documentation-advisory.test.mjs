@@ -72,13 +72,17 @@ class Worker:
   await put(root, 'vendor/lib.js', 'export function vendored() {}\n');
   await put(root, 'singularity/work-items/DOCS-1/notes.js', 'export function record() {}\n');
   await put(root, 'native/codec.cpp', 'int encode() { return 0; }\n');
+  await put(root, 'vite.config.ts', 'export function configureBuild() { return {}; }\n');
+  await put(root, 'src/config.js', 'export function readSettings() { return {}; }\n');
+  await put(root, 'python/settings.py', 'def configure():\n    return {}\n');
+  await put(root, 'clients/swift/Package.swift', 'public func configurePackage() {}\n');
 
   const { documentation, advisories } = await inspectCodeDocumentation(root, config, workflow, phase);
   assert.equal(documentation.status, 'missing');
   assert.equal(documentation.blocking, false);
   assert.deepEqual(advisories.map((entry) => `${entry.path}:${entry.line}:${entry.value}`), [
     'src/ledger.js:6:added', 'src/service.py:1:serve'
-  ], 'an untouched legacy function, tests, vendored code and Story records are not reported');
+  ], 'untouched functions, tests, vendored code, configuration and Story records are not product APIs');
   assert.equal(advisories.every((entry) => entry.blocking === false && entry.code === 'code.documentation.missing'), true);
   assert.equal(documentation.unsupportedFiles, 1);
   assert.equal(documentation.declarations, 4);

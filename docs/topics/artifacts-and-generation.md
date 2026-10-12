@@ -17,7 +17,7 @@ related:
   - manual-authorship
   - approvals
   - sequence-gates
-version: 10
+version: 11
 ---
 Phase artifacts are produced against pinned templates and published through the kernel: `sflow phase publish` validates the template contract, hashes the artifact (SHA-256), commits only allowlisted governed paths in one isolated commit, and advances the branch with compare-and-swap semantics — unrelated staged changes never enter lifecycle commits. Each publication is a numbered generation. With the AI: `/sflow-continue` composes the pinned context, asks unresolved questions first, then drafts. Approved upstream inputs are prepared with `sflow inputs [PHASE]`; supporting documents are added with `sflow documents upload <FILE> --name <NAME>` and pinned by hash. Unresolved questions are not left in chat: `sflow clarification record` persists a question and its answer against the phase, and `sflow clarification status` shows what is still outstanding — so the next generation reads the answer as pinned context rather than rediscovering it.
 
@@ -32,7 +32,7 @@ before asking the kernel to publish.
 While a code generation is open, `sflow phase draft-check <phase> --json` and
 `sflow phase prepublish <phase> --json` also return `advisories[]` and a `documentation` summary: every public function,
 method, or class the generation added or changed without a doc comment, in product source only
-(tests by directory or file name, migrations, mocks, generated and vendored files, and Story records
+(tests by directory or file name, configuration, migrations, mocks, generated and vendored files, and Story records
 are skipped). A `// @clause:` or `// @ac:` tag line and decorators may sit between the doc comment and
 the declaration. When the change cannot be read, `documentation.status` is `unavailable` with its
 reason. VS Code shows the advisories when it publishes. Advisories never block publication and never
@@ -47,6 +47,21 @@ An unplanned-path notice is different from an optional comment: it is non-blocki
 but explicitly says `requiredBefore: approve`. Account for its exact scope through the reviewed plan
 or appeal before approval. Publishing and passing tests do not approve that extra scope. This same
 contract applies to seeded, imported, duplicated and team-defined phases.
+
+Repository configuration has its own delivery role, never `product-source` or an executable test:
+manifests, dependency locks, build/test/CI settings and conventional runtime configuration are kept
+in `configurationPaths`, with exact hashes and change-set endpoints. This includes nested monorepo
+configuration and Kotlin/Gradle, .NET and Swift manifests. Configuration needs no product-source
+`@clause` comments or API doc comments. A new plan puts tooling dependencies under `Supporting files`
+with a reason; a requirement changing runtime settings uses fulfillment `configuration` and actual
+tests. Do not put a runner configuration in `Planned tests`. Existing approved maps and receipts are
+projected without rewriting their bytes; their exact configuration paths remain owed.
+
+This separation is not a scope or integrity exemption. Configuration stays in the candidate,
+source/test-input hashes, affected-module validation and approval scope accounting. Protected SFlow
+configuration still uses its original configuration authority. Configuration-only changes cannot
+satisfy a planned product-source obligation, and source, real tests, migrations and application data
+are not exempted just because they are near a configuration file.
 
 If a prior generation was consumed and bytes now differ, run
 `/sf-recover` (or `sflow recover <WORK-ID> --phase <phase> --json`) first. The recovery route previews

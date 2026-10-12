@@ -212,7 +212,7 @@ export async function resolveTrpDeliverySelection(root, config, workflow, phase,
   const entries = (deliveryEvidence.changeSet?.entries ?? []).filter((entry) => isApplicationChangeEntry(entry, pathContext));
   const candidatePaths = [...new Set([
     ...entries.flatMap((entry) => [entry.oldPath, entry.newPath].filter(Boolean)),
-    ...(deliveryEvidence.sourcePaths ?? []), ...(deliveryEvidence.testPaths ?? []),
+    ...(deliveryEvidence.sourcePaths ?? []), ...(deliveryEvidence.configurationPaths ?? []), ...(deliveryEvidence.testPaths ?? []),
     ...(deliveryEvidence.supportingTestPaths ?? [])
   ].map((entry) => normalizeTestSelectionPath(entry)))].sort();
   const sources = await Promise.all(candidatePaths.map((relative) => contentBinding(root, relative)));

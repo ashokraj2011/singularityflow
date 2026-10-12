@@ -15,7 +15,7 @@ function git(root, ...args) {
   return result.stdout.trim();
 }
 
-async function manifestFixture() {
+async function manifestFixture(includeConfiguration = false) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cmp-evidence-'));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', 'CMP Evidence');
@@ -23,10 +23,12 @@ async function manifestFixture() {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src', 'app.js'), 'export const answer = 1;\n');
   await writeFile(path.join(root, 'src', 'app.test.js'), '// @ac:CMP-1:AC-001\n');
+  if (includeConfiguration) await writeFile(path.join(root, 'package.json'), '{"name":"baseline"}\n');
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'baseline');
   await writeFile(path.join(root, 'src', 'app.js'), 'export const answer = 2;\n');
   await writeFile(path.join(root, 'src', 'app.test.js'), '// @ac:CMP-1:AC-001\n// passing\n');
+  if (includeConfiguration) await writeFile(path.join(root, 'package.json'), '{"name":"current"}\n');
   const changeSet = await buildRepositoryChangeSet(root, { baseCommit: 'HEAD' });
   return buildChangeRegionManifest(changeSet);
 }
@@ -69,6 +71,18 @@ test('recorded delivery evidence joins only exact current region paths', async (
     'a path present only in workflow evidence cannot enter the current change projection');
   assert.match(result.evidenceProjectionSha256, /^sha256:[a-f0-9]{64}$/u);
   assert.equal(Object.isFrozen(result), true);
+});
+
+test('legacy configuration paths show as configuration without rewriting recorded delivery', async () => {
+  const manifest = await manifestFixture(true);
+  const workflow = { phases: { implementation: { generation: 1, deliveryEvidence: {
+    status: 'ready', sourcePaths: ['src/app.js', 'package.json'], testPaths: ['src/app.test.js']
+  } } } };
+  const before = structuredClone(workflow);
+  const result = buildComprehensionEvidenceProjection({ workflow, phaseId: 'implementation', manifest });
+  assert.deepEqual(result.regions.find(entry => entry.path === 'package.json').roles, ['configuration']);
+  assert.deepEqual(result.regions.find(entry => entry.path === 'src/app.js').roles, ['source']);
+  assert.deepEqual(workflow, before);
 });
 
 test('missing Story or delivery state remains explicit and non-blocking', async () => {

@@ -19,7 +19,7 @@ import { renderMcpPromptPolicy } from './mcp.mjs';
 import { injectAgentPrompt, readPromptGeneration, recordInjection, supersedePromptGeneration } from './inject.mjs';
 import { loadSession } from './session.mjs';
 import { renderAgentSkills } from './agents.mjs';
-import { collectInputs } from './inputs.mjs';
+import { collectInputs, phaseInputsNotReadyError } from './inputs.mjs';
 import { requestedOutcomeLine } from './story-request-summary.mjs';
 import { renderPromptInputsBlock } from './prompt-input-projection.mjs';
 import { assertNoPendingPublication, saveStoryDraft } from './state-stores.mjs';
@@ -472,9 +472,7 @@ async function workflowPromptContext(root, definition, workflow, phase, workItem
       : '\n> No resolved template snapshot is available for this legacy phase.'
   ].join('\n');
   const collected = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
-  if (collected.errors.length) {
-    throw new SingularityFlowError(`Phase ${phase.id} inputs are not ready:\n- ${collected.errors.join('\n- ')}`);
-  }
+  if (collected.errors.length) throw phaseInputsNotReadyError(workflow, phase, collected);
   const evidence = await renderActiveStoryEvidence(root, definition, workflow, { phaseId: phase.id });
   return {
     contract,
@@ -535,6 +533,34 @@ async function pendingEvidenceDrift(root, definition, workflow, phase, record) {
   if (!added.length && !removed.length) return null;
   return [added.length ? `now offered ${added.join(', ')}` : null, removed.length ? `no longer offered ${removed.join(', ')}` : null]
     .filter(Boolean).join('; ');
+}
+
+/** What a composed prompt recorded about each approved input: enough to see when one changed. */
+function inputDigests(records = []) {
+  return records.map((entry) => ({
+    phase: entry.phase, path: entry.repositoryPath ?? entry.path ?? null, status: entry.status,
+    sha256: entry.sha256 ?? null, briefSha256: entry.projection?.briefSha256 ?? null
+  }));
+}
+
+/**
+ * How the approved inputs a pending prompt embedded differ from the inputs now, or null. Inputs
+ * that are no longer ready refuse, exactly as a fresh composition would; a prompt recorded before
+ * input digests were kept cannot be compared and is reused as before.
+ */
+async function pendingInputDrift(root, definition, workflow, phase, record, { itemDirectory, itemRelative }) {
+  const current = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative, definition });
+  if (current.errors.length) throw phaseInputsNotReadyError(workflow, phase, current);
+  const recorded = record?.promptBudget?.inputDigests;
+  if (!Array.isArray(recorded)) return null;
+  const identity = (entry) => [entry.phase, entry.path ?? '', entry.status, entry.sha256 ?? '', entry.briefSha256 ?? ''].join(' ');
+  const before = new Set(recorded.map(identity));
+  const after = inputDigests(current.records);
+  const changed = [...new Set([
+    ...after.filter((entry) => !before.has(identity(entry))).map((entry) => entry.phase),
+    ...recorded.filter((entry) => !after.some((candidate) => identity(candidate) === identity(entry))).map((entry) => entry.phase)
+  ])];
+  return changed.length ? `approved input from ${changed.join(', ')} changed` : null;
 }
 
 async function compose(root, options, {
@@ -637,9 +663,17 @@ async function compose(root, options, {
     }
     // A pending prompt is reused byte for byte, but not once the documents its phase is offered
     // have changed: it would hand the author documents since detached, or miss ones since added.
+    // The same holds for its approved inputs: a prompt that embeds an earlier generation of an
+    // upstream artifact is recomposed, and inputs that are no longer ready refuse here, at entry,
+    // instead of surfacing at prepublish after the author has worked from stale evidence.
     const evidenceDrift = existing
       ? await pendingEvidenceDrift(root, definition, workflow, phase, existing.record) : null;
-    const drift = evidenceDrift ? `supporting documents changed: ${evidenceDrift}` : null;
+    const inputDrift = existing
+      ? await pendingInputDrift(root, definition, workflow, phase, existing.record, {
+        itemDirectory: expectedPrompt.workDir, itemRelative: posix(path.join(workItemRoot, workflow.workItem.id))
+      }) : null;
+    const drift = [evidenceDrift ? `supporting documents changed: ${evidenceDrift}` : null, inputDrift]
+      .filter(Boolean).join('; ') || null;
     if (drift && storyLockHeld && !renderOnly) {
       const moved = await supersedePromptGeneration(root, workflow, phase, expectedPrompt,
         drift);
@@ -894,6 +928,7 @@ async function compose(root, options, {
     injectedBytes: governed.inputRecords.reduce((total, entry) => total + (entry.injectedBytes ?? 0), 0)
   };
   promptComposition.inputProjection = promptInputs.projection;
+  promptComposition.inputDigests = inputDigests(governed.inputRecords);
   promptComposition.stakeholderProjection = stakeholderContext.projection;
   if (executionEvidence) promptComposition.executionEvidence = {
     projectionSha256: executionEvidence.projectionSha256, packets: executionEvidence.entries.length,

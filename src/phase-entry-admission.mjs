@@ -27,11 +27,29 @@ export function phaseContextAdmission({ ready = true, authoring = {}, recovery =
     paths: worktree.unexpectedPaths?.length ? worktree.unexpectedPaths : worktree.paths ?? [],
     confirmation: worktree.confirmation });
   if (references.status === 'blocked') add('PHASE_CONTEXT_REFERENCES_BLOCKED', 'Repair the returned reference-repository findings before composition.');
+  // Composition would embed these inputs and refuse on them; refusing admission instead returns the
+  // inspect/restore/return plan without a throw. The bytes belong to the earlier phase named.
+  const inputs = (recovery.blockers ?? []).filter(blocker => blocker.category === 'inputs');
+  if (inputs.length) {
+    const upstreamPhases = [...new Set(inputs.map(blocker => blocker.details?.upstreamPhase).filter(Boolean))];
+    add('PHASE_CONTEXT_INPUTS_NOT_READY',
+      `Approved inputs${upstreamPhases.length ? ` from ${upstreamPhases.join(', ')}` : ''} are not ready. They belong to that earlier phase and must not be edited here: inspect them, restore their exact approved bytes, or use the producer's return or amendment route.`,
+      { upstreamPhases,
+        findings: inputs.map(blocker => ({ phase: blocker.details?.upstreamPhase ?? null, path: blocker.path ?? null,
+          status: blocker.details?.status ?? null, restorable: blocker.details?.restorable === true })),
+        actionIds: (recovery.actions ?? []).filter(action => /^(?:resolve|restore)-inputs:/u.test(action.id ?? ''))
+          .map(action => action.id) });
+  }
   return { allowed: blockers.length === 0, blockers, ...(pendingEvidence ? { pendingEvidence } : {}) };
 }
 
 /** Show the actual admission remedy before unrelated, repairable draft quality checks. */
 export function phaseAdmissionActions(actions, admission, { authoring, recovery } = {}) {
+  // Preparing or authoring cannot succeed on inputs that are not ready; lead with their routes.
+  if (!recovery?.requiresRecovery && admission.blockers.some(item => item.code === 'PHASE_CONTEXT_INPUTS_NOT_READY')) {
+    const rank = action => action.id?.startsWith('resolve-inputs:') ? 0 : action.id?.startsWith('restore-inputs:') ? 1 : 2;
+    return [...actions].sort((left, right) => rank(left) - rank(right));
+  }
   if (authoring?.entry?.status !== 'authoring-entry' || recovery?.requiresRecovery
       || !admission.blockers.some(item => item.code === 'PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED')) return actions;
   const rank = action => action.id?.startsWith('review-evidence-contract:') ? 0

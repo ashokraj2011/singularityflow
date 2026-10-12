@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { verifyClarificationRecord } from './clarifications.mjs';
-import { collectInputs } from './inputs.mjs';
+import { collectInputs, inputReadinessFindings } from './inputs.mjs';
 import { effectivePhasePublicationProducer } from './manual-authorship.mjs';
 import { verifyPhaseMcpRequirements } from './mcp-evidence.mjs';
 import { assertMcpPhaseReadiness } from './mcp-readiness.mjs';
@@ -9,6 +9,7 @@ import { phaseGroundingPreflight } from './phase-grounding-preflight.mjs';
 import { requiredStepActionHold } from './step-action-receipts.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { inspectPendingEvidenceContracts } from './draft-evidence-hold.mjs';
+import { upstreamChangeRoutes } from './upstream-routes.mjs';
 
 /**
  * Local, read-only publication dependencies shared by preview, recovery and the transaction.
@@ -26,17 +27,19 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
   const actions = [];
   const warnings = [];
   const failures = [];
-  const add = (id, category, errors, route, { code = null, file = null, message = null } = {}) => {
+  const add = (id, category, errors, route, { code = null, file = null, message = null, findings = [], details = null } = {}) => {
     if (!errors.length) return;
-    blockers.push(...errors.map((error) => ({
-      code: `phase.${id}.not-ready`, category, path: file, line: null, message: error,
-      details: { sourceCode: code }
+    blockers.push(...errors.map((error, index) => ({
+      code: `phase.${id}.not-ready`, category, path: findings[index]?.path ?? file, line: null, message: error,
+      details: { sourceCode: code, ...(findings[index] ? {
+        upstreamPhase: findings[index].phase, status: findings[index].status, restorable: findings[index].restorable
+      } : {}) }
     })));
     actions.push({
       id: `resolve-${id}:${phase.id}`, safe: true, automatic: false, mode: 'guided',
       confirmation: 'none', skill: null, ...route
     });
-    failures.push({ code, message: message ?? `Phase ${phase.id} ${id} is not ready:\n- ${errors.join('\n- ')}` });
+    failures.push({ code, message: message ?? `Phase ${phase.id} ${id} is not ready:\n- ${errors.join('\n- ')}`, details });
   };
   const capture = async (read) => {
     try { return await read(); }
@@ -95,10 +98,25 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
     definition: config, itemDirectory, itemRelative, generation
   }));
   warnings.push(...(inputs.warnings ?? []));
+  // Each input blocker names the earlier phase that owns the file. Its bytes are fixed evidence:
+  // the routes are inspect, restore the exact approved bytes, or that producer's return/amendment.
+  const inputFindings = inputs.records ? inputReadinessFindings(inputs) : [];
+  const upstreamPhases = [...new Set(inputFindings.map((finding) => finding.phase))];
+  const restorable = inputFindings.some((finding) => finding.restorable);
+  const upstream = upstreamPhases.map((producer) => upstreamChangeRoutes(workflow, producer, { currentPhaseId: phase.id }));
   add('inputs', 'inputs', inputs.errors, {
     command: `singularity-flow inputs ${phase.id} --dry-run --json`, skill: '/sf-inputs',
-    detail: 'Inspect the approved input bindings. Restore the exact approved bytes, or request governed rework of the producer phase; do not edit approved hashes or approve replacement evidence automatically.'
-  }, { code: inputs.sourceCode ?? 'PHASE_INPUTS_NOT_READY' });
+    detail: `Inspect the approved input bindings${upstreamPhases.length ? ` from ${upstreamPhases.join(', ')}; ${phase.id} must not edit them` : ''}. Restore the exact approved bytes, or request governed rework of the producer phase; do not edit approved hashes or approve replacement evidence automatically.`
+  }, { code: inputs.sourceCode ?? 'PHASE_INPUTS_NOT_READY', findings: inputFindings,
+    message: inputs.errors.length ? `Phase ${phase.id} inputs are not ready:\n- ${inputs.errors.join('\n- ')}${upstreamPhases.length
+      ? `\nThese inputs belong to ${upstreamPhases.join(', ')}; ${phase.id} must not edit them.` : ''}` : null,
+    details: { currentPhase: phase.id, upstreamPhases, restorable,
+      routes: upstream.flatMap((entry) => entry.routes), notes: upstream.flatMap((entry) => entry.notes) } });
+  if (inputs.errors.length && restorable) actions.push({
+    id: `restore-inputs:${phase.id}`, safe: true, automatic: false, mode: 'guided', confirmation: 'none',
+    command: `singularity-flow inputs restore ${phase.id}`, skill: '/sf-inputs',
+    detail: `Preview restoring the exact approved bytes of the changed ${upstreamPhases.join(', ')} input. Nothing changes until its plan is confirmed, and a private checkpoint of the edited copy is kept.`
+  });
 
   const mcpHost = await capture(async () => ({
     ...(await assertMcpPhaseReadiness(root, workflow, phase)), errors: []
@@ -149,7 +167,7 @@ export async function assertPhasePublicationReadiness(root, config, workflow, ph
   const result = await inspectPhasePublicationReadiness(root, config, workflow, phase, options);
   if (result.failures.length) throw new SingularityFlowError(result.failures[0].message, {
     code: result.failures[0].code,
-    details: { workId: workflow.workItem.id, phase: phase.id,
+    details: { ...(result.failures[0].details ?? {}), workId: workflow.workItem.id, phase: phase.id,
       findings: result.blockers, actions: result.actions, recoveryCommands: result.actions }
   });
   return result;

@@ -1366,7 +1366,11 @@ export async function viewDocument(root, config, workflow, reference, { includeD
           throw new SingularityFlowError(`Document '${record.id}' is a Git LFS pointer in this checkout, not its bytes. Run git lfs pull, then retry.`,
             { code: 'DOCUMENT_LFS_POINTER', details: { documentId: record.id, path: record.path } });
         }
-        throw new SingularityFlowError(`Document '${record.id}' no longer matches its committed catalog hash. Expected ${record.sha256}, found ${current.sha256}.`);
+        throw new SingularityFlowError(`Document '${record.id}' no longer matches its committed catalog hash. Expected ${record.sha256}, found ${current.sha256}.`, {
+          code: 'DOCUMENT_HASH_MISMATCH',
+          details: { workId: workflow.workItem.id, documentId: record.id, path: record.path ?? null,
+            expectedSha256: record.sha256, actualSha256: current.sha256 ?? null }
+        });
       }
     }
   }

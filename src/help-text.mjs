@@ -549,6 +549,10 @@ Usage:
   singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]
   singularity-flow recover [WORK-ID] [--phase PHASE] [--fetch] [--apply --confirm PLAN-HASH] [--json]
   singularity-flow inputs [PHASE] [--dry-run]
+  singularity-flow inputs restore [PHASE] [--confirm PLAN-SHA256] [--json]
+    previews, then restores, the exact approved bytes of an earlier phase's input or artifact that
+    changed or vanished in the working tree only; saves a private checkpoint first; never stages,
+    commits or edits Story state; committed drift is refused with the earlier phase's route
   singularity-flow spec analyze [--phase PHASE] [--work-id ID] [--assisted [--model NAME] [--refresh]] [--json]
   singularity-flow spec index [ARTIFACT] [--phase PHASE] [--work-id ID] [--dry-run] [--json]
   singularity-flow spec claims planned --file JSON_OR_YAML [--phase PHASE] [--json]

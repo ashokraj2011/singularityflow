@@ -67,9 +67,12 @@ export async function crossPhaseChange(root, config, workflow, phase, changedPat
   const completion = closed ? completionPhaseOf(workflow) : null;
   const returns = order.filter((id) => owners.has(id)).map((step) => {
     if (closed) {
-      const permitted = (completion?.approvalPolicy?.rejectTo ?? []).includes(step);
+      // reopenWorkflow refuses every reopen when the policy forbids reopening completed work.
+      const reopenable = completion?.approvalPolicy?.changeRequests?.reopenCompleted !== false;
+      const permitted = reopenable && (completion?.approvalPolicy?.rejectTo ?? []).includes(step);
       return { step, permitted, command: `singularity-flow reopen ${workId} --to ${step} --reason <REASON>`,
-        reason: permitted ? null : `'${completion?.id}' may not return completed work to '${step}'` };
+        reason: permitted ? null : !reopenable ? `'${completion?.id}' policy does not allow completed work to be reopened`
+          : `'${completion?.id}' may not return completed work to '${step}'` };
     }
     const allowed = (phase.approvalPolicy?.rejectTo ?? []).includes(step);
     if (phase.status === 'awaiting_approval') {

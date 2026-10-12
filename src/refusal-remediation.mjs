@@ -22,6 +22,9 @@ function explicitCommands(error) {
     details?.diagnosticAction,
     typeof details?.nextAction === 'string' ? { command: details.nextAction } : details?.nextAction,
     details?.recoveryCommand,
+    // A throw site that names its own way out: the exact repair, or the command to run instead.
+    details?.repairCommand,
+    typeof details?.command === 'string' ? details.command : null,
     details?.retry,
     ...(Array.isArray(details?.recoveryCommands) ? details.recoveryCommands : []),
     ...(Array.isArray(details?.actions) ? details.actions : []),
@@ -86,15 +89,34 @@ function phaseOperation(argv) {
   return argv[0] ?? null;
 }
 
+/** Earlier phases a refusal names as the owner of its cause; never the scope of a repair here. */
+function upstreamPhaseIds(details = {}) {
+  return new Set([
+    ...(Array.isArray(details.upstreamPhases) ? details.upstreamPhases : []),
+    details.upstreamPhase, details.producerPhase
+  ].map(lowerKebab).filter(Boolean));
+}
+
 function artifactAuthoringPhase(argv, error) {
   const details = error?.details ?? {};
-  for (const candidate of [details.phase, details.phaseId, details.currentPhase]) {
+  // The phase the command operates on is the containment scope. A refusal may name the earlier
+  // phase that owns its cause in `phase`; repairing there would mean editing approved evidence.
+  const current = lowerKebab(details.currentPhase);
+  if (current) return current;
+  const commanded = commandPhase(argv);
+  if (commanded) return commanded;
+  const upstream = upstreamPhaseIds(details);
+  for (const candidate of [details.phase, details.phaseId]) {
     const phase = lowerKebab(candidate);
-    if (phase) return phase;
+    if (phase && !upstream.has(phase)) return phase;
   }
+  return null;
+}
 
+function commandPhase(argv) {
   const selected = optionValue(argv, 'phase');
   if (selected) return selected;
+  if (argv[0] === 'inputs' && argv[1] === 'restore') return lowerKebab(argv[2]);
   if (['prepare', 'inputs', 'submit', 'approve', 'reject'].includes(argv[0])) {
     return lowerKebab(argv[1]);
   }
@@ -103,7 +125,7 @@ function artifactAuthoringPhase(argv, error) {
   }
   // A fast-path verb such as `converge` names no step: its profile routes a step of any name.
   if (argv[0] === 'phase' && [
-    'begin', 'rollover', 'draft-check', 'prepublish', 'show', 'publish', 'approve', 'submit'
+    'begin', 'enter', 'rollover', 'draft-check', 'prepublish', 'show', 'publish', 'approve', 'submit'
   ].includes(argv[1])) {
     return lowerKebab(argv[2]);
   }
@@ -351,8 +373,135 @@ function missingConfigurationSteps() {
   ];
 }
 
+/** Refusals whose cause is an earlier phase's approved input, never the phase being worked on. */
+const UPSTREAM_INPUT_CODES = new Set([
+  'PHASE_INPUTS_NOT_READY', 'SPECIFICATION_INDEX_UNTRUSTED', 'CONVERGENCE_UPSTREAM_ARTIFACT_STALE',
+  'INPUT_RESTORE_COMMITTED_DRIFT', 'INPUT_RESTORE_STAGED_DRIFT', 'INPUT_RESTORE_NOT_APPROVED_BYTES'
+]);
+
+function upstreamInputContext(argv, error) {
+  const details = error?.details ?? {};
+  const phase = artifactAuthoringPhase(argv, error);
+  const findings = Array.isArray(details.findings) ? details.findings : [];
+  const producers = [...new Set([
+    ...upstreamPhaseIds(details),
+    ...findings.map((finding) => lowerKebab(finding?.details?.upstreamPhase)),
+    // A producer-owned refusal (index, convergence binding) names its producer in `phase`.
+    ...(phase && lowerKebab(details.phase) !== phase ? [lowerKebab(details.phase)] : [])
+  ].filter((id) => id && id !== phase))];
+  const restorable = details.restorable === true
+    || findings.some((finding) => finding?.restorable === true || finding?.details?.restorable === true);
+  const routes = (Array.isArray(details.routes) ? details.routes : [])
+    .filter((route) => typeof route?.command === 'string' && typeof route?.label === 'string');
+  const notes = (Array.isArray(details.notes) ? details.notes : []).filter((note) => typeof note === 'string');
+  return { phase, producers, restorable, routes, notes };
+}
+
+/**
+ * Inspect read-only, restore the exact approved bytes when that can work, or take the producer's
+ * return/amendment route. Every label says whose input it is and that this phase must not edit it.
+ */
+function upstreamInputSteps(argv, error) {
+  const { phase, producers, restorable, routes, notes } = upstreamInputContext(argv, error);
+  const owner = producers.length ? producers.join(', ') : 'an earlier phase';
+  const here = phase ?? 'this phase';
+  const route = routes[0];
+  return [
+    step('inspect-upstream-inputs',
+      `Inspect the approved inputs ${here} reads, without changing anything. They come from ${owner} and must not be edited by ${here}.`,
+      phase ? `singularity-flow inputs ${phase} --dry-run --json` : 'singularity-flow inputs --dry-run --json'),
+    restorable && phase ? step('restore-approved-inputs',
+      `Preview restoring the exact approved bytes of the changed input. It comes from ${owner} and must not be edited by ${here}; nothing changes until the plan digest is confirmed, and a private checkpoint keeps the edited copy.`,
+      `singularity-flow inputs restore ${phase}`, 'remediation') : null,
+    route
+      ? step('return-or-amend-upstream', `If the approved ${owner} content itself must change: ${route.label} The input comes from ${owner}; ${here} must not edit it.`,
+        route.command, 'remediation')
+      : step('return-or-amend-upstream', `${notes[0] ?? `If the approved ${owner} content itself must change, only an authorized return or amendment of ${owner} changes it.`} The input comes from ${owner}; ${here} must not edit it.`,
+        null, 'remediation')
+  ].filter(Boolean);
+}
+
+function initiativeDraftSteps(error, label) {
+  const phase = lowerKebab(error?.details?.phase);
+  return [step('inspect-initiative-draft', label,
+    phase ? `singularity-flow initiative phase draft-check ${phase} --json` : 'singularity-flow initiative --help', 'diagnostic')];
+}
+
+/** A repair budget is spent: reset it the way its policy allows, or ask a person for direction. */
+function repairBudgetSteps(_argv, error) {
+  const details = error?.details ?? {};
+  const reset = typeof details.resetCommand === 'string' ? details.resetCommand : null;
+  const current = lowerKebab(details.currentPhase);
+  return [
+    reset ? step('reset-repair-budget',
+      `Return ${current ?? 'the submitted phase'} to ${lowerKebab(details.resetPhase) ?? 'the reset phase'} instead. Its policy resets the ${lowerKebab(details.phase) ?? 'exhausted'} repair budget once an approved new generation of that phase exists.`,
+      reset, 'remediation') : null,
+    step('request-human-direction',
+      reset
+        ? 'Or ask the approvers for direction: further rework of the same phase needs their decision, not another unchanged rejection.'
+        : `No allowed return resets the ${lowerKebab(details.phase) ?? 'exhausted'} repair budget from here. Ask the approvers for direction: approve the submission as it stands, or have a workflow maintainer change the budget for new Stories.`,
+      null, 'remediation'),
+    current ? step('inspect-submitted-phase', `Review the submitted ${current} evidence before deciding.`,
+      `singularity-flow phase show ${current} --json`, 'diagnostic') : null
+  ].filter(Boolean);
+}
+
 const KNOWN = Object.freeze({
   WORKFLOW_CONFIGURATION_MISSING: missingConfigurationSteps,
+  PHASE_INPUTS_NOT_READY: upstreamInputSteps,
+  SPECIFICATION_INDEX_UNTRUSTED: upstreamInputSteps,
+  CONVERGENCE_UPSTREAM_ARTIFACT_STALE: upstreamInputSteps,
+  INPUT_RESTORE_COMMITTED_DRIFT: (argv, error) => upstreamInputSteps(argv, {
+    ...error, details: { ...(error?.details ?? {}), restorable: false }
+  }),
+  INPUT_RESTORE_STAGED_DRIFT: (argv, error) => [
+    step('unstage-upstream-input',
+      'The changed bytes of the earlier phase\'s input are staged. Unstage that file with Git (its committed copy is the approved one), then preview the restore again. This phase must not edit it.',
+      null, 'remediation'),
+    ...upstreamInputSteps(argv, { ...error, details: { ...(error?.details ?? {}), restorable: true } })
+  ],
+  INPUT_RESTORE_NOT_APPROVED_BYTES: (argv, error) => upstreamInputSteps(argv, {
+    ...error, details: { ...(error?.details ?? {}), restorable: false }
+  }),
+  INPUT_RESTORE_PLAN_CHANGED: (argv, error) => [
+    step('preview-input-restore-again',
+      'The inputs changed after the preview. Preview the restore again and confirm its new plan digest.',
+      artifactAuthoringPhase(argv, error) ? `singularity-flow inputs restore ${artifactAuthoringPhase(argv, error)} --json`
+        : 'singularity-flow inputs restore --json')
+  ],
+  REPAIR_BUDGET_EXHAUSTED: repairBudgetSteps,
+  STORY_STATE_INVALID: (argv) => [
+    argv[0] === 'validate' ? null : step('inspect-story-state',
+      'Nothing was published. Read every reported Story-state problem; most name the phase that owns it.',
+      'singularity-flow validate'),
+    step('recover-story-state', 'Inspect the Story\'s recovery plan for the current phase before retrying.',
+      'singularity-flow recover --json')
+  ].filter(Boolean),
+  SPEC_CLAIM_MAP_UNKNOWN_CLAUSE: () => [
+    step('list-defined-clauses',
+      'List the clauses the Story defines. Cite only those; the phase that defines a clause owns its wording and must not be edited from here.',
+      'singularity-flow spec trace --format json')
+  ],
+  SPEC_CLAUSE_DEPENDENCY_MISSING: () => [
+    step('list-defined-clauses',
+      'List the clauses the Story defines. A clause may depend only on a defined clause; an earlier phase\'s clause changes only by its own return or amendment.',
+      'singularity-flow spec trace --format json')
+  ],
+  EPIC_TRACEABILITY_INCOMPLETE: (_argv, error) => initiativeDraftSteps(error,
+    'Each listed traceability gap names the requirement or Story row to correct in this phase\'s draft; approved earlier phases are not edited from here.'),
+  EPIC_PLANNING_PACKAGE_INVALID: (_argv, error) => initiativeDraftSteps(error,
+    'Correct each listed planning-package problem in this phase\'s draft, then check it again.'),
+  INITIATIVE_STORY_PLAN_INVALID: (_argv, error) => initiativeDraftSteps(error,
+    'Correct each listed Story-plan problem in this phase\'s draft, then check it again.'),
+  INITIATIVE_IMPACT_MAP_UNGROUNDED: (_argv, error) => initiativeDraftSteps(error,
+    'Ground each listed impact-map entry in a repository the Initiative names, then check the draft again.'),
+  INITIATIVE_OUTPUTS_MISSING: (_argv, error) => initiativeDraftSteps(error,
+    'Write each listed required output of this phase, then check the draft again.'),
+  DOCUMENT_HASH_MISMATCH: () => [
+    step('inspect-story-documents',
+      'A supporting document no longer matches the bytes its catalog committed. Restore the committed copy (or re-add the changed document as a new one); this phase must not use the changed bytes.',
+      'singularity-flow documents list --json')
+  ],
   ...UPGRADE_KNOWN,
   RECOVERY_PHASE_UNKNOWN: () => [
     step('inspect-available-phases', 'Read the current Story and its actual phase IDs; do not guess a packaged phase name.',
@@ -689,11 +838,16 @@ export function refusalRemediationPlan(error, argv = []) {
   const requiredTestBlocked = /^CODE_TEST_[A-Z0-9_]+$/u.test(code)
     || code === 'QUALITY_COMMAND_SOURCE_MUTATION';
   const requiredTestFailure = requiredTestExecutionForRefusal(error)?.failure;
+  // The cause lives in an earlier phase's approved input: never "repair the current phase".
+  const upstreamInputBlocked = UPSTREAM_INPUT_CODES.has(code);
   const rawPhaseContext = phaseRemediationContext(argv, error);
   const phaseContext = pinnedTestPolicyBlocked && rawPhaseContext
     ? Object.freeze({ ...rawPhaseContext, strategy: 'pinned-test-policy-prerequisite',
       retryCommand: null, retrySkill: null })
-    : rawPhaseContext;
+    : upstreamInputBlocked && rawPhaseContext
+      ? Object.freeze({ ...rawPhaseContext, strategy: 'upstream-input',
+        upstreamPhases: upstreamInputContext(argv, error).producers, retryCommand: null, retrySkill: null })
+      : rawPhaseContext;
   const phaseSteps = phaseContainmentSteps(phaseContext);
   let explicit = explicitCommands(error).map((command, index) => step(
     `producer-${index + 1}`, command.label ?? 'Follow the recovery action supplied by the refusing operation.', command.command,
@@ -713,11 +867,11 @@ export function refusalRemediationPlan(error, argv = []) {
       || (entry?.argv?.[0] === 'phase' && entry?.argv?.[1] === 'approve')
     ));
   }
-  const known = KNOWN[code]?.(argv, error) ?? [];
+  const known = (KNOWN[code]?.(argv, error) ?? []).filter(Boolean);
   const authoringIncomplete = code === 'ARTIFACT_AUTHORING_INCOMPLETE' && known.length > 0;
-  const nonDuplicateExplicit = authoringIncomplete
-    ? explicit.filter((entry) => !known.some((knownEntry) => knownEntry?.command === entry?.command))
-    : explicit;
+  // A producer action that repeats a known step's exact command adds a second label, not a route.
+  const nonDuplicateExplicit = explicit.filter((entry) => !entry?.command
+    || !known.some((knownEntry) => knownEntry?.command === entry.command));
   // Phase failures stay inside the phase repair boundary. Exact producer guidance still wins, but
   // broad command help/doctor/recommend fallbacks are reserved for errors that carry no safe phase
   // identity. This makes future uncoded phase refusals recoverable without adding another code-keyed
@@ -726,15 +880,17 @@ export function refusalRemediationPlan(error, argv = []) {
     ? phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
-      ? riskReviewBlocked
+      ? riskReviewBlocked || upstreamInputBlocked
         ? [known[0], ...phaseSteps.filter(entry => entry.id === 'leave-approval-turn'), ...known.slice(1)]
         : [...phaseSteps, ...known, ...nonDuplicateExplicit]
+      : upstreamInputBlocked
+        ? [...known, ...nonDuplicateExplicit, ...phaseSteps]
       : requiredTestBlocked
         ? [...known, ...phaseSteps, ...nonDuplicateExplicit]
       : authoringIncomplete
         ? [...known, ...phaseSteps, ...nonDuplicateExplicit]
         : [...nonDuplicateExplicit, ...known, ...phaseSteps]
-    : requiredTestBlocked
+    : requiredTestBlocked || upstreamInputBlocked
       ? [...known, ...nonDuplicateExplicit, ...genericSteps(argv)]
     : authoringIncomplete
       ? [...known, ...nonDuplicateExplicit, ...genericSteps(argv)]
@@ -750,6 +906,8 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Inspect the exact risk or repair prerequisite. Only a delegated human can record an eligible exception; normal phase approval stays separate. End an approval-only turn before any review mutation, then re-evaluate in a fresh turn.'
     : phaseContext?.turn === 'new-turn'
     ? 'Do not retry approval in this turn. Repair and resubmit through governed phase actions, then begin a fresh approval turn.'
+    : upstreamInputBlocked
+    ? 'Retry only after the approved inputs read ready again: restored to their approved bytes, or replaced by an approved new generation of the earlier phase. Never edit them from this phase.'
     : requiredTestBlocked && requiredTestFailure?.retryCondition === 'runtime-changed'
     ? 'Retry after the test runtime or dependency has actually changed; the same source may then be rechecked. Do not loop against an unchanged environment.'
     : requiredTestBlocked
@@ -802,13 +960,18 @@ export function refusalDetails(details) {
   const field = (value) => typeof value === 'string' && value.length <= 256
     && /^(?:\$|[a-zA-Z_$][a-zA-Z0-9_$]*(?:\[\d+\]|\.[a-zA-Z_$][a-zA-Z0-9_$]*)*)$/u.test(value) ? value : null;
   const projected = {};
-  for (const key of ['workId', 'phase', 'operation']) if (text(details[key])) projected[key] = text(details[key]);
+  for (const key of ['workId', 'phase', 'currentPhase', 'operation']) if (text(details[key])) projected[key] = text(details[key]);
   const paths = list(details.paths, text);
   if (paths.length) projected.paths = paths;
+  // The earlier phases that own the cause, so no surface mistakes them for the phase to repair.
+  const upstreamPhases = list(details.upstreamPhases, text);
+  if (upstreamPhases.length) projected.upstreamPhases = upstreamPhases;
   const authorities = list(details.authorities, text);
   if (authorities.length) projected.authorities = authorities;
   const findings = list(details.findings, (finding) => (finding && typeof finding === 'object' ? compact({
     code: text(finding.code), category: text(finding.category), phase: text(finding.phase), field: field(finding.field),
+    path: text(finding.path), status: text(finding.status ?? finding.details?.status),
+    upstreamPhase: text(finding.details?.upstreamPhase),
     message: text(finding.details?.message ?? finding.message), recovery: text(finding.recovery?.command)
   }) : null));
   if (findings.length) projected.findings = findings;
@@ -880,6 +1043,8 @@ export function renderRefusalPlan(plan) {
         ? `  Scope: phase ${plan.context.phaseId} — external host prerequisite; do not rewrite Story evidence or bypass the gate.`
         : plan.context.strategy === 'pinned-test-policy-prerequisite'
           ? `  Scope: phase ${plan.context.phaseId} — pinned test-policy prerequisite; preview a reviewed test-command amendment for the active phase, then follow its preparation or fresh-validation route.`
+        : plan.context.strategy === 'upstream-input'
+          ? `  Scope: phase ${plan.context.phaseId} — the cause is an approved input from ${plan.context.upstreamPhases?.join(', ') || 'an earlier phase'}; do not edit it here. Restore its approved bytes or use that phase's return or amendment route.`
         : `  Scope: phase ${plan.context.phaseId} — repair in place; no automatic advance or history rewrite.`
     );
     if (plan.context.turn === 'new-turn') {

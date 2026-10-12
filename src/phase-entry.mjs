@@ -182,7 +182,9 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     detail: authoringProgress.instruction, ...authoringProgress.next,
     commandGuidance: authoringProgress.next, scope: 'current-draft', preserveExistingWork: true
   });
-  if (!canCompose && authoring.entry?.status === 'authoring-entry' && base.continuationReview?.commandGuidance) nextActions.unshift(recoveryActionGuidance({
+  // Input routes lead when inputs refused admission; the journey inspection follows them.
+  const inputsBlocked = contextAdmission.blockers.some(item => item.code === 'PHASE_CONTEXT_INPUTS_NOT_READY');
+  if (!canCompose && authoring.entry?.status === 'authoring-entry' && base.continuationReview?.commandGuidance) nextActions[inputsBlocked ? 'push' : 'unshift'](recoveryActionGuidance({
     id: `inspect-continuation:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
     scope: 'read-only', command: base.continuationReview.commandGuidance.command, skill: '/sf-appeal',
     detail: 'Inspect one preserved-work journey and its exact repair/human/owner route. This inspection changes nothing and cannot grant authoring or publication permission.'

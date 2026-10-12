@@ -8,6 +8,7 @@ import { recordSha256 } from './records.mjs';
 import { inspectPhaseRecovery, inspectPhaseWorktreeScope } from './recovery-plan.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { recoveryActionsForFindings } from './gate-recovery.mjs';
+import { readRememberedRefusal } from './evidence/refusal-memory.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
@@ -242,6 +243,32 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
     blockers.push(...terminalGate.findings);
     actions.push(...recoveryActionsForFindings(terminalGate.findings));
   }
+  // A refused ending (final submit or approval) changes no lifecycle state, so nothing above sees
+  // it. Surface the remembered refusal for the phase it concerns instead of reporting no blockers.
+  if (workflow.status !== 'closed' && (phase ?? activePhase)) {
+    const remembered = await readRememberedRefusal(root, workflow.workItem.id);
+    const refused = remembered?.refusal;
+    if (refused && refused.subject.phase === (phase ?? activePhase).id) {
+      const first = refused.obligations[0]?.id ?? refused.findings[0]?.message ?? refused.code;
+      blockers.push({
+        code: `refusal.${String(refused.code ?? 'gate').toLowerCase().replaceAll('_', '-')}`,
+        category: refused.gate === 'terminal' ? 'terminal-readiness' : 'gate', blocking: true,
+        phase: refused.subject.phase, generation: refused.subject.generation, path: null, line: null, value: null,
+        details: {
+          message: `${refused.code} at ${remembered.at ?? 'an earlier attempt'}: ${refused.obligations.length + refused.findings.length} open reason(s), the first: ${first}. It stays listed until the transition succeeds; retry it after changing what it names.`,
+          refusedAt: remembered.at, gate: refused.gate, obligations: refused.obligations, findings: refused.findings
+        }
+      });
+      // An open Story cannot be reopened; a stored route that says so would be refused by the CLI.
+      refused.actions.map((entry) => entry.command)
+        .filter((command) => command && !/^singularity-flow reopen\b/u.test(command))
+        .forEach((command, index) => actions.push({
+          id: `refused-transition:${refused.subject.phase}:${index + 1}`, safe: true, automatic: false,
+          mode: 'guided', confirmation: 'none', command,
+          detail: `A recovery step the refused ${refused.gate} check named for ${refused.subject.phase}.`
+        }));
+    }
+  }
   const worktreeStatus = changes(root);
   // One raw-byte status inspection per plan; the apply-time stability guard always reads fresh.
   const worktreeInspection = inspectLifecycleWorktree(root, config, workflow);
@@ -286,7 +313,8 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
       phaseId: phase.id,
       phaseStatus: phase.status,
       generation: phase.generation,
-      strategy: pending.status === 'pending' ? 'roll-forward-exact-commit' : 'repair-current-phase',
+      strategy: pending.status === 'pending' ? 'roll-forward-exact-commit'
+        : phase.status === 'approved' ? 'return-or-amend-approved-phase' : 'repair-current-phase',
       publishedGenerationsPreserved: true,
       automaticDiscard: false,
       historyRewrite: false

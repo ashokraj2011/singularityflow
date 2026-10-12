@@ -64,7 +64,7 @@ export function assertLegacyConvergenceSourceIdentity(projection, {
   return projection;
 }
 
-function assertCommittedPath(root, relative, label) {
+function assertCommittedPath(root, relative, label, details = {}) {
   const current = run('git', ['hash-object', '--', relative], { cwd: root, allowFailure: true });
   const committed = run('git', ['rev-parse', '--verify', `HEAD:${relative}`], {
     cwd: root, allowFailure: true
@@ -73,7 +73,9 @@ function assertCommittedPath(root, relative, label) {
       || current.stdout.trim() !== committed.stdout.trim()) {
     throw new SingularityFlowError(
       `${label} differs from the exact approved bytes in Git. Restore or publish that upstream phase before convergence.`,
-      { code: 'CONVERGENCE_UPSTREAM_ARTIFACT_STALE', details: { path: relative } }
+      // The working copy already has the approved digest; the commit on the branch does not, so
+      // restoring bytes cannot help. Only the producer's own route can.
+      { code: 'CONVERGENCE_UPSTREAM_ARTIFACT_STALE', details: { ...details, path: relative, restorable: false } }
     );
   }
 }
@@ -94,14 +96,20 @@ async function verifiedUpstreamArtifacts(root, config, workflow, convergence) {
         || !sameDigest(registered.sha256, current.sha256)
         || Number(registered.size) !== Number(current.size)) {
       throw new SingularityFlowError(
-        `Approved upstream artifact '${secured.relative}' changed after ${phase.id} was approved.`,
+        `Approved upstream artifact '${secured.relative}' changed after ${phase.id} was approved. `
+        + `It belongs to ${phase.id}; ${convergence.id} must not edit it. Inspect it with: singularity-flow inputs ${convergence.id} --dry-run --json`,
         {
           code: 'CONVERGENCE_UPSTREAM_ARTIFACT_STALE',
-          details: { phase: phase.id, path: secured.relative }
+          details: { phase: phase.id, producerPhase: phase.id, upstreamPhases: [phase.id], currentPhase: convergence.id,
+            workId: workflow.workItem.id, path: secured.relative,
+            restorable: registered?.status === 'approved' && Boolean(registered?.sha256) }
         }
       );
     }
-    assertCommittedPath(root, secured.relative, `Approved ${phase.id} artifact`);
+    assertCommittedPath(root, secured.relative, `Approved ${phase.id} artifact`, {
+      phase: phase.id, producerPhase: phase.id, upstreamPhases: [phase.id], currentPhase: convergence.id,
+      workId: workflow.workItem.id
+    });
     bindings.push({
       phase: phase.id,
       generation: phase.generation,

@@ -62,12 +62,15 @@ function evidenceBlockersOf(evaluation) {
   return [...blocking.map((entry) => entry.message), ...unexplained];
 }
 
-/** Evaluate an ending without changing anything. */
-export async function evaluateTerminalTransition(root, definition, workflow) {
+/**
+ * Evaluate an ending without changing anything. `openStory` names the final phase and its real
+ * status: the Story is judged as if closed, but until the transition commits it is open.
+ */
+export async function evaluateTerminalTransition(root, definition, workflow, { openStory = null } = {}) {
   const graph = await evidenceGraphFromAggregate(root, definition, workflow);
   graph.terminal = null;
   const evaluation = evaluateEvidence(graph, { boundary: 'terminal', mode: 'decision' });
-  const gate = await runGovernanceGate(root, definition, workflow, { terminal: true, pendingTransition: true });
+  const gate = await runGovernanceGate(root, definition, workflow, { terminal: true, pendingTransition: true, openStory });
   const evidenceBlockers = evidenceBlockersOf(evaluation);
   // An earlier step's owners decide every upstream issue before the Story ends [UIF-M2].
   const upstream = upstreamIssueTerminalBlockers(workflow);
@@ -86,6 +89,7 @@ export async function evaluateTerminalReadiness(root, definition, workflow, { st
   const projected = structuredClone(workflow);
   const phaseId = projected.currentPhase ?? projected.phaseOrder?.at(-1) ?? null;
   const phase = phaseId ? projected.phases?.[phaseId] ?? null : null;
+  const openStory = phase ? { phase: phaseId, status: phase.status } : null;
   if (phase && phase.status === 'in_progress') phase.status = 'awaiting_approval';
   if (phase?.status === 'awaiting_approval') {
     phase.status = 'approved';
@@ -99,7 +103,7 @@ export async function evaluateTerminalReadiness(root, definition, workflow, { st
   projected.currentPhase = null;
   projected.status = 'closed';
   delete projected.completion;
-  const result = await evaluateTerminalTransition(root, definition, projected);
+  const result = await evaluateTerminalTransition(root, definition, projected, { openStory });
   // The preview has no real reviewer by design. Approval authority, assurance and threshold are
   // checked by the actual approve command; suppress only findings caused by that synthetic actor.
   const previewApprovalCodes = new Set([

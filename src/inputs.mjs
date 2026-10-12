@@ -2,7 +2,8 @@ import { nextPhaseGeneration } from './phase-generation.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { exists, nowIso, posix, secureRepositoryPath, snapshot, writeJson } from './util.mjs';
+import { exists, nowIso, posix, secureRepositoryPath, SingularityFlowError, snapshot, writeJson } from './util.mjs';
+import { upstreamChangeRoutes } from './upstream-routes.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { loadActiveSpecRecords, renderClauseContext, selectClauseContext } from './specifications.mjs';
 import { readAgentBrief } from './agent-briefs.mjs';
@@ -308,6 +309,79 @@ export async function collectInputs(root, workflow, phase, {
     records.push(record);
   }
   return { mode, generation, records, warnings, errors };
+}
+
+/**
+ * The inputs that stop a phase, one entry per producer file: which earlier phase owns it, where it
+ * is, and why (`missing`, `unapproved`, `hash_mismatch`, `brief_missing`, `receipt_missing`, ...).
+ */
+export function inputReadinessFindings(result) {
+  return (result?.records ?? [])
+    .filter((record) => inputFindingSeverity(result.mode, record.optional, record.status) === 'error'
+      && inputMessage({ id: 'phase' }, record))
+    .map((record) => ({
+      phase: record.phase,
+      path: record.repositoryPath ?? record.path ?? null,
+      status: record.status,
+      producerStatus: record.producerStatus ?? null,
+      approvedSha256: record.approvedSha256 ?? null,
+      sha256: record.sha256 ?? null,
+      // Changed or deleted bytes of an approved producer can be put back exactly; anything else
+      // (an unapproved producer, a missing brief or receipt) needs that producer's own route.
+      restorable: ['hash_mismatch', 'missing'].includes(record.status)
+        && record.producerStatus === 'approved' && Boolean(record.approvedSha256)
+    }));
+}
+
+/**
+ * The coded refusal for a phase whose approved inputs are not ready. It names each producer and
+ * file, says the bytes belong to that producer, and carries the routes that are legal from here:
+ * inspect, restore the approved bytes, or return/amend the producer.
+ */
+export function phaseInputsNotReadyError(workflow, phase, result, { label = `Phase ${phase.id} inputs` } = {}) {
+  const findings = inputReadinessFindings(result);
+  const upstreamPhases = [...new Set(findings.map((finding) => finding.phase))];
+  const changes = upstreamPhases.map((producer) =>
+    upstreamChangeRoutes(workflow, producer, { currentPhaseId: phase.id }));
+  const routes = changes.flatMap((entry) => entry.routes);
+  const notes = changes.flatMap((entry) => entry.notes);
+  const owners = upstreamPhases.join(', ');
+  return new SingularityFlowError(
+    `${label} are not ready:\n- ${result.errors.join('\n- ')}\n`
+    + `These inputs belong to ${owners || 'an earlier phase'}; ${phase.id} must not edit them. `
+    + `Inspect them with: singularity-flow inputs ${phase.id} --dry-run --json`,
+    { code: 'PHASE_INPUTS_NOT_READY', details: {
+      workId: workflow?.workItem?.id ?? null, phase: phase.id, currentPhase: phase.id,
+      upstreamPhases, findings, restorable: findings.some((finding) => finding.restorable),
+      routes, notes
+    } }
+  );
+}
+
+/** What `inputs <phase> --dry-run` reports instead of refusing: readiness and the legal routes. */
+export function inputReadinessReport(workflow, phase, result) {
+  const findings = result.findings ?? inputReadinessFindings(result);
+  const upstreamPhases = [...new Set(findings.map((finding) => finding.phase))];
+  const changes = upstreamPhases.map((producer) =>
+    upstreamChangeRoutes(workflow, producer, { currentPhaseId: phase.id }));
+  const restorable = findings.some((finding) => finding.restorable);
+  return {
+    ready: !(result.errors ?? []).length, errors: result.errors ?? [], findings, upstreamPhases,
+    restoreCommand: restorable ? `singularity-flow inputs restore ${phase.id}` : null,
+    routes: changes.flatMap((entry) => entry.routes), notes: changes.flatMap((entry) => entry.notes)
+  };
+}
+
+/** Human lines for a report that is not ready; empty when it is. */
+export function inputReadinessLines(phase, report) {
+  if (report.ready) return [];
+  return [
+    `Not ready: ${report.errors.join('; ')}`,
+    `These inputs belong to ${report.upstreamPhases.join(', ') || 'an earlier phase'}; ${phase.id} must not edit them.`,
+    ...(report.restoreCommand ? [`Preview restoring their approved bytes: ${report.restoreCommand}`] : []),
+    ...report.routes.map((route) => `${route.label}\n  ${route.command}`),
+    ...report.notes
+  ];
 }
 
 export function renderInputsBlock(result) {

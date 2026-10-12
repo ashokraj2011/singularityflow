@@ -69,7 +69,20 @@ export function normalizeRepairBudget(value = null, { phaseId = 'phase', phases 
   return { maxAttempts: value.maxAttempts, resetOnPhase };
 }
 
-export function consumeRepairAttempt(workflow, phase, { targetPhase, actor, at, changeRequestId }) {
+/**
+ * The reachable way past an exhausted budget: a return to the phase whose new approved generation
+ * resets it, when the submitted phase may return there. Otherwise only people can decide.
+ */
+function budgetResetRoute(workflow, policy, sourcePhase, targetPhase) {
+  const reset = policy.resetOnPhase;
+  if (!reset || !sourcePhase || reset === targetPhase) return null;
+  const allowed = sourcePhase.approvalPolicy?.rejectTo ?? [sourcePhase.id];
+  const order = workflow.phaseOrder ?? [];
+  if (!allowed.includes(reset) || order.indexOf(reset) < 0 || order.indexOf(reset) > order.indexOf(sourcePhase.id)) return null;
+  return `singularity-flow reject ${sourcePhase.id} --work-id ${workflow.workItem?.id} --to ${reset} --reason <reason>`;
+}
+
+export function consumeRepairAttempt(workflow, phase, { targetPhase, actor, at, changeRequestId, sourcePhase = null }) {
   const policy = phase.repairBudget;
   if (!policy) return null;
   const resetPhase = policy.resetOnPhase ? workflow.phases?.[policy.resetOnPhase] : null;
@@ -91,9 +104,17 @@ export function consumeRepairAttempt(workflow, phase, { targetPhase, actor, at, 
     return { ...structuredClone(state), resetRequested: true };
   }
   if (state.attempts.length >= policy.maxAttempts) {
+    const resetCommand = budgetResetRoute(workflow, policy, sourcePhase, targetPhase);
     throw new SingularityFlowError(
-      `Phase '${phase.id}' repair budget is exhausted (${state.attempts.length}/${policy.maxAttempts}). Start a new approved '${policy.resetOnPhase ?? phase.id}' generation or request human direction.`,
-      { code: 'REPAIR_BUDGET_EXHAUSTED', details: { phase: phase.id, maximum: policy.maxAttempts, consumed: state.attempts.length } }
+      `Phase '${phase.id}' repair budget is exhausted (${state.attempts.length}/${policy.maxAttempts}). `
+      + (resetCommand
+        ? `Return the submission to '${policy.resetOnPhase}' instead, which resets the budget once it has a new approved generation: ${resetCommand}. Otherwise ask the approvers for direction.`
+        : 'No allowed return resets it from here; ask the approvers for direction (approve the submission as it stands, or have a workflow maintainer change the budget for new Stories).'),
+      { code: 'REPAIR_BUDGET_EXHAUSTED', details: {
+        phase: phase.id, currentPhase: sourcePhase?.id ?? null, upstreamPhase: phase.id === sourcePhase?.id ? null : phase.id,
+        maximum: policy.maxAttempts, consumed: state.attempts.length,
+        resetPhase: policy.resetOnPhase ?? null, resetCommand
+      } }
     );
   }
   state.attempts.push({ number: state.attempts.length + 1, targetPhase, actor, at, changeRequestId });

@@ -16,8 +16,6 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 1. In the Boundary repository run `singularity-flow nextsteps <WORK-ID> --json` when the user supplied an ID; otherwise run `singularity-flow nextsteps --json`. A ready Story session is not required for repository initialization, start, resume, or explicit-ID guidance.
 2. Read `contextBoundary` before listing actions. If this chat already worked on an earlier phase, show its ordered `commandGuidance.copilotCommand` (`/clear`, then `/sf-next`, or `/compact`, then `/sf-next`) and stop; authoring is after that boundary, not NOW in this chat. No Shell or model-free equivalent exists for a chat reset. A fresh chat continues without another reset. Present returned actions in order, preserving labels, routes and reasons.
-3. If the repository is not initialized, show initialization followed by start. If no work item is active, show start and resume choices.
-4. If publication is pending, show `singularity-flow sync` first because later transitions are blocked.
-5. For an active phase, include generation, submission, approval/rejection, and the following phase or completion checks as applicable.
-6. Keep this operation read-only. Do not execute any returned action unless the user separately asks to perform it.
-7. If the user wants the first valid action executed, point them to the explicitly mutating `/sf-next` command.
+3. List only the returned actions, in their order (initialization, start or resume, `singularity-flow sync`, then the step's own); never add one the CLI did not return.
+4. Keep this operation read-only. Do not execute any returned action unless the user separately asks to perform it.
+5. If the user wants the first valid action executed, point them to the explicitly mutating `/sf-next` command.

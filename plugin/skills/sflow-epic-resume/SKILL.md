@@ -18,5 +18,5 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 1. Require the Epic key.
 2. Run `singularity-flow epic resume <EPIC-KEY> --fetch`.
 3. Show the selected governed agent, real Git identity, current phase, lead branch head, pending publication, and participating repository state.
-4. Stop on non-fast-forward or unpublished local state; never rewrite history.
+4. Stop only on a CLI refusal (it checks the checkout itself); never rewrite history.
 5. Run `/sf-epic-next <EPIC-KEY>` to show the next valid action.

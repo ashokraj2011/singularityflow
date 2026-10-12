@@ -1198,8 +1198,15 @@ async function showPrompt(root, options) {
   // Without --skill, hand Copilot the skill that drafts this step (a chosen drafting skill,
   // /sf-code, /sf-converge), never the generic one: VS Code's native handoff passes no --skill.
   const storyPhase = config.workflow?.phases?.[phase];
-  const skillId = requestedSkill
-    ?? (storyPhase ? generationSkillForPhase(storyPhase, config.workflow).replace(/^\//, '') : 'sflow-phase');
+  const drafting = storyPhase ? generationSkillForPhase(storyPhase, config.workflow) : '/sflow-phase';
+  // A step that drafts nothing has no drafting prompt; say so instead of failing.
+  if (!requestedSkill && !drafting) {
+    const result = { status: 'not-applicable', phase, reason: `'${phase}' drafts nothing, so it has no drafting prompt.` };
+    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
+    else console.log(`No drafting prompt: ${result.reason}`);
+    return result;
+  }
+  const skillId = requestedSkill ?? drafting.replace(/^\//, '');
   const skillFile = path.join(PACKAGE_ROOT, 'plugin', 'skills', skillId, 'SKILL.md');
   if (!existsSync(skillFile)) {
     throw new SingularityFlowError(`Unknown packaged Copilot skill '${skillId}'.`);

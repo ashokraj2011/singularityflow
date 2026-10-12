@@ -18,7 +18,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 A Goal has two modes. `GOL-*` is personal advisory state. `GEX-*` is repository-owned governed
 execution. Neither replaces a linked Story or Initiative lifecycle.
 
-1. Start with `singularity-flow goal list --json`; durable state, not chat memory, is authoritative. With no action, show the active Goal and run `singularity-flow goal next [GOAL-ID] --json`.
+1. Start with `singularity-flow goal list --json`; durable state, not chat memory, is authoritative. With no action: when it reports `activeGoalId`, show that Goal and run `singularity-flow goal next [GOAL-ID] --json`; otherwise relay its returned `next`.
 2. For **create**, collect an outcome and observable success. Never invent Work IDs or repositories. Preview, use `ask_user`, then run:
    `singularity-flow goal create "<OUTCOME>" --success "<CRITERION>" [--success "<CRITERION>"] [--work-id <ID> --kind story|initiative --repository <ID>] --json`.
 3. For **use/link/unlink**, show the Goal, require explicit Goal/Work selection, preview, and use `ask_user`. Linking never modifies governed work.

@@ -16,7 +16,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
 1. Run `singularity-flow epic journey <EPIC-KEY> --json`.
-2. Render Intake → Requirements → Planning → Story publication → developer delivery → Product Owner completion as an arrow flow.
+2. Render the returned `stages[]` as an arrow flow, in order; never assume a fixed stage list.
 3. Mark the current stage, completed gates, artifacts, owners, and cross-repository handoffs.
 4. Distinguish business review in the VS Code extension's Approvals view from work performed through Copilot skills.
 5. Do not change lifecycle state.

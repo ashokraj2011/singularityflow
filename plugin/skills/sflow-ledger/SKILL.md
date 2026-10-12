@@ -21,9 +21,9 @@ indexes, or durable intents by hand.
 1. Run `singularity-flow ledger status --json`.
 2. If disabled, explain that `ledger.enabled: true` must be reviewed; do not enable it silently.
 3. If enabled but uninitialized, offer `singularity-flow ledger init`.
-4. Run `singularity-flow ledger doctor` to check orphan ancestry, pin transport,
+4. Only when status returns `enabled` and `initialized`: run `singularity-flow ledger doctor` to check orphan ancestry, pin transport,
    signing readiness, and the clone's custom-ref fetch configuration.
-5. Run `singularity-flow ledger verify` for integrity and source-pin reachability.
+5. Reuse status `verification`; run `singularity-flow ledger verify` only for source-pin reachability.
 6. If a pin is unreachable, run `singularity-flow ledger repair --dry-run --json`.
    Preserve its distinction between a missing ref, a mismatched ref, an unavailable
    remote, disabled networking, and an incomplete local cache. Safe local healing may
@@ -34,7 +34,7 @@ indexes, or durable intents by hand.
    `singularity-flow ledger repair --restore-remote [--source-remote <REMOTE>] --confirm "<EXACT-PHRASE>" --json`.
 8. Use `singularity-flow ledger archive --out <FILE>` only when the user asks for
    an export. Explain that the bundle is verified and does not delete retained state.
-9. Run `singularity-flow ledger reconcile [WORK-ID]` for pending durable intents.
+9. Only when status reports pending intents, run `singularity-flow ledger reconcile [WORK-ID]`.
 10. Report the exact branch, sequence, head hash, pending count, and errors.
 
 Never describe a warning-only or unverifiable ledger as fully enforced. Never merge

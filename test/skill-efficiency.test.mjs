@@ -47,11 +47,11 @@ test('every public skill has a bounded class and output contract', async () => {
   assert.deepEqual(result.errors, []);
   assert.equal(result.rows.length, Object.keys(policy.skills ?? {}).length);
   assert.ok(result.rows.every((row) => row.class
-    && row.bodyTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - row.pauseGuardTokens <= (policy.skills[row.name]?.maximumTokenOverride ?? 800)));
+    && row.bodyTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - (row.applicabilityTokens ?? 0) - row.pauseGuardTokens <= (policy.skills[row.name]?.maximumTokenOverride ?? 800)));
   // Code generation, the specialised skills a step may choose (they follow that step's contract),
   // and the two skills that relay a step routed elsewhere.
   const overridden = ['sflow-code', 'sflow-design', 'sflow-phase', 'sflow-release', 'sflow-requirements'];
-  assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - row.pauseGuardTokens > 800).map((row) => row.name), overridden);
+  assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - (row.applicabilityTokens ?? 0) - row.pauseGuardTokens > 800).map((row) => row.name), overridden);
   for (const name of overridden) assert.ok(policy.skills[name].exception, `${name} explains its token override`);
   assert.ok(result.rows.every((row) => ['never', 'conditional'].includes(row.kernelModelPolicy)));
   // `wm ensure` reads registered-v4 views without a model; skills that only offer it stay model-free.

@@ -1,7 +1,8 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
-import { operationCatalog } from '../src/command-registry.mjs';
+import { canonicalCommand, operationCatalog } from '../src/command-registry.mjs';
+import { REMOVED_WORLD_MODEL_SUBCOMMANDS } from '../src/removed-features.mjs';
 import { AUTHORING_SKILL_DECLARATION, parseAuthoringSkills } from '../src/authoring-skills.mjs';
 import { copilotPauseGuardForSkill, COPILOT_PAUSE_MARKER, PHASE_ENTRY_SKILLS } from '../src/copilot-mode.mjs';
 
@@ -15,6 +16,17 @@ export const COMMAND_PRESENTATION_CONTRACT = 'For every next action, honor retur
  * and mutation skills (approval and review turns never run automatic actions).
  */
 export const REFUSAL_HANDLING_CONTRACT = 'On a refusal read `remediationPlan`: run its first read-only step once and follow `context.strategy`; never retry an unchanged condition or edit an earlier phase to clear it. One returned `automatic` plan-hash action (such as `sync`) may run once, then re-enter once.';
+
+/**
+ * Every Story skill acts on what the engine returned, never on its own reading of a step's name,
+ * kind or route, and a "does not apply to this step" refusal never stops it. Functional testing
+ * found /sf-submit halting a ready intake on a source-review check intake never needs.
+ */
+export const APPLICABILITY_CONTRACT = 'Run a check only when a returned field or command asks for it; never decide from a step\'s name, kind or route that it applies. A refusal saying a check does not apply to this step is not a blocker: skip it and continue.';
+
+export function applicabilityContractApplies(rule) {
+  return (rule?.executionBoundary ?? 'story') === 'story' && rule?.class !== 'delegation';
+}
 
 export function refusalHandlingApplies(rule) {
   return ['generative', 'mutation'].includes(rule?.class) && (rule?.executionBoundary ?? 'story') === 'story';
@@ -259,7 +271,7 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /singularity-flow sync <WORK-ID>[^.]*once in the verified cwd/i,
       /never follow `THEN`, invoke `\/sf-nextsteps` or `\/sf-next`, or retry/i,
       /Before approval run `singularity-flow phase show <phase> --for-agent --json`/i,
-      /singularity-flow recover <WORK-ID> --phase <phase> --json/i,
+      /On failure follow `remediationPlan`'s first read-only step/i,
       /copy the first `NOW` action's `copilotCommand` and `command` from that same action object/i,
       /never pair `\/sf-phase` with `singularity-flow next`/i
     ],
@@ -274,8 +286,7 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /Never run `singularity-flow next`/,
       /singularity-flow nextsteps <WORK-ID> --json/,
       /returned SFlow skill route/,
-      /explicit contributor consent/i,
-      /zero-byte World-Model context/i
+      /Repository brief is guidance/i
     ],
     forbidden: [
       /if stale, build and recompose identically/i,
@@ -352,13 +363,13 @@ function withAutomaticPolicy(text, automatic, description, file) {
   return `---\n${source}\n---\n${skill.body}`;
 }
 
-function withOutputContract(text, contract, kernelModelPolicy, file, executionBoundaryKind, refusalHandling = false) {
+function withOutputContract(text, contract, kernelModelPolicy, file, executionBoundaryKind, refusalHandling = false, applicability = false) {
   const skill = splitSkill(text, file);
   // Additional blocked/risk prose can separate the generated contract from its boundary. Strip
   // all maintained boundaries first so repeated generation never appends a second lookup.
   const sourceBody = skill.body.replace(/<!-- sflow-execution-boundary -->\r?\n\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?/gu, '');
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
-  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalHandling ? ` ${REFUSAL_HANDLING_CONTRACT}` : ''}`;
+  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalHandling ? ` ${REFUSAL_HANDLING_CONTRACT}` : ''}${applicability ? ` ${APPLICABILITY_CONTRACT}` : ''}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
   const boundaryText = executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)));
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
@@ -467,6 +478,34 @@ export function artifactPresentationContractErrors(body) {
   return errors;
 }
 
+/** Commands a skill names that the CLI refuses before running anything: unknown or removed. */
+export function unrunnableCommands(body) {
+  const found = [];
+  for (const match of String(body).matchAll(/(?:^|[\s`(])singularity-flow\s+([a-z][a-z0-9-]*)(?:\s+([a-z][a-z0-9-]*))?/gmu)) {
+    const [, command, subcommand] = match;
+    // `version` is answered by the entry point before the registry.
+    if (command !== 'version') { try { canonicalCommand(command); } catch { found.push(`singularity-flow ${command}`); continue; } }
+    if (['wm', 'world-model'].includes(command) && subcommand && REMOVED_WORLD_MODEL_SUBCOMMANDS.has(subcommand)) {
+      found.push(`singularity-flow ${command} ${subcommand}`);
+    }
+  }
+  return [...new Set(found)];
+}
+
+/**
+ * Story step commands whose step is a seeded step ID instead of the step the engine returned.
+ * Steps are copied, renamed and custom; a literal ID misfires everywhere but the seeded workflow.
+ */
+export function seededStepArguments(body, seededSteps) {
+  const found = [];
+  const stepCommand = /singularity-flow\s+(?:prepare|submit|approve|phase\s+(?:show|enter|prepublish|publish|draft-check|begin)|review-source\s+(?:status|context|decision-context|stage|check|submit|decide))\s+([a-z][a-z0-9-]*)\b/gu;
+  for (const match of String(body).matchAll(stepCommand)) if (seededSteps.has(match[1])) found.push(match[0]);
+  for (const match of String(body).matchAll(/singularity-flow\s+(?!initiative\b|epic\b)[^`\n]*?--phase\s+([a-z][a-z0-9-]*)\b/gu)) {
+    if (seededSteps.has(match[1])) found.push(match[0].slice(0, 100));
+  }
+  return [...new Set(found)];
+}
+
 export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
   const { policy } = await loadSkillPolicy(repositoryRoot);
   const skillRoot = path.join(repositoryRoot, 'plugin', 'skills');
@@ -484,6 +523,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     .map((entry) => entry.id)
     .sort();
   const commandRoots = new Set(operationCatalog().map((entry) => entry.command));
+  const seededSteps = new Set(Object.keys(YAML.parse(await readFile(path.join(repositoryRoot, 'templates', 'workflow.yml'), 'utf8'))?.phases ?? {}));
   const auditedModelOperations = Object.keys(MODEL_OPERATION_PATTERNS).sort();
   if (JSON.stringify(catalogModelOperations) !== JSON.stringify(auditedModelOperations)) {
     errors.push(`skill model-operation patterns are stale: catalog=${catalogModelOperations.join(', ')}; audit=${auditedModelOperations.join(', ')}`);
@@ -525,7 +565,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     let text = await readFile(file, 'utf8');
     if (write) {
       text = withAutomaticPolicy(text, automatic.has(name), AUTOMATIC_DESCRIPTIONS[name], file);
-      text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file, executionBoundaryKind, refusalHandlingApplies(rule));
+      text = withOutputContract(text, classPolicy.outputContract, kernelModelPolicy, file, executionBoundaryKind, refusalHandlingApplies(rule), applicabilityContractApplies(rule));
       text = withCopilotPauseGuard(text, pauseGuardRequired, file, name, executionBoundaryKind);
       await writeFile(file, text);
     }
@@ -539,9 +579,11 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const artifactPresentationTokens = estimatedTokens(` ${ARTIFACT_PRESENTATION_CONTRACT}`);
     const refusalHandling = refusalHandlingApplies(rule);
     const refusalHandlingTokens = refusalHandling ? estimatedTokens(` ${REFUSAL_HANDLING_CONTRACT}`) : 0;
+    const applicability = applicabilityContractApplies(rule);
+    const applicabilityTokens = applicability ? estimatedTokens(` ${APPLICABILITY_CONTRACT}`) : 0;
     const pauseGuard = copilotPauseGuardForSkill(name, executionBoundaryKind);
     const pauseGuardTokens = pauseGuardRequired ? estimatedTokens(`${COPILOT_PAUSE_MARKER}\n${pauseGuard}\n\n`) : 0;
-    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + refusalHandlingTokens + pauseGuardTokens;
+    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + refusalHandlingTokens + applicabilityTokens + pauseGuardTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
     const boundaryText = executionBoundary(executionBoundaryKind, name);
@@ -570,12 +612,19 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     if (refusalHandling !== skill.body.includes(REFUSAL_HANDLING_CONTRACT)) {
       errors.push(`${name}: ${refusalHandling ? 'missing' : 'unexpected'} engine refusal-handling contract`);
     }
+    if (applicability !== skill.body.includes(APPLICABILITY_CONTRACT)) {
+      errors.push(`${name}: ${applicability ? 'missing' : 'unexpected'} engine applicability contract`);
+    }
     for (const message of artifactPresentationContractErrors(skill.body)) errors.push(`${name}: ${message}`);
     if (!skill.body.includes(boundaryMarker) || !skill.body.includes(boundaryText)) errors.push(`${name}: missing generated execution boundary`);
     if (skill.body.split(boundaryMarker).length !== 2) errors.push(`${name}: exactly one generated execution boundary is required`);
     if (skill.body.includes('singularity/work-items/<WORK-ID>')) {
       errors.push(`${name}: hard-codes the default Story root instead of using immutable workflow.resolution.workItemRoot or a CLI-returned path`);
     }
+    const unrunnable = unrunnableCommands(skill.body);
+    if (unrunnable.length) errors.push(`${name}: names command(s) the CLI refuses as unknown or removed: ${unrunnable.map((value) => `\`${value}\``).join(', ')}`);
+    const seeded = seededStepArguments(skill.body, seededSteps);
+    if (seeded.length) errors.push(`${name}: names seeded step ID(s) instead of the returned step (<phase>): ${seeded.map((value) => `\`${value}\``).join(', ')}`);
     const bareCommands = bareOperationalCommands(skill.body, commandRoots);
     if (bareCommands.length) {
       errors.push(`${name}: operational command fragment(s) must include the singularity-flow prefix: ${bareCommands.map((value) => `\`${value}\``).join(', ')}`);
@@ -608,6 +657,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       commandPresentationTokens,
       artifactPresentationTokens,
       refusalHandlingTokens,
+      applicabilityTokens,
       pauseGuardTokens,
       warningTokens: classPolicy.warningTokens,
       maximumTokens: maximum,

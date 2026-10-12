@@ -30,8 +30,11 @@ export async function sourceReviewAgentContext({ cwd = process.cwd(), phaseId = 
   if (!entry.packet.ready) return { ...entry.packet, resultType: 'source-review-agent-context',
     status: 'binding-required', canReview: false,
     continuation: { actions: session.phaseAgent?.handoff ? [session.phaseAgent.handoff] : [] } };
-  if (!sourceReviewKind(workflow, phase.id)) throw new SingularityFlowError(
-    `Source review applies only to a step that defines the scope or plans the claims; '${phase.id}' does neither.`);
+  // A step with no source review is answered, not refused, so a reviewer never stops on it.
+  if (!sourceReviewKind(workflow, phase.id)) return { ...entry.packet, resultType: 'source-review-agent-context',
+    status: 'not-required', canReview: false,
+    reason: `'${phase.id}' neither defines the scope nor plans the claims, so it has no source review.`,
+    continuation: { actions: [] } };
   if (!workflowBranchAllowed(workflow, branch(root))) throw new SingularityFlowError(
     `Current branch is not registered for Story '${workflow.workItem.id}'.`);
   if (phase.status !== 'in_progress') throw new SingularityFlowError(

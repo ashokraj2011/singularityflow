@@ -16,9 +16,9 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
 1. Require the Jira Epic key. Run `singularity-flow initiative choices begin start <EPIC-KEY> --json`.
-2. Present every profile and governed-agent option with Copilot's selectable question UI. Do not infer an answer.
+2. Present exactly the returned `choiceSets` (profiles) with Copilot's selectable question UI; the phase agent is selected automatically. Do not infer an answer.
 3. Record each answer with `singularity-flow initiative choices answer <TOKEN> <CHOICE-ID> <SELECTED-ID> --json`.
 4. When the receipt is ready, run `singularity-flow epic start <EPIC-KEY> --selection-receipt <TOKEN>`.
-5. The default profile is `epic-planning`; a user may select a configured full-delivery profile instead.
+5. Offer only the profiles the receipt returns; never preselect one.
 6. Show the created branch, pinned profile, source Jira identity, commit/push result, complete phase flow, and first deterministic next action.
 7. Do not create branches manually or approve any phase.

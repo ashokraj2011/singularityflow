@@ -82,8 +82,9 @@ test('a work type without a fast path gets no rail invented for it', () => {
   // Nothing here fabricates verbs for a profile that does not declare them; the phase rail stays
   // exactly what it was.
   assert.equal(fastPathProfile(DEFINITION, 'feature'), null);
-  assert.throws(() => planFastPath({ ...WORKFLOW, workItem: { id: 'S-2', workType: 'feature' } }, DEFINITION, 'specify'),
-    /does not configure the fast path/);
+  const unrouted = planFastPath({ ...WORKFLOW, workItem: { id: 'S-2', workType: 'feature' } }, DEFINITION, 'specify');
+  assert.equal(unrouted.checkpoint.kind, 'not-routed');
+  assert.deepEqual(unrouted.next.map((entry) => entry.command), ['sflow nextsteps']);
 });
 
 test('the extension renders the projection and recomputes nothing', async () => {

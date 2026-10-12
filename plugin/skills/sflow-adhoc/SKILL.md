@@ -14,7 +14,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-1. Run `singularity-flow adhoc status --json`. If no session exists and the contributor wants to inspect existing work, run `singularity-flow land --json`.
+1. Run `singularity-flow adhoc status --json`. `session: null` means none is active: relay its `next`; to inspect existing work, run `singularity-flow land --json`.
 2. Show every observed resource and the exact change-set digest. The candidate objective is advisory and must never be described as pre-existing intent.
 3. Ask the contributor for the objective and at least one observable success criterion. Only after they answer, run `singularity-flow adhoc intent confirm <SESSION-ID> --objective "..." --success "..." --confirm <CHANGE-SET-SHA256> --json`.
 4. Show unresolved resources. Apply only the exact claimed/deviation/split/revert choices the contributor gives; never claim a resource automatically.

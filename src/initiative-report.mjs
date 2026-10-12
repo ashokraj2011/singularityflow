@@ -1,4 +1,4 @@
-import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
+import { storyPlanPhaseOf, usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import {
   evaluateInitiativePhase, readInitiativeRecords
 } from './initiative-evidence.mjs';
@@ -266,9 +266,7 @@ async function resolveInitiativeNextActions(root, initiativeId) {
       reason: 'Pin the Epic requirements, research, designs, or other source material before generating intake artifacts.'
     }];
   }
-  const materializationPhase = initiative.phaseOrder.includes('epic-planning')
-    ? 'epic-planning'
-    : initiative.phaseOrder.includes('elaboration') ? 'elaboration' : 'plan';
+  const materializationPhase = storyPlanPhaseOf(initiative);
   if (initiative.phases[materializationPhase]?.status === 'approved' && initiative.materialization.status !== 'complete') return [{
     action: 'materialize',
     command: usesEpicPlanningLifecycle(initiative.resolution)

@@ -1,5 +1,5 @@
 import { conformancePhaseOf, isConformancePhase, isTestEvidencePhase, stepResponsibilities } from './phase-roles.mjs';
-import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
+import { storyPlanPhaseOf, usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -340,11 +340,7 @@ export async function loadInitiativeBreakdown(root, portfolio, initiativeId) {
 }
 
 function materializationPhase(initiative) {
-  return initiative.phaseOrder.includes('epic-planning')
-    ? 'epic-planning'
-    : initiative.phaseOrder.includes('elaboration')
-      ? 'elaboration'
-      : initiative.phaseOrder.includes('plan') ? 'plan' : null;
+  return storyPlanPhaseOf(initiative);
 }
 
 function stableLabel(initiativeId, itemId) {

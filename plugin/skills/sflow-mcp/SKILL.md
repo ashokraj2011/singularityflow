@@ -23,7 +23,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 - With browser consent, prove launch, tools, same-origin navigation, snapshot, and close: `singularity-flow mcp smoke playwright --url <AUTHORIZED-URL>`. An origin-bound phase also records navigation evidence.
 - Merge an explicit VS Code host entry without replacing unrelated servers: `singularity-flow mcp scaffold playwright` or `singularity-flow mcp scaffold figma` (`--local` selects Figma's desktop endpoint).
 - Record output with `singularity-flow mcp record <SERVER> --tool <TOOL> --phase <PHASE> [--output <PATH>] [--note TEXT]`. Only live smoke can record origin-bound navigation; snapshots must report an authorized `Page URL`.
-- Record pinned Figma metadata: `singularity-flow mcp record figma --kind design-source --tool get_metadata --phase design-intake --output <XML> --file-key <KEY> --file-version <VERSION> [--node 1:3]`.
+- Record pinned Figma metadata: `singularity-flow mcp record figma --kind design-source --tool get_metadata --output <XML> --file-key <KEY> --file-version <VERSION> [--node 1:3]` (capture step only).
 - Inspect the exact approved source set downstream prompts will use: `singularity-flow mcp design-sources status`.
 
 The host owns transport, trust, and credentials; Flow owns allowlisting and provenance. `ready` binds host, policy, and authentication-profile digest. A Playwright phase also requires a valid exact-package warm proof; `requireSmoke` needs a receipt under 24 hours old on the Story origin. Never print environment variables, put secrets in `workflow.yml`, silently replace `.vscode/mcp.json`, or overstate a hash receipt.

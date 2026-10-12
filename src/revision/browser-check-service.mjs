@@ -125,9 +125,26 @@ async function selectedBrowserContext(root) {
   return { active, inspected, candidateReference };
 }
 
+/**
+ * A read-only question with no current prechecked loop head is answered "unavailable" with the
+ * reason code, never refused, so a reader relays it instead of stopping.
+ */
+async function browserContextOrUnavailable(root, kind) {
+  try { return { context: await selectedBrowserContext(root) }; } catch (error) {
+    if (error?.code !== 'REV_BROWSER_CANDIDATE_UNAVAILABLE') throw error;
+    const active = await loadActiveRevisionStory(root).catch(() => null);
+    return { unavailable: Object.freeze({ schemaVersion: 1, kind, status: 'unavailable', state: 'unavailable',
+      subject: { ...(active?.subject ?? {}), workId: active?.subject?.workId ?? null },
+      reasonCode: error.code, reason: error.message,
+      criterionSatisfactionEstablished: false, publicationEligibilityEstablished: false }) };
+  }
+}
+
 /** Read-only exact plan. Current approved configuration has no complete BRL command contract. */
 export async function planPublicRevisionBrowserChecks(root) {
-  const { active, inspected, candidateReference } = await selectedBrowserContext(root);
+  const resolved = await browserContextOrUnavailable(root, 'revision-browser-check-plan');
+  if (resolved.unavailable) return resolved.unavailable;
+  const { active, inspected, candidateReference } = resolved.context;
   const registrations = browserRegistrations(active.phase);
   const core = {
     schemaVersion: 1,
@@ -299,7 +316,9 @@ export async function inspectPublicRevisionBrowserCheckStatus(root, selectedRunI
       });
     }
   }
-  const { active, inspected } = await selectedBrowserContext(root);
+  const resolved = await browserContextOrUnavailable(root, 'revision-browser-check-status');
+  if (resolved.unavailable) return resolved.unavailable;
+  const { active, inspected } = resolved.context;
   return absentStatus(active, inspected, selected);
 }
 

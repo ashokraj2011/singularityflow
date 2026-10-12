@@ -19,6 +19,8 @@ For status from a Story repository, run:
 
 `singularity-flow stack status --json`
 
+`status: not-applicable` means the Story is not in an Epic merge stack; say so and stop.
+
 From the Epic lead repository, refresh live Git state and replicate the resulting stack to every participating repository's orphan state branch:
 
 `singularity-flow stack sync --epic <EPIC-ID> --json`

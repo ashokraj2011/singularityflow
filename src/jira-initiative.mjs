@@ -1,3 +1,4 @@
+import { storyPlanPhaseOf } from './initiative-phase-roles.mjs';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -193,11 +194,7 @@ function repositoryRouting(initiative, story, fallbackProjectKey, policy) {
 }
 
 function materializationPhase(initiative) {
-  return initiative.phaseOrder.includes('epic-planning')
-    ? 'epic-planning'
-      : initiative.phaseOrder.includes('elaboration')
-        ? 'elaboration'
-        : initiative.phaseOrder.includes('plan') ? 'plan' : null;
+  return storyPlanPhaseOf(initiative);
 }
 
 function artifactMimeType(kind, file) {

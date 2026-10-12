@@ -73,8 +73,10 @@ async function choose(label, entries, { selection = null, nonInteractiveHint = n
         ?? (label === 'intake source' ? 'manual' : undefined);
       if (entries.some(([id]) => id === selected)) return selected;
     }
+    // Without a terminal, the choices travel with the refusal so a chat can present them.
     throw new SingularityFlowError(
-      `Selecting a ${label} requires an interactive terminal.${nonInteractiveHint ? ` ${nonInteractiveHint}` : ''}`
+      `Selecting a ${label} requires an interactive terminal.${nonInteractiveHint ? ` ${nonInteractiveHint}` : ''}`,
+      { code: 'SELECTION_REQUIRED', details: { label, choices: entries.map(([id, item]) => ({ id, label: item?.label ?? id, description: item?.description ?? null })) } }
     );
   }
   const io = readline.createInterface({ input, output });

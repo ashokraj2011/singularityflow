@@ -168,14 +168,18 @@ export function planFastPath(workflow, definition, verb, {
   }
   const workType = workflow?.workItem?.workType;
   const profile = fastPathProfile(definition, workType);
-  if (!profile) {
-    throw new SingularityFlowError(
-      `Work type '${workType ?? 'unknown'}' does not configure the fast path. Use the phase commands, or start a Story with a profile that declares workTypes.<type>.fastPath.`
-    );
-  }
-  if (!profile.verbs[verb]) {
-    const offered = Object.keys(profile.verbs).join(', ');
-    throw new SingularityFlowError(`'${verb}' is not configured for ${workType}. It offers: ${offered}.`);
+  // A verb asks where the Story stands. For a work type that does not route it, the answer is
+  // "not routed here" with the deterministic action set, never a refusal to stop on.
+  if (!profile || !profile.verbs[verb]) {
+    return result({
+      verb, milestone: null, outcome: 'blocked',
+      checkpoint: { kind: 'not-routed', reason: !profile
+        ? `Work type '${workType ?? 'unknown'}' does not configure the fast path; its steps use the phase commands.`
+        : `'${verb}' is not configured for ${workType}; it offers ${Object.keys(profile.verbs).join(', ')}.` },
+      underlyingOperations: [],
+      why: [{ code: !profile ? 'fastpath.not-configured' : 'fastpath.verb-not-configured', source: 'configuration' }],
+      next: [{ id: 'fastpath.nextsteps', label: 'Show the deterministic action set', command: 'sflow nextsteps', rank: 'NOW' }]
+    });
   }
 
   const milestone = profile.verbs[verb].milestone;

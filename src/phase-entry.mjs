@@ -195,7 +195,9 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     scope: 'read-only', command: base.continuationReview.commandGuidance.command, skill: '/sf-appeal',
     detail: 'Inspect one preserved-work journey and its exact repair/human/owner route. This inspection changes nothing and cannot grant authoring or publication permission.'
   }));
-  return { ...base, status, upstream, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
+  // A retest step names the step whose Code evidence it re-checks; skills read this, never a step name.
+  const testEvidenceFrom = workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.testEvidenceFrom ?? null;
+  return { ...base, status, upstream, testEvidenceFrom, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, retainedExecutionEvidence, references, clarification, context,

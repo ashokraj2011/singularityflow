@@ -7252,7 +7252,9 @@ async function stackCommand(positionals, options) {
       const config = await loadConfig(root);
       const workflow = await loadStoryAggregate(root, config);
       stack = await publishedStackForStory(root, config, workflow);
-      if (!stack) throw new SingularityFlowError(`${workflow.workItem.id} has no Epic merge stack.`);
+      // A Story outside an Epic has no merge stack: answer that, never refuse a status question.
+      if (!stack) stack = { status: 'not-applicable', workId: workflow.workItem.id, reason: `${workflow.workItem.id} is not part of an Epic merge stack.` };
+      if (stack.status === 'not-applicable') return optionBoolean(options, 'json') ? console.log(JSON.stringify(stack, null, 2)) : console.log(stack.reason);
     }
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(stack, null, 2));
     printStack(stack);
@@ -8623,7 +8625,9 @@ async function decisionShowCommand(positionals, options) {
   const root = repoRoot();
   const requestedId = positionals[2] ?? optionString(options, 'work-id') ?? undefined;
   const { workflow } = await loadAcceptedStoryExecution(root, requestedId);
-  const view = { ...storyDecisionView(workflow), applicability: applicabilityStatus(workflow) };
+  // Open upstream issues are decisions too, so /sf-decide sees them in the same answer [UIF-M2].
+  const view = { ...storyDecisionView(workflow), applicability: applicabilityStatus(workflow),
+    upstreamIssues: openUpstreamIssues(workflow).map(({ issue, status }) => ({ id: issue.id, phase: issue.phase, about: issue.about, status })) };
   if (optionBoolean(options, 'json')) {
     console.log(JSON.stringify(view, null, 2));
     return;
@@ -10407,6 +10411,10 @@ async function receiptCommand(positionals, options) {
   const root = repoRoot();
   const workId = positionals[2] ?? optionString(options, 'work-id');
   const { config, workflow } = await loadAcceptedStoryExecution(root, workId);
+  if (!optionString(options, 'packet') && !workflow.lineage?.submissions?.length) {
+    const none = { status: 'unavailable', reason: 'no-submission', workId: workflow.workItem.id };
+    return optionBoolean(options, 'json') ? console.log(JSON.stringify(none, null, 2)) : console.log(`No receipt yet: ${workflow.workItem.id} has not been submitted for review.`);
+  }
   const packet = await readStoryReviewPacket(root, config, workflow, optionString(options, 'packet'));
   const receipt = await composeEvidenceReceipt(root, config, workflow, packet);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(receipt, null, 2));
@@ -14145,7 +14153,9 @@ async function initiativeCommand(positionals, options) {
     console.log(`Initiative ${initiativeId} started as ${profile}.`);
     console.log(initiativeFlowText(progress));
     console.log(`Commit: ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ' local'}`);
-    printCommandRoutes('singularity-flow epic requirements prepare', { label: 'Prepare requirements' });
+    // The next step depends on the profile: Epic planning prepares requirements, others their first step.
+    if (usesEpicPlanningLifecycle(current.initiative.resolution)) printCommandRoutes('singularity-flow epic requirements prepare', { label: 'Prepare requirements' });
+    else printCommandRoutes(`singularity-flow initiative phase ${current.initiative.currentPhase} --initiative ${initiativeId}`, { label: 'Prepare the first phase' });
     return;
   }
   if (subcommand === 'resume') {
@@ -14703,6 +14713,8 @@ async function initiativeCommand(positionals, options) {
     const result = await syncInitiativeRepositories(root, initiativeId);
     const fresh = await loadInitiativeAggregate(root, initiativeId);
     const publication = await commitInitiativeChange(root, fresh.portfolio, fresh.initiative, { type: LIFECYCLE_EVENT.EXTERNAL_SYNCHRONIZED, payload: { operation: 'repository-sync' } }, `[${initiativeId}][initiative:sync] repository evidence`);
+    // Per-Story results let a caller stop only on a returned failing status, never on a guess.
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ initiativeId, results: result.results, commit: publication.sha, pushed: publication.pushed }, null, 2));
     console.log(`Synchronized ${result.results.filter((item) => item.status === 'synchronized').length}/${result.results.length} stories. Commit ${publication.sha.slice(0, 8)}${publication.pushed ? ' pushed' : ''}.${pending.pushed ? ` Retried ${pending.pushed.slice(0, 8)} first.` : ''}`);
     return;
   }

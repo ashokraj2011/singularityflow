@@ -254,7 +254,11 @@ test('the fast path is a profile property, not an engine branch', () => {
   // `[SPK:CON-020]`. A work type that does not configure it does not get it, and says so usefully.
   assert.equal(fastPathProfile(DEFINITION, 'feature'), null);
   const featureStory = { ...story('specification'), workItem: { id: 'F-1', workType: 'feature' } };
-  assert.throws(() => planFastPath(featureStory, DEFINITION, 'specify'), /does not configure the fast path/);
+  const unrouted = planFastPath(featureStory, DEFINITION, 'specify');
+  assert.equal(unrouted.checkpoint.kind, 'not-routed');
+  assert.match(unrouted.checkpoint.reason, /does not configure the fast path/);
+  assert.deepEqual(unrouted.next.map((entry) => entry.command), ['sflow nextsteps']);
+  assert.equal(unrouted.milestone, null);
   assert.throws(() => planFastPath(story('specification'), DEFINITION, 'nope'), /Unknown fast-path verb/);
 });
 

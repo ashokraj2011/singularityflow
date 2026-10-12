@@ -19,6 +19,20 @@ export function isEpicRequirementsPhase(phase) {
   return hasContract(phase, ['requirements-specification', 'requirements-traceability'], 'requirements-traceable');
 }
 
+/**
+ * The step whose approval turns its Story plan into Stories: the one that produces the
+ * `story-plan` output, whatever it is called. Older pins without outputs fall back to the
+ * seeded step IDs.
+ */
+export function storyPlanPhaseOf(initiative) {
+  const order = initiative?.phaseOrder ?? [];
+  const produces = (id) => {
+    const outputs = initiative.phases?.[id]?.outputs;
+    return Array.isArray(outputs) ? outputs.some((output) => output?.id === 'story-plan') : Boolean(outputs?.['story-plan']);
+  };
+  return order.find(produces) ?? ['epic-planning', 'elaboration', 'plan'].find((id) => order.includes(id)) ?? null;
+}
+
 export function usesEpicPlanningLifecycle(resolution) {
   return Boolean(resolution?.phases?.some(isEpicPlanningPhase));
 }

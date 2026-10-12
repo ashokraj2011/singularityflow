@@ -181,6 +181,10 @@ export async function closeAdhocSessionLocally(root, requested = null) {
 
 export async function adhocStatus(root, requested = null) {
   if (requested === 'all') return { sessions: await listSessions(root) };
+  // Asking with no active session is answered, so the usual first step never stops on a refusal.
+  if (!requested && !await readActiveSessionId(root, { required: false })) {
+    return { session: null, next: "Run 'singularity-flow land' to inspect existing work or 'singularity-flow adhoc start'." };
+  }
   const session = await readAdhocSession(root, requested);
   return {
     session,

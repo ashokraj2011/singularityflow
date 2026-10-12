@@ -59,6 +59,7 @@ function render(value) {
       ...adhocActionLines(value.nextActions[0])
     ].join('\n');
   }
+  if (value && value.session === null && value.next) return `No active ad hoc session. ${value.next}`;
   if (value?.session && value?.baseline) {
     const session = value.session;
     return [

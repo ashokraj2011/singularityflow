@@ -19,10 +19,10 @@ Approval authority comes from configured local Git name/email groups, not the se
 
 1. Use `/sf-initiative-documents` and `/sf-initiative-checklist` for exact output links/hashes, evidence assurance/freshness, prior approvals, child milestones and self-approval risk. Require the human's complete review of these bound outputs outside chat; opening a preview or a summary is not review. Changed bindings need fresh review before confirmation.
 2. Run `singularity-flow initiative choices begin approve <INIT-ID> <OUTPUT-ID|phase> --json`.
-3. Present the governed-agent choice with Copilot's `ask_user`; anyone may select any configured agent, but it does not grant approval authority.
-4. Show the exact `phase:subject` confirmation option and require the reviewer to choose it explicitly. Never infer, preselect, or synthesize approval intent.
-5. Record the two answers with `singularity-flow initiative choices answer <TOKEN> <CHOICE-ID> <SELECTED-ID> --json`.
-6. Only after `ready: true`, run `singularity-flow initiative approve <OUTPUT-ID|phase> --initiative <INIT-ID> --selection-receipt <TOKEN>`.
+3. Present exactly the returned `choiceSets` with Copilot's `ask_user` (the `phase:subject` confirmation); the phase agent is the default and grants no approval authority.
+4. The reviewer must choose the confirmation explicitly. Never infer, preselect, or synthesize approval intent.
+5. Record each answer with `singularity-flow initiative choices answer <TOKEN> <CHOICE-ID> <SELECTED-ID> --json`.
+6. Only after `ready: true`, run `singularity-flow initiative approve <OUTPUT-ID|phase> --initiative <INIT-ID> --selection-receipt <TOKEN>`. A self-approval refusal: show it; only if the reviewer explicitly accepts self-approval, rerun with `--acknowledge-self-approval`.
 7. Report the approved content/bundle hash, actor identity, authority group, governed agent, self-approval warning, remaining distinct approvals, advancement, commit, and push.
 8. When phase approval advances the initiative, reproduce the CLI's context-boundary guidance. For `new`, stop and ask the contributor to run `/clear` followed by `/sf-initiative-next`; for `compact`, ask for `/compact` first. Do not author the next initiative phase in the old conversation.
 

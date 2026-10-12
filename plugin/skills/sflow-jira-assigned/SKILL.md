@@ -18,16 +18,15 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 Use Singularity Flow's direct Jira REST client. Do not use Jira MCP tools.
 
-1. If the connection has not been checked in this session, run `singularity-flow jira status --json`.
-2. Run:
+1. Run (it checks the connection itself; relay a connection or credential refusal):
 
    `singularity-flow jira assigned [--project <KEY>] [--type <ISSUE-TYPE>] [--limit <N>] --json`
 
-3. Present a compact table containing Jira key, summary, status, active or future sprint, priority, parent, and updated time.
-4. State that the default query is:
+2. Present a compact table containing Jira key, summary, status, active or future sprint, priority, parent, and updated time.
+3. State that the default query is:
    - assigned to the authenticated Jira user;
    - issue type `Story`;
    - status category not Done.
-5. When there are no results, report that clearly. Do not silently broaden the project, issue type, assignee, or status filter.
+4. When there are no results, report that clearly. Do not silently broaden the project, issue type, assignee, or status filter.
 
 This skill is read-only. Never request or display the user's Jira token or password. Use `/sf-jira-update` only when the user explicitly asks to change one Story.

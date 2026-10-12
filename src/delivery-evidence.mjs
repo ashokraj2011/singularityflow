@@ -739,6 +739,20 @@ async function allocatedPlanObligations(root, config, workflow, phase) {
 }
 
 /**
+ * The exact planned evidence files this code step owes, under the Story's evidence directory:
+ * what its author must produce before publication. Edit permission and routing only, never a pass;
+ * an unreadable or absent plan owes nothing here and the publication checks still apply.
+ */
+export async function plannedEvidencePaths(root, config, workflow, phase) {
+  const obligations = await allocatedPlanObligations(root, config, workflow, phase).catch(() => null);
+  const prefix = `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence/`;
+  return [...new Set((obligations ?? []).filter((entry) => entry.fulfillment === 'evidence')
+    .flatMap((entry) => entry.expectedPaths ?? [])
+    .map((candidate) => path.posix.normalize(String(candidate)))
+    .filter((candidate) => candidate.startsWith(prefix) && !candidate.split('/').includes('..')))].sort();
+}
+
+/**
  * Judge each allocated obligation that is not delivered by new or modified product source by its
  * own fulfillment [E2G-010]: behaviour that already exists must still be at its paths, removed
  * behaviour must be gone, and a document or configuration change must change exactly its paths.
@@ -1307,6 +1321,12 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
             recoveryCommands: [`singularity-flow phase prepublish ${phase.id} --json`]
           } : {}),
           sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? [],
+          // Each planned evidence file this step owes but has not produced, so recovery can name
+          // the file and its route instead of a prose-only shortfall.
+          retainedEvidenceMissing: fulfillment.obligations.filter((entry) => entry.fulfillment === 'evidence')
+            .flatMap((entry) => entry.paths.filter((item) => item.state === 'missing')
+              .map((item) => ({ clauseId: entry.clauseId, path: item.path }))),
+          problemCount: errors.length,
           // Read-only repair input, derived from the verified planning pointer and candidate.
           // Do not select a test/function by guessing from a file name or invent its meaning.
           traceabilityRepair: {

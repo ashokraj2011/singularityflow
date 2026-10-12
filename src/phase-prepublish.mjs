@@ -35,7 +35,8 @@ import { planningEvidenceRepair } from './planning-evidence-repair.mjs';
 import { phaseAuthoringContract, phasePlansDelivery } from './phase-authoring-contract.mjs';
 
 function findingKey(finding) {
-  return [finding.code, finding.path ?? '', finding.line ?? '',
+  // Distinct underlying failures share a surface code (code.delivery.incomplete); keep each one.
+  return [finding.code, finding.details?.sourceCode ?? '', finding.path ?? '', finding.line ?? '',
     finding.details?.clauseId ?? finding.value ?? '', finding.details?.field ?? ''].join('\0');
 }
 

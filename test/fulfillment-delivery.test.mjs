@@ -181,6 +181,21 @@ test('a real Story delivers source, configuration, test-only, removal, document 
   assert.notEqual(missing.status, 0, 'missing planned screenshot was published');
   assert.match(`${missing.stdout}\n${missing.stderr}`, /requires evidence.*does not exist/su);
   assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.implementation.generation, 0);
+  // The missing screenshot is the author's to produce: one finding per file naming every clause
+  // that owes it, routed to capture it and recheck (never to the workflow maintainer). The runner
+  // is held by that finding, not reported missing, and the author may write exactly that file.
+  const prepublish = JSON.parse(run(process.execPath, [CLI, '--no-model', 'phase', 'prepublish', 'implementation', '--for-agent', '--json'],
+    root, { allowFailure: true }).stdout);
+  assert.deepEqual(prepublish.findings.map((finding) => [finding.code, finding.path, finding.details.clauseIds]),
+    [['code.delivery.retained-evidence-missing', SCREEN, [ac(6), SCREEN_REQ]]]);
+  const [issue] = prepublish.resolution.issues;
+  assert.equal(issue.status, 'needs-correction');
+  assert.deepEqual([issue.choices[0].kind, issue.choices[0].copilotCommand, issue.choices[0].command],
+    ['capture-retained-evidence', '/sf-code', 'singularity-flow phase prepublish implementation --for-agent --json']);
+  assert.equal(prepublish.testExecution.handoff.runnerStatus, 'blocked');
+  assert.equal(prepublish.testExecution.reason, 'CODE_DELIVERY_EVIDENCE_REQUIRED');
+  const entry = JSON.parse(cli('phase', 'enter', 'implementation', '--for-agent', '--json').stdout);
+  assert.ok(entry.mutationContract.artifacts.includes(SCREEN), 'the author may write the planned screenshot');
   await write(SCREEN, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3ioAAAAASUVORK5CYII=', 'base64'));
   cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
   cli('submit', 'implementation');

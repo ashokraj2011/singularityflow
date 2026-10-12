@@ -65,9 +65,13 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
     activeAgent: session.activeAgent, phaseAgent: session.phaseAgent,
     selectionSource: selected?.selectionSource ?? 'cwd', branch: branch(root), head: head(root) };
   const contextBoundary = phase ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
+  // The planned evidence files this open code generation owes are listed with its artifacts.
+  const evidence = phase?.generationIntent?.status === 'open' && turnMode === 'authoring'
+    ? await (await import('./delivery-evidence.mjs')).plannedEvidencePaths(root, definition, workflow, phase).catch(() => [])
+    : [];
   const packet = { schemaVersion: 1, resultType: 'sflow-phase-entry', paused: false,
     personalization: resolvePersonalization({ root }), ...binding,
-    mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase, turnMode })),
+    mutationContract: mutationContractPresentation(deriveMutationContract({ root, definition, workflow, phase, turnMode, evidence })),
     authoringContract: phaseAuthoringContract(definition, workflow, phase),
     build: { description: versionLine(), ...BUILD_INFO },
     continuationReview: phase ? { contractRevision: PHASE_JOURNEY_CONTRACT, readOnly: true,

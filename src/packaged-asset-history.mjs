@@ -106,7 +106,8 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   // to the complete registry below; these entries prove upgrades from real released bytes without
   // treating a filename, baseline receipt, or similar-looking content as framework ownership.
   'singularity/templates/common/implementation.md': Object.freeze([
-    '5d0478b18c8fd14221e14c68e6238b909bccd6802a70262c416005354716c62c'
+    '5d0478b18c8fd14221e14c68e6238b909bccd6802a70262c416005354716c62c',
+    'cf46a21cdcb12035defbb5b6a74c7acd6c6d1e751556964f416f27bb5acb5482'
   ]),
   // First released SKP starter. Exact previous bytes can be upgraded without claiming any
   // repository-customized starter file as framework-owned.
@@ -444,7 +445,7 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/classic-delivery/intake.md': '8e60e4d8551c8a84056ac4e8e30f6d7b95c1639408f65668a55e3ae3ae6b0bb9',
   'singularity/templates/classic-delivery/testing.md': 'd84b65e54ff4210a7fab6cc1af3a2ea45bbba61fbee383a1ef985f31848ff177',
   'singularity/templates/common/conformance.md': '4d0d9502b65b257e2d8b315634b7e6c17c64c531a9efe42849c37be1b3366b1b',
-  'singularity/templates/common/implementation.md': 'cf46a21cdcb12035defbb5b6a74c7acd6c6d1e751556964f416f27bb5acb5482',
+  'singularity/templates/common/implementation.md': 'f1be0acd9f9a81812cb8703f90046512a1519c0c7cebccd676367c41f037bbde',
   'singularity/templates/common/intake.md': 'e16cd8b47f472973823a1a53294c77ac6551285c4df75e916c739611c3bc1d23',
   'singularity/templates/common/verification.md': '31e8dc7c915c96c7bce79e3138af0537875f077350a13af5250e50c4c571728b',
   'singularity/templates/document-test-repair/check.md': '2dcb5121d1577a3a26ca6527f9107336b632600dab21c5fe4c215c23cb84f438',

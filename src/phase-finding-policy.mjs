@@ -4,7 +4,14 @@ const ARTIFACT_QUALITY = new Set([
   'artifact.heading.empty'
 ]);
 const AUTHOR_CATEGORIES = new Set(['authoring', 'artifact', 'traceability', 'artifact-set',
-  'specification-quality', 'specification-index', 'planning-table', 'verification-contracts']);
+  'specification-quality', 'specification-index', 'planning-table', 'verification-contracts',
+  'retained-evidence']);
+// Fixed by the step's own author in its draft, whatever check reports them: an Agent brief the
+// projection cannot see (for example written inside a template comment), an unclosed comment, a
+// code delivery the author has not finished, or a planned evidence file it has not produced yet.
+const AUTHOR_CODES = new Set(['AGENT_BRIEF_SUMMARY_REQUIRED', 'AGENT_BRIEF_PRESERVED_SECTION_REQUIRED',
+  'AGENT_BRIEF_MAXIMUM_BYTES_EXCEEDED', 'AGENT_BRIEF_HEADING_AMBIGUOUS', 'ARTIFACT_COMMENT_UNCLOSED',
+  'CODE_DELIVERY_EVIDENCE_REQUIRED', 'CODE_DELIVERY_RETAINED_EVIDENCE_MISSING']);
 const DERIVED_CODES = new Set(['phase.grounding.required', 'phase.grounding.not-ready',
   'phase.generation-intent.required', 'GENERATION_INTENT_REQUIRED']);
 const OPERATION_CATEGORIES = new Set(['host', 'integration', 'transport', 'external-evidence',
@@ -44,7 +51,7 @@ export function phaseFindingPolicy(finding) {
     riskEligible = !(coverage?.invalidEvidence?.length || coverage?.unclaimedChangedPaths?.length
       || coverage?.withdrawnButClaimed?.length)
       && (finding.details?.riskEligible === true || finding.details?.qualityRisk?.eligible === true);
-  } else if (AUTHOR_CATEGORIES.has(category) || /^artifact\./u.test(code)) {
+  } else if (AUTHOR_CATEGORIES.has(category) || /^artifact\./u.test(code) || AUTHOR_CODES.has(code)) {
     classification = 'author-correction'; repair = 'owned-author';
   } else if (category === 'clarification') {
     classification = 'human-input'; repair = 'record-real-answer';

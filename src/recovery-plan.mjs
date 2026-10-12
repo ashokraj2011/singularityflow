@@ -428,20 +428,30 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
           deliveryEvidence = error.qualityRiskCandidate ?? null;
         }
       }
-      testCommands = (deliveryEvidence ? await resolveDeliveryQualityCommands(root, {
-        ...phase, deliveryEvidence
-      }, { executionMode: workflow.resolution?.testExecutionMode }) : phase.qualityCommands ?? []).filter((command) => command && typeof command === 'object'
-        && !Array.isArray(command) && command.kind === 'test');
-      const normalized = testCommands.map((command, index) =>
-        normalizeRequiredTestCommand(command, index));
-      if (!testCommands.length) throw structuredTestCommandRequiredError(phase);
-      const testPolicy = workflow.resolution?.codeDelivery?.tests;
-      testExecution.status = 'not-run';
-      if (deliveryErrors.length) testExecution.blockedBy = deliveryErrors.map(error => error.code ?? 'CODE_DELIVERY_INCOMPLETE');
-      testExecution.commands = normalized.map((command, index) => {
-        const configuredIndex = (phase.qualityCommands ?? []).indexOf(testCommands[index]);
-        return projectTestExecutionCommand(command, { configuredIndex, testPolicy });
-      });
+      const isTestCommand = (command) => command && typeof command === 'object'
+        && !Array.isArray(command) && command.kind === 'test';
+      if (!deliveryEvidence && deliveryErrors.length && !(phase.qualityCommands ?? []).some(isTestCommand)) {
+        // The runner is inferred from the change set, which another delivery finding still
+        // blocks. Report it as blocked by that finding, never as a missing test command: the
+        // author fixes the delivery and publication infers the runner.
+        testExecution.status = 'unavailable';
+        testExecution.reason = deliveryErrors[0].code ?? 'CODE_DELIVERY_INCOMPLETE';
+        testExecution.blockedBy = deliveryErrors.map(error => error.code ?? 'CODE_DELIVERY_INCOMPLETE');
+      } else {
+        testCommands = (deliveryEvidence ? await resolveDeliveryQualityCommands(root, {
+          ...phase, deliveryEvidence
+        }, { executionMode: workflow.resolution?.testExecutionMode }) : phase.qualityCommands ?? []).filter(isTestCommand);
+        const normalized = testCommands.map((command, index) =>
+          normalizeRequiredTestCommand(command, index));
+        if (!testCommands.length) throw structuredTestCommandRequiredError(phase);
+        const testPolicy = workflow.resolution?.codeDelivery?.tests;
+        testExecution.status = 'not-run';
+        if (deliveryErrors.length) testExecution.blockedBy = deliveryErrors.map(error => error.code ?? 'CODE_DELIVERY_INCOMPLETE');
+        testExecution.commands = normalized.map((command, index) => {
+          const configuredIndex = (phase.qualityCommands ?? []).indexOf(testCommands[index]);
+          return projectTestExecutionCommand(command, { configuredIndex, testPolicy });
+        });
+      }
     } catch (error) {
       testExecution.reason = error.code ?? 'TEST_COMMAND_UNAVAILABLE';
       deliveryErrors.push(error);
@@ -462,6 +472,26 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
         const unsupportedRuntimeAdapter = error.code === 'RUST_TEST_ADAPTER_REQUIRED';
         const configurationDependency = missingRepositoryRunner || invalidPinnedCommand
           || unsupportedRuntimeAdapter;
+        // Each planned evidence file the step has not produced is its own author finding with its
+        // own capture route; the general finding remains only for any other shortfall.
+        const missingEvidence = error.details?.retainedEvidenceMissing ?? [];
+        const missingFiles = new Map();
+        for (const entry of missingEvidence) missingFiles.set(entry.path, [...(missingFiles.get(entry.path) ?? []), entry.clauseId]);
+        for (const [file, clauseIds] of missingFiles) {
+          blockers.push({
+            code: 'code.delivery.retained-evidence-missing', category: 'retained-evidence', blocking: true,
+            phase: phase.id, generation: inspectionGeneration, path: file, line: null, value: clauseIds[0],
+            details: { sourceCode: 'CODE_DELIVERY_RETAINED_EVIDENCE_MISSING', clauseId: clauseIds[0], clauseIds,
+              message: `${clauseIds.join(' and ')} plan${clauseIds.length === 1 ? 's' : ''} evidence at ${file}, which does not exist yet.` }
+          });
+        }
+        if (missingEvidence.length) actions.push(action({
+          id: `capture-retained-evidence:${phase.id}`, mode: 'guided',
+          detail: `Produce ${[...missingFiles.keys()].join(', ')} from this checkout: start the app from the Story's repositoryPath with its own script on a port you confirmed free, bring it to each planned state, save each image at exactly its path, then recheck. Never use a server another checkout runs and never fabricate evidence; a person witnesses it after submission.`,
+          command: `singularity-flow phase prepublish ${phase.id} --for-agent --json`,
+          skill: generationSkill(phase, workflow), authoringSkill: generationSkill(phase, workflow)
+        }));
+        if (missingEvidence.length && Number(error.details?.problemCount) === missingEvidence.length) continue;
         blockers.push({
           code: 'code.delivery.incomplete', category: 'code-delivery', blocking: true,
           phase: phase.id, generation: inspectionGeneration,

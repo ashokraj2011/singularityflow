@@ -83,7 +83,11 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   const requestedMode = mutationTurnMode(record.skill);
   const mode = previous?.originPhase && previous.originPhase !== workflow.currentPhase
     && !['approval-only', 'session-only'].includes(requestedMode) ? 'read' : requestedMode;
-  const contract = deriveMutationContract({ root, definition, workflow, turnMode: mode });
+  const phase = workflow.phases?.[workflow.currentPhase];
+  const evidence = mode === 'authoring' && phase?.generationIntent?.status === 'open'
+    ? await (await import('./delivery-evidence.mjs')).plannedEvidencePaths(root, definition, workflow, phase).catch(() => [])
+    : [];
+  const contract = deriveMutationContract({ root, definition, workflow, turnMode: mode, evidence });
   if (mode === 'read' && requestedMode !== 'read') {
     contract.summary = 'The phase changed during this turn. Preserve work, end this turn, and start the configured author in a new turn.';
   }

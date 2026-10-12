@@ -30,6 +30,15 @@ export function testExecutionHandoff(testExecution, { published = false, command
   };
   const available = testExecution.status === 'not-run' && testExecution.commands?.length > 0
     && testExecution.commands.every((entry) => entry.availability === 'ready');
+  // The runner is inferred from the change set, so another code-delivery finding can hold it back;
+  // that is not a missing runner and needs no test configuration.
+  const blockedByDelivery = !available && testExecution.blockedBy?.length > 0
+    && testExecution.reason !== 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
+  if (blockedByDelivery) return {
+    runnerStatus: 'blocked', configurationRequired: false, repositoryEditsRequired: null,
+    executionOwner: null, command: null, onSuccess: null,
+    guidance: 'Repair the reported code-delivery finding first; publication then infers the test runner from the change set and runs it. No test configuration, amendment or runner change is needed for this.'
+  };
   if (!available) return {
     runnerStatus: 'unavailable', configurationRequired: null, repositoryEditsRequired: null,
     executionOwner: null, command: null, onSuccess: null,

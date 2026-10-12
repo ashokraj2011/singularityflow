@@ -1,6 +1,6 @@
 /** Shared, read-only recovery choices. A route is not authority or a successful check. */
 import { createHash } from 'node:crypto';
-import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { submitRoute } from './submit-route.mjs';
 import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
@@ -9,6 +9,9 @@ import { upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mj
 
 const UPSTREAM_INPUT_CODES = new Set(['phase_inputs_not_ready', 'phase.inputs.not-ready',
   'specification_index_untrusted', 'convergence_upstream_artifact_stale']);
+// The Agent brief projection could not read the author's brief: fixed in the draft, never escalated.
+const AGENT_BRIEF_CODES = new Set(['agent_brief_summary_required', 'agent_brief_preserved_section_required',
+  'agent_brief_maximum_bytes_exceeded', 'agent_brief_heading_ambiguous', 'artifact_comment_unclosed']);
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 const route = (kind, owner, argv, detail, skill = '/sf-recover') => {
@@ -121,6 +124,22 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   } else if (category === 'quality-coverage' || code === 'spec_coverage_incomplete') {
     resolution = route('author-correction', phase.id, ['recover', workId, '--phase', phase.id, '--json'],
       'Repair unaccounted scope or invalid evidence through a reviewed successor or plan amendment. Pilot risk cannot waive integrity.');
+  } else if (code === 'code_delivery_retained_evidence_missing') {
+    // A planned evidence file is this step's deliverable. Say how to make it from this checkout.
+    resolution = route('capture-retained-evidence', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
+      `Produce ${finding.path ?? 'the planned evidence file'} from this checkout: start the app from the Story's repositoryPath with its own script on a port you confirmed free, bring it to the planned state, save the image at exactly that path, then recheck. Never use a server another checkout runs and never fabricate evidence; the file is not a visual pass, and a person witnesses it after submission.`,
+      generationSkillForPhase(phase, workflow));
+  } else if (code === 'code_delivery_evidence_required') {
+    resolution = route('author-correction', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
+      'Finish the delivery this finding lists in the open generation (source, tests, clause tags or planned evidence), then recheck. The test runner is resolved from the change set: no test configuration, amendment or risk review is needed for it.',
+      generationSkillForPhase(phase, workflow));
+  } else if (code === 'code_delivery_test_command_required') {
+    resolution = route('runner-setup', phase.id, ['capability', 'test-setup', '--json'],
+      'No supported structured test command can be inferred. Read the suggestions, repair the repository-owned test script within this step\'s approved scope, then recheck; an explicit command needs a reviewed policy amendment.', '/sf-test-setup');
+  } else if (AGENT_BRIEF_CODES.has(code)) {
+    resolution = route('author-correction', phase.id, ['phase', 'prepublish', phase.id, '--for-agent', '--json'],
+      'Write the Agent brief (or summary) as visible text under its heading, outside any <!-- --> template comment, close every comment, then recheck.',
+      generationSkillForPhase(phase, workflow));
   } else if (/unclaimed|outside.*scope/u.test(code) || category === 'coverage') {
     resolution = route('scope-appeal', 'plan-approval-authority', ['appeal', 'prepare', '--phase', phase.id, '--json'],
       'Explain each exact extra path and its approved clause or supporting class. Review the diff before accounting for it; tests still have to run.', '/sf-appeal');

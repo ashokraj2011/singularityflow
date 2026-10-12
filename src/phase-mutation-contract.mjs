@@ -51,7 +51,7 @@ function caseInsensitiveCheckout(root) {
 }
 
 export function deriveMutationContract({ root = null, definition, workflow, phase = workflow?.phases?.[workflow.currentPhase],
-  turnMode = 'authoring', staging = [] }) {
+  turnMode = 'authoring', staging = [], evidence = [] }) {
   const workId = workflow?.workItem?.id ?? null;
   const repositoryRoot = root ? realpathSync(root) : null;
   const ownership = applicationPathContext(definition, workflow);
@@ -72,6 +72,14 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
     const configured = path.posix.normalize(`${item}/${phase.requiredArtifact.path}`);
     if (configured.startsWith(`${item}/`) && !configured.startsWith(`${item}/context/`)
         && !['workflow.json', 'source.json'].includes(configured.slice(item.length + 1))) artifacts.push(configured);
+  }
+  // The exact evidence files the approved plan allocates to this open code generation are its
+  // author's deliverable (plannedEvidencePaths). Exact files only, never the evidence directory.
+  if (code && openGeneration) {
+    for (const file of evidence) {
+      const exact = path.posix.normalize(String(file));
+      if (exact.startsWith(`${item}/evidence/`) && !exact.endsWith('/') && !exact.split('/').includes('..')) artifacts.push(exact);
+    }
   }
   const application = turnMode === 'authoring' && editable && !deterministic
     && phase?.writeScope === 'source-and-artifact' && (!code || openGeneration);

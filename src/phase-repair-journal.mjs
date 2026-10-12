@@ -1,13 +1,14 @@
 /** Local, append-only repair reservations. These records are not passing evidence or consent. */
 import path from 'node:path';
-import { realpath } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
+import { constants as fsConstants } from 'node:fs';
+import { lstat, open, readdir, realpath, rename } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { gitCommonDir } from './git.mjs';
 import { canonicalJson } from './records.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { listPrivateSidecar, readPrivateSidecar, writeImmutablePrivateSidecar } from './private-sidecar.mjs';
+import { listPrivateSidecar, readPrivateSidecar, safeSidecarTreeDirectory, writeImmutablePrivateSidecar } from './private-sidecar.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
 import { currentSubjectLockOwner } from './subject-lock.mjs';
 
@@ -50,6 +51,12 @@ export async function phaseRepairJournalDirectory(root, binding) {
   return path.join(gitCommonDir(root), 'singularity-flow', 'phase-repair-loops',
     repairDigest(binding).slice(7, 39));
 }
+const quarantineRoot = root => path.join(gitCommonDir(root), 'singularity-flow', 'phase-repair-loops-quarantine');
+async function quarantinedJournals(root, binding) {
+  const prefix = `${repairDigest(binding).slice(7, 39)}-`;
+  return (await listPrivateSidecar(root, quarantineRoot(root), { optional: true }))
+    .filter(entry => entry.name.startsWith(prefix)).map(entry => entry.name).sort();
+}
 export function repairJournalProjection(events = []) {
   const reservations = events.filter(event => event.type === 'reserved');
   const attempts = reservations.map(event => ({ ...event,
@@ -78,7 +85,11 @@ export async function readPhaseRepairJournal(root, binding) {
       validateNextEvent(events, event);
       events.push(event);
     }
-    return repairJournalProjection(events);
+    // A quarantined journal starts fresh but never refunds its budget: its history could not be
+    // verified, so this exact generation's automated repair stays spent (manual repair and the next
+    // generation are unaffected). Nothing can be appended after it, so an empty journal is enough.
+    const quarantined = events.length ? [] : await quarantinedJournals(root, binding);
+    return quarantined.length ? { ...repairJournalProjection(events), maximum: 0, quarantined } : repairJournalProjection(events);
   } catch (error) {
     if (error.code === 'PHASE_REPAIR_JOURNAL_INVALID') throw error;
     return invalid('The repair journal could not be verified. Preserve it and inspect diagnostics; no budget was reset.', error);
@@ -88,6 +99,8 @@ export async function readPhaseRepairJournal(root, binding) {
 export async function appendPhaseRepairEvent(root, binding, event) {
   if (!currentSubjectLockOwner(root, { kind: 'story', id: binding.workId })) throw new SingularityFlowError('A repair reservation/result requires the Story mutation lock.', { code: 'PHASE_REPAIR_LOCK_REQUIRED' });
   const journal = await readPhaseRepairJournal(root, binding);
+  if (journal.quarantined?.length) throw new SingularityFlowError('This generation\'s repair journal was quarantined, so its automated repair budget stays spent. Repair manually or continue in a successor generation.',
+    { code: 'PHASE_REPAIR_ADMISSION_REFUSED', details: { quarantined: journal.quarantined } });
   const core = { schemaVersion: currentSchemaVersion('phase-repair-loop-event'), kind: 'phase-repair-loop-event',
     binding, sequence: journal.events.length + 1, previous: journal.revision, at: nowIso(), ...event };
   const record = PhaseRepairEventSchema.parse({ ...core, recordSha256: repairDigest(core) });
@@ -103,6 +116,7 @@ export async function phaseRepairLoopSummary(root, workflow, phase) {
   const maximum = Math.min(journal.maximum, phase.repairBudget?.maxAttempts ?? 3);
   return { status: journal.active ? 'recheck-required' : journal.consumed >= maximum ? 'budget-exhausted' : 'available',
     binding, consumed: journal.consumed, maximum, attemptsRemaining: Math.max(0, maximum - journal.consumed),
+    ...(journal.quarantined?.length ? { quarantined: journal.quarantined } : {}),
     revision: journal.revision, active: journal.active,
     checkpoints: journal.attempts.filter(attempt => attempt.checkpointId).map(attempt => ({
       id: attempt.checkpointId, attempt: attempt.attempt,
@@ -118,8 +132,78 @@ export async function phaseRepairLoopSummary(root, workflow, phase) {
     autoAcceptRisk: false, phaseAdvanced: false, journalIsPassingEvidence: false, machineLocal: true };
 }
 export async function assertPhaseRepairSettled(root, workflow, phase) {
-  const state = await phaseRepairLoopSummary(root, workflow, phase);
+  let state;
+  try { state = await phaseRepairLoopSummary(root, workflow, phase); }
+  catch (error) {
+    if (error.code !== 'PHASE_REPAIR_JOURNAL_INVALID') throw error;
+    // Name the route that clears it. `doctor` was offered here and does not read this journal.
+    throw new SingularityFlowError(error.message, { code: error.code, cause: error.cause ?? error, details: { ...error.details,
+      phase: phase.id, recoveryCommand: { command: `singularity-flow appeal repair-quarantine --work-id ${workflow.workItem.id} --phase ${phase.id} --json`,
+        skill: '/sf-appeal', label: 'Preview the corrupt repair journal; confirm its exact digest to move it to private quarantine. Nothing is deleted and no budget is refunded.' } } });
+  }
   if (state.active) throw new SingularityFlowError('A reserved phase repair has not been rechecked. Resume the exact recorded attempt; do not start a fresh budget or repeat publication.',
     { code: 'PHASE_REPAIR_RECHECK_REQUIRED', details: { repairLoop: state, recoveryCommand: state.commands.resume, skill: '/sf-appeal' } });
   return state;
+}
+
+/** What a quarantine would move, read without following links; the digest is its confirmation. */
+async function journalInventory(directory) {
+  let info;
+  try { info = await lstat(directory); } catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  if (info.isSymbolicLink() || !info.isDirectory()) return { type: info.isSymbolicLink() ? 'symlink' : 'other', entries: [] };
+  const names = (await readdir(directory)).sort();
+  const entries = [];
+  for (const name of names.slice(0, 64)) {
+    const target = path.join(directory, name);
+    const stat = await lstat(target);
+    const type = stat.isSymbolicLink() ? 'symlink' : stat.isDirectory() ? 'directory' : stat.isFile() ? 'file' : 'other';
+    let sha256 = null;
+    if (type === 'file' && stat.size <= 65536) {
+      const handle = await open(target, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+      try { sha256 = `sha256:${createHash('sha256').update(await handle.readFile()).digest('hex')}`; }
+      finally { await handle.close(); }
+    }
+    entries.push({ name, type, size: stat.size, sha256 });
+  }
+  return { type: 'directory', entries, entryCount: names.length };
+}
+/**
+ * The route a corrupt journal is refused toward. It never deletes or repairs the journal: it moves
+ * the exact inspected bytes to a private quarantine for maintainer review and lets this binding
+ * start an empty journal, whose automated budget stays spent (see readPhaseRepairJournal).
+ */
+export async function phaseRepairJournalQuarantinePlan(root, workflow, phase) {
+  const binding = await phaseRepairBinding(root, workflow, phase);
+  const directory = await phaseRepairJournalDirectory(root, binding);
+  const command = `singularity-flow appeal repair-quarantine --work-id ${workflow.workItem.id} --phase ${phase.id}`;
+  try {
+    const journal = await readPhaseRepairJournal(root, binding);
+    return { status: 'journal-valid', binding, consumed: journal.consumed, quarantined: journal.quarantined ?? [],
+      reason: 'The repair journal verifies; there is nothing to quarantine.', stateChanged: false };
+  } catch (error) {
+    if (error.code !== 'PHASE_REPAIR_JOURNAL_INVALID') throw error;
+    await safeSidecarTreeDirectory(root, path.dirname(directory));
+    const inventory = await journalInventory(directory);
+    if (!inventory) return { status: 'needs-maintainer', binding, reason: error.message, stateChanged: false,
+      owner: 'workflow-maintainer', detail: 'No journal directory exists for this binding, so a quarantine cannot clear the failure. Inspect the private repair-loop storage.' };
+    const core = { schemaVersion: 1, kind: 'phase-repair-journal-quarantine', binding, journal: path.basename(directory), inventory };
+    const confirmation = repairDigest(core);
+    return { status: 'confirmation-required', reason: error.message, ...core, confirmation, stateChanged: false,
+      effect: 'Moves the exact journal to private quarantine and starts an empty one. Nothing is deleted, and this generation\'s automated repair budget stays spent.',
+      commands: { run: `${command} --confirm ${confirmation} --json` } };
+  }
+}
+/** Caller owns the Story subject lock. */
+export async function quarantinePhaseRepairJournal(root, workflow, phase, confirmation) {
+  if (!currentSubjectLockOwner(root, { kind: 'story', id: workflow.workItem.id })) throw new SingularityFlowError('A repair journal quarantine requires the Story mutation lock.', { code: 'PHASE_REPAIR_LOCK_REQUIRED' });
+  const plan = await phaseRepairJournalQuarantinePlan(root, workflow, phase);
+  if (plan.status !== 'confirmation-required') return plan;
+  if (confirmation !== plan.confirmation) throw new SingularityFlowError('The repair journal changed after review. Inspect the current quarantine plan and confirm its digest.',
+    { code: 'PHASE_REPAIR_QUARANTINE_STALE', details: { plan } });
+  const destination = await safeSidecarTreeDirectory(root, quarantineRoot(root), { create: true });
+  const name = `${plan.journal}-${nowIso().replace(/[^0-9TZ]/gu, '')}-${randomUUID().slice(0, 8)}`;
+  await rename(await phaseRepairJournalDirectory(root, plan.binding), path.join(destination, name));
+  return { status: 'quarantined', binding: plan.binding, quarantine: name, confirmation, inventory: plan.inventory,
+    localFilesChanged: true, stateChanged: false, budgetRefunded: false,
+    detail: 'The corrupt journal is preserved in private quarantine for maintainer review. Publication, submission and approval no longer wait on it; this generation\'s automated repair budget stays spent.' };
 }

@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 15
+version: 16
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -139,7 +139,7 @@ A failing or unknown baseline may admit the Story into bounded readiness repair.
 
 The repair scope is bounded to reviewed readiness changes, not feature implementation. The command pilot supports one required code-bearing repository, runtime-only repair, conventional top-level project notes, added tests, and Node dependency/lock repair that preserves manifest scripts and other execution configuration. It refuses product-source edits, changed/removed/renamed baseline tests or fixtures, new manifests and unclassified runner/configuration changes. Legitimate fixes outside this narrow scope need a separately supported governed scope; the pilot does not claim to handle every repair. Test-only or setup-only repair needs no fabricated product-source edit. Do not delete tests, lower assertions, add blanket skips or edit protected configuration merely to obtain a pass.
 
-Review the current repair checkpoint, both endpoints of every changed path, and the exact dependency/test execution plan. If source is dirty, review and commit only intended repair paths separately; this command never stages source or cleans files. A ready preview returns a single action: `singularity-flow story test-policy repair <WORK-ID> --repository <REPOSITORY-ID> --run --confirm <EXACT-DIGEST> --json`. That digest binds the agreement, source diff, checkpoint, prior readiness and commands. A changed plan needs fresh review.
+Review the current repair checkpoint, both endpoints of every changed path, and the exact dependency/test execution plan. If source is dirty, review and commit only intended repair paths separately; this command never stages source or cleans files. A ready preview returns a single action: `singularity-flow story test-policy repair <WORK-ID> --repository <REPOSITORY-ID> --run --confirm <EXACT-DIGEST> --json`. That digest binds the agreement, source diff, checkpoint, prior readiness and commands. A changed plan needs fresh review. The digest is exact-plan confirmation, the same contract as `precheck --run --confirm-plan`; it is not human authentication, and the preview reports `requiresHumanConfirmation: false` with `confirmationPolicy.kind: exact-plan-digest`. An agent may run the returned command after a person reviews the plan, because a repair records only an objective, complete passing receipt inside the bounded scope and accepts no risk. Risk acceptance and baseline admission, which are consent decisions, still require the delegated reviewer in a live terminal.
 
 Execution uses the existing bounded readiness runner. Completion requires a complete passing receipt at the reviewed checkpoint, including a successful process and current structured report. A known original baseline must retain its complete testcase identities and execution contract; matching totals alone cannot prove retention. Missing, ambiguous or truncated identities, skipped formerly failing tests, nonzero process exit, missing reports, duplicate results or stale source cannot complete repair.
 

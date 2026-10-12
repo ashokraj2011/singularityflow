@@ -865,6 +865,8 @@ async function runMain(argv) {
     if (root && (['approve', 'reject'].includes(definition.name)
         || definition.name === 'review-source' && positionals[1] === 'decide')) {
       await import('./copilot-mutation-guard.mjs').then(module => module.endMutationDecisionTurns(root)).catch(() => {});
+    } else if (root && definition.name === 'decision' && positionals[1] !== 'show') {
+      await import('./copilot-mutation-guard.mjs').then(module => module.endMutationDecisionTurns(root, { modes: ['decision-only'] })).catch(() => {});
     }
     timer.stage('execute');
     timer.feedback();

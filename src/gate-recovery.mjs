@@ -74,6 +74,9 @@ function storyOwner(workflow, finding) {
     return configuredPlannedClaimOwner(workflow, named) ?? latestHolder(workflow, 'plan') ?? named ?? lifecycleOwner(workflow);
   }
   if (named) return named;
+  // A lapsed witness exception was decided at a code step's approval; an older finding that named no
+  // step still belongs there, never to the completion step.
+  if (finding.code === 'gate.witness.exception-lapsed') return latestCodeStep(workflow) ?? lifecycleOwner(workflow);
   // A missing observed result or a failed acceptance command is the verifying step's evidence; a
   // missing test binding or an unclaimed change is the code step's.
   if (finding.code.startsWith('gate.acceptance.')) {

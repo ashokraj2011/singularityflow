@@ -9,7 +9,7 @@ import { recoveryPlan, applyRecovery } from './collaboration.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { phaseResolutionProjection, repairLoopAdmission } from './phase-resolution.mjs';
 import { storyUsesStepActions } from './step-action-delivery.mjs';
-import { appendPhaseRepairEvent, phaseRepairBinding, phaseRepairLoopSummary, readPhaseRepairJournal, repairDigest } from './phase-repair-journal.mjs';
+import { appendPhaseRepairEvent, phaseRepairBinding, phaseRepairJournalQuarantinePlan, phaseRepairLoopSummary, quarantinePhaseRepairJournal, readPhaseRepairJournal, repairDigest } from './phase-repair-journal.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { createPhaseCheckpoint } from './phase-checkpoint.mjs';
@@ -101,6 +101,7 @@ async function preview(current, dependencies) {
   const action = actionFor(observation, current);
   const maximum = Math.min(3, journal.maximum, phase.repairBudget?.maxAttempts ?? 3);
   const admission = journal.active ? { allowed: false, reason: 'resume-recorded-attempt' }
+    : journal.quarantined?.length ? { allowed: false, reason: 'journal-quarantined' }
     : action ? repairLoopAdmission(journal.attempts, { actionId: action.id, conditionHash: observation.conditionHash }, { maximumAttempts: maximum })
       : { allowed: false, reason: observation.ready ? 'already-ready' : 'human-or-owner-route' };
   const core = { schemaVersion: 1, binding, policyHash: policyHash(current, observation), journalRevision: journal.revision,
@@ -189,9 +190,12 @@ export async function coordinatePhaseRepair({ root, workId = null, phaseId = nul
   const initial = await context(root, workId, phaseId, dependencies);
   if (action === 'status') return phaseRepairLoopSummary(root, initial.workflow, initial.phase);
   if (action === 'plan') return publicPlan(await preview(initial, dependencies));
-  if (!['run', 'resume'].includes(action)) fail('Unknown repair coordination action.', 'PHASE_REPAIR_ACTION_INVALID');
+  // The route for PHASE_REPAIR_JOURNAL_INVALID: preview without --confirm, quarantine with it.
+  if (action === 'quarantine' && !confirmation) return phaseRepairJournalQuarantinePlan(root, initial.workflow, initial.phase);
+  if (!['run', 'resume', 'quarantine'].includes(action)) fail('Unknown repair coordination action.', 'PHASE_REPAIR_ACTION_INVALID');
   return dependencies.lock(root, { kind: 'story', id: initial.workflow.workItem.id }, async () => {
     const current = await context(root, initial.workflow.workItem.id, initial.phase.id, dependencies);
+    if (action === 'quarantine') return quarantinePhaseRepairJournal(root, current.workflow, current.phase, confirmation);
     if (dependencies.branch(root) !== current.workflow.workItem.branch) fail('Resume the selected Story checkout before repairing it.', 'PHASE_REPAIR_BRANCH_MISMATCH');
     let plan;
     try { plan = await preview(current, dependencies); }

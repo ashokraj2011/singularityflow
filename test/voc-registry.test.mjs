@@ -33,6 +33,16 @@ test('the lifecycle vocabulary owns immutable symbols, descriptors, and a stable
   assert.throws(() => { LIFECYCLE_EVENT.ARTIFACT_GENERATED = 'other'; }, TypeError);
 });
 
+test('the test-command amendment member describes what the amendment route accepts', async () => {
+  // The route adopts a corrected command for a published generation too (a new validation epoch
+  // that needs a fresh submission), so the catalogue must not say "before the first publication".
+  const { description } = LIFECYCLE_EVENT_VOCABULARY.descriptors['test-command-amended'];
+  assert.doesNotMatch(description, /before the first code publication/u);
+  assert.match(description, /before or after its publication/u);
+  const { publishedTestCommandRevalidation } = await import('../src/test-command-amendment-contracts.mjs');
+  assert.equal(typeof publishedTestCommandRevalidation, 'function', 'the published-generation route was removed; revisit the description');
+});
+
 test('a vocabulary rejects duplicate ownership and invalid deprecated members', () => {
   assert.throws(() => defineVocabulary({
     id: 'duplicate-test', version: 1, defaultClass: 'core-observational',

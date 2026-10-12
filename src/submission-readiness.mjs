@@ -145,11 +145,11 @@ export async function submissionReadiness(root, config, workflow, {
       await assertPhaseRepairSettled(root, workflow, phase);
     } catch (error) {
       const journalInvalid = error.code !== 'PHASE_REPAIR_RECHECK_REQUIRED';
-      const command = journalInvalid ? 'singularity-flow doctor --json'
+      const command = journalInvalid ? `singularity-flow appeal repair-quarantine --phase ${phase.id} --json`
         : `singularity-flow appeal repair-resume --phase ${phase.id} --json`;
       return { ...readiness, lifecycleReady: false, classification: 'repair-recheck-required',
         reasonCode: error.code ?? 'PHASE_REPAIR_JOURNAL_INVALID', reason: error.message,
-        command, nextCommand: command, nextSkill: journalInvalid ? '/sf-doctor' : '/sf-appeal' };
+        command, nextCommand: command, nextSkill: '/sf-appeal' };
     }
   }
   if (phase && phaseId === workflow.currentPhase

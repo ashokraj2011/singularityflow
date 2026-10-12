@@ -22,6 +22,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 
 import { amendmentChurn, amendmentRecap, blastRadius, clauseDiff } from '../amendment.mjs';
+import { requireApprovalAuthority } from '../approval-authority.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { assistedConvergencePrompt, assistedConvergenceRelative, buildAssistedConvergenceRecord, parseConvergenceCandidates, reusableConvergenceRecord, serializeAssistedConvergence, unknownReferences } from '../assisted-convergence.mjs';
 import { unwrapProviderLineBreaks } from '../assisted-quality.mjs';
@@ -1415,7 +1416,7 @@ async function writeConvergenceProjection(root, subject, projection) {
   return { stored, relative, artifactRelative };
 }
 
-async function withConvergenceDraft(root, config, requestedWorkId, operation, write) {
+async function withConvergenceDraft(root, config, requestedWorkId, operation, write, { authorize = null } = {}) {
   const selected = await loadStoryAggregate(root, config, requestedWorkId);
   return runDraftTransaction(root, {
     subject: {
@@ -1428,8 +1429,12 @@ async function withConvergenceDraft(root, config, requestedWorkId, operation, wr
     operation,
     write: async () => {
       const workflow = await loadStoryAggregate(root, config, selected.workItem.id);
+      // Authority is checked on the locked state and before the convergence inputs are resolved,
+      // so an identity without it is refused for that reason rather than for whatever input it
+      // reaches first.
+      const authority = authorize ? authorize(workflow) : null;
       const subject = await convergenceSubject(root, config, workflow);
-      return write(workflow, subject);
+      return write(workflow, subject, authority);
     }
   });
 }
@@ -1635,7 +1640,7 @@ export async function storyAdjudicateCommand(positionals, options) {
     config,
     optionString(options, 'work-id'),
     'story:adjudicate',
-    async (workflow, subject) => {
+    async (workflow, subject, authority) => {
       if (workflow.currentPhase !== subject.phase.id || subject.phase.status !== 'in_progress') {
         throw new SingularityFlowError('Convergence items can be adjudicated only before the convergence generation is published.');
       }
@@ -1654,11 +1659,8 @@ export async function storyAdjudicateCommand(positionals, options) {
       });
       await assertConvergenceSources(root, existing, { itemRelative: subject.itemRelative });
 
-      // Adjudication is a human governance decision, not governed-agent authorship. Deterministic
-      // convergence deliberately has no phase-agent session, so bind the decision to the current
-      // Git identity instead of requiring an unrelated authoring session.
-      const actor = actionActor(root);
       const at = nowIso();
+      const actor = authority.actor;
       const decisions = itemIds.map((id) => ({
         itemId: id,
         disposition: optionString(options, 'disposition'),
@@ -1677,13 +1679,32 @@ export async function storyAdjudicateCommand(positionals, options) {
         }));
       const projection = adjudicatedConvergenceProjection(existing, [...kept, ...decisions]);
       await writeConvergenceProjection(root, subject, projection);
-      return { decisions, projection };
+      return { decisions, projection, authority };
+    },
+    {
+      // Adjudication is a human governance decision, not governed-agent authorship. Deterministic
+      // convergence deliberately has no phase-agent session, so bind the decision to the current
+      // Git identity instead of requiring an unrelated authoring session. That identity must hold
+      // the convergence phase's approval authority, checked the way reject and approve check it: a
+      // disposition decides what the Story still owes, and a `dismissed` or `rework` from outside
+      // that group would steer the very review it bypasses.
+      authorize: (workflow) => {
+        const actor = actionActor(root);
+        const phase = convergencePhaseOf(workflow);
+        if (!phase) {
+          throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no convergence phase, so there is nothing to adjudicate.`,
+            { code: 'CONVERGENCE_PHASE_MISSING', details: { workType: workflow.workItem.workType } });
+        }
+        return { actor, ...requireApprovalAuthority(
+          workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities, phase.approvalPolicy, actor
+        ) };
+      }
     }
   );
-  const { decisions, projection } = result;
+  const { decisions, projection, authority } = result;
 
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(projection, null, 2));
-  for (const decision of decisions) console.log(`Recorded ${decision.disposition} on ${decision.itemId} by ${decision.actor}.`);
+  for (const decision of decisions) console.log(`Recorded ${decision.disposition} on ${decision.itemId} by ${decision.actor} (${authority.authorityGroup}).`);
   console.log(`Blocking findings: ${projection.unresolvedBlockers.length ? projection.unresolvedBlockers.join(', ') : 'none'}`);
   console.log(`Allowed next: ${projection.allowedNext.join(', ') || 'none'}`);
 }

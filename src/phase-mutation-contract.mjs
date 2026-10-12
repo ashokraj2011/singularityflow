@@ -19,6 +19,8 @@ export function mutationTurnMode(skill) {
   if (['session', 'resume', 'agent'].includes(name)) return 'session-only';
   if (name === 'review-source') return 'read-only-review';
   if (name === 'review-decide') return 'review-decision-only';
+  // /sf-decide records a person's typed choice; its decision commands carry their own authority check.
+  if (name === 'decide') return 'decision-only';
   if (name === 'publish') return 'publish-only';
   if (AUTHORING_SKILL_DECLARATION[`sflow-${name}`]) return 'authoring';
   // Kernel actions have their own authority checks. This never permits direct source edits.
@@ -79,6 +81,9 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
       ? [route(['review-source', 'decision-context', phase.id, '--work-id', workId,
         '--finding', '<FINDING-ID>', '--reason', '<TEXT>', '--json'],
         'Prepare and confirm the exact pending human disposition; no reviewer retention, authoring, submission or approval.')]
+    : turnMode === 'decision-only'
+      ? [route(['decision', 'show', workId, '--json'],
+        "Record only the person's typed choice and reason; no authoring, submission, approval, rejection or next.", '/sf-decide')]
     : turnMode === 'publish-only'
       ? [route(['phase', 'publish', phase.id, '--authored', phasePublicationContract(phase).producer,
         '--channel', phasePublicationContract(phase).channel], 'Recheck publication readiness first; publish only when the kernel returns ready. Never author, submit or approve.')]

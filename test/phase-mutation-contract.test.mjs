@@ -224,6 +224,59 @@ test('human review-disposition turns allow only exact bound decisions; reviewers
   assert.equal((await shell(command)).permissionDecision, 'deny', 'a finished decision cannot be replayed in this turn');
 });
 
+test('/sf-decide turns permit only the bound decision commands its skill runs', async t => {
+  const f = await fixture(t); const payload = await f.enter('/sf-decide PMC-1');
+  assert.equal(mutationTurnMode('sf-decide'), 'decision-only');
+  assert.equal(mutationTurnMode('sflow-decide'), 'decision-only');
+  assert.equal(f.contract('decision-only').allow.application, false);
+  assert.deepEqual(f.contract('decision-only').allow.artifacts, []);
+  assert.equal(f.contract('decision-only').next[0].command, 'singularity-flow decision show PMC-1 --json');
+  const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  const choose = 'singularity-flow decision choose PMC-1 --fetch --option ship --reason "The person chose to ship." --expected k1';
+  for (const command of ['singularity-flow decision show PMC-1 --json', 'singularity-flow evidence scope PMC-1 --json',
+    choose,
+    'singularity-flow decision choose PMC-1 --fetch --to release --reason "Skip ahead." --expected k1',
+    'singularity-flow decision applicability PMC-1 --fetch --responsibility scope --reason "Covered by the parent."',
+    'singularity-flow decision scope PMC-1 --fetch --item S-1 --as excluded --reason "Out of scope."',
+    `singularity-flow decision completeness PMC-1 --fetch --confirm ${'b'.repeat(64)} --article completeness=satisfied --reason "Reviewed."`,
+    'singularity-flow decision plan PMC-1 --fetch --add-location PMC-1:AC-001=src/App.jsx --reason "Belongs to AC-001."']) {
+    assert.deepEqual(await shell(command), {}, command);
+  }
+  for (const command of [choose.replace('PMC-1', 'OTHER'), `${choose} --work-id OTHER`, `${choose} && echo unsafe`,
+    'singularity-flow decision witness PMC-1 --slot test:unit --reason "x"',
+    'singularity-flow decision risk PMC-1 --reason "x"',
+    'singularity-flow approve custom-step', 'singularity-flow reject custom-step --reason x',
+    'singularity-flow submit custom-step', 'singularity-flow prepare custom-step', 'singularity-flow next']) {
+    assert.equal((await shell(command)).permissionDecision, 'deny', command);
+  }
+  for (const target of ['src/App.jsx', 'singularity/work-items/PMC-1/artifacts/custom-step/doc.md', f.workflowFile]) {
+    assert.equal((await mutationToolGuard({ ...payload, toolArgs: { path: target } })).permissionDecision, 'deny');
+  }
+  // A failed approval does not end a decision turn, and a failed decision does not end an approval turn.
+  const approve = async sessionId => ({ ...(await f.enter('/sf-approve', sessionId)), toolName: 'bash',
+    toolArgs: { command: 'singularity-flow approve custom-step --work-id PMC-1', cwd: f.root } });
+  await approve('approver-1');
+  await endMutationDecisionTurns(f.root);
+  assert.deepEqual(await shell(choose), {}, 'a failed approval ended the decision turn');
+  const approval = await approve('approver-2');
+  await endMutationDecisionTurns(f.root, { modes: ['decision-only'] });
+  const ended = await shell(choose);
+  assert.equal(ended.permissionDecision, 'deny', 'a refused decision did not end the /sf-decide turn');
+  assert.match(ended.permissionDecisionReason, /PHASE_MUTATION_DECISION_TURN_ENDED/);
+  assert.deepEqual(await shell('singularity-flow decision show PMC-1 --json'), {}, 'reads stay available');
+  assert.deepEqual(await mutationToolGuard(approval), {}, 'a failed decision ended an approval turn');
+  // The CLI boundary ends the turn when a decision command is refused.
+  const fresh = await f.enter('/sf-decide PMC-1', 'decider-2');
+  const freshChoose = () => mutationToolGuard({ ...fresh, toolName: 'bash', toolArgs: { command: choose, cwd: f.root } });
+  assert.deepEqual(await freshChoose(), {});
+  const refused = spawnSync(process.execPath, [new URL('../bin/singularity-flow.mjs', import.meta.url).pathname, '--no-model',
+    'decision', 'choose', 'PMC-1', '--option', 'ship', '--reason', 'The person chose to ship.', '--expected', 'k1'],
+  { cwd: f.root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
+  assert.notEqual(refused.status, 0, refused.stdout);
+  assert.match((await freshChoose()).permissionDecisionReason ?? '', /PHASE_MUTATION_DECISION_TURN_ENDED/,
+    `${refused.stdout}\n${refused.stderr}`);
+});
+
 test('publish-only permits one bound publication, never authoring or lifecycle decisions', async t => {
   const f = await fixture(t); const payload = await f.enter('/sf-publish custom-step');
   assert.equal(mutationTurnMode('sf-publish'), 'publish-only');
@@ -254,7 +307,7 @@ test('all seeded and example phases plus future custom phases share explicit res
     for (const workType of Object.keys(definition.workTypes)) for (const resolved of resolveWorkType(definition, workType).phases) {
       const phase = { ...resolved, generationPolicy: resolved.generation, status: 'in_progress', generation: 1 };
       const workflow = { workItem: { id: 'MATRIX-1' }, currentPhase: phase.id, phaseOrder: [phase.id], phases: { [phase.id]: phase } };
-      for (const turnMode of ['read-only-review', 'review-decision-only', 'publish-only', 'read', 'approval-only', 'kernel-only']) {
+      for (const turnMode of ['read-only-review', 'review-decision-only', 'decision-only', 'publish-only', 'read', 'approval-only', 'kernel-only']) {
         const contract = deriveMutationContract({ definition, workflow, turnMode });
         assert.equal(contract.allow.application, false, `${workType}/${phase.id}/${turnMode}`);
         assert.deepEqual(contract.allow.artifacts, []);
@@ -382,6 +435,11 @@ test('missing Story setup and session attach retain kernel routes but never file
   payload = await enter('/sf-workflows');
   assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow workflow create custom --json' } }), {});
   assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: 'singularity/workflow.yml' } })).permissionDecision, 'deny');
+  // Before a Story is bound /sf-decide has nothing to decide: reads pass, a decision is denied, and
+  // neither throws.
+  payload = await enter('/sf-decide');
+  assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow decision show PMC-1 --json' } }), {});
+  assert.equal((await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow decision choose PMC-1 --option a --reason "Because the person chose it."' } })).permissionDecision, 'deny');
 });
 
 test('a failed decision locks only approval operations, never granting authoring or raw-shell permission', async t => {

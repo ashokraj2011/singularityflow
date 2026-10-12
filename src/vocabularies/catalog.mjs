@@ -29,7 +29,7 @@ export const LIFECYCLE_EVENT_VOCABULARY = defineVocabulary({
     BINDING: governing('binding', 'Binds a governed subject to its lifecycle identity and branch.'),
     CONFIGURATION_CHANGED: governing('configuration-changed', 'Records an authoritative workflow configuration transition.'),
     TEST_COMMAND_AMENDED: {
-      ...governing('test-command-amended', 'Adopts a reviewed approved test command before the first code publication, preserving prior evidence.'),
+      ...governing('test-command-amended', 'Adopts a reviewed approved test command for the current code phase, before or after its publication, preserving prior evidence and advancing the validation epoch.'),
       since: 8
     },
     TEST_SELECTION_CONFIRMED: {

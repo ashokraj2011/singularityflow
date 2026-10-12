@@ -1614,6 +1614,7 @@ phases:
     specificationQuality:
       mode: enforce
       checklist: requirements-quality-v1
+      scenarioCoverage: required
       # Keep deterministic quality findings, but do not require the six legacy human checklist
       # decisions at Specification approval. Existing Stories retain their pinned policy.
       approvalChecklist: off

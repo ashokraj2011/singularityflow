@@ -62,7 +62,7 @@ import {
 } from './constitution.mjs';
 import {
   evaluateApprovalChecklist, evaluateSpecificationGate, markerSummary,
-  resolvedSpecificationQualityPolicy
+  resolvedSpecificationQualityPolicy, specificationGateDiagnostics
 } from './specification-gate.mjs';
 import {
   beginTelemetryCapture, collectCopilotUsage, phaseTelemetrySummary, recordPhaseTelemetry, telemetryCaptureGap
@@ -3584,6 +3584,22 @@ export async function publishGeneration(root, config, workflow, {
       }
     );
   }
+  // Specification structure/markers are preflight too: before managed input rendering, tests,
+  // telemetry or generation writes. The gate reads the recorded clarification for this generation.
+  const gate = await evaluateSpecificationGate(root, config, workflow, phase, {
+    generation: nextPhaseGeneration(phase),
+    artifactRelativePath: requiredRepoPath(config, workflow, phase),
+    namespace: (workflow.resolution?.spec ?? config.spec)?.namespace ?? null
+  });
+  gate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+  if (gate.errors.length) {
+    throw new SingularityFlowError(
+      `Phase ${phase.id} is not publishable:\n- ${gate.errors.join('\n- ')}\n`
+      + (specificationGateDiagnostics(gate, requiredRepoPath(config, workflow, phase)).findings.some(finding => finding.category === 'clarification')
+        ? `Resolve only the cited clarification questions and record their actual answers with singularity-flow clarification record ${phase.id}; do not invent or repeat answered questions.`
+        : `Repair the listed specification draft structure from the pinned source and clarifications, then rerun singularity-flow phase prepublish ${phase.id} --json. Missing scenarios are author corrections, not a new clarification interview.`)
+    );
+  }
   // Required artifact-set members are part of the declared publication bundle. Refuse before
   // inputs, briefs, telemetry, or generation state are written; a warning after cataloguing is
   // too late for the author to repair this generation safely.
@@ -3720,30 +3736,6 @@ export async function publishGeneration(root, config, workflow, {
         }
       }
     }
-  }
-  /**
-   * The specification gate `[SPK:REQ-065]`.
-   *
-   * Deliberately before assigning the next publication generation to `phase.generation`. A
-   * blocking marker has to cost nothing but the answer — if an honest `[NEEDS CLARIFICATION: ...]`
-   * left a half-published generation to unwind, the rational move would be to delete the question
-   * and write a plausible sentence, which is precisely the behaviour the marker exists to prevent.
-   *
-   * Both policies default to `off`, so a Story that pinned neither reaches the same code it always
-   * did and behaves identically.
-   */
-  const gate = await evaluateSpecificationGate(root, config, workflow, phase, {
-    generation: nextPhaseGeneration(phase),
-    artifactRelativePath: requiredRepoPath(config, workflow, phase),
-    namespace: (workflow.resolution?.spec ?? config.spec)?.namespace ?? null,
-    pendingClarification: clarification.record
-  });
-  gate.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-  if (gate.errors.length) {
-    throw new SingularityFlowError(
-      `Phase ${phase.id} is not publishable:\n- ${gate.errors.join('\n- ')}\n`
-      + `Answer each question and record it with singularity-flow clarification record ${phase.id} --marker "<question>" --answer "..." before regenerating.`
-    );
   }
   /**
    * Constitution citations `[SPK:REQ-101]`.

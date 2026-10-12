@@ -57,7 +57,8 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/spec-code-test-loop/specification.md': Object.freeze([
     'cc407b7192e181456f1ba6e8af2ddfb81ae4329efa2dc829d2aa060cd4e66c1d',
     '4a487088d8275fc54afcb7932c18a4fb04774e85309b26b3ae72618ce9762bc6',
-    '15a6f55c50ed316695a172dbeda36594a2c345af7817d50b3244d1dcf119a41e'
+    '15a6f55c50ed316695a172dbeda36594a2c345af7817d50b3244d1dcf119a41e',
+    '28e2b5462c1fc7bc77cfea42c875b69e3f9eb1f9c3374cf37a2a5aa2aeba2547'
   ]),
   'singularity/templates/poc-workflow/ui-exploration.md': Object.freeze([
     '14d107cc9778b9e737327e363e84e60975076a7003016d0798e92496ef1d61f5',
@@ -153,7 +154,8 @@ const HISTORICAL_PACKAGED_ASSET_SHA256 = Object.freeze({
   // Before the specification cited its supporting documents under Sources.
   'singularity/templates/spec-driven/spec.md': Object.freeze([
     '55b0d6c4c9aa5ba19739493825f6c993f03d63bed9e1a5e2bb7d5c099b8b91bb',
-    '27424a624b1dab57323fd7482ac62708bd42d11ba42e41c102f94e15182fe485'
+    '27424a624b1dab57323fd7482ac62708bd42d11ba42e41c102f94e15182fe485',
+    'b370347adeca20bb560827843acb2330e90e9fa875e760611ef752ee38765cab'
   ]),
   // Before the instruction demo agents carried the active-repository boundary.
   '.github/agents/demo-instruction-analyst.agent.md': Object.freeze(['5c527291e89f935e0586657bcffc3a8317dfdddfa140f2701d2fe4a7eea3a478']),
@@ -522,12 +524,12 @@ export const CURRENT_PACKAGED_ASSET_SHA256 = Object.freeze({
   'singularity/templates/quick-fix/intake.md': 'a1dae2da960302a152df2c87c90673222a9a8a671752ef38d13fe75e94598950',
   'singularity/templates/quick-fix/verify.md': 'a21900d99d044d35de501f0e43888a8a3ebcfe860e702a5d1b3eec61fdd06f27',
   'singularity/templates/spec-code-test-loop/conformance.md': 'b22de4f73720b8bf645faef0e2484031838d511fe4ea06810c6bf9b16c8bae1a',
-  'singularity/templates/spec-code-test-loop/specification.md': '28e2b5462c1fc7bc77cfea42c875b69e3f9eb1f9c3374cf37a2a5aa2aeba2547',
+  'singularity/templates/spec-code-test-loop/specification.md': 'df84e819635791295f1fd6e30e42f8233959966bbac5c3b4f1a52eeba8ceb41c',
   'singularity/templates/spec-code-test-loop/testing.md': 'eef65b164a45b3df7843d76ef071e9d9932304ec9861c8ed19c646db105f9284',
   'singularity/templates/spec-driven/convergence.md': 'eb257477afca0229ed858875499736c57498015aaee0a527b714356819a9dde2',
   'singularity/templates/spec-driven/plan.md': 'b953f12ef6b7162f71af438e5af18c9e37aac265e15d2fe73f9cf23aff0a182c',
   'singularity/templates/spec-driven/release.md': '3d6717eace80085585d04c9c3f5c67f10d7a2e9c4e535a862c8b5aa900d556fe',
-  'singularity/templates/spec-driven/spec.md': 'b370347adeca20bb560827843acb2330e90e9fa875e760611ef752ee38765cab',
+  'singularity/templates/spec-driven/spec.md': '8845017e5a12bf3b59ea955324f999f9b51f4a6a6606c3808f7e516adf1d2cce',
   'singularity/templates/starter-packs/skp-team-notes/README.md': 'ab3e66d1654df81922a6022c491ac85868cb3b644e0eace77c4f9089c4f599ea',
   'singularity/templates/starter-packs/skp-team-notes/draft-input.json': 'fbc136911e7dfecf14be06091b6d759770fa72c133c39de74710511bfee57410'
 });

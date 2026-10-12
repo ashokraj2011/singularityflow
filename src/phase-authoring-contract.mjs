@@ -32,7 +32,7 @@ export function phaseAuthoringContract(definition, workflow, phase) {
   if (isTestEvidencePhase(phase)) roles.add('verification');
   if (isConformancePhase(phase)) roles.add('closure');
   const evidenceRoot = path.posix.join(definition.workItemRoot ?? 'singularity/work-items', workflow?.workItem?.id ?? '<WORK-ID>', 'evidence');
-  return Object.freeze({ revision: 'phase-authoring-v4', phase: phase.id, roles: [...roles].sort(),
+  return Object.freeze({ revision: 'phase-authoring-v5', phase: phase.id, roles: [...roles].sort(),
     priorApprovalsImmutable: true, revalidatePriorDraftQuality: false,
     executionEvidence: { authority: 'immutable-submission-packets', discoveryIsExecution: false,
       commandSuccessIsCriterionAcceptance: false, priorReportsMutable: false },
@@ -44,7 +44,9 @@ export function phaseAuthoringContract(definition, workflow, phase) {
     ...(roles.has('scope') ? { verificationIntent: {
       table: 'Clause | Methods | Criterion', methods: ['test', 'visual', 'inspection'],
       combination: 'all', oneRowPerDeclaredClause: true, nonTestRequirementCriterion: 'exact-declared-AC'
-    } } : {}),
+    }, scenarioCoverage: { table: 'Clause | Scenario | Outcome', outcomes: ['success', 'failure', 'boundary', 'empty'],
+      acceptanceCase: ['Given', 'When', 'Then'], failureProseIsAcceptance: false,
+      lexicalHintsAreBlocking: false, priorApprovedInputsMutable: false } } : {}),
     ...(plans ? { planning: {
       rows: 'one-per-approved-clause', preserveIdsAndMeaning: true,
       emptyPathCell: 'unquoted-dash', retainedEvidencePrefix: `${evidenceRoot}/`,
@@ -64,6 +66,7 @@ export function phaseAuthoringContractLines(contract) {
     '- Readiness: advisories are not current blockers. Documentation comments need no human approval; unplanned-path advice names work to account for before approval. When prepublish is ready and returns commands.publish, continue that publication attempt; required tests still run there. A resolved runner does not require editing package scripts just to emit its configured report.',
     '- Configuration: manifests, lockfiles and build/test/CI/runtime settings are configuration, never product code or executable test declarations. Do not add code traceability tags or API documentation to them. Account for tooling under Supporting files with a reason, or use fulfillment configuration for a requirement changing runtime settings. Keep these bytes in scope review, candidate hashes and required tests; governed configuration still uses its separate authority.',
     ...(contract.verificationIntent ? [
+      '- Scenario coverage: author S-number situations with substantive Given/When/Then acceptance cases and a `## Scenario coverage` table: Clause | Scenario | Outcome (success/failure/boundary/empty). Cover every behavior and acceptance clause; repeat rows for multiple outcomes. Approved rejection/error behavior needs a distinct invalid-input case with an observable error, not only failure-state prose. Use pinned request/clarification facts, not invented error wording or extra scope. Lexical hints are advisory; independent source review still judges semantic completeness.',
       '- Specification: author a `## Verification intent` table with Clause | Methods | Criterion, one row per declared clause. Methods = test, visual, inspection, or a comma-separated combination (all required). AC Criterion is its own ID; a visual/inspection requirement names the AC proving it. Test-only requirements may use -. Choose from pinned source obligations: screenshot/visual acceptance is not an executable-test exemption. Resolve material ambiguity here, not in Planning.'
     ] : []),
     ...(contract.planning ? [

@@ -85,6 +85,22 @@ const EMPTY = Object.freeze({
   errors: [], warnings: [], open: [], report: null, record: null
 });
 
+/** One diagnostic mapping for draft-check and prepublish; semantic hints stay out of readiness. */
+export function specificationGateDiagnostics(gate, artifactPath) {
+  const project = (message, advisory) => {
+    const source = [...(gate.report?.findings ?? []), ...(gate.report?.advisories ?? [])]
+      .find(finding => finding.message === message);
+    const marker = MARKER_FINDING_KINDS.includes(source?.kind);
+    return { code: `specification.${source?.kind ?? 'quality-required'}`,
+      category: marker ? 'clarification' : 'specification-quality', path: artifactPath,
+      line: source?.line ?? null, value: source?.section ?? source?.clauseId ?? message,
+      message, details: { clauseId: source?.clauseId ?? null },
+      ...(advisory ? { blocking: false } : {}) };
+  };
+  return { findings: gate.errors.map(message => project(message, false)),
+    advisories: gate.warnings.map(message => project(message, true)) };
+}
+
 /**
  * Evaluate both policies against an artifact on disk.
  *

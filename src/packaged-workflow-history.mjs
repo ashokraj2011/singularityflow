@@ -89,7 +89,8 @@ const HISTORICAL_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     // Previous starter required six human checklist decisions at Specification approval.
     specification: Object.freeze([
       'e3fd4a7f7797f8cb7ad10766a74c931b6edf0adba453ba8e19a84b50d40befc7',
-      '11ef5fa9479175bd8e27d5a07af58a74471473fe8322116ba6dd7e93d5ccb527'
+      '11ef5fa9479175bd8e27d5a07af58a74471473fe8322116ba6dd7e93d5ccb527',
+      'ac393d223b6fb0c09f9fa602a3fdb0a8eeb20dfd1025e8a2851e6fa4736df194'
     ]),
     // Before convergence was recognised by its own artifact kind rather than its name.
     convergence: Object.freeze([
@@ -230,7 +231,7 @@ export const CURRENT_PACKAGED_WORKFLOW_VALUE_SHA256 = Object.freeze({
     'scenario-check': '866e2fe7588272b2b7ef1132c37e8a36cecb4947419b733889a919ff5ee03f17',
     'scenario-repair': '5e4dd1839e53e3d3ca5e4cf1e27b1e40631c2e2c4a003dfe54ab9c461d22b186',
     'scenario-retest': '0c53d93ca05f0e11f733a7415870a0c20f0fe42996e8e0792cdd1d50f6316d86',
-    specification: 'ac393d223b6fb0c09f9fa602a3fdb0a8eeb20dfd1025e8a2851e6fa4736df194',
+    specification: '58c900068d634f95ed90bd5dff25741a1a948e33c802f76ea4af7fc2c851ed39',
     testing: '3953d7c4c106cfdde9ce7654b93b718e36cbf57618b06f4c417bdd3f6a1867c9',
     verification: '11caa9e7cf51ecb81ff24eec8effdde40cfdf60fef25f11a54cc97667ae1e3cb',
     verify: 'bd3aef3d29f9c0ce631ce533eabb905cee1a6ab20f52f8135b4aaf1b6cd6c3d4',

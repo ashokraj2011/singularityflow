@@ -23,8 +23,7 @@ import { inspectPendingPublication } from './publication-pending.mjs';
 import { inspectPhaseRecovery } from './recovery-plan.mjs';
 import { testExecutionHandoff } from './test-execution-handoff.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import { evaluateSpecificationGate } from './specification-gate.mjs';
-import { MARKER_FINDING_KINDS } from './specification-quality.mjs';
+import { evaluateSpecificationGate, specificationGateDiagnostics } from './specification-gate.mjs';
 import {
   buildSpecIndex, canonicalJson, derivePlannedClaimMap, evaluateSpecAcceptance,
   isSpecificationDefinitionPhase, loadActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
@@ -100,15 +99,9 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
       artifactRelativePath: artifactPath,
       namespace: (workflow.resolution?.spec ?? config.spec)?.namespace ?? null
     });
-    for (const message of gate.errors) {
-      const source = gate.report?.findings.find((finding) => finding.message === message);
-      const marker = MARKER_FINDING_KINDS.includes(source?.kind);
-      needsHumanClarification ||= marker;
-      add(`specification.${source?.kind ?? 'quality-required'}`,
-        marker ? 'clarification' : 'specification-quality', message,
-        { line: source?.line ?? null, value: source?.section ?? source?.clauseId ?? message,
-          details: { clauseId: source?.clauseId ?? null } });
-    }
+    const diagnostics = specificationGateDiagnostics(gate, artifactPath);
+    needsHumanClarification ||= diagnostics.findings.some(finding => finding.category === 'clarification');
+    blockers.push(...diagnostics.findings);
   } catch (error) {
     add('specification.quality-unavailable', 'specification-quality', error.message,
       { details: { sourceCode: error.code ?? null } });

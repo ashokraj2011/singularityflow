@@ -38,6 +38,68 @@ function boundSession(item, overrides = {}) {
   return { workId: item.workflow.workItem.id, phaseId: item.phase.id, agent: 'architect', ...overrides };
 }
 
+test('scope drafts catch missing coverage before publication and repair in place, including custom phase names', async () => {
+  for (const id of ['specification', 'custom-intent']) {
+    const item = await fixture();
+    try {
+      item.phase.id = id;
+      item.phase.requiredArtifact.kind = 'requirements';
+      item.phase.requiredArtifact.validation.requiredHeadings = [];
+      item.phase.specificationQuality = { mode: 'enforce', scenarioCoverage: 'required' };
+      item.workflow.currentPhase = id;
+      item.workflow.phases = { [id]: item.phase };
+      const draft = '# Specification\n\n## Actors\n\nA user.\n\n## User scenarios\n\n'
+        + '### S1 — Valid value\nGiven 255\nWhen Hex is selected\nThen FF is displayed.\n\n'
+        + '## Requirements\n\n- Display hex. [DRAFT-1:REQ-001]\n- Show an error for invalid values. [DRAFT-1:REQ-002]\n';
+      await writeFile(item.absolute, draft);
+      const before = structuredClone(item.workflow);
+      const blocked = await phaseDraftCheck(item.root, item.config, item.workflow, item.phase, { session: boundSession(item) });
+      assert.equal(blocked.status, 'correction-required');
+      assert.ok(blocked.findings.some(finding => finding.code === 'specification.scenario-coverage-required'));
+      assert.ok(blocked.advisories.some(finding => finding.code === 'specification.failure-scenario-review' && !finding.blocking));
+      assert.equal(blocked.correction.sameTurn, true);
+      assert.equal(blocked.commands.publish, null);
+      assert.equal(blocked.modelInvocations, 0);
+      assert.deepEqual(item.workflow, before);
+      assert.equal(await readFile(item.absolute, 'utf8'), draft);
+      await writeFile(item.absolute, draft.replace('## Requirements',
+        '### S2 — Invalid value\nGiven a fractional value\nWhen Hex is selected\nThen show an error.\n\n## Requirements')
+        + '\n## Scenario coverage\n| Clause | Scenario | Outcome |\n|---|---|---|\n'
+        + '| `DRAFT-1:REQ-001` | S1 | success |\n| `DRAFT-1:REQ-002` | S2 | failure |\n');
+      const repaired = await phaseDraftCheck(item.root, item.config, item.workflow, item.phase, { session: boundSession(item) });
+      assert.equal(repaired.status, 'ready');
+      assert.deepEqual(repaired.findings, []);
+      assert.deepEqual(repaired.advisories, []);
+      assert.ok(repaired.commands.publish);
+      assert.deepEqual(item.workflow, before);
+      item.phase.generation = 1;
+      item.phase.generationPublications = [{ generation: 1, record: { path: 'context/publication.json' } }];
+      await writeFile(item.absolute, draft);
+      const retained = await phaseDraftCheck(item.root, item.config, item.workflow, item.phase, { session: boundSession(item) });
+      assert.equal(retained.inspectionStage, 'published');
+      assert.equal(retained.findings.some(finding => finding.code.startsWith('specification.scenario')), false,
+        'an installed checker cannot retrofit new draft obligations onto a retained generation');
+      assert.equal(retained.commands.publish, null);
+    } finally { await rm(item.root, { recursive: true, force: true }); }
+  }
+});
+
+test('legacy failure hints do not become blockers or require new clarification questions', async () => {
+  const item = await fixture();
+  try {
+    item.phase.specificationQuality = { mode: 'enforce' };
+    item.phase.requiredArtifact.validation.requiredHeadings = [];
+    await writeFile(item.absolute, '# Spec\n\n## Actors\nA user.\n## User scenarios\n'
+      + '### S1 — Valid input\nGiven 255 When Hex is selected Then FF is displayed.\n'
+      + '## Requirements\n- Show an error for other values. [DRAFT-1:REQ-001]\n');
+    const result = await phaseDraftCheck(item.root, item.config, item.workflow, item.phase, { session: boundSession(item) });
+    assert.equal(result.status, 'ready');
+    assert.equal(result.advisories.length, 1);
+    assert.equal(result.advisories[0].category, 'specification-quality');
+    assert.ok(result.commands.publish);
+  } finally { await rm(item.root, { recursive: true, force: true }); }
+});
+
 test('phase draft check reports actionable authoring findings without changing bytes or invoking a model', async () => {
   const item = await fixture();
   try {

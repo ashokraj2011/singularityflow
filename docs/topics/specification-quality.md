@@ -19,7 +19,7 @@ related:
   - approvals
   - artifacts-and-generation
   - rejection-and-rework
-version: 11
+version: 12
 ---
 Specification quality asks "is the requirement good enough?", which is a different question from verification ("does the implementation satisfy it?") and from conformance ("does the evidence trace to approved intent?"). `sflow spec analyze` answers the deterministic part without a model: unresolved clarification markers, duplicate requirement text, missing scenario sections, and defects the clause extractor refuses. It never claims prose is complete, clear, consistent or correct, and it says so in its own report — a clean run means nothing checkable is wrong, not that the specification is good. `--assisted` adds semantic candidates through one governed model turn with no tools; candidates are observations for a reviewer, are recorded separately with the model, prompt hash and usage, and change no deterministic finding and no gate. Running it again for the same specification, findings and model shows the recorded candidates without another model call; `--refresh` asks again.
 
@@ -48,7 +48,32 @@ authoring, publication or submission. Self-approval warnings remain separate fro
 
 Use this topic when the current goal matches **specification quality**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
 
-## Proof method continuity
+## Scenario coverage before publication
+
+New spec-driven Stories pin `specificationQuality.scenarioCoverage: required`. Authors declare
+S-number situations with complete Given/When/Then acceptance cases and a `## Scenario coverage`
+table: `Clause | Scenario | Outcome`. Every behavior/acceptance clause needs a row; multiple rows
+may cover different outcomes. Outcome is `success`, `failure`, `boundary`, or `empty`. Each
+referenced scenario must exist and every acceptance case must state all three substantive fields.
+Rejection/error behavior needs a distinct invalid-input case with an observable error, drawn from
+the pinned request and clarification answers—not invented wording or an expanded requirement.
+
+`phase draft-check`, `phase prepublish`, specification analysis and publication share this
+checker. A missing table, missing clause row, dangling scenario, duplicate row or incomplete
+acceptance case is an author correction in the open generation. Preserve the draft, repair it,
+recheck, then use the returned publication command. Missing coverage is not a new clarification
+interview. Only a genuine unanswered material question asks the human for an answer.
+
+Existing policies keep their hashes: an omitted setting does not become `required`. A declared
+table is still checked for structural validity; lexical rejection/error hints are non-blocking
+advisories, never a semantic verdict. Explicit `scenarioCoverage: off` disables this extension.
+Imported, duplicated and custom workflows can pin the same policy on their scope-defining phase;
+the checker does not depend on the phase being named specification. Current scope-authoring
+prompts describe the same contract. Approved inputs and earlier publications are never repaired
+in place. Independent review remains necessary to judge whether a case actually covers the
+source obligation; complete syntax does not prove correct behavior or executed tests.
+
+## Verification method continuity
 
 New specifications declare one row per clause in `## Verification intent`:
 

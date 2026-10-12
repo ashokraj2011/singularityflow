@@ -26,6 +26,8 @@ import { setAgentSession } from '../src/session.mjs';
 import { createStoryReviewPacket } from '../src/story-lineage.mjs';
 import { evaluateApprovalChecklist, priorChecklistExceptions } from '../src/specification-gate.mjs';
 import { STARTER_CHECKLIST } from '../src/specification-quality.mjs';
+import { phaseDraftCheck } from '../src/phase-draft-check.mjs';
+import { phasePrepublish } from '../src/phase-prepublish.mjs';
 import {
   approvePhase, commitAndPublish, createWorkflow, loadConfig, publishGeneration, scanArtifacts, submitPhase
 } from '../src/state.mjs';
@@ -67,7 +69,7 @@ function spec({ marker = false, sections = true, answered = false } = {}) {
  * `markers` and `quality` are written onto the resolution the Story pins, which is the same place
  * `resolveWorkType` puts them and the same place the gate reads them from.
  */
-async function story(name, { markers = 'block', quality = 'enforce' } = {}) {
+async function story(name, { markers = 'block', quality = 'enforce', scenarioCoverage = 'off' } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), `sflow-gate-${name}-`));
   git(root, 'init', '-b', 'main');
   git(root, 'config', 'user.name', ACTOR.name);
@@ -96,7 +98,9 @@ async function story(name, { markers = 'block', quality = 'enforce' } = {}) {
     ...specification,
     order: 0,
     clarification: { ...specification.clarification, mode: 'off', markers: { mode: markers } },
-    specificationQuality: { ...specification.specificationQuality, mode: quality },
+    // Most fixtures isolate the existing marker/checklist gates. Required scenario coverage is
+    // exercised separately below through the same real publication writer.
+    specificationQuality: { ...specification.specificationQuality, mode: quality, scenarioCoverage },
     approval: { mode: 'none', authorities: [], minimum: 0, rejectTo: ['specification'] }
   }, { ...planning, order: 1, inputs: [] }];
   // A rail trimmed after resolution resolves planned claims for the phases it keeps.
@@ -202,6 +206,45 @@ test('block refuses publication with an open marker, and changes nothing', async
     // move is to delete the question. So the phase must be untouched, not merely rolled back.
     assert.equal(workflow.phases.specification.generation, 0, 'the generation counter advanced past a refusal');
     assert.equal(JSON.stringify(workflow.phases.specification), before, 'the refused publication mutated phase state');
+  });
+});
+
+test('required scenario coverage agrees in draft-check, prepublish and actual publication, before mutation', async () => {
+  const { root, config, resolved } = await story('scenario-coverage', { scenarioCoverage: 'required', markers: 'off' });
+  await inContext(root, async () => {
+    const workflow = await begin(root, config, resolved);
+    const target = await author(root, workflow, spec());
+    const phase = workflow.phases.specification;
+    const before = JSON.stringify(phase);
+    const text = await readFile(target, 'utf8');
+    const session = { workId: workflow.workItem.id, phaseId: phase.id, agent: 'product-owner' };
+    const draft = await phaseDraftCheck(root, config, workflow, phase, { session });
+    const prepublish = await phasePrepublish(root, config, workflow, phase, { session });
+    for (const result of [draft, prepublish]) {
+      assert.equal(result.status, 'correction-required');
+      assert.equal(result.commands.publish, null);
+      assert.equal(result.correction.sameTurn, true);
+      assert.ok(result.findings.some(finding => finding.code === 'specification.scenario-coverage-required'));
+    }
+    assert.equal(prepublish.findings.filter(finding => finding.code === 'specification.scenario-coverage-required').length, 1,
+      'one omission produces one finding, not duplicated draft/prepublish reports');
+    await assert.rejects(() => publishGeneration(root, config, workflow, { phaseId: phase.id, authorship: AUTHORSHIP }), error => {
+      assert.match(error.message, /Scenario coverage/u);
+      assert.match(error.message, /author corrections, not a new clarification interview/u);
+      assert.doesNotMatch(error.message, /Answer each question/u);
+      return true;
+    });
+    assert.equal(JSON.stringify(phase), before);
+    assert.equal(await readFile(target, 'utf8'), text);
+    await author(root, workflow, spec().replace('## User scenarios\n', '## User scenarios\n\n### S1 — Retry a payment\n')
+      + '\n## Scenario coverage\n| Clause | Scenario | Outcome |\n|---|---|---|\n'
+      + '| `DRIVE:REQ-001` | S1 | success |\n| `DRIVE:REQ-002` | S1 | success |\n');
+    const repaired = await phasePrepublish(root, config, workflow, phase, { session });
+    assert.equal(repaired.status, 'ready');
+    assert.ok(repaired.commands.publish);
+    await publishGoverned(root, config, workflow, phase.id, AUTHORSHIP);
+    assert.equal(phase.generation, 1);
+    assert.equal(phase.status, 'in_progress', 'publication is not an approval');
   });
 });
 

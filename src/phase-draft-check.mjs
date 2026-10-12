@@ -24,6 +24,7 @@ import { pendingIntentAmendmentAcknowledgement } from './source-review-policy.mj
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
+import { evaluateSpecificationGate, specificationGateDiagnostics } from './specification-gate.mjs';
 
 function correctionClass(producer) {
   if (producer === 'deterministic') return 'kernel-regenerate';
@@ -109,6 +110,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   let traceabilityRepair = null;
   let verifiedCodeIntent = false;
   let artifactQuality = { acceptedFindings: [], risks: null };
+  let specificationAdvisories = [];
   const editableCode = workflow.currentPhase === phase.id && phase.status === 'in_progress'
     && phase.generationIntent?.status === 'open';
 
@@ -126,6 +128,24 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   } else {
     artifactQuality = await inspectPhaseArtifactQuality(root, config, workflow, phase);
     findings = artifactQuality.findings;
+  }
+
+  // Catch the same specification defects before publication, while this producer can repair its
+  // own draft. Never reinterpret an already retained/approved phase with a newly installed check.
+  if (prospective && artifact?.exists
+      && findings.every(finding => phaseFindingPolicy(finding).classification !== 'integrity-or-authority')) {
+    try {
+      const gate = await evaluateSpecificationGate(root, config, workflow, phase, {
+        generation: phaseInspectionGeneration(workflow, phase), artifactRelativePath: artifact.path,
+        namespace: (workflow.resolution?.spec ?? config.spec)?.namespace ?? null
+      });
+      const diagnostics = specificationGateDiagnostics(gate, artifact.path);
+      findings.push(...diagnostics.findings);
+      specificationAdvisories = diagnostics.advisories;
+    } catch (error) {
+      findings.push({ code: 'specification.quality-unavailable', category: 'specification-quality',
+        path: artifact.path, line: null, message: error.message, details: { sourceCode: error.code ?? null } });
+    }
   }
 
   try {
@@ -245,6 +265,10 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     : { coverage: { status: 'not-applicable', unclaimed: 0, blocking: false }, advisories: [] };
 
   const route = draftCorrectionRoute(codeEvidenceRepair, convergenceReview);
+  const clarificationRoute = prospective && findings.some(finding => finding.category === 'clarification') ? {
+    class: 'human-input', command: `singularity-flow clarification status ${phase.id} --json`, skill: null,
+    guidance: 'Resolve only the cited material questions from the pinned source and human answers. Record the actual answer; do not invent a question, repeat answered clarifications, or treat a missing scenario table as a new interview.'
+  } : null;
   const restriction = prospective ? phaseAgentMutationRestriction(config, workflow, phase, session, 'publish') : null;
   const hold = pendingIntentAmendmentAcknowledgement(workflow) ? phaseGovernanceHold(workflow, phase) : null;
   const actorRoute = restriction?.actions[0] ?? hold?.actions[0];
@@ -255,7 +279,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     skill: actorRoute.skill, guidance: restriction?.message ?? hold.reason } : retained && findings.length ? {
       class: 'phase-recovery', command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
       skill: '/sf-recover', guidance: 'Preserve the published bytes. Restore the exact reviewed content or use an authorized return/successor generation; do not re-author this publication in place.'
-    } : route;
+    } : route ?? clarificationRoute;
   const repairClass = nextRoute?.class ?? correctionClass(producer);
   const generationSkill = directCopilotSkill(generationSkillForPhase(phase, workflow));
   const awaitingApproval = phase.status === 'awaiting_approval';
@@ -291,7 +315,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       ...finding,
       message: finding.message ?? artifactFindingMessage(finding)
     }))),
-    advisories: Object.freeze([...advisories, ...coverageAdvisories]),
+    advisories: Object.freeze([...advisories, ...coverageAdvisories, ...specificationAdvisories]),
     documentation,
     coverage,
     traceabilityRepair,

@@ -22,6 +22,7 @@ import { extractMarkers, evaluateMarkerPolicy, markerPolicy, reconcileMarkers } 
 import { extractClauses, ignoredRanges, isIgnored } from './specifications.mjs';
 import { canonicalJson } from './records.mjs';
 import { SingularityFlowError } from './util.mjs';
+import { inspectSpecificationScenarios } from './specification-scenarios.mjs';
 
 export const SPECIFICATION_QUALITY_MODES = Object.freeze(['off', 'warn', 'enforce']);
 
@@ -175,6 +176,10 @@ export function specificationQualityPolicy(value = {}) {
   const witnessedClauses = value?.witnessedClauses === undefined
     ? undefined
     : witnessedClausePolicy(value.witnessedClauses);
+  const scenarioCoverage = value?.scenarioCoverage;
+  if (scenarioCoverage !== undefined && !['off', 'required'].includes(scenarioCoverage)) {
+    throw new SingularityFlowError('specificationQuality.scenarioCoverage must be off or required.');
+  }
   return Object.freeze({
     mode,
     checklist,
@@ -183,6 +188,8 @@ export function specificationQualityPolicy(value = {}) {
     exceptionAuthority,
     // Assisted analysis is opt-in and never the default; the deterministic path must stand alone.
     assisted: Boolean(value?.assisted ?? false),
+    // Omitted stays omitted: installing this checker never changes an existing policy digest.
+    ...(scenarioCoverage === undefined ? {} : { scenarioCoverage }),
     // Omission is preserved rather than normalized to a disabled object. This keeps old policy
     // digests and old Story behaviour byte-for-byte stable when WEL was never configured.
     ...(witnessedClauses ? { witnessedClauses } : {})
@@ -485,12 +492,16 @@ export function analyzeSpecification(markdown, {
     ? analyzeWitnessedClauses(markdown, clauses, resolved.witnessedClauses)
     : null;
   if (witnessed) findings.push(...witnessed.findings);
+  const scenarioCoverage = resolved.scenarioCoverage === 'off' ? null
+    : inspectSpecificationScenarios(markdown, clauses, { required: resolved.scenarioCoverage === 'required' });
+  if (scenarioCoverage) findings.push(...scenarioCoverage.findings);
 
   const ordered = findings.sort((left, right) =>
     left.kind.localeCompare(right.kind) || String(left.message).localeCompare(String(right.message)));
   // Capped *and disclosed*: a list of 500 findings that stops at 500 reads exactly like a complete
   // list of 500, and a reader has no way to tell which one they are looking at.
   const capped = capWithDisclosure(ordered, 'maxFacts', { limits: bounds, label: 'findings' });
+  const cappedAdvisories = capWithDisclosure(scenarioCoverage?.advisories ?? [], 'maxFacts', { limits: bounds, label: 'scenario advisories' });
   const sorted = capped.items;
 
   return {
@@ -523,6 +534,11 @@ export function analyzeSpecification(markdown, {
       malformed: malformed.map(({ line, reason }) => ({ line, reason }))
     },
     ...(witnessed ? { witnessedClauses: witnessed.report } : {}),
+    ...(scenarioCoverage ? { scenarioCoverage: {
+      declared: scenarioCoverage.declared, scenarioCount: scenarioCoverage.scenarioCount,
+      rowCount: scenarioCoverage.rows.length
+    }, advisories: cappedAdvisories.items,
+    ...(cappedAdvisories.disclosure ? { advisoryTruncation: { dropped: cappedAdvisories.dropped, disclosure: cappedAdvisories.disclosure } } : {}) } : {}),
     findings: sorted,
     ...(capped.disclosure ? { truncated: { dropped: capped.dropped, disclosure: capped.disclosure } } : {}),
     // Said out loud in the report itself, because a clean deterministic run is the moment someone
@@ -552,8 +568,9 @@ export function evaluateSpecificationQuality(report, { exclude = [] } = {}) {
   const messages = report.findings
     .filter((finding) => !exclude.includes(finding.kind))
     .map((finding) => finding.message);
-  if (report.mode === 'off' || !messages.length) return { errors: [], warnings: [] };
-  return report.mode === 'enforce' ? { errors: messages, warnings: [] } : { errors: [], warnings: messages };
+  if (report.mode === 'off') return { errors: [], warnings: [] };
+  const warnings = (report.advisories ?? []).map(finding => finding.message);
+  return report.mode === 'enforce' ? { errors: messages, warnings } : { errors: [], warnings: [...messages, ...warnings] };
 }
 
 /**

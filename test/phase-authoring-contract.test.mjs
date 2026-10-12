@@ -31,7 +31,7 @@ test('installed contracts follow capabilities across all phases, renamed workflo
       assert.equal(contract.revalidatePriorDraftQuality, false);
       assert.equal(contract.draftDefectsPreventRepair, false);
       assert.equal(contract.repairIsApproval, false);
-      assert.equal(contract.revision, 'phase-authoring-v4');
+      assert.equal(contract.revision, 'phase-authoring-v5');
       assert.deepEqual(contract.configuration, { productSource: false, sourceTagsRequired: false,
         apiDocumentationRequired: false, scopeAccountingRequired: true, candidateAndTestInput: true, protectedPathsEnforced: true });
       assert.match(phaseAuthoringContractLines(contract).join('\n'), /configuration, never product code/);
@@ -40,6 +40,11 @@ test('installed contracts follow capabilities across all phases, renamed workflo
       assert.equal(contract.evidenceRoot, evidenceRoot);
       assert.equal(contract.recovery.exhaustedAutomaticBudget, 'manual-repair-remains-available');
     }
+    assert.equal(contracts[0].scenarioCoverage.failureProseIsAcceptance, false);
+    assert.equal(contracts[0].scenarioCoverage.lexicalHintsAreBlocking, false);
+    assert.match(phaseAuthoringContractLines(contracts[0]).join('\n'), /distinct invalid-input case with an observable error/u);
+    for (const contract of contracts.slice(1)) assert.equal(contract.scenarioCoverage, undefined,
+      'downstream phases never re-author upstream scenarios');
     assert.deepEqual(story, before, 'read-side defaults never amend an accepted workflow');
     const owner = story.phaseOrder[1];
     const extra = { id: 'team-repair-again', generationPolicy: { task: 'code' } };

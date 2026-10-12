@@ -554,7 +554,9 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     artifact: draft.artifact,
     artifacts: draft.artifacts,
     findings: Object.freeze([...findings.values()].map((finding) => Object.freeze(finding))),
-    resolution: phaseResolutionProjection(workflow, phase, [...findings.values(), ...(draft.advisories ?? [])]),
+    resolution: phaseResolutionProjection(workflow, phase, [...findings.values()], {
+      advisories: draft.advisories ?? [], transition: retained ? 'submit' : 'publish'
+    }),
     repairLoop: dependencies.repairLoop,
     ...(draftRepairAllowed ? { draftRepair: { allowed: true, scope: 'draft-only',
       heldEvidence: heldDraft.heldEvidence, publicationBlocked: true, evidenceAccepted: false,

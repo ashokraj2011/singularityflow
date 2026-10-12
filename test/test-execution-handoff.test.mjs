@@ -25,10 +25,12 @@ test('a configured runner is ready even though its arguments and arbitrary id ar
   const handoff = testExecutionHandoff({ status: 'not-run', commands: [command] });
   assert.equal(handoff.runnerStatus, 'ready');
   assert.equal(handoff.configurationRequired, false);
+  assert.equal(handoff.repositoryEditsRequired, false);
   assert.equal(handoff.executionOwner, 'publication');
   assert.equal(handoff.command, null, 'runner availability alone cannot grant publication');
   assert.equal(handoff.onSuccess, 'continue-publication');
   assert.match(handoff.guidance, /hidden, not missing/u);
+  assert.match(handoff.guidance, /Do not edit package scripts/u);
 });
 
 test('inferred runners expose their known arguments and continue the guarded operation', () => {
@@ -41,6 +43,7 @@ test('inferred runners expose their known arguments and continue the guarded ope
   const publish = testExecutionHandoff(plan, { command: 'singularity-flow phase publish team-code' });
   assert.equal(publish.onSuccess, 'continue-publication');
   assert.equal(publish.command, 'singularity-flow phase publish team-code');
+  assert.equal(publish.repositoryEditsRequired, false);
   const submit = testExecutionHandoff(plan, { published: true, command: 'singularity-flow submit team-code' });
   assert.equal(submit.onSuccess, 'continue-submission');
   assert.equal(submit.executionOwner, 'submission');
@@ -60,6 +63,7 @@ test('missing, invalid, unverified or unavailable runner plans never gain an exe
     const handoff = testExecutionHandoff(plan, { command: 'singularity-flow phase publish team-code' });
     assert.equal(handoff.runnerStatus, 'unavailable');
     assert.equal(handoff.configurationRequired, null);
+    assert.equal(handoff.repositoryEditsRequired, null);
     assert.equal(handoff.command, null);
     assert.equal(handoff.onSuccess, null);
   }
@@ -68,6 +72,7 @@ test('missing, invalid, unverified or unavailable runner plans never gain an exe
 test('document and sign-off phases without required tests do not invent a runner or configuration gate', () => {
   const handoff = testExecutionHandoff({ status: 'not-required', commands: [] });
   assert.equal(handoff.runnerStatus, 'not-required');
+  assert.equal(handoff.repositoryEditsRequired, false);
   assert.equal(handoff.configurationRequired, false);
   assert.equal(handoff.executionOwner, null);
   assert.equal(handoff.command, null);

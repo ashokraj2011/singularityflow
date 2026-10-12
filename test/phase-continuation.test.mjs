@@ -71,6 +71,29 @@ test('visual evidence is forecast before submission, but needs its actual witnes
   assert.equal(journey.state, 'witness-review'); assert.equal(journey.transition.submitAllowed, false);
   assert.equal(phaseJourney(workflow, phase, { witnesses: [{ ...witness, status: 'met' }], submission: submit(phase.id) }).state, 'human-approval');
 });
+
+test('publication-ready advisories stay outside current human holds across built-in and custom phases', () => {
+  for (const id of ['specification', 'planning', 'implementation', 'convergence', 'verification', 'release', 'future-team-step']) {
+    const workflow = aggregate(id); const phase = workflow.phases[id];
+    const inspection = { status: 'ready', commands: { publish: `singularity-flow phase publish ${id} --authored governed-agent --channel copilot-host` },
+      advisories: [{ code: 'code.documentation.missing', path: 'src/api.js', blocking: false },
+        { code: 'spec.coverage.unclaimed-path', category: 'coverage', path: 'package.json', blocking: false }] };
+    const result = phaseJourney(workflow, phase, { inspection });
+    assert.equal(result.state, 'ready-to-publish', id);
+    assert.equal(result.transition.publishAllowed, true);
+    assert.equal(result.transition.testsWaived, false);
+    assert.equal(result.transition.approvalAutomatic, false);
+    assert.deepEqual(result.pendingHumanReviews, []);
+    assert.equal(result.resolution.advisories[1].requiredBefore, 'approve');
+    assert.match(result.next.command, /phase publish/u);
+    phase.generation = 1; phase.generationIntent.status = 'consumed'; phase.status = 'awaiting_approval';
+    const failedApproval = phaseJourney(workflow, phase, { inspection,
+      findings: [{ code: 'SPEC_COVERAGE_INCOMPLETE', category: 'quality-coverage', details: { coverage: { unclaimedChangedPaths: ['package.json'] } } }] });
+    assert.equal(failedApproval.transition.publishAllowed, false);
+    assert.equal(failedApproval.state, 'human-review', 'real final scope checks remain enforced');
+    assert.equal(failedApproval.pendingHumanReviews.length, 1);
+  }
+});
 test('required source/convergence reviews, decision inputs and soft sequencing cannot be auto-submitted', () => {
   const workflow = aggregate(); const phase = workflow.phases[workflow.currentPhase];
   phase.generation = 1; phase.generationIntent.status = 'consumed';

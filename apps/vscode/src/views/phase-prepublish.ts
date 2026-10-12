@@ -40,7 +40,12 @@ export function phasePrepublishDecision(
     };
   }
   const advisories = (Array.isArray(projection.advisories) ? projection.advisories : []).slice(0, 10)
-    .map((advisory) => line(record(advisory)?.message))
+    .map((advisory) => {
+      const value = record(advisory);
+      const message = line(value?.message);
+      return message && value?.requiredBefore === 'approve'
+        ? `Before approval (not a publication blocker): ${message}` : message;
+    })
     .filter((message): message is string => Boolean(message));
   const warnings = Array.isArray(projection.warnings) ? projection.warnings
     : record(projection.grounding)?.warnings;

@@ -9,8 +9,11 @@ export const PHASE_JOURNEY_CONTRACT = 1;
 const guidance = argv => safeCommandGuidance({ executable: 'singularity-flow', argv });
 
 export function phaseJourney(workflow, phase, { findings = [], inspection = {}, witnesses = [], submission = null } = {}) {
-  const resolution = phaseResolutionProjection(workflow, phase, findings);
   const drafting = requiresProspectivePhaseInspection(workflow, phase);
+  const resolution = phaseResolutionProjection(workflow, phase, findings, {
+    advisories: inspection.advisories ?? [],
+    transition: drafting ? 'publish' : phase.status === 'awaiting_approval' ? 'approve' : 'submit'
+  });
   const integrity = findings.filter(finding => phaseFindingPolicy(finding).classification === 'integrity-or-authority');
   const producer = findings.filter(finding => phaseFindingPolicy(finding).repairableByProducer);
   const human = resolution.issues.filter(issue => issue.status === 'needs-human');

@@ -26,6 +26,7 @@ export function phaseIssuesBody(result: unknown): string {
   const data = object(envelope.data ?? envelope);
   const resolution = object(data.resolution);
   const issues = Array.isArray(resolution.issues) ? resolution.issues.map(object) : [];
+  const advisories = Array.isArray(resolution.advisories) ? resolution.advisories.map(object) : [];
   const appeals = object(data.appeals);
   const items = Array.isArray(appeals.items) ? appeals.items.map(object) : [];
   const repair = object(data.repairLoop);
@@ -51,6 +52,10 @@ export function phaseIssuesBody(result: unknown): string {
       <p>${escape(String(issue.path ?? ''))} · ${escape(String(issue.status ?? 'needs-owner'))}</p>
       ${Array.isArray(issue.choices) ? issue.choices.map(object).map(choice => `<p><b>${escape(String(choice.owner ?? 'Owner'))}</b>: ${escape(String(choice.detail ?? 'Inspect recovery'))}</p>`).join('') : ''}</article>`).join('')
       : '<p>No issue was reported by this inspection. Normal transition checks still run.</p>'}</section>
+    ${advisories.length ? `<section><h2>Advisories — not current blockers</h2>${advisories.map(advisory => `<article class="card"><h3>${escape(String(advisory.path ?? advisory.code ?? 'Advisory'))}</h3>
+      <p>${advisory.requiredBefore === 'approve' ? 'Account for this before approval; publication may proceed.' : 'Optional improvement; no human approval is required.'}</p>
+      <p>${escape(String(advisory.message ?? ''))}</p>
+      ${Array.isArray(advisory.choices) ? advisory.choices.map(object).map(choice => `<p>${escape(String(choice.detail ?? ''))}</p>`).join('') : ''}</article>`).join('')}</section>` : ''}
     <section><h2>Appeals</h2>${items.length ? `<table><thead><tr><th>Appeal</th><th>Phase</th><th>Status</th></tr></thead><tbody>${items.map(item => `<tr><td>${escape(String(item.id ?? ''))}</td><td>${escape(String(item.phaseId ?? ''))}</td><td>${escape(String(item.status ?? ''))}</td></tr>`).join('')}</tbody></table>` : '<p>No retained appeals for this phase.</p>'}</section>
     <section><h2>Recorded repair loop</h2><p>${escape(String(repair.status ?? 'Inspect the repair plan'))} · ${escape(String(repair.consumed ?? 0))}/${escape(String(repair.maximum ?? 3))} attempts used.</p>
       <p>Attempts survive restarts. Exhausting automation does not prevent reviewed manual repair. Producer repairs save private recovery copies first; no test success or approval is implied.</p></section>

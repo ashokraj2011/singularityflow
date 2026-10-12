@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { inspectCodeDocumentation } from '../src/code-documentation-inspection.mjs';
 import { phaseDraftCheck } from '../src/phase-draft-check.mjs';
+import { phasePrepublish } from '../src/phase-prepublish.mjs';
+import { beginCodeGeneration } from '../src/generation-boundary.mjs';
+import { ensureWorkIntervalBaseline } from '../src/work-intervals.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -150,6 +153,47 @@ export function added(entry) { return entry; }
     'an advisory is never a finding');
   assert.equal(draft.status, 'ready');
   assert.notEqual(draft.commands.publish, null, 'publication is still offered');
+});
+
+test('prepublish and its recovery resolution both stay ready when only documentation is advisory', async t => {
+  const { root, base, phase, workflow, config } = await repository(t);
+  phase.generationIntent = null;
+  phase.writeScope = 'source-and-artifact';
+  phase.sourceBoundary = 'unrestricted';
+  phase.requiredArtifact = {
+    path: 'artifacts/implementation/implementation-summary.md', kind: 'implementation-summary', minimumBytes: 20,
+    validation: { requiredHeadings: ['Implementation'], forbiddenPlaceholders: [] }
+  };
+  phase.qualityCommands = [{ id: 'ledger-tests', kind: 'test', argv: ['node', '--test', 'tests/ledger.test.js'],
+    workingDirectory: '.', affectedRoots: ['.'], result: { adapter: 'node-tap', path: '.sflow/results/ledger.tap' } }];
+  workflow.workIntervals = { current: null, history: [] };
+  workflow.history = [];
+  await ensureWorkIntervalBaseline(root, config, workflow, {
+    phaseId: phase.id, itemDirectory: path.join(root, 'singularity/work-items/DOCS-1'),
+    itemRelative: 'singularity/work-items/DOCS-1', sourceBaseCommit: base
+  });
+  await beginCodeGeneration(root, config, workflow, phase, { agent: 'developer' });
+  await put(root, 'singularity/work-items/DOCS-1/artifacts/implementation/implementation-summary.md',
+    '# Implementation\n\nThe ledger gains a new entry point for callers.\n');
+  await put(root, 'src/ledger.js', 'export function added(entry) { return entry; }\n');
+  await put(root, 'tests/ledger.test.js', 'import test from "node:test"; import assert from "node:assert/strict";\nimport { added } from "../src/ledger.js";\ntest("entry is retained", () => assert.equal(added("entry"), "entry"));\n');
+  const source = await readFile(path.join(root, 'src/ledger.js'));
+  const intent = structuredClone(phase.generationIntent);
+  const result = await phasePrepublish(root, config, workflow, phase, {
+    session: { workId: 'DOCS-1', phaseId: phase.id, agent: 'developer' }
+  });
+  assert.equal(result.status, 'ready', JSON.stringify(result.findings));
+  assert.ok(result.commands.publish);
+  assert.equal(result.testExecution.status, 'not-run', 'prepublish neither runs tests nor invents success');
+  assert.equal(result.testExecution.handoff.runnerStatus, 'ready');
+  assert.equal(result.testExecution.handoff.repositoryEditsRequired, false);
+  assert.equal(result.documentation.status, 'missing');
+  assert.equal(result.resolution.status, 'ready');
+  assert.deepEqual(result.resolution.issues, []);
+  assert.equal(result.resolution.advisories[0].code, 'code.documentation.missing');
+  assert.deepEqual(result.resolution.advisories[0].choices, []);
+  assert.deepEqual(await readFile(path.join(root, 'src/ledger.js')), source);
+  assert.deepEqual(phase.generationIntent, intent, 'inspection neither publishes nor alters the intent');
 });
 
 test('advisories still run when the generation also committed Story records, and skip tests and migrations', async (t) => {

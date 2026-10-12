@@ -40,7 +40,10 @@ async function inspect(root, config, workflow, phase, { modelEnabled = true } = 
   const conditionHash = phaseRepairConditionHash({ ready, findings: underlying,
     pending: recovery.publicationRecovery?.status === 'pending' ? repairDigest(recovery.publicationRecovery.record) : null });
   return { inspection, recovery, findings: underlying, ready, conditionHash,
-    resolution: phaseResolutionProjection(workflow, phase, underlying) };
+    resolution: phaseResolutionProjection(workflow, phase, underlying, {
+      advisories: inspection.advisories ?? [],
+      transition: requiresProspectivePhaseInspection(workflow, phase) ? 'publish' : phase.status === 'awaiting_approval' ? 'approve' : 'submit'
+    }) };
 }
 const runtime = { load: loadAcceptedStoryExecution, inspect, branch, lock: withSubjectLock, checkpoint: createPhaseCheckpoint,
   sync: (root, config, workflow, plan) => applyRecovery(root, config, workflow,

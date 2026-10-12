@@ -441,6 +441,7 @@ test('a changed file the plan lists under Supporting files needs no clause, and 
   assert.equal(preview.coverage.status, 'unclaimed');
   assert.deepEqual(preview.advisories.map((advisory) => advisory.path), ['Makefile']);
   assert.equal(preview.advisories[0].blocking, false);
+  assert.equal(preview.advisories[0].requiredBefore, 'approve');
   assert.match(preview.advisories[0].message, /not under the plan's Supporting files; approving this phase would refuse it/);
 
   git(root, 'add', '.');

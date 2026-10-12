@@ -17,7 +17,7 @@ related:
   - manual-authorship
   - approvals
   - sequence-gates
-version: 9
+version: 10
 ---
 Phase artifacts are produced against pinned templates and published through the kernel: `sflow phase publish` validates the template contract, hashes the artifact (SHA-256), commits only allowlisted governed paths in one isolated commit, and advances the branch with compare-and-swap semantics — unrelated staged changes never enter lifecycle commits. Each publication is a numbered generation. With the AI: `/sflow-continue` composes the pinned context, asks unresolved questions first, then drafts. Approved upstream inputs are prepared with `sflow inputs [PHASE]`; supporting documents are added with `sflow documents upload <FILE> --name <NAME>` and pinned by hash. Unresolved questions are not left in chat: `sflow clarification record` persists a question and its answer against the phase, and `sflow clarification status` shows what is still outstanding — so the next generation reads the answer as pinned context rather than rediscovering it.
 
@@ -38,6 +38,15 @@ the declaration. When the change cannot be read, `documentation.status` is `unav
 reason. VS Code shows the advisories when it publishes. Advisories never block publication and never
 become findings. `/sf-code` writes doc comments as it implements;
 `/sf-code-docs` adds any that are missing afterwards, changing comments only.
+
+The shared resolution packet keeps actual blockers in `resolution.issues` and optional notices in
+`resolution.advisories`. Only actual blockers affect the current readiness state, human holds or
+repair-attempt fingerprint. A `ready` prepublish with `commands.publish` authorizes a publication
+attempt despite advisory comments; publication still runs the required tests and enforces trust.
+An unplanned-path notice is different from an optional comment: it is non-blocking for publication,
+but explicitly says `requiredBefore: approve`. Account for its exact scope through the reviewed plan
+or appeal before approval. Publishing and passing tests do not approve that extra scope. This same
+contract applies to seeded, imported, duplicated and team-defined phases.
 
 If a prior generation was consumed and bytes now differ, run
 `/sf-recover` (or `sflow recover <WORK-ID> --phase <phase> --json`) first. The recovery route previews

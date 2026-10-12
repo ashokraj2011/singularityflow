@@ -153,6 +153,20 @@ test('documentation advisories ride along with a ready decision and never change
   assert.deepEqual(phasePrepublishDecision(ready, expected).advisories, []);
 });
 
+test('later scope accounting is visible but cannot turn a ready publication into a hold', () => {
+  const advice = { code: 'spec.coverage.unclaimed-path', path: 'package.json', requiredBefore: 'approve',
+    blocking: false, message: 'Explain package.json before approval.' };
+  const decision = phasePrepublishDecision({ ...ready, advisories: [advice], resolution: {
+    status: 'ready', issues: [], advisories: [advice], transition: 'publish' }
+  }, expected);
+  assert.equal(decision.ready, true);
+  assert.deepEqual(decision.advisories, ['Before approval (not a publication blocker): Explain package.json before approval.']);
+  const blocked = phasePrepublishDecision({ ...ready, findings: [{ code: 'CODE_TEST_FAILED', message: 'Required tests failed.' }],
+    advisories: [advice], resolution: { status: 'ready', issues: [] }
+  }, expected);
+  assert.equal(blocked.ready, false, 'display metadata cannot override a real failure');
+});
+
 test('a correction that restates the blocking finding is shown once, in its fuller form', () => {
   const sentence = `Phase 'verify' requires current Code evidence: source or tests changed after their approved execution: src/value.mjs. Return them with: singularity-flow reject verify --to implement --repair --reason <REASON>. They stay in your worktree; nothing was reverted or adopted. They change QF-GUI:AC-001, owned by implement.`;
   const decision = phasePrepublishDecision({

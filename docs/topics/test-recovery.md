@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 14
+version: 15
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -33,6 +33,13 @@ testRecovery:
 ```
 
 Keep test commands structured (`kind: test`, explicit argv and a supported report contract). This opt-in does not infer a waiver for old string commands or change an already-started Story. A runnable example must use the repository's actual test command and report format, not a generic placeholder runner.
+
+A ready runner handoff sets `repositoryEditsRequired: false`: it is an invocation contract, not a
+request to edit the repository. For example, an ordinary `test: vitest run` package script already
+resolves to a command with JSON reporter/output arguments. Do not add those flags to `package.json`
+merely to produce the same report. Hidden approved arguments are also not missing configuration.
+Actual unavailable runners still require the returned governed configuration route; a ready handoff
+does not establish that tests ran or passed, and publication/submission owns fresh execution.
 
 The VS Code intake section appears only when exact-base preflight advertises the pilot for the selected workflow. Non-code workflows do not gain a unit-test obligation merely because recovery is enabled. Unsupported choices stay visibly unavailable. The engine revalidates the selected base, workflow and policy at mutation time.
 

@@ -25,21 +25,21 @@ export function projectTestExecutionCommand(command, { configuredIndex = -1, tes
  */
 export function testExecutionHandoff(testExecution, { published = false, command = null } = {}) {
   if (testExecution.status === 'not-required') return {
-    runnerStatus: 'not-required', configurationRequired: false,
+    runnerStatus: 'not-required', configurationRequired: false, repositoryEditsRequired: false,
     executionOwner: null, command: null, onSuccess: null, guidance: null
   };
   const available = testExecution.status === 'not-run' && testExecution.commands?.length > 0
     && testExecution.commands.every((entry) => entry.availability === 'ready');
   if (!available) return {
-    runnerStatus: 'unavailable', configurationRequired: null,
+    runnerStatus: 'unavailable', configurationRequired: null, repositoryEditsRequired: null,
     executionOwner: null, command: null, onSuccess: null,
     guidance: 'Follow the reported runner or lifecycle repair action; no executable test handoff is ready.'
   };
   const owner = published ? 'submission' : 'publication';
   return {
-    runnerStatus: 'ready', configurationRequired: false,
+    runnerStatus: 'ready', configurationRequired: false, repositoryEditsRequired: false,
     executionOwner: owner, command, onSuccess: `continue-${owner}`,
-    guidance: `The runner is resolved. argv: null with argvWithheld: true means approved arguments are hidden, not missing; do not request configuration adoption for this. ${published
+    guidance: `The runner is resolved. Do not edit package scripts or test configuration merely to add reporter flags already supplied by the resolved command; no repository edit is required for this handoff. argv: null with argvWithheld: true means approved arguments are hidden, not missing; do not request configuration adoption for this. ${published
       ? 'Use the returned submit route only when submission readiness permits it; do not republish an unchanged generation.'
       : 'Use returned commands.publish when prepublish is ready.'} ${owner === 'publication' ? 'Publication' : 'Submission'} runs the exact resolved command and validates fresh results, then continues automatically when required tests pass. Do not stop for runner adoption or repeat a separate test run merely because arguments are withheld. Tests do not waive other findings or required human approval.`
   };

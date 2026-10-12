@@ -120,7 +120,7 @@ export async function inspectCodeDocumentation(root, config, workflow, phase) {
       declarations += touched.length;
       for (const declaration of touched.filter((candidate) => !candidate.documented)) {
         advisories.push(Object.freeze({
-          code: 'code.documentation.missing', category: 'documentation', blocking: false,
+          code: 'code.documentation.missing', category: 'documentation', blocking: false, requiredBefore: null,
           path: relative, line: declaration.line, value: declaration.name, kind: declaration.kind,
           message: `Public ${declaration.kind} '${declaration.name}' in ${relative}:${declaration.line} has no doc comment.`
         }));

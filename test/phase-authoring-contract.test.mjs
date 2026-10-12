@@ -31,6 +31,9 @@ test('installed contracts follow capabilities across all phases, renamed workflo
       assert.equal(contract.revalidatePriorDraftQuality, false);
       assert.equal(contract.draftDefectsPreventRepair, false);
       assert.equal(contract.repairIsApproval, false);
+      assert.equal(contract.revision, 'phase-authoring-v3');
+      assert.deepEqual(contract.advisories, { blockPublication: false, scopeAccountingRequiredBefore: 'approve', commentsRequireHumanDecision: false });
+      assert.match(phaseAuthoringContractLines(contract).join('\n'), /When prepublish is ready and returns commands.publish, continue that publication attempt/);
       assert.equal(contract.evidenceRoot, evidenceRoot);
       assert.equal(contract.recovery.exhaustedAutomaticBudget, 'manual-repair-remains-available');
     }

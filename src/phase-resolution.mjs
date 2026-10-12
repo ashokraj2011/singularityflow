@@ -134,11 +134,32 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     choices, preserved: ['working-tree bytes', 'Git index', 'published evidence', 'approval history'] };
 }
 
-export function phaseResolutionProjection(workflow, phase, findings = []) {
+/** Advice belongs to a separate lane. It cannot reserve repairs or manufacture a human hold. */
+function advisoryProjection(workflow, phase, advisory) {
+  const requiredBefore = advisory.code === 'spec.coverage.unclaimed-path' ? 'approve' : null;
+  return {
+    code: advisory.code, path: advisory.path ?? null, message: advisory.message ?? advisory.code,
+    status: 'advisory', blocking: false, requiredBefore,
+    detail: requiredBefore
+      ? 'This is not a publication blocker. Account for the exact changed path before approval; publication and tests do not grant scope approval.'
+      : 'Optional improvement, not a publication blocker or a required human decision. Repair only owned editable work; never change approved evidence.',
+    choices: requiredBefore
+      ? phaseResolutionChoices(workflow, phase, advisory).choices.slice(0, 1)
+        .map(choice => ({ ...choice, blocking: false, requiredBefore }))
+      : []
+  };
+}
+
+export function phaseResolutionProjection(workflow, phase, findings = [], { advisories = [], transition = null } = {}) {
   return { status: findings.length ? 'resolution-required' : 'ready',
+    transition,
     contract: { preserveWork: true, automaticDiscard: false, automaticRiskAcceptance: false,
-      priorApprovalsImmutable: true, exhaustedAutomationBlocksManualRepair: false },
-    issues: findings.map(finding => phaseResolutionChoices(workflow, phase, finding)),
+      priorApprovalsImmutable: true, exhaustedAutomationBlocksManualRepair: false,
+      advisoriesBlockCurrentTransition: false },
+    // Only the caller's actual gate findings belong here. Never suppress an integrity/unknown
+    // finding because repository-controlled error hints say blocking:false.
+    issues: findings.map(finding => ({ ...phaseResolutionChoices(workflow, phase, finding), blocking: true })),
+    advisories: advisories.map(advisory => advisoryProjection(workflow, phase, advisory)),
     retry: { maximumAttempts: 3, requiresChangedCondition: true, autoAcceptRisk: false,
       fingerprint: digest(findings.map(phaseFindingIdentity).sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)))) } };
 }

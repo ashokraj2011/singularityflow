@@ -1955,7 +1955,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1484 body tokens</span>
+          <span class="pill">~1485 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-code</code></dd></div>
@@ -1991,9 +1991,9 @@ Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/exp
 4. Follow `clarification.checkpoint`; off skips. Reuse same-binding human replies; ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop). File-edit `{&quot;responses&quot;:[...]}` at `clarification.responseStagingPath`, run `checkpoint.recordAction` alone. On refusal preserve replies/staging; repair recording, not questions. Remove staging only on success; record before code mutation, never promises. Clarification staging is JSON only; never handwrite governed records.
 5. Use verified `references.repositories[].localPath`; refuse invalid/dirty. `singularity-flow revision status --json` only when `generation &gt; 0`. Require open intent; absent: `singularity-flow phase begin &lt;phase&gt; --json` with adoption/confirmation. Consumed intent requires `/sf-recover`.
 6. Use native file-edit tool: implement code/tests, author artifact/Agent brief from real evidence; preparation is not authoring. Preserve managed blocks. Doc-comment APIs; tags are not docs. Exclude fixtures/docs/deletions/symlinks. Planned product paths: `// @clause:ORDER:REQ-001 rationale` (`REQ|BEH|IFC|AC|CON`); executable tests: `// @ac:ORDER:AC-001` above its test. Honor pinned test-only opt-outs.
-7. Follow `testExecution.handoff`: ready + `argvWithheld: true` means configured, not missing. No adoption/amendment for redaction/inference. Publication runs tests/fresh reports; no duplicate pre-run. Missing/invalid/ambiguous/policy-blocked runner: returned recovery/adoption. No skip/list/dry-run/no-tests. Submission runs fresh tests. Authorized dependencies only; never edit protected config, disable hooks or fabricate results.
-8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json` (includes draft-check). Obey `correction.class`/`sameTurn`, `traceabilityRepair.actions`: verify behavior/assertions/hashes, repair owned tags without per-tag confirmation. Implement gaps, clarify ambiguity; publication runs fresh tests. Repair every agent finding now; never invent, pad, blindly delete markers, nest models or overwrite producers. `ready` is not test success. Follow `repairLoop.protocol`; stop unchanged.
-9. Use returned `commands.publish` once when `ready`; successful required tests continue publication. Absent: relay `commands.next`, stop. Refusal: report `requiredTestExecution` command ID, argv/cwd, exit, bounded stderr/guidance; hidden argv is not missing configuration. Nonzero exit fails despite passing JUnit. Follow `/sf-recover`; proven runtime repair permits retry without source changes; consumed source edits require review/rollover. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once. Never submit/approve.
+7. `testExecution.handoff`: ready/withheld argv is configured; no adoption/amendment or package-script edit for reporter flags. Publication/submission run fresh tests; no pre-run. Unavailable runner: returned recovery/adoption. No skip/list/dry-run/no-tests. Authorized dependencies only; never edit protected config, disable hooks or fabricate results.
+8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json` (includes draft-check). Obey `correction.class`/`sameTurn`, `traceabilityRepair.actions`: verify behavior/assertions/hashes, repair owned tags without per-tag confirmation. Implement gaps, clarify ambiguity; publication runs fresh tests. Repair every agent finding now; never invent, pad, blindly delete markers, nest models or overwrite producers. `ready` is not test success. Follow returned `repairLoop.protocol`; stop unchanged.
+9. Use returned `commands.publish` once when `ready`; passing required tests continue publication. Advisories/API-doc notices create no hold; report `requiredBefore: approve` as later scope accounting. Absent: relay `commands.next`, stop. Refusal: report `requiredTestExecution` ID, argv/cwd, exit, bounded stderr/guidance; hidden argv is not missing. Nonzero exit fails despite passing JUnit. Follow `/sf-recover`; proven runtime repair permits retry without source changes; consumed source edits need review/rollover. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once, retry once. Never submit/approve.
 10. `singularity-flow phase show &lt;phase&gt; --for-agent --json`: viewing only; summarize hash-bound references/handoff and test/publication status. Binary/unavailable counts are not zero. No bodies, source snippets or diffs.
 
 TRP: `singularity-flow explain test-recovery`.
@@ -7223,7 +7223,7 @@ argument-hint: &quot;[on|off|status]&quot;
           <span class="pill">generative</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1207 body tokens</span>
+          <span class="pill">~1206 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-phase</code></dd></div>
@@ -7259,10 +7259,10 @@ Blocked: relay `resolution.issues[].choices` too. Eligible risk needs reason/exp
 4. Follow `clarification.checkpoint`; off skips. Reuse same-binding human replies; ask only unanswered/changed questions with `ask_user` (unavailable: show them and stop). File-edit `{&quot;responses&quot;:[...]}` at `clarification.responseStagingPath`, run `checkpoint.recordAction` alone. On refusal preserve replies/staging; repair recording, not questions. Remove staging only on success; record before preparation. Staging is JSON only, never handwritten governed records.
 5. Preparation is not authoring. Run `singularity-flow prepare &lt;phase&gt;` unless prepared in step 2. Agent: native file-edit tool uses `context.text`/`retainedExecutionEvidence`; reconcile stale prose/IDE discovery. Author artifact/Agent brief; resolve TODOs, preserve managed blocks/approvals. Deterministic: regenerator only.
 6. Preserve REQ/AC IDs; `/sf-code` owns tags. Retained files: `evidence` fulfillment, primary visual/inspection contracts. Review `planningEvidenceRepair` when `sameTurn`; recheck.
-7. Preserve context. Prepublish rechecks recovery; honor draft holds without accepting them. Stop for human/protected/unowned changes.
-8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json` (includes draft-check). Correct every agent finding now under `correction.class`/`sameTurn`; route others to their owner, code to `/sf-code`. Never invent, pad, blindly delete markers, nest models or overwrite producers. Follow `repairLoop.protocol`; stop unchanged.
-9. Use returned `commands.publish` when `ready`; absent: relay `commands.next`, stop. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck once; retry once if ready. Preserve sanitized `telemetry/&lt;phase&gt;-gen&lt;N&gt;.json`. Never submit/approve.
-10. `singularity-flow phase show &lt;phase&gt; --for-agent --json`; report commit/push, model/cost, hash-bound documents/stage. Relay each `handoff`&#39;s `copilotCommand`/`command` pair. Publication is not submission/review readiness.
+7. Preserve context; prepublish rechecks recovery. Honor draft holds, never accept them.
+8. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json` (includes draft-check). Correct every agent finding under `correction.class`/`sameTurn`; route others to their owner, code to `/sf-code`. Never invent, pad, blindly delete markers, nest models or overwrite producers. Follow returned `repairLoop.protocol`; stop unchanged.
+9. Ready: use returned `commands.publish`; advisories create no hold (`requiredBefore: approve` is later scope review). Absent: relay `commands.next`, stop. `ARTIFACT_AUTHORING_INCOMPLETE`: recheck/retry once if ready. Keep sanitized `telemetry/&lt;phase&gt;-gen&lt;N&gt;.json`. Never submit/approve.
+10. `singularity-flow phase show &lt;phase&gt; --for-agent --json`; report commit/push, model/cost, hash-bound documents/stage. Relay `handoff`&#39;s `copilotCommand`/`command`. Not submission/review readiness.
 </code></pre>
       </div>
     </details>
@@ -7693,7 +7693,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
           <span class="pill">mutation</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~649 body tokens</span>
+          <span class="pill">~701 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-publish</code></dd></div>
@@ -7724,7 +7724,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 
 1. Bind the optional phase to the active phase in this entry; mismatch: stop with the returned selection route. Publication-only: never edit source/artifacts, compose, prepare, begin a generation, record clarification, submit, approve or change policy.
 2. Run `singularity-flow phase prepublish &lt;phase&gt; --for-agent --json` once. Use native file-read tools for captured output, not shell parsers, pipes or command chains. Preserve the existing draft. Unless `status: ready` and `commands.publish` is present, relay exact blockers and author/repair actions, then stop. No re-asking settled clarification or retrying unchanged failures.
-3. Run returned `commands.publish` once, with its pinned producer/channel; do not invent authorship flags, waive gates or run separate tests. Publication owns any configured fresh test execution. Already-published/no-op results do not authorize a successor or resubmission.
+3. Run returned `commands.publish` once, with its pinned producer/channel; do not invent authorship flags, waive gates or run separate tests. `advisories` never block this attempt; report any `requiredBefore: approve` warning as a later obligation, not a current owner hold. Do not edit documentation or package scripts in this publication-only skill. Publication owns any configured fresh test execution. Already-published/no-op results do not authorize a successor or resubmission.
 4. Show publication generation/commit/push and warnings truthfully. If requested to view documents, use the returned document route; publication is not approval. End with exact returned next actions in Copilot, Shell and model-free order. Never advance to the next phase in this turn.
 </code></pre>
       </div>

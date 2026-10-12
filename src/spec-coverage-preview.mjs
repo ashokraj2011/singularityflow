@@ -115,7 +115,7 @@ export async function inspectUnclaimedChangedPaths(root, config, workflow, phase
       .sort();
     const unclaimed = changed.filter((candidate) => !accounted.has(candidate));
     const advisories = unclaimed.slice(0, MAXIMUM_ADVISORIES).map((candidate) => Object.freeze({
-      code: 'spec.coverage.unclaimed-path', category: 'coverage', blocking: false,
+      code: 'spec.coverage.unclaimed-path', category: 'coverage', blocking: false, requiredBefore: 'approve',
       path: candidate, line: null, value: candidate,
       message: `Changed path ${candidate} is in no planned clause's Expected paths or tests and not under the plan's Supporting files; approving this phase would refuse it.`
     }));

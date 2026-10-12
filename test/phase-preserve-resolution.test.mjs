@@ -65,6 +65,40 @@ test('wrapped quality findings retain exact risk selectors and cosmetic changes 
   assert.equal(before.issues[0].policy.riskEligible, true);
 });
 
+test('advisories cannot create a current blocker, human hold or changed repair budget in any phase', () => {
+  const workflow = { workItem: { id: 'P-1' } };
+  const advisories = [
+    { code: 'code.documentation.missing', path: 'src/api.js', message: 'Missing API comment.', blocking: false },
+    { code: 'spec.coverage.unclaimed-path', category: 'coverage', path: 'package.json', message: 'Account for extra path.', blocking: false }
+  ];
+  for (const id of ['specification', 'planning', 'implementation', 'convergence', 'verification', 'release', 'custom-team-code']) {
+    const phase = { id, status: 'in_progress' };
+    const empty = phaseResolutionProjection(workflow, phase, [], { transition: 'publish' });
+    const result = phaseResolutionProjection(workflow, phase, [], { advisories, transition: 'publish' });
+    assert.equal(result.status, 'ready', id);
+    assert.equal(result.transition, 'publish');
+    assert.equal(result.contract.advisoriesBlockCurrentTransition, false);
+    assert.deepEqual(result.issues, []);
+    assert.equal(result.retry.fingerprint, empty.retry.fingerprint);
+    assert.deepEqual(result.advisories[0].choices, [], 'API comments require no owner or human decision');
+    assert.equal(result.advisories[0].requiredBefore, null);
+    assert.equal(result.advisories[1].requiredBefore, 'approve');
+    assert.equal(result.advisories[1].choices[0].kind, 'scope-appeal');
+    assert.equal(result.advisories[1].choices[0].blocking, false);
+    assert.ok(result.advisories.every(advice => advice.blocking === false && advice.status === 'advisory'));
+  }
+  const phase = { id: 'custom-team-code' };
+  for (const code of ['SPECIFICATION_CLAIM_MAP_BINDING_STALE', 'UNKNOWN_PLUGIN_FAILURE', 'CODE_TEST_FAILED']) {
+    const finding = { code, blocking: false };
+    const before = phaseResolutionProjection(workflow, phase, [finding]);
+    const mixed = phaseResolutionProjection(workflow, phase, [finding], { advisories });
+    assert.equal(mixed.status, 'resolution-required', 'an error hint cannot downgrade a real finding');
+    assert.equal(mixed.issues[0].blocking, true);
+    assert.equal(mixed.retry.fingerprint, before.retry.fingerprint);
+    assert.deepEqual(mixed.issues, before.issues, 'advice cannot replace the required owner route');
+  }
+});
+
 test('missing generation preparation has an executable route, while a consumed intent retains recovery', () => {
   const workflow = { workItem: { id: 'P-1' } }; const phase = { id: 'team-code', status: 'in_progress' };
   const finding = { code: 'phase.generation-intent.required', category: 'code-delivery',

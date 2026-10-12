@@ -858,6 +858,28 @@ test('inferred commands follow monorepo package managers and platform-native run
   assert.equal(swiftCommand.result.adapter, 'junit-xml');
 });
 
+test('a plain Vitest script yields structured evidence without editing the manifest on any platform', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-vitest-handoff-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const manager of ['npm', 'pnpm', 'yarn', 'bun']) {
+    for (const moduleRoot of ['.', 'packages/web']) {
+      const manifestPath = path.join(root, moduleRoot, 'package.json');
+      await mkdir(path.dirname(manifestPath), { recursive: true });
+      const original = JSON.stringify({ packageManager: `${manager}@1.0.0`, scripts: { test: 'vitest run' } });
+      await writeFile(manifestPath, original);
+      for (const platform of ['darwin', 'linux', 'win32']) {
+        const command = await inferModuleTestCommand(root, { root: moduleRoot, system: 'node', manifest: 'package.json' }, { platform });
+        const prefix = manager === 'bun' ? ['bun', 'run', 'test', '--'] : manager === 'yarn' ? ['yarn', 'test'] : [manager, 'test', '--'];
+        assert.deepEqual(command.argv, [...prefix, '--reporter=json', '--outputFile=.sflow/results/node-tests.json']);
+        assert.equal(command.workingDirectory, moduleRoot);
+        assert.equal(command.result.adapter, 'vitest-json');
+        assert.equal(command.result.minimumDiscovered, 1);
+        assert.equal(await readFile(manifestPath, 'utf8'), original, `${manager}/${platform}/${moduleRoot}`);
+      }
+    }
+  }
+});
+
 test('acceptance tags are namespace-qualified @ac comments; bare suffixes and the retired spelling bind nothing', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-cga-ac-'));
   t.after(() => rm(root, { recursive: true, force: true }));

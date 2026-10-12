@@ -29,6 +29,20 @@ test('witness preparation never pre-answers or executes a human checklist', asyn
   assert.match(block, /stillCurrent\(\)/);
 });
 
+test('optional comments and later scope notices have their own escaped advisory section', () => {
+  const attack = '<script>run()</script>';
+  const html = phaseIssuesBody({ data: { resolution: { issues: [], advisories: [
+    { code: 'code.documentation.missing', path: attack, message: attack, requiredBefore: null, choices: [] },
+    { code: 'spec.coverage.unclaimed-path', path: 'package.json', message: 'Extra supporting path', requiredBefore: 'approve', choices: [{ detail: attack }] }
+  ] } } });
+  assert.match(html, /No issue was reported/);
+  assert.match(html, /Advisories — not current blockers/);
+  assert.match(html, /Optional improvement; no human approval is required/);
+  assert.match(html, /Account for this before approval; publication may proceed/);
+  assert.match(html, /&lt;script/);
+  assert.doesNotMatch(html, /<script>|data-action="run|needs-human/);
+});
+
 test('evidence review uses pinned selectors and an independently presented UI, never a webview answer', async () => {
   const review = await readFile(new URL('../apps/vscode/src/views/evidence-contract-review.ts', import.meta.url), 'utf8');
   assert.match(review, /'evidence-prepare'/);

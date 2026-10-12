@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "fcba7b0747fb843510469ddfed6f13b64ff610e2",
+  "sourceCommit": "8b66fa517781832c8fc4271fdf65c7901867afb8",
   "topicCount": 81,
-  "contentSha256": "8b5a3b45cb576b51073e740b6d6bf7b2fc96c294739d739b85aedc1a2cf2b83c",
+  "contentSha256": "a3e4274d9905e7b7ab31570af89d33b02057804ca1bdf16e0f247323f820a6d2",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -48,8 +48,8 @@
     {
       "id": "artifacts-and-generation",
       "title": "Artifacts, templates, and publication",
-      "version": 9,
-      "sha256": "4d1a66bb692e37890a38cdfcabe28de8a1f9c869d60ded5e67dc656500ecbf01",
+      "version": 10,
+      "sha256": "5f84fb2cb581d6270103b03d825299cf8c3feef69fde52a3d34edc6ffb368b98",
       "routingSha256": "dd716dda63734db0f89e1995d31e40d3f25400815b1a17e57d2f0d758e7c58b7",
       "file": "artifacts-and-generation.md"
     },
@@ -584,8 +584,8 @@
     {
       "id": "test-recovery",
       "title": "Story test policy and recovery pilot",
-      "version": 14,
-      "sha256": "121507ddcbcb42fd20bf28f9488e958c8d8b64b3cbe3e4a0fbb28d861f478d07",
+      "version": 15,
+      "sha256": "ca8b70e8bb2f4d1301d5ff41dc64f87abcdf3d4c7cae91d13d6418e07e23a295",
       "routingSha256": "8330286140e41b11c99e24d5b83150c155d7563d24f240c9c9df28418d6a2ea2",
       "file": "test-recovery.md"
     },

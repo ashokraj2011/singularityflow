@@ -27,7 +27,7 @@ test('existing implementation is completed through summary, planned assertions a
   assert.match(code, /Preserve code\/tests; prepare missing artifact via `authoringProgress`/);
   assert.match(code, /Repair missing summary\/planned bindings in this draft/);
   assert.match(code, /finish behavior\/tests\/artifact\/Agent brief/);
-  assert.match(code, /Planned App\.test\.jsx cannot be replaced by utility tests/);
+  assert.match(code, /Planned test files cannot be replaced by utility tests/);
   assert.match(code, /verify assertions, never fabricate tags/);
   assert.match(code, /`argvWithheld: true` means configured, not missing/);
   assert.match(code, /Publication runs fresh tests, no pre-run/);

@@ -17,24 +17,36 @@ export function agentPacketPresentation(packet, platform = process.platform) {
   return visit(packet);
 }
 
+/**
+ * Control before material. A host may keep only the start and end of a long tool result, so every
+ * field a skill must verify before acting (binding, status, authoring route, clarification
+ * checkpoint, edit permissions, next action) comes first, and the bulky sections follow, with the
+ * composed context last. Nothing is sliced or removed; only the order changes.
+ */
+const ENTRY_CONTROL_ORDER = ['contextBoundary', 'ready', 'workId', 'phase', 'phaseStatus', 'status',
+  'authoringAllowed', 'codeAuthoringReady', 'authoring', 'clarification', 'mutationContract',
+  'authoringProgress', 'contextAdmission', 'next', 'testEvidenceFrom', 'upstream'];
+
 export function phaseEntryAgentPresentation(packet) {
   if (packet.paused) return packet;
   const projected = agentPacketPresentation(packet);
-  return { agentGuide: {
-    readOrder: [...(packet.contextBoundary ? ['contextBoundary'] : []), 'ready', 'phase', 'mutationContract', 'codeAuthoringReady', 'authoringProgress', 'authoring', 'clarification', 'contextAdmission', 'upstream', 'recovery', 'intent',
-      'recovery.testExecution', 'retainedExecutionEvidence', 'references', 'context.text', 'next'],
-    testExecutionPath: 'recovery.testExecution',
-    retainedExecutionEvidencePath: 'retainedExecutionEvidence',
-    platform: process.platform,
-    instruction: 'Read authority fields together once, without key enumeration. Binding ready is not source-edit permission: use mutationContract and codeAuthoringReady before edits. authoringProgress describes the remaining draft milestone, not completed code or permission to publish. Read clarification.checkpoint before interpreting authoringAllowed. Use retainedExecutionEvidence for governed outcomes; recovery.testExecution describes this phase\'s runner, not absence of upstream execution. Reconcile stale narrative and IDE discovery separately; command success is not criterion acceptance. Never truncate control instructions with arbitrary string/byte slices. If a tool truncates context.text, read complete named sections in bounded portions from the same saved packet; do not recompose or infer absent instructions. Reuse context.text; changed bindings need fresh checks. Never reuse approval consent.'
-  },
-  // Keep the complete small checkpoint ahead of the large recovery/context bodies so a host
-  // preview cannot hide the conversation protocol. Hash-bound context bytes are never sliced.
-  clarification: projected.clarification ? {
+  // Keep the complete small checkpoint ahead of the rest of the clarification record.
+  if (projected.clarification) projected.clarification = {
     checkpoint: projected.clarification.checkpoint,
     ...Object.fromEntries(Object.entries(projected.clarification).filter(([key]) => key !== 'checkpoint'))
-  } : projected.clarification,
-  ...Object.fromEntries(Object.entries(projected).filter(([key]) => key !== 'clarification')) };
+  };
+  const control = ENTRY_CONTROL_ORDER.filter((key) => Object.hasOwn(projected, key));
+  const material = Object.keys(projected).filter((key) => !control.includes(key) && key !== 'context');
+  return { agentGuide: {
+    readOrder: [...control, 'recovery', 'intent', 'recovery.testExecution', 'retainedExecutionEvidence', 'references', 'context.text'],
+    testExecutionPath: 'recovery.testExecution',
+    retainedExecutionEvidencePath: 'retainedExecutionEvidence',
+    contextFilePath: 'context.file.path',
+    platform: process.platform,
+    instruction: 'Read authority fields together once, without key enumeration; they come first and are complete. Binding ready is not source-edit permission: use mutationContract and codeAuthoringReady before edits. authoringProgress describes the remaining draft milestone, not completed code or permission to publish. Read clarification.checkpoint before interpreting authoringAllowed. Use retainedExecutionEvidence for governed outcomes; recovery.testExecution describes this phase\'s runner, not absence of upstream execution. Reconcile stale narrative and IDE discovery separately; command success is not criterion acceptance. Never truncate control instructions with arbitrary string/byte slices. If a tool cuts context.text, read context.file.path (the same composed prompt, verified by context.file.sha256, without the presentation-only reply personalization) in bounded portions, or complete named sections from the same saved packet; do not recompose or infer absent instructions, and never author from partial context. Reuse context.text; changed bindings need fresh checks. Never reuse approval consent.'
+  },
+  ...Object.fromEntries([...control, ...material].map((key) => [key, projected[key]])),
+  ...(Object.hasOwn(projected, 'context') ? { context: projected.context } : {}) };
 }
 
 const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\n[\s\S]*?\n-->\n?/u;

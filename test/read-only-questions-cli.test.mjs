@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -103,6 +104,11 @@ test('next submits an unreviewed intake but shows the review route for a publish
   cli('next');
   assert.equal((await state()).phases.intake.status, 'awaiting_approval', 'intake owes no review, so next submits it');
   cli('approve', 'intake', '--yes');
+  // The composed context is also named as a verified file, and control fields lead the packet.
+  const entry = JSON.parse(cli('phase', 'enter', 'requirements', '--compose', '--for-agent', '--json').stdout);
+  assert.equal(entry.context.file.sha256, createHash('sha256').update(await readFile(path.join(root, entry.context.file.path))).digest('hex'));
+  assert.ok(Object.keys(entry).indexOf('authoring') < Object.keys(entry).indexOf('recovery'));
+  assert.equal(Object.keys(entry).at(-1), 'context');
   await publish(root, cli, 'requirements', 'Callers keep a local copy for at most one hour and refresh it when the module changes.');
   for (const command of ['next', 'run']) {
     const held = cli(command, '--yes').stdout;

@@ -65,6 +65,26 @@ test('large phase packets keep the complete clarification control before context
   assert.deepEqual(existingEntry.clarification, existing.clarification);
 });
 
+test('agent entry packets put every control field before bulky material and the composed context last', () => {
+  // A host that keeps only the start and end of a long result hid the authoring route of a release
+  // step, so the skill stopped. Whatever order the packet is built in, control comes first.
+  const packet = { recovery: { large: 'r'.repeat(20000) }, retainedExecutionEvidence: { large: 'e'.repeat(20000) },
+    context: { text: 'x'.repeat(30000), deliveredSha256: 'a'.repeat(64), file: { path: 'singularity/work-items/W-1/context/prompts/release-gen1.md', sha256: 'b'.repeat(64) } },
+    ready: true, workId: 'W-1', phase: 'release', status: 'authoring-entry', authoringAllowed: true,
+    authoring: { policyVerified: true, effectiveAuthoringSkill: '/sf-release' },
+    clarification: { mode: 'off', checkpoint: { stage: 'off' } },
+    mutationContract: { summary: 'artifacts only' }, next: [{ id: 'resume-authoring:release' }] };
+  const entry = phaseEntryAgentPresentation(packet);
+  const raw = JSON.stringify(entry);
+  assert.ok(raw.indexOf('"policyVerified":true') < 3000, 'the authoring route is within an early preview');
+  for (const field of ['"authoring":', '"clarification":', '"mutationContract":', '"next":']) {
+    assert.ok(raw.indexOf(field) < raw.indexOf('"recovery":'), `${field} precedes the bulky sections`);
+  }
+  assert.equal(Object.keys(entry).at(-1), 'context');
+  assert.deepEqual(entry.context, packet.context, 'context is passed through whole, with its file reference');
+  assert.match(entry.agentGuide.instruction, /context\.file\.path/);
+});
+
 test('trace metrics distinguish complete runs, unknown usage, exact reviews and legitimate refreshes', () => {
   const event = { invocationId: 'turn-1', bindingKey: 'head:phase:generation', phase: 'coding',
     command: 'singularity-flow session current --for-agent --json', responseBytes: 100, durationMs: 25 };

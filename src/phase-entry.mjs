@@ -84,6 +84,29 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
   return { packet, root, ...accepted, phase, session };
 }
 
+/**
+ * The composed prompt file this entry's context came from, verified by its recorded hash.
+ *
+ * A host can cut a large tool result, and an agent that cannot see the whole context must stop. The
+ * composer already writes the exact prompt into the Story's context directory; naming it (with its
+ * hash) lets the agent read it in bounded portions with its own file tool. The delivered text adds
+ * only the presentation-only reply personalization. No path is offered unless the bytes match.
+ */
+async function composedPromptFile(root, workItemRoot, workId, phaseId, generation) {
+  const contextDirectory = path.posix.join(workItemRoot, workId, 'context');
+  try {
+    const record = JSON.parse(await readFile(path.join(root, contextDirectory, `${phaseId}-gen${generation}.json`), 'utf8'));
+    const relative = path.posix.normalize(String(record?.promptPath ?? ''));
+    if (!relative.startsWith(`${contextDirectory}/prompts/`) || relative.split('/').includes('..')
+        || !/^[0-9a-f]{64}$/u.test(String(record?.renderedSha256 ?? ''))) return null;
+    const bytes = await readFile(path.join(root, relative));
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    return sha256 === record.renderedSha256
+      ? { path: relative, sha256, bytes: bytes.length, differsFromText: 'omits the presentation-only reply personalization' }
+      : null;
+  } catch { return null; }
+}
+
 /** One model-free entry packet; no tests, begin, prepare, commit, push or lifecycle decisions. */
 export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId = null,
   compose = false, modelEnabled = true } = {}) {
@@ -119,8 +142,9 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     // The existing composer owns pinned inputs, immutable reuse, authority replay and locking.
     const { composePhasePrompt } = await import('./worldmodel.mjs');
     const text = await composePhasePrompt(root, { workId: actualId, phase: phase.id });
+    const file = await composedPromptFile(root, definition.workItemRoot, actualId, phase.id, base.inspectionGeneration);
     context = { text, deliveredSha256: createHash('sha256').update(text).digest('hex'),
-      generation: base.inspectionGeneration };
+      generation: base.inspectionGeneration, ...(file ? { file } : {}) };
   }
   const clarification = await verifyClarificationRecord(root, definition, workflow, phase, {
     generation: base.inspectionGeneration

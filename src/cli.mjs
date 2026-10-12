@@ -5484,6 +5484,7 @@ async function clarificationCommand(positionals, options) {
 }
 
 async function inputsCommand(positionals, options) {
+  if (positionals[1] === 'restore') return (await import('./commands/input-restore.mjs')).inputsRestoreCommand(repoRoot(), positionals, options);
   const forAgent = optionBoolean(options, 'for-agent');
   if (forAgent) (await import('./agent-entry-options.mjs')).validateAgentEntryRequest('inputs', { positionals, options });
   const { phaseEntryContext } = await import('./phase-entry.mjs');
@@ -5514,6 +5515,8 @@ async function inputsCommand(positionals, options) {
   const nextSnapshot = await resolveStorySnapshot(root, accepted);
   const continuation = snapshotContinuation(workflow, forAgent ? agentNextSteps(nextSnapshot) : nextSnapshot);
   const artifacts = await phaseInputArtifacts(root, result.phase, result, dryRun);
+  const { inputReadinessReport, inputReadinessLines } = await import('./inputs.mjs');
+  const readiness = inputReadinessReport(workflow, result.phase, result);
   if (optionBoolean(options, 'json')) {
     console.log(JSON.stringify({
       ...(entry?.packet ?? {}),
@@ -5530,6 +5533,7 @@ async function inputsCommand(positionals, options) {
       workItemDirectory,
       ...artifacts,
       records,
+      readiness,
       warnings: result.warnings,
       remoteWarnings: result.remoteWarnings
     }, null, forAgent ? undefined : 2));
@@ -5555,6 +5559,7 @@ async function inputsCommand(positionals, options) {
   ]));
   result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
   result.remoteWarnings.forEach((warning) => console.warn(`Warning: ${warning}`));
+  inputReadinessLines(result.phase, readiness).forEach((line) => console.log(line));
   if (!dryRun && result.records.length) console.log(`Recorded generation ${result.generation} inputs and rendered the managed artifact block.`);
   if (!dryRun) console.log(phaseContinuationLines(continuation).join('\n'));
 }
@@ -9297,10 +9302,11 @@ async function reopenCommand(positionals, options) {
     const gate = await runGovernanceGate(root, config, workflow, { terminal: true });
     gateRecovery = gateRecoveryReopenPlan(root, workflow, gate.findings, target);
     if (!gateRecovery.allowed) {
-      throw new SingularityFlowError(
-        `The current final gate has no blocking reopen finding owned by phase '${target}'. No state was changed.`,
-        { code: 'GATE_RECOVERY_NOT_APPLICABLE', details: { plan: gateRecovery } }
-      );
+      throw new SingularityFlowError({
+        'story-open': `Story '${workflow.workItem.id}' is not closed, so gate recovery cannot reopen it; while a phase awaits approval, return it with reject. No state was changed.`,
+        'reopen-disallowed': `Phase '${completionPhaseOf(workflow)?.id}' policy does not allow completed work to be reopened, gate recovery included. No state was changed.`
+      }[gateRecovery.blockedBy] ?? `The current final gate has no blocking reopen finding owned by phase '${target}'. No state was changed.`,
+      { code: 'GATE_RECOVERY_NOT_APPLICABLE', details: { plan: gateRecovery } });
     }
     if (optionString(options, 'confirm') !== gateRecovery.confirmation) {
       throw new SingularityFlowError([
@@ -12465,7 +12471,7 @@ async function validateCommand(options) {
   const workflow = accepted.workflow;
   const result = await validateWorkflow(root, config, workflow, { strict: optionBoolean(options, 'strict') });
   result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-  if (!result.valid) throw new SingularityFlowError(`Validation failed:\n- ${result.errors.join('\n- ')}`, { exitCode: 2 });
+  if (!result.valid) throw new SingularityFlowError(`Validation failed:\n- ${result.errors.join('\n- ')}`, { exitCode: 2, code: 'STORY_STATE_INVALID', details: { workId: workflow.workItem.id, problems: result.errors } });
   console.log('Singularity Flow workflow is valid.');
 }
 

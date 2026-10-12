@@ -262,6 +262,7 @@ test('inline previews reject tampering and document paths outside the governed w
   await writeFile(path.join(root, record.path), Buffer.from('tampered'));
   const tampered = flow(root, ['documents', 'preview', 'DOC-001', '--json'], { allowFailure: true });
   assert.notEqual(tampered.status, 0); assert.match(JSON.parse(tampered.stdout).error.message, /no longer matches its committed catalog hash/);
+  assert.equal(JSON.parse(tampered.stdout).error.code, 'DOCUMENT_HASH_MISMATCH');
 
   const manifestPath = path.join(root, 'singularity/work-items/PREVIEW-1/documents.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')); manifest.documents[0].path = 'README.md';

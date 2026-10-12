@@ -402,13 +402,21 @@ export function extractClauses(markdown, {
   const ids = new Set([...graphClauses.keys(), ...externalClauseIds.map((id) => String(id).toUpperCase())]);
   for (const clause of clauses) {
     for (const dependency of clause.dependsOn) {
-      if (!ids.has(dependency)) throw new SingularityFlowError(`Clause ${clause.id} references missing dependency ${dependency}.`);
+      if (!ids.has(dependency)) {
+        throw new SingularityFlowError(`Clause ${clause.id} references missing dependency ${dependency}. A clause may depend only on a clause this Story defines.`, {
+          code: 'SPEC_CLAUSE_DEPENDENCY_MISSING', details: { clause: clause.id, dependency, line: clause.source?.line ?? null }
+        });
+      }
     }
   }
   const visiting = new Set();
   const visited = new Set();
   const visit = (id, trail = []) => {
-    if (visiting.has(id)) throw new SingularityFlowError(`Specification clause dependency cycle: ${[...trail, id].join(' -> ')}.`);
+    if (visiting.has(id)) {
+      throw new SingularityFlowError(`Specification clause dependency cycle: ${[...trail, id].join(' -> ')}.`, {
+        code: 'SPEC_CLAUSE_DEPENDENCY_CYCLE', details: { cycle: [...trail, id] }
+      });
+    }
     if (visited.has(id)) return;
     visiting.add(id);
     const clause = graphClauses.get(id);
@@ -918,7 +926,11 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {}, pl
   for (const [rawId, claim] of Object.entries(raw)) {
     const id = rawId.toUpperCase();
     if (claims[id]) throw new SingularityFlowError(`${kind} claim map defines clause ${id} more than once using different letter casing.`);
-    if (known.size && !known.has(id)) throw new SingularityFlowError(`${kind} claim map references unknown clause ${id}.`);
+    if (known.size && !known.has(id)) {
+      throw new SingularityFlowError(`${kind} claim map references unknown clause ${id}. Cite only clauses this Story defines.`, {
+        code: 'SPEC_CLAIM_MAP_UNKNOWN_CLAUSE', details: { kind, clause: id }
+      });
+    }
     if (!claim || typeof claim !== 'object' || Array.isArray(claim)) throw new SingularityFlowError(`${kind} claim ${id} must be an object.`);
     if (kind === 'planned') {
       const tests = normalizePaths(claim.tests, `${id}.tests`, normalized.limits);

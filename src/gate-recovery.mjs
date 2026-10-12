@@ -3,6 +3,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { completionPhaseOf } from './lifecycle-transitions.mjs';
 
 import { canonicalJson } from './records.mjs';
+import { raiseUpstreamIssueRoute } from './upstream-routes.mjs';
 import { run } from './util.mjs';
 
 /**
@@ -94,7 +95,61 @@ function categoryForCode(code) {
   return 'governance';
 }
 
-function storyRecovery(workflow, code, ownerPhase, path) {
+const reopenAllowed = (completion) => completion?.approvalPolicy?.changeRequests?.reopenCompleted !== false;
+
+/**
+ * The final phase and its real status while an ending is pending. A pending transition judges the
+ * Story as if closed; without a status from the caller, a human-approved final phase is the one
+ * being approved, and an automatically approved one is being submitted.
+ */
+export function pendingOpenStory(workflow) {
+  const completion = completionPhaseOf(workflow);
+  if (!completion) return null;
+  return { phase: completion.id,
+    status: ['none', 'policy'].includes(completion.approvalPolicy?.mode) ? 'in_progress' : 'awaiting_approval' };
+}
+
+/**
+ * Recovery for a final-gate finding while the Story is still open. `reopen` refuses an open Story,
+ * so offer only what is legal from the final phase's status: a return of the submitted final phase
+ * to the owner, repair of the final phase's own evidence, or a plain statement of what must happen.
+ */
+function openStoryRecovery(workflow, code, ownerPhase, openStory) {
+  const workId = workflow.workItem.id;
+  const final = workflow.phases?.[openStory.phase] ?? completionPhaseOf(workflow);
+  const finalId = final?.id ?? openStory.phase;
+  const allowed = final?.approvalPolicy?.rejectTo ?? [finalId];
+  const submitted = openStory.status === 'awaiting_approval';
+  const reason = `"Final gate: ${code}"`;
+  if (ownerPhase === finalId) {
+    if (!submitted) return {
+      mode: 'guided', ownerPhase, requiresReopen: false,
+      command: `singularity-flow recover ${workId} --phase ${finalId}`,
+      detail: `${finalId} owns this evidence and is still in progress: repair it there, then submit again.`
+    };
+    if (allowed.includes(finalId)) return {
+      mode: 'guided', ownerPhase, requiresReopen: false,
+      command: `singularity-flow reject ${finalId} --work-id ${workId} --to ${finalId} --reason ${reason}`,
+      detail: `${finalId} owns this evidence. An authorized approver returns the submitted ${finalId} to itself to repair it; the Story is open, so no reopen applies.`
+    };
+  } else if (submitted && allowed.includes(ownerPhase)) {
+    return {
+      mode: 'guided', ownerPhase, requiresReopen: false,
+      command: `singularity-flow reject ${finalId} --work-id ${workId} --to ${ownerPhase} --reason ${reason}`,
+      detail: `${ownerPhase} owns this evidence. An authorized approver returns the submitted ${finalId} to ${ownerPhase}; the Story is open, so no reopen applies.`
+    };
+  }
+  const raised = raiseUpstreamIssueRoute(workflow, ownerPhase, finalId);
+  if (raised) return { mode: 'guided', ownerPhase, requiresReopen: false, command: raised.command, detail: raised.label };
+  return {
+    mode: 'manual', ownerPhase, requiresReopen: false, command: null,
+    detail: allowed.includes(ownerPhase)
+      ? `${ownerPhase} owns this evidence. ${finalId} must be returned to ${ownerPhase} once it is submitted (singularity-flow reject ${finalId} --to ${ownerPhase}); no route reaches ${ownerPhase} while ${finalId} is ${openStory.status.replaceAll('_', ' ')}.`
+      : `${ownerPhase} owns this evidence, but ${finalId} may not return work to it (allowed: ${allowed.join(', ') || 'none'}). A workflow maintainer decides how ${ownerPhase} is corrected; an open Story cannot be reopened.`
+  };
+}
+
+function storyRecovery(workflow, code, ownerPhase, path, openStory = null) {
   const workId = workflow.workItem.id;
   if (code === 'gate.publication.remote-missing') return {
     mode: 'automatic', ownerPhase, requiresReopen: false,
@@ -111,11 +166,17 @@ function storyRecovery(workflow, code, ownerPhase, path) {
     detail: 'Review the approved configuration refresh. An in-flight Story keeps its immutable snapshot; do not rewrite it silently.'
   };
 
+  if (openStory && ownerPhase) return openStoryRecovery(workflow, code, ownerPhase, openStory);
   const closed = workflow.status === 'closed' && workflow.currentPhase == null;
   if (closed && ownerPhase) {
     const completion = completionPhaseOf(workflow);
     const allowed = completion?.approvalPolicy?.rejectTo ?? [completion?.id].filter(Boolean);
-    if (allowed.includes(ownerPhase) && completion?.approvalPolicy?.changeRequests?.reopenCompleted !== false) {
+    // reopenWorkflow refuses every reopen under this policy, gate recovery included.
+    if (!reopenAllowed(completion)) return {
+      mode: 'manual', ownerPhase, requiresReopen: false, command: null,
+      detail: `${completion?.id ?? 'The final phase'} policy does not allow completed work to be reopened, so ${ownerPhase} cannot be returned to in this Story. Correct it in a follow-up Story, or have a workflow maintainer change the policy.`
+    };
+    if (allowed.includes(ownerPhase)) {
       return {
         mode: 'guided', ownerPhase, requiresReopen: true,
         command: `singularity-flow reopen ${workId} --to ${ownerPhase} --reason "Governance recovery: ${code}"`,
@@ -185,12 +246,15 @@ export function gateRecoveryReopenPlan(root, workflow, findings, targetPhase) {
       message: finding.details?.message ?? null
     })).sort((left, right) => canonicalJson(left).localeCompare(canonicalJson(right)))
   };
+  const closed = workflow?.status === 'closed' && workflow?.currentPhase == null;
+  const reopenable = reopenAllowed(workflow ? completionPhaseOf(workflow) : null);
   return {
     ...plan,
-    allowed: workflow?.status === 'closed'
-      && workflow?.currentPhase == null
+    allowed: closed && reopenable
       && Boolean(workflow?.phases?.[target])
       && relevant.length > 0,
+    blockedBy: !closed ? 'story-open' : !reopenable ? 'reopen-disallowed'
+      : !workflow?.phases?.[target] || !relevant.length ? 'no-owned-finding' : null,
     confirmation: planConfirmation(plan)
   };
 }
@@ -201,6 +265,7 @@ export function verifyGateRecoveryReopenPlan(root, workflow, plan) {
     && plan.workId === workflow?.workItem?.id
     && plan.workflowStatus === 'closed'
     && plan.currentPhase == null
+    && reopenAllowed(completionPhaseOf(workflow))
     && plan.targetPhase
     && workflow?.phases?.[plan.targetPhase]
     && plan.head === run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim()
@@ -214,7 +279,7 @@ export function verifyGateRecoveryReopenPlan(root, workflow, plan) {
  * Turn the gate's coded findings into recovery. Each finding arrives with its code, and the step and
  * path the gate knew; a bare message (from an older caller) is an unclassified validation failure.
  */
-export function classifyStoryGateFailures(workflow, findings) {
+export function classifyStoryGateFailures(workflow, findings, { openStory = null } = {}) {
   const seen = new Set();
   return (findings ?? []).map((entry) => (typeof entry === 'string'
     ? { code: 'gate.validation.failed', message: entry, phase: null, path: null }
@@ -234,7 +299,7 @@ export function classifyStoryGateFailures(workflow, findings) {
       value: null,
       stableState: 'unchanged',
       details: { message },
-      recovery: storyRecovery(workflow, code, phase, path)
+      recovery: storyRecovery(workflow, code, phase, path, openStory)
     };
   });
 }

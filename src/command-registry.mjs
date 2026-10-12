@@ -567,7 +567,12 @@ function resolveOptionalOutputOperation(definition, options) {
     : never(`${definition.name}.write`, definition, 'mutation');
 }
 
-function resolveInputsOperation(definition, options) {
+function resolveInputsOperation(definition, positionals, options) {
+  if (positionals[1] === 'restore') {
+    return optionString(options, 'confirm')
+      ? never('inputs.restore.apply', definition, 'mutation')
+      : never('inputs.restore.preview', definition, 'read');
+  }
   return optionBoolean(options, 'dry-run')
     ? never('inputs.dry-run', definition, 'read')
     : never('inputs.prepare', definition, 'mutation');
@@ -1434,7 +1439,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   if (definition.name === 'telemetry') return resolveTelemetryOperation(definition, positionals);
   if (definition.name === 'help-metrics') return resolveHelpMetricsOperation(definition, positionals);
   if (definition.name === 'doctor') return resolveDoctorOperation(definition, options);
-  if (definition.name === 'inputs') return resolveInputsOperation(definition, options);
+  if (definition.name === 'inputs') return resolveInputsOperation(definition, positionals, options);
   if (definition.name === 'workflow') return resolveWorkflowCommandOperation(definition, positionals, options);
   if (definition.name === 'documents') return resolveDocumentsOperation(definition, positionals);
   if (definition.name === 'decision') return resolveDecisionOperation(definition, positionals);
@@ -1699,6 +1704,8 @@ export function operationCatalog() {
     never('review.write', reviewDefinition, 'mutation'),
     never('inputs.dry-run', inputsDefinition, 'read'),
     never('inputs.prepare', inputsDefinition, 'mutation'),
+    never('inputs.restore.preview', inputsDefinition, 'read'),
+    never('inputs.restore.apply', inputsDefinition, 'mutation'),
     ...WORKFLOW_READ_SUBCOMMANDS.map((name) => never(`workflow.${name}`, workflowDefinition, 'read')),
     ...WORKFLOW_AUTHOR_READ_ACTIONS.map((name) => never(`workflow.author.${name}`, workflowDefinition, 'read')),
     ...WORKFLOW_AUTHOR_MUTATION_ACTIONS.map((name) => never(`workflow.author.${name}`, workflowDefinition, 'mutation')),

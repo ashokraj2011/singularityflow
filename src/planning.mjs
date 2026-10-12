@@ -28,7 +28,7 @@ import {
 } from './state-stores.mjs';
 import { resolveImpactPromptOverride } from './impact.mjs';
 import { externalCommandText } from './external-command-policy.mjs';
-import { collectInputs, renderInputsBlock } from './inputs.mjs';
+import { collectInputs, phaseInputsNotReadyError, renderInputsBlock } from './inputs.mjs';
 import { loadSession } from './session.mjs';
 import {
   commitAndPublish,
@@ -432,7 +432,7 @@ async function workItemPlanningParts(root, definition, {
   });
   const structural = await requiredStructuralPromptContext(root, workflow);
   const inputs = await collectInputs(root, workflow, phase, { itemDirectory, itemRelative });
-  if (inputs.errors.length) throw new SingularityFlowError(`Planning inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
+  if (inputs.errors.length) throw phaseInputsNotReadyError(workflow, phase, inputs, { label: 'Planning inputs' });
   const inputBlock = renderInputsBlock(inputs).text;
   const session = await loadSession(root, { required: false });
   const remote = await renderAgentSkills(

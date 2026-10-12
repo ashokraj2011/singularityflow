@@ -122,7 +122,7 @@ function predecessorIds(workflow, phaseId) {
   return new Set(position < 0 ? [] : order.slice(0, position));
 }
 
-async function verifyIndex(root, candidate, workflow) {
+async function verifyIndex(root, candidate, workflow, consumer = null) {
   const producer = workflow.phases?.[candidate.phase];
   const anchor = producer?.specIndex;
   const problems = [];
@@ -162,9 +162,17 @@ async function verifyIndex(root, candidate, workflow) {
     else if (!sameDigest(approved.sha256, current.sha256)) problems.push('source artifact does not match its approved hash');
   }
   if (problems.length) {
+    // The index and its source belong to the producer; the consuming phase must not edit them.
+    // Drifted source bytes can be put back exactly (`inputs restore`); anything else is the
+    // producer's own return or amendment.
+    const drifted = problems.some((problem) => /approved source (?:bytes|size) changed|does not match its approved hash/u.test(problem));
     throw new SingularityFlowError(
-      `Active Clause Capsule refused unverified ${candidate.phase} specification context:\n- ${problems.join('\n- ')}`,
-      { code: 'SPECIFICATION_INDEX_UNTRUSTED', details: { phase: candidate.phase, problems } }
+      `Active Clause Capsule refused unverified ${candidate.phase} specification context:\n- ${problems.join('\n- ')}`
+      + (consumer ? `\nThis context belongs to ${candidate.phase}; ${consumer} must not edit it. Inspect it with: singularity-flow inputs ${consumer} --dry-run --json` : ''),
+      { code: 'SPECIFICATION_INDEX_UNTRUSTED', details: {
+        phase: candidate.phase, producerPhase: candidate.phase, upstreamPhases: [candidate.phase],
+        currentPhase: consumer, workId: workflow.workItem?.id ?? null, problems, restorable: drifted
+      } }
     );
   }
   return candidate;
@@ -182,7 +190,7 @@ export async function activeClauseCapsule(itemDirectory, workflow, phase, source
   const allowed = predecessorIds(workflow, phase.id);
   const indexes = [];
   for (const candidate of records.indexes.filter((index) => allowed.has(index.phase))) {
-    indexes.push(await verifyIndex(root, candidate, workflow));
+    indexes.push(await verifyIndex(root, candidate, workflow, phase.id));
   }
   return buildActiveClauseCapsule({ ...records, indexes }, workflow, phase, source);
 }

@@ -44,8 +44,8 @@ import { loadSession } from './session.mjs';
 import { buildArtifactSidecar, serializeArtifactSidecar, sidecarRelativePath } from './artifact-sidecar.mjs';
 import { createAgentBriefs, planAgentBriefs, verifyAgentBriefsForReview } from './agent-briefs.mjs';
 import {
-  applyInputsBlock, collectInputs, extractInputsBlock, recordInputs, renderInputsBlock, resolvedPhaseInputs,
-  verifyInputsIntegrity, workflowInputsMode
+  applyInputsBlock, collectInputs, extractInputsBlock, inputReadinessFindings, phaseInputsNotReadyError, recordInputs,
+  renderInputsBlock, resolvedPhaseInputs, verifyInputsIntegrity, workflowInputsMode
 } from './inputs.mjs';
 import { prepareRemoteOutputs, updateRemoteOutputRenderedHashes } from './agents.mjs';
 import {
@@ -2439,7 +2439,9 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       })
     : null;
   const inputs = await collectInputs(root, workflow, phase, { definition: config, itemDirectory, itemRelative });
-  if (inputs.errors.length) throw new SingularityFlowError(`Phase ${phase.id} inputs are not ready:\n- ${inputs.errors.join('\n- ')}`);
+  // A dry run reports which inputs stop the phase; only a real preparation refuses on them.
+  if (inputs.errors.length && !dryRun) throw phaseInputsNotReadyError(workflow, phase, inputs);
+  if (dryRun) inputs.findings = inputReadinessFindings(inputs);
   const rendered = renderInputsBlock(inputs);
   if (!dryRun) {
     if (phaseRequiresCodeDelivery(phase)) {
@@ -7116,6 +7118,7 @@ export async function rejectPhase(root, config, workflow, {
     : null;
   const repairBudget = budgetPhase ? consumeRepairAttempt(budgetPreview, budgetPhase, {
     targetPhase: targetId,
+    sourcePhase: phase,
     actor: structuredClone(session.actor),
     at: timestamp,
     changeRequestId: changeRequest.id
@@ -9435,7 +9438,10 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       validate: async () => {
         const validation = await validateWorkflow(root, config, workflow);
         if (!validation.valid) {
-          throw new SingularityFlowError(`Story state is invalid before publication: ${validation.errors.join(' ')}`);
+          throw new SingularityFlowError(`Story state is invalid before publication: ${validation.errors.join(' ')}`, {
+            code: 'STORY_STATE_INVALID',
+            details: { workId: workflow.workItem.id, currentPhase: workflow.currentPhase ?? null, problems: validation.errors }
+          });
         }
       }
     },

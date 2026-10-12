@@ -1002,13 +1002,25 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { agen
       publishedAt: nowIso()
     });
   }
-  if (missing.length) throw new SingularityFlowError(`Initiative phase '${phaseId}' is missing required outputs: ${missing.join(', ')}.`);
+  if (missing.length) {
+    throw new SingularityFlowError(`Initiative phase '${phaseId}' is missing required outputs: ${missing.join(', ')}.`, {
+      code: 'INITIATIVE_OUTPUTS_MISSING', details: { subjectKind: 'initiative', phase: phaseId, problems: missing }
+    });
+  }
   const impact = await verifyInitiativeImpactMap(root, portfolio, initiative, phaseId);
-  if (impact.errors.length) throw new SingularityFlowError(`Initiative phase '${phaseId}' impact map is not grounded:\n- ${impact.errors.join('\n- ')}`);
+  if (impact.errors.length) {
+    throw new SingularityFlowError(`Initiative phase '${phaseId}' impact map is not grounded:\n- ${impact.errors.join('\n- ')}`, {
+      code: 'INITIATIVE_IMPACT_MAP_UNGROUNDED', details: { subjectKind: 'initiative', phase: phaseId, problems: impact.errors }
+    });
+  }
   impact.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
 
   const plan = await verifyInitiativeStoryPlan(root, portfolio, initiative, phaseId);
-  if (plan.errors.length) throw new SingularityFlowError(`Initiative phase '${phaseId}' story plan cannot be materialized:\n- ${plan.errors.join('\n- ')}`);
+  if (plan.errors.length) {
+    throw new SingularityFlowError(`Initiative phase '${phaseId}' story plan cannot be materialized:\n- ${plan.errors.join('\n- ')}`, {
+      code: 'INITIATIVE_STORY_PLAN_INVALID', details: { subjectKind: 'initiative', phase: phaseId, problems: plan.errors }
+    });
+  }
 
   // Traceability is a publication gate, not a CLI courtesy. It used to live in the CLI's publish
   // command, so publishing from the desktop skipped both the check and the evidence it produces —
@@ -1018,13 +1030,17 @@ export async function publishInitiativePhase(root, initiativeId, phaseId, { agen
     ? await verifyEpicTraceability(root, portfolio, initiative)
     : null;
   if (traceability?.errors.length) {
-    throw new SingularityFlowError(`Cannot publish ${phaseId}:\n- ${traceability.errors.join('\n- ')}`);
+    throw new SingularityFlowError(`Cannot publish ${phaseId}:\n- ${traceability.errors.join('\n- ')}`, {
+      code: 'EPIC_TRACEABILITY_INCOMPLETE', details: { subjectKind: 'initiative', phase: phaseId, problems: traceability.errors }
+    });
   }
   const planningPackage = isEpicPlanningPhase(phaseDefinition(initiative, phaseId))
     ? await (await import('./epic-lifecycle.mjs')).verifyEpicPlanningPackage(root, portfolio, initiative)
     : null;
   if (planningPackage && !planningPackage.valid) {
-    throw new SingularityFlowError(`Cannot publish ${phaseId}:\n- ${planningPackage.errors.join('\n- ')}`);
+    throw new SingularityFlowError(`Cannot publish ${phaseId}:\n- ${planningPackage.errors.join('\n- ')}`, {
+      code: 'EPIC_PLANNING_PACKAGE_INVALID', details: { subjectKind: 'initiative', phase: phaseId, problems: planningPackage.errors }
+    });
   }
 
   phase.generation = nextGeneration;

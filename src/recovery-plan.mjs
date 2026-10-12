@@ -28,6 +28,7 @@ import { phaseNeedsGeneration } from './sequence.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { phaseResolutionChoices } from './phase-resolution.mjs';
 import { hasPublishedPhaseGeneration, phaseInspectionGeneration, requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
+import { upstreamChangeRoutes } from './upstream-routes.mjs';
 
 function generationSkill(phase, workflow) {
   return directCopilotSkill(generationSkillForPhase(phase, workflow));
@@ -222,6 +223,30 @@ export async function generationRecovery(root, workflow, phase, generationDigest
   };
 }
 
+/**
+ * An approved phase has nothing to repair in place: it changes only when a later phase returns
+ * work to it, or through a reviewed intent amendment of the scope step. Say so, and list exactly
+ * the routes the CLI accepts from where the Story stands, instead of "nothing was found".
+ */
+function approvedPhaseActions(workflow, phase) {
+  const change = upstreamChangeRoutes(workflow, phase.id);
+  const current = workflow.currentPhase;
+  const explanation = [
+    `${phase.id} is approved. An approved phase is never edited or repaired in place; it changes only when a later phase returns work to it, or, for the step that defines scope, through a reviewed intent amendment.`,
+    ...change.notes,
+    !change.routes.length && !change.notes.length
+      ? current ? `No route to change ${phase.id} is open from ${current} as it stands.` : `The Story has no active phase that could return work to ${phase.id}.`
+      : null
+  ].filter(Boolean).join(' ');
+  return [
+    action({ id: `approved-phase:${phase.id}`, mode: 'informational', detail: explanation,
+      command: current ? `singularity-flow recover ${workflow.workItem.id} --phase ${current} --json` : null,
+      skill: current ? '/sf-recover' : null }),
+    ...change.routes.map((route) => action({ id: `${route.kind}:${phase.id}`, mode: 'guided',
+      command: route.command, skill: route.skill, detail: route.label }))
+  ];
+}
+
 function projectionFinding(error, phase, generation) {
   return {
     code: error.code === 'AGENT_BRIEF_HEADING_AMBIGUOUS'
@@ -244,7 +269,9 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
   generationDigest, modelEnabled = true, publicationReadiness = null
 } = {}) {
   if (!phase || !['in_progress', 'awaiting_approval'].includes(phase.status)) {
-    return { phaseId: phase?.id ?? null, blockers: [], actions: [], requiresLifecycleRecovery: false,
+    return { phaseId: phase?.id ?? null, blockers: [],
+      actions: phase?.status === 'approved' ? approvedPhaseActions(workflow, phase) : [],
+      requiresLifecycleRecovery: false,
       testExecution: { status: phase && phaseRequiresCodeDelivery(phase) ? 'unavailable' : 'not-required', commands: [] } };
   }
   const blockers = [];

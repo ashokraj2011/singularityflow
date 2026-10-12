@@ -3,6 +3,10 @@ import { createHash } from 'node:crypto';
 import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding } from './phase-finding-policy.mjs';
+import { upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mjs';
+
+const UPSTREAM_INPUT_CODES = new Set(['phase_inputs_not_ready', 'phase.inputs.not-ready',
+  'specification_index_untrusted', 'convergence_upstream_artifact_stale']);
 
 const digest = value => `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
 const route = (kind, owner, argv, detail, skill = '/sf-recover') => {
@@ -33,7 +37,25 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     ['appeal', 'checkpoint', '--work-id', workId, '--phase', phase.id, '--json'],
     'Save private recovery copies of dirty files and the index. No commit, discard, publication or phase advance.', '/sf-appeal');
   let resolution;
-  if (code === 'plan_evidence_correction_review_required') {
+  let upstreamReturn = null;
+  if (UPSTREAM_INPUT_CODES.has(code) || category === 'inputs') {
+    // The bytes belong to the earlier phase that produced them. Name it, and offer only the routes
+    // that can work from here: restore its approved bytes, or its return/amendment route.
+    const producer = finding.details?.upstreamPhase ?? finding.details?.phase ?? null;
+    const owner = producer && producer !== phase.id ? producer : 'an earlier phase';
+    const upstream = producer && producer !== phase.id
+      ? upstreamChangeRoutes(workflow, producer, { currentPhaseId: phase.id }) : null;
+    const restorable = finding.details?.restorable === true;
+    resolution = route(restorable ? 'restore-upstream-input' : 'inspect-upstream-input', producer ?? phase.id,
+      restorable ? ['inputs', 'restore', phase.id] : ['inputs', phase.id, '--dry-run', '--json'],
+      `This input comes from ${owner} and must not be edited by ${phase.id}. `
+      + (restorable ? 'Preview restoring its exact approved bytes; nothing changes until the plan digest is confirmed. ' : '')
+      + `If the approved ${owner} content itself must change: ${upstreamRouteSummary(upstream)}`, '/sf-inputs');
+    const legal = upstream?.routes?.[0];
+    if (legal) upstreamReturn = { ...route(legal.kind === 'return' ? 'upstream-return' : 'upstream-amendment', producer,
+      legal.command.split(' ').slice(1), `${legal.label} The input comes from ${owner}; ${phase.id} must not edit it.`,
+      legal.skill ?? '/sf-reject'), command: legal.command };
+  } else if (code === 'plan_evidence_correction_review_required') {
     resolution = route('human-review', 'plan-approval-authority',
       ['appeal', 'evidence-prepare', '--phase', phase.id, '--path', finding.path ?? '<EVIDENCE-PATH>',
         '--clause', '<CLAUSE-ID>', '--method', 'visual', '--reason', '<reason>', '--json'],
@@ -122,7 +144,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
       'No automatic repair or waiver is registered for this finding. Give the maintainer this exact finding and preserved-state diagnostics.', '/sf-doctor');
   }
-  const choices = [resolution, recovery];
+  const choices = [resolution, ...(upstreamReturn ? [upstreamReturn] : []), recovery];
   if (isArtifactQualityFinding(finding)) choices.splice(1, 0, route('pilot-risk-review', 'phase-approval-authority',
     ['appeal', 'risk-prepare', '--work-id', workId, '--phase', phase.id, '--finding', phaseFindingCode(finding),
       '--gate-mode', 'soft', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],

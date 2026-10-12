@@ -57,6 +57,17 @@ export async function assertRefusalChanged(root, workId, fingerprint) {
   );
 }
 
+/**
+ * The last remembered refusal of a Story's transition, projected, or null. Read-only: recovery uses
+ * it so a Story whose ending was refused never reads as having no blockers.
+ */
+export async function readRememberedRefusal(root, workId) {
+  let remembered = null;
+  try { remembered = JSON.parse(await readFile(memoryFile(root, workId), 'utf8')); } catch { return null; }
+  const refusal = projectGateRefusal(remembered?.refusal);
+  return refusal ? { at: typeof remembered.at === 'string' ? remembered.at : null, refusal } : null;
+}
+
 /** Remember a gate refusal for this exact retry; a later identical retry is answered from it. */
 export async function rememberRefusal(root, workId, fingerprint, refusal, at) {
   const file = memoryFile(root, workId);

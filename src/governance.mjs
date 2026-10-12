@@ -44,7 +44,7 @@ import { documentNameKey } from './document-identity.mjs';
 import { isLocalDocument, localDocumentAvailability, validLocalDocumentKey } from './document-storage.mjs';
 import { verifyCodeDeliveryReceipt } from './delivery-evidence.mjs';
 import { applicationPathContext } from './application-paths.mjs';
-import { classifyStoryGateFailures } from './gate-recovery.mjs';
+import { classifyStoryGateFailures, pendingOpenStory } from './gate-recovery.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { configuredRemoteIdentity, frozenRemoteTransport, safeGitDiagnosticReference } from './git-remote-diagnostics.mjs';
 import { publishedGenerationCommit } from './generation-publication-store.mjs';
@@ -204,7 +204,7 @@ export function verifiedAbandonedGenerations(root, config, workflow, { errors = 
   return verified;
 }
 
-export async function runGovernanceGate(root, config, workflow, { terminal = false, pendingTransition = false } = {}) {
+export async function runGovernanceGate(root, config, workflow, { terminal = false, pendingTransition = false, openStory = null } = {}) {
   config = await resolveStoryExecutionDefinition(root, config, workflow);
   const errors = [], warnings = [], passes = [];
   // Every error is also a coded finding naming the step and path it belongs to; recovery reads the
@@ -758,5 +758,9 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
     if (workflow.pendingDecision) refuse('gate.terminal.decision-pending', `terminal: the Story is waiting for a decision: ${workflow.pendingDecision.label}`, { phase: workflow.pendingDecision.after ?? null });
     if (workflow.status !== 'closed' || currentPhase(workflow)) refuse('gate.terminal.workflow-incomplete', 'terminal: workflow is not closed'); else passes.push('terminal lifecycle');
   }
-  return { errors, warnings, passes, findings: classifyStoryGateFailures(workflow, coded) };
+  // A pending transition judges the Story it is about to commit; the persisted Story is still open,
+  // so recovery must offer only routes legal for that open Story, never `reopen`.
+  return { errors, warnings, passes, findings: classifyStoryGateFailures(workflow, coded, {
+    openStory: pendingTransition ? openStory ?? pendingOpenStory(workflow) : null
+  }) };
 }

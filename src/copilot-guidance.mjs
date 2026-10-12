@@ -70,6 +70,9 @@ export function copilotCommandForCommand(command, skill = null, fallback = '/sf-
   const value = String(command ?? '').trim();
   const publication = value.match(/^(?:singularity-flow|sflow)\s+phase\s+publish\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s|$)/u);
   if (publication) return `/sf-publish ${publication[1]}`;
+  const disposition = !/[\u0000-\u001f\u007f]/u.test(value)
+    && value.match(/^(?:singularity-flow|sflow)\s+review-source\s+(?:decision-context|decide)\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s+(.+))?$/u);
+  if (disposition) return `/sf-review-decide ${disposition[1]}${disposition[2] ? ` ${disposition[2]}` : ''}`;
   if (selected === '/sf-publish') {
     const match = value.match(/^(?:singularity-flow|sflow)\s+phase\s+(?:publish|prepublish)\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:\s|$)/u);
     return match ? `${selected} ${match[1]}` : selected;

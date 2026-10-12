@@ -1391,11 +1391,11 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   }
   if (definition.name === 'review-source') {
     const subcommand = positionals[1];
-    if (!['context', 'stage', 'check', 'status', 'submit', 'decide'].includes(subcommand)) {
-      return unknownSubcommand('review-source', subcommand, ['context', 'stage', 'check', 'status', 'submit', 'decide']);
+    if (!['context', 'decision-context', 'stage', 'check', 'status', 'submit', 'decide'].includes(subcommand)) {
+      return unknownSubcommand('review-source', subcommand, ['context', 'decision-context', 'stage', 'check', 'status', 'submit', 'decide']);
     }
     return never(`review-source.${subcommand}`, definition,
-      ['context', 'check', 'status'].includes(subcommand) ? 'read' : 'mutation');
+      ['context', 'decision-context', 'check', 'status'].includes(subcommand) ? 'read' : 'mutation');
   }
   // These handlers only discover Jira via GET or read the existing audit files. Logging a CLI
   // invocation is incidental diagnostics, not permission to treat the handler as a mutation.
@@ -1622,7 +1622,7 @@ export function operationCatalog() {
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [
       never(`skill.${name}.preview`, commandDefinition('skill'), 'read'), never(`skill.${name}`, commandDefinition('skill'), 'mutation')
     ]),
-    ...['context', 'check', 'status'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'read')),
+    ...['context', 'decision-context', 'check', 'status'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'read')),
     ...['stage', 'submit', 'decide'].map((name) => never(`review-source.${name}`, commandDefinition('review-source'), 'mutation')),
     ...['preflight', 'resolve', 'prepare', 'list', 'show', 'risk-prepare', 'repair-plan', 'repair-status', 'checkpoint-show', 'evidence-prepare'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'read')),
     ...['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'resolve-run', 'resolve-resume', 'checkpoint', 'evidence-accept'].map(name => never(`appeal.${name}`, commandDefinition('appeal'), 'mutation')),

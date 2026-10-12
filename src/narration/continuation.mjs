@@ -15,6 +15,7 @@ import { generationSkillForPhase } from '../code-delivery-policy.mjs';
 import { directCopilotSkill } from '../copilot-guidance.mjs';
 import { workflowNextSteps } from '../nextsteps.mjs';
 import { action, plannedAction } from './command-result.mjs';
+import { contextBoundaryPresentation, pendingContextBoundary } from '../context-policy.mjs';
 
 /** The skill that drafts a Story step, when the result knows the Story; null otherwise. */
 function draftingSkill(workflow, phaseId) {
@@ -112,6 +113,9 @@ function fromWorkflowPlanner(workflow, { publicationPending = false, modelMode, 
  * how to proceed.
  */
 export function attachContinuation(result, { postState = null, publicationPending = false, modelMode, restStateWhenIdle = null, stepActionHold = null } = {}) {
+  const boundary = !publicationPending && !stepActionHold?.missing?.length && !postState?.pendingDecision
+    ? contextBoundaryPresentation(pendingContextBoundary(postState)) : null;
+  if (boundary) result = { ...result, data: { ...result.data, contextBoundary: result.data?.contextBoundary ?? boundary } };
   if (result.next.length || result.restState) return result;
 
   const remediation = remediationActions(result, postState);

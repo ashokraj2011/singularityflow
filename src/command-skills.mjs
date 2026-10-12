@@ -92,7 +92,7 @@ const entries = {
   logs: ['sf-logs'],
   doctor: ['sf-doctor'],
   review: ['sf-review'],
-  'review-source': ['sf-review-source'],
+  'review-source': ['sf-review-source', 'sf-review-decide'],
   workflow: ['sf-workflows'],
   skill: ['sf-skill'],
   instruction: ['sf-instructions'],
@@ -196,6 +196,9 @@ function route(defaultSkill, subcommands = {}) {
  * packaged.
  */
 export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
+  'review-source': route('sf-review-source', {
+    'decision-context': 'sf-review-decide', decide: 'sf-review-decide'
+  }),
   session: route('sf-session', {
     candidates: 'sf-stories'
   }),

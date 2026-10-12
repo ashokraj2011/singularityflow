@@ -120,6 +120,7 @@ skills:
   sflow-specify: { class: generative }
   sflow-plan: { class: generative }
   sflow-review-source: { class: review }
+  sflow-review-decide: { class: mutation }
   sflow-converge: { class: generative }
   sflow-doctor: { class: echo, executionBoundary: machine }
   sflow-documents: { class: mutation, executionBoundary: repository }

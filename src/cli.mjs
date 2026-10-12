@@ -8157,6 +8157,7 @@ async function approveCommand(positionals, options) {
     data: {
       commit: publication.sha, pushed: publication.pushed, authorityGroup: result.approval.authorityGroup,
       turnBoundary: 'end', selfApproval: result.approval.selfApproval === true,
+      contextBoundary: result.contextBoundary,
       reviewer: result.approval.approvedBy, reviewPacketSha256: result.approval.reviewPacketSha256,
       artifactSetSha256: result.approval.artifactSetSha256,
       ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
@@ -10185,12 +10186,12 @@ async function reviewSourceCommand(positionals, options) {
     return console.log(JSON.stringify(await sourceReviewAgentContext({ phaseId: positionals[2] ?? null }), null, 2));
   }
   const action = requirePositional(positionals, 1, 'source review action');
-  if (!['context', 'stage', 'check', 'submit', 'decide', 'status'].includes(action)) {
-    throw new SingularityFlowError("Source review action must be context, stage, check, submit, decide, or status.");
+  if (!['context', 'decision-context', 'stage', 'check', 'submit', 'decide', 'status'].includes(action)) {
+    throw new SingularityFlowError("Source review action must be context, decision-context, stage, check, submit, decide, or status.");
   }
   const phaseId = requirePositional(positionals, 2, 'step that defines the scope or plans the claims');
   const root = repoRoot();
-  const { config, workflow } = await loadAcceptedStoryExecution(root);
+  const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   // Reviewable by what the step does, not what it is called [E2G-001].
   if (!sourceReviewKind(workflow, phaseId)) {
     throw new SingularityFlowError(`Source review applies only to a step that defines the scope or plans the claims; '${phaseId}' does neither.`);
@@ -10244,7 +10245,7 @@ async function reviewSourceCommand(positionals, options) {
   if (workflow.currentPhase !== phaseId || phase.status !== 'in_progress') {
     throw new SingularityFlowError(`Source review ${action} requires current in-progress phase '${phaseId}'.`);
   }
-  if (action !== 'check') await assertNoPendingPublication(root, config, workflow, `record source review ${action}`);
+  if (action !== 'check' && action !== 'decision-context') await assertNoPendingPublication(root, config, workflow, `record source review ${action}`);
   if (action === 'stage') {
     const { stageSourceReviewReport } = await import('./source-review-staging.mjs');
     const result = await stageSourceReviewReport(root, config, workflow, phaseId, optionString(options, 'report-json'));
@@ -10315,7 +10316,9 @@ async function reviewSourceCommand(positionals, options) {
   if (decisionSession?.agent === workflow.resolution?.sourceReview?.reviewerAgent) {
     throw new SingularityFlowError(
       `The read-only source reviewer '${decisionSession.agent}' cannot record a human source review decision. Select a different agent or use an authorized human shell session, then retry.`,
-      { code: 'SOURCE_REVIEW_REVIEWER_CANNOT_DECIDE' }
+      { code: 'SOURCE_REVIEW_REVIEWER_CANNOT_DECIDE', details: {
+        recoveryCommand: `singularity-flow agent --agent ${phase.defaultAgent}`,
+        recoverySkill: '/sf-agent', retrySkill: '/sf-review-decide' } }
     );
   }
   const status = await readSourceReviewStatus(root, config, workflow, phaseId);
@@ -10327,6 +10330,15 @@ async function reviewSourceCommand(positionals, options) {
   const actor = identity(root);
   const authorities = workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities;
   const authority = requireApprovalAuthority(authorities, phase.approvalPolicy, actor);
+  const { sourceReviewDecisionPacket, assertSourceReviewDecisionConfirmation } = await import('./source-review-decision.mjs');
+  const decisionPacket = sourceReviewDecisionPacket({ workflow, phaseId, status, findingId: id, reason, actor, authority });
+  if (action === 'decision-context') {
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(decisionPacket, null, 2));
+    console.log(`${decisionPacket.instruction}\nReport: ${status.reportSha256}\nFinding: ${id}\nReason: ${reason}\nAuthority: ${authority.authorityGroup}`);
+    console.log(commandRouteLines(decisionPacket.commandGuidance).join('\n'));
+    return;
+  }
+  assertSourceReviewDecisionConfirmation(decisionPacket, optionString(options, 'confirm'));
   let retained;
   const { publication } = await transactStory(root, config, workflow, {
     type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, generation: phase.generation,
@@ -10341,12 +10353,15 @@ async function reviewSourceCommand(positionals, options) {
         code: 'SOURCE_REVIEW_BINDING_STALE'
       }
     );
+    assertSourceReviewDecisionConfirmation(sourceReviewDecisionPacket({ workflow: aggregate, phaseId,
+      status: current, findingId: id, reason, actor, authority }), optionString(options, 'confirm'));
     retained = await retainSourceReviewDecision(root, config, aggregate, phaseId, current,
       id, reason, actor, authority, publicationEvent);
     return retained;
   });
   const updated = await readSourceReviewStatus(root, config, await loadStoryAggregate(root, config, workflow.workItem.id), phaseId);
-  const result = { ...updated, decision: retained, commit: publication.sha, pushed: publication.pushed };
+  const result = { ...updated, decision: retained, commit: publication.sha, pushed: publication.pushed,
+    turnBoundary: 'end', effects: { decisionRecorded: true, phaseAdvanced: false, approvalRecorded: false } };
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   console.log(`Human source review decision retained: ${id} · ${retained.recordSha256}`);
   console.log(`Commit: ${publication.sha}${publication.pushed ? ' (pushed)' : ' (local)'}`);

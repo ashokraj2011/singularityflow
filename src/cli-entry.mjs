@@ -825,7 +825,8 @@ async function runMain(argv) {
     // A private refresh cannot turn a successful publication into a replayable failure.
     if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && definition.name !== 'hook' && root) {
       await import('./copilot-mutation-guard.mjs').then(module => module.refreshMutationContracts(root, null, {
-        decisionEnded: ['approve', 'reject'].includes(definition.name),
+        decisionEnded: ['approve', 'reject'].includes(definition.name)
+          || definition.name === 'review-source' && positionals[1] === 'decide',
         advanceBaseline: operation.classification === 'mutation'
       })).catch(() => {});
     }
@@ -861,7 +862,8 @@ async function runMain(argv) {
     if (options.timings === true) writeCommandTimings(event);
     return result;
   } catch (error) {
-    if (root && ['approve', 'reject'].includes(definition.name)) {
+    if (root && (['approve', 'reject'].includes(definition.name)
+        || definition.name === 'review-source' && positionals[1] === 'decide')) {
       await import('./copilot-mutation-guard.mjs').then(module => module.endMutationDecisionTurns(root)).catch(() => {});
     }
     timer.stage('execute');

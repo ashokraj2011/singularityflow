@@ -17,6 +17,7 @@ export function mutationTurnMode(skill) {
   if (['approve', 'reject'].includes(name)) return 'approval-only';
   if (['session', 'resume', 'agent'].includes(name)) return 'session-only';
   if (name === 'review-source') return 'read-only-review';
+  if (name === 'review-decide') return 'review-decision-only';
   if (name === 'publish') return 'publish-only';
   if (AUTHORING_SKILL_DECLARATION[`sflow-${name}`]) return 'authoring';
   // Kernel actions have their own authority checks. This never permits direct source edits.
@@ -73,6 +74,10 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
   const next = !phase ? [route(['session', 'current', '--for-agent', '--json'], 'Resolve the Story binding first.')]
     : turnMode === 'read-only-review'
       ? [route(['review-source', 'context', phase.id, '--for-agent', '--json'], 'Use the pinned review packet and its staging protocol; no shell writers or repository edits.')]
+    : turnMode === 'review-decision-only'
+      ? [route(['review-source', 'decision-context', phase.id, '--work-id', workId,
+        '--finding', '<FINDING-ID>', '--reason', '<TEXT>', '--json'],
+        'Prepare and confirm the exact pending human disposition; no reviewer retention, authoring, submission or approval.')]
     : turnMode === 'publish-only'
       ? [route(['phase', 'publish', phase.id, '--authored', phasePublicationContract(phase).producer,
         '--channel', phasePublicationContract(phase).channel], 'Recheck publication readiness first; publish only when the kernel returns ready. Never author, submit or approve.')]

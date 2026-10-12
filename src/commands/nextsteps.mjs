@@ -251,7 +251,8 @@ export async function nextStepsAgentPacket(workId = null) {
     inputs = { phase: packet.phase, dryRun: true, ...resolved,
       records: resolved.records.map(({ content, ...record }) => record) };
   }
-  return agentPacketPresentation({ ...packet, ...snapshot, resultType: 'sflow-nextsteps', inputs,
+  const { contextBoundary: entryBoundary, ...bindingPacket } = packet;
+  return agentPacketPresentation({ ...bindingPacket, ...snapshot, resultType: 'sflow-nextsteps', inputs,
     actions: snapshot.actions.filter(action => action.timing !== 'then'),
     projection: { kind: 'agent', omitted: ['actions[timing=then]'],
       fullCommand: `singularity-flow nextsteps ${packet.workId} --json` } });

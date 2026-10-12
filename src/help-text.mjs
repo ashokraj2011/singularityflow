@@ -311,7 +311,9 @@ Usage:
       read-only format, citation and binding preflight; no commit, push, human decision or approval
   singularity-flow review-source submit <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
       reject malformed packets before mutation; retain valid independent review evidence, including real gaps
-  singularity-flow review-source decide <specification|planning> --finding ID --reason TEXT [--json]
+  singularity-flow review-source decision-context <phase> --work-id WORK-ID --finding ID --reason TEXT [--json]
+      inspect the exact human disposition packet and its confirmation hash; no state change
+  singularity-flow review-source decide <phase> --work-id WORK-ID --finding ID --reason TEXT --confirm SHA256 [--json]
       record an authorized human decision on an exclusion or not-applicable test exception
   singularity-flow review-source status <specification|planning> [--json]
       re-evaluate the latest report, source hashes, artifact hashes, and human decisions

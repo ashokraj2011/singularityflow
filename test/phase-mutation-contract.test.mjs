@@ -173,6 +173,29 @@ test('review tool protocol recovers in the same turn; standalone check/stage/ret
   assert.equal((await mutationToolGuard(payload)).permissionDecision, 'deny');
 });
 
+test('human review-disposition turns allow only exact bound decisions; reviewers remain read-only', async t => {
+  const f = await fixture(t); const payload = await f.enter('/sf-review-decide custom-step');
+  assert.equal(mutationTurnMode('sf-review-decide'), 'review-decision-only');
+  const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+  const argv = ['singularity-flow', 'review-source', 'decide', 'custom-step', '--work-id', 'PMC-1',
+    '--finding', 'not-applicable:PMC-1:AC-004', '--reason', "The human's visual-test exception.", '--confirm', 'a'.repeat(64), '--json'];
+  for (const platform of ['darwin', 'win32']) assert.deepEqual(await mutationToolGuard({ ...payload,
+    toolName: platform === 'win32' ? 'powershell' : 'bash', toolArgs: { cwd: f.root,
+      command: renderPlatformCommand(argv, platform) } }), {});
+  const command = renderPlatformCommand(argv, 'darwin');
+  for (const changed of [command.replace('PMC-1', 'OTHER'), command.replace('custom-step', 'other-step'),
+    command.replace('decide', 'submit'), command.replace('decide', 'stage'),
+    command.replace('a'.repeat(64), 'stale'), `${command} --yes`, `${command} && echo unsafe`,
+    'singularity-flow approve custom-step', 'singularity-flow prepare custom-step']) {
+    assert.equal((await shell(changed)).permissionDecision, 'deny', changed);
+  }
+  assert.equal((await mutationToolGuard(payload)).permissionDecision, 'deny');
+  const reviewer = await f.enter('/sf-review-source custom-step', 'reviewer');
+  assert.equal((await mutationToolGuard({ ...reviewer, toolName: 'bash', toolArgs: { command, cwd: f.root } })).permissionDecision, 'deny');
+  await endMutationDecisionTurns(f.root);
+  assert.equal((await shell(command)).permissionDecision, 'deny', 'a finished decision cannot be replayed in this turn');
+});
+
 test('publish-only permits one bound publication, never authoring or lifecycle decisions', async t => {
   const f = await fixture(t); const payload = await f.enter('/sf-publish custom-step');
   assert.equal(mutationTurnMode('sf-publish'), 'publish-only');
@@ -203,7 +226,7 @@ test('all seeded and example phases plus future custom phases share explicit res
     for (const workType of Object.keys(definition.workTypes)) for (const resolved of resolveWorkType(definition, workType).phases) {
       const phase = { ...resolved, generationPolicy: resolved.generation, status: 'in_progress', generation: 1 };
       const workflow = { workItem: { id: 'MATRIX-1' }, currentPhase: phase.id, phaseOrder: [phase.id], phases: { [phase.id]: phase } };
-      for (const turnMode of ['read-only-review', 'publish-only', 'read', 'approval-only', 'kernel-only']) {
+      for (const turnMode of ['read-only-review', 'review-decision-only', 'publish-only', 'read', 'approval-only', 'kernel-only']) {
         const contract = deriveMutationContract({ definition, workflow, turnMode });
         assert.equal(contract.allow.application, false, `${workType}/${phase.id}/${turnMode}`);
         assert.deepEqual(contract.allow.artifacts, []);

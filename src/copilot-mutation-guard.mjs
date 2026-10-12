@@ -202,6 +202,12 @@ function shellAllowed(call, mode, value) {
     return positionals[0] === action && (!positionals[1] || positionals[1] === value.originPhase);
   }
   if (classification === 'read') return true;
+  if (mode === 'review-decision-only') return !value.decisionEnded && positionals[0] === 'review-source'
+    && positionals[1] === 'decide' && positionals[2] === value.contract.phaseId
+    && options['work-id'] === value.contract.workId && typeof options.finding === 'string'
+    && typeof options.reason === 'string' && /^[a-f0-9]{64}$/u.test(options.confirm ?? '')
+    && positionals.length === 3
+    && Object.keys(options).every(key => ['work-id', 'finding', 'reason', 'confirm', 'json'].includes(key));
   if (mode === 'session-only') return ['session', 'agent', 'resume'].includes(positionals[0])
     || positionals[0] === 'workspace' && ['use', 'switch'].includes(positionals[1]);
   if (mode === 'read-only-review') return positionals[0] === 'review-source'
@@ -359,7 +365,7 @@ export async function refreshMutationContracts(root, accepted = null, { decision
     const record = await turn(payload);
     if (!record || record.turnId !== value.turnId) continue;
     const next = await createRecord(payload, record, root, accepted, value);
-    if (decisionEnded && next.contract.turnMode === 'approval-only') next.decisionEnded = true;
+    if (decisionEnded && ['approval-only', 'review-decision-only'].includes(next.contract.turnMode)) next.decisionEnded = true;
     if (value.baseline && advanceBaseline) next.baseline = await shellSnapshot(root);
     await atomicRecord(file, next);
   }
@@ -372,7 +378,8 @@ export async function endMutationDecisionTurns(root) {
   for (const name of (await readdir(directory()).catch(() => [])).filter(name => /^[a-f0-9]{64}\.mutation\.json$/u.test(name))) {
     const file = path.join(directory(), name);
     const value = await boundedRecord(file).catch(() => null);
-    if ((value?.contract?.repositoryRoot ?? value?.repositoryRoot) !== root || mutationTurnMode(value.skill) !== 'approval-only') continue;
+    if ((value?.contract?.repositoryRoot ?? value?.repositoryRoot) !== root
+        || !['approval-only', 'review-decision-only'].includes(mutationTurnMode(value.skill))) continue;
     value.decisionEnded = true;
     await atomicRecord(file, value);
   }

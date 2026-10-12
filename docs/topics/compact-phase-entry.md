@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals, phase-appeals, nextsteps]
-version: 11
+version: 12
 ---
 # Compact phase entry for Copilot
 
@@ -27,6 +27,15 @@ pause/session/status, recovery, clarification and reference lookups with one ver
 No production token-reduction composer or unqualified cache policy is enabled by this change.
 Existing approved-input briefs and exact clause capsules remain the context authority. Token and
 Git-call savings depend on workflow content; fewer CLI calls are not a claim of fewer validators.
+
+## Approval-to-authoring conversation handoff
+
+Approval, nextsteps, phase continuation and phase entry expose the same `contextBoundary` before
+next-phase authoring. In a conversation that worked on an earlier phase, `new` means `/clear`, then
+`/sf-next`; `compact` means `/compact`, then `/sf-next`. Nextsteps marks Copilot's authoring timing as
+`after-context-boundary`. Fresh conversations proceed without another reset; `keep` has no reset.
+These are chat operations, not Shell or model-free workflow gates. The approval remains recorded.
+Pending publication, recovery and required after-step actions keep their priority.
 
 ## Governed execution evidence across phases
 

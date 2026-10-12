@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "f36d8cb94f78289d697fd4c33cd8d67033659239",
+  "sourceCommit": "3737c24d447338be1998bdde343fa19a2268d8dc",
   "topicCount": 81,
-  "contentSha256": "b67397374aac57518f7834c5a81653e7f92344935d5a51e3bf785ad6d18b32ad",
+  "contentSha256": "eb458c88f5ccc7f56e04a8126a00c5d62d6af9c7b7cc730f849517d7725e8121",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -104,8 +104,8 @@
     {
       "id": "compact-phase-entry",
       "title": "Compact phase entry for Copilot",
-      "version": 11,
-      "sha256": "2fb8376fa7c2220b69304e4466cdf0f8dbe4e61bcb1ab09a5067422fdf415291",
+      "version": 12,
+      "sha256": "cb6238fcb5ca87004aabd61273d59e796c17f472d830fdbd3362d879a304a08e",
       "routingSha256": "bcd885145db0455bd1ec31c50649b5056e38b66b77e10123514a20c5f3d1d0cb",
       "file": "compact-phase-entry.md"
     },
@@ -536,16 +536,16 @@
     {
       "id": "source-grounded-review",
       "title": "Independent source-grounded review",
-      "version": 3,
-      "sha256": "3569e5f1d55cfc605d7689165ef2323aa55710363580a3b38033ed732003341b",
+      "version": 4,
+      "sha256": "3bbbe2661006b0e464487ca22af1f67223cc4ceb5992ad1adb38d9cbf54c71e7",
       "routingSha256": "0c3fb5640f1493f14d8795c3e77b63917c630b28fba11bb13f20bb2add4d808c",
       "file": "source-grounded-review.md"
     },
     {
       "id": "specification-quality",
       "title": "Specification quality and clarification markers",
-      "version": 9,
-      "sha256": "dfb34cb4ad72663bd0f2552313e6a34eabac05cf35734c14303fc7d4a0e761de",
+      "version": 10,
+      "sha256": "006b9cf186c3a408fb5aa38f8b237ce4aed5e98b655922a51b398c67eacdd3ad",
       "routingSha256": "6f4200409c982f2aec675cbaf904563a0b014733cbc9e88da82127c4982fdd21",
       "file": "specification-quality.md"
     },
@@ -568,8 +568,8 @@
     {
       "id": "supporting-documents",
       "title": "Supporting documents",
-      "version": 7,
-      "sha256": "1b27c40bcfdfbcebf900a41122033ce7ddc172da5547435ff9970a2f647335f8",
+      "version": 8,
+      "sha256": "14d50a3d07b1145868a4f83473cb5afea0eef90596484e27f592d7de99fdebe1",
       "routingSha256": "e999b62cfd8ab0711c2320feca3f5d0f54656404584de22af6de4aa30060db1c",
       "file": "supporting-documents.md"
     },

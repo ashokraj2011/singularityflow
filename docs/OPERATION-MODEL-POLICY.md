@@ -547,6 +547,7 @@ Every public operation is classified before its implementation module is importe
 | review-source.check | read | never | — | — |
 | review-source.context | read | never | — | — |
 | review-source.decide | mutation | never | — | — |
+| review-source.decision-context | read | never | — | — |
 | review-source.stage | mutation | never | — | — |
 | review-source.status | read | never | — | — |
 | review-source.submit | mutation | never | — | — |

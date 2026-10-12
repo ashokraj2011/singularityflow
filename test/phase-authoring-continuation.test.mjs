@@ -85,7 +85,7 @@ test('human dispositions, stale bindings and submitted phases never become autom
   const workflow = story('custom-scope'), phase = workflow.phases['custom-scope'];
   const pending = { status: 'correction-required', findings: [{ code: 'human-disposition-required' }],
     pendingDispositions: [{ id: 'exclusion:row-1' }] };
-  assert.match(sourceReviewContinuation(workflow, phase, pending).nextCommand, /review-source decide custom-scope --finding exclusion:row-1/);
+  assert.match(sourceReviewContinuation(workflow, phase, pending).nextCommand, /review-source decision-context custom-scope.*--finding exclusion:row-1/);
   assert.equal(sourceReviewContinuation(workflow, phase, { status: 'stale', findings: [{ code: 'review-binding-stale' }] }).nextSkill, '/sf-review-source');
   assert.equal(phaseAuthoringEntry(workflow, phase, { review: pending }).status, 'retained-generation');
   assert.equal(phaseAuthoringEntry(workflow, phase, { review: { status: 'stale' } }).status, 'retained-generation');

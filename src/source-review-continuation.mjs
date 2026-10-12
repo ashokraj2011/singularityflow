@@ -26,7 +26,7 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
         `Resume the phase author and prepare generation ${generation}. Preserve any private corrected draft, author it at the returned artifact path, then draft-check and prepublish. Publish only when the returned gates are ready; ${sourceReviewRequired(workflow, phase.id) ? 'review the published successor afterward' : 'follow its returned submission handoff'}.`)];
   } else if (review?.pendingDispositions?.length) {
     classification = 'human-disposition-required';
-    actions = [action('/sf-review-source', `singularity-flow review-source decide ${phase.id} --finding ${review.pendingDispositions[0].id} --reason <TEXT>`,
+    actions = [action('/sf-review-decide', `singularity-flow review-source decision-context ${phase.id} --work-id ${workflow.workItem.id} --finding ${review.pendingDispositions[0].id} --reason <TEXT> --json`,
       'An authorized human must decide this exact pending disposition; the reviewer cannot accept it.')];
   } else if (review?.status === 'ready') {
     classification = 'submission-required';

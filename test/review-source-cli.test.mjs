@@ -41,6 +41,16 @@ function cli(root, ...args) {
   return result.stdout.trim();
 }
 
+function decide(root, phaseId, finding, reason) {
+  const before = git(root, 'rev-parse', 'HEAD');
+  const status = git(root, 'status', '--short');
+  const packet = JSON.parse(cli(root, 'review-source', 'decision-context', phaseId,
+    '--work-id', WORK_ID, '--finding', finding, '--reason', reason, '--json'));
+  assert.equal(git(root, 'rev-parse', 'HEAD'), before);
+  assert.equal(git(root, 'status', '--short'), status);
+  return JSON.parse(cli(root, ...packet.commandGuidance.argv));
+}
+
 function reviewRoute(root, phaseId) {
   const beforeHead = git(root, 'rev-parse', 'HEAD');
   const beforeStatus = git(root, 'status', '--short');
@@ -413,8 +423,8 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   const pending = JSON.parse(cli(root, 'review-source', 'status', 'specification', '--json'));
   assert.equal(pending.reportSha256, submitted.reportSha256);
   const humanRoute = reviewRoute(root, 'specification');
-  assert.match(humanRoute.nextCommand, /review-source decide specification --finding exclusion:export-exclusion/);
-  assert.match(humanRoute.copilotCommand, /^\/sf-review-source decide specification/);
+  assert.match(humanRoute.nextCommand, /review-source decision-context specification --work-id REVIEW-1 --finding exclusion:export-exclusion/);
+  assert.match(humanRoute.copilotCommand, /^\/sf-review-decide specification/);
   const shown = cli(root, 'review', 'specification');
   assert.match(shown, /## Next action/);
   assert.ok(shown.includes(`Shell: ${humanRoute.nextCommand}`));
@@ -438,9 +448,23 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   assert.equal(JSON.parse(cli(root, 'review-source', 'status', 'specification', '--json')).status,
     'correction-required');
   cli(root, 'agent', '--agent', authorAgent);
-  const decided = JSON.parse(cli(root, 'review-source', 'decide', 'specification',
-    '--finding', 'exclusion:export-exclusion', '--reason', 'Confirmed outside requested scope.', '--json'));
+  const reason = 'Confirmed outside requested scope.';
+  const decisionPacket = JSON.parse(cli(root, 'review-source', 'decision-context', 'specification',
+    '--work-id', WORK_ID, '--finding', 'exclusion:export-exclusion', '--reason', reason, '--json'));
+  const beforeDecision = git(root, 'rev-parse', 'HEAD');
+  for (const confirmation of [undefined, 'b'.repeat(64)]) {
+    const failed = spawnSync(process.execPath, [executable, 'review-source', 'decide', 'specification',
+      '--work-id', WORK_ID, '--finding', 'exclusion:export-exclusion', '--reason', reason,
+      ...(confirmation ? ['--confirm', confirmation] : []), '--json'], { cwd: root, encoding: 'utf8', timeout: 30000 });
+    assert.notEqual(failed.status, 0);
+    assert.match(failed.stdout + failed.stderr, /SOURCE_REVIEW_DECISION_STALE/);
+    assert.equal(git(root, 'rev-parse', 'HEAD'), beforeDecision);
+    assert.equal(git(root, 'status', '--short'), '');
+  }
+  const decided = JSON.parse(cli(root, ...decisionPacket.commandGuidance.argv));
   assert.equal(decided.status, 'ready');
+  assert.equal(decided.turnBoundary, 'end');
+  assert.deepEqual(decided.effects, { decisionRecorded: true, phaseAdvanced: false, approvalRecorded: false });
   assert.equal(JSON.parse(cli(root, 'review-source', 'status', 'specification', '--json')).status, 'ready');
   const submitRoute = reviewRoute(root, 'specification');
   assert.equal(submitRoute.nextCommand, `singularity-flow submit specification --work-id ${WORK_ID}`);
@@ -513,8 +537,7 @@ test('real CLI review requires acknowledgement of the human answers retained by 
   assert.deepEqual(retained.report.clarificationsReviewed, report.clarificationsReviewed);
   assert.deepEqual(retained.binding.clarifications, packet.binding.clarifications);
   assert.equal(retained.status, 'correction-required', 'reading an answer must not waive the separate exclusion');
-  const decided = JSON.parse(cli(root, 'review-source', 'decide', phaseId,
-    '--finding', 'exclusion:export-exclusion', '--reason', 'Confirmed outside requested scope.', '--json'));
+  const decided = decide(root, phaseId, 'exclusion:export-exclusion', 'Confirmed outside requested scope.');
   assert.equal(decided.status, 'ready');
   cli(root, 'submit', phaseId, '--skip-checks');
   const afterSubmission = JSON.parse(cli(root, 'review-source', 'status', phaseId, '--json'));
@@ -542,8 +565,7 @@ test('a copied specification is reviewed and rejected using its accepted contrac
   assert.equal(submitted.status, 'correction-required');
   assert.deepEqual(submitted.pendingDispositions.map((entry) => entry.id), ['exclusion:export-exclusion']);
   cli(root, 'agent', '--agent', authorAgent);
-  const decided = JSON.parse(cli(root, 'review-source', 'decide', phaseId,
-    '--finding', 'exclusion:export-exclusion', '--reason', 'Confirmed outside requested scope.', '--json'));
+  const decided = decide(root, phaseId, 'exclusion:export-exclusion', 'Confirmed outside requested scope.');
   assert.equal(decided.status, 'ready');
   const file = path.join(root, 'singularity/workflow.yml');
   const current = YAML.parse(await readFile(file, 'utf8'));

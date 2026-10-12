@@ -19,7 +19,7 @@ related:
   - approvals
   - artifacts-and-generation
   - rejection-and-rework
-version: 9
+version: 10
 ---
 Specification quality asks "is the requirement good enough?", which is a different question from verification ("does the implementation satisfy it?") and from conformance ("does the evidence trace to approved intent?"). `sflow spec analyze` answers the deterministic part without a model: unresolved clarification markers, duplicate requirement text, missing scenario sections, and defects the clause extractor refuses. It never claims prose is complete, clear, consistent or correct, and it says so in its own report — a clean run means nothing checkable is wrong, not that the specification is good. `--assisted` adds semantic candidates through one governed model turn with no tools; candidates are observations for a reviewer, are recorded separately with the model, prompt hash and usage, and change no deterministic finding and no gate. Running it again for the same specification, findings and model shows the recorded candidates without another model call; `--refresh` asks again.
 
@@ -50,8 +50,8 @@ Use this topic when the current goal matches **specification quality**. Start in
 
 ## Use it from each surface
 
-- **Shell:** `singularity-flow review-source context specification --json`, then `singularity-flow review-source check specification --report-file <staging-path> --json`, then `singularity-flow review-source submit specification --report-file <staging-path>` when `retentionReady` is true; inspect with `review-source status specification --json`. For a proposed exclusion, an authorized human uses `review-source decide specification --finding <id> --reason <text>`. The same forms apply to `planning`, including renamed steps with these responsibilities. Run `singularity-flow review-source --help` for exact forms.
-- **Copilot:** `/sf-review-source`, followed by `/sf-submit` only when review is ready; `/sf-approve` remains a separate human decision.
+- **Shell:** `singularity-flow review-source context specification --json`, then `singularity-flow review-source check specification --report-file <staging-path> --json`, then `singularity-flow review-source submit specification --report-file <staging-path>` when `retentionReady` is true; inspect with `review-source status specification --json`. For a pending exclusion, an authorized human prepares `review-source decision-context specification --work-id <WORK-ID> --finding <ID> --reason <TEXT> --json`, reviews the exact packet, and runs its returned `decide --confirm` command. The same forms apply to `planning`, including renamed steps with these responsibilities. Run `singularity-flow review-source --help` for exact forms.
+- **Copilot:** `/sf-review-source`, then `/sf-review-decide` in a separate turn for pending human exceptions, followed by `/sf-submit` only when review is ready; `/sf-approve` remains a separate human decision.
 - **VS Code:** open Singularity Flow **Lifecycle**. The extension renders engine results; it does not independently decide lifecycle state.
 
 ## Guided workflow

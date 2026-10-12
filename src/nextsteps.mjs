@@ -12,6 +12,7 @@ import { decisionSubmitArguments, describeOutcome, upcomingDecision } from './wo
 import { nextPhaseAfterSkillAmendment } from './lifecycle-transitions.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { applicabilityStatus } from './evidence/applicability.mjs';
+import { contextBoundaryPresentation, formatContextBoundaryHandoff, pendingContextBoundary } from './context-policy.mjs';
 
 function action(timing, skill, command, reason, metadata = {}) {
   const candidate = copilotAction({
@@ -253,6 +254,9 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
           action('alternative', '/sflow-resume', 'singularity-flow resume <WORK-ID> --fetch', 'Resume an existing remote work-item branch instead.')
         ]
   };
+  const contextBoundary = !publicationPending && !recovery?.requiresRecovery && !workflow.pendingDecision
+    && !stepActionHold?.missing?.length ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
+  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence });
   return {
     schemaVersion: 1,
     state: publicationPending ? 'publication_pending' : recovery?.requiresRecovery ? 'recovery_required' : workflow.status,
@@ -262,8 +266,10 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
     currentPhase: workflow.currentPhase,
     modelMode: modelMode.enabled ? 'auto' : 'disabled',
     recovery: recovery?.requiresRecovery ? recovery : null,
+    ...(contextBoundary ? { contextBoundary } : {}),
     ...(stepActionHold?.missing?.length ? { stepActionHold } : {}),
-    actions: workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence })
+    actions: contextBoundary ? actions.map(entry => ({ ...entry,
+      ...(entry.timing === 'now' ? { copilotTiming: 'after-context-boundary' } : {}) })) : actions
   };
 }
 
@@ -276,10 +282,14 @@ export function nextStepsText(snapshot) {
     snapshot.workId ? 'Guided router: Copilot /sf-next · Shell singularity-flow next' : null,
     ''
   ].filter((line) => line !== null);
+  if (snapshot.contextBoundary) lines.push(...formatContextBoundaryHandoff(snapshot.contextBoundary),
+    snapshot.contextBoundary.instruction,
+    'Shell: not available for the conversation reset; the listed Shell actions remain valid.',
+    'VS Code (model-free): not available for the conversation reset', '');
   // Every action names its three entry points in the contract order: Copilot, Shell, then the
   // model-free VS Code route. The reason leads; no surface is presented as the secondary product.
   snapshot.actions.forEach((item, index) => {
-    lines.push(`${index + 1}. ${item.timing.toUpperCase()} — ${item.reason}`);
+    lines.push(`${index + 1}. ${item.timing.toUpperCase()}${item.copilotTiming === 'after-context-boundary' ? ' (Copilot: after conversation boundary)' : ''} — ${item.reason}`);
     const guidance = safeCommandGuidance(item);
     if (guidance) lines.push(...commandRouteLines(guidance, '   '));
     else {

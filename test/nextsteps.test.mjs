@@ -48,7 +48,7 @@ test('nextsteps works before initialization and without an active work item', ()
 
 test('active generation plan includes current, subsequent, alternative, and following-phase actions', () => {
   const steps = workflowNextSteps(workflow());
-  assert.deepEqual(steps.map((item) => item.skill), ['/sf-phase', '/sf-phase', '/sf-submit', '/sf-approve', '/sf-reject', '/sf-cancel', '/sf-phase']);
+  assert.deepEqual(steps.map((item) => item.skill), ['/sf-phase', '/sf-publish', '/sf-submit', '/sf-approve', '/sf-reject', '/sf-cancel', '/sf-phase']);
   assert.deepEqual(steps.map((item) => item.timing), ['now', 'then', 'then', 'then', 'alternative', 'alternative', 'then']);
   assert.equal(steps[1].command, 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host');
   assert.deepEqual(steps[1].argv, [
@@ -160,7 +160,7 @@ test('nextsteps text preserves timing and reason and reads Copilot, Shell, then 
   assert.match(text, /NEXT-1 — next actions/);
   assert.match(text, /Guided router: Copilot \/sf-next · Shell singularity-flow next/);
   assert.match(text, /NOW — .*\n   Copilot: \/sf-phase\n   Shell: singularity-flow prepare intake\n   VS Code \(model-free\): not available for this action\n/);
-  assert.match(text, /THEN — .*\n   Copilot: \/sf-phase\n   Shell: singularity-flow phase publish intake --authored governed-agent --channel copilot-host\n   VS Code \(model-free\): @sflow \/publish intake\n/);
+  assert.match(text, /THEN — .*\n   Copilot: \/sf-publish intake\n   Shell: singularity-flow phase publish intake --authored governed-agent --channel copilot-host\n   VS Code \(model-free\): @sflow \/publish intake\n/);
   assert.match(text, /THEN — .*\n   Copilot: \/sf-submit\n   Shell: singularity-flow submit intake\n   VS Code \(model-free\): @sflow \/submit intake\n/);
   assert.match(text, /ALTERNATIVE — .*\n   Copilot: \/sf-reject\n   Shell: singularity-flow reject/);
 });

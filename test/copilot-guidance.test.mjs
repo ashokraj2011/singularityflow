@@ -132,7 +132,7 @@ test('source-review handoffs retain the selected phase and human-decision operat
   assert.equal(copilotCommandForCommand('singularity-flow review-source status planning-copy --json'),
     '/sf-review-source status planning-copy --json');
   const command = 'singularity-flow review-source decide planning-copy --finding exclusion:row-1 --reason <TEXT>';
-  const expected = '/sf-review-source decide planning-copy --finding exclusion:row-1 --reason <TEXT>';
+  const expected = '/sf-review-decide planning-copy --finding exclusion:row-1 --reason <TEXT>';
   assert.equal(copilotCommandForCommand(command, '/sf-review-source different-phase'), expected);
   assert.equal(safeCommandGuidance({ command })?.copilotCommand, expected);
   assert.equal(safeCommandGuidance({ command, copilotCommand: '/sf-review-source planning-copy' }), null,

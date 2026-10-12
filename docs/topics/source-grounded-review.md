@@ -7,7 +7,7 @@ questions:
   - What human clarification does the reviewer read?
 commands: [review-source]
 related: [approvals, workflow-authoring, story-lifecycle]
-version: 3
+version: 4
 ---
 
 ## Purpose and prerequisites
@@ -29,17 +29,21 @@ Story. The phase must have a published generation; a private draft is never revi
     format, citation and binding preflight. It makes no commit, push, human decision or approval.
   - `singularity-flow review-source submit <phase> --report-file <stagingPath>` rejects malformed
     packets before mutation and retains valid independent review evidence, including real gaps.
-  - `singularity-flow review-source decide <phase> --finding <ID> --reason <TEXT>` records an
-    authorized human decision.
+  - `singularity-flow review-source decision-context <phase> --work-id <WORK-ID> --finding <ID> --reason <TEXT> --json`
+    prepares an exact human decision packet without mutation. After human confirmation, execute
+    its returned `decide` command with `--confirm <packetSha256>`. Changes to the report, generation,
+    finding, reason, identity or authority invalidate that confirmation.
   - `singularity-flow review-source status <phase> --json` re-evaluates the latest report, source and
     artifact hashes, and human decisions.
 
   Run `singularity-flow review-source --help` for the exact forms supported by this build.
 - **Copilot:** `/sf-review-source` is the Copilot route for this review flow. `/sf-review-source <phase>`
   reads the context, fills the report, stages it at the returned Git-private path, checks it and
-  retains it once. `/sf-review-source status <phase>` only reads status. `/sf-review-source decide <phase>`
-  shows the finding, generation, report hash and reason, and records a decision only after human
-  confirmation; the reviewer never decides.
+  retains it once. `/sf-review-source status <phase>` only reads status. For pending human exceptions,
+  use `/sf-review-decide <phase> --finding <ID> --reason <TEXT>` in a separate turn. It shows the exact
+  packet, requires human confirmation, and records only that disposition. Legacy `/sf-review-source decide`
+  hands off without deciding. The independent reviewer remains read-only; neither an exception decision
+  nor a reason attests visual acceptance, approves the phase or advances the Story.
 - **VS Code:** when the current Story phase's published generation still needs source review, the
   Singularity Flow sidebar shows it as "Published generation N — source review required" with a
   **Review <phase> against its sources** action. That action opens Copilot Chat with
@@ -85,8 +89,9 @@ was explicitly clarified as one positive-value test, plural wording alone is not
 If the artifact already follows a recorded answer, retain a corrected independent review of
 the same generation; earlier reports remain in append-only history. A real artifact gap needs
 author correction and another review, not a fabricated pass. Only an ID actually returned in
-`pendingDispositions` can be used with `singularity-flow review-source decide <phase> --finding
-<ID> --reason <TEXT>`. Questions and reviewer blockers are not waivable through that command.
+`pendingDispositions` can be prepared with `singularity-flow review-source decision-context <phase>
+--work-id <WORK-ID> --finding <ID> --reason <TEXT> --json`, then decided using the returned exact
+`--confirm` command after human review. Questions and reviewer blockers are not waivable through that command.
 
 Use `review-source check <phase> --report-file <stagingPath> --json` before retaining a packet,
 then the supported `review-source submit` form.

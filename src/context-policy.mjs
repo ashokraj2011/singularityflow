@@ -82,6 +82,18 @@ export function formatContextBoundaryHandoff(handoff) {
   return lines;
 }
 
+/** Chat operations are display-only prerequisites, never executable Shell or model-free actions. */
+export function contextBoundaryPresentation(handoff) {
+  if (!handoff || handoff.mode === 'keep') return null;
+  return { ...handoff, condition: 'conversation-worked-on-earlier-phase',
+    instruction: handoff.instruction ?? (handoff.complete
+      ? `The Story is complete. End this approval turn; ${handoff.commands.join(', then ')} is a chat cleanup action, not another phase.`
+      : `End this approval turn. Run ${handoff.commands.join(', then ')} before next-phase authoring.`),
+    commandGuidance: { copilotCommand: handoff.commands.join(', then '), command: null,
+      modelFreeCommand: null, copyable: false,
+      shellReason: 'Conversation reset is a Copilot chat operation, not a Shell or Story mutation.' } };
+}
+
 /**
  * The context boundary a conversation owes before it starts the current phase.
  *

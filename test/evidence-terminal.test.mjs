@@ -206,3 +206,18 @@ test('terminal recovery returns scope and witness decisions before diagnostics o
   assert.match(actions[2], /decision risk --obligation OBL:visual/);
   assert.equal(actions.at(-1), 'singularity-flow evidence matrix HEX-1 --json');
 });
+
+test('terminal recovery never offers a witness decision for a test slot, which recordWitness refuses', () => {
+  const actions = terminalRecoveryActions('HEX-1', {
+    decision: { gate: 'block' },
+    rows: [{
+      id: 'HEX-1:AC-002', result: 'failed', actions: [],
+      verification: { contract: { slots: [
+        { slot: 'tests', method: 'test', status: 'failed' },
+        { slot: 'notes', method: 'inspection', status: 'missing' }
+      ] } }
+    }]
+  });
+  assert.equal(actions.some((command) => command.includes('--slot tests')), false, 'a test slot was offered a witness decision');
+  assert.ok(actions.some((command) => /decision witness HEX-1 --criterion HEX-1:AC-002 --slot notes/u.test(command)));
+});

@@ -16,6 +16,9 @@ import { completionLabel } from './labels.mjs';
 
 const MAX_LISTED = 20;
 const BLOCKING_RESULTS = new Set(['failed', 'inconclusive', 'missing', 'pending']);
+// recordWitness accepts only these; a test slot is witnessed by its own run, so offering
+// `decision witness` for it would hand the person a command that is always refused.
+const WITNESSED_METHODS = new Set(['inspection', 'visual']);
 
 function witnessAction(workId, row, slot) {
   return `singularity-flow decision witness ${workId} --criterion ${row.id} --slot ${slot.slot} `
@@ -38,7 +41,7 @@ export function terminalRecoveryActions(workId, evaluation, gate = null) {
       if (action.kind === 'accept-risk') add(risks, action.command);
     }
     for (const slot of row.verification?.contract?.slots ?? []) {
-      if (BLOCKING_RESULTS.has(slot.status)) add(witnesses, witnessAction(workId, row, slot));
+      if (BLOCKING_RESULTS.has(slot.status) && WITNESSED_METHODS.has(slot.method)) add(witnesses, witnessAction(workId, row, slot));
     }
   }
   for (const finding of gate?.findings ?? []) add(decisions, finding.recovery?.command);

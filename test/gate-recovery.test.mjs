@@ -9,6 +9,7 @@ import {
   classifyStoryGateFailures,
   recoveryActionsForFindings
 } from '../src/gate-recovery.mjs';
+import { lapsedWitnessExceptionFindings } from '../src/governance.mjs';
 
 // A Story carries its structure: which steps deliver code, which writes the conformance report, and
 // the responsibilities its pinned obligation graph assigns. Recovery reads that, never step names.
@@ -75,6 +76,24 @@ test('a completed Story maps terminal gate defects to governed reopen or configu
   const actions = recoveryActionsForFindings(findings);
   assert.equal(actions.length, 3);
   assert.ok(actions.every((entry) => entry.stableState === 'unchanged'));
+});
+
+test('a lapsed witness exception reopens the code step that decided it, not the completion step', () => {
+  const workflow = story(['intake', 'implementation', 'verification', 'conformance'],
+    { complete: true, code: ['implementation'], conformance: 'conformance' });
+  workflow.phases.implementation.approvals = [{ witnessMappings: [{ clauseId: 'REC-1:AC-001', decision: 'exception', expiresAt: '2000-01-01T00:00:00.000Z' }] }];
+  const [lapsed] = lapsedWitnessExceptionFindings(workflow);
+  assert.equal(lapsed.phase, 'implementation');
+  const [named, legacy] = classifyStoryGateFailures(workflow, [
+    coded('gate.witness.exception-lapsed', lapsed.message, { phase: lapsed.phase }),
+    // A finding from an older gate that named no step still belongs to the code step.
+    coded('gate.witness.exception-lapsed', 'terminal: an older lapsed witness exception')
+  ]);
+  for (const finding of [named, legacy]) {
+    assert.equal(finding.phase, 'implementation');
+    assert.equal(finding.recovery.ownerPhase, 'implementation');
+    assert.match(finding.recovery.command, /reopen REC-1 --to implementation/);
+  }
 });
 
 test('acceptance evidence failures have stable codes and route to their lifecycle owner', () => {

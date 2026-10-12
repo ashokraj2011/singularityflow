@@ -42,6 +42,8 @@ Every public operation is classified before its implementation module is importe
 | appeal.preflight | read | never | — | — |
 | appeal.prepare | read | never | — | — |
 | appeal.repair-plan | read | never | — | — |
+| appeal.repair-quarantine | mutation | never | — | — |
+| appeal.repair-quarantine.preview | read | never | — | — |
 | appeal.repair-resume | mutation | never | — | — |
 | appeal.repair-run | mutation | never | — | — |
 | appeal.repair-status | read | never | — | — |

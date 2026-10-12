@@ -13,7 +13,7 @@ import { createPhaseCheckpoint, inspectPhaseCheckpoint } from '../phase-checkpoi
 import { withSubjectLock } from '../subject-lock.mjs';
 import { prepareEvidenceContractCorrection, acceptEvidenceContractCorrection } from '../phase-evidence-amendment.mjs';
 
-const actions = ['preflight', 'resolve', 'resolve-run', 'resolve-resume', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'risk-prepare', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume', 'checkpoint', 'checkpoint-show', 'evidence-prepare', 'evidence-accept'];
+const actions = ['preflight', 'resolve', 'resolve-run', 'resolve-resume', 'prepare', 'submit', 'list', 'show', 'decide', 'attest', 'risk-prepare', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-plan', 'repair-status', 'repair-run', 'repair-resume', 'repair-quarantine', 'checkpoint', 'checkpoint-show', 'evidence-prepare', 'evidence-accept'];
 function riskRequest(options) {
   return { phaseId: optionString(options, 'phase') ?? undefined, gateMode: optionString(options, 'gate-mode') ?? undefined,
     clauses: optionStrings(options, 'clause'), transitions: optionStrings(options, 'transition').length
@@ -43,6 +43,7 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
       + 'prepare/submit: --phase ID --add-location CLAUSE=PATH or --add-supporting PATH=CLASS --supporting-reason TEXT --reason TEXT\n'
       + 'submit: --confirm PACKET_SHA256\ndecide: --decision account-scope|request-changes --reason TEXT --confirm PACKET_SHA256 (live terminal review required)\n'
       + 'repair-plan/repair-status: --phase ID; repair-run: --phase ID --confirm PLAN_SHA256; repair-resume: --phase ID\n'
+      + 'repair-quarantine: --phase ID previews a corrupt repair journal; --confirm SHA256 moves it to private quarantine (nothing deleted, budget not refunded)\n'
       + 'resolve: --phase ID previews the shared journey; resolve-run: --confirm SHA256 runs at most publish then submit through normal gates (tests may run); resolve-resume inspects an interrupted operation without replay. Never approves or answers human reviews.\n'
       + 'checkpoint: --phase ID saves private dirty-file/index recovery copies; checkpoint-show PCP-ID verifies them without restoring files\n'
       + 'risk-prepare/risk-accept: --phase ID [--gate-mode soft] [--clause EXACT-ID | --finding EXACT-CODE] [--transition publish|submit|approve|consume|terminal] --expires YYYY-MM-DD --reason TEXT; risk-accept also --confirm PACKET_SHA256 (live human review)\n'
@@ -58,7 +59,7 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
   if (action === 'attest') allowed.add('confirm');
   if (['evidence-prepare', 'evidence-accept'].includes(action)) ['clause', 'path', 'method', 'reason',
     ...(action === 'evidence-accept' ? ['confirm', 'review-ui'] : [])].forEach(key => allowed.add(key));
-  if (action === 'repair-run') allowed.add('confirm');
+  if (['repair-run', 'repair-quarantine'].includes(action)) allowed.add('confirm');
   if (action === 'resolve-run') allowed.add('confirm');
   if (['risk-prepare', 'risk-accept'].includes(action)) ['gate-mode', 'clause', 'finding', 'transition', 'expires', 'reason', ...(action === 'risk-accept' ? ['confirm'] : [])].forEach(key => allowed.add(key));
   if (['risk-attest', 'risk-revoke'].includes(action)) ['confirm', ...(action === 'risk-revoke' ? ['reason'] : [])].forEach(key => allowed.add(key));
@@ -124,7 +125,9 @@ export async function run(argv, { positionals = argv, options = {}, root = repoR
     ? (await loadAcceptedStoryExecution(root, workflow.workItem.id)).workflow : workflow;
   if (!optionBoolean(options, 'json')) console.log(JSON.stringify(data, null, 2));
   return emitCommandResult(commandResult({
-    operation: { id: `appeal.${action}`, classification: ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'resolve-run', 'resolve-resume', 'checkpoint', 'evidence-accept'].includes(action) ? 'mutation' : 'read' },
+    operation: action === 'repair-quarantine'
+      ? { id: `appeal.repair-quarantine${optionString(options, 'confirm') ? '' : '.preview'}`, classification: optionString(options, 'confirm') ? 'mutation' : 'read' }
+      : { id: `appeal.${action}`, classification: ['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'resolve-run', 'resolve-resume', 'checkpoint', 'evidence-accept'].includes(action) ? 'mutation' : 'read' },
     subject: { kind: 'story', id: workflow.workItem.id },
     outcome: succeeded(['submit', 'decide', 'attest', 'risk-accept', 'risk-attest', 'risk-revoke', 'repair-run', 'repair-resume', 'evidence-accept'].includes(action) ? 'appeal.review-result' : 'appeal.inspected', { action, status: data.status ?? 'informational' }),
     effects: changed ? effects({ stateChanged: true, filesChanged: true, publicationCreated: true,

@@ -64,10 +64,12 @@ export async function inspectPhasePublicationReadiness(root, config, workflow, p
     const { assertPhaseRepairSettled } = await import('./phase-repair-journal.mjs');
     return { errors: [], state: await assertPhaseRepairSettled(root, workflow, phase) };
   });
-  add('repair-loop', 'repair-coordination', repair.errors, {
-    command: repair.sourceCode === 'PHASE_REPAIR_JOURNAL_INVALID' ? 'singularity-flow doctor --json'
-      : `singularity-flow appeal repair-resume --phase ${phase.id} --json`,
-    skill: repair.sourceCode === 'PHASE_REPAIR_JOURNAL_INVALID' ? '/sf-doctor' : '/sf-appeal',
+  // A corrupt journal routes to its own quarantine preview; doctor never handled it.
+  add('repair-loop', 'repair-coordination', repair.errors, repair.sourceCode === 'PHASE_REPAIR_JOURNAL_INVALID' ? {
+    command: `singularity-flow appeal repair-quarantine --phase ${phase.id} --json`, skill: '/sf-appeal',
+    detail: 'Preview the corrupt repair journal, then confirm its exact digest to move it to private quarantine. Nothing is deleted and no budget, passing test or approval is granted.'
+  } : {
+    command: `singularity-flow appeal repair-resume --phase ${phase.id} --json`, skill: '/sf-appeal',
     detail: 'Resume and recheck the recorded attempt. No new budget, passing test or approval is inferred from an interrupted repair.'
   }, { code: repair.sourceCode ?? 'PHASE_REPAIR_RECHECK_REQUIRED' });
   if (workflow.phaseAppeals !== undefined || workflow.phaseAppealDecisions !== undefined) {

@@ -3,6 +3,7 @@ import test from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile, symlink } from 'node:fs/promises';
 import os from 'node:os';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { coordinatePhaseRepair, phaseRepairConditionHash } from '../src/phase-repair-runtime.mjs';
 import { assertPhaseRepairSettled, phaseRepairBinding, phaseRepairJournalDirectory,
@@ -270,6 +271,46 @@ test('corrupt, missing-chain and linked journal records fail closed without a re
   await symlink(path.join(f.root, 'source.txt'), file);
   await assert.rejects(f.call('status'), { code: 'PHASE_REPAIR_JOURNAL_INVALID' });
 });
+test('a corrupt journal names a quarantine route that preserves its bytes and keeps the budget spent', async t => {
+  const f = await fixture(t); await reserve(f);
+  const directory = await phaseRepairJournalDirectory(f.root, f.binding);
+  const file = path.join(directory, '000001.json');
+  const data = JSON.parse(await readFile(file)); data.attempt = 2; await writeFile(file, JSON.stringify(data));
+  const corrupt = await readFile(file);
+  // Publish, submit and approve all call this guard; its refusal must name a route that clears it.
+  await assert.rejects(assertPhaseRepairSettled(f.root, f.workflow, f.phase), error => {
+    assert.equal(error.code, 'PHASE_REPAIR_JOURNAL_INVALID');
+    assert.equal(error.details.recoveryCommand.command, 'singularity-flow appeal repair-quarantine --work-id LOOP-1 --phase custom-phase --json');
+    assert.equal(error.details.recoveryCommand.skill, '/sf-appeal');
+    return true;
+  });
+  const plan = await f.call('quarantine');
+  assert.equal(plan.status, 'confirmation-required');
+  assert.equal(plan.stateChanged, false);
+  assert.deepEqual(plan.inventory.entries.map(entry => [entry.name, entry.type]), [['000001.json', 'file']]);
+  assert.equal(plan.inventory.entries[0].sha256, `sha256:${createHash('sha256').update(corrupt).digest('hex')}`);
+  assert.match(plan.commands.run, new RegExp(`appeal repair-quarantine --work-id LOOP-1 --phase custom-phase --confirm ${plan.confirmation} --json`, 'u'));
+  assert.deepEqual(await readFile(file), corrupt, 'the preview changed the journal');
+  await assert.rejects(f.call('quarantine', `sha256:${'0'.repeat(64)}`), { code: 'PHASE_REPAIR_QUARANTINE_STALE' });
+  const moved = await f.call('quarantine', plan.confirmation);
+  assert.equal(moved.status, 'quarantined'); assert.equal(moved.budgetRefunded, false);
+  await assert.rejects(readFile(file), { code: 'ENOENT' });
+  const quarantine = path.join(path.dirname(path.dirname(directory)), 'phase-repair-loops-quarantine', moved.quarantine);
+  assert.deepEqual(await readFile(path.join(quarantine, '000001.json')), corrupt, 'quarantine did not preserve the exact bytes');
+  // The transitions are unblocked; automation for this generation is not refunded.
+  const settled = await assertPhaseRepairSettled(f.root, f.workflow, f.phase);
+  assert.equal(settled.status, 'budget-exhausted'); assert.equal(settled.maximum, 0);
+  assert.deepEqual(settled.quarantined, [moved.quarantine]);
+  const after = await f.call(); assert.equal(after.admission.allowed, false); assert.equal(after.admission.reason, 'journal-quarantined');
+  await assert.rejects(f.call('run', after.confirmation), { code: 'PHASE_REPAIR_ADMISSION_REFUSED' });
+  assert.equal((await f.call('quarantine')).status, 'journal-valid');
+  // The readiness surfaces route here, not to doctor, which never read this journal.
+  for (const source of ['../src/phase-publication-readiness.mjs', '../src/submission-readiness.mjs']) {
+    const text = await readFile(new URL(source, import.meta.url), 'utf8');
+    assert.match(text, /appeal repair-quarantine --phase/u, source);
+    assert.doesNotMatch(text, /sf-doctor/u, source);
+  }
+});
 test('journal is isolated per checkout and Story, never placed in the application worktree', async t => {
   const f = await fixture(t); await reserve(f);
   const stored = await readPhaseRepairJournal(f.root, f.binding); assert.equal(stored.events.length, 1);
@@ -283,6 +324,10 @@ test('new CLI operations are registered, closed and model-free', () => {
     const value = resolveOperation({ requestedCommand: 'appeal', positionals: ['appeal', action] });
     assert.equal(value.id, `appeal.${action}`); assert.equal(value.modelPolicy, 'never'); assert.equal(value.classification, classification);
   }
+  const preview = resolveOperation({ requestedCommand: 'appeal', positionals: ['appeal', 'repair-quarantine'] });
+  assert.deepEqual([preview.id, preview.classification, preview.modelPolicy], ['appeal.repair-quarantine.preview', 'read', 'never']);
+  const confirmed = resolveOperation({ requestedCommand: 'appeal', positionals: ['appeal', 'repair-quarantine'], options: { confirm: `sha256:${'a'.repeat(64)}` } });
+  assert.deepEqual([confirmed.id, confirmed.classification, confirmed.modelPolicy], ['appeal.repair-quarantine', 'mutation', 'never']);
 });
 
 test('cosmetic edits and moved lines do not obtain a new repair condition', () => {

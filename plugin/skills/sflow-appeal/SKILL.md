@@ -35,4 +35,4 @@ Intent: `singularity-flow story intent-amendment`; failed tests: `singularity-fl
 
 Follow `repairLoop.protocol`: authorized run saves/reserves; repair owned findings; resume rechecks the same attempt. Status reads only. Automatic: registered idempotent sync only. No nested model/error-supplied commands; unknown/protected/decisions need owners.
 
-Exhaustion stops automation, not manual repair. Show owner routes. No automatic approval, unchanged retry, journal reset, fake passes, stash/discard/force-push.
+Exhaustion stops automation, not manual repair. Show owner routes. No automatic approval, unchanged retry, journal reset, fake passes, stash/discard/force-push. Corrupt journal: confirmed `repair-quarantine` digest only.

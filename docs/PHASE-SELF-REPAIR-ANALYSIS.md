@@ -319,3 +319,21 @@ Each milestone is tested against replays of the real episodes in section 3, made
    approvals (C2), instead of rewinding.
 4. Broaden the shipped `rejectTo` defaults (C4) and plan corrections (C3).
 5. Consolidate risk and exception records into one upstream-defect register (C6).
+
+## 9. Implementation status (2026-10-12)
+
+The owner chose Tiers A and B and C1–C4. All of them are on main. The specification for C1–C3 is
+[UIF-v1](SPEC-UIF-UPSTREAM-ISSUES-AND-FORWARD-AMENDMENT-v1.md).
+
+| Item | Status |
+|---|---|
+| A1–A6 | Done. Authoring contract v7 records upstream discrepancies and files them with `upstream-issue raise --from-artifact`. Skills carry the refusal contract with one automatic recovery. |
+| A7 | Done. Every phase entry packet carries an `upstream` summary: input statuses, open upstream issues, pending amendments and revalidations. |
+| B1–B4, B6 | Done. Coded input readiness, `inputs restore`, legal routes only, recomposed stale prompts, new error codes. |
+| B5 | Done for the step that ends the Story: its entry previews the final evaluation (advisory). Middle steps get the A7 summary instead, because a full preview there mostly lists obligations of later steps that have not run. |
+| B7 | Done. Seven defects, each with a regression test. |
+| C1 | Done. `upstream-issue raise|list|decide`; return from an in-progress step; completion waits for every decision. |
+| C2 | Done for document steps. `propose-amendment`, `decide-amendment` and `revalidate`; later steps keep their approval once revalidated. Clause steps use intent amendment, plan owners use plan corrections. |
+| C3 | Done. `decision plan` row corrections after live terminal review. |
+| C4 | Done. Every code step may return to any earlier step. |
+| C6 | Not started; it was not part of the owner's selection. |

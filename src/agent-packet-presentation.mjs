@@ -21,7 +21,7 @@ export function phaseEntryAgentPresentation(packet) {
   if (packet.paused) return packet;
   const projected = agentPacketPresentation(packet);
   return { agentGuide: {
-    readOrder: [...(packet.contextBoundary ? ['contextBoundary'] : []), 'ready', 'phase', 'mutationContract', 'codeAuthoringReady', 'authoringProgress', 'authoring', 'clarification', 'contextAdmission', 'recovery', 'intent',
+    readOrder: [...(packet.contextBoundary ? ['contextBoundary'] : []), 'ready', 'phase', 'mutationContract', 'codeAuthoringReady', 'authoringProgress', 'authoring', 'clarification', 'contextAdmission', 'upstream', 'recovery', 'intent',
       'recovery.testExecution', 'retainedExecutionEvidence', 'references', 'context.text', 'next'],
     testExecutionPath: 'recovery.testExecution',
     retainedExecutionEvidencePath: 'retainedExecutionEvidence',

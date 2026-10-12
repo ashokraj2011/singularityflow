@@ -27,6 +27,7 @@ import { deriveMutationContract, mutationContractPresentation } from './phase-mu
 import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
 import { phaseExecutionEvidence } from './phase-execution-evidence.mjs';
 import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';
+import { endsStory, upstreamEntrySummary } from './upstream-entry-summary.mjs';
 
 /** Verified per-invocation binding shared by phase entry, nextsteps and inputs. */
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
@@ -99,6 +100,11 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   const references = await verifyReferenceRepositories(root,
     await storyReferenceRepositories(root, definition, workflow));
   const retainedExecutionEvidence = await phaseExecutionEvidence(root, definition, workflow, phase);
+  // What earlier steps left open, and at the closing step the final evaluation's preview [A7, B5].
+  const upstream = await upstreamEntrySummary(root, definition, workflow, phase, {
+    evaluateTerminalReadiness: endsStory(workflow, phase)
+      ? (await import('./evidence/terminal.mjs')).evaluateTerminalReadiness : null
+  });
   const requiresDecision = recovery.actions.some(action => action.id === 'working-tree'
     && action.confirmation !== 'none');
   const contextAdmission = phaseContextAdmission({ authoring, recovery, references,
@@ -189,7 +195,7 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     scope: 'read-only', command: base.continuationReview.commandGuidance.command, skill: '/sf-appeal',
     detail: 'Inspect one preserved-work journey and its exact repair/human/owner route. This inspection changes nothing and cannot grant authoring or publication permission.'
   }));
-  return { ...base, status, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
+  return { ...base, status, upstream, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, retainedExecutionEvidence, references, clarification, context,

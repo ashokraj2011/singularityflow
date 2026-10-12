@@ -89,6 +89,10 @@ test('an issue raised mid-step is returned to its owners without the step being 
   assert.notEqual(later.status, 0);
   assert.match(later.stdout + later.stderr, /earlier step/u);
   assert.match(cli('status').stdout, /Open upstream issues: UPI-001 \(intake\)/u);
+  const entry = JSON.parse(cli('phase', 'enter', 'implementation', '--json').stdout);
+  assert.equal(entry.upstream.attention, true);
+  assert.deepEqual(entry.upstream.openIssues.map((issue) => [issue.id, issue.phase]), [['UPI-001', 'intake']]);
+  assert.deepEqual(entry.upstream.inputs.map((input) => input.phase), ['intake']);
   // The author's own draft lists a discrepancy; filing it is idempotent per item.
   const summary = path.join(root, 'singularity/work-items/ISSUE-1/artifacts/implementation/implementation-summary.md');
   await writeFile(summary, `${await readFile(summary, 'utf8')}\n## Upstream discrepancies\n\n- intake: Scope and constraints never name the rounding rule for the value.\n`);
@@ -184,6 +188,11 @@ test('a Story completes only once its open upstream issue is decided', async (t)
   cli('submit', 'implement');
   cli('upstream-issue', 'raise', '--phase', 'intake', '--about', 'Out of scope', '--problem', 'The intake does not say whether other locales change too.');
   cli('prepare', 'verify');
+  // The closing step previews the final evaluation at entry; open issues are listed beside it.
+  const closing = JSON.parse(cli('phase', 'enter', 'verify', '--json').stdout).upstream;
+  assert.equal(closing.finalGate.advisory, true);
+  assert.notEqual(closing.finalGate.status, 'unavailable', JSON.stringify(closing.finalGate));
+  assert.deepEqual(closing.openIssues.map((issue) => issue.id), ['UPI-001']);
   cli('phase', 'publish', 'verify', '--authored', 'deterministic');
   const refused = attempt('submit', 'verify');
   assert.notEqual(refused.status, 0, 'the policy-approved ending waits for the open issue');

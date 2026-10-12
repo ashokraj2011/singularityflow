@@ -34,6 +34,15 @@ const decode = (text) => text.replace(/&quot;/g, '"').replace(/&#39;/g, "'")
   .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 const attribute = (html, name) => decode(new RegExp(`\\s${name}="([^"]*)"`).exec(html)?.[1] ?? '');
 
+const workflowForm = (overrides = {}) => form({
+  storyWorkflows: [
+    { id: 'feature', label: 'Feature', description: 'Ship a feature', phases: ['intake', 'implementation'] },
+    { id: 'demo-web', label: 'Demo café', description: 'Compare screenshots', phases: ['test', 'repair'] },
+    { id: 'custom', label: 'Team <script> & review', description: 'Inspect code', phases: ['review'] }
+  ], availableStoryWorkflows: [{ id: 'packaged', label: 'Packaged test', description: 'Install first', phases: ['test'] }],
+  favouriteWorkflows: ['demo-web'], ...overrides
+});
+
 /** Minimal browser-like controls, populated from HTML rather than a second branch catalog. */
 function mount(intake = form(), priorState = {}) {
   const html = intakeHtml(intake);
@@ -41,7 +50,14 @@ function mount(intake = form(), priorState = {}) {
   const messages = [];
   let state = structuredClone(priorState);
   const element = (data = {}) => ({
-    dataset: data, hidden: false, disabled: false, scrollTop: 0, value: '',
+    dataset: data, hidden: false, disabled: false, scrollTop: 0, value: '', attributes: {}, children: [], listeners: {},
+    getAttribute(name) { return this.attributes[name] ?? null; },
+    setAttribute(name, value) { this.attributes[name] = String(value); },
+    addEventListener(name, listener) { this.listeners[name] = listener; },
+    appendChild(node) {
+      if (node.parent) node.parent.children = node.parent.children.filter((child) => child !== node);
+      node.parent = this; this.children.push(node); return node;
+    },
     hasAttribute(name) {
       const key = name.replace(/^data-/, '').replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
       return Object.hasOwn(this.dataset, key);
@@ -55,9 +71,10 @@ function mount(intake = form(), priorState = {}) {
     addEventListener(name, handler) { (handlers[name] ??= []).push(handler); },
     querySelector(selector) {
       if (selector === 'input[data-base-branch]:checked') return rows.find((row) => row.input.checked)?.input ?? null;
+      if (selector === 'input[data-work-type]:checked') return workflowRows.find((row) => row.input?.checked)?.input ?? null;
       return controls[selector] ?? null;
     },
-    querySelectorAll(selector) { return selector === '[data-base-branch-choice]' ? rows : []; }
+    querySelectorAll(selector) { return selector === '[data-base-branch-choice]' ? rows : selector === '[data-workflow-search-text]' ? workflowRows : []; }
   };
   const rows = [...html.matchAll(/<label\b[^>]*data-base-branch-choice[^>]*>([\s\S]*?)<\/label>/g)].map(([markup]) => {
     const row = element({ baseBranchChoice: '', baseBranchSearchText: attribute(markup, 'data-base-branch-search-text') });
@@ -70,6 +87,30 @@ function mount(intake = form(), priorState = {}) {
     return row;
   });
   const controls = {};
+  const workflowRows = [...html.matchAll(/<article\b[^>]*data-workflow-search-text[^>]*>([\s\S]*?)<\/article>/g)].map(([markup]) => {
+    const row = element({ workflowSearchText: attribute(markup, 'data-workflow-search-text'),
+      ...(markup.includes('data-workflow-choice=') ? { workflowChoice: attribute(markup, 'data-workflow-choice') } : {}) });
+    const radio = markup.match(/<input\b[^>]*>/)?.[0];
+    if (radio) {
+      row.input = element({ workType: attribute(radio, 'data-work-type') });
+      row.input.value = attribute(radio, 'value'); row.input.checked = /\schecked(?=[\s>])/.test(radio);
+      row.input.closest = (selector) => selector === '[data-workflow-choice]' ? row : null;
+      const tag = markup.match(/<button\b[^>]*data-workflow-favourite[^>]*>/)[0];
+      row.favourite = element({ workflowFavourite: attribute(tag, 'data-workflow-favourite') });
+      row.favourite.setAttribute('aria-pressed', attribute(tag, 'aria-pressed'));
+    }
+    row.querySelector = (selector) => selector === '[data-workflow-favourite]' ? row.favourite : null;
+    return row;
+  });
+  for (const name of ['search', 'search-button', 'search-clear', 'count', 'empty', 'selected', 'favourites-empty', 'favourite-list', 'other-list', 'other']) {
+    if (html.includes(`data-workflow-${name}`)) controls[`[data-workflow-${name}]`] = element({
+      ['workflow' + name.split('-').map((part) => part[0].toUpperCase() + part.slice(1)).join('')]: ''
+    });
+  }
+  const other = controls['[data-workflow-other]'];
+  if (other) {
+    other.open = false; other.summary = element(); other.querySelector = (selector) => selector === 'summary' ? other.summary : null;
+  }
   for (const name of ['search', 'clear', 'count', 'empty', 'selected']) {
     if (html.includes(`data-base-branch-${name}`)) controls[`[data-base-branch-${name}]`] = element({
       [`baseBranch${name[0].toUpperCase()}${name.slice(1)}`]: ''
@@ -86,7 +127,7 @@ function mount(intake = form(), priorState = {}) {
   const dispatch = (name, target) => { for (const handler of handlers[name] ?? []) handler({ target }); };
   const search = controls['[data-base-branch-search]'];
   return {
-    html, rows, search, messages, controls, document, window,
+    html, rows, search, messages, controls, document, window, workflowRows,
     state: () => structuredClone(state),
     visible: () => rows.filter((row) => !row.hidden).map((row) => row.input.value),
     type(query) {
@@ -97,12 +138,79 @@ function mount(intake = form(), priorState = {}) {
     },
     selectText(start, end) { search.setSelectionRange(start, end); dispatch('select', search); },
     clear() { dispatch('click', controls['[data-base-branch-clear]']); },
+    workflowType(query) {
+      const control = controls['[data-workflow-search]']; control.focus(); control.value = query;
+      control.setSelectionRange(query.length, query.length); dispatch('input', control);
+    },
+    workflowClear() { dispatch('click', controls['[data-workflow-search-clear]']); },
+    favourite(id) { dispatch('click', workflowRows.find((row) => row.dataset.workflowChoice === id).favourite); },
+    workflowSelect(id) {
+      workflowRows.forEach((row) => { if (row.input) row.input.checked = row.input.value === id; });
+      dispatch('change', workflowRows.find((row) => row.input?.checked).input);
+    },
     select(branch) {
       rows.forEach((row) => { row.input.checked = row.input.value === branch; });
       dispatch('change', rows.find((row) => row.input.checked).input);
     }
   };
 }
+
+test('intake favourites are first; other installed workflows are initially collapsed and packaged choices stay unavailable', () => {
+  const view = mount(workflowForm());
+  assert.equal(view.controls['[data-workflow-other]'].open, false);
+  assert.deepEqual(view.controls['[data-workflow-favourite-list]'].children.map((row) => row.input.value), ['demo-web']);
+  assert.deepEqual(view.controls['[data-workflow-other-list]'].children.map((row) => row.input.value), ['feature', 'custom']);
+  assert.equal(view.controls['[data-workflow-other]'].summary.textContent, 'Other workflows (2)');
+  assert.match(view.html, /aria-label="Favourite Team &lt;script&gt; &amp; review"/);
+  const packaged = view.workflowRows.find((row) => !row.input);
+  assert.equal(packaged.favourite, undefined); assert.match(view.html, /aria-disabled="true" data-available-workflow="packaged"/);
+  assert.deepEqual(view.messages, []);
+});
+
+test('workflow search is local, opens other choices for results and preserves selection, caret and query across redraw', () => {
+  const view = mount(workflowForm());
+  view.workflowType('cafe\u0301');
+  assert.deepEqual(view.workflowRows.filter((row) => !row.hidden).map((row) => row.input?.value), ['demo-web']);
+  assert.equal(view.controls['[data-workflow-other]'].open, true);
+  assert.match(view.controls['[data-workflow-selected]'].textContent, /feature.*hidden by the search/);
+  assert.deepEqual(view.messages, []);
+  const next = mount(workflowForm(), view.state());
+  assert.equal(next.controls['[data-workflow-search]'].value, 'cafe\u0301');
+  assert.equal(next.document.activeElement, next.controls['[data-workflow-search]']);
+  assert.equal(next.document.activeElement.selectionStart, 'cafe\u0301'.length);
+  next.workflowType('.*'); assert.equal(next.controls['[data-workflow-empty]'].hidden, false);
+  next.workflowClear(); assert.ok(next.workflowRows.every((row) => !row.hidden));
+  assert.equal(next.controls['[data-workflow-other]'].open, false);
+  assert.equal(next.workflowRows.find((row) => row.input?.checked).input.value, 'feature');
+});
+
+test('starring and unstarring only persists personal favourites, without choosing a workflow or sending readiness calls', () => {
+  const view = mount(workflowForm());
+  view.favourite('feature');
+  assert.deepEqual(view.controls['[data-workflow-favourite-list]'].children.map((row) => row.input.value), ['feature', 'demo-web']);
+  view.favourite('demo-web');
+  assert.deepEqual(view.controls['[data-workflow-favourite-list]'].children.map((row) => row.input.value), ['feature']);
+  assert.equal(view.workflowRows.find((row) => row.input?.checked).input.value, 'feature');
+  assert.deepEqual(view.messages, [
+    { type: 'workflowFavourite', value: 'feature', favourite: true },
+    { type: 'workflowFavourite', value: 'demo-web', favourite: false }
+  ]);
+  view.workflowType('demo'); view.workflowSelect('demo-web');
+  assert.deepEqual(view.messages.at(-1), { type: 'workType', value: 'demo-web' }, 'selection uses the existing governed route');
+});
+
+test('favourites are UI preferences, not Story intent, and stale favourites do not create selectable choices', async () => {
+  const { intakePlanInputKey } = await import('../apps/vscode/src/views/intake-form.ts');
+  const intake = workflowForm(); const saved = { ...intake, favouriteWorkflows: ['deleted-workflow', 'custom'] };
+  assert.equal(intakePlanInputKey(saved), intakePlanInputKey(intake));
+  assert.deepEqual(intakeCommand(saved), intakeCommand(intake));
+  assert.deepEqual(storyPreflightCommand(saved), storyPreflightCommand(intake));
+  const view = mount(saved);
+  assert.deepEqual(view.controls['[data-workflow-favourite-list]'].children.map((row) => row.input.value), ['custom']);
+  assert.doesNotMatch(view.html, /data-workflow-choice="deleted-workflow"/);
+  const noFavourites = mount(workflowForm({ favouriteWorkflows: [] }));
+  assert.equal(noFavourites.controls['[data-workflow-favourites-empty]'].hidden, false);
+});
 
 test('every offered Story base list has a labelled search, count, clear action and radio group', () => {
   for (const baseBranchChoices of [choices, [choice('main')]]) {

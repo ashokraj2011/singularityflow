@@ -1127,6 +1127,16 @@ packs, remote agent resources, mappings, and approval policy. Capabilities are
 not a fourth lifecycle/configuration concept; they are shown as part of the
 selected Workspace scope.
 
+Story intake lets you search workflow names, descriptions and phases, and star
+workflows as personal favourites for each repository. Favourites appear first;
+**Other workflows** starts collapsed and opens when searching. These preferences
+do not change workflow configuration or the selected Story workflow. Workflow
+Studio also searches workflows and routing rules, agents, skills and reusable
+instructions. Seeded, read-only workflows and editable workflows have distinct
+colour accents and labels. Agent cards and workflow step inspectors expose
+read-only saved prompts, applicable skills and linked instructions, including
+built-in agents; these are saved definitions, not the final Story-bound prompt.
+
 From Copilot, `/sf-workspaces` lists saved contexts and `/sf-workspace`
 selects one. From a terminal, `singularity-flow workspace copilot <WORKSPACE>`
 starts Copilot in the selected repository and names the session for the

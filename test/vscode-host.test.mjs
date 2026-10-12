@@ -3203,7 +3203,8 @@ test('a second Start Work paints the cached catalog at once, then revalidates wi
   const { api, registered } = stubVscode();
   api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
   const extension = loadExtension(api);
-  await extension.activate({ ...context(), globalStorageUri: { fsPath: storage } });
+  const preferences = new Map();
+  await extension.activate({ ...context(preferences), globalStorageUri: { fsPath: storage } });
   const branchReads = () => registered.output.filter((line) => String(line).includes('[Singularity Flow timing]')
     && String(line).includes('"command":"workspace"') && String(line).includes('"subcommand":"branches"')).length;
 
@@ -3217,6 +3218,18 @@ test('a second Start Work paints the cached catalog at once, then revalidates wi
   await until(() => existsSync(cacheDirectory)
     && readdirSync(cacheDirectory).some((name) => name.endsWith('.json')) ? true : null,
   { what: 'the complete catalog to be cached' });
+  const favouriteIds = [...new Set([...first.webview.html.matchAll(/data-workflow-favourite="([^"]+)"/g)].map((match) => match[1]))].slice(0, 2);
+  assert.equal(favouriteIds.length, 2);
+  const favouriteKey = 'singularityFlow.intake.workflowFavourites.v1:' + await realpath(root);
+  const readsBeforeStars = branchReads();
+  await Promise.all(favouriteIds.map((id) => first.post({ type: 'workflowFavourite', value: id, favourite: true })));
+  await until(() => preferences.get(favouriteKey)?.length === 2 ? true : null, { what: 'both rapid favourite clicks to be saved', attempts: 400 });
+  assert.deepEqual(preferences.get(favouriteKey), favouriteIds);
+  assert.equal(branchReads(), readsBeforeStars, 'starring never rechecks repository readiness');
+  await first.post({ type: 'workflowFavourite', value: 'unknown-workflow', favourite: true });
+  await first.post({ type: 'workflowFavourite', value: favouriteIds[0], favourite: 'true' });
+  assert.deepEqual(preferences.get(favouriteKey), favouriteIds, 'the host accepts only installed IDs and boolean preferences');
+  assert.equal(preferences.get('singularityFlow.intake.workflowFavourites.v1:/another-repository'), undefined, 'preferences are repository-scoped');
   first.dispose();
   // Past the client's 250 ms read coalescing, so the second open really has to revalidate.
   await new Promise((resolve) => setTimeout(resolve, 400));
@@ -3226,6 +3239,7 @@ test('a second Start Work paints the cached catalog at once, then revalidates wi
   const second = registered.panels.filter((entry) => entry.id === 'singularityFlow.intake').at(-1);
   assert.notEqual(second, first, 'a new form opened');
   assert.match(second.webview.html, /data-work-type="feature"/, 'workflows paint from the cache at once');
+  for (const id of favouriteIds) assert.match(second.webview.html, new RegExp('data-workflow-favourite="' + id + '"\\s+aria-pressed="true"'), 'favourites survive reopening');
   assert.match(second.webview.html, /data-base-branch="main"/, 'base branches paint from the cache at once');
   assert.match(second.webview.html, /last known\s+branches and workflows/, 'the cached paint is labelled');
   assert.doesNotMatch(second.webview.html, /data-base-branch="main" checked/, 'no base is preselected');

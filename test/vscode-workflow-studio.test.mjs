@@ -1948,7 +1948,7 @@ test('a seeded workflow opens on a read-only canvas: its structure without editi
 
   const rail = (id) => all(page.renderToolRail(id, state.draft.workflows[id], { finding: false })).map((node) => node.attributes?.['aria-label']).filter(Boolean);
   assert.deepEqual(rail(seeded.id).filter((label) => /^(Add a step|Decide what|Select a step to decide|Send rejected|Only a step with a sign-off|Workflow settings)/u.test(label)), [], 'no editing tools');
-  assert.ok(rail(seeded.id).includes('Find a step or agent'));
+  assert.ok(rail(seeded.id).includes('Find a step, agent or rule'));
   assert.ok(rail(editable.id).some((label) => label.startsWith('Add a step')), 'an editable workflow keeps them');
 
   const first = seeded.phases[0];

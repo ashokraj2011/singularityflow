@@ -5,6 +5,7 @@ import type {
   AgentDraft, InstructionCatalog, InstructionEntry, InstructionTab, PromptDraft, SkillDraft
 } from './instruction-designer-model.ts';
 import type { IconName } from './webview.ts';
+import { CATALOG_SEARCH_SCRIPT } from './catalog-search.ts';
 
 const TAB_ICONS: Record<InstructionTab, IconName> = {
   agents: 'agent', delivery: 'delivery', prompts: 'prompt', skills: 'skill', packs: 'pack'
@@ -58,11 +59,15 @@ function catalogPhaseOptions(draft: AgentDraft, selected: string): string {
 }
 
 function inventory(tab: InstructionTab, entries: InstructionEntry[], selected: InstructionEntry | null): string {
-  return `<aside class="instruction-library">
+  return `<aside class="instruction-library" data-catalog-tab="${escape(tab)}">
     <div class="library-head"><div><p class="eyebrow">${escape(tab)}</p><h2>${tab === 'packs' ? 'Packaged library' : 'Repository library'}</h2></div>
       ${tab === 'packs' ? '' : `<button class="icon-button" data-new="1" title="Create new ${escape(tab.slice(0, -1))}" aria-label="Create new ${escape(tab.slice(0, -1))}">${icon('add')}</button>`}</div>
-    <input type="search" data-search placeholder="Filter ${escape(tab)}…" aria-label="Filter library">
-    <div class="instruction-list">${entries.length ? entries.map((entry) => `<button class="instruction-item${selected?.path === entry.path ? ' selected' : ''}" data-select="${escape(entry.path)}" data-filter-text="${escape(`${entry.name} ${entry.description}`.toLowerCase())}">
+    <label for="instruction-catalog-search">Search ${escape(tab)}</label>
+    <input id="instruction-catalog-search" type="search" data-search placeholder="Name or description…" aria-describedby="instruction-catalog-count">
+    <div class="form-actions"><button class="secondary" data-search-action="search">Search</button><button class="secondary" data-search-action="clear">Clear search</button></div>
+    <p id="instruction-catalog-count" data-search-count class="meta" role="status" aria-live="polite"></p>
+    <p data-search-empty class="meta" hidden>No matches. Clear the search to see all entries.</p>
+    <div class="instruction-list">${entries.length ? entries.map((entry) => `<button class="instruction-item${selected?.path === entry.path ? ' selected' : ''}" data-select="${escape(entry.path)}" data-filter-text="${escape(`${entry.id} ${entry.name} ${entry.description} ${entry.scope}`)}">
       <strong>${icon(TAB_ICONS[tab])}${escape(entry.name)}</strong><span>${escape(entry.description || (entry.scope === 'packaged' ? 'Packaged instruction' : 'Repository instruction'))}</span>
       <small>${entry.scope === 'packaged' ? 'read only' : 'editable'}</small></button>`).join('') : `<p class="empty-state">No ${escape(tab)} yet.</p>`}</div>
   </aside>`;
@@ -94,6 +99,7 @@ function agentEditor(catalog: InstructionCatalog, view: InstructionDesignerView)
     <h2>${icon('approval')}Default agent for</h2><p class="muted">A default must also be selected above.</p>${checks('agent-defaults', catalog.phases, draft.defaultFor, packaged)}
     <h2>${icon('code')}Allowed tools</h2>${checks('agent-tools', tools.map((id) => ({ id, label: id })), draft.tools, packaged)}
     <label class="field full"><span>Agent instructions</span><textarea data-agent-body rows="18"${packaged ? ' readonly' : ''}>${escape(draft.body)}</textarea></label>
+    ${packaged ? `<details class="agent-prompt"><summary>View complete built-in agent definition</summary><p class="meta">Read-only saved instructions and metadata. The runtime phase adds Story inputs, policy and applicable skills.</p><pre class="pack-preview">${escape(view.selected?.content ?? '')}</pre></details>` : ''}
     <section class="remote-delivery"><div class="section-heading"><div><p class="eyebrow">Remote Markdown delivery</p><h2>${icon('delivery')}Skills, templates &amp; generated artifacts</h2></div><span class="status-chip">Public HTTPS · hash locked</span></div>
       <p class="muted">Only resources declared here are fetched. Secrets are never embedded; first trust records exact SHA-256 hashes in <code>singularity/agents.lock.yml</code>.</p>
       <h3>${icon('skill')}Remote skills</h3><p class="muted">Prompt context loaded only for the phases listed.</p>${remoteRows('skill', draft, packaged)}
@@ -212,7 +218,7 @@ function parseAgentForPage(entry: InstructionEntry): AgentDraft {
 // the entire webview script invalid, which disables every control on this page.
 const REMOVE_ICON_SCRIPT_LITERAL = JSON.stringify(icon('remove'));
 
-export const INSTRUCTION_DESIGNER_SCRIPT = String.raw`
+export const INSTRUCTION_DESIGNER_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 const vscode = window.__sfVscode;
 const removeIcon = ${REMOVE_ICON_SCRIPT_LITERAL};
 const val = (selector) => document.querySelector(selector)?.value ?? '';
@@ -246,7 +252,27 @@ document.addEventListener('click', (event) => {
   if (target.dataset.saveMappings) vscode.postMessage({ type: 'save-mappings', rows: mappingRows() });
   if (target.dataset.agentAction) vscode.postMessage({ type: 'agent-action', action: target.dataset.agentAction, agentId: target.dataset.agentId });
 });
-document.querySelector('[data-search]')?.addEventListener('input', (event) => {
-  const term = event.target.value.trim().toLowerCase();
-  document.querySelectorAll('[data-filter-text]').forEach((item) => { item.hidden = term && !item.dataset.filterText.includes(term); });
-});`;
+const search = document.querySelector('[data-search]');
+const catalogTab = document.querySelector('[data-catalog-tab]')?.dataset?.catalogTab;
+const savedCatalog = vscode.getState ? (vscode.getState() || {}).catalogSearch || {} : {};
+if (search && typeof savedCatalog[catalogTab] === 'string') search.value = savedCatalog[catalogTab];
+const filterCatalog = () => {
+  if (!search) return;
+  const rows = [...document.querySelectorAll('[data-filter-text]')];
+  let visible = 0;
+  rows.forEach((item) => { item.hidden = !catalogMatches(search.value, [item.dataset.filterText]); if (!item.hidden) visible += 1; });
+  const count = document.querySelector('[data-search-count]');
+  if (count) count.textContent = visible + ' of ' + rows.length + ' shown';
+  const empty = document.querySelector('[data-search-empty]');
+  if (empty) empty.hidden = visible !== 0 || rows.length === 0;
+  const clear = document.querySelector('[data-search-action="clear"]');
+  if (clear) clear.disabled = !search.value;
+  if (vscode.setState && catalogTab) {
+    const current = vscode.getState ? vscode.getState() || {} : {};
+    current.catalogSearch = Object.assign({}, current.catalogSearch, { [catalogTab]: search.value }); vscode.setState(current);
+  }
+};
+search?.addEventListener('input', filterCatalog);
+document.querySelector('[data-search-action="search"]')?.addEventListener('click', () => { filterCatalog(); search?.focus(); });
+document.querySelector('[data-search-action="clear"]')?.addEventListener('click', () => { search.value = ''; filterCatalog(); search.focus(); });
+filterCatalog();`;

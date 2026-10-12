@@ -363,6 +363,9 @@ function agentView(agent) {
     path: agent.scope === 'repository' ? agent.source : null,
     // The skill master edits the Attached skills table, so the instructions shown leave it out.
     instructions: withoutAttachedSkills(agent.prompt ?? '').trim(),
+    // Retain the complete saved body for the read-only prompt viewer when the table was removed.
+    ...((agent.prompt ?? '').trim() !== withoutAttachedSkills(agent.prompt ?? '').trim()
+      ? { prompt: (agent.prompt ?? '').trim() } : {}),
     skills: skillUses(agent),
     // Skills, templates and generated sources the agent's tables name, for the Library and its card.
     resources: (agent.dependencies ?? []).map((dependency) => ({

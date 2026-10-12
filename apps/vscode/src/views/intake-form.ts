@@ -19,6 +19,7 @@ import { contextStrip, heroHeader, infoNote, stepHeading, tag } from './theme.ts
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 import { gitRemoteProblem } from './map-capability-form.ts';
 import { commandGuidance } from '../copilot-command.ts';
+import { CATALOG_SEARCH_SCRIPT } from './catalog-search.ts';
 import {
   EMPTY_TEST_RECOVERY_DRAFT, testRecoveryArguments, testRecoveryPreviewArguments, testRecoveryEnabled,
   testRecoveryHtml, testRecoveryProblems, testRecoveryNeedsTerminalReview,
@@ -231,6 +232,8 @@ export interface IntakeForm extends TestRecoveryDraft {
   /** Story workflow selected from workflow.yml. Passed explicitly because VS Code has no TTY. */
   workType: string | null;
   storyWorkflows: ProfileChoice[];
+  /** Personal presentation only; does not affect readiness or the pinned workflow. */
+  favouriteWorkflows?: string[];
   /** Packaged Story workflows absent from approved configuration; visible but never selectable. */
   availableStoryWorkflows: ProfileChoice[];
   /** Advisory packaged-catalog failure; installed workflows remain usable. */
@@ -1027,11 +1030,27 @@ function storyWorkflowHtml(form: IntakeForm): string {
   return `
   <section>
     <h2>${icon('workflow')}Story workflow</h2>
+    <div class="base-branch-filter">
+      <label for="story-workflow-search">Search workflows
+        <input type="search" id="story-workflow-search" data-workflow-search
+          placeholder="Name, description or phase" aria-describedby="story-workflow-count">
+      </label>
+      <button type="button" class="secondary" data-workflow-search-button>Search</button>
+      <button type="button" class="secondary" data-workflow-search-clear>Clear search</button>
+    </div>
+    <p id="story-workflow-count" data-workflow-count class="meta" role="status" aria-live="polite"></p>
+    <p data-workflow-empty class="meta" hidden>No matching workflows. Clear the search to see all workflows.</p>
     ${form.storyWorkflows.length ? `<h3>Ready to use</h3>
     <p class="question">Choose the workflow template for this Story. Its ordered phases are pinned
-      when work starts and cannot change underneath the Story.</p>
-    <div class="choices" aria-label="Ready to use Story workflows">
+      when work starts and cannot change underneath the Story. Star favourites to keep them at the top.</p>
+    <div data-workflow-favourites><h3>Favourites</h3>
+      <div class="choices" aria-label="Favourite Story workflows" data-workflow-favourite-list></div>
+      <p class="meta" data-workflow-favourites-empty>No favourites yet. Use a workflow's star button.</p>
+    </div>
+    <details data-workflow-other><summary>Other workflows (${form.storyWorkflows.length})</summary>
+    <div class="choices" aria-label="Ready to use Story workflows" data-workflow-other-list>
       ${form.storyWorkflows.map((workflow) => `
+      <article data-workflow-choice="${escape(workflow.id)}" data-workflow-search-text="${escape([workflow.id, workflow.label, workflow.description, ...workflow.phases].join(' '))}">
       <label class="choice workflow-choice${workflow.id === form.workType ? ' chosen' : ''}">
         <input type="radio" name="workType" value="${escape(workflow.id)}" data-work-type="${escape(workflow.id)}"${workflow.id === form.workType ? ' checked' : ''}>
         <span class="workflow-copy">
@@ -1040,8 +1059,13 @@ function storyWorkflowHtml(form: IntakeForm): string {
           <span class="workflow-description">${escape(workflow.description)}</span>
         </span>
         ${phaseRailHtml(workflow.phases)}
-      </label>`).join('')}
-    </div>` : `<p class="blockers">No Story workflow is installed in the approved repository configuration.</p>`}
+      </label>
+      <button type="button" class="secondary" data-workflow-favourite="${escape(workflow.id)}"
+        aria-pressed="${Boolean(form.favouriteWorkflows?.includes(workflow.id))}"
+        aria-label="Favourite ${escape(workflow.label)}">${form.favouriteWorkflows?.includes(workflow.id) ? '★ Favourite' : '☆ Favourite'}</button>
+      </article>`).join('')}
+    </div></details>
+    <p class="meta" data-workflow-selected></p>` : `<p class="blockers">No Story workflow is installed in the approved repository configuration.</p>`}
     ${form.workflowCatalogReason ? `<div class="notice warning" role="status">
       <strong>Additional packaged workflows are unavailable</strong>
       <p>${escape(form.workflowCatalogReason)}</p>
@@ -1055,7 +1079,8 @@ function storyWorkflowHtml(form: IntakeForm): string {
         reviewed <code>singularity-flow workflow install &lt;id&gt; --dry-run</code> configuration path.</p>
       <div class="choices" aria-label="Available but not installed Story workflows">
         ${form.availableStoryWorkflows.map((workflow) => `
-        <article class="choice workflow-choice unavailable" aria-disabled="true" data-available-workflow="${escape(workflow.id)}">
+        <article class="choice workflow-choice unavailable" aria-disabled="true" data-available-workflow="${escape(workflow.id)}"
+          data-workflow-search-text="${escape([workflow.id, workflow.label, workflow.description, ...workflow.phases].join(' '))}">
           <span class="workflow-copy">
             <span class="choice-label">${escape(workflow.label)}</span>
             <span class="status-chip">Not installed</span>
@@ -1352,7 +1377,7 @@ function numberedSections(html: string, first: number): string {
 }
 
 /** The page reports intent; every value is re-validated before it reaches the CLI. */
-export const INTAKE_SCRIPT = `
+export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
   const vscode = window.__sfVscode;
   // Search only the already-offered catalog. It never selects a base or asks the host/Git to read.
   const branchSearch = document.querySelector('[data-base-branch-search]');
@@ -1383,7 +1408,61 @@ export const INTAKE_SCRIPT = `
   const savedBranchSearch = vscode.getState ? (vscode.getState() || {}).intakeView?.branchSearch : null;
   if (branchSearch && typeof savedBranchSearch === 'string') branchSearch.value = savedBranchSearch;
   filterBaseBranches();
+  const workflowSearch = document.querySelector('[data-workflow-search]');
+  const workflowRows = [...document.querySelectorAll('[data-workflow-search-text]')];
+  const savedWorkflowView = vscode.getState ? (vscode.getState() || {}).intakeView || {} : {};
+  const otherWorkflows = document.querySelector('[data-workflow-other]');
+  if (workflowSearch && typeof savedWorkflowView.workflowSearch === 'string') workflowSearch.value = savedWorkflowView.workflowSearch;
+  let workflowOtherOpen = savedWorkflowView.workflowOtherOpen === true;
+  const arrangeWorkflows = () => {
+    const favourites = document.querySelector('[data-workflow-favourite-list]');
+    const others = document.querySelector('[data-workflow-other-list]');
+    if (!favourites || !others) return;
+    const installed = workflowRows.filter((row) => row.hasAttribute('data-workflow-choice'));
+    installed.forEach((row) => {
+      const favourite = row.querySelector('[data-workflow-favourite]')?.getAttribute('aria-pressed') === 'true';
+      (favourite ? favourites : others).appendChild(row);
+    });
+    const empty = document.querySelector('[data-workflow-favourites-empty]');
+    if (empty) empty.hidden = favourites.children.length > 0;
+    const summary = otherWorkflows?.querySelector('summary');
+    if (summary) summary.textContent = 'Other workflows (' + others.children.length + ')';
+  };
+  const filterWorkflows = () => {
+    if (!workflowSearch) return;
+    const query = workflowSearch.value;
+    let visible = 0;
+    workflowRows.forEach((row) => { row.hidden = !catalogMatches(query, [row.dataset.workflowSearchText]); if (!row.hidden) visible += 1; });
+    const count = document.querySelector('[data-workflow-count]');
+    if (count) count.textContent = visible + ' of ' + workflowRows.length + ' workflows';
+    const empty = document.querySelector('[data-workflow-empty]');
+    if (empty) empty.hidden = visible !== 0;
+    const clear = document.querySelector('[data-workflow-search-clear]');
+    if (clear) clear.disabled = !query;
+    if (otherWorkflows) otherWorkflows.open = Boolean(query.trim()) || workflowOtherOpen;
+    const selected = document.querySelector('input[data-work-type]:checked');
+    const selectedNotice = document.querySelector('[data-workflow-selected]');
+    if (selectedNotice) selectedNotice.textContent = selected ? 'Selected workflow: ' + selected.value + '.'
+      + (selected.closest('[data-workflow-choice]').hidden ? ' This selection is hidden by the search.' : '') : 'No workflow selected.';
+  };
+  arrangeWorkflows();
+  filterWorkflows();
+  otherWorkflows?.addEventListener('toggle', () => {
+    if (workflowSearch?.value.trim()) return;
+    workflowOtherOpen = otherWorkflows.open;
+    saveIntakeView();
+  });
   document.addEventListener('click', (event) => {
+    if (event.target.closest('[data-workflow-search-button]')) { workflowSearch?.focus({ preventScroll: true }); filterWorkflows(); return; }
+    if (event.target.closest('[data-workflow-search-clear]')) { workflowSearch.value = ''; filterWorkflows(); workflowSearch.focus({ preventScroll: true }); saveIntakeView(); return; }
+    const favourite = event.target.closest('[data-workflow-favourite]');
+    if (favourite) {
+      const on = favourite.getAttribute('aria-pressed') !== 'true';
+      favourite.setAttribute('aria-pressed', String(on)); favourite.textContent = on ? '★ Favourite' : '☆ Favourite';
+      arrangeWorkflows(); filterWorkflows(); saveIntakeView();
+      vscode.postMessage({ type: 'workflowFavourite', value: favourite.dataset.workflowFavourite, favourite: on });
+      return;
+    }
     if (event.target.closest('[data-baseline-run]')) return vscode.postMessage({ type: 'baselineRun' });
     if (event.target.closest('[data-base-branch-clear]')) {
       branchSearch.value = '';
@@ -1453,6 +1532,7 @@ export const INTAKE_SCRIPT = `
     if (el.dataset?.field) vscode.postMessage({ type: 'field', field: el.dataset.field, value: el.value });
   });
   document.addEventListener('input', (event) => {
+    if (event.target.hasAttribute('data-workflow-search')) { filterWorkflows(); return; }
     if (event.target.hasAttribute('data-base-branch-search')) return filterBaseBranches();
     if (event.target.dataset?.referenceField) return vscode.postMessage({ type: 'referenceDraft',
       index: Number(event.target.dataset.referenceIndex), field: event.target.dataset.referenceField,
@@ -1477,6 +1557,7 @@ export const INTAKE_SCRIPT = `
   let intakeUnloading = false;
   window.addEventListener('pagehide', () => { intakeUnloading = true; });
   const intakeFocusKey = (el) => !el || !el.dataset ? null
+    : el.hasAttribute('data-workflow-search') ? 'workflow-search'
     : el.hasAttribute('data-base-branch-search') ? 'base-branch-search'
       : el.dataset.field ? 'field:' + el.dataset.field
       : el.dataset.referenceField ? 'reference:' + el.dataset.referenceIndex + ':' + el.dataset.referenceField
@@ -1490,6 +1571,8 @@ export const INTAKE_SCRIPT = `
     state.intakeView = {
       key: key,
       branchSearch: branchSearch ? branchSearch.value : (state.intakeView?.branchSearch || ''),
+      workflowSearch: workflowSearch ? workflowSearch.value : (state.intakeView?.workflowSearch || ''),
+      workflowOtherOpen: workflowOtherOpen,
       start: key && typeof el.selectionStart === 'number' ? el.selectionStart : null,
       end: key && typeof el.selectionEnd === 'number' ? el.selectionEnd : null,
       fieldScroll: key ? el.scrollTop : 0,
@@ -1506,7 +1589,8 @@ export const INTAKE_SCRIPT = `
     if (typeof saved.scroll === 'number') window.scrollTo(0, saved.scroll);
     if (!saved.key) return;
     const parts = String(saved.key).split(':');
-    const selector = saved.key === 'base-branch-search' ? '[data-base-branch-search]'
+    const selector = saved.key === 'workflow-search' ? '[data-workflow-search]'
+      : saved.key === 'base-branch-search' ? '[data-base-branch-search]'
       : parts[0] === 'field' ? '[data-field="' + parts[1] + '"]'
       : parts[0] === 'attachment' ? '[data-attachment-name="' + parts[1] + '"]'
         : '[data-reference-index="' + parts[1] + '"][data-reference-field="' + parts[2] + '"]';

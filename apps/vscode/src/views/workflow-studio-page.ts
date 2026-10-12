@@ -9,8 +9,20 @@
  * edit is just editing it back, and nothing accumulates stale operations.
  */
 
+import { CATALOG_SEARCH_SCRIPT } from './catalog-search.ts';
+
 const STUDIO_STYLE = `
 .studio{display:grid;grid-template-columns:200px minmax(0,1fr);min-height:calc(100vh - 80px);gap:0}
+[hidden]{display:none!important}
+.catalog-search{display:flex;flex-direction:column;gap:8px}
+.catalog-search input{flex:1;min-width:120px}
+.catalog-search label{font-size:12px}
+.agent-prompt pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;font-size:12px;line-height:1.6}
+.agent-prompt{min-width:0}
+.workflow-seeded{border-left:3px solid var(--vscode-charts-blue,#759bbb)}
+.workflow-editable{border-left:3px solid var(--sf-accent)}
+.pill.origin-seeded{color:var(--vscode-charts-blue,#759bbb)}
+.pill.origin-editable{color:var(--sf-accent)}
 .studio-nav{border-right:1px solid var(--sf-border-color);padding:var(--sf-space-4) var(--sf-space-3);display:flex;flex-direction:column;gap:4px}
 .studio-nav .brand{font-size:11px;letter-spacing:2px;font-weight:600;color:var(--sf-accent);padding:0 var(--sf-space-2) var(--sf-space-3)}
 .studio-nav button.nav-item{display:flex;justify-content:space-between;align-items:center;gap:8px;text-align:left;padding:8px 10px;border-radius:6px;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}
@@ -312,11 +324,11 @@ export function proposalSummaries(listed: unknown): StudioProposalSummary[] {
   });
 }
 
-export const WORKFLOW_STUDIO_SCRIPT = String.raw`
+export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 (function () {
   'use strict';
   var vscodeApi = window.__sfVscode;
-  var state = { model: null, draft: null, view: 'home', workflow: null, step: null, decision: null, plan: null, planKey: null, busy: null, error: null, wizard: null, agentForm: null, status: '', panel: null, sections: {}, canvas: {}, focusKey: null, collapsed: {}, panelWidth: 380, panelHidden: false, legend: false, confirms: {}, confirmSeq: 0, returnTo: null };
+  var state = { model: null, draft: null, view: 'home', workflow: null, step: null, decision: null, plan: null, planKey: null, busy: null, error: null, wizard: null, agentForm: null, status: '', panel: null, sections: {}, canvas: {}, searches: {}, focusKey: null, collapsed: {}, panelWidth: 380, panelHidden: false, legend: false, confirms: {}, confirmSeq: 0, returnTo: null };
 
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
   function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
@@ -816,6 +828,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
 
   window.__workflowStudio = { initialDraft: initialDraft, changeSetFrom: changeSetFrom, copiedPhaseDraft: copiedPhaseDraft, describe: describe, kebab: kebab,
+    catalogSearch: catalogSearch, agentPromptPreview: agentPromptPreview, renderHome: renderHome, renderAgents: renderAgents, renderSkills: renderSkills, renderInstructions: renderInstructions, renderInspector: renderInspector,
+    renderEpicStep: renderEpicStep, renderSeededWorkflow: renderSeededWorkflow,
     insertSkillInstruction: insertSkillInstruction,
     proposalGroups: function () { return proposalGroups.apply(null, arguments); },
     worldModelSection: function () { return worldModelSection.apply(null, arguments); }, knowledgeReader: function () { return knowledgeReader.apply(null, arguments); },
@@ -916,6 +930,61 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   }
   function textInput(id, value, onChange, attrs) {
     return el('input', Object.assign({ type: 'text', id: id, 'data-key': id, value: value || '', onchange: function (event) { onChange(event.target.value); } }, attrs || {}));
+  }
+
+  /** Filter already-loaded cards in place: no rendering, draft edits, host calls or model calls. */
+  function catalogSearch(parent, key, label) {
+    var rows = [];
+    var id = 'catalog-search-' + key;
+    var count = el('span', { id: id + '-count', class: 'hint', role: 'status', 'aria-live': 'polite' });
+    var empty = el('p', { class: 'muted', text: 'No matches. Try another search or clear it.' });
+    var input = el('input', { id: id, 'data-key': id, type: 'search', value: state.searches[key] || '', placeholder: label,
+      'aria-describedby': id + '-count', oninput: function () { state.searches[key] = input.value; apply(); } });
+    var clear = button('Clear search', function () { input.value = ''; state.searches[key] = ''; apply(); input.focus(); }, { class: 'secondary' });
+    parent.appendChild(el('div', { class: 'catalog-search' }, el('label', { for: id, text: label }),
+      el('div', { class: 'studio-row' }, input, button('Search', function () { state.searches[key] = input.value; apply(); input.focus(); }, { class: 'secondary' }), clear), count, empty));
+    function apply() {
+      var visible = 0;
+      rows.forEach(function (row) { row.node.hidden = !catalogMatches(input.value, row.values); if (!row.node.hidden) visible += 1; });
+      count.textContent = visible + ' of ' + rows.length + ' shown';
+      empty.hidden = visible !== 0 || rows.length === 0;
+      clear.disabled = !input.value;
+    }
+    apply();
+    return { add: function (node, values) { rows.push({ node: node, values: values }); }, finish: apply };
+  }
+
+  function workflowOrigin(readOnly) {
+    return el('span', { class: 'pill ' + (readOnly ? 'origin-seeded' : 'origin-editable'), text: readOnly ? 'Seeded · read-only' : 'Editable' });
+  }
+
+  /** Saved configuration, not a claim to show the final Story-bound runtime prompt. */
+  function agentPromptPreview(agentId, phaseId, workflowId, agentOnly) {
+    var agent = state.draft.agents[agentId];
+    if (!agent) return el('p', { class: 'hint', text: 'No agent selected.' });
+    var original = (state.model.agents || []).find(function (item) { return item.id === agentId; });
+    var body = original && original.prompt && original.instructions === agent.instructions ? original.prompt : agent.instructions;
+    var entries = phaseId && !agentOnly ? stepSkillEntries(agentId, phaseId, workflowId) : (agent.skills || []).filter(function (entry) {
+      return !phaseId || !entry.phases || !entry.phases.length || entry.phases.indexOf(phaseId) >= 0;
+    }).map(function (entry) { return Object.assign({}, entry, { scope: 'agent' }); });
+    var preview = el('details', { class: 'agent-prompt', 'data-agent-prompt': agentId },
+      el('summary', { text: 'View prompt & instructions — ' + agent.label }),
+      el('p', { class: 'hint', text: 'Read-only saved agent prompt. The phase adds work-item inputs, operating policy and applicable skills when composing the final prompt.' }),
+      el('pre', { text: body || 'No prompt text was supplied for this agent.' }));
+    entries.forEach(function (entry) {
+      var skill = state.draft.skills[entry.id];
+      var parts = el('details', null, el('summary', { text: (entry.scope === 'workflow' ? 'Workflow skill: ' : 'Agent skill: ') + skillLabel(entry.id) }),
+        el('p', { class: 'hint', text: entry.use || 'Applied as configured' }),
+        el('pre', { text: skill ? skill.instructions : 'Skill text is not available in this catalog.' }));
+      if (!phaseId && entry.phases && entry.phases.length) parts.appendChild(el('p', { class: 'hint', text: 'Applies in: ' + entry.phases.map(stepLabel).join(', ') }));
+      (skill ? skill.instructionRefs || [] : []).forEach(function (id) {
+        var item = (state.draft.instructions || {})[id];
+        parts.appendChild(el('details', null, el('summary', { text: 'Instruction: ' + (item ? item.label : id) }),
+          el('pre', { text: item ? item.instructions : 'Instruction text is not available in this catalog.' })));
+      });
+      preview.appendChild(parts);
+    });
+    return preview;
   }
 
   function post(message) { vscodeApi.postMessage(message); }
@@ -1207,21 +1276,29 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       button('Export…', function () { state.exporting = state.exporting || {}; render(); }, { class: 'secondary' }),
       button('New workflow', function () { state.view = 'new'; state.wizard = { label: '', from: null }; render(); }, { class: 'primary' }))));
     if (state.exporting) main.appendChild(renderExport());
+    var search = catalogSearch(main, 'workflows', 'Search workflows and rules');
     workflows.forEach(function (id) {
       var workflow = state.draft.workflows[id];
       var readOnly = workflowReadOnly(id);
       var code = workflow.phases.some(function (phaseId) { return stepOutput(id, phaseId) === 'code'; });
-      main.appendChild(el('article', { class: 'studio-card' },
+      var card = el('article', { class: 'studio-card ' + (readOnly ? 'workflow-seeded' : 'workflow-editable'), 'data-workflow-card': id },
         el('div', { class: 'studio-row spread' },
-          el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'NEW' }) : null),
+          el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflowOrigin(readOnly), workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'NEW' }) : null),
           el('div', { class: 'studio-row' },
             button(readOnly ? 'View' : 'Edit', function () { openWorkflowCanvas(id); }, { class: 'secondary', 'data-key': 'workflow-open-' + id,
               'aria-label': (readOnly ? 'View seeded workflow ' : 'Edit workflow in canvas: ') + workflow.label }),
             button('Duplicate', function () { duplicateWorkflow('story:' + id); }, { class: 'secondary', disabled: workflow.isNew || Boolean(workflow.installFrom), 'aria-label': 'Duplicate ' + workflow.label }))),
         el('span', { class: 'muted', text: workflow.phases.length + ' steps' + (code ? ' · writes code' : '') }),
-        rail(workflow.phases)));
+        workflow.description ? el('span', { class: 'muted', text: workflow.description }) : null,
+        rail(workflow.phases));
+      main.appendChild(card);
+      search.add(card, [id, workflow.label, workflow.description, readOnly ? 'seeded read-only' : 'editable',
+        workflow.phases.map(stepLabel).join(' '), workflow.phases.join(' '),
+        (workflow.reworkLoops || []).map(function (loop) { return 'rejected ' + stepLabel(loop.from) + ' ' + stepLabel(loop.to); }).join(' '),
+        (workflow.decisions || []).map(function (decision) { return decision.label + ' ' + decisionLines(workflow, decision).join(' '); }).join(' ')]);
     });
-    renderEpicList(main);
+    renderEpicList(main, search);
+    search.finish();
   }
 
   // ---- Epic workflows ----------------------------------------------------------------------------
@@ -1261,7 +1338,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     finish.style.cssText = 'left:' + layout.finish.x + 'px;top:' + layout.finish.y + 'px;width:' + FINISH_W + 'px;height:36px';
     world.appendChild(finish); viewport.appendChild(world); return viewport;
   }
-  function renderEpicList(main) {
+  function renderEpicList(main, search) {
     var epics = state.draft.epics;
     if (!epics) return;
     main.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Epic workflows' }),
@@ -1269,16 +1346,19 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (state.epicForm) main.appendChild(renderEpicForm(state.epicForm));
     epics.order.concat(Object.keys(epics.workflows).filter(function (id) { return epics.order.indexOf(id) < 0; })).forEach(function (id) {
       var workflow = epics.workflows[id];
-      main.appendChild(el('article', { class: 'studio-card', 'aria-label': 'Epic workflow ' + workflow.label },
+      var readOnly = protectedObject('epics', id);
+      var card = el('article', { class: 'studio-card ' + (readOnly ? 'workflow-seeded' : 'workflow-editable'), 'aria-label': 'Epic workflow ' + workflow.label },
         el('div', { class: 'studio-row spread' },
-          el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflow.isNew ? el('span', { class: 'pill new', text: 'NEW' }) : null,
+          el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflowOrigin(readOnly), workflow.isNew ? el('span', { class: 'pill new', text: 'NEW' }) : null,
             el('span', { class: 'pill', text: workflow.lifecycleMode === 'planning-only' ? 'Plans Stories' : 'Full delivery' })),
           el('div', { class: 'studio-row' },
             button(protectedObject('epics', id) ? 'View' : 'Edit', function () { openEpicCanvas(id); }, { class: 'secondary',
               'aria-label': (protectedObject('epics', id) ? 'View seeded Epic workflow ' : 'Edit Epic workflow in canvas: ') + workflow.label }),
             button('Duplicate', function () { duplicateWorkflow('initiative:' + id); }, { class: 'secondary', disabled: workflow.isNew, 'aria-label': 'Duplicate ' + workflow.label }))),
         el('span', { class: 'muted', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') + (workflow.packs ? ' · ' + workflow.packs + ' review packs' : '') + (workflow.description ? ' · ' + workflow.description : '') }),
-        el('div', { class: 'rail' }, workflow.phases.map(function (phaseId) { return el('span', { class: 'pill', text: epicStepLabel(phaseId) }); }))));
+        el('div', { class: 'rail' }, workflow.phases.map(function (phaseId) { return el('span', { class: 'pill', text: epicStepLabel(phaseId) }); })));
+      main.appendChild(card);
+      if (search) search.add(card, [id, workflow.label, workflow.description, readOnly ? 'seeded read-only' : 'editable', workflow.phases.map(epicStepLabel).join(' ')]);
     });
   }
   function renderEpicForm(form) {
@@ -1366,6 +1446,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     var epics = state.draft.epics;
     var card = el('section', { class: 'studio-card', 'aria-label': 'Epic step ' + step.label });
     card.appendChild(el('h2', { text: step.label }));
+    (step.agents || []).forEach(function (id) { card.appendChild(agentPromptPreview(id, step.id, null, true)); });
     var sharedWith = Object.keys(epics.workflows).filter(function (id) { return id !== workflow.id && epics.workflows[id].phases.indexOf(step.id) >= 0; });
     if (step.local) card.appendChild(el('div', { class: 'callout', text: 'Workflow-local settings: changes here affect only this copy. Canonical step and output identities remain fixed.' }));
     else if (protectedObject('epicPhases', step.id)) { card.appendChild(el('p', { text: 'This shared seeded step is read-only. Duplicate its workflow to customize a copy.' })); return card; }
@@ -2200,8 +2281,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
   function selectStep(phaseId) { state.step = phaseId; state.decision = null; state.panel = null; render(); }
   function openDecision(decision) { if (!decision) return; state.step = decision.after; state.decision = decision.id; state.panel = null; render(); }
   function findMatches(view, phase, agent) {
-    var query = String(view.find || '').trim().toLowerCase();
-    return Boolean(query) && (String(phase.label).toLowerCase().indexOf(query) >= 0 || Boolean(agent && agent.label.toLowerCase().indexOf(query) >= 0));
+    var workflow = state.draft.workflows[state.workflow];
+    var rules = workflow ? (workflow.decisions || []).filter(function (decision) { return decision.after === phase.id; })
+      .map(function (decision) { return decision.label + ' ' + decisionLines(workflow, decision).join(' '); }).join(' ') : '';
+    var loops = workflow ? (workflow.reworkLoops || []).filter(function (loop) { return loop.from === phase.id || loop.to === phase.id; })
+      .map(function (loop) { return 'rejected ' + stepLabel(loop.from) + ' ' + stepLabel(loop.to); }).join(' ') : '';
+    return Boolean(String(view.find || '').trim()) && catalogMatches(view.find, [phase.id, phase.label, agent ? agent.id + ' ' + agent.label : '', rules, loops]);
   }
 
   /** What happens once a step is done, as chips on its card: where the Story goes next, and where
@@ -2333,7 +2418,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       fixed ? null : tool('back', signed ? 'Send rejected work from ' + stepLabel(selected) + ' back to an earlier step' : 'Only a step with a sign-off can send work back', function () {
         state.panel = null; state.decision = null; state.sections.signoff = true; state.focusKey = 'step-back'; render();
       }, { disabled: !signed || workflow.phases.indexOf(selected) === 0 }),
-      tool('search', 'Find a step or agent', function () {
+      tool('search', 'Find a step, agent or rule', function () {
         view.finding = !view.finding; if (view.finding) state.focusKey = 'canvas-find'; else view.find = ''; render();
       }, { 'aria-pressed': view.finding ? 'true' : 'false' }),
       fixed ? null : tool('gear', 'Workflow settings: name, description and rules', function () { state.panel = 'workflow'; state.decision = null; render(); }, { 'aria-pressed': state.panel === 'workflow' ? 'true' : 'false' }),
@@ -2359,7 +2444,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     }
     function close() { view.finding = false; view.find = ''; render(); }
     var box = el('div', { class: 'find-box' }, icon('search', 14),
-      el('input', { type: 'text', 'data-key': 'canvas-find', value: view.find || '', placeholder: 'Find a step or agent', 'aria-label': 'Find a step or agent',
+      el('input', { type: 'search', 'data-key': 'canvas-find', value: view.find || '', placeholder: 'Find a step, agent or rule', 'aria-label': 'Find a step, agent or rule',
         oninput: function (event) { view.find = event.target.value; mark(); },
         onkeydown: function (event) {
           if (event.key === 'Escape') { event.preventDefault(); close(); }
@@ -2677,14 +2762,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       field('board-description', 'What it is for', textInput('board-description', workflow.description, function (value) { workflow.description = value.trim(); changed(); })),
       el('span', { class: 'hint', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') + (workflow.isNew || workflow.installFrom ? ' · new, not published yet' : '') })
     ]));
-    var loops = workflow.reworkLoops || [];
-    aside.appendChild(section('rules', 'Send-back rules', loops.length ? loops.map(function (loop) {
-      return el('button', { type: 'button', class: 'prop-link', onclick: function () { state.sections.signoff = true; selectStep(loop.from); } }, 'If ' + stepLabel(loop.from) + ' is rejected, back to ' + stepLabel(loop.to) + ', at most ' + loop.maxAttempts + (loop.maxAttempts === 1 ? ' time' : ' times'));
-    }) : el('span', { class: 'hint', text: 'None yet. Select a step people sign off and choose where rejected work goes back to.' }), null, String(loops.length)));
-    var decisions = workflow.decisions || [];
-    aside.appendChild(section('decisions', 'Decisions', decisions.length ? decisions.map(function (decision) {
-      return el('button', { type: 'button', class: 'prop-link', onclick: function () { openDecision(decision); } }, 'After ' + stepLabel(decision.after) + ': ' + decision.label);
-    }) : el('span', { class: 'hint', text: 'None yet. Select a step and use the diamond tool to decide what happens after it.' }), null, String(decisions.length)));
+    aside.appendChild(section('rules', 'Rules & decisions', workflowRules(workflowId), null, String((workflow.reworkLoops || []).length + (workflow.decisions || []).length)));
     var claimsSection = plannedClaimsSection(workflowId, workflow);
     if (claimsSection) aside.appendChild(claimsSection);
     aside.appendChild(section('advanced', 'Advanced', [
@@ -2693,6 +2771,24 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     ], null, null, true));
     aside.appendChild(el('div', { class: 'prop-actions' }, button('Back to the step', function () { state.panel = null; render(); }, { class: 'secondary' })));
     return aside;
+  }
+
+  function workflowRules(workflowId) {
+    var workflow = state.draft.workflows[workflowId];
+    var box = el('div');
+    var search = catalogSearch(box, 'rules-' + workflowId, 'Search rules');
+    (workflow.reworkLoops || []).forEach(function (loop) {
+      var label = 'If ' + stepLabel(loop.from) + ' is rejected, back to ' + stepLabel(loop.to) + ', at most ' + loop.maxAttempts + (loop.maxAttempts === 1 ? ' time' : ' times');
+      var row = button(label, function () { state.sections.signoff = true; selectStep(loop.from); }, { class: 'prop-link' });
+      box.appendChild(row); search.add(row, [label, loop.from, loop.to, 'send-back']);
+    });
+    (workflow.decisions || []).forEach(function (decision) {
+      var row = el('div', null, button('After ' + stepLabel(decision.after) + ': ' + decision.label, function () { openDecision(decision); }, { class: 'prop-link' }),
+        el('ul', { class: 'ro-routes' }, decisionLines(workflow, decision).map(function (line) { return el('li', { text: line }); })));
+      box.appendChild(row); search.add(row, [decision.id, decision.label, decision.after, decisionLines(workflow, decision).join(' ')]);
+    });
+    if (!(workflow.reworkLoops || []).length && !(workflow.decisions || []).length) box.appendChild(el('p', { class: 'hint', text: 'No send-back rules or decisions in this workflow.' }));
+    search.finish(); return box;
   }
 
   // ---- Planned claims ------------------------------------------------------------------------
@@ -2975,6 +3071,8 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       return [el('dt', { text: row[0] }), el('dd', { text: row[1] })];
     }))));
     aside.appendChild(worldModelSection(workflowId, phaseId, phase, true));
+    if (agent) aside.appendChild(section('ro-agent-prompt', 'Agent prompt & instructions', agentPromptPreview(phase.agent, phaseId, workflowId), null, agent.label));
+    aside.appendChild(section('ro-workflow-rules', 'Workflow rules', workflowRules(workflowId), null, null, true));
     if (agent) aside.appendChild(section('ro-skills', 'Skills', stepSkillsBody(phaseId, phase.agent, 'seeded-skill-' + phaseId + '-'), null, null, true));
     aside.appendChild(el('p', { class: 'hint', text: 'Seeded workflow: duplicate it to change steps, agents and templates. Skills can still be attached to its steps here.' }));
     return aside;
@@ -3026,6 +3124,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         agent ? button('Edit agent', function () { editAgent(agent.id, { returnTo: 'step', phase: phaseId }); }, { class: 'secondary' }) : null,
         button('Create an agent', function () { openAgentForm({ returnTo: 'step', phase: phaseId }); }, { class: 'secondary' }))
     ], null, agent ? agent.label : 'none'));
+    if (agent) aside.appendChild(section('agent-prompt', 'Agent prompt & instructions', agentPromptPreview(phase.agent, phaseId, workflowId), null, agent.label));
 
     var stepSkills = stepSkillEntries(phase.agent, phaseId, workflowId);
     aside.appendChild(section('skills', 'Skills', stepSkillsBody(phaseId, phase.agent, 'step-skill-'), null,
@@ -3678,11 +3777,12 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     main.appendChild(el('div', { class: 'studio-row spread' }, el('div', null, el('h1', { text: 'Agents' }), el('p', { class: 'studio-lede', text: 'An agent drafts the work in the steps it is the default for. Start a new one from a role; no files to edit.' })),
       button('New agent', function () { openAgentForm(null); }, { class: 'primary' })));
     if (state.agentForm) main.appendChild(renderAgentForm());
+    var search = catalogSearch(main, 'agents', 'Search agents');
     var grid = el('div', { class: 'agents-grid' });
     Object.keys(state.draft.agents).sort(function (a, b) { return state.draft.agents[a].label.localeCompare(state.draft.agents[b].label); }).forEach(function (id) {
       var agent = state.draft.agents[id];
       var drafts = Object.keys(state.draft.phases).filter(function (phaseId) { return state.draft.phases[phaseId].agent === id; }).map(function (phaseId) { return state.draft.phases[phaseId].label; });
-      grid.appendChild(el('article', { class: 'studio-card' },
+      var card = el('article', { class: 'studio-card', 'data-agent-card': id },
         el('div', { class: 'studio-row spread' }, el('div', { class: 'studio-row' }, el('span', { class: 'avatar large', 'aria-hidden': 'true', text: initials(agent.label) }), el('strong', { text: agent.label })),
           el('span', { class: 'pill' + (agent.isNew ? ' new' : ''), text: agent.isNew ? 'NEW' : agent.scope === 'repository' ? 'This repository' : 'Packaged' })),
         el('span', { class: 'muted', text: agent.description }),
@@ -3690,12 +3790,16 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
         el('div', { class: 'rail' }, agent.tools.map(function (tool) { return el('span', { class: 'pill', text: toolLabel(tool) }); })),
         (agent.skills || []).length ? el('span', { style: 'font-size:12px', text: 'Skills: ' + agent.skills.map(function (entry) { return skillLabel(entry.id) + (entry.phases.length ? ' (' + entry.phases.map(stepLabel).join(', ') + ')' : ''); }).join(', ') }) : null,
         agentResources(id).length ? el('span', { style: 'font-size:12px', text: 'Remote skills and sources: ' + agentResources(id).map(function (resource) { return resource.id; }).join(', ') }) : null,
+        agentPromptPreview(id),
         button('Attach a skill', function () { openAttachForm(null, id); }, { class: 'secondary', 'aria-label': 'Attach a skill to ' + agent.label }),
         button('Add a skill from a link', function () { var lib = library(); lib.as = 'skill'; lib.attachTo = null; lib.pendingAgent = id; lib.preview = null; lib.target = null; lib.replace = false; state.returnTo = { view: 'agents' }; state.view = 'library'; render(); }, { class: 'secondary', 'aria-label': 'Add a skill from a link to ' + agent.label }),
         button('Edit', function () { editAgent(id, null); }, { class: 'secondary', 'aria-label': 'Edit ' + agent.label }),
-        agent.isNew ? button('Remove', function () { askRemoveNewAgent(id); }, { class: 'secondary', 'aria-label': 'Remove ' + agent.label }) : null));
+        agent.isNew ? button('Remove', function () { askRemoveNewAgent(id); }, { class: 'secondary', 'aria-label': 'Remove ' + agent.label }) : null);
+      grid.appendChild(card);
+      search.add(card, [id, agent.label, agent.description, agent.instructions, agent.scope, drafts.join(' '), agent.tools.join(' '), (agent.skills || []).map(function (entry) { return skillLabel(entry.id); }).join(' ')]);
     });
     main.appendChild(grid);
+    search.finish();
   }
 
   /** A new, unpublished agent leaves the draft again, once no step uses it. */
@@ -4659,14 +4763,18 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       }, { class: 'primary' }), button('Cancel', function () { state.instructionForm = null; render(); }, { class: 'secondary' })));
       main.appendChild(card);
     }
+    var search = catalogSearch(main, 'instructions', 'Search instructions');
     Object.keys(items).sort().forEach(function (id) {
       var item = items[id]; var users = Object.keys(state.draft.skills || {}).filter(function (skill) { return (state.draft.skills[skill].instructionRefs || []).indexOf(id) >= 0; });
-      main.appendChild(el('article', { class: 'studio-card' }, el('h2', { text: item.label }), el('span', { class: 'pill', text: id }), el('p', { text: item.description }),
+      var card = el('article', { class: 'studio-card', 'data-instruction-card': id }, el('h2', { text: item.label }), el('span', { class: 'pill', text: id }), el('p', { text: item.description }),
         el('p', { class: 'hint', text: 'Used by skills: ' + (users.join(', ') || 'none') }),
         el('details', null, el('summary', { text: 'View instruction text' }), el('pre', { text: item.instructions })),
         el('div', { class: 'studio-row' }, button('Edit', function () { openForm(id); }, { class: 'secondary' }),
-          button('Delete', function () { if (users.length) { setStatus('Remove ' + id + ' from skills first: ' + users.join(', ')); return; } delete items[id]; changed(); render(); }, { class: 'secondary', disabled: users.length > 0 }))));
+          button('Delete', function () { if (users.length) { setStatus('Remove ' + id + ' from skills first: ' + users.join(', ')); return; } delete items[id]; changed(); render(); }, { class: 'secondary', disabled: users.length > 0 })));
+      main.appendChild(card);
+      search.add(card, [id, item.label, item.description, item.instructions, users.join(' ')]);
     });
+    search.finish();
     (state.model.instructionProblems || []).forEach(function (problem) { main.appendChild(el('p', { class: 'error', text: problem.message || String(problem) })); });
   }
 
@@ -4683,6 +4791,7 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
     if (view.attach) main.appendChild(renderAttachForm(view.attach));
     var ids = Object.keys(state.draft.skills || {}).sort(function (a, b) { return state.draft.skills[a].label.localeCompare(state.draft.skills[b].label); });
     var pending = pendingLibrarySkills();
+    var search = catalogSearch(main, 'skills', 'Search skills');
     ((state.model && state.model.skillProblems) || []).forEach(function (problem) { main.appendChild(el('div', { class: 'callout bad', role: 'alert', text: problem.message })); });
     if (!ids.length && !pending.length) {
       main.appendChild(el('section', { class: 'studio-card', 'aria-label': 'No skills yet' }, el('h2', { text: 'No skills yet' }),
@@ -4690,15 +4799,21 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       return;
     }
     var grid = el('div', { class: 'agents-grid' });
-    ids.forEach(function (id) { grid.appendChild(renderSkillCard(id)); });
+    ids.forEach(function (id) {
+      var card = renderSkillCard(id); var skill = state.draft.skills[id];
+      grid.appendChild(card);
+      search.add(card, [id, skill.label, skill.description, skill.instructions, (skill.instructionRefs || []).join(' '), skillUsers(id).join(' ')]);
+    });
     pending.forEach(function (id) {
-      grid.appendChild(el('article', { class: 'studio-card', 'aria-label': 'Skill ' + id },
+      var card = el('article', { class: 'studio-card', 'aria-label': 'Skill ' + id },
         el('div', { class: 'studio-row spread' }, el('strong', { text: id }), el('span', { class: 'pill new', text: 'IMPORT' })),
         el('span', { class: 'muted', text: 'Waiting to be imported with your changes.' }),
         renderSkillUsers(id),
-        el('div', { class: 'studio-row' }, button('Attach to an agent', function () { openAttachForm(id, null); }, { class: 'secondary', 'aria-label': 'Attach ' + id + ' to an agent' }))));
+        el('div', { class: 'studio-row' }, button('Attach to an agent', function () { openAttachForm(id, null); }, { class: 'secondary', 'aria-label': 'Attach ' + id + ' to an agent' })));
+      grid.appendChild(card); search.add(card, [id, 'pending import']);
     });
     main.appendChild(grid);
+    search.finish();
   }
 
   function renderSkillUsers(id) {
@@ -5164,16 +5279,19 @@ export const WORKFLOW_STUDIO_SCRIPT = String.raw`
       button('← Workflows', function () { state.view = 'home'; render(); }, { class: 'secondary' }),
       button('Duplicate and customize', function () { duplicateWorkflow(governs + ':' + workflow.id); }, { class: 'primary' })));
     main.appendChild(el('ol', { class: 'seeded-steps' }, workflow.phases.map(function (id) {
-      var phase = governs === 'story' ? state.draft.phases[id] : state.draft.epics.steps[id];
+      var phase = governs === 'story' ? state.draft.phases[id] : epicStepFor(workflow, id);
       var agentId = phase && phase.agent;
       var agent = agentId ? state.draft.agents[agentId] : null;
-      if (governs !== 'story' || !agent) return el('li', null, el('strong', { text: phase ? phase.label : id }), el('span', { class: 'muted', text: phase && phase.agent ? ' · ' + phase.agent : '' }));
+      if (governs !== 'story') return el('li', null, el('strong', { text: phase ? phase.label : id }),
+        (phase && phase.agents || []).map(function (agentId) { return agentPromptPreview(agentId, id, null, true); }));
+      if (!agent) return el('li', null, el('strong', { text: phase ? phase.label : id }));
       var skills = stepSkillEntries(agentId, id, workflow.id);
       var open = state.seededSkills === id;
       return el('li', null,
         el('div', { class: 'studio-row spread' },
           el('span', null, el('strong', { text: phase.label }), el('span', { class: 'muted', text: ' · ' + agent.label + (skills.length ? ' · skills: ' + skills.map(function (entry) { return skillLabel(entry.id); }).join(', ') : '') })),
           button(open ? 'Done' : 'Skills', function () { state.seededSkills = open ? null : id; state.step = id; render(); }, { class: 'secondary', 'aria-expanded': open ? 'true' : 'false', 'aria-label': 'Skills for ' + phase.label, 'data-key': 'seeded-skills-' + id })),
+        agentPromptPreview(agentId, id, workflow.id),
         open ? el('div', { class: 'studio-card', 'aria-label': 'Skills for ' + phase.label }, stepSkillsBody(id, agentId, 'seeded-skill-' + id + '-')) : null);
     })));
   }

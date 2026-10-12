@@ -7,6 +7,7 @@ import { showCompactWarningMessage } from "../compact-message.ts";
  * changes nothing.
  */
 import * as vscode from 'vscode';
+import { WORKFLOW_FAVOURITES_KEY, workflowFavourites } from './catalog-search.ts';
 import path from 'node:path';
 import {
   contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
@@ -247,13 +248,15 @@ export class IntakePanel {
   /** The base whose readiness answer replaced the workflow choices with that base's own. */
   private exactCatalogBase: string | null = null;
   private disposed = false;
+  private favouriteWrite: Promise<void> = Promise.resolve();
 
   private constructor(
     panel: vscode.WebviewPanel,
     client: SingularityFlowClient,
     output: vscode.OutputChannel,
     onStarted: (started: Started) => Promise<void>,
-    target: IntakeTarget
+    target: IntakeTarget,
+    private readonly preferences: vscode.Memento
   ) {
     this.panel = panel;
     this.client = client;
@@ -275,6 +278,7 @@ export class IntakePanel {
       shape: this.defaults.shape ?? 'story',
       approvalAuthorityMissing: target.approvalAuthorityMissing === true,
       inFlight: target.inFlight,
+      favouriteWorkflows: workflowFavourites(preferences.get(WORKFLOW_FAVOURITES_KEY + ':' + target.repository)),
       ...(this.defaults.source ? {
         tracker: this.defaults.source === 'github-issue' ? 'github'
           : this.defaults.source === 'jira' ? 'jira' : 'none'
@@ -337,7 +341,7 @@ export class IntakePanel {
         retainContextWhenHidden: true,
         localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
       });
-    IntakePanel.current = new IntakePanel(panel, client, output, onStarted, target);
+    IntakePanel.current = new IntakePanel(panel, client, output, onStarted, target, context.globalState);
     return IntakePanel.current;
   }
 
@@ -669,6 +673,25 @@ export class IntakePanel {
    * takes the caret with it; the committed value arrives again as `field`, and that one redraws.
    */
   private router = registerMessageRouter('singularityFlow.intake', {
+    workflowFavourite: async (message) => {
+      const id = stringField(message, 'value');
+      if (!id || !this.form.storyWorkflows.some((workflow) => workflow.id === id) || typeof message.favourite !== 'boolean') return;
+      const prior = this.form.favouriteWorkflows ?? [];
+      const next = workflowFavourites(message.favourite ? [...prior, id] : prior.filter((value) => value !== id));
+      this.form = { ...this.form, favouriteWorkflows: next };
+      const key = WORKFLOW_FAVOURITES_KEY + ':' + this.form.targetRepository;
+      try {
+        this.favouriteWrite = this.favouriteWrite.catch(() => {}).then(() => this.preferences.update(key, next));
+        await this.favouriteWrite;
+      } catch (error) {
+        this.output.appendLine('Could not save workflow favourites: ' + (error as Error).message);
+        if (!this.disposed && this.form.favouriteWorkflows === next) {
+          this.form = { ...this.form, favouriteWorkflows: workflowFavourites(this.preferences.get(key)) };
+          this.render();
+          void vscode.window.showWarningMessage('Workflow favourites could not be saved. Your Story choices are unchanged; try starring the workflow again.');
+        }
+      }
+    },
     qualityGateMode: (message) => {
       if (this.form.busy || this.form.baselineRunning) return;
       const value = stringField(message, 'value');

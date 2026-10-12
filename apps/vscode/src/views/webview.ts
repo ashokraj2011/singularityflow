@@ -353,6 +353,16 @@ export const STYLE = `
   .base-branch-choices { max-height: 24rem; overflow-y: auto; overscroll-behavior: contain; padding: .25rem; }
   /* Choice layout must not override the browser's hidden attribute during branch filtering. */
   .base-branch-choices > [hidden] { display: none !important; }
+  [data-workflow-search-text][hidden] { display: none !important; }
+  [data-filter-text][hidden] { display: none !important; }
+  [data-workflow-choice] { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .5rem; align-items: center; }
+  [data-workflow-favourite] { white-space: nowrap; }
+  [data-workflow-favourite][aria-pressed=true] { color: var(--sf-link); border-color: var(--sf-link); }
+  [data-workflow-other] > summary { cursor: pointer; margin: .75rem 0; }
+  @media (max-width: 640px) {
+    [data-workflow-choice] { grid-template-columns: minmax(0, 1fr); }
+    [data-workflow-favourite] { justify-self: end; }
+  }
 
   /* Configuration follows the same calm list-detail pattern as GitHub settings: persistent local
      navigation, one task surface, and accent colour only for the current location. */

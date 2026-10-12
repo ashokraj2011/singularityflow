@@ -861,3 +861,12 @@ test('review format refusals preserve bounded JSON field selectors without expos
   assert.ok(!Object.hasOwn(envelope.error.details.findings[2], 'field'));
   assert.doesNotMatch(JSON.stringify(envelope), /hidden|secret\.txt/u);
 });
+
+test('a blocked feature admission routes to the readiness-repair preview and its automatic run step', () => {
+  const plan = refusalRemediationPlan(Object.assign(new Error('Complete readiness repair in every required repository before feature coding.'),
+    { code: 'TRP_FEATURE_ADMISSION_BLOCKED', details: { workId: 'TRP-1', phaseId: 'implementation', blockers: [] } }), ['phase', 'begin', 'implementation']);
+  assert.deepEqual(plan.steps.slice(0, 2).map((entry) => entry.id), ['preview-readiness-repair', 'run-readiness-repair']);
+  assert.equal(plan.steps[0].command, 'singularity-flow story test-policy repair --work-id TRP-1 --json');
+  assert.match(plan.steps[1].label, /automatic execute-readiness-repair action once/u);
+  assert.match(plan.steps[1].label, /accepts no failure/u);
+});

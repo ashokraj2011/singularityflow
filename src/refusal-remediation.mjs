@@ -673,6 +673,17 @@ const KNOWN = Object.freeze({
       'Agreement authorization, decision durability, expiry and normal phase approval remain separate. Do not retry unchanged publication or hand-edit the Story policy.',
       'singularity-flow explain test-recovery', 'diagnostic')];
   },
+  // Feature coding waits for a passing baseline. The bounded repair runs only the exact reviewed
+  // plan and records only a complete pass, so its returned run step is an automatic action.
+  TRP_FEATURE_ADMISSION_BLOCKED: (_argv, error) => {
+    const workId = safeWorkId(error?.details?.workId);
+    return [step('preview-readiness-repair',
+      'Preview the bounded readiness repair. It runs nothing and returns the exact plan with its confirmation digest. Repair only dependencies, lockfiles or new tests in scope; existing tests and product code stay unchanged.',
+      `singularity-flow story test-policy repair${workId ? ` --work-id ${workId}` : ''} --json`, 'diagnostic'),
+    step('run-readiness-repair',
+      'Run its returned automatic execute-readiness-repair action once. The kernel runs the reviewed plan at the exact commit and records a checkpoint only when every result passes; it accepts no failure. A failing or changed plan needs repair, not a retry.',
+      null, 'remediation')];
+  },
   TRP_RISK_REVIEW_STALE: () => [step('refresh-risk-review',
     'Candidate, environment, observation or authority changed. Preview the exact risk again; old confirmation is not consent for the new candidate.',
     'singularity-flow story test-policy risks --json', 'diagnostic')],

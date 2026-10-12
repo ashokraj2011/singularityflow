@@ -87,7 +87,10 @@ async function inspect(context, repositoryId, dependencies) {
   const confirmation = trpDigest(core);
   return { status: preview.plan.blockers?.length ? 'needs-repair' : 'ready-for-confirmation',
     ...core, confirmation, preview, preserved, repairScope, cohort,
+    // An objective, bounded repair: the kernel runs the exact plan and records only a complete pass,
+    // accepting no risk. An agent may run it once unattended, like any automatic plan-hash action.
     legalActions: preview.plan.blockers?.length ? [] : [{ id: 'execute-readiness-repair', owner: 'story-owner',
+      safe: true, automatic: true, mode: 'automatic', confirmation: 'plan-hash',
       label: 'Run the reviewed dependency/test plan and record its passing checkpoint', command: 'story',
       args: ['test-policy', 'repair', '--work-id', workId, '--repository', selected, '--run', '--confirm', confirmation, '--json'] }] };
 }

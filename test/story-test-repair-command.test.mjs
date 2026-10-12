@@ -76,6 +76,9 @@ test('repair plan is read-only, binds the original/current checkpoint and gives 
   assert.equal(plan.readinessPlanId, PLAN);
   assert.deepEqual(plan.preserved.originalReadiness, f.original);
   assert.ok(plan.legalActions[0].args.includes(plan.confirmation));
+  // A bounded repair records only a complete pass, so an agent may run it once unattended.
+  assert.equal(plan.legalActions[0].automatic, true);
+  assert.equal(plan.legalActions[0].confirmation, 'plan-hash');
   assert.deepEqual(f.calls.map(call => call[0]), ['load', 'preview']);
   assert.deepEqual(f.workflow.testRecovery.readiness, f.original);
 });

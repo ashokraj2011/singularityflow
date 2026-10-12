@@ -80,7 +80,7 @@ test('the packaged POC workflow is isolated, ordered, and fully governed', async
   assert.equal(resolved.phases.find((phase) => phase.id === 'poc-test-generation').sourceBoundary, 'test-automation');
   assert.deepEqual(
     resolved.phases.find((phase) => phase.id === 'poc-validation').approval.rejectTo,
-    ['poc-intake', 'poc-ui-exploration', 'poc-test-generation', 'poc-validation']
+    ['poc-intake', 'poc-impact-analysis', 'poc-ui-exploration', 'poc-test-generation', 'poc-validation']
   );
   const exploration = resolved.phases.find((phase) => phase.id === 'poc-ui-exploration');
   const validation = resolved.phases.find((phase) => phase.id === 'poc-validation');

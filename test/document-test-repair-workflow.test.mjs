@@ -47,8 +47,10 @@ test('document acceptance tests existing behavior first and binds repair, retest
   assert.deepEqual(resolution.plannedClaims, { mode: 'required', clausePhases: ['document-intake'], owners: { 'scenario-repair': 'document-intake' }, reason: null });
   assert.deepEqual(resolution.documents.allowedPhases, ['document-intake']);
   assert.ok(resolution.decisions.every((entry) => entry.enforceConditions && entry.maxRounds === 2));
-  assert.ok(phases.slice(1).every((phase) => !phase.approval.rejectTo.includes('scenario-repair') || phase.id === 'scenario-repair'),
-    'human rejection must not bypass the decision-directed repair path');
+  // Decisions bound the automatic routes. A reviewer's rejection is explicit human direction, so it
+  // may return the Story to any earlier step, including the repair step from the retest.
+  assert.deepEqual(phases.map((phase) => phase.approval.rejectTo), PHASES.map((_, index) => PHASES.slice(0, index + 1)),
+    'every reviewed step may return to each earlier step or to itself');
   assert.ok(phases.every((phase) => phase.mcp.requiredServers.length === 0));
   assert.ok(raw.mcpServers.playwright.agents.includes('scenario-tester'));
   assert.ok(['scenario-check', 'scenario-retest'].every((id) => raw.mcpServers.playwright.phases.includes(id)));

@@ -476,15 +476,22 @@ workTypes:
       requirements: feature/requirements.md
       design: feature/design.md
       implementation-spec: feature/implementation-spec.md
+    # Every reviewed step may return the Story to any earlier step or to itself.
     phaseOverrides:
       requirements: { inputs: [intake] }
-      design: { inputs: [requirements] }
+      design:
+        inputs: [requirements]
+        approval: { rejectTo: [intake, requirements, design] }
       implementation-spec: { inputs: [requirements, design] }
-      implementation: { inputs: [design, implementation-spec] }
-      verification: { inputs: [implementation-spec, implementation] }
+      implementation:
+        inputs: [design, implementation-spec]
+        approval: { rejectTo: [intake, requirements, design, implementation-spec, implementation] }
+      verification:
+        inputs: [implementation-spec, implementation]
+        approval: { rejectTo: [intake, requirements, design, implementation-spec, implementation, verification] }
       conformance:
         inputs: [implementation-spec, implementation, verification]
-        approval: { rejectTo: [implementation-spec, implementation, verification, conformance] }
+        approval: { rejectTo: [intake, requirements, design, implementation-spec, implementation, verification, conformance] }
   bugfix:
     label: Bug fix
     phases: [intake, reproduction, fix-design, fix-spec, implementation, verification, conformance]
@@ -497,15 +504,20 @@ workTypes:
       reproduction: bugfix/reproduction.md
       fix-design: bugfix/fix-design.md
       fix-spec: bugfix/fix-spec.md
+    # Every reviewed step may return the Story to any earlier step or to itself.
     phaseOverrides:
       reproduction: { inputs: [intake] }
       fix-design: { inputs: [reproduction] }
       fix-spec: { inputs: [reproduction, fix-design] }
-      implementation: { inputs: [fix-spec] }
-      verification: { inputs: [fix-spec, implementation] }
+      implementation:
+        inputs: [fix-spec]
+        approval: { rejectTo: [intake, reproduction, fix-design, fix-spec, implementation] }
+      verification:
+        inputs: [fix-spec, implementation]
+        approval: { rejectTo: [intake, reproduction, fix-design, fix-spec, implementation, verification] }
       conformance:
         inputs: [fix-spec, implementation, verification]
-        approval: { rejectTo: [fix-spec, implementation, verification, conformance] }
+        approval: { rejectTo: [intake, reproduction, fix-design, fix-spec, implementation, verification, conformance] }
   chore:
     label: Chore
     phases: [intake, implementation, verification, conformance]
@@ -517,11 +529,16 @@ workTypes:
       intake: { artifact: { kind: requirements } }
       # Chores may deliver an operational/configuration change with no product code. Keep the
       # shared implementation artifact but do not misclassify this work type as code generation.
-      implementation: { inputs: [intake], generation: { task: analyze } }
-      verification: { inputs: [implementation] }
+      implementation:
+        inputs: [intake]
+        generation: { task: analyze }
+        approval: { rejectTo: [intake, implementation] }
+      verification:
+        inputs: [implementation]
+        approval: { rejectTo: [intake, implementation, verification] }
       conformance:
         inputs: [implementation, verification]
-        approval: { rejectTo: [implementation, verification, conformance] }
+        approval: { rejectTo: [intake, implementation, verification, conformance] }
   figma-mobile:
     label: Figma export to mobile app
     phases: [design-intake, design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance]
@@ -560,11 +577,13 @@ workTypes:
       design-inventory: { inputs: [design-intake] }
       component-mapping: { inputs: [design-inventory] }
       mobile-spec: { inputs: [design-inventory, component-mapping] }
-      implementation: { inputs: [component-mapping, mobile-spec] }
+      implementation:
+        inputs: [component-mapping, mobile-spec]
+        approval: { rejectTo: [design-intake, design-inventory, component-mapping, mobile-spec, implementation] }
       visual-verification: { inputs: [design-inventory, mobile-spec, implementation] }
       conformance:
         inputs: [mobile-spec, implementation, visual-verification]
-        approval: { authorities: [design-reviewers, architecture-reviewers, quality-reviewers], minimum: 1, rejectTo: [design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance] }
+        approval: { authorities: [design-reviewers, architecture-reviewers, quality-reviewers], minimum: 1, rejectTo: [design-intake, design-inventory, component-mapping, mobile-spec, implementation, visual-verification, conformance] }
     sequenceGates:
       documentPhase: hard
   quick-fix:
@@ -614,7 +633,7 @@ workTypes:
         inputs: [intake, implementation]
         writeScope: artifact-only
         testEvidenceFrom: implementation
-        approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [implementation, testing] }
+        approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [intake, implementation, testing] }
       conformance:
         label: Code checking
         inputs: [intake, implementation, testing]
@@ -882,17 +901,19 @@ workTypes:
       implementation:
         inputs:
           - { phase: design, projection: approved-summary, preserve: [Design and interfaces, Risks and rollback], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
+        approval: { rejectTo: [intake, design, implementation] }
       testing:
         inputs:
           - { phase: intake, projection: approved-summary, preserve: [Success criteria], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
           - { phase: implementation, projection: approved-summary, preserve: [Changed components, Validation and operational notes], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
+        approval: { rejectTo: [intake, design, implementation, testing] }
       conformance:
         inputs:
           - { phase: intake, projection: approved-summary, preserve: [Success criteria], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
           - { phase: design, projection: approved-summary, preserve: [Design and interfaces], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
           - { phase: implementation, projection: approved-summary, preserve: [Changed components], maximumSummaryBytes: 12288, expansion: hash-bound-reference, fallback: block }
           - { phase: testing, projection: approved-summary, preserve: [Test evidence and results], maximumSummaryBytes: 16384, expansion: hash-bound-reference, fallback: block }
-        approval: { authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [design, implementation, testing, conformance] }
+        approval: { authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [intake, design, implementation, testing, conformance] }
 
   benchmarking-b:
     label: Benchmark B — generic context
@@ -916,11 +937,15 @@ workTypes:
       design:
         inputs: [intake]
         approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [intake, design] }
-      implementation: { inputs: [design] }
-      testing: { inputs: [intake, implementation] }
+      implementation:
+        inputs: [design]
+        approval: { rejectTo: [intake, design, implementation] }
+      testing:
+        inputs: [intake, implementation]
+        approval: { rejectTo: [intake, design, implementation, testing] }
       conformance:
         inputs: [intake, design, implementation, testing]
-        approval: { authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [design, implementation, testing, conformance] }
+        approval: { authorities: [quality-reviewers, architecture-reviewers], minimum: 1, rejectTo: [intake, design, implementation, testing, conformance] }
 
   poc-workflow:
     label: POC workflow — enterprise Playwright
@@ -967,11 +992,17 @@ workTypes:
       specification: spec-driven/spec.md
       planning: spec-driven/plan.md
       convergence: spec-driven/convergence.md
+    # Every reviewed step may return the Story to any earlier step or to itself; the shared
+    # planning, convergence and release steps already declare these returns.
     phaseOverrides:
       planning: { inputs: [specification] }
-      implementation: { inputs: [specification, planning] }
+      implementation:
+        inputs: [specification, planning]
+        approval: { rejectTo: [specification, planning, implementation] }
       convergence: { inputs: [specification, planning, implementation] }
-      verification: { inputs: [specification, planning, implementation] }
+      verification:
+        inputs: [specification, planning, implementation]
+        approval: { rejectTo: [specification, planning, implementation, convergence, verification] }
       release: { inputs: [verification] }
 
   spec-driven-standard:
@@ -1019,6 +1050,7 @@ workTypes:
     # required publication, and human advancement out of convergence. Large upstream artifacts
     # are projected into approval-bound agent briefs. Exact wording remains available through the
     # source artifact's hash-bound sfref handle; older pinned work items retain their full inputs.
+    # Every reviewed step may return the Story to any earlier step or to itself.
     phaseOverrides:
       planning:
         inputs:
@@ -1027,6 +1059,7 @@ workTypes:
         inputs:
           - { phase: specification, projection: approved-summary, preserve: [Actors, User scenarios, Failure and empty states, Permissions, Boundary conditions, Requirements, Non-functional requirements, Assumptions, Out of scope], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
           - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
+        approval: { rejectTo: [specification, planning, implementation] }
       convergence:
         inputs:
           - { phase: specification, projection: approved-summary, preserve: [Actors, User scenarios, Failure and empty states, Permissions, Boundary conditions, Requirements, Non-functional requirements, Assumptions, Out of scope], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
@@ -1037,6 +1070,7 @@ workTypes:
           - { phase: specification, projection: approved-summary, preserve: [Actors, User scenarios, Failure and empty states, Permissions, Boundary conditions, Requirements, Non-functional requirements, Assumptions, Out of scope], maximumSummaryBytes: 32768, expansion: hash-bound-reference, fallback: block }
           - { phase: planning, projection: approved-summary, preserve: [Test strategy, Risks and rollback], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
           - { phase: implementation, projection: approved-summary, preserve: [Changed components and decisions, Tests and operational notes], maximumSummaryBytes: 24576, expansion: hash-bound-reference, fallback: block }
+        approval: { rejectTo: [specification, planning, implementation, convergence, verification] }
       release:
         inputs:
           - { phase: convergence }
@@ -1081,7 +1115,7 @@ phases:
       maxQuestions: 5
       topics: [interfaces, data, security, observability, migration, tests]
     writeScope: artifact-only
-    approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [requirements, design, implementation-spec] }
+    approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [intake, requirements, design, implementation-spec] }
   reproduction:
     label: Reproduction
     defaultTemplate: bugfix/reproduction.md
@@ -1101,7 +1135,7 @@ phases:
       maxQuestions: 5
       topics: [root cause, scope, regression risk, compatibility, rollback]
     writeScope: artifact-only
-    approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [reproduction, fix-design] }
+    approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [intake, reproduction, fix-design] }
   fix-spec:
     label: Fix specification
     defaultTemplate: bugfix/fix-spec.md
@@ -1111,7 +1145,7 @@ phases:
       maxQuestions: 5
       topics: [changed behavior, test expectations, compatibility, failure behavior, rollback]
     writeScope: artifact-only
-    approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [reproduction, fix-design, fix-spec] }
+    approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [intake, reproduction, fix-design, fix-spec] }
   design-intake:
     label: Design package intake
     defaultTemplate: figma-mobile/design-intake.md
@@ -1141,7 +1175,7 @@ phases:
       maxQuestions: 5
       topics: [component ownership, navigation, state, data contracts, accessibility]
     writeScope: artifact-only
-    approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [design-inventory, component-mapping] }
+    approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [design-intake, design-inventory, component-mapping] }
   mobile-spec:
     label: Mobile implementation specification
     defaultTemplate: figma-mobile/mobile-spec.md
@@ -1151,7 +1185,7 @@ phases:
       maxQuestions: 5
       topics: [behavior, interfaces, failure states, analytics, testing]
     writeScope: artifact-only
-    approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [design-inventory, component-mapping, mobile-spec] }
+    approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [design-intake, design-inventory, component-mapping, mobile-spec] }
   implementation:
     label: Implementation
     defaultTemplate: common/implementation.md
@@ -1159,6 +1193,8 @@ phases:
     clarification: { mode: when-needed, maxQuestions: 3, topics: [approved deviations, implementation blockers] }
     generation: { task: code }
     writeScope: source-and-artifact
+    # Shared by many work types, so each packaged work type names its own earlier return targets in
+    # its phaseOverrides. The same holds for verification, testing and conformance below.
     approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [implementation] }
     qualityCommands: []
   verification:
@@ -1183,7 +1219,7 @@ phases:
     artifact: { path: artifacts/visual-verification/visual-comparison.md, kind: visual-test-evidence, minimumBytes: 600 }
     clarification: { mode: when-needed, maxQuestions: 3, topics: [visual tolerance, device evidence, accessibility, deviations] }
     writeScope: source-and-artifact
-    approval: { authorities: [design-reviewers, quality-reviewers], minimum: 1, rejectTo: [component-mapping, mobile-spec, implementation, visual-verification] }
+    approval: { authorities: [design-reviewers, quality-reviewers], minimum: 1, rejectTo: [design-intake, design-inventory, component-mapping, mobile-spec, implementation, visual-verification] }
     qualityCommands: []
   conformance:
     label: Spec-to-code conformance
@@ -1241,7 +1277,7 @@ phases:
     clarification: { mode: when-needed, maxQuestions: 3, topics: [root cause, authorized scope, repair risks] }
     generation: { task: code }
     writeScope: source-and-artifact
-    approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [document-intake, scenario-repair] }
+    approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [document-intake, scenario-check, scenario-repair] }
     qualityCommands: []
   scenario-retest:
     label: Retest and accept
@@ -1257,7 +1293,7 @@ phases:
     clarification: { mode: when-needed, maxQuestions: 3, topics: [test access, inconclusive evidence, remaining defects] }
     generation: { task: analyze }
     writeScope: artifact-only
-    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [document-intake, scenario-retest] }
+    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [document-intake, scenario-check, scenario-repair, scenario-retest] }
     qualityCommands: []
 
   demo-web-intake:
@@ -1301,7 +1337,7 @@ phases:
     clarification: { mode: when-needed, maxQuestions: 3, topics: [root cause, allowed paths, repair risks] }
     generation: { task: code }
     writeScope: source-and-artifact
-    approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [demo-web-intake, demo-web-repair] }
+    approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [demo-web-intake, demo-web-check, demo-web-repair] }
     qualityCommands: []
   demo-web-retest:
     label: Retest web behavior and accept
@@ -1317,7 +1353,7 @@ phases:
     clarification: { mode: when-needed, maxQuestions: 3, topics: [test access, inconclusive evidence, remaining defects] }
     generation: { task: analyze }
     writeScope: artifact-only
-    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [demo-web-intake, demo-web-retest] }
+    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [demo-web-intake, demo-web-check, demo-web-repair, demo-web-retest] }
     qualityCommands: []
 
   demo-intake:
@@ -1363,7 +1399,7 @@ phases:
     clarification: { mode: when-needed, maxQuestions: 3, topics: [root cause, allowed paths, repair risks] }
     generation: { task: code }
     writeScope: source-and-artifact
-    approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [demo-intake, demo-repair] }
+    approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [demo-intake, demo-check, demo-repair] }
     qualityCommands: []
   demo-close:
     label: Closing documents and human acceptance
@@ -1377,7 +1413,7 @@ phases:
     clarification: { mode: when-needed, maxQuestions: 3, topics: [residual risk, final acceptance, operational handoff] }
     generation: { task: summarize }
     writeScope: artifact-only
-    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [demo-intake, demo-check, demo-close] }
+    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [demo-intake, demo-check, demo-repair, demo-close] }
     qualityCommands: []
 
   demo-instruction-intake:
@@ -1421,7 +1457,7 @@ phases:
     clarification: { mode: when-needed, maxQuestions: 3, topics: [root cause, allowed paths, repair risks] }
     generation: { task: code }
     writeScope: source-and-artifact
-    approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [demo-instruction-intake, demo-instruction-repair] }
+    approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [demo-instruction-intake, demo-instruction-test, demo-instruction-repair] }
     qualityCommands: []
   demo-instruction-close:
     label: Instruction demo — Close
@@ -1435,7 +1471,7 @@ phases:
     generation: { task: summarize }
     writeScope: artifact-only
     clarification: { mode: when-needed, maxQuestions: 3, topics: [final acceptance, residual risk] }
-    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [demo-instruction-intake, demo-instruction-test, demo-instruction-close] }
+    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [demo-instruction-intake, demo-instruction-test, demo-instruction-repair, demo-instruction-close] }
     qualityCommands: []
 
   poc-intake:
@@ -1483,7 +1519,7 @@ phases:
         - { server: playwright, tool: browser_navigate, minimum: 1, outputRequired: false }
         - { server: playwright, tool: browser_snapshot, minimum: 1, outputRequired: true }
         - { server: playwright, tool: browser_take_screenshot, minimum: 1, outputRequired: true }
-    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [poc-impact-analysis, poc-ui-exploration] }
+    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [poc-intake, poc-impact-analysis, poc-ui-exploration] }
   poc-test-generation:
     label: Playwright test generation
     defaultTemplate: poc-workflow/test-generation.md
@@ -1496,7 +1532,7 @@ phases:
     writeScope: source-and-artifact
     sourceBoundary: test-automation
     generation: { task: code }
-    approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [poc-ui-exploration, poc-test-generation] }
+    approval: { authorities: [engineering-reviewers], minimum: 1, rejectTo: [poc-intake, poc-impact-analysis, poc-ui-exploration, poc-test-generation] }
     qualityCommands:
       - { id: git-diff-check, argv: [git, diff, --check], modelPolicy: never }
   poc-validation:
@@ -1519,7 +1555,7 @@ phases:
         - { server: playwright, tool: browser_network_requests, minimum: 1, outputRequired: true }
         - { server: playwright, tool: browser_take_screenshot, minimum: 1, outputRequired: true }
     repairBudget: { maxAttempts: 2, resetOnPhase: poc-intake }
-    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [poc-intake, poc-ui-exploration, poc-test-generation, poc-validation] }
+    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [poc-intake, poc-impact-analysis, poc-ui-exploration, poc-test-generation, poc-validation] }
     qualityCommands:
       - { id: git-diff-check, argv: [git, diff, --check], modelPolicy: never, timeoutMs: 60000 }
       - { id: typescript-compile, argv: [npx, --no-install, tsc, --noEmit], modelPolicy: never, timeoutMs: 300000 }
@@ -1636,7 +1672,7 @@ phases:
     artifact: { path: artifacts/release/conformance.md, kind: conformance-report, minimumBytes: 300 }
     artifactSet: spec-driven-verification
     writeScope: artifact-only
-    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [implementation, verification, release] }
+    approval: { authorities: [quality-reviewers], minimum: 1, rejectTo: [specification, planning, implementation, convergence, verification, release] }
   convergence:
     label: Convergence
     defaultTemplate: spec-driven/convergence.md
@@ -1646,8 +1682,9 @@ phases:
     generation: { requirement: required, producer: deterministic, task: analyze }
     writeScope: artifact-only
     # Human advancement out of convergence, and governed rework back to implementation
-    # [SPK:REQ-032]. Advancement fails while blocking findings remain [SPK:REQ-183].
-    approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [implementation] }
+    # [SPK:REQ-032]. Advancement fails while blocking findings remain [SPK:REQ-183]. Its reviewers
+    # may also return the Story to planning or the specification when the defect started there.
+    approval: { authorities: [architecture-reviewers], minimum: 1, rejectTo: [specification, planning, implementation, convergence] }
   implement:
     label: Implement
     defaultTemplate: quick-fix/implement.md
@@ -1662,7 +1699,7 @@ phases:
     artifact: { path: artifacts/verify/verification-summary.md, kind: test-evidence, minimumBytes: 200 }
     generation: { requirement: required, producer: deterministic, task: analyze }
     writeScope: source-and-artifact
-    approval: { mode: policy, policy: quick-fix-low-risk-v1, maximumChangedPaths: 5, authorities: [quality-reviewers], minimum: 1, rejectTo: [implement, verify] }
+    approval: { mode: policy, policy: quick-fix-low-risk-v1, maximumChangedPaths: 5, authorities: [quality-reviewers], minimum: 1, rejectTo: [intake, implement, verify] }
     # A policy waiver is impossible without at least one required check. Repositories
     # should replace or extend this deterministic baseline with their own test command.
     qualityCommands:

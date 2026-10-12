@@ -120,7 +120,7 @@ export function openUpstreamIssues(workflow, now = new Date().toISOString()) {
 }
 
 export function upstreamIssueDecideCommand(workId, issue) {
-  return `singularity-flow upstream-issue decide ${issue.id} --work-id ${workId} --outcome plan-correction|return|accept-risk|dismiss --reason "<why>"`;
+  return `singularity-flow upstream-issue decide ${issue.id} --work-id ${workId} --outcome plan-correction|amend|return|accept-risk|dismiss --reason "<why>"`;
 }
 
 /** One terminal blocker per open issue, with its exact decide command. */
@@ -146,9 +146,12 @@ export function decideUpstreamIssue(workflow, {
   }
   if (!UPSTREAM_ISSUE_OUTCOMES.includes(outcome)) refused(`--outcome must be one of ${UPSTREAM_ISSUE_OUTCOMES.join(', ')}.`);
   if (outcome === 'amend') {
-    refused('Forward amendment is not available yet; correct the plan, return to the step, or accept the risk.', 'UPSTREAM_ISSUE_OUTCOME_UNAVAILABLE');
-  }
-  if (outcome === 'plan-correction') {
+    // The issue is resolved by the approved forward amendment of the same step [UIF-M3].
+    const amendment = (workflow.forwardAmendments ?? []).find((entry) => entry.id === link);
+    const approved = (workflow.forwardAmendmentDecisions ?? []).findLast((entry) => entry.amendment === link);
+    if (!amendment || approved?.decision !== 'approved') refused(`Name the approved forward amendment that resolves ${issueId} with --link FAM-NNN.`);
+    if (amendment.phase !== state.issue.phase) refused(`${link} amends ${amendment.phase}, but ${issueId} is about ${state.issue.phase}.`);
+  } else if (outcome === 'plan-correction') {
     const correction = (workflow.planAmendments ?? []).find((entry) => entry?.kind === 'plan-row-correction' && entry.id === link);
     if (!correction) refused(`Name the plan correction that resolves ${issueId} with --link PRC-NNN.`);
     if (correction.ownerPhase !== state.issue.phase) {
@@ -160,7 +163,7 @@ export function decideUpstreamIssue(workflow, {
   } else if (outcome === 'return') {
     if (!/^CR-\d{3,}$/u.test(link ?? '')) refused('A return records the change request it opened.');
   } else if (link) {
-    refused(`--link is used only with --outcome plan-correction.`);
+    refused(`--link is used only with --outcome plan-correction or amend.`);
   }
   let expiry = null;
   if (outcome === 'accept-risk') {

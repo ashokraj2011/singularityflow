@@ -14,6 +14,7 @@ import { evidenceGraphFromAggregate } from './graph.mjs';
 import { gateRefusal } from './gate-refusal.mjs';
 import { completionLabel } from './labels.mjs';
 import { upstreamIssueTerminalBlockers } from '../upstream-issues.mjs';
+import { forwardAmendmentTerminalBlockers } from '../forward-amendments.mjs';
 
 const MAX_LISTED = 20;
 const BLOCKING_RESULTS = new Set(['failed', 'inconclusive', 'missing', 'pending']);
@@ -76,7 +77,7 @@ export async function evaluateTerminalTransition(root, definition, workflow, { o
   const gate = await runGovernanceGate(root, definition, workflow, { terminal: true, pendingTransition: true, openStory });
   const evidenceBlockers = evidenceBlockersOf(evaluation);
   // An earlier step's owners decide every upstream issue before the Story ends [UIF-M2].
-  const upstream = upstreamIssueTerminalBlockers(workflow);
+  const upstream = [...upstreamIssueTerminalBlockers(workflow), ...forwardAmendmentTerminalBlockers(workflow)];
   const blockers = [...new Set([...evidenceBlockers, ...gate.errors, ...upstream.map((entry) => entry.message)])];
   const recovery = [...new Set([...upstream.map((entry) => entry.command), ...terminalRecoveryActions(workflow.workItem.id, evaluation, gate)])];
   return { evaluation, gate, blockers, recovery, upstream };

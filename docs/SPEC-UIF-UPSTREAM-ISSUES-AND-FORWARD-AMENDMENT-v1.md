@@ -4,7 +4,7 @@
 
 **Status:** Accepted for implementation (owner decision, 2026-10-12)
 
-**Version:** `0.2.0`
+**Version:** `0.3.0`
 
 **Date:** 2026-10-12
 
@@ -156,41 +156,66 @@ proven without executable tests (`non-test`) cannot gain a test this way.
 
 ### 5.1 Scope
 
-Any approved artifact phase that is not a code phase, including the scope step (which today's
-intent amendment already covers). Code phases change through their own generations.
+An approved document step before the current one, while the current step is still being authored
+(not awaiting approval). Steps that define clauses change through `story intent-amendment` or an
+upstream-issue return. Plan owners change rows through plan corrections (section 4). Code steps,
+convergence steps, skill steps and artifact sets change through their own generations. The step's
+approval policy must be met by one decision; otherwise the owners use a return.
 
-### 5.2 Flow
+### 5.2 Records
 
-1. **Propose.** `story amend propose --phase <P> --reason <text> [--upstream-issue <UPI>]` captures
-   the edited artifact bytes of `P` from the working tree. The command refuses if no byte changes
-   or another proposal for `P` is pending. It records the exact old and new digests and, for clause
-   phases, the clause diff.
-2. **Decide.** `story amend decide <FAM> --decision approve|reject --reason <text>`, by `P`'s
-   approvers. Approval creates generation `g+1` of `P` with the new bytes, approved by the decision
-   (no authoring run, no new review packet beyond the amendment record), and re-pins every
-   downstream input binding that pointed at `P`'s previous generation.
-3. **Revalidation.** Every downstream phase that consumed `P` (declared inputs, planned-claim
-   ownership or clause dependencies) gets `revalidation: { amendment, required: true }` and keeps
-   its status:
-   - an approved phase stays approved;
-   - the current phase continues, and its next composition uses the new input (prompt recompose).
-4. **Resolve.** `story amend revalidate <phase> --outcome unchanged|corrected|return --reason`, by
-   that phase's approvers:
-   - `unchanged` records that the phase still holds;
-   - `corrected` links a plan correction or a later amendment;
-   - `return` performs a return to that phase (3.3).
+Three append-only lists:
+- `forwardAmendments[]`: proposals `{ id: FAM-NNN, phase, fromGeneration, artifactPath, fromSha256,
+  proposedPath, proposedSha256, reason, proposedBy, agent, upstreamIssue, at }`;
+- `forwardAmendmentDecisions[]`: `{ amendment, phase, decision: approved|rejected, reason, actor,
+  authorityGroup, identityAssurance, at, toGeneration, revalidate: [{ phase, generation }], refreshed }`;
+- `amendmentRevalidations[]`: `{ amendment, phase, generation, outcome: unchanged|return, reason,
+  binding, link, actor, authorityGroup, identityAssurance, at }`. An `unchanged` binding names the
+  amended producer, its generation and bytes, and the revalidated step's exact input record.
 
-### 5.3 Completion
+### 5.3 Flow
 
-Terminal readiness reports `AMENDMENT_REVALIDATION_REQUIRED` for each unresolved revalidation, with
-the exact command. The final gate's approval-staleness check accepts an approved phase whose input
-was re-pinned by an approved amendment once its revalidation is resolved.
+1. **Propose.** `upstream-issue propose-amendment --phase P --reason TEXT [--file DRAFT] [--issue UPI]`
+   saves corrected bytes of P's artifact under `context/amendments/FAM-NNN-<name>` in its own commit.
+   The source is P's artifact in the working tree, which is then restored to its approved bytes, or a
+   draft anywhere in the repository. That lets the step that found the defect draft the correction; a
+   governed agent may propose but never decide. The managed input block must be unchanged.
+2. **Decide.** `upstream-issue decide-amendment FAM-NNN --decision approve|reject --reason TEXT
+   --confirm FAM-NNN`, by P's approvers. Approval installs the bytes as P's next approved generation
+   through the same projections a published generation has:
+   - snapshot and input record;
+   - agent briefs and a reference bound to the committed proposal;
+   - telemetry;
+   - a generation publication whose origin `forward-amendment` is verified against the decision and
+     its `decision_made` event.
 
-### 5.4 Relation to intent amendment
+   Nothing is reset. Every approved later step that declares P as an input is listed for
+   revalidation. The current step's draft inputs are refreshed when it already prepared them.
+3. **Revalidate.** `upstream-issue revalidate PHASE --amendment FAM-NNN --outcome unchanged|return
+   --reason TEXT`, by that step's approvers.
+   - `unchanged` keeps the approval. Input integrity accepts the step's record and artifact under the
+     amended producer only for the bound generation and bytes and the bound input record; every
+     other producer must match exactly.
+   - `return` resets the Story from that step (`forwardAmendment` on the change request). Steps
+     that are reset owe no revalidation, because they read their inputs again.
 
-Intent amendment remains for scope-step changes proposed from phase feedback. The shared
-successor-generation code is factored out so both create an approved successor the same way;
-forward amendment differs only in revalidating instead of resetting.
+An upstream issue is closed by `decide --outcome amend --link FAM-NNN` once that amendment of the
+same step is approved.
+
+### 5.4 Completion
+
+Terminal readiness reports `FORWARD_AMENDMENT_PENDING` for each undecided proposal and
+`AMENDMENT_REVALIDATION_REQUIRED` for each listed step that is still approved at its listed
+generation without a revalidation, each with its exact command. Until a step is revalidated, the
+governance gate's input-integrity finding for it names the revalidate command.
+
+### 5.5 Relation to intent amendment
+
+Intent amendment remains the route for the scope step: it changes clauses, so its downstream steps
+are reset with their evidence labelled affected or preserved. Forward amendment reuses the same
+generation projections. It accepts `forwardAmendmentId` wherever an intent-amendment approval is
+accepted (agent briefs, expansion handles, generation publications), and revalidates instead of
+resetting.
 
 ## 6. Prompts and routes
 
@@ -224,5 +249,5 @@ forward amendment differs only in revalidating instead of resetting.
 |---|---|
 | UIF-M1 | Plan corrections (C3): record, reader application, `decision plan` options, tests |
 | UIF-M2 | Upstream issues (C1): record, raise, list, decide (except `amend`), return from any status, completion check, visibility |
-| UIF-M3 | Forward amendment (C2): propose, decide, successor generation, re-pinning, revalidation, completion check, intent-amendment factoring |
+| UIF-M3 | Forward amendment (C2): propose, decide, successor generation, revalidation with input-integrity binding, completion checks |
 | UIF-M4 | Prompt, review and remediation routes (section 6) |

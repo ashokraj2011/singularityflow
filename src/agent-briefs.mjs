@@ -295,7 +295,7 @@ export async function readAgentBrief(root, workflow, producerPhase, consumerPhas
     !approval.invalidatedAt
       && approval.decision === 'approved'
       && approval.generation === producerPhase.generation
-      && approval.intentAmendmentId
+      && (approval.intentAmendmentId || approval.forwardAmendmentId)
   );
   const reviewedBrief = reviewedSubmission?.projection?.agentBriefs?.find((brief) =>
     brief.consumerPhase === consumerPhase.id && brief.integritySha256 === stored.integritySha256

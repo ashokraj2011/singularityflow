@@ -13,6 +13,8 @@ import { safeCommandGuidance, validateSflowExecutionCommand } from './safe-comma
 const MAX_AGE = 30 * 60 * 1000;
 const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', 'exec_command', 'write_stdin']);
 const DECIDE_SKILL_MUTATIONS = Object.freeze(['choose', 'applicability', 'scope', 'completeness', 'plan']);
+// An agent may raise an issue or propose an amendment; only an approver decides or revalidates.
+const UPSTREAM_ISSUE_DECISIONS = Object.freeze(['decide', 'decide-amendment', 'revalidate']);
 const DELEGATION = new Set(['task', 'spawn_agent', 'write_agent', 'delegate', 'run_subagent']);
 const digest = value => createHash('sha256').update(value).digest('hex');
 const directory = () => path.join(path.dirname(copilotModeFile()), 'copilot-boundaries');
@@ -237,7 +239,7 @@ function shellAllowed(call, mode, value) {
   if (mode === 'read') return false;
   // Deciding an upstream issue is the earlier step's approvers' call, like approve and reject; an
   // agent may raise one and keep working, never decide it.
-  if (positionals[0] === 'upstream-issue' && positionals[1] === 'decide') return false;
+  if (positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1])) return false;
   return !['approve', 'reject'].includes(positionals[0]);
 }
 
@@ -246,7 +248,7 @@ function upstreamIssueDecision(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
   const { positionals } = parseArgs(safe.argv);
-  return positionals[0] === 'upstream-issue' && positionals[1] === 'decide';
+  return positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1]);
 }
 
 function mentionsKernelExecution(call, value) {
@@ -315,7 +317,7 @@ export async function mutationToolGuard(payload = {}) {
         if (contract.turnMode !== 'authoring')
           return mutationDenial(contract, 'PHASE_MUTATION_TOOL_PROTOCOL: use native file-read tools for output; write only exact issued staging files with a file-edit tool (source review also supports review-source stage --report-json). Run permitted SFlow commands standalone with the bound cwd. Correct the tool form in this turn; this refusal does not invalidate the phase or require repeating clarification');
         if (upstreamIssueDecision(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue is decided by the earlier step\'s approvers in their own terminal, not by this turn. Keep working; the Story completes once they decide it');
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue or amendment is decided by the earlier step\'s approvers in their own terminal, not by this turn. Keep working; the Story completes once they decide it');
         if (mentionsKernelExecution(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED: run one standalone registered SFlow command; no chains or wrappers. Use a file-edit tool for the exact issued staging file. Preserve human answers and repair recording, not the questions');
       }

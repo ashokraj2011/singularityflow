@@ -1255,7 +1255,10 @@ const PAGES = Object.freeze({
       'decide is for the earlier step\'s approvers: plan-correction (link the decision plan correction),',
       'return (rework from that step; allowed while the current step is in progress, working files kept,',
       'repair budgets apply), accept-risk (expires within 90 days) or dismiss.',
-      'A Story completes only when every issue is decided; an expired accepted risk counts as open.'
+      'A Story completes only when every issue is decided; an expired accepted risk counts as open.',
+      'propose-amendment saves corrected bytes of an earlier document step (its edited artifact, or a --file draft);',
+      'decide-amendment lets that step\'s approvers install them as its next approved generation without re-running it.',
+      'Approved later steps that read it keep their approval and are revalidated (unchanged, or return); none is reset.'
     ],
     options: [
       ['--phase PHASE', 'The earlier step the issue is about.'],

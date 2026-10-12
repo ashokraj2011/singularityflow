@@ -112,7 +112,7 @@ function authenticateStoredPublication(root, commit, record, {
 function verifiedProjection(workflow, record, eventSha256) {
   const expectedEventType = record.origin?.kind === 'intent-amendment'
     ? 'intent-amendment-approved'
-    : 'artifact-generated';
+    : record.origin?.kind === 'forward-amendment' ? 'decision-made' : 'artifact-generated';
   const projection = (workflow.publicationProjections ?? []).find((entry) =>
     entry.event?.eventId === record.eventId
       && entry.event?.type === expectedEventType
@@ -134,6 +134,24 @@ function verifiedProjection(workflow, record, eventSha256) {
         || projection.event.payload?.proposalId !== record.origin.id
         || projection.event.payload?.proposalSha256 !== record.origin.proposalSha256
         || projection.event.payload?.decision !== 'approve'
+        || projection.event.payload?.reviewPacketSha256 !== null
+        || canonicalJson(projection.event.actor) !== canonicalJson(approval.actor)
+        || projection.event.agent !== approval.agent
+        || projection.event.authorityGroup !== approval.authorityGroup) return null;
+  }
+  if (record.origin?.kind === 'forward-amendment') {
+    // A forward amendment's generation is bound to its approvers' exact decision [UIF-M3].
+    const decision = (workflow.forwardAmendmentDecisions ?? []).findLast((entry) => entry.amendment === record.origin.id);
+    const approval = (workflow.phases?.[record.phase]?.approvals ?? []).find((entry) =>
+      entry.forwardAmendmentId === record.origin.id
+        && Number(entry.generation) === Number(record.generation)
+        && !entry.invalidatedAt
+        && recordSha256(entry) === record.origin.decisionSha256);
+    if (decision?.decision !== 'approved' || Number(decision.toGeneration) !== Number(record.generation)
+        || !approval
+        || projection.event.payload?.decision !== 'forward-amendment'
+        || projection.event.payload?.amendment !== record.origin.id
+        || projection.event.payload?.decisionSha256 !== record.origin.decisionSha256
         || projection.event.payload?.reviewPacketSha256 !== null
         || canonicalJson(projection.event.actor) !== canonicalJson(approval.actor)
         || projection.event.agent !== approval.agent

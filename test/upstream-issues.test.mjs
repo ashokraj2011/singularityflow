@@ -60,7 +60,14 @@ test('decisions close an issue; a plan correction must be the earlier step\'s ow
   assert.throws(() => decide(workflow, { outcome: 'plan-correction', link: 'PRC-002' }), /recorded for UPI-003/u);
   assert.equal(decide(workflow, { outcome: 'plan-correction', link: 'PRC-003' }).link, 'PRC-003');
   assert.throws(() => decide(workflow), { code: 'UPSTREAM_ISSUE_DECIDED' });
-  assert.throws(() => decide(workflow, { issue: 'UPI-002', outcome: 'amend' }), { code: 'UPSTREAM_ISSUE_OUTCOME_UNAVAILABLE' });
+  // An amendment closes an issue only once that same step's approvers approved it.
+  assert.throws(() => decide(workflow, { issue: 'UPI-002', outcome: 'amend', link: 'FAM-001' }), /approved forward amendment/u);
+  workflow.forwardAmendments = [{ id: 'FAM-001', phase: 'planning' }, { id: 'FAM-002', phase: 'specification' }];
+  workflow.forwardAmendmentDecisions = [{ amendment: 'FAM-002', decision: 'approved' }];
+  assert.throws(() => decide(workflow, { issue: 'UPI-002', outcome: 'amend', link: 'FAM-001' }), /approved forward amendment/u);
+  assert.throws(() => decide(workflow, { issue: 'UPI-002', outcome: 'amend', link: 'FAM-002' }), /amends specification/u);
+  workflow.forwardAmendmentDecisions.push({ amendment: 'FAM-001', decision: 'approved' });
+  assert.equal(decide(structuredClone(workflow), { issue: 'UPI-002', outcome: 'amend', link: 'FAM-001' }).link, 'FAM-001');
   assert.throws(() => decide(workflow, { issue: 'UPI-002', outcome: 'accept-risk' }), { code: 'UPSTREAM_ISSUE_RISK_EXPIRY_REQUIRED' });
   assert.throws(() => decide(workflow, { issue: 'UPI-002', outcome: 'accept-risk', expiresAt: '2027-03-01' }), { code: 'UPSTREAM_ISSUE_RISK_EXPIRY_REQUIRED' });
   assert.throws(() => decide(workflow, { issue: 'UPI-002', expiresAt: '2026-11-01' }), /only with --outcome accept-risk/u);

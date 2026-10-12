@@ -175,6 +175,7 @@ export async function runPlanCorrection({ root, config, workflow, options }, {
       detail: `${record.id} corrects ${owner.id}: ${record.operations.map((operation) => `${operation.op} ${operation.clauseId}`).join('; ')}. ${record.reason}` });
     return record;
   }, {
+    exactWorkItemPaths: [],
     eventFromResult: (record) => ({ actor, agent: null, authorityGroup: record.authorityGroup, identityAssurance: record.identityAssurance,
       payload: { decision: 'plan', amendment: record.id, reviewPacketSha256: null } })
   });

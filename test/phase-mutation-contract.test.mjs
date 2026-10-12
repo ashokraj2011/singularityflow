@@ -289,9 +289,14 @@ test('an authoring turn may raise an upstream issue but never decide one', async
   assert.deepEqual(await shell('singularity-flow upstream-issue raise --phase intake --about AC-001 --problem "The intake omits the error case entirely."'), {});
   assert.deepEqual(await shell('singularity-flow upstream-issue raise --from-artifact --json'), {});
   assert.deepEqual(await shell('singularity-flow upstream-issue list --open --json'), {});
+  assert.deepEqual(await shell('singularity-flow upstream-issue propose-amendment --phase intake --file singularity/work-items/PMC-1/artifacts/custom-step/intake-draft.md --reason "The intake omits the error case entirely."'), {});
+  for (const command of ['singularity-flow upstream-issue decide-amendment FAM-001 --decision approve --reason "Agent approving." --confirm FAM-001',
+    'singularity-flow upstream-issue revalidate design --amendment FAM-001 --outcome unchanged --reason "Agent revalidating."']) {
+    assert.equal((await shell(command)).permissionDecision, 'deny', command);
+  }
   const decided = await shell('singularity-flow upstream-issue decide UPI-001 --outcome dismiss --reason "The agent thinks it is fine."');
   assert.equal(decided.permissionDecision, 'deny');
-  assert.match(decided.permissionDecisionReason, /PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue is decided by the earlier step's approvers/);
+  assert.match(decided.permissionDecisionReason, /PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue or amendment is decided by the earlier step's approvers/);
   const kernel = await f.enter('/sf-recover', 'kernel');
   const kernelDecide = await mutationToolGuard({ ...kernel, toolName: 'bash', toolArgs: {
     command: 'singularity-flow upstream-issue decide UPI-001 --outcome dismiss --reason "Not an agent decision at all."', cwd: f.root } });

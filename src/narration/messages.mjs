@@ -237,6 +237,18 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `${slot(s.count, '0')} upstream issue(s).`,
     preserves: true
   },
+  'upstream-issue.propose-amendment.succeeded': {
+    headline: (s) => `Proposed ${slot(s.amendment)} for ${slot(s.phase)}; its approvers decide it.`,
+    preserves: false
+  },
+  'upstream-issue.decide-amendment.succeeded': {
+    headline: (s) => `${slot(s.amendment)} ${slot(s.decision)}; no step was reset.`,
+    preserves: false
+  },
+  'upstream-issue.revalidate.succeeded': {
+    headline: (s) => `Recorded ${slot(s.outcome)} for ${slot(s.phase)}.`,
+    preserves: false
+  },
   'upstream-issue.decide.succeeded': {
     headline: (s) => `Decided ${slot(s.issue)}: ${slot(s.outcome)}.`,
     preserves: false

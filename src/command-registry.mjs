@@ -13,7 +13,7 @@ STRUCTURED.add('instruction');
 MODEL_FREE_MIXED_COMMANDS.add('instruction');
 STRUCTURED.add('upstream-issue');
 MODEL_FREE_MIXED_COMMANDS.add('upstream-issue');
-const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide']);
+const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'

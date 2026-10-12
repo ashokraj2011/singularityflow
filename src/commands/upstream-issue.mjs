@@ -8,7 +8,12 @@ import { repoRoot } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { loadSession } from '../session.mjs';
 import { requireApprovalAuthority } from '../approval-authority.mjs';
-import { assertNoPendingPublication, actorKey, rejectPhase, transactStory } from '../state-stores.mjs';
+import {
+  assertNoPendingPublication, actorKey, decideForwardAmendment, proposeForwardAmendment, rejectPhase,
+  revalidateAfterForwardAmendment, transactStory, workDirRelative
+} from '../state-stores.mjs';
+import { persistGenerationPublicationRecord } from '../generation-publication-store.mjs';
+import { nextForwardAmendmentProposal, pendingAmendmentRevalidations, revalidateCommand } from '../forward-amendments.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
 import { upstreamDiscrepanciesFromMarkdown } from '../phase-upstream-discrepancies.mjs';
 import {
@@ -20,11 +25,14 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import { nowIso, optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 import { actionActor } from './kernel.mjs';
 
-export const UPSTREAM_ISSUE_ACTIONS = Object.freeze(['raise', 'list', 'decide']);
+export const UPSTREAM_ISSUE_ACTIONS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 const ALLOWED = {
   raise: ['phase', 'about', 'problem', 'assumption', 'impact', 'proposed', 'authored', 'from-artifact'],
   list: ['open'],
-  decide: ['outcome', 'reason', 'link', 'expires']
+  decide: ['outcome', 'reason', 'link', 'expires'],
+  'propose-amendment': ['phase', 'reason', 'file', 'issue'],
+  'decide-amendment': ['decision', 'reason', 'confirm'],
+  revalidate: ['amendment', 'outcome', 'reason']
 };
 
 function refused(message, code = 'UPSTREAM_ISSUE_INVALID') {
@@ -105,7 +113,7 @@ async function raise(root, config, workflow, options) {
       aggregate.history.push({ at: issue.at, actor: issue.raisedBy, agent, event: 'upstream_issue_raised', phase: aggregate.currentPhase ?? null,
         detail: `${issue.id} against ${issue.phase} (${issue.about}): ${issue.problem}` });
       return issue;
-    }, { eventFromResult: (issue) => ({ payload: { decision: 'upstream-issue', issue: issue.id, reviewPacketSha256: null } }) });
+    }, { exactWorkItemPaths: [], eventFromResult: (issue) => ({ payload: { decision: 'upstream-issue', issue: issue.id, reviewPacketSha256: null } }) });
     raised.push(value);
   }
   if (!optionBoolean(options, 'json')) {
@@ -179,7 +187,7 @@ async function decide(root, config, workflow, issueId, options) {
     }, `[${workflow.workItem.id}][upstream-issue] ${issueId} ${outcome}`, async (aggregate) => {
       await assertNoPendingPublication(root, config, aggregate, 'decide an upstream issue');
       return record(aggregate, decision(aggregate));
-    }, { eventFromResult: (recorded) => ({ authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
+    }, { exactWorkItemPaths: [], eventFromResult: (recorded) => ({ authorityGroup: recorded.authorityGroup, identityAssurance: recorded.identityAssurance,
       payload: { decision: 'upstream-issue', issue: recorded.issue, reviewPacketSha256: null } }) }));
   }
   if (!optionBoolean(options, 'json')) {
@@ -191,13 +199,130 @@ async function decide(root, config, workflow, issueId, options) {
     body: { decision: recorded, ...(changeRequest ? { changeRequestId: changeRequest.id } : {}) }, changed: true });
 }
 
+/** Save corrected bytes of an earlier step for its approvers [UIF-M3]. */
+async function proposeAmendment(root, config, workflow, options) {
+  const actor = actionActor(root);
+  const session = await loadSession(root, { required: false });
+  const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
+  const phaseId = optionString(options, 'phase');
+  if (!phaseId) refused('Name the earlier step with --phase.');
+  const issue = optionString(options, 'issue') ?? null;
+  if (issue && !upstreamIssueStates(workflow).some((entry) => entry.issue.id === issue && entry.issue.phase === phaseId)) {
+    refused(`${issue} is not an upstream issue about ${phaseId}.`);
+  }
+  const target = workflow.phases?.[phaseId];
+  if (!target?.requiredArtifact?.path) refused(`${phaseId} is not a step with one document to amend.`);
+  const expected = nextForwardAmendmentProposal(workDirRelative(config, workflow.workItem.id), workflow,
+    `${workDirRelative(config, workflow.workItem.id)}/${target.requiredArtifact.path}`);
+  const { value: proposal } = await transactStory(root, config, workflow, {
+    type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
+    actor, agent, authorityGroup: null, payload: { decision: 'forward-amendment', stage: 'proposed' }
+  }, `[${workflow.workItem.id}][forward-amendment] propose ${phaseId}`, async (aggregate) => {
+    await assertNoPendingPublication(root, config, aggregate, 'propose a forward amendment');
+    return proposeForwardAmendment(root, config, aggregate, { phaseId, reason: optionString(options, 'reason'),
+      file: optionString(options, 'file') ?? null, actor, agent, upstreamIssue: issue });
+  }, { exactWorkItemPaths: [expected.proposedPath],
+    eventFromResult: (result) => ({ payload: { decision: 'forward-amendment', stage: 'proposed', amendment: result.id, reviewPacketSha256: null } }) });
+  const decide = `singularity-flow upstream-issue decide-amendment ${proposal.id} --work-id ${workflow.workItem.id} --decision approve|reject --reason "<why>" --confirm ${proposal.id}`;
+  if (!optionBoolean(options, 'json')) {
+    console.log(`Proposed ${proposal.id}: ${phaseId} generation ${proposal.fromGeneration + 1} from ${proposal.proposedPath}. ${phaseId}'s approvers decide it:`);
+    console.log(`  ${decide}`);
+  }
+  emit(options, workflow, 'propose-amendment', { slots: { amendment: proposal.id, phase: phaseId }, body: { proposal, decide }, changed: true });
+}
+
+/** The amended step's approvers install the proposal as its next approved generation, or reject it. */
+async function decideAmendment(root, config, workflow, amendmentId, options) {
+  if (optionString(options, 'confirm') !== amendmentId) refused(`Confirm the exact amendment: --confirm ${amendmentId}.`, 'FORWARD_AMENDMENT_CONFIRMATION_REQUIRED');
+  const proposal = (workflow.forwardAmendments ?? []).find((entry) => entry.id === amendmentId);
+  if (!proposal) refused(`${amendmentId || 'That amendment'} is not a forward amendment of this Story.`, 'FORWARD_AMENDMENT_NOT_FOUND');
+  const actor = actionActor(root);
+  const decision = optionString(options, 'decision');
+  const { value } = await transactStory(root, config, workflow, {
+    type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: proposal.phase, generation: null,
+    actor, agent: null, authorityGroup: null, payload: { decision: 'forward-amendment', amendment: amendmentId }
+  }, `[${workflow.workItem.id}][forward-amendment] ${decision} ${amendmentId}`, async (aggregate) => {
+    await assertNoPendingPublication(root, config, aggregate, 'decide a forward amendment');
+    return decideForwardAmendment(root, config, aggregate, { amendmentId, decision, reason: optionString(options, 'reason'), actor, agent: null });
+  }, {
+    eventFromResult: (result) => result.applied ? {
+      actor: result.approval.actor, agent: result.approval.agent, authorityGroup: result.approval.authorityGroup,
+      identityAssurance: result.approval.identityAssurance, phaseId: proposal.phase, generation: result.approval.generation,
+      payload: { decision: 'forward-amendment', amendment: amendmentId, decisionSha256: result.decisionSha256, reviewPacketSha256: null }
+    } : { authorityGroup: result.decision.authorityGroup,
+      payload: { decision: 'forward-amendment', amendment: amendmentId, outcome: 'rejected', reviewPacketSha256: null } },
+    afterEventFinalize: async (publicationEvent, transactionContext, result) => {
+      if (!result?.applied) return;
+      await persistGenerationPublicationRecord(root, workflow, workflow.phases[proposal.phase], {
+        publicationEvent, transactionId: transactionContext.transactionId, expectedHead: transactionContext.expectedHead,
+        workDirectory: workDirRelative(config, workflow.workItem.id)
+      });
+    }
+  });
+  const owed = value.applied ? pendingAmendmentRevalidations(workflow).filter((entry) => entry.amendment === amendmentId) : [];
+  if (!optionBoolean(options, 'json')) {
+    if (!value.applied) console.log(`Rejected ${amendmentId}; ${proposal.phase} keeps generation ${proposal.fromGeneration}.`);
+    else {
+      console.log(`Approved ${amendmentId}: ${proposal.phase} is now generation ${value.approval.generation}; no step was reset.`);
+      if (value.refreshed) console.log(`${value.refreshed} reads the amended ${proposal.phase} from its next composition; its draft text is kept.`);
+      for (const entry of owed) console.log(`  Revalidate ${entry.phase}: ${revalidateCommand(workflow.workItem.id, entry)}`);
+    }
+  }
+  emit(options, workflow, 'decide-amendment', { slots: { amendment: amendmentId, decision: value.decision.decision },
+    body: { decision: value.decision, revalidate: owed.map((entry) => entry.phase), refreshed: value.refreshed ?? null }, changed: true });
+}
+
+/** A later step's approvers record that it holds under the amended input, or return the Story to it. */
+async function revalidate(root, config, workflow, phaseId, options) {
+  const amendmentId = optionString(options, 'amendment');
+  const outcome = optionString(options, 'outcome');
+  const reason = optionString(options, 'reason');
+  const actor = actionActor(root);
+  const session = await loadSession(root, { required: false });
+  const agent = session?.workId === workflow.workItem.id ? session.agent ?? null : null;
+  let value;
+  if (outcome === 'return') {
+    const current = workflow.phases?.[workflow.currentPhase];
+    if (!current || !['in_progress', 'awaiting_approval'].includes(current.status)) {
+      refused('A return needs a current step in progress or awaiting approval.', 'UPSTREAM_ISSUE_RETURN_UNAVAILABLE');
+    }
+    ({ value } = await transactStory(root, config, workflow, {
+      type: LIFECYCLE_EVENT.PHASE_REJECTED, phaseId: current.id, generation: current.generation, actor, agent,
+      payload: { targetPhaseId: phaseId }
+    }, `[${workflow.workItem.id}][forward-amendment] ${amendmentId} returns to ${phaseId}`, async (aggregate) => {
+      const entry = await revalidateAfterForwardAmendment(root, config, aggregate, { amendmentId, phaseId, outcome, reason, actor, agent });
+      const returned = await rejectPhase(root, config, aggregate, { phaseId: current.id, target: phaseId, reason, actor, agent,
+        channel: 'terminal', upstreamIssue: { id: amendmentId } });
+      entry.link = returned.changeRequest.id;
+      return entry;
+    }, { eventFromResult: (entry) => ({ payload: { targetPhaseId: phaseId, changeRequestId: entry.link } }) }));
+  } else {
+    ({ value } = await transactStory(root, config, workflow, {
+      type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
+      actor, agent, authorityGroup: null, payload: { decision: 'forward-amendment' }
+    }, `[${workflow.workItem.id}][forward-amendment] ${phaseId} revalidated after ${amendmentId}`, async (aggregate) => {
+      await assertNoPendingPublication(root, config, aggregate, 'revalidate a step');
+      return revalidateAfterForwardAmendment(root, config, aggregate, { amendmentId, phaseId, outcome, reason, actor, agent });
+    }, { exactWorkItemPaths: [], eventFromResult: (entry) => ({ authorityGroup: entry.authorityGroup, identityAssurance: entry.identityAssurance,
+      payload: { decision: 'forward-amendment', amendment: amendmentId, revalidated: phaseId, reviewPacketSha256: null } }) }));
+  }
+  if (!optionBoolean(options, 'json')) {
+    console.log(outcome === 'return'
+      ? `${value.link} returned the Story to ${phaseId} after ${amendmentId}.`
+      : `Recorded that ${phaseId} holds under ${amendmentId}; its approval stands.`);
+  }
+  emit(options, workflow, 'revalidate', { slots: { phase: phaseId, outcome }, body: { revalidation: value }, changed: true });
+}
+
 export async function run(argv, { positionals = argv, options = {} } = {}) {
   const action = positionals[1] ?? 'list';
   if (options.help === true) {
     console.log('Usage: singularity-flow upstream-issue raise|list|decide [--work-id WORK-ID] [--json]\n'
       + 'raise: --phase EARLIER --about ID|SECTION --problem TEXT [--assumption TEXT] [--impact TEXT] [--proposed KIND] [--authored human|governed-agent], or --from-artifact\n'
       + 'list: [--open]\n'
-      + 'decide UPI-ID --outcome plan-correction|return|accept-risk|dismiss --reason TEXT [--link PRC-ID] [--expires YYYY-MM-DD]\n'
+      + 'decide UPI-ID --outcome plan-correction|amend|return|accept-risk|dismiss --reason TEXT [--link PRC-ID|FAM-ID] [--expires YYYY-MM-DD]\n'
+      + 'propose-amendment --phase EARLIER --reason TEXT [--file DRAFT] [--issue UPI-ID]; decide-amendment FAM-ID --decision approve|reject --reason TEXT --confirm FAM-ID\n'
+      + 'revalidate PHASE --amendment FAM-ID --outcome unchanged|return --reason TEXT\n'
       + 'Raising never stops the current step; the earlier step\'s approvers decide, and the Story completes only when every issue is decided.');
     return;
   }
@@ -208,7 +333,7 @@ export async function run(argv, { positionals = argv, options = {} } = {}) {
   for (const key of Object.keys(options)) {
     if (!allowed.has(key)) refused(`Unsupported upstream-issue ${action} option --${key}.`, 'UPSTREAM_ISSUE_OPTIONS_INVALID');
   }
-  if (positionals.length > (action === 'decide' ? 3 : 2)) refused('Unexpected upstream-issue arguments. Use --work-id for the Story.');
+  if (positionals.length > (['decide', 'decide-amendment', 'revalidate'].includes(action) ? 3 : 2)) refused('Unexpected upstream-issue arguments. Use --work-id for the Story.');
   const root = repoRoot();
   const { workflow, definition: config } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   if (action === 'list') return list(workflow, options);
@@ -216,5 +341,8 @@ export async function run(argv, { positionals = argv, options = {} } = {}) {
     refused(`Story ${workflow.workItem.id} is ${workflow.status}; upstream issues are raised and decided while it is in progress.`, 'UPSTREAM_ISSUE_STORY_CLOSED');
   }
   if (action === 'raise') return raise(root, config, workflow, options);
+  if (action === 'propose-amendment') return proposeAmendment(root, config, workflow, options);
+  if (action === 'decide-amendment') return decideAmendment(root, config, workflow, positionals[2], options);
+  if (action === 'revalidate') return revalidate(root, config, workflow, positionals[2], options);
   return decide(root, config, workflow, positionals[2], options);
 }

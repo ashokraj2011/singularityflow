@@ -10,6 +10,7 @@ import { readAgentBrief } from './agent-briefs.mjs';
 import { authoredArtifactText } from './publication-preflight.mjs';
 import { canonicalJson } from './records.mjs';
 import { inputFindingSeverity } from './lifecycle-evidence-policy.mjs';
+import { acceptedRevalidationBindings, pendingAmendmentRevalidations, revalidateCommand } from './forward-amendments.mjs';
 import {
   resolveSkillPhaseEvidenceBinding, verifyApprovedSkillOutputContinuity,
   verifyTemplateProducerSetContinuity
@@ -65,7 +66,7 @@ function expansionHandle(workflow, producer, repositoryPath) {
   const amendment = [...(producer.approvals ?? [])].reverse().find((approval) =>
     !approval.invalidatedAt
       && approval.decision === 'approved'
-      && approval.intentAmendmentId
+      && (approval.intentAmendmentId || approval.forwardAmendmentId)
       && Number(approval.generation) === Number(producer.generation)
       && approval.agentBriefSource?.path === repositoryPath
   );
@@ -477,6 +478,30 @@ export async function verifyInputsIntegrity(root, workflow, phase, { itemDirecto
     generation: phase.generation, definition });
   for (const message of [...live.errors, ...live.warnings]) add(message);
   const expectedInputs = recordedInputs(live.records);
+  // A person revalidated this approved step after an earlier step was amended [UIF-M3]. Its record
+  // and artifact keep the inputs it was approved with; the revalidation vouches for them under the
+  // exact amended producer generation and bytes it names. Every other producer must match exactly.
+  const revalidated = acceptedRevalidationBindings(workflow, phase, recordSnapshot.sha256);
+  if (revalidated.size) {
+    const others = (entries) => entries.filter((entry) => !revalidated.has(entry.phase));
+    for (const [producer, binding] of revalidated) {
+      const current = live.records.find((entry) => entry.phase === producer);
+      if (!current || current.status !== 'captured' || Number(current.producerGeneration) !== Number(binding.producerGeneration)
+          || current.sha256 !== binding.producerSha256 || !(record.inputs ?? []).some((entry) => entry.phase === producer)) {
+        add(`${phase.id} was revalidated by ${binding.amendment} against ${producer} generation ${binding.producerGeneration}, which is no longer the approved input`);
+      }
+    }
+    if (!sameRecord(others(record.inputs ?? []), others(expectedInputs))) {
+      add(`${phase.id} phase-input record does not match the recomputed inputs outside its revalidated producers`);
+    }
+    const artifactText = await readFile(path.join(itemDirectory, phase.requiredArtifact.path), 'utf8').catch(() => '');
+    const block = extractInputsBlock(artifactText);
+    if (!block || sha256(block) !== record.renderedSha256) add(`${phase.id} artifact does not contain the recorded managed input block`);
+    if (!errors.length && !warnings.length) {
+      passes.push(`phase inputs revalidated: ${phase.id} after ${[...new Set([...revalidated.values()].map((binding) => binding.amendment))].join(', ')}`);
+    }
+    return { errors, warnings, passes };
+  }
   if (!sameRecord(record.inputs ?? [], expectedInputs)) {
     add(`${phase.id} phase-input record does not match the complete recomputed approved-input representation`);
   }
@@ -492,6 +517,10 @@ export async function verifyInputsIntegrity(root, workflow, phase, { itemDirecto
   }
   if (block && sha256(block) !== record.renderedSha256) {
     add(`${phase.id} artifact does not contain the recorded managed input block`);
+  }
+  const owed = pendingAmendmentRevalidations(workflow).filter((entry) => entry.phase === phase.id);
+  if ((errors.length || warnings.length) && owed.length) {
+    for (const entry of owed) add(`${phase.id} read ${entry.producer} before ${entry.amendment} amended it; its approvers revalidate it: ${revalidateCommand(workflow.workItem.id, entry)}`);
   }
   if (!errors.length && !warnings.length) {
     const captured = live.records.filter((entry) => entry.status === 'captured');

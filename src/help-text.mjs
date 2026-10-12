@@ -727,7 +727,10 @@ Usage:
   singularity-flow upstream-issue raise --phase EARLIER --about ID|SECTION --problem TEXT [--assumption TEXT] [--impact TEXT] [--proposed KIND] [--authored human|governed-agent] [--work-id WORK-ID] [--json]
   singularity-flow upstream-issue raise --from-artifact [--work-id WORK-ID] [--json]
   singularity-flow upstream-issue list [--open] [--work-id WORK-ID] [--json]
-  singularity-flow upstream-issue decide UPI-ID --outcome plan-correction|return|accept-risk|dismiss --reason TEXT [--link PRC-ID] [--expires YYYY-MM-DD] [--work-id WORK-ID] [--json]
+  singularity-flow upstream-issue decide UPI-ID --outcome plan-correction|amend|return|accept-risk|dismiss --reason TEXT [--link PRC-ID|FAM-ID] [--expires YYYY-MM-DD] [--work-id WORK-ID] [--json]
+  singularity-flow upstream-issue propose-amendment --phase EARLIER --reason TEXT [--file DRAFT] [--issue UPI-ID] [--work-id WORK-ID] [--json]
+  singularity-flow upstream-issue decide-amendment FAM-ID --decision approve|reject --reason TEXT --confirm FAM-ID [--work-id WORK-ID] [--json]
+  singularity-flow upstream-issue revalidate PHASE --amendment FAM-ID --outcome unchanged|return --reason TEXT [--work-id WORK-ID] [--json]
   singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
   singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
   singularity-flow sync [WORK-ID] [--replay [--dry-run]] [--json]

@@ -68,6 +68,7 @@ import {
   beginTelemetryCapture, collectCopilotUsage, phaseTelemetrySummary, recordPhaseTelemetry, telemetryCaptureGap
 } from './telemetry.mjs';
 import { retainUnchangedPhases } from './phase-retention.mjs';
+import { forwardAmendmentDecision, nextForwardAmendmentProposal, pendingAmendmentRevalidations, pendingForwardAmendments } from './forward-amendments.mjs';
 import { phaseUpstream } from './phase-upstream.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
 import {
@@ -605,6 +606,7 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
     : changedList('witnessRecords') ? { list: 'witnessRecords', event: 'witness_recorded', decision: 'witness' }
     : changedList('upstreamIssues') ? { list: 'upstreamIssues', event: 'upstream_issue_raised', decision: 'upstream-issue' }
     : changedList('upstreamIssueDecisions') ? { list: 'upstreamIssueDecisions', event: 'upstream_issue_decided', decision: 'upstream-issue' }
+    : changedList('amendmentRevalidations') ? { list: 'amendmentRevalidations', event: 'amendment_revalidated', decision: 'forward-amendment' }
       : { list: 'applicability', event: 'applicability_decided', decision: 'applicability' };
   const DECISION_KEYS = new Set([kind.list, 'history', 'publicationProjections']);
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
@@ -7111,7 +7113,7 @@ export async function rejectPhase(root, config, workflow, {
       }
     } : {}),
     ...(requestedMembers.length ? { members: requestedMembers } : {}),
-    ...(upstreamIssue ? { upstreamIssue: upstreamIssue.id } : {}),
+    ...(upstreamIssue ? { [String(upstreamIssue.id).startsWith('FAM-') ? 'forwardAmendment' : 'upstreamIssue']: upstreamIssue.id } : {}),
     ...(testingRepair ? { testingRepair: {
       confirmation: testingRepair.confirmation,
       changeSetDigest: testingRepair.changeSetDigest,
@@ -7731,6 +7733,289 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     affectedPhases,
     preservedEvidence: proposal.application.preservedEvidence
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Forward amendment [UIF-M3]
+
+function forwardAmendmentRefusal(message, code = 'FORWARD_AMENDMENT_INVALID', details = undefined) {
+  throw new SingularityFlowError(message, { code, ...(details ? { details } : {}) });
+}
+
+function inputProducerId(input) {
+  return typeof input === 'string' ? input : input?.phase ?? input?.from ?? null;
+}
+
+/**
+ * The earlier step a forward amendment may change: an approved document step before the current
+ * one, while the current step is still being authored. Clause-defining steps change by intent
+ * amendment, plan owners by plan corrections, code steps by their own generations.
+ */
+function forwardAmendmentTarget(config, workflow, phaseId) {
+  const order = workflow.phaseOrder ?? [];
+  const current = workflow.phases?.[workflow.currentPhase];
+  const phase = workflow.phases?.[phaseId];
+  if (workflow.status !== 'in_progress' || !current) forwardAmendmentRefusal('A forward amendment needs a Story in progress.');
+  if (!phase || order.indexOf(phaseId) < 0 || order.indexOf(phaseId) >= order.indexOf(current.id)) {
+    forwardAmendmentRefusal(`A forward amendment changes an earlier step; ${phaseId ?? 'that step'} is not before ${current.id}.`, 'FORWARD_AMENDMENT_NOT_EARLIER');
+  }
+  if (phase.status !== 'approved' || !(Number(phase.generation) > 0)) forwardAmendmentRefusal(`${phaseId} is not approved, so there is nothing to amend.`);
+  if (current.status !== 'in_progress') {
+    forwardAmendmentRefusal(`${current.id} is ${current.status.replaceAll('_', ' ')}; approve or return it before amending ${phaseId}.`, 'FORWARD_AMENDMENT_CURRENT_IN_REVIEW');
+  }
+  if (phaseRequiresCodeDelivery(phase)) forwardAmendmentRefusal(`${phaseId} is a code step; it changes through its own generations.`, 'FORWARD_AMENDMENT_UNSUPPORTED');
+  if (isSpecificationDefinitionPhase(phase)) {
+    forwardAmendmentRefusal(`${phaseId} defines clauses; change it with story intent-amendment or an upstream-issue return.`, 'FORWARD_AMENDMENT_UNSUPPORTED');
+  }
+  if (phase.claimMaps?.planned) forwardAmendmentRefusal(`${phaseId} owns the plan; correct its rows with decision plan.`, 'FORWARD_AMENDMENT_UNSUPPORTED');
+  if (isConvergencePhase(phase) || phase.kind === 'skill' || phase.artifactSet || !phase.requiredArtifact?.path) {
+    forwardAmendmentRefusal(`${phaseId} is not a single-document step a forward amendment can change.`, 'FORWARD_AMENDMENT_UNSUPPORTED');
+  }
+  const relative = posix(path.join(workDirRelative(config, workflow.workItem.id), phase.requiredArtifact.path));
+  const approved = (phase.artifacts ?? []).find((artifact) => artifact.path === relative)?.sha256 ?? null;
+  if (!approved) forwardAmendmentRefusal(`${phaseId} has no approved snapshot of ${relative}.`);
+  return { phase, current, relative, approved };
+}
+
+/** Approved steps between the amended one and the current one that read it directly. */
+function forwardAmendmentReaders(workflow, phase, current) {
+  const order = workflow.phaseOrder ?? [];
+  return order.slice(order.indexOf(phase.id) + 1, order.indexOf(current.id))
+    .filter((id) => workflow.phases[id]?.status === 'approved'
+      && resolvedPhaseInputs(workflow, workflow.phases[id]).some((input) => inputProducerId(input) === phase.id));
+}
+
+/**
+ * Save corrected bytes of an earlier step for its approvers. The source is that step's artifact in
+ * the working tree, which is restored to its approved bytes once saved, or a draft copy (`file`)
+ * anywhere in the repository, so the step that found the defect can draft the fix.
+ */
+export async function proposeForwardAmendment(root, config, workflow, {
+  phaseId, reason, file = null, actor, agent = null, upstreamIssue = null, at = nowIso()
+}) {
+  const { phase, relative, approved } = forwardAmendmentTarget(config, workflow, phaseId);
+  if (pendingForwardAmendments(workflow).some((entry) => entry.phase === phaseId)) {
+    forwardAmendmentRefusal(`A proposed amendment of ${phaseId} is waiting for a decision.`, 'FORWARD_AMENDMENT_PENDING');
+  }
+  const owed = pendingAmendmentRevalidations(workflow).filter((entry) => entry.producer === phaseId);
+  if (owed.length) forwardAmendmentRefusal(`${owed[0].amendment} still needs ${owed.map((entry) => entry.phase).join(', ')} revalidated.`, 'AMENDMENT_REVALIDATION_REQUIRED');
+  const text = String(reason ?? '').trim();
+  if (text.length < 20 || text.length > 1000) forwardAmendmentRefusal('Say why the step is amended in 20 to 1000 characters with --reason.');
+  const sourceRelative = posix(file ?? relative);
+  const source = await secureRepositoryPath(root, sourceRelative, { label: 'Amended artifact', mustExist: true, type: 'file' });
+  const bytes = await readFile(source.absolute);
+  const proposedSha256 = createHash('sha256').update(bytes).digest('hex');
+  if (proposedSha256 === approved) forwardAmendmentRefusal(`The bytes are the approved ${relative}; edit them first.`, 'FORWARD_AMENDMENT_UNCHANGED');
+  const committed = exactFileAtObject(root, head(root), relative);
+  if (!committed || createHash('sha256').update(committed).digest('hex') !== approved) {
+    forwardAmendmentRefusal(`${relative} at HEAD is not the approved bytes; publish or sync first.`, 'FORWARD_AMENDMENT_STALE');
+  }
+  // The managed input block belongs to the kernel; an amendment changes only authored text.
+  if (extractInputsBlock(bytes.toString('utf8')) !== extractInputsBlock(committed.toString('utf8'))) {
+    forwardAmendmentRefusal(`Keep ${phaseId}'s managed input block unchanged; amend only the authored text.`);
+  }
+  workflow.forwardAmendments ??= [];
+  const { id, proposedPath } = nextForwardAmendmentProposal(workDirRelative(config, workflow.workItem.id), workflow, relative);
+  const target = await secureRepositoryPath(root, proposedPath, { label: 'Forward amendment proposal' });
+  if (target.exists) forwardAmendmentRefusal(`${proposedPath} already exists; never overwrite a proposal.`);
+  await writeBytes(target.absolute, bytes);
+  // The approved bytes stay in force until the approvers decide.
+  if (sourceRelative === relative) await writeBytes(path.join(root, relative), committed);
+  const proposal = {
+    id, phase: phaseId, fromGeneration: Number(phase.generation), artifactPath: relative, fromSha256: approved,
+    proposedPath, proposedSha256, reason: text, proposedBy: actorKey(actor), agent, upstreamIssue, at
+  };
+  workflow.forwardAmendments.push(proposal);
+  workflow.history.push({ at, actor: proposal.proposedBy, agent, event: 'forward_amendment_proposed', phase: workflow.currentPhase ?? null,
+    detail: `${id} proposes ${phaseId} generation ${proposal.fromGeneration + 1}: ${text}` });
+  return proposal;
+}
+
+/**
+ * The amended step's approvers decide. Approval installs the proposed bytes as the step's next
+ * approved generation through the same projections a published generation has (snapshot, input
+ * record, briefs, reference and generation publication), lists every approved later step that read
+ * it for revalidation instead of resetting it, and refreshes the current step's draft inputs.
+ */
+export async function decideForwardAmendment(root, config, workflow, {
+  amendmentId, decision, reason = null, channel = 'terminal', actor = identity(root), agent = null
+}) {
+  const proposal = (workflow.forwardAmendments ?? []).find((entry) => entry.id === amendmentId);
+  if (!proposal) forwardAmendmentRefusal(`${amendmentId || 'That amendment'} is not a forward amendment of this Story.`, 'FORWARD_AMENDMENT_NOT_FOUND');
+  if (forwardAmendmentDecision(workflow, amendmentId)) forwardAmendmentRefusal(`${amendmentId} is already decided.`, 'FORWARD_AMENDMENT_DECIDED');
+  if (!['approve', 'reject'].includes(decision)) forwardAmendmentRefusal("--decision must be 'approve' or 'reject'.");
+  const text = String(reason ?? '').trim();
+  if (text.length < 20 || text.length > 1000) forwardAmendmentRefusal('Say why in 20 to 1000 characters with --reason.');
+  const phase = workflow.phases?.[proposal.phase];
+  const authority = requireApprovalAuthority(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities, phase.approvalPolicy, actor);
+  const key = actorKey(actor);
+  const at = nowIso();
+  const recordDecision = (extra = {}) => {
+    const entry = { amendment: amendmentId, phase: proposal.phase, decision: decision === 'approve' ? 'approved' : 'rejected', reason: text,
+      actor: key, authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at, ...extra };
+    workflow.forwardAmendmentDecisions ??= [];
+    workflow.forwardAmendmentDecisions.push(entry);
+    workflow.history.push({ at, actor: key, agent, event: `forward_amendment_${entry.decision}`, phase: proposal.phase,
+      detail: `${amendmentId}: ${text}` });
+    return entry;
+  };
+  if (decision === 'reject') return { proposal, decision: recordDecision(), applied: false };
+  const { current, relative, approved } = forwardAmendmentTarget(config, workflow, proposal.phase);
+  if (Number(phase.generation) !== Number(proposal.fromGeneration) || approved !== proposal.fromSha256 || relative !== proposal.artifactPath) {
+    forwardAmendmentRefusal(`${proposal.phase} changed after ${amendmentId} was proposed; reject it and propose again.`, 'FORWARD_AMENDMENT_STALE');
+  }
+  const record = { decision: 'approved', actor: structuredClone(actor), authorityGroup: authority.authorityGroup };
+  if (!approvalRequirementsMet(phase.approvalPolicy, [record])) {
+    forwardAmendmentRefusal(`${proposal.phase} needs more than one approval; return the Story to it instead.`, 'FORWARD_AMENDMENT_AUTHORITY');
+  }
+  if (phase.approvalPolicy?.allowSelfApproval === false && proposal.proposedBy.toLowerCase() === key.toLowerCase()) {
+    forwardAmendmentRefusal(`${proposal.phase} policy prohibits approving your own amendment; ask another approver.`, 'FORWARD_AMENDMENT_AUTHORITY');
+  }
+  const proposed = await secureRepositoryPath(root, proposal.proposedPath, { label: 'Forward amendment proposal', mustExist: true, type: 'file' });
+  const bytes = await readFile(proposed.absolute);
+  const committed = exactFileAtObject(root, head(root), proposal.proposedPath);
+  if (!committed?.equals(bytes) || createHash('sha256').update(bytes).digest('hex') !== proposal.proposedSha256) {
+    forwardAmendmentRefusal(`${amendmentId}'s proposed bytes are not the committed proposal.`, 'FORWARD_AMENDMENT_STALE');
+  }
+  const artifactFile = path.join(root, relative);
+  if ((await snapshot(artifactFile)).sha256 !== approved) {
+    forwardAmendmentRefusal(`${relative} has uncommitted edits; restore the approved bytes before deciding.`, 'FORWARD_AMENDMENT_STALE');
+  }
+  const itemDirectory = workDir(root, config, workflow.workItem.id);
+  const itemRelative = workDirRelative(config, workflow.workItem.id);
+  const declared = workflowInputsMode(workflow) !== 'off' && resolvedPhaseInputs(workflow, phase).length > 0;
+  const authorship = buildGenerationAuthorship({
+    options: normalizeAuthorshipOptions(), actor: proposal.proposedBy, governedAgentContext: null,
+    source: { kind: 'forward-amendment', id: amendmentId, path: proposal.proposedPath, sha256: proposal.proposedSha256 }
+  });
+  assertProducerAllowed(phase, authorship.producer);
+  await writeBytes(artifactFile, bytes);
+  phase.approvals.forEach((entry) => { if (!entry.invalidatedAt) entry.invalidatedAt = at; });
+  phase.generation = nextPhaseGeneration(phase);
+  phase.submissionArchitectureDecision = null;
+  clearApprovalDisposition(phase);
+  Object.assign(phase, { status: 'approved', submittedAt: at, approvedAt: at, approvedBy: key, generatedAt: at,
+    generatedBy: proposal.proposedBy, generatedAgent: null });
+  phase.authorship = [...(phase.authorship ?? []).filter((entry) => Number(entry.generation) !== Number(phase.generation)),
+    { ...structuredClone(authorship), generation: phase.generation, publishedAt: at }];
+  if (declared) {
+    const inputs = await collectInputs(root, workflow, phase, { definition: config, itemDirectory, itemRelative, generation: phase.generation });
+    if (inputs.errors.length) throw phaseInputsNotReadyError(workflow, phase, inputs);
+    if (extractInputsBlock(bytes.toString('utf8')) !== renderInputsBlock(inputs).text) {
+      forwardAmendmentRefusal(`${amendmentId} changes ${proposal.phase}'s managed input block; reject it and propose authored text only.`);
+    }
+    const recorded = await recordInputs(root, workflow, phase, inputs, { itemDirectory });
+    phase.inputContext = { generation: inputs.generation, path: recorded.path, sha256: recorded.sha256,
+      renderedSha256: recorded.record.renderedSha256, mode: inputs.mode };
+  }
+  const approval = {
+    decision: 'approved', phase: phase.id, generation: phase.generation, forwardAmendmentId: amendmentId,
+    at, actor: structuredClone(actor), agent, authorityGroup: authority.authorityGroup,
+    identityAssurance: authority.identityAssurance ?? null, channel, reason: text, selfApproval: proposal.proposedBy.toLowerCase() === key.toLowerCase(),
+    artifactSha256: [{ path: relative, sha256: proposal.proposedSha256 }], architectureIntent: null, architectureDecision: null
+  };
+  const reference = await registerReference(root, {
+    repository: { id: config.repository?.id ?? path.basename(root), origin: config.repository?.origin ?? null },
+    subject: { kind: 'story', id: workflow.workItem.id, branch: workflow.workItem.branch, subjectRevision: phase.generation },
+    artifact: { phaseId: phase.id, generation: phase.generation, outputId: phase.requiredArtifact?.id ?? phase.id,
+      path: proposal.proposedPath, mediaType: 'text/markdown' },
+    revision: referenceRevision(root, head(root), proposal.proposedPath),
+    visibility: 'model'
+  });
+  phase.approvals.push(approval);
+  await updateArtifactMetadata(root, config, workflow, phase);
+  await registerApprovedSnapshot(root, config, workflow, phase);
+  const telemetry = await recordPhaseTelemetry(root, workflow, phase, [], {
+    source: 'not-invoked', usage: [], spans: 0, rawBytes: 0, pending: false, warnings: [], startedAt: at, completedAt: at
+  }, { itemDirectory, itemRelative });
+  phase.telemetry = [...(phase.telemetry ?? []).filter((entry) => Number(entry.generation) !== Number(phase.generation)), phaseTelemetrySummary(telemetry)];
+  const briefs = await createAgentBriefs(root, workflow, phase, { itemDirectory, itemRelative });
+  if (briefs.length) {
+    phase.agentBriefs = [...(phase.agentBriefs ?? []).filter((entry) => entry.generation !== phase.generation), ...briefs]
+      .sort((left, right) => left.generation - right.generation || left.consumerPhase.localeCompare(right.consumerPhase));
+    const source = artifactFor(phase, relative);
+    approval.agentBriefSource = source ? { path: source.path, sha256: source.sha256, size: source.size,
+      reference: { handle: reference.handle, recordHash: reference.recordHash, sourcePath: proposal.proposedPath } } : null;
+    approval.agentBriefs = briefs.map((brief) => ({ consumerPhase: brief.consumerPhase, status: brief.status, path: brief.path,
+      renderedPath: brief.renderedPath, sourceSha256: brief.sourceSha256, sourceBytes: brief.sourceBytes ?? null,
+      renderedSha256: brief.renderedSha256, integritySha256: brief.integritySha256 }));
+  }
+  phase.sourceCommit = head(root);
+  const decisionSha256 = createHash('sha256').update(canonicalJson(approval)).digest('hex');
+  phase.generationPublications = [
+    ...(phase.generationPublications ?? []).filter((entry) => Number(entry.generation) !== Number(phase.generation)),
+    {
+      generation: phase.generation, publishedAt: at, changeSetDigest: null,
+      resultDigest: await generationResultDigest(root, config, workflow, phase, { architectureIntent: null, architectureDecision: null, resultDigestVersion: 3 }),
+      resultDigestVersion: 3, architectureIntent: null, architectureDecision: null,
+      origin: { kind: 'forward-amendment', id: amendmentId, proposalSha256: proposal.proposedSha256, decisionSha256 },
+      record: null
+    }
+  ].sort((left, right) => Number(left.generation) - Number(right.generation));
+  await writeDecision(root, config, workflow, phase, approval);
+  // The current step reads the amended bytes from its next composition on; its draft keeps its text.
+  let refreshed = null;
+  if (resolvedPhaseInputs(workflow, current).some((input) => inputProducerId(input) === phase.id) && current.inputContext) {
+    const draft = path.join(itemDirectory, current.requiredArtifact.path);
+    if (existsSync(draft)) {
+      const inputs = await collectInputs(root, workflow, current, { definition: config, itemDirectory, itemRelative });
+      if (!inputs.errors.length) {
+        await writeText(draft, applyInputsBlock(await readFile(draft, 'utf8'), renderInputsBlock(inputs).text, inputs.mode));
+        const recorded = await recordInputs(root, workflow, current, inputs, { itemDirectory });
+        current.inputContext = { generation: inputs.generation, path: recorded.path, sha256: recorded.sha256,
+          renderedSha256: recorded.record.renderedSha256, mode: inputs.mode };
+        await updateArtifactMetadata(root, config, workflow, current);
+        refreshed = current.id;
+      }
+    }
+  }
+  const revalidate = forwardAmendmentReaders(workflow, phase, current)
+    .map((id) => ({ phase: id, generation: Number(workflow.phases[id].generation) }));
+  const recorded = recordDecision({ toGeneration: phase.generation, revalidate, refreshed });
+  return { proposal, decision: recorded, approval, eventDecision: approval, decisionSha256, applied: true, revalidate, refreshed };
+}
+
+/**
+ * A later step's approvers record that it still holds under the amended input. The binding names
+ * the amended producer generation and bytes and the step's own input record, so a later change of
+ * either needs a new decision. The record is checked by the same integrity verification the gate
+ * runs before it is kept.
+ */
+export async function revalidateAfterForwardAmendment(root, config, workflow, {
+  amendmentId, phaseId, outcome, reason, actor, agent = null, link = null, at = nowIso()
+}) {
+  const owed = pendingAmendmentRevalidations(workflow).find((entry) => entry.amendment === amendmentId && entry.phase === phaseId);
+  if (!owed) forwardAmendmentRefusal(`${phaseId} has no revalidation owed for ${amendmentId}.`, 'AMENDMENT_REVALIDATION_NOT_OWED');
+  if (!['unchanged', 'return'].includes(outcome)) forwardAmendmentRefusal('--outcome must be unchanged or return.');
+  const text = String(reason ?? '').trim();
+  if (text.length < 20 || text.length > 1000) forwardAmendmentRefusal('Say why in 20 to 1000 characters with --reason.');
+  const phase = workflow.phases[phaseId];
+  const authority = requireApprovalAuthority(workflow.resolution.approvalAuthorities ?? config.approvalAuthorities, phase.approvalPolicy, actor);
+  const itemDirectory = workDir(root, config, workflow.workItem.id);
+  const itemRelative = workDirRelative(config, workflow.workItem.id);
+  let binding = null;
+  if (outcome === 'unchanged') {
+    const inputs = await collectInputs(root, workflow, phase, { definition: config, itemDirectory, itemRelative, generation: phase.generation });
+    const amended = inputs.records.find((entry) => entry.phase === owed.producer);
+    if (!amended || amended.status !== 'captured' || !phase.inputContext?.sha256) {
+      forwardAmendmentRefusal(`${phaseId} cannot read the approved ${owed.producer}; return the Story to ${phaseId} instead.`);
+    }
+    binding = { producer: owed.producer, producerGeneration: Number(amended.producerGeneration), producerSha256: amended.sha256,
+      inputRecordSha256: phase.inputContext.sha256 };
+  }
+  const entry = { amendment: amendmentId, phase: phaseId, generation: Number(phase.generation), outcome, reason: text, binding,
+    link, actor: actorKey(actor), authorityGroup: authority.authorityGroup, identityAssurance: authority.identityAssurance ?? null, at };
+  workflow.amendmentRevalidations ??= [];
+  workflow.amendmentRevalidations.push(entry);
+  if (outcome === 'unchanged') {
+    const integrity = await verifyInputsIntegrity(root, workflow, phase, { itemDirectory, itemRelative, definition: config });
+    if (integrity.errors.length) {
+      forwardAmendmentRefusal(`${phaseId} does not hold under ${amendmentId} alone: ${integrity.errors[0]}`, 'AMENDMENT_REVALIDATION_INVALID');
+    }
+  }
+  workflow.history.push({ at, actor: entry.actor, agent, event: 'amendment_revalidated', phase: workflow.currentPhase ?? null,
+    detail: `${phaseId} after ${amendmentId}: ${outcome}${link ? ` (${link})` : ''}. ${text}` });
+  return entry;
 }
 
 /** Record the human beat required before an amended Story can be submitted again. */

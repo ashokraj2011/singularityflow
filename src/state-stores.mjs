@@ -5,6 +5,7 @@ import {
 } from './state.mjs';
 
 export { acknowledgeIntentAmendment, assertAmendedPlannedClaims, assertAmendedScopeContent, decideIntentAmendment, pendingIntentAmendmentAcknowledgement };
+export { decideForwardAmendment, proposeForwardAmendment, revalidateAfterForwardAmendment } from './state.mjs';
 import {
   commitInitiativeChange, initiativeStatePath, loadInitiative, saveInitiative, syncInitiativePublication
 } from './initiative-state.mjs';

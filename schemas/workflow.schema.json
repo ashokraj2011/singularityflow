@@ -825,6 +825,54 @@
         "additionalProperties": false
       }
     },
+    "forwardAmendments": {
+      "description": "Append-only proposals of corrected bytes for an earlier approved document step (UIF-M3), saved in the Story before its approvers decide.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "phase", "fromGeneration", "artifactPath", "fromSha256", "proposedPath", "proposedSha256", "reason", "proposedBy", "at"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^FAM-[0-9]{3,}$" },
+          "phase": { "type": "string", "minLength": 1 },
+          "fromGeneration": { "type": "integer", "minimum": 1 },
+          "fromSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "proposedSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "reason": { "type": "string", "minLength": 20, "maxLength": 1000 },
+          "upstreamIssue": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "forwardAmendmentDecisions": {
+      "description": "Append-only decisions on forward amendments by the amended step's approvers; an approval lists the later steps to revalidate with the generation each was approved at.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["amendment", "phase", "decision", "reason", "actor", "authorityGroup", "at"],
+        "properties": {
+          "amendment": { "type": "string", "pattern": "^FAM-[0-9]{3,}$" },
+          "decision": { "enum": ["approved", "rejected"] },
+          "toGeneration": { "type": "integer", "minimum": 2 },
+          "revalidate": { "type": "array", "items": { "type": "object", "required": ["phase", "generation"] } },
+          "at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "amendmentRevalidations": {
+      "description": "Append-only revalidations of approved later steps after a forward amendment: unchanged (bound to the amended producer generation and bytes and the step's exact input record) or return.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["amendment", "phase", "generation", "outcome", "reason", "binding", "link", "actor", "authorityGroup", "at"],
+        "properties": {
+          "amendment": { "type": "string", "pattern": "^FAM-[0-9]{3,}$" },
+          "outcome": { "enum": ["unchanged", "return"] },
+          "binding": { "anyOf": [{ "type": "null" }, { "type": "object", "required": ["producer", "producerGeneration", "producerSha256", "inputRecordSha256"] }] },
+          "link": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
     "completenessReviews": {
       "description": "A person's review of the accepted-scope inventory's interpretation, bound to its exact digest and answering every article of the requirements-quality checklist. It never claims the scope is correct.",
       "type": "array",

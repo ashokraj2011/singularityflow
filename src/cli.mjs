@@ -48,7 +48,7 @@ import {
 } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
-import { commandGuidanceLines, renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
+import { commandGuidanceLines, commandRouteLines, renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';

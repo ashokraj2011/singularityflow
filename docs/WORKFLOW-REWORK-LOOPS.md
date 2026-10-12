@@ -11,6 +11,48 @@ generation; the affected downstream evidence and approvals must be produced agai
 approved Specification changes, it needs a governed intent amendment and a new approved
 generation, not an in-place edit.
 
+## Return routes in the packaged workflows
+
+In every packaged workflow, the reviewers of a step may reject it to any earlier step or to the
+step itself; each phase's `approval.rejectTo` lists them in workflow order. A Code step can
+therefore return the Story to the planning, specification, design or intake steps that produced
+its inputs and own its planned claims. A verification, testing, convergence, release,
+conformance, retest or closing review can return it to Code or to those earlier steps. Shared
+phases such as `implementation` keep a short default in `phases:`; each packaged work type names
+its own list in `phaseOverrides`. A step nobody reviews (`approval: none`, such as quick-fix's
+Implement step and the first three POC Lite checkpoints) has no reviewer to reject it, so its
+policy names only itself.
+
+A wider return does not change who decides or what happens:
+
+- The rejecting step's own approvers authorize the return, with a change-request reason. The
+  target step's approvers do not.
+- The target step and every step after it reopen. The target needs a fresh generation, and a
+  later step keeps its approval only when nothing it decided over changed (rule E1, see
+  `sflow explain rejection-and-rework`).
+
+Repair budgets still bound the returns they cover. In `spec-code-test-loop`, a return from a
+later step to Code counts against Code's three-attempt budget; a return to Specification uses no
+attempt and starts a new count only once a new Specification generation exists. In
+`poc-workflow`, a return from Publication review to validation or any step after intake counts
+against the validation step's two-attempt budget, as does a return from a failed validation to
+any step after intake; a return to intake starts a new count once a new intake generation exists.
+Decisions in the scenario workflows still bound their automatic routes; a reviewer's rejection is
+explicit human direction. The other packaged workflows declare no budget, so, as before, their
+returns are bounded by human review alone.
+
+### Existing Stories keep their return routes
+
+A Story keeps the workflow it started with. Story start captures an immutable workflow snapshot
+(see [Workflow Adapters and Story Snapshots](WFA-WORKFLOW-SNAPSHOTS.md)), and each phase's
+approval policy, including its `rejectTo` list, is pinned in the Story's state. Refreshing the
+repository's packaged configuration with `singularity-flow workspace refresh-configuration`
+changes only Stories started afterwards; `singularity-flow story workflow drift --work-id <ID>`
+shows how a running Story differs. The snapshot cannot yet be amended in place
+(`WFA_AMENDMENT_UNSUPPORTED`), so a Story started before this change keeps its old targets until it
+finishes. For a completed Story whose final gate assigns a blocking finding to a step outside those
+targets, `singularity-flow reopen <WORK-ID> --to <PHASE> --gate-recovery` remains the route.
+
 ## Configure a loop
 
 In VS Code, open **Workflow Studio**, open a Story workflow, select the review step and, under

@@ -4,10 +4,9 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "c815d908ffed78fa18fd3ea37020eaceaeefaac4",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-11-MUTATION-CONTRACT-AND-INSTRUCTION-DEMO.md",
+    "reviewedAtCommit": "5f368a057d56a54408d045ced6d51c6bf8bd6346",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-12-BROADER-RETURN-ROUTES.md",
     "companionIds": [
-      "migration-registry",
       "workflow-configuration"
     ]
   },
@@ -15,7 +14,7 @@
     {
       "id": "workflow-configuration",
       "path": "templates/workflow.yml",
-      "sha256": "sha256:bc2438fef7d062036e1576f9d57b4117b5e26afcb8ee4bca9dc92989f3c87b18"
+      "sha256": "sha256:f179fc6d6e5b7a171f10fa503d5f5657a7a95b1be727c70fbd10ebaffc665365"
     },
     {
       "id": "sgos-portable-schema",

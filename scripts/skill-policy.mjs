@@ -5,6 +5,7 @@ import { canonicalCommand, operationCatalog } from '../src/command-registry.mjs'
 import { REMOVED_WORLD_MODEL_SUBCOMMANDS } from '../src/removed-features.mjs';
 import { AUTHORING_SKILL_DECLARATION, parseAuthoringSkills } from '../src/authoring-skills.mjs';
 import { copilotPauseGuardForSkill, COPILOT_PAUSE_MARKER, PHASE_ENTRY_SKILLS } from '../src/copilot-mode.mjs';
+import { mutationTurnMode } from '../src/phase-mutation-contract.mjs';
 
 export const COMMAND_PRESENTATION_CONTRACT = 'For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.';
 /**
@@ -230,6 +231,14 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /Stop on unchanged conditions or three distinct repairs/
     ]
   },
+  'sflow-decide': {
+    required: [
+      /sflow-turn-boundary: decision-only/i,
+      /are the only permitted mutations/i,
+      /The person types every choice and reason; never supply, infer or default one/i,
+      /Any refusal ends this turn/i
+    ]
+  },
   'sflow-approve': {
     required: [
       /sflow-turn-boundary: approval-only/i,
@@ -405,6 +414,16 @@ function withCopilotPauseGuard(text, enabled, file, name, boundary) {
  * name `<phase>`, never one of those step ids, and the last step ends with the engine's `handoff`.
  * Guidance safety admits any catalog skill for a step's commands on the strength of this check.
  */
+/**
+ * A turn-boundary marker documents the mode the mutation guard enforces, which it takes from the
+ * skill's name. A marker that names another mode promises a boundary nothing enforces.
+ */
+export function turnBoundaryErrors(name, body) {
+  return [...String(body ?? '').matchAll(/<!-- sflow-turn-boundary: ([a-z-]+) -->/gu)]
+    .filter(([, mode]) => mode !== mutationTurnMode(name))
+    .map(([, mode]) => `${name}: turn-boundary marker '${mode}' differs from the enforced turn mode '${mutationTurnMode(name)}'`);
+}
+
 export function authoringSkillContractErrors(entry, body) {
   if (!entry) return [];
   const errors = [];
@@ -635,6 +654,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     if (kernelModelPolicy === 'conditional' && !modelOperations.length) errors.push(`${name}: conditional model policy has no model-capable operation reference`);
     for (const message of authoringSkillContractErrors(authoringSkills.find((entry) => entry.sourceId === name), skill.body)) errors.push(`${name}: ${message}`);
     const semanticContract = SKILL_SEMANTIC_CONTRACTS[name];
+    errors.push(...turnBoundaryErrors(name, skill.body));
     for (const pattern of semanticContract?.required ?? []) {
       pattern.lastIndex = 0;
       if (!pattern.test(skill.body)) errors.push(`${name}: required semantic contract is missing (${pattern})`);

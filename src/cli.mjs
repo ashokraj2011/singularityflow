@@ -18062,14 +18062,14 @@ async function constitutionCommand(positionals, options) {
     // `[SPK:CON-043]`: the constitution belongs to the configuration branch, not application main.
     return emitCommandResult(commandResult({
       operation: { id: 'constitution.generate', classification: 'mutation' },
-      subject: { kind: 'configuration', id: relative },
+      subject: { kind: 'repository', id: path.basename(root) },
       outcome: succeeded('constitution.generated', { regenerated: generated.regenerated.length }),
-      effects: { files: [relative] },
-      next: [{
-        kind: 'review', rank: 'NOW',
-        summary: 'Propose the regenerated constitution through the configuration-authority workflow; it must not be committed to application main.',
-        command: 'singularity-flow configuration'
-      }],
+      effects: effects({ filesChanged: true }),
+      next: [narrationAction({
+        id: 'constitution.propose', kind: 'review',
+        label: 'Propose the regenerated constitution through the configuration-authority workflow; it must not be committed to application main (content on stdin).',
+        command: `singularity-flow configuration save ${relative} --propose`
+      })],
       data: { path: relative, regenerated: generated.regenerated, articles: generated.articles.map((article) => article.id) }
     }), { json: optionBoolean(options, 'json') });
   }
@@ -18087,7 +18087,7 @@ async function constitutionCommand(positionals, options) {
     if (optionBoolean(options, 'json')) {
       return emitCommandResult(commandResult({
         operation: { id: 'constitution.show', classification: 'read' },
-        subject: { kind: 'configuration', id: constitution.path },
+        subject: { kind: 'repository', id: path.basename(root) },
         outcome: noop('constitution.shown', { articles: index.articles.length, path: constitution.path }),
         effects: noEffects(), restState: 'informational', data: index
       }), { json: true });
@@ -18152,12 +18152,12 @@ async function constitutionCommand(positionals, options) {
       operation: { id: 'constitution.except', classification: 'mutation' },
       subject: { kind: 'story', id: workflow.workItem.id },
       outcome: succeeded('constitution.excepted', { article: articleId, scope: exception.scope }),
-      effects: { commits: [published.sha] },
-      next: [{
-        kind: 'review', rank: 'SOON',
-        summary: 'The exception appears in the review packet, Story evidence and final conformance.',
+      effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: Boolean(published?.sha) }),
+      next: [narrationAction({
+        id: 'constitution.review-exception', kind: 'review', rank: 'SOON',
+        label: 'The exception appears in the review packet, Story evidence and final conformance.',
         command: `singularity-flow review --work-id ${workflow.workItem.id}`
-      }],
+      })],
       data: exception
     }), { json: optionBoolean(options, 'json') });
   }
@@ -18167,7 +18167,7 @@ async function constitutionCommand(positionals, options) {
   if (optionBoolean(options, 'json')) {
     return emitCommandResult(commandResult({
       operation: { id: 'constitution.check', classification: 'read' },
-      subject: { kind: 'configuration', id: constitution.path },
+      subject: { kind: 'repository', id: path.basename(root) },
       outcome: noop('constitution.reported', {
         path: constitution.path, articles: index.articles.length, findings: constitution.findings.length
       }),

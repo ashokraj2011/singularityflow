@@ -5,6 +5,7 @@ import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { recoveryPlan } from './collaboration.mjs';
 import { verifyClarificationRecord } from './clarifications.mjs';
 import { phaseInspectionGeneration } from './code-submission-evidence.mjs';
+import { nextPhaseGeneration } from './phase-generation.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { branch, head, repoRoot, gitDir } from './git.mjs';
@@ -90,7 +91,8 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
  * A host can cut a large tool result, and an agent that cannot see the whole context must stop. The
  * composer already writes the exact prompt into the Story's context directory; naming it (with its
  * hash) lets the agent read it in bounded portions with its own file tool. The delivered text adds
- * only the presentation-only reply personalization. No path is offered unless the bytes match.
+ * the presentation-only reply personalization and, on reuse, a refresh of execution evidence the
+ * packet also carries. No path is offered unless the bytes match.
  */
 async function composedPromptFile(root, workItemRoot, workId, phaseId, generation) {
   const contextDirectory = path.posix.join(workItemRoot, workId, 'context');
@@ -102,7 +104,7 @@ async function composedPromptFile(root, workItemRoot, workId, phaseId, generatio
     const bytes = await readFile(path.join(root, relative));
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     return sha256 === record.renderedSha256
-      ? { path: relative, sha256, bytes: bytes.length, differsFromText: 'omits the presentation-only reply personalization' }
+      ? { path: relative, sha256, bytes: bytes.length, differsFromText: 'omits the presentation-only reply personalization and any execution-evidence refresh added on reuse (the packet carries that evidence as retainedExecutionEvidence)' }
       : null;
   } catch { return null; }
 }
@@ -143,9 +145,12 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     // The existing composer owns pinned inputs, immutable reuse, authority replay and locking.
     const { composePhasePrompt } = await import('./worldmodel.mjs');
     const text = await composePhasePrompt(root, { workId: actualId, phase: phase.id });
-    const file = await composedPromptFile(root, definition.workItemRoot, actualId, phase.id, base.inspectionGeneration);
+    // The composer writes the prompt of the generation to author next. A published step's inspection
+    // generation is the one before it, so naming that file offered the previous generation's prompt.
+    const generation = nextPhaseGeneration(phase);
+    const file = await composedPromptFile(root, definition.workItemRoot, actualId, phase.id, generation);
     context = { text, deliveredSha256: createHash('sha256').update(text).digest('hex'),
-      generation: base.inspectionGeneration, ...(file ? { file } : {}) };
+      renderedSha256: file?.sha256 ?? null, generation, ...(file ? { file } : {}) };
   }
   const clarification = await verifyClarificationRecord(root, definition, workflow, phase, {
     generation: base.inspectionGeneration
@@ -167,8 +172,11 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   checkpoint.contextRequired = checkpoint.questioningAllowed && !context;
   checkpoint.contextDelivered = Boolean(context);
   checkpoint.artifactAuthoringAllowed = authoringAllowed;
+  // Bind answers to the hash a clarification record keeps: the composed prompt without the reply
+  // personalization. The delivered hash includes it, so with a reply name set it never matched a record.
   checkpoint.answerBinding = { workId: actualId, phase: phase.id, generation: base.inspectionGeneration,
-    promptSha256: context?.deliveredSha256 ?? clarification.record?.promptSha256 ?? null };
+    promptSha256: (context?.generation === base.inspectionGeneration ? context.renderedSha256 : null)
+      ?? clarification.record?.promptSha256 ?? null };
   checkpoint.recordAction = checkpoint.questioningAllowed && context ? recoveryActionGuidance({
     id: `record-clarification:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
     scope: 'clarification-only', requiresActualHumanReplies: true,

@@ -303,7 +303,10 @@ test('a future user-created workflow composes a question-only checkpoint for its
   assert.equal(entry.clarification.checkpoint.answerBinding.workId, 'ENTRY-1');
   assert.equal(entry.clarification.checkpoint.answerBinding.phase, 'team-discovery');
   assert.equal(entry.clarification.checkpoint.answerBinding.generation, entry.context.generation);
-  assert.equal(entry.clarification.checkpoint.answerBinding.promptSha256, entry.context.deliveredSha256);
+  // Answers bind to the composed prompt a clarification record keeps, not the personalized delivery.
+  assert.equal(entry.clarification.checkpoint.answerBinding.promptSha256, entry.context.renderedSha256);
+  assert.equal(entry.context.renderedSha256, entry.context.file.sha256);
+  assert.ok(entry.context.file.path.endsWith(`/prompts/team-discovery-gen${entry.context.generation}.md`), entry.context.file.path);
   const recordAction = entry.clarification.checkpoint.recordAction;
   assert.equal(recordAction.requiresActualHumanReplies, true);
   assert.equal(recordAction.automatic, false);

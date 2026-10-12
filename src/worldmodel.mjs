@@ -1,5 +1,7 @@
 import { REMOVED_WORLD_MODEL_SUBCOMMANDS, removedWorldModelError } from './removed-features.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
+import { constitutionPromptContext } from './constitution-prompt.mjs';
+import { withoutAttachedSkills, withoutTableSection } from './skill-library.mjs';
 import { resolvePersonalization, withReplyPersonalization } from './personalization.mjs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
@@ -57,7 +59,7 @@ import { compilePromptSections } from './prompt-budget.mjs';
 import { tokenEconomyDigest } from './token-economy.mjs';
 import { activeClauseCapsule, CLAUSE_CAPSULE_RENDERER } from './active-clause-capsule.mjs';
 import { phaseAuthoringContract, phaseAuthoringContractLines } from './phase-authoring-contract.mjs';
-import { stakeholderPromptContext } from './stakeholder-prompt-context.mjs';
+import { stakeholderPromptContext, stakeholderRequestDrift } from './stakeholder-prompt-context.mjs';
 import {
   fwmReadCommand, fwmReadContractCommand, fwmReadViewsCommand
 } from './fwm/read.mjs';
@@ -672,7 +674,10 @@ async function compose(root, options, {
       ? await pendingInputDrift(root, definition, workflow, phase, existing.record, {
         itemDirectory: expectedPrompt.workDir, itemRelative: posix(path.join(workItemRoot, workflow.workItem.id))
       }) : null;
-    const drift = [evidenceDrift ? `supporting documents changed: ${evidenceDrift}` : null, inputDrift]
+    // A change request a stakeholder opened (or closed) after composition is part of what to author.
+    const requestDrift = existing ? stakeholderRequestDrift(existing.record.promptBudget?.stakeholderProjection,
+      (workflow.changeRequests ?? []).filter((request) => request.status === 'open' && request.targetPhase === phase.id)) : null;
+    const drift = [evidenceDrift ? `supporting documents changed: ${evidenceDrift}` : null, inputDrift, requestDrift]
       .filter(Boolean).join('; ') || null;
     if (drift && storyLockHeld && !renderOnly) {
       const moved = await supersedePromptGeneration(root, workflow, phase, expectedPrompt,
@@ -871,13 +876,18 @@ async function compose(root, options, {
     }
   }
   const executionEvidence = workflow ? await phaseExecutionEvidence(root, definition, workflow, phase) : null;
+  // The rules this Story was pinned to at start, exactly those bytes, or their identities when absent.
+  const constitution = workflow ? await constitutionPromptContext(root, workflow) : { text: '', record: null };
   const promptCompilation = compilePromptSections([
     { id: 'phase-contract', text: governed.contract, mandatory: true, priority: 0 },
     { id: 'work-source', text: workSource.text, mandatory: true, priority: 0 },
     { id: 'active-clause-capsule', text: clauseCapsule.text, mandatory: true, priority: 0 },
     { id: 'clarification-protocol', text: clarification, mandatory: true, priority: 0 },
-    { id: 'governed-agent-policy', text: text.trimEnd(), mandatory: true, priority: 0 },
+    // The persona without its skill tables: section agent-skills renders those skills, filtered to
+    // this step, so the tables only repeated them (and named steps and URLs that are not this step's).
+    { id: 'governed-agent-policy', text: withoutTableSection(withoutAttachedSkills(text), 'Remote skills').trimEnd(), mandatory: true, priority: 0 },
     { id: 'mcp-policy', text: mcpPolicy, mandatory: true, priority: 0 },
+    { id: 'pinned-constitution', text: constitution.text, mandatory: true, priority: 0 },
     { id: 'design-sources', text: designSources.markdown, mandatory: true, priority: 5 },
     { id: 'world-model-grounding', text: repositoryBrief.text, mandatory: false, priority: 40 },
     // This is a small deterministic navigation overlay, not a second model build. Keep it mandatory
@@ -930,6 +940,7 @@ async function compose(root, options, {
   promptComposition.inputProjection = promptInputs.projection;
   promptComposition.inputDigests = inputDigests(governed.inputRecords);
   promptComposition.stakeholderProjection = stakeholderContext.projection;
+  if (constitution.record) promptComposition.constitution = constitution.record;
   if (executionEvidence) promptComposition.executionEvidence = {
     projectionSha256: executionEvidence.projectionSha256, packets: executionEvidence.entries.length,
     omittedPackets: executionEvidence.omittedPackets, diagnostics: executionEvidence.diagnostics };

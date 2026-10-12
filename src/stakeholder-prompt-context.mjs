@@ -13,6 +13,21 @@ function requestBody(request) {
   };
 }
 
+/** The ID and body digest of each request, as a composed prompt's projection records them. */
+export function stakeholderRequestDigests(requests = []) {
+  return requests.map(requestBody).map((request) => ({ id: request.id, sha256: `sha256:${recordSha256(request)}` }));
+}
+
+/**
+ * Why a pending prompt no longer carries this phase's open change requests, or null. A record
+ * composed before requests were projected cannot be compared and is left alone.
+ */
+export function stakeholderRequestDrift(projection, requests = []) {
+  if (!projection || projection.renderer !== STAKEHOLDER_PROMPT_RENDERER || !Array.isArray(projection.requests)) return null;
+  const key = (entries) => entries.map((entry) => `${entry.id}=${entry.sha256}`).sort().join('\n');
+  return key(projection.requests) === key(stakeholderRequestDigests(requests)) ? null : 'open stakeholder change requests changed';
+}
+
 /** The capsule keeps its original bytes/hash. Only its delivery projection references this body. */
 export function stakeholderPromptContext(capsule, requests = []) {
   const bodies = requests.map(requestBody);

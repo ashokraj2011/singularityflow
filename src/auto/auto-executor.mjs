@@ -1139,6 +1139,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       // needless World-Model checks, created misleading prompt-audit rows, and could stop a fully
       // deterministic phase on optional context availability.
       let composed = null;
+      let onDemandSkills = '';
       let worldModelReference = null;
       let promptExecutionContext = null;
       if (!deterministicProducer) {
@@ -1162,6 +1163,11 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         }
         promptExecutionContext = generationPrompt.record.executionContext
           ?? { mode: 'historical-unproven' };
+        // Auto cannot run `skill show`, so on-demand skills travel with its prompt.
+        const [{ resolveStoryExecutionContext }, { expandedOnDemandSkills }] = await Promise.all([
+          import('../story-execution-context.mjs'), import('../retained-skill-instructions.mjs')]);
+        onDemandSkills = expandedOnDemandSkills(phase, await resolveStoryExecutionContext(worktree, definition, workflow, {
+          agentId: phase.defaultAgent, phaseId: phase.id }));
       }
       if (deterministicProducer) {
         const deterministicActiveMilliseconds = Date.now() - activeAccountedAt;
@@ -1207,7 +1213,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       };
       const expectedAttemptId = nextAutoAttemptId(phaseContractState, phase);
       const prompt = renderAutoAuthoringPrompt({
-        composed, flightId, attemptId: expectedAttemptId, plan,
+        composed, onDemandSkills, flightId, attemptId: expectedAttemptId, plan,
         state: phaseContractState,
         deterministic: phase.generationPolicy?.producer === 'deterministic'
       });

@@ -79,14 +79,16 @@ function estimatedTokens(value) {
 
 /** Render the exact text whose digest is admitted by the Context Manifest. */
 export function renderAutoAuthoringPrompt({
-  composed, flightId, attemptId, plan, state, deterministic = false
+  composed, flightId, attemptId, plan, state, deterministic = false, onDemandSkills = ''
 }) {
   const repair = state.activeRepair;
   const adopted = state.evidence?.adoption?.status === 'materialized';
   const priorAttempts = Number(state.counters?.authoringAttempts?.[state.story?.phase] ?? 0);
   const attemptKind = repair ? 'repair' : priorAttempts > 0 ? 'resume' : 'initial';
   return [
-    String(composed ?? '').trimEnd(), '', '# Ratified Auto execution boundary', '',
+    String(composed ?? '').trimEnd(), '',
+    ...(onDemandSkills ? [String(onDemandSkills).trimEnd(), ''] : []),
+    '# Ratified Auto execution boundary', '',
     `- Flight: ${flightId}`,
     `- Attempt: ${attemptId} (${attemptKind})`,
     `- Plan: ${plan.planId} (${plan.planSha256})`,

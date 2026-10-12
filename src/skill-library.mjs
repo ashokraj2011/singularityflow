@@ -292,8 +292,13 @@ export async function assertAttachedLibrarySkills(configRoot, agents, definition
  * an agent that no longer attaches any skill goes back to its text without one.
  */
 export function withoutAttachedSkills(text) {
+  return withoutTableSection(text, LIBRARY_SKILL_TABLE.heading);
+}
+
+/** The text without one `## <heading>` section whose body is a Markdown table, and its blank lead. */
+export function withoutTableSection(text, heading) {
   const lines = String(text ?? '').split(/\r?\n/);
-  const start = lines.findIndex((line) => line.trim().toLowerCase() === `## ${LIBRARY_SKILL_TABLE.heading.toLowerCase()}`);
+  const start = lines.findIndex((line) => line.trim().toLowerCase() === `## ${String(heading).toLowerCase()}`);
   if (start < 0) return String(text ?? '');
   let end = start + 1;
   while (end < lines.length && !lines[end].trim()) end += 1;

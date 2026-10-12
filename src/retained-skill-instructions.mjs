@@ -50,3 +50,29 @@ export function selectRetainedSkillInstructions(workflow, phase, context, reques
     authority: 'verified-story-snapshot', providerUsage: 'not-observed'
   };
 }
+
+/**
+ * Every on-demand skill retained for this phase and agent, composed in full, for a run that cannot
+ * fetch one. Auto may not run Singularity Flow commands, so the `skill show` command the catalog
+ * names is unreachable there and an on-demand procedure silently never applied. The bytes come from
+ * the same verified Story closure `skill show` reads. Empty when there are none, so a prompt without
+ * on-demand skills is unchanged.
+ */
+export function expandedOnDemandSkills(phase, context) {
+  if (context?.identity?.mode !== 'workflow-snapshot') return '';
+  const skills = [];
+  for (const entry of context.dependencies ?? []) {
+    if (entry.source !== 'library' || entry.inclusion !== 'included' || !entry.text || !matches(phase.id, entry.phases)) continue;
+    const skill = parseLibrarySkill(entry.text, { id: entry.id });
+    if (skill.loading !== 'on-demand' || skills.some(known => known.id === skill.id)) continue;
+    skills.push({ ...skill, use: entry.use ?? '', referencedInstructions: entry.referencedInstructions ?? [] });
+  }
+  if (!skills.length) return '';
+  const composition = composeSkillInstructions(skills);
+  return ['# On-demand skills, expanded for this run', '',
+    'This run cannot fetch on-demand skills with `singularity-flow skill show`, so the retained bytes of each one the skill catalog above lists are given here. Apply each only under its own "When to use it" condition.', '',
+    ...skills.flatMap(skill => [`<!-- skill: ${skill.id} sha256=${digest(skill.sha256)} -->`, '',
+      `## Skill: ${skill.label} (\`${skill.id}\`)`, '', ...(skill.use ? [`When to use it: ${skill.use}`, ''] : []),
+      composition.bodies.get(skill.id).trim(), '']),
+    composition.tail].filter(line => line != null).join('\n').trimEnd();
+}

@@ -163,6 +163,11 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
     location: { path: path.join(definition.workItemRoot, workflow.workItem.id, 'workflow.json') } };
   const modelMode = operationContext()?.modelMode ?? { enabled: true, source: 'default' };
   const active = activePhase(workflow);
+  const { phaseAuthoringProgress, readPhaseDraftEvidence } = await import('../phase-authoring-progress.mjs');
+  const pendingAuthoring = phaseAuthoringProgress(workflow, active);
+  const authoringProgress = pendingAuthoring ? phaseAuthoringProgress(workflow, active, {
+    draftEvidence: await readPhaseDraftEvidence(root, definition, workflow, active)
+  }) : null;
   const consumedGenerationChanged = active?.generationIntent?.status === 'consumed'
     && Number(active.generationIntent.generation) === Number(active.generation);
   const sourceReviewEvidence = active?.status === 'in_progress' && active.generation > 0
@@ -192,6 +197,7 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
     ...nextStepsSnapshot({
       branch: branch(root),
       workflow,
+      authoringProgress,
       sourceReviewEvidence,
       stepActionHold,
       publicationPending: Boolean(await readPendingPublication(root, {
@@ -233,7 +239,7 @@ export function snapshotContinuation(workflow, snapshot) {
 
 export async function nextStepsAgentPacket(workId = null) {
   const { phaseEntryContext } = await import('../phase-entry.mjs');
-  const entry = await phaseEntryContext({ workId, allowTerminal: true });
+  const entry = await phaseEntryContext({ workId, allowTerminal: true, turnMode: 'kernel-only' });
   const { packet } = entry;
   if (packet.paused) return packet;
   if (!packet.ready) return { ...packet, resultType: 'sflow-nextsteps', state: 'binding-required',

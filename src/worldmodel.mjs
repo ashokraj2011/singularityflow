@@ -371,8 +371,13 @@ export function phasePromptExecutionContract(definition, workflow, phase) {
   const allowedProducers = publication.allowedProducers;
   const deterministicOnly = allowedProducers.length === 1 && allowedProducers[0] === 'deterministic';
   const command = publication.command;
+  const mutation = deriveMutationContract({ definition, workflow, phase: effectivePhase });
   const lines = [
-    `- Changes allowed: ${deriveMutationContract({ definition, workflow, phase: effectivePhase }).summary}`,
+    `- Changes allowed: ${mutation.summary}`,
+    ...(mutation.policy.requiresOpenGeneration ? [
+      `- Code-edit prerequisite: ${mutation.policy.openGeneration ? 'the exact generation is open; verify the entry mutationContract before edits' : `follow \`${mutation.next[0].command}\` before any application edit, then refresh phase entry once. Review any adoption/confirmation or successor boundary; never infer or auto-accept it`}. Binding \`ready\` is not code-edit permission.`,
+      '- Code completion: preserve existing implementation and tests on resume. Complete the configured implementation summary and Agent brief, reconcile exact planned source/test paths and traceability, then prepublish. Passing a manual test command does not publish the phase or justify ending with no next action.'
+    ] : []),
     `- Generation requirement: \`${generationPolicy.requirement}\``,
     `- Default publication producer: \`${publication.producer}\``,
     `- Allowed publication producers: ${allowedProducers.map((producer) => `\`${producer}\``).join(', ')}`,

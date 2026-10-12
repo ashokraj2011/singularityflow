@@ -324,8 +324,34 @@ test('every phase kind routes an unpublished generation to its guarded authoring
     });
     assert.equal(result.lifecycleReady, false, phaseId);
     assert.equal(result.publicationRecorded, false, phaseId);
-    assert.equal(result.nextCommand, `singularity-flow prepare ${phaseId}`, phaseId);
+    assert.equal(result.nextCommand, generationPolicy.task === 'code'
+      ? `singularity-flow phase begin ${phaseId} --json` : `singularity-flow prepare ${phaseId}`, phaseId);
     assert.equal(result.nextSkill, expectedSkill, phaseId);
+  }
+});
+
+test('completed raw code at generation zero resumes its missing summary or authored draft, never submit', () => {
+  for (const phaseId of ['implementation', 'team-custom-repair']) {
+    const source = workflow({ phaseId, generation: 0, publication: false });
+    const phase = source.phases[phaseId];
+    phase.writeScope = 'source-and-artifact';
+    phase.generationPolicy.task = 'code';
+    phase.generationIntent = { status: 'open', generation: 1 };
+    phase.requiredArtifact = { kind: 'implementation-summary', path: `artifacts/${phaseId}/implementation-summary.md` };
+    // Raw code and passing local tests do not constitute an immutable publication.
+    source.testResults = { passed: 33, failed: 0 };
+    const missing = snapshot(source, { draftEvidence: { draftExists: false, draftModified: false } });
+    assert.equal(missing.classification, 'generation-required');
+    assert.equal(missing.lifecycleReady, false);
+    assert.equal(missing.authoringProgress.stage, 'create-missing-draft');
+    assert.match(missing.reason, /Keep existing application edits and tests/);
+    assert.match(missing.reason, /Agent brief.*source\/test bindings/);
+    const authored = snapshot(source, { draftEvidence: { draftExists: true, draftModified: true } });
+    assert.equal(authored.nextCommand, `singularity-flow phase prepublish ${phaseId} --for-agent --json`);
+    assert.equal(authored.nextSkill, '/sf-code');
+    assert.equal(authored.lifecycleReady, false);
+    assert.equal(authored.publicationRecorded, false);
+    assert.equal(authored.authoringProgress.testsAttested, false);
   }
 });
 

@@ -10,6 +10,7 @@ import { phaseNeedsGeneration } from './sequence.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { phasePublicationContract } from './manual-authorship.mjs';
+import { nextPhaseGeneration } from './phase-generation.mjs';
 
 export const MUTATION_CONTRACT_VERSION = 1;
 export function mutationTurnMode(skill) {
@@ -55,7 +56,7 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
   const item = `${workItemRoot}/${workId}`;
   const code = phaseRequiresCodeDelivery(phase);
   const openGeneration = code && phase?.generationIntent?.status === 'open'
-    && Number(phase.generationIntent.generation) === Number(phase.generation ?? 0) + 1;
+    && Number(phase.generationIntent.generation) === nextPhaseGeneration(phase);
   const editable = phase?.status === 'in_progress' && phaseNeedsGeneration(workflow, phase);
   const deterministic = phase?.generationPolicy?.allowedProducers?.length === 1
     && phase.generationPolicy.allowedProducers[0] === 'deterministic';
@@ -83,6 +84,8 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
         '--channel', phasePublicationContract(phase).channel], 'Recheck publication readiness first; publish only when the kernel returns ready. Never author, submit or approve.')]
     : ['approval-only', 'session-only', 'read', 'read-only-review'].includes(turnMode)
       ? [route(['nextsteps', '--json'], 'End this turn. Inspect the next action in a new turn; do not author now.')]
+      : code && phase.generationIntent?.status === 'consumed'
+        ? [route(['recover', workId, '--phase', phase.id, '--json'], 'Preserve published bytes and review the successor boundary before application edits.', '/sf-recover')]
       : code && !openGeneration && editable
         ? [route(['phase', 'begin', phase.id, '--json'], 'Open the exact code generation before application edits.', generationSkillForPhase(phase, workflow))]
         : !editable
@@ -160,6 +163,9 @@ export function mutationContractPresentation(contract) {
   return { schemaVersion: contract.schemaVersion, scope: 'phase-policy', workId: contract.workId,
     phaseId: contract.phaseId, generation: contract.generation, summary: contract.summary,
     policy: contract.policy, artifacts: contract.allow.artifacts, applicationEdits: contract.allow.application,
+    codeAuthoringReady: contract.policy.requiresOpenGeneration && contract.allow.application,
+    sourceEditPrerequisite: contract.turnMode === 'authoring' && contract.policy.requiresOpenGeneration && !contract.allow.application
+      ? contract.next[0] ?? null : null,
     enforcement: contract.enforcement, toolProtocol: mutationToolProtocol(contract), next: contract.next };
 }
 

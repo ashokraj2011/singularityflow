@@ -3,7 +3,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { lstat, mkdir, readFile, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises';
-import { deriveMutationContract, mutationDenial, mutationPathDecision, mutationTurnMode } from './phase-mutation-contract.mjs';
+import { deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationTurnMode } from './phase-mutation-contract.mjs';
 import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
 import { parseArgs } from './util.mjs';
 import { resolveOperation } from './command-registry.mjs';
@@ -114,6 +114,15 @@ export async function captureMutationTurn(payload, record, {
     // One content-bound baseline, not a path/status-only baseline. It is deliberately lazy:
     // edit-tool interception needs no Git process; post-shell detection records its own baseline.
     await atomicRecord(file, value);
+    const presented = mutationContractPresentation(value.contract);
+    return { additionalContext: [
+      `SFlow turn boundary (${value.skill}): ${presented.summary}`,
+      `Binding readiness is not source-edit permission. Code authoring ready: ${presented.codeAuthoringReady}.`,
+      presented.sourceEditPrerequisite
+        ? `Before source edits: ${presented.sourceEditPrerequisite.command}. Re-enter the phase after that operation to verify fresh permissions; never auto-adopt or discard edits.` : null,
+      value.contract.turnMode === 'kernel-only'
+        ? 'Do not inline /sf-code or edit files in this kernel-only turn. Return the configured authoring skill and stop; the human invokes it explicitly.' : null
+    ].filter(Boolean).join(' ') };
   } catch {
     await atomicRecord(file, { schemaVersion: currentSchemaVersion('copilot-mutation-contract'), kind: 'copilot-mutation-contract',
       sessionId: record.sessionId, turnId: record.turnId, skill: record.skill, modeChangedAt: record.modeChangedAt,

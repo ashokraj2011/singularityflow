@@ -21,12 +21,12 @@ export function phaseEntryAgentPresentation(packet) {
   if (packet.paused) return packet;
   const projected = agentPacketPresentation(packet);
   return { agentGuide: {
-    readOrder: [...(packet.contextBoundary ? ['contextBoundary'] : []), 'ready', 'phase', 'mutationContract', 'authoring', 'clarification', 'contextAdmission', 'recovery', 'intent',
+    readOrder: [...(packet.contextBoundary ? ['contextBoundary'] : []), 'ready', 'phase', 'mutationContract', 'codeAuthoringReady', 'authoringProgress', 'authoring', 'clarification', 'contextAdmission', 'recovery', 'intent',
       'recovery.testExecution', 'retainedExecutionEvidence', 'references', 'context.text', 'next'],
     testExecutionPath: 'recovery.testExecution',
     retainedExecutionEvidencePath: 'retainedExecutionEvidence',
     platform: process.platform,
-    instruction: 'Read authority fields together once, without key enumeration. Read clarification.checkpoint before interpreting authoringAllowed. Use retainedExecutionEvidence for governed outcomes; recovery.testExecution describes this phase\'s runner, not absence of upstream execution. Reconcile stale narrative and IDE discovery separately; command success is not criterion acceptance. Never truncate control instructions with arbitrary string/byte slices. If a tool truncates context.text, read complete named sections in bounded portions from the same saved packet; do not recompose or infer absent instructions. Reuse context.text; changed bindings need fresh checks. Never reuse approval consent.'
+    instruction: 'Read authority fields together once, without key enumeration. Binding ready is not source-edit permission: use mutationContract and codeAuthoringReady before edits. authoringProgress describes the remaining draft milestone, not completed code or permission to publish. Read clarification.checkpoint before interpreting authoringAllowed. Use retainedExecutionEvidence for governed outcomes; recovery.testExecution describes this phase\'s runner, not absence of upstream execution. Reconcile stale narrative and IDE discovery separately; command success is not criterion acceptance. Never truncate control instructions with arbitrary string/byte slices. If a tool truncates context.text, read complete named sections in bounded portions from the same saved packet; do not recompose or infer absent instructions. Reuse context.text; changed bindings need fresh checks. Never reuse approval consent.'
   },
   // Keep the complete small checkpoint ahead of the large recovery/context bodies so a host
   // preview cannot hide the conversation protocol. Hash-bound context bytes are never sliced.

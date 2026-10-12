@@ -26,6 +26,7 @@ import { assertStoryNotArchived } from './governance-archive.mjs';
 import { deriveMutationContract, mutationContractPresentation } from './phase-mutation-contract.mjs';
 import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
 import { phaseExecutionEvidence } from './phase-execution-evidence.mjs';
+import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';
 
 /** Verified per-invocation binding shared by phase entry, nextsteps and inputs. */
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
@@ -120,6 +121,12 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     await (await import('./copilot-mutation-guard.mjs')).issueMutationStaging(root, clarification.responseStagingPath, 'clarification');
   }
   const authoringAllowed = Boolean(canCompose && clarification.errors.length === 0);
+  const codeAuthoringReady = Boolean(base.generatesCode && authoringAllowed
+    && base.mutationContract.codeAuthoringReady);
+  const authoringProgress = authoring.entry?.status === 'authoring-entry'
+    ? phaseAuthoringProgress(workflow, phase, {
+      draftEvidence: await readPhaseDraftEvidence(root, definition, workflow, phase)
+    }) : null;
   const checkpoint = clarification.checkpoint;
   checkpoint.questioningAllowed &&= canCompose;
   checkpoint.contextRequired = checkpoint.questioningAllowed && !context;
@@ -170,12 +177,17 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     scope: 'draft-only', evidenceAccepted: false, publicationReviewRequired: true
   }, ...next];
   const nextActions = phaseAdmissionActions(next, contextAdmission, { authoring, recovery }).map(recoveryActionGuidance);
+  if (authoringAllowed && authoringProgress?.next) nextActions.unshift({
+    id: `resume-authoring:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
+    detail: authoringProgress.instruction, ...authoringProgress.next,
+    commandGuidance: authoringProgress.next, scope: 'current-draft', preserveExistingWork: true
+  });
   if (!canCompose && authoring.entry?.status === 'authoring-entry' && base.continuationReview?.commandGuidance) nextActions.unshift(recoveryActionGuidance({
     id: `inspect-continuation:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
     scope: 'read-only', command: base.continuationReview.commandGuidance.command, skill: '/sf-appeal',
     detail: 'Inspect one preserved-work journey and its exact repair/human/owner route. This inspection changes nothing and cannot grant authoring or publication permission.'
   }));
-  return { ...base, status, authoringAllowed, contextAdmission,
+  return { ...base, status, authoringAllowed, codeAuthoringReady, authoringProgress, contextAdmission,
     ...(preparationAdmitted ? { successor: { targetGeneration: authoring.entry.targetGeneration,
       preparation: authoring.entry.preparation, automatic: false } } : {}),
     authoring, recovery, retainedExecutionEvidence, references, clarification, context,

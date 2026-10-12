@@ -126,6 +126,30 @@ test('CLI preparation is an unpublished authoring checkpoint, not a completed te
   assert.equal(await readFile(draftPath, 'utf8'), draft, 'readiness inspection preserves draft bytes');
 });
 
+test('entry and nextsteps resume an authored custom draft at prepublish without repeating preparation', async t => {
+  const item = await fixture(t, { customPhase: 'team-resume' });
+  const prepared = item.invoke('prepare', 'team-resume', '--json');
+  assert.equal(prepared.status, 0, prepared.stderr || prepared.stdout);
+  const draft = path.join(item.root, JSON.parse(prepared.stdout).data.preparation.path);
+  const existing = await readFile(draft, 'utf8');
+  await writeFile(draft, existing + '\n## Authored outcome\nThe current discovery records the user request and remaining verification obligations.\n');
+  const entry = item.invoke('phase', 'enter', '--for-agent', '--json');
+  assert.equal(entry.status, 0, entry.stderr || entry.stdout);
+  const packet = JSON.parse(entry.stdout);
+  assert.equal(packet.authoringProgress.stage, 'validate-existing-draft');
+  assert.equal(packet.codeAuthoringReady, false, 'a document phase has no product-source permission');
+  assert.equal(packet.authoringProgress.next.command, 'singularity-flow phase prepublish team-resume --for-agent --json');
+  const steps = item.invoke('nextsteps', '--for-agent', '--json');
+  assert.equal(steps.status, 0, steps.stderr || steps.stdout);
+  const next = JSON.parse(steps.stdout);
+  assert.equal(next.authoringProgress.stage, packet.authoringProgress.stage);
+  assert.equal(next.mutationContract.toolProtocol.mode, 'kernel-only');
+  assert.equal(next.mutationContract.codeAuthoringReady, false);
+  assert.ok(next.actions.some(action => action.timing === 'now'
+    && action.command === packet.authoringProgress.next.command));
+  assert.equal(await readFile(draft, 'utf8'), existing + '\n## Authored outcome\nThe current discovery records the user request and remaining verification obligations.\n');
+});
+
 test('no-model preparation retains human ownership instead of instructing native agent edits', async t => {
   const item = await fixture(t, { customPhase: 'team-manual' });
   const prepared = item.invoke('prepare', 'team-manual', '--no-model', '--json');

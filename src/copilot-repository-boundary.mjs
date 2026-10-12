@@ -68,9 +68,9 @@ export async function recordRepositoryBoundaryTurn(payload = {}, { now = Date.no
     await writeFile(temporary, `${JSON.stringify(record)}\n`, { flag: 'wx', mode: 0o600 });
     await rename(temporary, file);
   } finally { await removeRecord(temporary); }
-  if (captureMutation) await captureMutation(payload, record);
-  else await (await import('./copilot-mutation-guard.mjs')).captureMutationTurn(payload, record);
-  return {};
+  const captured = captureMutation ? await captureMutation(payload, record)
+    : await (await import('./copilot-mutation-guard.mjs')).captureMutationTurn(payload, record);
+  return captured ?? {};
 }
 
 export async function endRepositoryBoundaryTurn(payload = {}) {

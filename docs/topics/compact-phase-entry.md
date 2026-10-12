@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals, phase-appeals, nextsteps]
-version: 12
+version: 13
 ---
 # Compact phase entry for Copilot
 
@@ -104,6 +104,31 @@ receipt remain unchanged, and the delivered prompt audit records the refresh.
 5. Resolve `clarification.checkpoint`, then author the draft and run `phase prepublish PHASE --for-agent --json` once.
 6. Follow the returned continuation. It does not authorize another lifecycle action in the same
    turn.
+
+### Preserve code and finish the remaining authoring milestone
+
+`ready` verifies the Story/session binding. For code edits, inspect `mutationContract` and
+`codeAuthoringReady` separately. An unopened code generation returns the exact `phase begin`
+prerequisite before edits; review any adoption request, then refresh entry once. A consumed
+generation uses guarded successor recovery, never implicit reopening. Successful clarification
+recording may need one entry refresh; reuse the delivered prompt and settled replies.
+
+`authoringProgress` is shared by entry, nextsteps and submission readiness for every configured
+agent-authored phase, including custom code/repair steps. It distinguishes opening the generation,
+creating a missing artifact, completing a prepared draft, validating an authored draft and reviewing
+a successor. It does not infer code completion, passing tests or publication from edits or a local
+test report. Generation zero can contain completed application work but still lack its publication.
+
+Preserve those source/test changes. Finish the configured summary and Agent brief, reconcile exact
+planned bindings and run prepublish. A planned `src/App.test.jsx` obligation cannot be substituted
+by passing utility tests elsewhere; implement and verify the actual required test. Routine findings
+repair the open draft in place. Publication still requires fresh readiness and its returned command;
+human decisions, protected paths and prior-generation integrity are not waived.
+
+The prompt-submission hook announces the bound turn's edit permission and prerequisite before a
+tool attempts a source write. `/sf-next` is kernel-only: it returns the explicit configured authoring
+handoff, not permission to inline `/sf-code`. The authoring skill completes the summary, repair and
+authorized publication, then returns submission guidance; raw edits alone are not its endpoint.
 
 ### Read the entry packet
 

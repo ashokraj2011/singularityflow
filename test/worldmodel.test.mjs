@@ -2,6 +2,29 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { phasePromptExecutionContract } from '../src/worldmodel.mjs';
 
+test('code prompts disclose generation admission before edits and preserve unfinished delivery for custom phases', () => {
+  for (const id of ['implementation', 'team-self-heal']) {
+    const phase = { id, status: 'in_progress', generation: 0, writeScope: 'source-and-artifact',
+      generationPolicy: { requirement: 'required', defaultProducer: 'governed-agent',
+        allowedProducers: ['governed-agent'], task: 'code' } };
+    const workflow = { workItem: { id: 'PROMPT-1' }, currentPhase: id,
+      phases: { [id]: phase }, phaseOrder: [id], resolution: { phases: [] } };
+    const rendered = () => phasePromptExecutionContract({ phases: {} }, workflow, phase).lines.join('\n');
+    assert.ok(rendered().includes('Code-edit prerequisite: follow `singularity-flow phase begin ' + id + ' --json`'));
+    assert.match(rendered(), /Binding `ready` is not code-edit permission/);
+    assert.match(rendered(), /preserve existing implementation and tests on resume/);
+    assert.match(rendered(), /implementation summary and Agent brief/);
+    assert.match(rendered(), /exact planned source\/test paths/);
+    assert.match(rendered(), /manual test command does not publish/);
+    phase.generationHighWatermark = 2;
+    phase.generationIntent = { status: 'open', generation: 3 };
+    assert.match(rendered(), /exact generation is open/);
+    assert.doesNotMatch(rendered(), /Code-edit prerequisite: follow/);
+    phase.generationIntent.status = 'consumed';
+    assert.match(rendered(), new RegExp(`recover PROMPT-1 --phase ${id} --json`));
+  }
+});
+
 test('phase prompts bind deterministic convergence to its exact publication and clarification contract', () => {
   const phase = {
     id: 'convergence',

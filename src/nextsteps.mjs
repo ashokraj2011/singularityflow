@@ -87,7 +87,7 @@ function afterCompletionActions(workflow, phase, { withoutApproval = false } = {
 }
 
 export function workflowNextSteps(workflow, {
-  publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null
+  publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null
 } = {}) {
   const workId = workflow.workItem.id;
   const phase = workflow.currentPhase ? workflow.phases[workflow.currentPhase] : null;
@@ -119,19 +119,19 @@ export function workflowNextSteps(workflow, {
   const submitsTheEnd = phase.status === 'in_progress' && !phaseNeedsGeneration(workflow, phase)
     && ((workflow.phaseOrder ?? []).at(-1) === phase.id || upcomingDecision(workflow, phase)?.outcome?.kind === 'end');
   const undecided = phase.status === 'awaiting_approval' || submitsTheEnd ? applicabilityActions(workflow, phase) : [];
-  let immediate = workflowGuide(workflow, { sourceReviewEvidence }).nextActions.map((item, index) => action(
+  let immediate = workflowGuide(workflow, { sourceReviewEvidence, authoringProgress }).nextActions.map((item, index) => action(
     item.optional ? 'alternative' : undecided.length ? (index === 0 ? 'then' : 'alternative')
       : phase.status === 'awaiting_approval' && index > 0 ? 'alternative' : 'now',
     item.skill,
     item.command,
-    item.reason
+    item.reason, item.authoringStage ? { authoringStage: item.authoringStage, preserveExistingWork: true } : {}
   ));
   if (phase.status === 'awaiting_approval') return [...undecided, ...immediate, ...afterCompletionActions(workflow, phase)];
 
   // A required after-step action of an earlier step holds this one until its approved delivery has
   // a receipt, so that delivery comes first and the step's own work follows it.
   if (stepActionHold?.missing?.length && phase.status === 'in_progress') {
-    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence });
+    const rest = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, sourceReviewEvidence, authoringProgress });
     const command = stepActionHold.nextAction ?? `singularity-flow integrations status --work-id ${workId} --all`;
     return [
       action('now', copilotSkillForCommand(command) ?? '/sf-integrations', command,
@@ -227,7 +227,7 @@ export function workflowNextSteps(workflow, {
   return actions;
 }
 
-export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null } = {}) {
+export function nextStepsSnapshot({ initialized = true, branch = null, requestedWorkId = null, workflow = null, publicationPending = false, recovery = null, prerequisites = [], modelMode = { enabled: true }, stepActionHold = null, sourceReviewEvidence = null, authoringProgress = null } = {}) {
   if (!initialized) return {
     schemaVersion: 1,
     state: 'not_initialized',
@@ -256,7 +256,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
   };
   const contextBoundary = !publicationPending && !recovery?.requiresRecovery && !workflow.pendingDecision
     && !stepActionHold?.missing?.length ? contextBoundaryPresentation(pendingContextBoundary(workflow)) : null;
-  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence });
+  const actions = workflowNextSteps(workflow, { publicationPending, recovery, prerequisites, modelMode, stepActionHold, sourceReviewEvidence, authoringProgress });
   return {
     schemaVersion: 1,
     state: publicationPending ? 'publication_pending' : recovery?.requiresRecovery ? 'recovery_required' : workflow.status,
@@ -266,6 +266,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
     currentPhase: workflow.currentPhase,
     modelMode: modelMode.enabled ? 'auto' : 'disabled',
     recovery: recovery?.requiresRecovery ? recovery : null,
+    ...(authoringProgress ? { authoringProgress } : {}),
     ...(contextBoundary ? { contextBoundary } : {}),
     ...(stepActionHold?.missing?.length ? { stepActionHold } : {}),
     actions: contextBoundary ? actions.map(entry => ({ ...entry,

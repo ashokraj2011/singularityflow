@@ -79,6 +79,34 @@ test('permissions follow pinned output policy, not names, and testing is not cod
   assert.equal(mutationPathDecision(f.contract('authoring'), 'src/App.jsx').allowed, false);
 });
 
+test('prompt submission announces the exact code prerequisite before a denied edit; kernel turns never gain authoring', async t => {
+  const f = await fixture(t, { writeScope: 'source-and-artifact',
+    generationPolicy: { task: 'code', requirement: 'required' } });
+  const capture = (payload, record) => captureMutationTurn(payload, record, {
+    resolveRoot: async () => f.root, load: async () => f.accepted
+  });
+  const payload = { cwd: f.root, sessionId: 'before-code', prompt: '/sf-code' };
+  const announcement = await recordRepositoryBoundaryTurn(payload, { captureMutation: capture });
+  assert.match(announcement.additionalContext, /Code authoring ready: false/);
+  assert.match(announcement.additionalContext, /Before source edits: singularity-flow phase begin custom-step --json/);
+  assert.match(announcement.additionalContext, /never auto-adopt or discard edits/);
+  const edit = { ...payload, toolName: 'edit', toolArgs: { path: 'src/App.jsx' } };
+  assert.equal((await mutationToolGuard(edit)).permissionDecision, 'deny');
+  f.phase.generationHighWatermark = 2;
+  f.phase.generationIntent = { status: 'open', generation: 3 };
+  await writeFile(f.workflowFile, JSON.stringify(f.workflow));
+  await refreshMutationContracts(f.root, f.accepted);
+  assert.deepEqual(await mutationToolGuard(edit), {});
+  const fresh = await recordRepositoryBoundaryTurn({ ...payload, sessionId: 'open-code' }, { captureMutation: capture });
+  assert.match(fresh.additionalContext, /Code authoring ready: true/);
+  assert.doesNotMatch(fresh.additionalContext, /Before source edits:/);
+  const nextPayload = { ...payload, sessionId: 'next-only', prompt: '/sf-next' };
+  const next = await recordRepositoryBoundaryTurn(nextPayload, { captureMutation: capture });
+  assert.match(next.additionalContext, /kernel-only.*no direct repository edits/);
+  assert.match(next.additionalContext, /Do not inline \/sf-code/);
+  assert.equal((await mutationToolGuard({ ...edit, sessionId: 'next-only' })).permissionDecision, 'deny');
+});
+
 test('artifact edits and creation work, protected/state/other-repository paths do not', async t => {
   const f = await fixture(t);
   const contract = f.contract('authoring');

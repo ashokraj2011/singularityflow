@@ -19,6 +19,7 @@ import { buildSpecIndex } from '../src/specifications.mjs';
 import { inspectUnclaimedChangedPaths, assertStrictCandidateSpecificationCoverage } from '../src/spec-coverage-preview.mjs';
 import { inspectPhaseRecovery } from '../src/recovery-plan.mjs';
 import { bindingsDigest } from '../src/implementation-bindings.mjs';
+import { phaseAuthoringProgress, readPhaseDraftEvidence } from '../src/phase-authoring-progress.mjs';
 
 function git(root, ...args) {
   const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
@@ -338,7 +339,7 @@ test('coverage refusal identifies the missing product binding and does not hide 
   await assert.rejects(evaluateCodeDeliveryPreflight(item.root, item.config, item.workflow, item.phase), error => {
     assert.equal(error.code, 'SPEC_COVERAGE_INCOMPLETE');
     assert.deepEqual(error.details.claimGaps, [{ clauseId: 'BIND-1:REQ-001', verdict: 'partial',
-      missingSourcePaths: [], missingSourceBindings: ['src/other.js'], missingTestPaths: [] }]);
+      missingSourcePaths: [], missingSourceBindings: ['src/other.js'], missingTestPaths: [], missingConfigurationPaths: [] }]);
     assert.match(error.message, /source bindings: src\/other.js/);
     return true;
   });
@@ -357,6 +358,63 @@ test('coverage refusal identifies the missing product binding and does not hide 
     '// @clause:BIND-1:REQ-001 records the same approved payment result\nexport const other = true;\n');
   const repaired = await evaluateCodeDeliveryPreflight(item.root, item.config, item.workflow, item.phase);
   assert.equal((await assertStrictCandidateSpecificationCoverage(item.root, item.config, item.workflow, item.phase, repaired)).complete, true);
+});
+
+test('missing implementation summary and exact planned UI tests repair the same draft without losing utility work', async t => {
+  const item = await fixture({
+    'BIND-1:REQ-001': planned(['src/payment.js'], ['src/App.test.jsx']),
+    'BIND-1:REQ-002': planned(['src/payment.js'], ['src/App.test.jsx'])
+  });
+  t.after(() => rm(item.root, { recursive: true, force: true }));
+  await bindApprovedIndex(item);
+  item.phase.qualityCommands = [{ id: 'node-tests', kind: 'test', argv: ['node', '--test'],
+    workingDirectory: '.', affectedRoots: ['.'], modelPolicy: 'never',
+    result: { adapter: 'node-tap', path: '.sflow/results/node-tests.tap', minimumDiscovered: 1 } }];
+  await openCodeGeneration(item);
+  await readyForDraftCheck(item);
+  const summary = path.join(item.root, 'singularity/work-items/BIND-1', item.phase.requiredArtifact.path);
+  await rm(summary);
+  const code = '// @clause:BIND-1:REQ-001 performs the approved positive conversion\n'
+    + '// @clause:BIND-1:REQ-002 rejects unsupported conversion values\nexport const payment = true;\n';
+  const utility = 'import test from "node:test"; import assert from "node:assert/strict";\n'
+    + 'import { payment } from "../src/payment.js";\ntest("utility conversion", () => assert.equal(payment, true));\n';
+  await writeFile(path.join(item.root, 'src/payment.js'), code);
+  await writeFile(path.join(item.root, 'tests/payment.test.js'), utility);
+  const before = structuredClone(item.phase.generationIntent);
+  const inspect = () => phasePrepublish(item.root, item.config, item.workflow, item.phase, {
+    session: { workId: 'BIND-1', phaseId: item.phase.id, agent: 'developer' }
+  });
+  const missing = await inspect();
+  assert.equal(missing.status, 'correction-required');
+  assert.equal(missing.commands.publish, null);
+  assert.ok(missing.findings.some(finding => /artifact.*missing/u.test(finding.code)), JSON.stringify(missing.findings));
+  const progress = phaseAuthoringProgress(item.workflow, item.phase, {
+    draftEvidence: await readPhaseDraftEvidence(item.root, item.config, item.workflow, item.phase)
+  });
+  assert.equal(progress.stage, 'create-missing-draft');
+  assert.match(progress.instruction, /Keep existing application edits and tests/);
+  await readyForDraftCheck(item);
+  const coverage = await inspect();
+  assert.equal(coverage.status, 'correction-required');
+  assert.equal(coverage.commands.publish, null);
+  await assert.rejects(evaluateCodeDeliveryPreflight(item.root, item.config, item.workflow, item.phase), error => {
+    assert.equal(error.code, 'SPEC_COVERAGE_INCOMPLETE', error.stack);
+    assert.deepEqual(error.details.claimGaps.map(gap => [gap.clauseId, gap.missingTestPaths]), [
+      ['BIND-1:REQ-001', ['src/App.test.jsx']], ['BIND-1:REQ-002', ['src/App.test.jsx']]
+    ]);
+    return true;
+  });
+  await writeFile(path.join(item.root, 'src/App.test.jsx'),
+    'import test from "node:test"; import assert from "node:assert/strict";\n'
+    + 'import { payment } from "./payment.js";\ntest("UI receives the approved payment state", () => assert.equal(payment, true));\n');
+  const repaired = await inspect();
+  assert.equal(repaired.status, 'ready', JSON.stringify(repaired.findings));
+  assert.ok(repaired.commands.publish);
+  assert.equal(repaired.testExecution.status, 'not-run', 'static readiness is not a test receipt');
+  assert.equal(repaired.mutates, false);
+  assert.deepEqual(item.phase.generationIntent, before);
+  assert.equal(await readFile(path.join(item.root, 'src/payment.js'), 'utf8'), code);
+  assert.equal(await readFile(path.join(item.root, 'tests/payment.test.js'), 'utf8'), utility);
 });
 
 test('custom code-phase runner preview survives unfinished prose and coverage without echoing configured argv', async (t) => {

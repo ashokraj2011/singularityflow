@@ -3,8 +3,6 @@ import { phaseNeedsGeneration, sequenceGateMode } from './sequence.mjs';
 import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { directCopilotSkill, copilotSkillForCommand } from './copilot-guidance.mjs';
 import { modelFreeCommandForCommand } from './model-free-commands.mjs';
-import { phaseAuthoredReviewArtifacts } from './publication-preflight.mjs';
-import { changedFiles } from './git.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
@@ -12,6 +10,7 @@ import { decisionFedBy, decisionSubmitArguments, recordedDecisionValues, storyDe
 import { storyRequiresStepActions } from './step-actions.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { completionPhaseOf } from './lifecycle-transitions.mjs';
+import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';
 
 function currentPublication(phase) {
   const generation = Number(phase?.generation ?? 0);
@@ -96,24 +95,7 @@ function result(workflow, phase, overrides) {
  */
 async function submissionDraftEvidence(root, config, workflow, phaseId, changedPaths = null) {
   const phase = phaseId ? workflow?.phases?.[phaseId] ?? null : null;
-  if (!phase?.requiredArtifact?.path) return { draftExists: false, draftModified: false };
-  const review = await phaseAuthoredReviewArtifacts(root, config, workflow, phase);
-  const primary = review.artifacts.find((artifact) => artifact.scope === 'primary') ?? null;
-  const baseline = phase.authoringBaseline;
-  const changed = !baseline && primary?.exists
-    ? (changedPaths ?? changedFiles(root)).includes(primary.path)
-    : false;
-  return {
-    draftExists: Boolean(primary?.exists),
-    draftModified: Boolean(
-      primary?.exists
-      && (changed || (
-        baseline?.path === phase.requiredArtifact.path
-        && baseline?.fingerprint
-        && primary.fingerprint !== baseline.fingerprint
-      ))
-    )
-  };
+  return readPhaseDraftEvidence(root, config, workflow, phase, { changedPaths });
 }
 
 /**
@@ -329,6 +311,7 @@ export function submissionReadinessSnapshot(workflow, {
   if (convergenceRoute) return result(workflow, phase, {
     ...draft, ...convergenceRoute, nextSkill: directCopilotSkill(convergenceRoute.skill)
   });
+  const authoringProgress = phaseAuthoringProgress(workflow, phase, { draftEvidence });
   if (phaseNeedsGeneration(workflow, phase)) return result(workflow, phase, {
     ...draft,
     ...(sequenceGateMode(workflow, 'freshGeneration') === 'soft'
@@ -345,8 +328,12 @@ export function submissionReadinessSnapshot(workflow, {
         }
       : {
           classification: 'generation-required',
-          command: `singularity-flow prepare ${phase.id}`,
-          nextSkill: directCopilotSkill(generationSkillForPhase(phase, workflow)),
+          command: authoringProgress?.next?.command
+            ?? `singularity-flow prepare ${phase.id}`,
+          nextSkill: authoringProgress?.next?.copilotCommand
+            ?? directCopilotSkill(generationSkillForPhase(phase, workflow)),
+          authoringProgress,
+          reason: authoringProgress?.instruction ?? null,
           reasonCode: 'PHASE_GENERATION_REQUIRED'
         })
   });

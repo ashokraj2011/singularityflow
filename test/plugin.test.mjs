@@ -341,8 +341,8 @@ test('code and verification skills place qualified trace tags in the intended fi
   const code = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
   const verify = await readFile(path.join(pluginRoot, 'skills', 'sflow-verify', 'SKILL.md'), 'utf8');
   const phase = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');
-  assert.match(code, /Planned product paths.*@clause:ORDER:REQ-001/s);
-  assert.match(code, /executable tests.*@ac:ORDER:AC-001/s);
+  assert.match(code, /(?:Planned product paths|Product):.*@clause:ORDER:REQ-001/s);
+  assert.match(code, /(?:executable tests|tests):.*@ac:ORDER:AC-001/s);
   assert.match(code, /pinned test-only opt-outs/s);
   assert.match(verify, /@ac:WORK-ID:AC-001.*executable test/s);
   assert.match(verify, /@clause:WORK-ID:REQ-001.*trace witness/s);
@@ -978,10 +978,11 @@ test('submit skill links generated documents without treating a summary as appro
   assert.match(content, /require matching work\/phase and its readiness fields/);
   assert.match(content, /Trust `lifecycleReady`/);
   assert.match(content, /Trust `lifecycleReady`; never republish/);
-  assert.match(content, /Seeded draft — not published/);
+  assert.match(content, /Generation zero means unpublished, not missing code/);
   assert.match(content, /Published generation <N> — ready to submit/);
-  assert.match(content, /`classification: generation-required`.*\*\*Generate and publish <Phase>\*\*.*returned `nextSkill`, stop/);
-  assert.match(content, /Never generate\/publish here/);
+  assert.match(content, /`generation-required`: relay `authoringProgress\.stage`, preservation instruction and exact `nextCommand`\/`nextSkill`/);
+  assert.match(content, /never redo existing code, infer publication from manual tests/);
+  assert.match(content, /or generate\/publish here/);
   assert.match(content, /review-source status <phase> --json/);
   assert.match(content, /unless `not-required`\/`ready`, relay findings and exact recovery\/review actions/);
   assert.match(content, /Reviewer reports are not approval/);

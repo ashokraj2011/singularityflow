@@ -8,6 +8,7 @@ import { sourceReviewRequired } from './source-review-policy.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
+import { phaseAuthoringProgress } from './phase-authoring-progress.mjs';
 
 export { phaseNeedsGeneration } from './sequence.mjs';
 
@@ -58,7 +59,7 @@ export function phaseHandoff(workflow, phase, {
   return withView([submit]);
 }
 
-function nextActions(workflow, phase, sourceReviewEvidence) {
+function nextActions(workflow, phase, sourceReviewEvidence, authoringProgress) {
   if (workflow.status === 'cancelled') return [
     copilotAction({ skill: '/sflow-documents', command: `singularity-flow documents list ${workflow.workItem.id}`, reason: 'Review the artifacts preserved with this archived Story.' })
   ];
@@ -82,6 +83,11 @@ function nextActions(workflow, phase, sourceReviewEvidence) {
     copilotAction({ skill: '/sflow-reject', command: `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --fetch --to <phase> --reason <reason>`, reason: `Return ${phase.id} for correction.` })
   ];
   const regenerate = phaseNeedsGeneration(workflow, phase);
+  if (regenerate && (authoringProgress ?? (phase.generationIntent ? phaseAuthoringProgress(workflow, phase) : null))?.next) {
+    const progress = authoringProgress ?? phaseAuthoringProgress(workflow, phase);
+    return [copilotAction({ ...progress.next, reason: progress.instruction,
+      authoringStage: progress.stage, preserveExistingWork: true })];
+  }
   if (regenerate) return [
     copilotAction({
       skill: generationSkillForPhase(phase, workflow),
@@ -94,7 +100,7 @@ function nextActions(workflow, phase, sourceReviewEvidence) {
   return phaseHandoff(workflow, phase, { sourceReviewEvidence });
 }
 
-export function workflowGuide(workflow, { sourceReviewEvidence = null } = {}) {
+export function workflowGuide(workflow, { sourceReviewEvidence = null, authoringProgress = null } = {}) {
   const active = currentPhase(workflow);
   return {
     workId: workflow.workItem.id,
@@ -116,7 +122,7 @@ export function workflowGuide(workflow, { sourceReviewEvidence = null } = {}) {
       };
     }),
     nextActions: [
-      ...nextActions(workflow, active, sourceReviewEvidence),
+      ...nextActions(workflow, active, sourceReviewEvidence, authoringProgress),
       ...(intentAmendmentSource(workflow) ? [copilotAction({
         skill: '/sflow-reject',
         command: `singularity-flow story intent-amendment propose --work-id ${workflow.workItem.id} --file <AMENDED-SPEC.md> --reason <reason>`,

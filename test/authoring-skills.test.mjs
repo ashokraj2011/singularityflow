@@ -227,7 +227,8 @@ test('prepared seeded phases route to authoring, not premature publication; dete
         assert.equal(next.command, `singularity-flow phase prepublish ${phase.id} --for-agent --json`);
         assert.equal(next.copilotCommand, `/sf-publish ${phase.id}`);
       } else {
-        assert.equal(next.command, `singularity-flow prepare ${phase.id}`, `${workType}/${phase.id}`);
+        // Never the preparation that just ran: re-running it would loop a one-action caller.
+        assert.equal(next.command, `singularity-flow phase prepublish ${phase.id}`, `${workType}/${phase.id}`);
         assert.equal(next.copilotCommand, safeCommandGuidance({ command: next.command, skill: generationSkillForPhase(phase, workflow) }).copilotCommand);
         assert.doesNotMatch(next.copilotCommand, /^\/sf-publish\b/);
         assert.match(next.label, /preparation is not completed authoring/);
@@ -246,7 +247,7 @@ test('future custom prepared phases preserve their selected authoring skill and 
       generation: { producer: 'agent', task: entry.produces.includes('code') ? 'code' : entry.produces[0] } };
     const [next] = preparedPhaseNextActions(workflow, phase, { publicationProducer: 'governed-agent' });
     assert.equal(next.copilotCommand, `/${entry.id}`);
-    assert.equal(next.command, `singularity-flow prepare ${phase.id}`);
+    assert.equal(next.command, `singularity-flow phase prepublish ${phase.id}`);
   }
   const phase = { id: 'vendor-convergence', generation: { producer: 'deterministic', task: 'convergence' } };
   const [decision] = preparedPhaseNextActions(workflow, phase, {

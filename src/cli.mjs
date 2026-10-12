@@ -5278,12 +5278,14 @@ export function preparedPhaseNextActions(workflow, phase, prepared) {
   if (!convergence) return [
     narrationAction({
       id: 'prepare.author',
+      // After preparation the next step is authoring, never preparation again: the Copilot route is
+      // the step's authoring skill, and the terminal route checks the draft once it is written.
       label: prepared.publicationProducer === 'deterministic'
         ? 'Check the prepared deterministic artifact before publication'
-        : 'Author or finish the prepared draft; preparation is not completed authoring',
+        : 'Author the prepared draft (preparation is not completed authoring), then check it with prepublish',
       command: prepared.publicationProducer === 'deterministic'
         ? `singularity-flow phase prepublish ${phase.id} --for-agent --json`
-        : `singularity-flow prepare ${phase.id}`,
+        : `singularity-flow phase prepublish ${phase.id}`,
       skill: prepared.publicationProducer === 'deterministic'
         ? '/sf-publish'
         : generationSkillForPhase(phase, workflow)

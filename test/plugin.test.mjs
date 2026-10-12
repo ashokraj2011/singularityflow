@@ -291,6 +291,13 @@ test('plugin provides opt-in governed prompt audit controls', async () => {
   assert.match(content, /workspace/i);
 });
 
+test('/sf-next hands an authoring route to its skill instead of preparing and stopping', async () => {
+  // A /sf-next turn is kernel-only and cannot edit files. Running an authoring route's prepare and
+  // stopping left the next /sf-next with the same prepare to run: a loop with nothing authored.
+  const next = await readFile(path.join(pluginRoot, 'skills', 'sflow-next', 'SKILL.md'), 'utf8');
+  assert.match(next, /any `singularity-flow prepare <phase>` authoring route, do not imitate or inline it, nor run it: report `Next in Copilot: \/sf-code` or its skill and stop/);
+});
+
 test('initial phase skills require interactive clarification instead of silently collecting open questions', async () => {
   const workflowAgent = await readFile(path.join(pluginRoot, 'agents', 'sflow-workflow.agent.md'), 'utf8');
   const phase = await readFile(path.join(pluginRoot, 'skills', 'sflow-phase', 'SKILL.md'), 'utf8');

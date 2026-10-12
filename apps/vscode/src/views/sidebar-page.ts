@@ -25,6 +25,7 @@ export interface SidebarPage {
   pending: number | null;
   active: string | null;
   favorites: ReadonlyArray<{ id: string; label: string; icon: IconName }>;
+  menuCollapsed?: boolean;
 }
 
 function link(id: string, label: string, glyph: IconName, active: string | null, badge = ''): string {
@@ -47,11 +48,14 @@ export function sidebarBody(view: SidebarPage): string {
       ${view.freshness || view.loading ? `<p class="freshness" role="status">${escape(view.freshness ?? 'Reading workspace state…')}</p>` : ''}
     </section>
     <main>
+      <details class="main-menu" data-main-menu${view.menuCollapsed ? '' : ' open'}>
+      <summary data-focus-key="main-menu">Main menu</summary>
       <nav aria-label="Singularity Flow">
       ${PRIMARY_NAVIGATION.map((item) => link(item.id, item.label, item.icon, view.active,
         item.id === 'reviews' && view.pending != null && view.pending > 0
           ? `<span class="badge" aria-label="${view.pending} pending phase approvals">${view.pending}</span>` : '')).join('')}
       </nav>
+      </details>
       ${!workspace ? `<div class="setup-hint"><button type="button" class="text-action" data-action="setup-wizard">Set up a workspace</button></div>` : ''}
       <details class="pins" data-state-key="pinned-shortcuts">
         <summary>Pinned shortcuts <span class="pin-count">${view.favorites.length}</span></summary>
@@ -88,6 +92,8 @@ export const SIDEBAR_STYLE = `${CALM_PALETTE_STYLE}
   .context-detail span { color:var(--sf-text); }
   .freshness { font-size:11px; margin:8px 0 0; color:var(--vscode-descriptionForeground); }
   main { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:14px 12px 8px; }
+  .main-menu>summary { cursor:pointer; min-height:32px; padding:7px 8px; border-radius:var(--sf-radius); color:var(--sf-dim); font-size:12px; }
+  .main-menu nav { padding-top:6px; }
   nav { display:flex; flex-direction:column; gap:4px; }
   .nav-row { display:flex; align-items:center; gap:10px; width:100%; min-height:40px; padding:8px 10px; border:0; border-radius:var(--sf-radius); background:transparent; color:var(--sf-dim); text-align:left; transform-origin:center;
     transition:transform 140ms ease-out,background-color 140ms ease-out; }
@@ -109,6 +115,7 @@ export const SIDEBAR_STYLE = `${CALM_PALETTE_STYLE}
   @media (hover:hover) and (pointer:fine) {
     .nav-row:not(:disabled):hover,.workspace-switch:not(:disabled):hover { transform:scale(1.015); background:var(--sf-surface-raised); color:var(--sf-text); }
     .profile-button:hover,.unpin:hover { background:var(--sf-surface-raised); }
+    .main-menu>summary:hover { background:var(--sf-surface-raised); color:var(--sf-text); }
   }
   @media (prefers-reduced-motion:reduce) { *,*:hover { transition:none!important; animation:none!important; transform:none!important; } }
   @media (forced-colors:active) { .nav-row[aria-current="page"] { outline:1px solid Highlight; } }
@@ -127,20 +134,28 @@ export const SIDEBAR_SCRIPT = `
   });
   const saved=vscode.getState()||{};
   const main=document.querySelector('main');
+  const menu=document.querySelector('[data-main-menu]');
   const persist=()=>{
     const state=vscode.getState()||{};
     state.scroll=main.scrollTop;
-    state.focus=document.activeElement?.dataset.action||document.activeElement?.dataset.removeFavorite||null;
+    state.focus=document.activeElement?.dataset.action||document.activeElement?.dataset.removeFavorite||document.activeElement?.dataset.focusKey||null;
     for(const section of document.querySelectorAll('[data-state-key]')) state[section.dataset.stateKey]=section.open;
     vscode.setState(state);
   };
+  // The host renders the durable menu preference; webview state must not override it.
+  menu.addEventListener('toggle',()=>{
+    persist();
+    vscode.postMessage({type:'menu-collapse',collapsed:!menu.open});
+  });
   for(const section of document.querySelectorAll('[data-state-key]')) {
-    section.open=Boolean(saved[section.dataset.stateKey]);
+    if(typeof saved[section.dataset.stateKey]==='boolean')section.open=saved[section.dataset.stateKey];
     section.addEventListener('toggle',persist);
   }
   main.scrollTop=Number(saved.scroll)||0;
   if(saved.focus) {
-    const target=[...document.querySelectorAll('[data-action],[data-remove-favorite]')].find(el=>(el.dataset.action||el.dataset.removeFavorite)===saved.focus);
+    let target=[...document.querySelectorAll('[data-action],[data-remove-favorite],[data-focus-key]')].find(el=>(el.dataset.action||el.dataset.removeFavorite||el.dataset.focusKey)===saved.focus);
+    const closed=target?.closest('details:not([open])');
+    if(closed&&target.tagName!=='SUMMARY')target=closed.querySelector('summary');
     target?.focus({preventScroll:true});
   }
   main.addEventListener('scroll',persist,{passive:true});

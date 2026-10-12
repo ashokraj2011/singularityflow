@@ -109,6 +109,7 @@ export const FAVORITE_MENUS: readonly FavoriteMenu[] = Object.freeze([
 
 const FAVORITES_KEY = 'singularityFlow.navigationFavorites.v2';
 const LEGACY_FAVORITES_KEY = 'singularityFlow.navigationFavorites.v1';
+const MENU_COLLAPSED_KEY = 'singularityFlow.navigationMenuCollapsed.v1';
 const FAVORITE_BY_ID = new Map(FAVORITE_MENUS.map((menu) => [menu.id, menu]));
 
 export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
@@ -129,6 +130,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private renderedBody: string | null = null;
   private favoriteIds: string[];
   private favoritesCustomized: boolean;
+  private menuCollapsed: boolean;
   /** Three tree providers publish one snapshot synchronously; replace the document once, not thrice. */
   private readonly renders = new MicrotaskCoalescer(() => this.render());
 
@@ -137,6 +139,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     private readonly profile: () => { name?: string; role?: string } = () => ({}),
     private readonly onRender: () => void = () => {}
   ) {
+    this.menuCollapsed = state.get<unknown>(MENU_COLLAPSED_KEY) === true;
     // A missing preference is a first visit; an empty array is an intentional choice. Keeping those
     // distinct lets the sidebar be useful immediately without resurrecting favorites somebody
     // explicitly removed.
@@ -301,7 +304,14 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
   private receive(message: unknown): void {
     if (!message || typeof message !== 'object') return;
-    const value = message as { type?: unknown; action?: unknown; key?: unknown; topic?: unknown; command?: unknown };
+    const value = message as { type?: unknown; action?: unknown; key?: unknown; topic?: unknown; command?: unknown; collapsed?: unknown };
+    if (value.type === 'menu-collapse') {
+      if (typeof value.collapsed !== 'boolean' || value.collapsed === this.menuCollapsed) return;
+      this.menuCollapsed = value.collapsed;
+      // Presentation only: no repository read, command dispatch or document replacement.
+      void this.state.update(MENU_COLLAPSED_KEY, this.menuCollapsed);
+      return;
+    }
     if (value.type === 'navigation-ready') {
       // Tab changes can arrive while the webview is being replaced; replay the current marker.
       void this.view?.webview.postMessage({ type: 'active-destination', id: this.activeDestination });
@@ -417,6 +427,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const body = sidebarBody({
         navigation: this.navigation, freshness: this.freshness, loading: this.awaitingFirstRead,
         active: this.activeDestination, pending: this.pendingApprovals,
+        menuCollapsed: this.menuCollapsed,
         favorites: this.favoriteIds.flatMap(id => {
           const menu = FAVORITE_BY_ID.get(id);
           return menu ? [{ id, label: menu.label, icon: menu.icon }] : [];

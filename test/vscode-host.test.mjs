@@ -1199,6 +1199,41 @@ test('the visible sidebar is one branded, scrollable navigation surface', async 
     'rootless setup proposals remain reviewable through the primary Reviews destination');
 });
 
+test('main menu collapse persists across refresh and host restart without running commands', async (t) => {
+  if (!requireBundle(t)) return;
+  const values = new Map();
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = undefined;
+  await loadExtension(api).activate(context(values));
+  const navigation = registered.webviewViews.get('singularityFlow.navigation');
+  assert.match(navigation.webview.html, /data-main-menu open/);
+  const html = navigation.webview.html;
+  const commandCount = registered.executedCommands.length;
+  for (const collapsed of ['true', 1, null, undefined, {}]) {
+    await navigation.post({ type: 'menu-collapse', collapsed });
+  }
+  assert.equal(values.has('singularityFlow.navigationMenuCollapsed.v1'), false);
+  await navigation.post({ type: 'menu-collapse', collapsed: true });
+  assert.equal(values.get('singularityFlow.navigationMenuCollapsed.v1'), true);
+  assert.equal(navigation.webview.html, html, 'folding does not replace the webview');
+  assert.equal(registered.executedCommands.length, commandCount);
+  navigation.provider.setFreshness('Snapshot refreshed');
+  await until(() => navigation.webview.html.includes('Snapshot refreshed'));
+  assert.doesNotMatch(navigation.webview.html, /data-main-menu open/);
+
+  const restarted = stubVscode();
+  restarted.api.workspace.workspaceFolders = undefined;
+  await loadExtension(restarted.api).activate(context(values));
+  const restored = restarted.registered.webviewViews.get('singularityFlow.navigation');
+  assert.doesNotMatch(restored.webview.html, /data-main-menu open/);
+  assert.match(restored.webview.html, /data-action="favorites-manage"/);
+  await restored.post({ type: 'menu-collapse', collapsed: false });
+  assert.equal(values.get('singularityFlow.navigationMenuCollapsed.v1'), false);
+  restored.provider.setFreshness('Menu expanded');
+  await until(() => restored.webview.html.includes('Menu expanded'));
+  assert.match(restored.webview.html, /data-main-menu open/);
+});
+
 test('developers can choose, launch, unpin, and retain favorite menus', async (t) => {
   if (!requireBundle(t)) return;
   const values = new Map();

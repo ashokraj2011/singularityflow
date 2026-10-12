@@ -1304,6 +1304,10 @@ planning governed agent; it does not route to a different shell, and there is no
 experience to switch between. The active workspace remains visible in the top
 bar, while each phase page shows the exact command for the normal Copilot CLI.
 
+Click the **Main menu** disclosure in the Singularity Flow sidebar to collapse or
+expand its destination list. Workspace context, pinned shortcuts and utilities
+remain available; the local preference survives refreshes and VS Code restarts.
+
 Planning combines Story decomposition and the high-level specification without
 hiding either governed phase. Generated Stories and their `REQ-nnn`/`AC-nnn`
 allocation are reviewed before the publication screen creates or attaches each

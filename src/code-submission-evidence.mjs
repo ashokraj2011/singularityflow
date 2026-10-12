@@ -1,3 +1,4 @@
+import { submitRoute } from './submit-route.mjs';
 /** Publication is not submission: a successor must collect its own observed/test evidence. */
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -104,6 +105,6 @@ export async function pendingCodeSubmissionEvidence(root, config, workflow, phas
   }
   return { status: 'pending-submission-evidence', generation: Number(phase.generation), evidenceCommit: commit,
     historicalObservedGeneration: pointer ? Number(pointer.generation) : null,
-    next: `singularity-flow submit ${phase.id} --work-id ${workflow.workItem.id}`,
+    next: submitRoute(workflow, phase).command,
     skill: '/sf-submit', testsWaived: false, phaseApproved: false };
 }

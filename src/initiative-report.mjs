@@ -9,7 +9,7 @@ import {
   loadInitiativeBreakdown
 } from './initiative-repositories.mjs';
 import {
-  initiativeMilestoneReadiness
+  initiativeMilestoneReadiness, milestonePhases
 } from './initiative-milestones.mjs';
 import {
   loadInitiative
@@ -194,10 +194,9 @@ export async function deriveInitiativeReport(root, initiativeId, { now = nowIso(
       epics,
       stories: children
     },
-    milestones: {
-      construction: initiativeMilestoneReadiness(initiative, 'construction', children),
-      delivery: initiativeMilestoneReadiness(initiative, 'delivery', children)
-    },
+    // Each step that waits for a child-Story milestone, by what it produces; seeded pair otherwise.
+    milestones: Object.fromEntries((milestonePhases(initiative).length ? milestonePhases(initiative) : ['construction', 'delivery'])
+      .map((id) => [id, initiativeMilestoneReadiness(initiative, id, children)])),
     telemetry
   };
 }
@@ -224,8 +223,9 @@ export function renderInitiativeReport(report) {
   lines.push('', '## Cross-repository delivery', '');
   lines.push(`- Epics: ${report.children.epics.length}`);
   lines.push(`- Stories: ${report.children.total} planned; ${report.children.materialized} materialized; ${report.children.complete} complete; ${report.children.blocking} blocking; ${report.children.stale} stale`);
-  lines.push(`- Construction: ${report.milestones.construction.readyStories}/${report.milestones.construction.blockingStories} blocking stories ready`);
-  lines.push(`- Delivery: ${report.milestones.delivery.readyStories}/${report.milestones.delivery.blockingStories} blocking stories ready`);
+  for (const [id, milestone] of Object.entries(report.milestones)) {
+    lines.push(`- ${id.charAt(0).toUpperCase()}${id.slice(1)}: ${milestone.readyStories}/${milestone.blockingStories} blocking stories ready`);
+  }
   lines.push(`- Interface contracts: ${report.contracts.length}`);
   for (const epic of report.children.epics) {
     lines.push('', `### ${epic.id}${epic.jiraKey ? ` / ${epic.jiraKey}` : ''} — ${epic.title}`, '');

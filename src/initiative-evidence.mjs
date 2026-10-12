@@ -694,7 +694,7 @@ export async function initiativeBundle(root, portfolio, initiative, phaseId, { n
   const invalidations = await readInitiativeRecords(root, portfolio, initiative.initiative.id, 'invalidations');
   const invalidatedApprovals = new Set(invalidations.flatMap((entry) =>
     (entry.record.affected ?? []).filter((node) => node.startsWith('approval:')).map((node) => node.slice('approval:'.length))));
-  const requiredMilestone = requiredInitiativeMilestone(phaseId);
+  const requiredMilestone = requiredInitiativeMilestone(phaseId, initiative);
   const contracts = requiredMilestone
     ? Object.values(initiative.contracts ?? {}).map((contract) => ({
         id: contract.id,

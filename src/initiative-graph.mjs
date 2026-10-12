@@ -1,3 +1,4 @@
+import { milestonePhases } from './initiative-milestones.mjs';
 import path from 'node:path';
 import { identity } from './git.mjs';
 import {
@@ -69,8 +70,8 @@ export function buildInitiativeGraph(initiative, { evidence = [], approvals = []
       addEdge(graph, initiativeNode('story', dependencyId), storyNode, 'story-dependency');
     }
     if (story.blocking) {
-      for (const phaseId of ['build', 'construction', 'release', 'delivery']) {
-        if (initiative.phases?.[phaseId]) addEdge(graph, storyNode, initiativeNode('phase', phaseId), 'blocking-story-milestone');
+      for (const phaseId of milestonePhases(initiative)) {
+        addEdge(graph, storyNode, initiativeNode('phase', phaseId), 'blocking-story-milestone');
       }
     }
   }

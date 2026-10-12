@@ -1,5 +1,7 @@
 /** Shared, read-only recovery choices. A route is not authority or a successful check. */
 import { createHash } from 'node:crypto';
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { submitRoute } from './submit-route.mjs';
 import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding } from './phase-finding-policy.mjs';
@@ -64,7 +66,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
       'Inspect the exact retained publication and its authored bytes. Restore authenticated evidence or use a reviewed successor/return; configuration refresh and risk acceptance cannot authenticate a changed publication.', '/sf-doctor');
   } else if (code === 'phase_quality_risk_pending_tests') {
-    resolution = route('submission-evidence', phase.id, ['submit', phase.id, '--work-id', workId],
+    resolution = route('submission-evidence', phase.id, submitRoute(workflow, phase).command.replace(/^singularity-flow /u, '').split(' '),
       'Collect this published generation\'s fresh tests and observed claims before reviewing quality risk. No tests or evidence are waived.', '/sf-submit');
   } else if (code === 'generation.document.published-changed') {
     resolution = phase.status === 'awaiting_approval'
@@ -100,8 +102,17 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     resolution = route('worktree-review', 'human-reviewer', ['recover', workId, '--phase', phase.id, '--json'],
       'Review exact current bytes. Recovery can offer a hash-confirmed scoped commit and revalidation; unrelated edits and the index are preserved. Published work needs an authorized successor.');
   } else if (code === 'spec_coverage_incomplete' && finding.details?.coverage?.unclaimedChangedPaths?.length) {
-    resolution = route('scope-appeal', 'plan-approval-authority', ['appeal', 'prepare', '--phase', phase.id, '--json'],
-      'Account for exact unplanned paths through a reviewed scope appeal first. Recheck afterward; only the remaining missing coverage is eligible for pilot risk.', '/sf-appeal');
+    // A scope appeal needs the current open code generation (preparePhaseAppeal's own checks);
+    // anywhere else the plan's approvers account for the path with a plan decision instead of a
+    // route that would refuse.
+    const openCode = phaseRequiresCodeDelivery(phase) && phase.writeScope === 'source-and-artifact'
+      && phase.generationIntent?.status === 'open' && workflow.currentPhase === phase.id
+      && workflow.status === 'in_progress' && phase.status === 'in_progress';
+    resolution = openCode
+      ? route('scope-appeal', 'plan-approval-authority', ['appeal', 'prepare', '--phase', phase.id, '--json'],
+        'Account for exact unplanned paths through a reviewed scope appeal first. Recheck afterward; only the remaining missing coverage is eligible for pilot risk.', '/sf-appeal')
+      : route('plan-amendment', 'plan-approval-authority', ['decision', 'plan', workId, '--add-location', '<clause>=<path>', '--reason', '<why>'],
+        'An approver of the plan accounts for each unplanned path under its row. No phase is reset.', '/sf-decide');
   } else if ((category === 'quality-coverage' || code === 'spec_coverage_incomplete')
       && (finding.details?.riskEligible === true || finding.details?.qualityRisk?.eligible === true)) {
     resolution = route('pilot-risk-review', 'phase-approval-authority',

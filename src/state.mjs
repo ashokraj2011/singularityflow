@@ -49,10 +49,10 @@ import {
 } from './inputs.mjs';
 import { prepareRemoteOutputs, updateRemoteOutputRenderedHashes } from './agents.mjs';
 import {
-  assertPhaseSequence, enforceSequenceGate, phaseNeedsGeneration
+  assertPhaseSequence, enforceSequenceGate, phaseExplicitlyReopened, phaseNeedsGeneration
 } from './sequence.mjs';
 import { assertPhasePublicationReadiness } from './phase-publication-readiness.mjs';
-import { answeredMarkerHashes } from './clarifications.mjs';
+import { answeredMarkerHashes, resolvedClarificationPolicy } from './clarifications.mjs';
 import {
   artifactSetDiff, catalogArtifactSet, disclosureLines, memberRoot, resolvedArtifactSet,
   unpublishableRequiredArtifactSetMembers
@@ -2381,10 +2381,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       );
     }
   }
-  const explicitlyReopened = (workflow.changeRequests ?? []).some((request) =>
-    request.status === 'open' && request.targetPhase === phase.id)
-    || (phase.reworkRevalidation && phaseNeedsGeneration(workflow, phase))
-    || (phase.intentAmendmentRevalidation && !phase.intentAmendmentRevalidation.revalidatedAt);
+  const explicitlyReopened = phaseExplicitlyReopened(workflow, phase);
   if (!dryRun
       && phaseRequiresCodeDelivery(phase)
       && phase.generationIntent?.status === 'consumed'
@@ -3602,7 +3599,9 @@ export async function publishGeneration(root, config, workflow, {
     throw new SingularityFlowError(
       `Phase ${phase.id} is not publishable:\n- ${gate.errors.join('\n- ')}\n`
       + (specificationGateDiagnostics(gate, requiredRepoPath(config, workflow, phase)).findings.some(finding => finding.category === 'clarification')
-        ? `Resolve only the cited clarification questions and record their actual answers with singularity-flow clarification record ${phase.id}; do not invent or repeat answered questions.`
+        ? resolvedClarificationPolicy(config, workflow, phase).mode === 'off'
+          ? `Replace each cited clarification marker with content sourced from the pinned evidence; clarification is off for ${phase.id}, so no question is recorded.`
+          : `Resolve only the cited clarification questions and record their actual answers with singularity-flow clarification record ${phase.id}; do not invent or repeat answered questions.`
         : `Repair the listed specification draft structure from the pinned source and clarifications, then rerun singularity-flow phase prepublish ${phase.id} --json. Missing scenarios are author corrections, not a new clarification interview.`)
     );
   }

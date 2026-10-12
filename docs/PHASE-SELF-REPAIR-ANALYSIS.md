@@ -337,3 +337,49 @@ The owner chose Tiers A and B and C1–C4. All of them are on main. The specific
 | C3 | Done. `decision plan` row corrections after live terminal review. |
 | C4 | Done. Every code step may return to any earlier step. |
 | C6 | Not started; it was not part of the owner's selection. |
+
+## 10. Step-role sweep (2026-10-12)
+
+**Trigger.** In a functional test, `/sf-submit` stopped on a ready intake. The skill ran
+`review-source status intake`, and the command refused because intake has no source review. This
+was one case of a wider pattern: skills and routes decided from a step's name or seeded ID
+whether a check applied, and read-only questions refused on steps they did not concern.
+
+**What changed.**
+
+- **Skills.** Every Story skill carries one applicability rule: run a check only when a returned
+  field or command asks for it. A refusal saying a check does not apply to this step is skipped,
+  not treated as a blocker. The skill audit (`scripts/skill-policy.mjs`) now fails a skill that
+  names a removed or unknown command, or that passes a seeded step ID as a step argument.
+- **Questions answer instead of refusing.** These read-only commands now answer `not-required`,
+  `not-applicable`, `not-routed` or `unavailable` on a step they do not concern:
+  - `review-source status|context|decision-context|check` (including skipped and unpublished steps);
+  - `revision status|card`;
+  - `story test-policy plan`;
+  - `spec index --dry-run`, which names the step that does define clauses;
+  - `stack status`, `receipt show`, `adhoc status`, `browser plan|status`, `wm show-prompt`;
+  - the source-review agent context and visual coverage.
+- **Routes follow roles.**
+  - One submit route (`src/submit-route.mjs`) serves `next`, `run`, recovery plans, `doctor` and
+    phase resolution. A step that owes a source review goes through submission readiness, which
+    reports the review and its exact route.
+  - The pinned source-review list counts only for a step that defines the scope or plans the
+    claims.
+  - These are found by outputs and responsibilities, never by ID:
+    - Initiative milestones and the Initiative plan step;
+    - fast-path verbs without an explicit step list.
+  - A reopened code step is offered `prepare`, not `rollover`.
+  - A scope appeal is offered only while the code generation is open.
+- **Guards for future workflows.**
+  - `test/read-only-questions-cli.test.mjs` asks every read-only question a skill uses at intake.
+  - `test/step-role-guidance.test.mjs` renames every seeded step and checks that guidance still
+    follows each step's role.
+
+**Deliberately not changed.**
+
+| Site | Why it stays |
+|---|---|
+| Knowledge phase brief and its prompt reader match step IDs | Guidance only. The World Model never blocks or authorizes. |
+| `skp-workflow-recipe` keeps `intake` and `conformance` | It builds a recipe around those configured steps; they are its output, not a check. |
+| `schema-migrations` v3→v4 convergence by ID | It applies only to historical pins. It is GDP-locked: changing it needs a companion-lock review and would rewrite migrated history. |
+| `legacyAuthoringSkill` by seeded ID | It is used only for a step with no named skill on the automatic route. A renamed copy drafts with `/sf-phase`, which accepts any step. |

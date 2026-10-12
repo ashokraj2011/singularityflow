@@ -7,6 +7,7 @@ import { applicationPathContext, isApplicationPath } from './application-paths.m
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { classifySupportingChange } from './supporting-changes.mjs';
 import { phaseNeedsGeneration } from './sequence.mjs';
+import { sourceReviewKind } from './phase-roles.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { AUTHORING_SKILL_DECLARATION } from './authoring-skills.mjs';
 import { phasePublicationContract } from './manual-authorship.mjs';
@@ -76,7 +77,9 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
     && phase?.writeScope === 'source-and-artifact' && (!code || openGeneration);
   const next = !phase ? [route(['session', 'current', '--for-agent', '--json'], 'Resolve the Story binding first.')]
     : turnMode === 'read-only-review'
-      ? [route(['review-source', 'context', phase.id, '--for-agent', '--json'], 'Use the pinned review packet and its staging protocol; no shell writers or repository edits.')]
+      ? [sourceReviewKind(workflow, phase.id)
+        ? route(['review-source', 'context', phase.id, '--for-agent', '--json'], 'Use the pinned review packet and its staging protocol; no shell writers or repository edits.')
+        : route(['nextsteps', '--json'], 'This step has no source review; inspect the next action.')]
     : turnMode === 'review-decision-only'
       ? [route(['review-source', 'decision-context', phase.id, '--work-id', workId,
         '--finding', '<FINDING-ID>', '--reason', '<TEXT>', '--json'],

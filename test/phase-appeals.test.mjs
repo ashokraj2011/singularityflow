@@ -70,8 +70,18 @@ test('all findings have an owner route; trust is never an ordinary risk waiver',
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'CODE_TEST_FAILED' }).choices[0].kind, 'risk-inspection');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'never-seen-before' }).choices[0].kind, 'owner-escalation');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'scope.unclaimed' }).choices[0].kind, 'scope-appeal');
-  assert.equal(phaseResolutionChoices(workflow, phase, { code: 'code.delivery.incomplete',
-    details: { sourceCode: 'SPEC_COVERAGE_INCOMPLETE', coverage: { unclaimedChangedPaths: ['src/extra.css'] } } }).choices[0].kind, 'scope-appeal');
+  const unclaimed = { code: 'code.delivery.incomplete',
+    details: { sourceCode: 'SPEC_COVERAGE_INCOMPLETE', coverage: { unclaimedChangedPaths: ['src/extra.css'] } } };
+  // A scope appeal exists only for the current open code generation; elsewhere it would refuse,
+  // so the plan's approvers account for the path with a plan decision.
+  const coding = { workItem: { id: WORK }, status: 'in_progress', currentPhase: 'future-step' };
+  const open = { id: 'future-step', status: 'in_progress', writeScope: 'source-and-artifact',
+    generationPolicy: { task: 'code' }, generationIntent: { status: 'open' } };
+  assert.equal(phaseResolutionChoices(coding, open, unclaimed).choices[0].kind, 'scope-appeal');
+  const published = phaseResolutionChoices(coding, { ...open, generationIntent: { status: 'consumed' } }, unclaimed).choices[0];
+  assert.equal(published.kind, 'plan-amendment');
+  assert.match(published.command, /decision plan APPEAL-1 --add-location/u);
+  assert.equal(phaseResolutionChoices(workflow, phase, unclaimed).choices[0].kind, 'plan-amendment');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'code.delivery.incomplete',
     details: { sourceCode: 'SPEC_COVERAGE_INCOMPLETE', qualityRisk: { eligible: true } } }).choices[0].kind, 'pilot-risk-review');
   assert.equal(phaseResolutionChoices(workflow, phase, { code: 'SPEC_COVERAGE_INCOMPLETE' }).choices[0].kind, 'author-correction');

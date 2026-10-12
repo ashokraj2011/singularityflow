@@ -57,7 +57,9 @@ test('copied/renamed review steps offer honest successor authorship instead of a
     defaultAgent: 'architect', generatedAgent: 'peer', generationPolicy: { requirement: 'none' } };
   const workflow = { workItem: { id: 'COPY-1' }, currentPhase: phase.id, status: 'in_progress',
     phaseOrder: [phase.id], phases: { [phase.id]: phase }, history: [],
-    resolution: { sourceReview: { mode: 'enforce', phases: [phase.id], reviewerAgent: 'peer' } } };
+    // A copy of the step that defines the scope: reviewed because of what it does, not its name.
+    resolution: { sourceReview: { mode: 'enforce', phases: [phase.id], reviewerAgent: 'peer' },
+      obligationGraph: { nodes: [{ id: phase.id, responsibilities: ['scope'] }] } } };
   assert.equal(phaseNeedsGeneration(workflow, phase), true);
   assert.throws(() => assertPhaseGovernanceMayAdvance(workflow, phase), { code: 'SOURCE_REVIEW_AUTHOR_COLLISION' });
   const hold = phaseGovernanceHold(workflow, phase);

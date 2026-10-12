@@ -1,3 +1,4 @@
+import { submitRoute } from './submit-route.mjs';
 import { isConvergencePhase } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import path from 'node:path';
@@ -536,12 +537,13 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
   if (generationDigest && phaseRequiresCodeDelivery(phase)
       && phase.generationIntent?.status === 'consumed' && !generation
       && phase.status === 'in_progress' && blockers.length === 0
-      && testExecution.status === 'not-run') {
+      && testExecution.status === 'not-run' && !phaseNeedsGeneration(workflow, phase)) {
+    const route = submitRoute(workflow, phase);
     actions.push(action({
       id: `submit-published-generation:${phase.id}`,
       detail: 'This published generation still matches its retained bytes. Submit it after resolving any reported test environment or runtime failure; submission re-executes required checks. Do not republish unchanged code or retry an unchanged failing test.',
-      command: `singularity-flow submit ${phase.id} --work-id ${workflow.workItem.id}`,
-      skill: '/sf-submit'
+      command: route.command,
+      skill: route.skill
     }));
   }
 

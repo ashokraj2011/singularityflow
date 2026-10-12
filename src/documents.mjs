@@ -728,7 +728,8 @@ async function writePackageIndexes(root, config, workflow, manifest, packageReco
 }
 
 function documentPolicy(workflow, config) {
-  return workflow.resolution?.documents ?? config.documents ?? { allowedPhases: ['intake'], maxFileBytes: 26214400, maxPreviewBytes: 1048576 };
+  // With no policy, documents go to the Story's first step, whatever it is called.
+  return workflow.resolution?.documents ?? config.documents ?? { allowedPhases: [], maxFileBytes: 26214400, maxPreviewBytes: 1048576 };
 }
 
 /**
@@ -742,7 +743,7 @@ function documentPolicy(workflow, config) {
  * deliberate choice and is kept as it is.
  */
 export function documentUploadPhases(workflow, config) {
-  const allowed = documentPolicy(workflow, config).allowedPhases ?? ['intake'];
+  const allowed = documentPolicy(workflow, config).allowedPhases ?? [];
   if (allowed.length) return [...allowed];
   const first = workflow.phaseOrder?.[0] ?? null;
   return first ? [first] : [];

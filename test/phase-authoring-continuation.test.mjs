@@ -23,6 +23,8 @@ function story(id) {
 test('every document phase and future custom phase retains the successor authoring handoff until publication', () => {
   for (const id of ['specification', 'planning', 'verification', 'release', 'design', 'my-custom-scope']) {
     const workflow = story(id), phase = workflow.phases[id];
+    // Reviewed because it defines the scope, whatever it is called.
+    workflow.resolution.obligationGraph = { nodes: [{ id, responsibilities: ['scope'] }] };
     assert.equal(phaseNeedsGeneration(workflow, phase), false);
     assert.equal(reservePreparedDocumentSuccessor(workflow, phase, '2026-10-07T00:00:00Z'), true);
     const before = JSON.stringify(workflow);
@@ -40,6 +42,9 @@ test('every document phase and future custom phase retains the successor authori
     assert.equal(phaseNeedsGeneration(workflow, phase), false);
     assert.equal(phaseInspectionGeneration(workflow, phase), 2);
     assert.equal(phaseHandoff(workflow, phase)[0].command, `singularity-flow review-source status ${id}`);
+    // A pin listing a step that neither defines the scope nor plans the claims owes it no review.
+    workflow.resolution.obligationGraph.nodes[0].responsibilities = ['review'];
+    assert.equal(phaseHandoff(workflow, phase)[0].command, `singularity-flow submit ${id}`);
   }
 });
 
@@ -106,18 +111,22 @@ test('code and sign-off phases never receive implicit document successor prepara
   }
 });
 
-test('custom code successors keep guarded rollover and ready reviews keep decision inputs', () => {
+test('a code step returned for rework is prepared again, other code successors keep guarded rollover, ready reviews keep decision inputs', () => {
   const workflow = story('custom-code'), phase = workflow.phases['custom-code'];
   phase.generationPolicy.task = 'code';
   phase.generationIntent = { status: 'consumed', generation: 1 };
   phase.reworkRevalidation = { generation: 1, invalidatedAt: 'now' };
   const before = JSON.stringify(workflow);
-  assert.equal(sourceReviewContinuation(workflow, phase).nextCommand, 'singularity-flow phase rollover custom-code --json');
+  // Rework can leave the published bytes unchanged and rollover needs changed bytes; prepare accepts a reopened step.
+  assert.equal(sourceReviewContinuation(workflow, phase).nextCommand, 'singularity-flow prepare custom-code');
   const entry = phaseAuthoringEntry(workflow, phase);
   assert.equal(entry.status, 'attention-required');
-  assert.equal(entry.reason, 'code-rollover-required');
-  assert.equal(entry.actions[0].command, 'singularity-flow phase rollover custom-code --json');
+  assert.equal(entry.reason, 'code-rework-preparation-required');
+  assert.equal(entry.actions[0].command, 'singularity-flow prepare custom-code');
   assert.equal(JSON.stringify(workflow), before);
+  delete phase.reworkRevalidation;
+  const corrected = sourceReviewContinuation(workflow, phase, { status: 'correction-required', findings: [{ code: 'reviewer-blocker' }] });
+  assert.equal(corrected.nextCommand, 'singularity-flow phase rollover custom-code --json');
   const scoped = story('scope'), scope = scoped.phases.scope;
   scoped.resolution.decisions = [{ id: 'risk', mode: 'auto', after: 'scope', inputs: [{ name: 'risk', type: 'enum', values: ['low', 'high'] }] }];
   const next = sourceReviewContinuation(scoped, scope, { status: 'ready' });

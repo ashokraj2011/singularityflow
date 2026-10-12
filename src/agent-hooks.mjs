@@ -435,7 +435,7 @@ export async function agentGuardHook(root, definition, workflow, payload = {}) {
       || !isConsumedGenerationTerminalCallAllowed(payload, phase))) {
     return {
       permissionDecision: 'deny',
-      permissionDecisionReason: `Generation ${phase.generation} of '${phase.id}' is already published and immutable. Do not change repository bytes or run ad-hoc commands. Run 'singularity-flow submit ${phase.id}' if the bytes are unchanged; otherwise run 'singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json', review its exact digest, and begin the next generation before editing.`
+      permissionDecisionReason: `Generation ${phase.generation} of '${phase.id}' is already published and immutable. Do not change repository bytes or run ad-hoc commands. Run 'singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json' and follow its returned action: submission when the bytes are unchanged, otherwise review its exact digest and begin the next generation before editing.`
     };
   }
   const status = await agentSessionStatus(root, definition, workflow);

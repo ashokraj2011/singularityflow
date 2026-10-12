@@ -1,3 +1,4 @@
+import { submitRoute } from './submit-route.mjs';
 import { isConvergencePhase } from './phase-roles.mjs';
 import path from 'node:path';
 import { existsSync } from 'node:fs';
@@ -389,7 +390,7 @@ export async function doctorSnapshot(root, {
           : registration.status === 'repairable'
             ? isConvergencePhase(active)
               ? `Run singularity-flow story advance --work-id ${workflow.workItem.id}; after review, confirm that same advancement so SFlow records the repair in the governed commit.`
-              : `Run singularity-flow submit ${active.id}; SFlow will record the repair in the governed commit.`
+              : `Run ${submitRoute(workflow, active).command}; SFlow records the repair in the governed commit.`
             : null;
         checks.push(check('artifact-registration', status, message, fix, {
           phase: active.id,

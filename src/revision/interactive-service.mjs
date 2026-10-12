@@ -1503,9 +1503,25 @@ export async function resumeInteractiveRevision(root, intervalId = null) {
   fail('REV_RECOVERY_NOT_REQUIRED', 'The active revision has no recoverable journal/pointer gap.');
 }
 
-export async function inspectInteractiveRevision(root) {
+export async function inspectInteractiveRevision(root, { readOnly = false } = {}) {
   assertGuardedRevisionCapability('inspect');
-  const active = await loadActiveRevisionStory(root, { allowUnpublishedInspection: true });
+  let active;
+  try {
+    active = await loadActiveRevisionStory(root, { allowUnpublishedInspection: true });
+  } catch (error) {
+    // A status question on a step that delivers no code is answered; mutations still refuse.
+    if (!readOnly || error?.code !== 'REV_PHASE_NOT_CODE_BEARING') throw error;
+    const { loadAcceptedStoryExecution } = await import('../accepted-story-execution.mjs');
+    const workId = await loadAcceptedStoryExecution(root).then((loaded) => loaded.workflow.workItem.id).catch(() => null);
+    return Object.freeze({
+      active: { subject: { workId } }, state: null,
+      status: { state: 'not-applicable', reason: 'phase-not-code-bearing', intervalSequence: 0 },
+      interval: null, precheck: null, freshness: { status: 'not-applicable', code: null }, recovery: { required: false },
+      card: { headline: 'This step delivers no code, so it has no implementation revision.', candidate: null,
+        publicationEligible: false, remainingObligations: [], next: null },
+      next: []
+    });
+  }
   if (active.phase.generation === 0) {
     // Read-only status cannot demand the candidate that first-generation authoring creates.
     // Never open a positive-generation revision store, nor relax mutation entry points.

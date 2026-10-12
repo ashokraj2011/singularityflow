@@ -160,7 +160,10 @@ test('issued reviewer staging is allowed without granting artifact/source writes
 });
 
 test('review tool protocol recovers in the same turn; standalone check/stage/retain remain permitted', async t => {
-  const f = await fixture(t); const payload = await f.enter('/sf-review-source');
+  const f = await fixture(t);
+  // The step defines the scope, so it has a source review whatever it is called.
+  f.workflow.resolution.obligationGraph = { nodes: [{ id: 'custom-step', responsibilities: ['scope'] }] };
+  const payload = await f.enter('/sf-review-source');
   const staging = path.join(f.root, '.git/singularity-flow/source-reviews/PMC-1-custom-step-gen1.json');
   await issueMutationStaging(f.root, staging, 'source-review');
   const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
@@ -345,9 +348,13 @@ test('all seeded and example phases plus future custom phases share explicit res
   }
   assert.ok(checked >= 50);
   const phase = { id: 'team-invented-scope', status: 'in_progress', generation: 3, generationPolicy: { task: 'document' } };
-  const contract = deriveMutationContract({ definition: {}, workflow: { workItem: { id: 'FUTURE' },
-    currentPhase: phase.id, phaseOrder: [phase.id], phases: { [phase.id]: phase } }, turnMode: 'read-only-review' });
+  const future = { workItem: { id: 'FUTURE' }, currentPhase: phase.id, phaseOrder: [phase.id], phases: { [phase.id]: phase },
+    resolution: { obligationGraph: { nodes: [{ id: phase.id, responsibilities: ['scope'] }] } } };
+  const contract = deriveMutationContract({ definition: {}, workflow: future, turnMode: 'read-only-review' });
   assert.equal(contract.next[0].copilotCommand, '/sf-review-source team-invented-scope');
+  // A step that neither defines the scope nor plans the claims has no review to route to.
+  future.resolution.obligationGraph.nodes[0].responsibilities = ['review'];
+  assert.equal(deriveMutationContract({ definition: {}, workflow: future, turnMode: 'read-only-review' }).next[0].copilotCommand, '/sf-nextsteps');
 });
 
 test('workflow/ref changes refuse edits until a verified refresh', async t => {

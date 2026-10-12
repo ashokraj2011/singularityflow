@@ -1,4 +1,4 @@
-import { visualVerificationPhaseOf } from './phase-roles.mjs';
+import { isVisualVerificationPhase, visualVerificationPhaseOf } from './phase-roles.mjs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { verifyMcpEvidence } from './mcp-evidence.mjs';
@@ -22,6 +22,12 @@ export async function evaluateVisualCoverage(root, workflow, { itemDirectory = n
   const profiles = configured.profiles ?? [];
   if (!profiles.length) return { schemaVersion: 1, status: 'not-configured', mode: configured.coverage ?? 'warn', phase: visualVerificationPhaseOf(workflow, phaseId)?.id ?? null, generation: null, profiles: [], covered: [], uncovered: [], unclaimed: [], stale: [], duplicates: [], warnings: [], errors: [] };
   const phase = visualVerificationPhaseOf(workflow, phaseId);
+  // A decision route that skipped every visual step leaves nothing to cover: answer, do not refuse.
+  const visualSteps = (workflow.phaseOrder ?? Object.keys(workflow.phases ?? {})).map((id) => workflow.phases?.[id]).filter(isVisualVerificationPhase);
+  if (!phase && visualSteps.length && visualSteps.every((step) => step.status === 'skipped')) {
+    return { schemaVersion: 1, status: 'not-applicable', reason: 'visual-step-skipped', mode: configured.coverage ?? 'warn', phase: null, generation: null,
+      profiles: profiles.map((profile) => profile.id), covered: [], uncovered: [], unclaimed: [], stale: [], duplicates: [], warnings: [], errors: [] };
+  }
   if (!phase) throw new SingularityFlowError('Verification profiles require a visual verification step (an artifact of kind visual-test-evidence).', { code: 'VISUAL_PHASE_MISSING' });
   const generation = expectedGeneration(phase), integrity = await verifyMcpEvidence(root, workflow, { itemDirectory });
   const candidates = integrity.records.filter((record) => record.kind === 'visual-artifact' && record.phase === phase.id);

@@ -51,6 +51,12 @@ async function resolvePlan(root, config, workflow, { phaseId = null, confirmatio
 
 /** No quality/dependency commands are executed, files written, or state advanced by this preview. */
 export async function planStoryTestSelection(root, config, workflow, { phaseId = null } = {}) {
+  // A read-only plan for a step that delivers no code is answered, not refused.
+  const step = workflow.phases?.[phaseId ?? workflow.currentPhase];
+  if (step && (phaseId ?? workflow.currentPhase) === workflow.currentPhase && !phaseRequiresCodeDelivery(step)) {
+    return { schemaVersion: 1, resultType: 'story-test-selection-plan', workId: workflow.workItem.id,
+      status: 'not-applicable', reason: 'phase-does-not-deliver-code', phaseId: step.id, planDigest: null };
+  }
   const resolved = await resolvePlan(root, config, workflow, { phaseId });
   const pending = await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false });
   return { schemaVersion: 1, resultType: 'story-test-selection-plan', workId: workflow.workItem.id,

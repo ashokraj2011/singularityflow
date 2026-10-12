@@ -1,3 +1,4 @@
+import { submitRoute } from './submit-route.mjs';
 import { isConvergencePhase } from './phase-roles.mjs';
 import { convergenceTransitionRoute } from './phase-transition-routes.mjs';
 import readline from 'node:readline/promises';
@@ -24,6 +25,17 @@ function activePhase(workflow) {
 export function sequenceGateMode(workflow, gate) {
   const gates = workflow.resolution?.sequenceGates;
   return (gates?.[gate] ?? gates?.default) === 'soft' ? 'soft' : 'hard';
+}
+
+/**
+ * A step sent back for rework (an open change request, a rework revalidation that needs a new
+ * generation, or an unrevalidated intent amendment). Its published bytes may be unchanged, so the
+ * successor starts with `prepare`, not a code rollover, which needs changed bytes.
+ */
+export function phaseExplicitlyReopened(workflow, phase) {
+  return (workflow?.changeRequests ?? []).some((request) => request.status === 'open' && request.targetPhase === phase?.id)
+    || Boolean(phase?.reworkRevalidation && phaseNeedsGeneration(workflow, phase))
+    || Boolean(phase?.intentAmendmentRevalidation && !phase.intentAmendmentRevalidation.revalidatedAt);
 }
 
 export function phaseNeedsGeneration(workflow, phase) {
@@ -89,7 +101,7 @@ export function sequenceGuidance(workflow) {
     summary: phase.approvalPolicy?.mode === 'none'
       ? `Submit published phase '${phase.id}' to run its checks, complete it, and advance.`
       : `Submit published phase '${phase.id}' for approval.`,
-    actions: [copilotAction({ skill: '/sflow-submit', command: `singularity-flow submit ${phase.id}` })]
+    actions: [copilotAction(submitRoute(workflow, phase))]
   };
   return {
     summary: `Continue from the active workflow state for phase '${phase.id}'.`,

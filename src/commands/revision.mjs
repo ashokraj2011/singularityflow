@@ -340,7 +340,7 @@ async function runInteractive(positionals, options) {
   const action = positionals[1];
   const root = repoRoot();
   if (action === 'status') {
-    const inspected = await inspectInteractiveRevision(root);
+    const inspected = await inspectInteractiveRevision(root, { readOnly: true });
     return emit(
       { id: 'revision.status', classification: 'read' }, interactiveSubject(inspected),
       succeeded('revision.status-reported', {
@@ -355,7 +355,7 @@ async function runInteractive(positionals, options) {
     const id = positionals[2];
     const inspected = id
       ? await intervalProjection(root, id)
-      : await inspectInteractiveRevision(root);
+      : await inspectInteractiveRevision(root, { readOnly: true });
     return emit(
       { id: 'revision.card', classification: 'read' }, interactiveSubject(inspected),
       succeeded('revision.card-reported', {

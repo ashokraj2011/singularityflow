@@ -1,5 +1,6 @@
+import { phaseExplicitlyReopened } from './sequence.mjs';
 import { requiresProspectivePhaseInspection } from './code-submission-evidence.mjs';
-import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
@@ -19,11 +20,13 @@ export function phaseAuthoringEntry(workflow, phase, { review = null, reviewErro
       reason: `Source review could not be verified (${reviewError.code ?? 'inspection failed'}). Preserve the publication and inspect recovery before authoring.` })],
     diagnostic: reviewError };
   if (requiresProspectivePhaseInspection(workflow, phase)) {
-    if (phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed') return {
-      status: 'attention-required', reason: 'code-rollover-required',
-      actions: [copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --json`,
-        reason: 'Review the guarded code successor boundary; preserve the published generation and its tests.' })]
-    };
+    if (phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed') return phaseExplicitlyReopened(workflow, phase)
+      ? { status: 'attention-required', reason: 'code-rework-preparation-required',
+        actions: [copilotAction({ skill: generationSkillForPhase(phase, workflow), command: `singularity-flow prepare ${phase.id}`,
+          reason: 'This code step was returned for rework: prepare its next generation; the published one stays preserved.' })] }
+      : { status: 'attention-required', reason: 'code-rollover-required',
+        actions: [copilotAction({ skill: '/sf-recover', command: `singularity-flow phase rollover ${phase.id} --json`,
+          reason: 'Review the guarded code successor boundary; preserve the published generation and its tests.' })] };
     return { status: 'authoring-entry' };
   }
   const continuation = review ? sourceReviewContinuation(workflow, phase, review) : null;

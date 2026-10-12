@@ -17,6 +17,8 @@
  * the advanced operations, and a planner you can call without a repository is a planner you can
  * actually prove that about.
  */
+import { isConvergencePhase, isTestEvidencePhase, scopeStepOf, stepResponsibilities } from './phase-roles.mjs';
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { workflowGuide } from './guide.mjs';
 import { effectivePhasePublicationProducer } from './manual-authorship.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -72,7 +74,8 @@ export function fastPathProfile(definition, workType) {
       milestone,
       // A verb owns the phases it routes. Absent an explicit list the verb owns the phase it is
       // named for, which is the common case and keeps the profile short.
-      phases: Object.freeze(entry.phases ?? [defaultPhaseForVerb(verb)])
+      phases: Object.freeze(entry.phases ?? [defaultPhaseForVerb(verb)]),
+      defaulted: !entry.phases
     };
   }
   return Object.keys(verbs).length ? Object.freeze({ workType, verbs: Object.freeze(verbs) }) : null;
@@ -85,10 +88,28 @@ function defaultPhaseForVerb(verb) {
   })[verb];
 }
 
+/** The step a defaulted verb owns by role, for a workflow that renamed or never had the seeded step. */
+function phaseForVerbRole(workflow, verb) {
+  const order = workflow.phaseOrder ?? [];
+  const phase = (id) => workflow.phases?.[id];
+  const pick = {
+    specify: () => scopeStepOf(workflow)?.id ?? null,
+    plan: () => order.find((id) => stepResponsibilities(workflow, id).includes('plan') && id !== scopeStepOf(workflow)?.id) ?? null,
+    implement: () => order.find((id) => phaseRequiresCodeDelivery(phase(id))) ?? null,
+    verify: () => order.find((id) => isTestEvidencePhase(phase(id))) ?? null,
+    converge: () => order.find((id) => isConvergencePhase(phase(id))) ?? null
+  }[verb];
+  return pick ? pick() : null;
+}
+
 /** Every phase the profile's verbs own, in the order the workflow declares them. */
 function phasesForVerb(workflow, profile, verb) {
-  const declared = profile.verbs[verb]?.phases ?? [];
-  return (workflow.phaseOrder ?? []).filter((id) => declared.includes(id));
+  const entry = profile.verbs[verb];
+  const declared = entry?.phases ?? [];
+  const owned = (workflow.phaseOrder ?? []).filter((id) => declared.includes(id));
+  if (owned.length || !entry?.defaulted) return owned;
+  const byRole = phaseForVerbRole(workflow, verb);
+  return byRole ? [byRole] : [];
 }
 
 /**

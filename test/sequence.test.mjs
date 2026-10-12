@@ -104,7 +104,8 @@ test('sequence guidance describes a no-approval submission as completion and adv
       }
     }
   });
-  assert.equal(guidance.actions[0].command, 'singularity-flow submit plan');
+  // The shared submit route names the Story, so it is exact from any checkout.
+  assert.equal(guidance.actions[0].command, 'singularity-flow submit plan --work-id NO-APPROVAL-1');
   assert.match(guidance.summary, /complete it, and advance/);
   assert.doesNotMatch(guidance.summary, /for approval/);
 });

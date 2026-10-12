@@ -174,6 +174,8 @@ import {
   retainSourceReviewDecision, scopedSourceReviewerSession, sourceReviewContext, sourceReviewInput
 } from './source-review-lifecycle.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
+import { submitRoute } from './submit-route.mjs';
+import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { sourceReviewContextText } from './source-review-context-display.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import {
@@ -341,6 +343,15 @@ import { ABOUT } from './about.mjs';
 import { VERSION } from './version.mjs';
 
 import { HELP } from './help-text.mjs';
+
+/** The route to show instead of submitting: a review not ready yet, or decision values not given. */
+async function submitHeldRoute(root, config, workflow, phase, options) {
+  const review = sourceReviewRequired(workflow, phase.id)
+    ? await readSourceReviewStatus(root, config, workflow, phase.id).catch(() => null) : null;
+  const held = (review && review.status !== 'ready')
+    || (decisionSubmitArguments(workflow, phase.id) && !optionStrings(options, 'decision').length);
+  return held ? submitRoute(workflow, phase) : null;
+}
 
 /**
  * Print one actionable CLI instruction through all supported user surfaces.
@@ -4571,6 +4582,8 @@ async function nextCommand(options) {
         ...options, confirm: false, 'work-id': workflow.workItem.id
       });
     }
+    const held = await submitHeldRoute(root, config, workflow, phase, options);
+    if (held) { printCommandRoutes(held.command, { label: held.reason }); return console.log(held.reason); }
     printCommandRoutes(`singularity-flow submit ${phase.id}`, { label: `Submit '${phase.id}'` });
     console.log(`Submit published phase '${phase.id}' for approval.`);
     return submitCommand(['submit', phase.id], options);
@@ -5664,6 +5677,12 @@ async function specCommand(positionals, options) {
   const policy = workflow.resolution?.spec ?? config.spec;
 
   if (subcommand === 'index') {
+    // A dry run asks whether this step defines clauses: answer it, naming the step that does.
+    if (!isSpecificationDefinitionPhase(phase) && optionBoolean(options, 'dry-run')) {
+      const result = { applies: false, phase: phase.id, indexPhase: scopeStepOf(workflow)?.id ?? null,
+        reason: `'${phase.id}' is reference-only and defines no specification clauses.` };
+      return optionBoolean(options, 'json') ? console.log(JSON.stringify(result, null, 2)) : console.log(result.reason);
+    }
     if (!isSpecificationDefinitionPhase(phase)) {
       throw new SingularityFlowError(
         `Phase '${phase.id}' artifact kind '${phase.requiredArtifact?.kind ?? 'unknown'}' is reference-only and cannot define specification clauses. `
@@ -5707,7 +5726,7 @@ async function specCommand(positionals, options) {
     if (!inputFile) throw new SingularityFlowError('Provide --file with a JSON or YAML claim map.');
     const records = await loadActiveSpecRecords(itemDirectory, workflow);
     const clauseIds = records.indexes.flatMap((index) => (index.clauses ?? []).map((clause) => clause.id));
-    if (!clauseIds.length) throw new SingularityFlowError('No specification index exists. Run singularity-flow spec index first.');
+    if (!clauseIds.length) throw new SingularityFlowError(`No specification index exists. Run singularity-flow spec index --phase ${scopeStepOf(workflow)?.id ?? '<scope-step>'} first.`);
     const claims = normalizeClaimMap(await readStructuredFile(root, inputFile), { kind, clauseIds, policy });
     Object.assign(claims, { workId: workflow.workItem.id, phase: phase.id, generation });
     const relative = posix(path.join(itemRelative, 'context', 'claims', `${phase.id}-gen${generation}-${kind}.json`));
@@ -10220,7 +10239,7 @@ async function reviewSourceCommand(positionals, options) {
   const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
   // Reviewable by what the step does, not what it is called [E2G-001]. Asking whether a review is
   // needed is answered for every step, so a caller never stops on a step that needs none.
-  if (action === 'status' && !sourceReviewKind(workflow, phaseId) && workflow.phases?.[phaseId]) {
+  if (['status', 'context', 'decision-context', 'check'].includes(action) && !sourceReviewKind(workflow, phaseId) && workflow.phases?.[phaseId]) {
     const result = { schemaVersion: 1, resultType: 'source-review-status', workId: workflow.workItem.id, phase: phaseId,
       mode: 'not-applicable', status: 'not-required', findings: [], pendingDispositions: [],
       reason: `'${phaseId}' neither defines the scope nor plans the claims, so it has no source review.` };
@@ -11302,6 +11321,8 @@ async function runCommand(positionals, options) {
     console.log('Use the exact digest-bound confirmation command printed by the review above.');
     return;
   }
+  const held = await submitHeldRoute(root, config, workflow, phase, options);
+  if (held) { printCommandRoutes(held.command, { label: held.reason }); return console.log(held.reason); }
   const noApproval = phase.approvalPolicy?.mode === 'none';
   const submit = optionBoolean(options, 'yes') || await confirmYesNo(
     `Generation ${phase.generation} is published. ${noApproval

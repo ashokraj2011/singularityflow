@@ -1,5 +1,5 @@
 /** Read-only author/reviewer handoff. A draft is never evidence of publication. */
-import { phaseNeedsGeneration } from './sequence.mjs';
+import { phaseExplicitlyReopened, phaseNeedsGeneration } from './sequence.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { generationSkillForPhase, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { copilotAction } from './copilot-guidance.mjs';
@@ -19,7 +19,7 @@ export function sourceReviewContinuation(workflow, phase, review = null) {
   } else if (phaseNeedsGeneration(workflow, phase) || (review?.status === 'correction-required'
       && (review.findings ?? []).some(finding => finding.code !== 'human-disposition-required'))) {
     classification = 'successor-publication-required'; generation = nextPhaseGeneration(phase);
-    actions = phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed'
+    actions = phaseRequiresCodeDelivery(phase) && phase.generationIntent?.status === 'consumed' && !phaseExplicitlyReopened(workflow, phase)
       ? [action('/sf-recover', `singularity-flow phase rollover ${phase.id} --json`,
         'Review the guarded code successor boundary; preserve the published generation and its tests.')]
       : [action(generationSkillForPhase(phase, workflow), `singularity-flow prepare ${phase.id}`,

@@ -574,6 +574,19 @@ async function carriedUnreadableDecisions(root, config, workflow, phaseId, input
 
 /** Read current review and decisions, then recompute all source and artifact bindings. */
 export async function readSourceReviewStatus(root, config, workflow, phaseId) {
+  // Status is a question: a skipped or not-yet-published step is answered, never refused.
+  const step = workflow.phases?.[phaseId];
+  if (step?.status === 'skipped') {
+    return { schemaVersion: 1, resultType: 'source-review-status', workId: workflow.workItem.id, phase: phaseId, // schema-transient
+      generation: step.generation ?? 0, status: 'not-required', reason: 'step-skipped', reportPath: null, reportSha256: null,
+      binding: null, pendingDispositions: [], findings: [] };
+  }
+  if (step && (!['in_progress', 'awaiting_approval', 'approved'].includes(step.status) || !(Number(step.generation) >= 1))) {
+    return { schemaVersion: 1, resultType: 'source-review-status', workId: workflow.workItem.id, phase: phaseId, // schema-transient
+      generation: Number(step.generation ?? 0), status: 'not-yet-published', reportPath: null, reportSha256: null, binding: null,
+      pendingDispositions: [], findings: [{ code: 'source-review-unpublished', message: 'Publish this step before its independent source review.' }],
+      continuation: sourceReviewContinuation(workflow, step) };
+  }
   const phase = checkPublishedGeneration(workflow, phaseId);
   if (workflow.currentPhase === phaseId && phase.status === 'in_progress'
       && phaseNeedsGeneration(workflow, phase) && !sourceReviewAuthorConflict(workflow, phase)) {

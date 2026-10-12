@@ -2130,6 +2130,9 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
   if (!finalStep) {
     const open = coverage.unimplemented.filter((id) => allocatedHere.includes(id));
     if (!open.length) return coverage;
+    if (enforcement !== 'enforce') {
+      return { ...coverage, advisory: open.map((id) => `clause ${id}, which the plan allocates to ${phase.id}, is not fully implemented; this Story's ending refuses it unless a later step delivers it`) };
+    }
     throw new SingularityFlowError(
       `Phase '${phase.id}' cannot be ${boundary} because rows the plan allocates to it are not implemented:\n- `
       + open.map((id) => `clause ${id} is not fully implemented`).join('\n- ')
@@ -2138,15 +2141,21 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
         evidenceCommit, allocated: allocatedHere, open, coverage: { ...coverage, unimplemented: open } } }
     );
   }
-  // A qualified ending refuses what this list holds except unclaimed paths, which it only warns on.
-  const blocking = enforcement === 'enforce' ? coverage : { ...coverage, unclaimedChangedPaths: [] };
-  if (coverage.complete || (enforcement !== 'enforce' && !blocking.unimplemented.length
-    && !blocking.withdrawnButClaimed.length && !blocking.invalidEvidence.length)) return coverage;
+  if (coverage.complete) return coverage;
+  // Recorded coverage is told what a qualified ending refuses: all of this but unclaimed paths.
+  if (enforcement !== 'enforce') {
+    const advisory = [
+      ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),
+      ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
+      ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
+    ].map((line) => `${line}; this Story's ending refuses it unless a later step corrects it`);
+    return advisory.length ? { ...coverage, advisory } : coverage;
+  }
   const findings = [
-    ...blocking.unimplemented.map((id) => `clause ${id} is not fully implemented`),
-    ...blocking.unclaimedChangedPaths.map((candidate) => `changed path is not claimed by a clause: ${candidate}; add it to a row with singularity-flow decision plan --add-location <clause>=${candidate} --reason <why>, or list it as a supporting change`),
-    ...blocking.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
-    ...blocking.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
+    ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),
+    ...coverage.unclaimedChangedPaths.map((candidate) => `changed path is not claimed by a clause: ${candidate}; add it to a row with singularity-flow decision plan --add-location <clause>=${candidate} --reason <why>, or list it as a supporting change`),
+    ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
+    ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
   ];
   throw new SingularityFlowError(
     `Phase '${phase.id}' cannot be ${boundary} because specification coverage is incomplete:\n- ${findings.join('\n- ')}\n`
@@ -2155,10 +2164,10 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
       code: 'SPEC_COVERAGE_INCOMPLETE',
       details: {
         workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
-        evidenceCommit, coverage: blocking,
+        evidenceCommit, coverage,
         // An unplanned path is accounted for by a narrow plan amendment, not by deleting it [E2G-012].
-        ...(blocking.unclaimedChangedPaths.length ? {
-          recoveryCommands: blocking.unclaimedChangedPaths.slice(0, 3).map((candidate) =>
+        ...(coverage.unclaimedChangedPaths.length ? {
+          recoveryCommands: coverage.unclaimedChangedPaths.slice(0, 3).map((candidate) =>
             `singularity-flow decision plan ${workflow.workItem.id} --add-location <clause>=${candidate} --reason <why>`)
         } : {})
       }
@@ -5005,7 +5014,8 @@ async function submitPhaseTransition(root, config, workflow, {
   await assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });
   const pendingSubmissionEvidence = await pendingCodeSubmissionEvidence(root, config, workflow, phase);
   if (phaseRequiresCodeDelivery(phase) && phase.generationCommit && !pendingSubmissionEvidence) {
-    await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, phase.generationCommit, { boundary: 'submitted' });
+    const coverage = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, phase.generationCommit, { boundary: 'submitted' });
+    for (const line of coverage?.advisory ?? []) console.warn(`Warning: ${line}`);
   }
   session ??= await loadSession(root);
   recordSubmittedDecisionInputs(workflow, phase, decisionValues, session.actor);
@@ -6054,9 +6064,9 @@ export async function approvePhase(root, config, workflow, {
         );
       }
     }
-    approvalQualityRisk = (await assertFinalCodeSpecificationCoverage(
-      root, config, workflow, phase, submittedReview.evidenceCommit
-    ))?.acceptedRisk ?? null;
+    const coverage = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, submittedReview.evidenceCommit);
+    for (const line of coverage?.advisory ?? []) console.warn(`Warning: ${line}`);
+    approvalQualityRisk = coverage?.acceptedRisk ?? null;
   }
   if (phase.requiredArtifact?.kind === 'conformance-report') {
     const report = await readArtifactText(root, requiredRepoPath(config, workflow, phase));

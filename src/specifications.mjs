@@ -100,10 +100,11 @@ export function isSpecificationDefinitionPhase(phase) {
 }
 
 /**
- * Whether code steps must answer for clause coverage. Enforced coverage always does. Recorded
- * coverage on a Story whose conformance report has qualified rows does too, for what its ending
- * refuses (an unimplemented, withdrawn or invalidly evidenced clause; an unclaimed path only warns
- * there): the code step is the last place that can still fix it [gate parity].
+ * How code steps answer for clause coverage. Enforced coverage refuses there. Recorded coverage on
+ * a Story whose conformance report has qualified rows is told there what its ending will refuse (an
+ * unimplemented, withdrawn or invalidly evidenced clause; an unclaimed path only warns there), as a
+ * warning: an incomplete generation is legitimate while a convergence review or a later step can
+ * still deliver it, and the code step is where its owner can see it [gate parity].
  */
 export function codeCoverageEnforcement(policy) {
   if (policy?.coverage === 'enforce') return 'enforce';

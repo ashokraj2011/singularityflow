@@ -5,7 +5,8 @@
  * earlier check or person had been shown. Every code the gate can refuse with is listed here with
  * who owns it and how it is met before the gate runs:
  *
- * - `same-check`: the same function runs earlier, where its owner can still fix it (`checks`).
+ * - `same-check`: the same function runs earlier, where its owner can still fix it (`checks`); it
+ *   refuses there, or warns where the policy leaves the step free to finish later (`at` says which).
  * - `approval`: the approve command decides it from the approver's own authority.
  * - `integrity`: it detects a change made after the fact; no earlier check can prevent that.
  * - `operational`: the environment's state (remote, configuration), shown by status and sync.
@@ -25,8 +26,8 @@ const CONFORMANCE_CONTRACT = [
 ];
 const QUALIFIED_ROWS = [check('conformance-readiness.mjs', 'inspectQualifiedConformanceReport', 'draft-check, publication, submission')];
 const CODE_COVERAGE = [
-  check('spec-coverage-preview.mjs', 'assertStrictCandidateSpecificationCoverage', 'code publication'),
-  check('state.mjs', 'assertStrictCodeSpecificationCoverage', 'code submission and approval')
+  check('spec-coverage-preview.mjs', 'assertStrictCandidateSpecificationCoverage', 'code publication (refuses when enforced, returns a warning when recorded)'),
+  check('state.mjs', 'assertStrictCodeSpecificationCoverage', 'code submission and approval (refuses when enforced, warns when recorded)')
 ];
 
 export const GATE_PARITY = Object.freeze({
@@ -53,10 +54,10 @@ export const GATE_PARITY = Object.freeze({
   'gate.clause.invalid-evidence': entry('author', 'same-check', { checks: CODE_COVERAGE }),
   'gate.clause.unclaimed-path': entry('author', 'same-check', { checks: [
     check('spec-coverage-preview.mjs', 'inspectUnclaimedChangedPaths', 'code draft-check (advisory)'),
-    check('state.mjs', 'assertStrictCodeSpecificationCoverage', 'code submission and approval')
+    check('state.mjs', 'assertStrictCodeSpecificationCoverage', 'code submission and approval (enforced coverage only; recorded endings only warn)')
   ] }),
   'gate.clause.unimplemented': entry('author', 'same-check', { checks: CODE_COVERAGE }),
-  'gate.clause.withdrawn-claimed': entry('author', 'same-check', { checks: [check('state.mjs', 'assertStrictCodeSpecificationCoverage', 'code submission and approval')] }),
+  'gate.clause.withdrawn-claimed': entry('author', 'same-check', { checks: [check('state.mjs', 'assertStrictCodeSpecificationCoverage', 'code submission and approval (refuses when enforced, warns when recorded)')] }),
   'gate.code-delivery.commit-mismatch': entry('engine', 'integrity'),
   'gate.code-delivery.packet-mismatch': entry('engine', 'integrity'),
   'gate.code-delivery.receipt-missing': entry('engine', 'integrity'),

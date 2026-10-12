@@ -33,7 +33,8 @@ export async function assertCandidateSpecificationCoverage(root, config, workflo
 
 export async function assertStrictCandidateSpecificationCoverage(root, config, workflow, phase, delivery) {
   const policy = normalizeSpecPolicy(workflow.resolution?.spec ?? config.spec ?? {});
-  if (!codeCoverageEnforcement(policy) || workflow.resolution?.plannedClaims?.mode !== 'required') return null;
+  const enforcement = codeCoverageEnforcement(policy);
+  if (!enforcement || workflow.resolution?.plannedClaims?.mode !== 'required') return null;
   const codePhases = workflow.phaseOrder.filter((id) => phaseRequiresCodeDelivery(workflow.phases[id]));
   const final = codePhases.at(-1) === phase.id;
   const records = await loadBoundActiveSpecRecords(root, workDir(root, config, workflow.workItem.id), workflow, policy,
@@ -74,6 +75,10 @@ export async function assertStrictCandidateSpecificationCoverage(root, config, w
     ...(gap.missingTestPaths.length ? [`test paths/bindings: ${gap.missingTestPaths.join(', ')}`] : []),
     ...(gap.missingConfigurationPaths.length ? [`configuration paths: ${gap.missingConfigurationPaths.join(', ')}`] : [])
   ].join('; ') || gap.verdict})`).join('; ');
+  // Recorded coverage is told, not refused: the ending refuses only what is still open then.
+  if ((open.length || (final && coverage.invalidEvidence.length)) && enforcement !== 'enforce') {
+    return { ...coverage, advisory: [`Planned delivery is incomplete: ${gapText || coverage.invalidEvidence.join('; ')}. This Story's ending refuses an unimplemented clause; deliver it in this step or a later one.`] };
+  }
   if (open.length || (final && coverage.invalidEvidence.length)) throw new SingularityFlowError(
     `Phase '${phase.id}' has incomplete planned delivery before publication: ${gapText || coverage.invalidEvidence.join('; ')}. `
     + 'Inspect these exact source/test obligations while this generation is editable. Add a binding only where the approved behavior is actually implemented; an incorrect location needs a reviewed plan correction. Preserve application code and approved maps. A screenshot is fulfillment evidence, not an executable test or an automatic visual pass.',

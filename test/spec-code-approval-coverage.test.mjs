@@ -459,22 +459,24 @@ test('a changed file the plan lists under Supporting files needs no clause, and 
   assert.equal((await inspectUnclaimedChangedPaths(root, config, workflow, phase)).coverage.status, 'ready');
 });
 
-test('the packaged default (recorded coverage, qualified rows) is answered at the code step, as its ending will', async () => {
+test('the packaged default (recorded coverage, qualified rows) tells the code step what its ending will refuse', async () => {
   // The ending refuses an unimplemented clause on a qualified Story even though coverage is only
-  // recorded. The code step said nothing, so the refusal came first at the release approval.
+  // recorded, and the code step said nothing, so the refusal came first at the release approval.
+  // Recorded coverage still lets an incomplete generation through (a convergence review or a later
+  // step may deliver it); the code step now says what is open instead of staying silent.
   const { root, config, workflow, observedPath, observedRecord } = await fixture();
   workflow.resolution.spec = { mode: 'record', coverage: 'record', conformanceRows: 'qualified' };
   workflow.resolution.codeDelivery = { traceability: { sourceBindings: 'enforce' } };
   const phase = workflow.phases.implementation;
-  await assert.rejects(() => assertFinalCodeSpecificationCoverage(root, config, workflow, phase, git(root, 'rev-parse', 'HEAD')),
-    (error) => error.code === 'SPEC_COVERAGE_INCOMPLETE' && error.details.coverage.unimplemented.includes('COVER-1:REQ-002'));
+  const partial = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, git(root, 'rev-parse', 'HEAD'));
+  assert.deepEqual(partial.advisory, ["clause COVER-1:REQ-002 is not fully implemented; this Story's ending refuses it unless a later step corrects it"]);
   const candidate = (paths) => ({ sourcePaths: paths, testPaths: [], fulfillment: [],
     sourceBindings: { bindings: paths.map((sourcePath, index) => ({ sourcePath, clauseId: `COVER-1:REQ-00${index + 1}` })) },
     changeSet: { entries: paths.map((newPath) => ({ newPath })) } });
-  await assert.rejects(() => assertCandidateSpecificationCoverage(root, config, workflow, phase, candidate(['src/first.mjs'])),
-    { code: 'SPEC_COVERAGE_INCOMPLETE' });
+  const published = await assertCandidateSpecificationCoverage(root, config, workflow, phase, candidate(['src/first.mjs']));
+  assert.match(published.advisory[0], /^Planned delivery is incomplete: COVER-1:REQ-002 .*ending refuses an unimplemented clause/u);
 
-  // An unclaimed path only warns at that ending, so the code step does not refuse it either.
+  // An unclaimed path only warns at that ending, so it is not among what the code step is told.
   await write(root, 'src/second.mjs', '// @clause:COVER-1:REQ-002\nexport const second = true;\n');
   await write(root, 'src/extra.mjs', 'export const extra = 1;\n');
   const complete = observedRecord(['src/first.mjs', 'src/second.mjs']);
@@ -483,10 +485,13 @@ test('the packaged default (recorded coverage, qualified rows) is answered at th
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'complete second clause with one unplanned file');
   const coverage = await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, git(root, 'rev-parse', 'HEAD'));
-  assert.deepEqual([coverage.unimplemented, coverage.unclaimedChangedPaths], [[], ['src/extra.mjs']]);
+  assert.deepEqual([coverage.unimplemented, coverage.unclaimedChangedPaths, coverage.advisory], [[], ['src/extra.mjs'], undefined]);
 
-  // Legacy rows end on recorded coverage alone, so the code step stays advisory there too.
+  // Enforced coverage still refuses at the code step.
+  workflow.resolution.spec = { mode: 'enforce', coverage: 'enforce', conformanceRows: 'qualified' };
+  await assert.rejects(() => assertFinalCodeSpecificationCoverage(root, config, workflow, phase, git(root, 'rev-parse', 'HEAD')),
+    (error) => error.code === 'SPEC_COVERAGE_INCOMPLETE' && error.details.coverage.unclaimedChangedPaths.includes('src/extra.mjs'));
+  // Legacy rows end on recorded coverage alone, so the code step stays silent there.
   workflow.resolution.spec = { mode: 'record', coverage: 'record', conformanceRows: 'legacy' };
-  phase.claimMaps.observed.sha256 = digest(complete);
   assert.equal(await assertFinalCodeSpecificationCoverage(root, config, workflow, phase, git(root, 'rev-parse', 'HEAD')), null);
 });

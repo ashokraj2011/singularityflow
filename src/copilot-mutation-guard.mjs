@@ -12,6 +12,7 @@ import { safeCommandGuidance, validateSflowExecutionCommand } from './safe-comma
 
 const MAX_AGE = 30 * 60 * 1000;
 const TERMINALS = new Set(['bash', 'powershell', 'run_in_terminal', 'execute', 'exec_command', 'write_stdin']);
+const DECIDE_SKILL_MUTATIONS = Object.freeze(['choose', 'applicability', 'scope', 'completeness', 'plan']);
 const DELEGATION = new Set(['task', 'spawn_agent', 'write_agent', 'delegate', 'run_subagent']);
 const digest = value => createHash('sha256').update(value).digest('hex');
 const directory = () => path.join(path.dirname(copilotModeFile()), 'copilot-boundaries');
@@ -217,6 +218,12 @@ function shellAllowed(call, mode, value) {
     && typeof options.reason === 'string' && /^[a-f0-9]{64}$/u.test(options.confirm ?? '')
     && positionals.length === 3
     && Object.keys(options).every(key => ['work-id', 'finding', 'reason', 'confirm', 'json'].includes(key));
+  // The /sf-decide turn boundary: the decision commands its skill names, for the bound Story only.
+  // `decision risk` and `decision witness` stay outside it; a witness needs the human terminal.
+  if (mode === 'decision-only') return !value.decisionEnded && positionals[0] === 'decision'
+    && DECIDE_SKILL_MUTATIONS.includes(positionals[1]) && positionals.length <= 3
+    && (!positionals[2] || positionals[2] === value.contract.workId)
+    && (!options['work-id'] || options['work-id'] === value.contract.workId);
   if (mode === 'session-only') return ['session', 'agent', 'resume'].includes(positionals[0])
     || positionals[0] === 'workspace' && ['use', 'switch'].includes(positionals[1]);
   if (mode === 'read-only-review') return positionals[0] === 'review-source'
@@ -240,6 +247,12 @@ function mentionsKernelExecution(call, value) {
 function bootstrapAllowed(call, record) {
   if (shellAllowed(call, 'read', record)) return true;
   const mode = mutationTurnMode(record.skill);
+  // The /sf-decide turn boundary: the decision commands its skill names, for the bound Story only.
+  // `decision risk` and `decision witness` stay outside it; a witness needs the human terminal.
+  if (mode === 'decision-only') return !value.decisionEnded && positionals[0] === 'decision'
+    && DECIDE_SKILL_MUTATIONS.includes(positionals[1]) && positionals.length <= 3
+    && (!positionals[2] || positionals[2] === value.contract.workId)
+    && (!options['work-id'] || options['work-id'] === value.contract.workId);
   if (mode === 'session-only') return shellAllowed(call, mode, record);
   // Repository setup has no Story yet. Its registered CLI operations retain their existing
   // configuration authority and confirmations; this exception never authorizes file tools.
@@ -380,15 +393,20 @@ export async function refreshMutationContracts(root, accepted = null, { decision
   }
 }
 
-/** Failed decisions end approval-only turns even when accepted-state reloading fails. */
-export async function endMutationDecisionTurns(root) {
+/**
+ * Failed decisions end approval-only turns even when accepted-state reloading fails.
+ *
+ * A failed workflow decision (`decision choose` and its siblings) ends only /sf-decide turns, whose
+ * skill says any refusal ends the turn; it never ends an unrelated approval turn.
+ */
+export async function endMutationDecisionTurns(root, { modes = ['approval-only', 'review-decision-only'] } = {}) {
   if (readCopilotMode().paused || !root) return;
   root = await realpath(root);
   for (const name of (await readdir(directory()).catch(() => [])).filter(name => /^[a-f0-9]{64}\.mutation\.json$/u.test(name))) {
     const file = path.join(directory(), name);
     const value = await boundedRecord(file).catch(() => null);
     if ((value?.contract?.repositoryRoot ?? value?.repositoryRoot) !== root
-        || !['approval-only', 'review-decision-only'].includes(mutationTurnMode(value.skill))) continue;
+        || !modes.includes(mutationTurnMode(value.skill))) continue;
     value.decisionEnded = true;
     await atomicRecord(file, value);
   }

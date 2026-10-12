@@ -89,6 +89,13 @@ test('an issue raised mid-step is returned to its owners without the step being 
   assert.notEqual(later.status, 0);
   assert.match(later.stdout + later.stderr, /earlier step/u);
   assert.match(cli('status').stdout, /Open upstream issues: UPI-001 \(intake\)/u);
+  // The author's own draft lists a discrepancy; filing it is idempotent per item.
+  const summary = path.join(root, 'singularity/work-items/ISSUE-1/artifacts/implementation/implementation-summary.md');
+  await writeFile(summary, `${await readFile(summary, 'utf8')}\n## Upstream discrepancies\n\n- intake: Scope and constraints never name the rounding rule for the value.\n`);
+  const filed = JSON.parse(cli('upstream-issue', 'raise', '--from-artifact', '--json').stdout).data.issues;
+  assert.deepEqual(filed.map((issue) => [issue.id, issue.phase, issue.source.path.endsWith('implementation-summary.md')]), [['UPI-002', 'intake', true]]);
+  assert.deepEqual(JSON.parse(cli('upstream-issue', 'raise', '--from-artifact', '--json').stdout).data.issues, [], 'filed once per item');
+  cli('upstream-issue', 'decide', 'UPI-002', '--outcome', 'dismiss', '--reason', 'Rounding is defined by the platform library already.');
   assert.deepEqual(JSON.parse(cli('upstream-issue', 'list', '--open', '--json').stdout).data.issues.map((issue) => issue.status), ['open']);
 
   const returned = attempt('upstream-issue', 'decide', 'UPI-001', '--outcome', 'return', '--reason', 'Intake must state the caching rule first.');
@@ -100,7 +107,8 @@ test('an issue raised mid-step is returned to its owners without the step being 
   const request = after.changeRequests.at(-1);
   assert.equal(request.upstreamIssue, 'UPI-001');
   assert.equal(request.targetPhase, 'intake');
-  assert.deepEqual(after.upstreamIssueDecisions.map((entry) => [entry.issue, entry.outcome, entry.link]), [['UPI-001', 'return', request.id]]);
+  assert.deepEqual(after.upstreamIssueDecisions.map((entry) => [entry.issue, entry.outcome, entry.link]),
+    [['UPI-002', 'dismiss', null], ['UPI-001', 'return', request.id]]);
   assert.equal(run('git', ['status', '--porcelain', '--', 'src/value.mjs'], root).stdout.trim(), 'M src/value.mjs', 'the draft code is kept');
   assert.deepEqual(JSON.parse(cli('upstream-issue', 'list', '--open', '--json').stdout).data.issues, []);
 });

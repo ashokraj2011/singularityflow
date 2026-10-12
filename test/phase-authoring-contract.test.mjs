@@ -31,7 +31,7 @@ test('installed contracts follow capabilities across all phases, renamed workflo
       assert.equal(contract.revalidatePriorDraftQuality, false);
       assert.equal(contract.draftDefectsPreventRepair, false);
       assert.equal(contract.repairIsApproval, false);
-      assert.equal(contract.revision, 'phase-authoring-v6');
+      assert.equal(contract.revision, 'phase-authoring-v7');
       assert.deepEqual(contract.configuration, { productSource: false, sourceTagsRequired: false,
         apiDocumentationRequired: false, scopeAccountingRequired: true, candidateAndTestInput: true, protectedPathsEnforced: true });
       assert.match(phaseAuthoringContractLines(contract).join('\n'), /configuration, never product code/);

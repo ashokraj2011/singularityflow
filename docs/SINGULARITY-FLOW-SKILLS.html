@@ -2310,7 +2310,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1044 body tokens</span>
+          <span class="pill">~1049 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-decide</code></dd></div>
@@ -2340,17 +2340,18 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 **Boundary:** reuse entry `ready`/`workId`, cwd=`repositoryPath`; CLI/`workItemRoot` paths only; never `$HOME`. No duplicate lookup.
 
 &lt;!-- sflow-turn-boundary: decision-only --&gt;
-**Turn boundary — decision-only:** `singularity-flow decision choose`, `singularity-flow decision applicability`, `singularity-flow decision scope`, `singularity-flow decision completeness` and `singularity-flow decision plan` are the only permitted mutations. Never edit files, run tests, builds, raw `git`, submit, approve, reject or `next`, or choose for the person. Any refusal ends this turn.
+**Turn boundary — decision-only:** `singularity-flow decision choose|applicability|scope|completeness|plan` and `singularity-flow upstream-issue decide` are the only permitted mutations. Never edit files, run tests or builds, raw `git`, submit, approve, reject or `next`. The person types every choice and reason; never supply, infer or default one. Any refusal ends this turn.
 
-1. Run `singularity-flow decision show &lt;WORK-ID&gt; --json`. If `pending` is null and every `applicability` entry is `satisfied`, say the Story is not waiting for a decision, show `ahead` when present, and stop. If only `applicability` is open, go to step 6.
+1. Run `singularity-flow decision show &lt;WORK-ID&gt; --json`. If `pending` is null and every `applicability` entry is `satisfied`, say nothing is waiting, show `ahead` if present, and stop. If only `applicability` is open, go to step 6.
 2. Show `pending.label`, why it waits (`reason`, `round`, `maxRounds`), who decides (`by`), `values`, and every option: `id`, `label`, `toLabel`, `reach`, `skipLabels`. With `anyStep`, a step ID or `end` may be named instead.
-3. Ask the person to type the option ID, or a step, and a reason. Never supply, infer or default either.
-4. Run `singularity-flow decision choose &lt;WORK-ID&gt; --fetch --option &lt;ID&gt; --reason &quot;&lt;REASON&gt;&quot; --expected &lt;pending.key&gt;`, or `--to &lt;STEP&gt;` in place of `--option`. The CLI checks the person&#39;s approval group and that the question has not changed.
-5. Report the commit, route, skipped steps, authority group and next phase. Show `Next in Copilot: /sf-next` and stop.
-6. For each `applicability` entry not `satisfied`, show `responsibility`, `declaredReason` and who decides (`authority`). Ask the person why it does not apply to this Story; never supply one. Run `singularity-flow decision applicability &lt;WORK-ID&gt; --fetch --responsibility &lt;RESPONSIBILITY&gt; --reason &quot;&lt;REASON&gt;&quot;`, report the commit, and stop.
-7. Scope statements: run `singularity-flow evidence scope &lt;WORK-ID&gt; --json`. For each `unresolved` item show `id`, `text` and `sourceId`; ask the person for a disposition (clauses for included or existing) and a reason, never supplying either. Run `singularity-flow decision scope &lt;WORK-ID&gt; --fetch --item &lt;ID&gt; --as &lt;DISPOSITION&gt; [--clause &lt;IDS&gt;] --reason &quot;&lt;REASON&gt;&quot;`.
-8. Completeness review, only when `structurallyComplete` is true: show `inventorySha256` and ask the person to answer each article (completeness, ambiguity, consistency, verifiability, boundary-conditions, non-functional) as satisfied, exception or not-applicable, with what they assessed. Run `singularity-flow decision completeness &lt;WORK-ID&gt; --fetch --confirm &lt;inventorySha256&gt; --article &lt;ID&gt;=&lt;DECISION&gt;... --reason &quot;&lt;REASON&gt;&quot;`. Say it records a review, never that the scope is correct.
-9. Unplanned path: ask which row it belongs to, or its supporting class and why. Run `singularity-flow decision plan &lt;WORK-ID&gt; --fetch --add-location &lt;CLAUSE&gt;=&lt;PATH&gt; --reason &quot;&lt;REASON&gt;&quot;`.
+3. Ask for the option ID, or a step, and a reason.
+4. Run `singularity-flow decision choose &lt;WORK-ID&gt; --fetch --option &lt;ID&gt; --reason &quot;&lt;REASON&gt;&quot; --expected &lt;pending.key&gt;`, or `--to &lt;STEP&gt;` in place of `--option`.
+5. Report the commit, route, skipped steps, authority group and next phase; show `Next in Copilot: /sf-next`; stop.
+6. For each `applicability` entry not `satisfied`, show `responsibility`, `declaredReason` and who decides (`authority`); ask why it does not apply. Run `singularity-flow decision applicability &lt;WORK-ID&gt; --fetch --responsibility &lt;RESPONSIBILITY&gt; --reason &quot;&lt;REASON&gt;&quot;`; report the commit; stop.
+7. Scope statements: run `singularity-flow evidence scope &lt;WORK-ID&gt; --json`. For each `unresolved` item show `id`, `text` and `sourceId`; ask for a disposition (clauses for included or existing) and a reason. Run `singularity-flow decision scope &lt;WORK-ID&gt; --fetch --item &lt;ID&gt; --as &lt;DISPOSITION&gt; [--clause &lt;IDS&gt;] --reason &quot;&lt;REASON&gt;&quot;`.
+8. Completeness review, only when `structurallyComplete`: show `inventorySha256`; ask for each article (completeness, ambiguity, consistency, verifiability, boundary-conditions, non-functional) as satisfied, exception or not-applicable. Run `singularity-flow decision completeness &lt;WORK-ID&gt; --fetch --confirm &lt;inventorySha256&gt; --article &lt;ID&gt;=&lt;DECISION&gt;... --reason &quot;&lt;REASON&gt;&quot;`. A review, never proof the scope is correct.
+9. Unplanned path: ask for its row, or its supporting class and why. Run `singularity-flow decision plan &lt;WORK-ID&gt; --fetch --add-location &lt;CLAUSE&gt;=&lt;PATH&gt; --reason &quot;&lt;REASON&gt;&quot;`.
+10. Upstream issues: run `singularity-flow upstream-issue list --work-id &lt;WORK-ID&gt; --open --json`; show each `id`, `phase`, `about`, `problem`. Outcomes: plan-correction (`--link PRC-NNN`), return, accept-risk (`--expires YYYY-MM-DD`) or dismiss. Run `singularity-flow upstream-issue decide &lt;UPI-ID&gt; --work-id &lt;WORK-ID&gt; --outcome &lt;OUTCOME&gt; --reason &quot;&lt;REASON&gt;&quot;`.
 </code></pre>
       </div>
     </details>

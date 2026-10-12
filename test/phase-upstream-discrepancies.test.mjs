@@ -18,12 +18,13 @@ test('an author records a wrong approved input and continues instead of editing 
   const workflow = { workItem: { id: 'UPS-1' }, phaseOrder: ['specification', 'planning'],
     phases: { specification: { id: 'specification' }, planning: { id: 'planning' } } };
   const contract = phaseAuthoringContract({}, workflow, workflow.phases.planning);
-  assert.equal(contract.revision, 'phase-authoring-v6');
+  assert.equal(contract.revision, 'phase-authoring-v7');
   assert.equal(contract.recovery.upstreamDefect, 'record-and-continue');
   const lines = phaseAuthoringContractLines(contract).join('\n');
   assert.ok(lines.includes(UPSTREAM_DISCREPANCY_PROTOCOL));
   assert.match(UPSTREAM_DISCREPANCY_PROTOCOL, /do not edit it and do not stop/u);
   assert.match(UPSTREAM_DISCREPANCY_PROTOCOL, /## Upstream discrepancies/u);
+  assert.match(UPSTREAM_DISCREPANCY_PROTOCOL, /singularity-flow upstream-issue raise --from-artifact/u);
   assert.match(UPSTREAM_DISCREPANCY_PROTOCOL, /Stop only for a refusal about changed or unapproved input bytes/u);
   // A kernel-generated artifact is not authored, so it carries no instruction to write into it.
   assert.ok(!phaseAuthoringContractLines(contract, { deterministicOnly: true }).join('\n')

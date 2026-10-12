@@ -32,7 +32,7 @@ export function phaseAuthoringContract(definition, workflow, phase) {
   if (isTestEvidencePhase(phase)) roles.add('verification');
   if (isConformancePhase(phase)) roles.add('closure');
   const evidenceRoot = path.posix.join(definition.workItemRoot ?? 'singularity/work-items', workflow?.workItem?.id ?? '<WORK-ID>', 'evidence');
-  return Object.freeze({ revision: 'phase-authoring-v6', phase: phase.id, roles: [...roles].sort(),
+  return Object.freeze({ revision: 'phase-authoring-v7', phase: phase.id, roles: [...roles].sort(),
     priorApprovalsImmutable: true, revalidatePriorDraftQuality: false,
     executionEvidence: { authority: 'immutable-submission-packets', discoveryIsExecution: false,
       commandSuccessIsCriterionAcceptance: false, priorReportsMutable: false },
@@ -68,7 +68,7 @@ export function phaseAuthoringContract(definition, workflow, phase) {
  * stopped. The section it asks for is optional, so a phase with nothing to report has no extra
  * heading, and `upstreamDiscrepancies` (phase-upstream-discrepancies.mjs) shows it to reviewers.
  */
-export const UPSTREAM_DISCREPANCY_PROTOCOL = '- Upstream discrepancies: approved earlier-phase artifacts are fixed evidence. If one is wrong, incomplete or contradicts another input or the pinned source, do not edit it and do not stop: continue on the most conservative reading consistent with the pinned source, and list each item under `## Upstream discrepancies` (producer phase, exact clause or section, problem, assumption used, impact, proposed owner action). Stop only for a refusal about changed or unapproved input bytes (use its restore or return route), or when no reading satisfies the pinned source.';
+export const UPSTREAM_DISCREPANCY_PROTOCOL = '- Upstream discrepancies: approved earlier-phase artifacts are fixed evidence. If one is wrong, incomplete or contradicts another input or the pinned source, do not edit it and do not stop: continue on the most conservative reading consistent with the pinned source, and list each item under `## Upstream discrepancies` (producer phase, exact clause or section, problem, assumption used, impact, proposed owner action), then file them once with `singularity-flow upstream-issue raise --from-artifact`; the producer\'s approvers decide them. Stop only for a refusal about changed or unapproved input bytes (use its restore or return route), or when no reading satisfies the pinned source.';
 
 export function phaseAuthoringContractLines(contract, { deterministicOnly = false } = {}) {
   if (!contract) return [];

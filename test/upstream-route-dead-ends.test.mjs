@@ -57,18 +57,22 @@ test('recover on an approved phase explains how it changes and offers only the r
   assert.match(result.actions[0].detail, /implementation is approved\. An approved phase is never edited or repaired in place/);
   assert.equal(result.actions[0].command, 'singularity-flow recover DEAD-1 --phase conformance --json');
   assert.deepEqual(result.actions.slice(1).map(action => action.command), [
-    'singularity-flow reject conformance --work-id DEAD-1 --to implementation --reason <reason>'
+    'singularity-flow reject conformance --work-id DEAD-1 --to implementation --reason <reason>',
+    'singularity-flow upstream-issue raise --work-id DEAD-1 --phase implementation --about <clause-or-section> --problem <what-is-wrong>'
   ]);
 
   const scope = await inspectPhaseRecovery(packageRoot, {}, submitted, submitted.phases.specification);
-  assert.deepEqual(scope.actions.slice(1).map(action => action.id), ['return:specification', 'intent-amendment:specification']);
+  assert.deepEqual(scope.actions.slice(1).map(action => action.id), ['return:specification', 'intent-amendment:specification', 'upstream-issue:specification']);
 
   const authoring = story(ORDER, { currentStatus: 'in_progress', rejectTo: ['conformance'] });
   const blocked = await inspectPhaseRecovery(packageRoot, {}, authoring, authoring.phases.implementation);
-  assert.equal(blocked.actions.length, 1, 'no reject is offered from an in-progress phase or to a disallowed target');
+  // No reject from an in-progress phase or to a disallowed target; raising the issue stays open.
+  assert.deepEqual(blocked.actions.slice(1).map(action => action.id), ['upstream-issue:implementation']);
   assert.match(blocked.actions[0].detail, /conformance may not return work to implementation; its allowed return targets are conformance/);
-  assert.equal(raiseUpstreamIssueRoute(authoring, 'implementation', 'conformance'), null,
-    'the raise-upstream-issue hook exists and offers nothing until that route lands');
+  assert.match(raiseUpstreamIssueRoute(authoring, 'implementation', 'conformance').command,
+    /^singularity-flow upstream-issue raise --work-id DEAD-1 --phase implementation /);
+  assert.equal(raiseUpstreamIssueRoute(authoring, 'conformance', 'implementation'), null, 'a later phase is not upstream');
+  assert.equal(raiseUpstreamIssueRoute({ ...authoring, status: 'closed' }, 'implementation', 'conformance'), null);
   assert.deepEqual(upstreamChangeRoutes(authoring, 'conformance').routes, [], 'a phase is not upstream of itself');
 });
 
@@ -85,15 +89,16 @@ test('the final gate on an open Story never offers reopen, only routes legal fro
   assert.equal(own.recovery.command, 'singularity-flow reject conformance --work-id DEAD-1 --to conformance --reason "Final gate: gate.conformance.stale"');
 
   const submitting = classifyStoryGateFailures(approving, findings, { openStory: { phase: 'conformance', status: 'in_progress' } });
-  assert.equal(submitting[0].recovery.mode, 'manual');
-  assert.equal(submitting[0].recovery.command, null);
-  assert.match(submitting[0].recovery.detail, /must be returned to implementation once it is submitted/);
+  // No return reaches implementation while conformance is in progress; raising the issue does.
+  assert.equal(submitting[0].recovery.mode, 'guided');
+  assert.match(submitting[0].recovery.command, /^singularity-flow upstream-issue raise --work-id DEAD-1 --phase implementation /);
+  assert.match(submitting[0].recovery.detail, /implementation's approvers/);
   assert.equal(submitting[1].recovery.command, 'singularity-flow recover DEAD-1 --phase conformance');
 
   const narrow = story(ORDER, { code: ['implementation'], currentStatus: 'awaiting_approval', rejectTo: ['conformance'] });
   const [disallowed] = classifyStoryGateFailures(narrow, findings.slice(0, 1), { openStory: { phase: 'conformance', status: 'awaiting_approval' } });
-  assert.equal(disallowed.recovery.command, null);
-  assert.match(disallowed.recovery.detail, /may not return work to it/);
+  assert.match(disallowed.recovery.command, /^singularity-flow upstream-issue raise --work-id DEAD-1 --phase implementation /,
+    'a disallowed return still leaves the issue route');
   for (const finding of [owned, own, ...submitting, disallowed]) {
     assert.doesNotMatch(String(finding.recovery.command), /reopen/);
   }

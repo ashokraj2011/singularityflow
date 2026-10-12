@@ -220,6 +220,9 @@ function shellAllowed(call, mode, value) {
     && Object.keys(options).every(key => ['work-id', 'finding', 'reason', 'confirm', 'json'].includes(key));
   // The /sf-decide turn boundary: the decision commands its skill names, for the bound Story only.
   // `decision risk` and `decision witness` stay outside it; a witness needs the human terminal.
+  if (mode === 'decision-only' && positionals[0] === 'upstream-issue') return !value.decisionEnded
+    && positionals[1] === 'decide' && /^UPI-\d{3,}$/u.test(positionals[2] ?? '') && positionals.length === 3
+    && options['work-id'] === value.contract.workId;
   if (mode === 'decision-only') return !value.decisionEnded && positionals[0] === 'decision'
     && DECIDE_SKILL_MUTATIONS.includes(positionals[1]) && positionals.length <= 3
     && (!positionals[2] || positionals[2] === value.contract.workId)
@@ -232,7 +235,18 @@ function shellAllowed(call, mode, value) {
   if (mode === 'publish-only') return positionals[0] === 'phase' && positionals[1] === 'publish'
     && positionals[2] === value.contract.phaseId && (!options['work-id'] || options['work-id'] === value.contract.workId);
   if (mode === 'read') return false;
+  // Deciding an upstream issue is the earlier step's approvers' call, like approve and reject; an
+  // agent may raise one and keep working, never decide it.
+  if (positionals[0] === 'upstream-issue' && positionals[1] === 'decide') return false;
   return !['approve', 'reject'].includes(positionals[0]);
+}
+
+/** A verified `upstream-issue decide`: an approver's decision, never an agent's. */
+function upstreamIssueDecision(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals } = parseArgs(safe.argv);
+  return positionals[0] === 'upstream-issue' && positionals[1] === 'decide';
 }
 
 function mentionsKernelExecution(call, value) {
@@ -300,6 +314,8 @@ export async function mutationToolGuard(payload = {}) {
         }
         if (contract.turnMode !== 'authoring')
           return mutationDenial(contract, 'PHASE_MUTATION_TOOL_PROTOCOL: use native file-read tools for output; write only exact issued staging files with a file-edit tool (source review also supports review-source stage --report-json). Run permitted SFlow commands standalone with the bound cwd. Correct the tool form in this turn; this refusal does not invalidate the phase or require repeating clarification');
+        if (upstreamIssueDecision(call, value)) return mutationDenial(contract,
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: an upstream issue is decided by the earlier step\'s approvers in their own terminal, not by this turn. Keep working; the Story completes once they decide it');
         if (mentionsKernelExecution(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED: run one standalone registered SFlow command; no chains or wrappers. Use a file-edit tool for the exact issued staging file. Preserve human answers and repair recording, not the questions');
       }

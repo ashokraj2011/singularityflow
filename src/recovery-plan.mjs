@@ -232,7 +232,7 @@ function approvedPhaseActions(workflow, phase) {
   const change = upstreamChangeRoutes(workflow, phase.id);
   const current = workflow.currentPhase;
   const explanation = [
-    `${phase.id} is approved. An approved phase is never edited or repaired in place; it changes only when a later phase returns work to it, or, for the step that defines scope, through a reviewed intent amendment.`,
+    `${phase.id} is approved. An approved phase is never edited or repaired in place; it changes only when a later phase returns work to it, or, for the step that defines scope, through a reviewed intent amendment. A later phase may raise an upstream issue about it at any time and keep working; its approvers decide.`,
     ...change.notes,
     !change.routes.length && !change.notes.length
       ? current ? `No route to change ${phase.id} is open from ${current} as it stands.` : `The Story has no active phase that could return work to ${phase.id}.`

@@ -12,12 +12,23 @@
 import { intentAmendmentSource, scopeStepOf } from './phase-roles.mjs';
 
 /**
- * Hook for a governed "raise upstream issue" route from an in-progress phase (analysis Tier C1).
- * Today no such route exists, so it returns null; when it lands it returns one route of the same
- * shape as `upstreamChangeRoutes` builds, and every caller offers it with no further change.
+ * The route that is open from any status of a later phase: record the defect for the earlier
+ * phase's approvers and keep working [UIF-M4]. They decide a plan correction, a return, an accepted
+ * risk or a dismissal; the Story completes only once it is decided. Null when the producer is not an
+ * earlier phase that has run, or the Story is not in progress.
  */
-export function raiseUpstreamIssueRoute(_workflow, _producerId, _currentPhaseId) {
-  return null;
+export function raiseUpstreamIssueRoute(workflow, producerId, currentPhaseId) {
+  const order = workflow?.phaseOrder ?? [];
+  const producer = workflow?.phases?.[producerId];
+  if ((workflow?.status ?? 'in_progress') !== 'in_progress' || !producer || !(Number(producer.generation) > 0)
+      || producer.status === 'not_started' || !currentPhaseId || producerId === currentPhaseId
+      || order.indexOf(producerId) < 0 || order.indexOf(producerId) >= order.indexOf(currentPhaseId)) return null;
+  const workId = workflow.workItem?.id ?? null;
+  return {
+    kind: 'upstream-issue', phase: producerId, legal: true, skill: null,
+    command: `singularity-flow upstream-issue raise --work-id ${workId} --phase ${producerId} --about <clause-or-section> --problem <what-is-wrong>`,
+    label: `Record the defect for ${producerId}'s approvers and keep working; they decide a plan correction, a return, an accepted risk or a dismissal, and the Story completes once it is decided.`
+  };
 }
 
 /** Routes, plus a sentence for each route that is not open now, for one earlier producer. */

@@ -3,7 +3,7 @@
  * current one, and let that step's approvers decide it. `[UIF-M2]`
  */
 import path from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { repoRoot } from '../git.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { loadSession } from '../session.mjs';
@@ -40,17 +40,29 @@ function emit(options, workflow, action, { slots = {}, body = {}, changed = fals
   }), { json: optionBoolean(options, 'json'), postState: workflow });
 }
 
-/** Items the current step's own artifacts list under `## Upstream discrepancies`, not yet raised. */
-async function recordedDiscrepancies(root, workflow) {
+/** The current step's Markdown: registered artifacts, its required artifact and its draft folder. */
+async function stepDocuments(root, config, workflow, phase) {
+  const item = path.posix.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const paths = new Set((phase.artifacts ?? []).map((artifact) => artifact.path).filter(Boolean));
+  if (phase.requiredArtifact?.path) paths.add(path.posix.join(item, phase.requiredArtifact.path));
+  const folder = path.posix.join(item, 'artifacts', phase.id);
+  for (const entry of (await readdir(path.join(root, folder), { withFileTypes: true }).catch(() => [])).slice(0, 50)) {
+    if (entry.isFile()) paths.add(path.posix.join(folder, entry.name));
+  }
+  return [...paths].filter((file) => /\.(?:md|markdown)$/iu.test(file)).sort();
+}
+
+/** Items the current step's own documents list under `## Upstream discrepancies`, not yet raised. */
+async function recordedDiscrepancies(root, config, workflow) {
   const current = workflow.phases?.[workflow.currentPhase];
   if (!current) refused('The Story has no current step whose artifacts could list discrepancies.');
   const order = workflow.phaseOrder ?? [];
   const earlier = order.slice(0, Math.max(0, order.indexOf(current.id)));
   const raised = new Set((workflow.upstreamIssues ?? []).map((issue) => issue.source?.itemSha256).filter(Boolean));
   const found = [];
-  for (const artifact of current.artifacts ?? []) {
-    if (!/\.(?:md|markdown)$/iu.test(artifact.path ?? '')) continue;
-    const content = await readFile(path.join(root, artifact.path), 'utf8').catch(() => null);
+  for (const file of await stepDocuments(root, config, workflow, current)) {
+    const artifact = { path: file };
+    const content = await readFile(path.join(root, file), 'utf8').catch(() => null);
     if (content == null) continue;
     for (const item of upstreamDiscrepanciesFromMarkdown(content, earlier)) {
       if (!item.phase) continue;
@@ -70,7 +82,7 @@ async function raise(root, config, workflow, options) {
   const authored = optionString(options, 'authored') ?? 'human';
   if (!['human', 'governed-agent'].includes(authored)) refused('--authored must be human or governed-agent.');
   const requests = optionBoolean(options, 'from-artifact')
-    ? await recordedDiscrepancies(root, workflow)
+    ? await recordedDiscrepancies(root, config, workflow)
     : [{ phase: optionString(options, 'phase'), about: optionString(options, 'about'), problem: optionString(options, 'problem'),
       assumption: optionString(options, 'assumption') ?? null, impact: optionString(options, 'impact') ?? null, source: null }];
   if (!optionBoolean(options, 'from-artifact') && !requests[0].phase) refused('Name the earlier step with --phase.');

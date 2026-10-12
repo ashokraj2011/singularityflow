@@ -406,6 +406,7 @@ function upstreamInputSteps(argv, error) {
   const owner = producers.length ? producers.join(', ') : 'an earlier phase';
   const here = phase ?? 'this phase';
   const route = routes[0];
+  const raise = routes.find((entry) => entry.kind === 'upstream-issue');
   return [
     step('inspect-upstream-inputs',
       `Inspect the approved inputs ${here} reads, without changing anything. They come from ${owner} and must not be edited by ${here}.`,
@@ -417,7 +418,9 @@ function upstreamInputSteps(argv, error) {
       ? step('return-or-amend-upstream', `If the approved ${owner} content itself must change: ${route.label} The input comes from ${owner}; ${here} must not edit it.`,
         route.command, 'remediation')
       : step('return-or-amend-upstream', `${notes[0] ?? `If the approved ${owner} content itself must change, only an authorized return or amendment of ${owner} changes it.`} The input comes from ${owner}; ${here} must not edit it.`,
-        null, 'remediation')
+        null, 'remediation'),
+    // Always open, whatever the current status: record it for the owner and keep working [UIF-M4].
+    raise && raise !== route ? step('raise-upstream-issue', raise.label, raise.command, 'remediation') : null
   ].filter(Boolean);
 }
 

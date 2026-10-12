@@ -107,13 +107,13 @@ test('PHASE_INPUTS_NOT_READY names the consumer, every producer finding and the 
   assert.deepEqual(error.details.findings.map(({ phase, path: file, status, restorable }) => ({ phase, path: file, status, restorable })),
     [{ phase: 'specification', path: SPEC, status: 'hash_mismatch', restorable: true }]);
   // Submitted planning may return to specification; the scope step can also be amended.
-  assert.deepEqual(error.details.routes.map(route => route.kind), ['return', 'intent-amendment']);
+  assert.deepEqual(error.details.routes.map(route => route.kind), ['return', 'intent-amendment', 'upstream-issue']);
   assert.match(error.details.routes[0].command, /^singularity-flow reject planning --work-id ROUTE-1 --to specification/);
 
   const inProgress = routedWorkflow('in_progress');
   const early = phaseInputsNotReadyError(inProgress, inProgress.phases.planning, drifted);
-  assert.deepEqual(early.details.routes.map(route => route.kind), ['intent-amendment'],
-    'reject is illegal from an in-progress phase, so it is never offered as a command');
+  assert.deepEqual(early.details.routes.map(route => route.kind), ['intent-amendment', 'upstream-issue'],
+    'reject is illegal from an in-progress phase, so it is never offered as a command; raising stays open');
   assert.match(early.details.notes[0], /Once planning is submitted/);
 
   const unapproved = inputReadinessFindings({ ...drifted, records: [{ ...drifted.records[0], status: 'unapproved',
@@ -139,6 +139,12 @@ test('upstream-input remediation inspects, restores, then returns; never repairs
     assert.doesNotMatch(JSON.stringify(plan), /--phase specification|repair-current-phase|doctor/);
     assert.match(renderRefusalPlan(plan), /approved input from specification; do not edit it here/);
   }
+  // Nothing to restore and no return from an in-progress step: raising the issue is offered.
+  const inProgress = routedWorkflow('in_progress');
+  const unapprovedInputs = { ...drifted, records: [{ ...drifted.records[0], status: 'unapproved', producerStatus: 'in_progress' }] };
+  const early = refusalRemediationPlan(phaseInputsNotReadyError(inProgress, inProgress.phases.planning, unapprovedInputs), ['inputs', 'planning']);
+  assert.equal(early.steps.at(-1).id, 'raise-upstream-issue');
+  assert.match(early.steps.at(-1).command, /^singularity-flow upstream-issue raise --work-id ROUTE-1 --phase specification /);
   const envelope = refusalEnvelope(error, ['inputs', 'planning']);
   assert.deepEqual(envelope.error.details.upstreamPhases, ['specification']);
   assert.equal(envelope.error.details.currentPhase, 'planning');

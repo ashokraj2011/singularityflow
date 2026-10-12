@@ -234,6 +234,9 @@ Inspect boundaries and contracts.
   assert.match(hook.additionalContext, /Governed artifacts for HOOK-1 live under singularity\/work-items\/HOOK-1\//);
   assert.match(hook.additionalContext, /Use this exact repository as the cwd for every shell and file tool/);
   assert.match(hook.additionalContext, /Never search \$HOME, a parent directory, or outside this repository/);
+  // Selecting a governed agent directly says how to run the step; the agent alone runs nothing.
+  assert.match(hook.additionalContext, /To draft or continue a Story step \(HOOK-1\) as .+, run \/sf-next, or \/sf-phase for the current step/);
+  assert.match(hook.additionalContext, /Selecting the agent alone does not run the workflow\./);
   const session = await loadSession(root);
   assert.equal(session.agent, 'architecture');
   assert.equal(session.nativeCopilotAgent, 'enterprise-delivery');

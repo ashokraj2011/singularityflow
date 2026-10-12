@@ -543,7 +543,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     Object.keys(base.integrations).sort().forEach(function (id) { if (!targetsNow[id]) changes.push({ op: 'integration.target.remove', id: id }); });
     Object.keys(draft.agents).forEach(function (id) {
       var agent = draft.agents[id]; var before = base.agents[id];
-      if (!before) { changes.push({ op: 'agent.create', id: id, label: agent.label, description: agent.description, role: agent.role || 'blank', tools: agent.tools, views: agent.views, instructions: agent.instructions }); return; }
+      if (!before) { changes.push(Object.assign({ op: 'agent.create', id: id, label: agent.label, description: agent.description, role: agent.role || 'blank', tools: agent.tools, views: agent.views, instructions: agent.instructions }, agent.from ? { from: agent.from } : {})); return; }
       var patch = { op: 'agent.update', id: id };
       ['label', 'description', 'instructions'].forEach(function (key) { if (before[key] !== agent[key]) patch[key] = agent[key]; });
       ['tools', 'views'].forEach(function (key) { if (!same(before[key], agent[key])) patch[key] = agent[key]; });
@@ -3774,7 +3774,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   function openAgentForm(context) {
     var role = (state.model.choices.roles || [])[0];
-    state.agentForm = { mode: 'create', role: role ? role.id : 'blank', label: '', description: '', tools: role ? role.tools.slice() : ['read', 'search', 'edit'], views: role ? role.views.slice() : [], instructions: role ? role.instructions : '', defaults: context && context.phase ? [context.phase] : [], context: context || null };
+    state.agentForm = { mode: 'create', role: role ? role.id : 'blank', from: '', label: '', description: '', tools: role ? role.tools.slice() : ['read', 'search', 'edit'], views: role ? role.views.slice() : [], instructions: role ? role.instructions : '', defaults: context && context.phase ? [context.phase] : [], context: context || null };
     state.view = 'agents';
     render();
   }
@@ -3840,9 +3840,22 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     if (form.mode === 'create') {
       card.appendChild(field('agent-role', 'Start from a role', select('agent-role', roles.map(function (role) { return { value: role.id, label: role.label + ': ' + role.hint }; }), form.role, function (value) {
         var role = roles.find(function (entry) { return entry.id === value; });
-        form.role = value; if (role) { form.tools = role.tools.slice(); form.views = role.views.slice(); form.instructions = role.instructions; }
+        form.role = value; form.from = ''; if (role) { form.tools = role.tools.slice(); form.views = role.views.slice(); form.instructions = role.instructions; }
         render();
       })));
+      // Or copy an existing agent: its instructions, tools and skills; never the steps it drafts.
+      var sources = Object.keys(state.draft.agents).filter(function (agentId) { return !state.draft.agents[agentId].isNew; })
+        .sort(function (a, b) { return state.draft.agents[a].label.localeCompare(state.draft.agents[b].label); });
+      card.appendChild(field('agent-from', 'Or start from an existing agent', select('agent-from', [{ value: '', label: 'No, use the role above' }].concat(sources.map(function (agentId) {
+        var agent = state.draft.agents[agentId];
+        return { value: agentId, label: agent.label + (agent.scope === 'repository' ? ' (this repository)' : ' (packaged)') };
+      })), form.from || '', function (value) {
+        form.from = value;
+        var source = value ? state.draft.agents[value] : null;
+        var model = value ? (state.model.agents || []).find(function (entry) { return entry.id === value; }) : null;
+        if (source) { form.tools = source.tools.slice(); form.instructions = (model && model.starter) || source.instructions; }
+        render();
+      }), form.from ? 'Copies its instructions, tools and skills. It drafts no step until you choose one below, and copies no remote resources.' : null));
     }
     var id = form.mode === 'create' ? kebab(form.label) : form.id;
     card.appendChild(el('div', { class: 'grid-2' },
@@ -3877,7 +3890,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     if (form.mode === 'create') {
       var id = kebab(label);
       if (!id || state.draft.agents[id]) { setStatus('Choose a different name; that agent ID is taken.'); return; }
-      state.draft.agents[id] = { id: id, label: label, description: description, tools: form.tools.slice(), views: form.views.slice(), instructions: form.instructions, scope: 'repository', isNew: true, role: form.role };
+      var source = form.from ? state.draft.agents[form.from] : null;
+      state.draft.agents[id] = { id: id, label: label, description: description, tools: form.tools.slice(), views: form.views.slice(), instructions: form.instructions, scope: 'repository', isNew: true, role: form.role, from: source ? form.from : null, skills: source ? clone(source.skills || []) : [] };
       form.defaults.forEach(function (phaseId) { if (state.draft.phases[phaseId]) state.draft.phases[phaseId].agent = id; });
       if (form.context && form.context.returnTo === 'board-add' && state.adding) state.adding.agent = id;
       var context = form.context;

@@ -22,7 +22,7 @@ import { loadDefinition, mergePhaseOverride, resolveWorkType, validateDefinition
 import { AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies, parseAttachedSkills } from './agents.mjs';
 import {
   SKILL_ATTACHMENTS_PATH, effectiveLibrarySkills, librarySkillPath, librarySkillText, loadSkillLibrary, normalizeSkillUse,
-  parseLibrarySkill, parseSkillAttachments, readSkillAttachments, skillAttachmentsText, withoutAttachedSkills
+  parseLibrarySkill, parseSkillAttachments, readSkillAttachments, skillAttachmentsText, withoutAttachedSkills, withoutTableSection
 } from './skill-library.mjs';
 import { instructionPath, instructionText, parseInstruction, loadInstructionLibrary } from './instruction-library.mjs';
 import { constitutionPolicy, parseConstitution } from './constitution.mjs';
@@ -32,7 +32,7 @@ import { packagedWorkflowSkills } from './packaged-workflow-skills.mjs';
 function instructionCatalogHash(catalog) {
   return sha256(JSON.stringify({ entries: [...catalog.instructions].map(([id, item]) => [id, item.sha256]), problems: catalog.problems }));
 }
-import { AGENT_CLARIFICATION_GUIDANCE, REPOSITORY_AGENT_BOUNDARY } from './agent-guidance.mjs';
+import { AGENT_CLARIFICATION_GUIDANCE, REPOSITORY_AGENT_BOUNDARY, STORY_AGENT_BOUNDARY } from './agent-guidance.mjs';
 import {
   IMPORTS_LOCK_PATH, importLedgerKey, importedTemplateRelative, inspectImportContent, ledgerEntry,
   loadImportsLedger, removeAgentTableRow, renderImportsLedger, requireSha256, resolveChangeSetImports,
@@ -365,6 +365,8 @@ function agentView(agent) {
     path: agent.scope === 'repository' ? agent.source : null,
     // The skill master edits the Attached skills table, so the instructions shown leave it out.
     instructions: withoutAttachedSkills(agent.prompt ?? '').trim(),
+    // What "start from this agent" copies into a new agent's instructions.
+    starter: starterInstructions(agent.prompt ?? ''),
     // Retain the complete saved body for the read-only prompt viewer when the table was removed.
     ...((agent.prompt ?? '').trim() !== withoutAttachedSkills(agent.prompt ?? '').trim()
       ? { prompt: (agent.prompt ?? '').trim() } : {}),
@@ -604,6 +606,21 @@ function renderAgent(entry) {
   ]) if (document.getIn(['metadata', key]) !== value) document.setIn(['metadata', key], quoted(document, value));
   const text = entry.body != null ? `\n${entry.body.trim()}\n` : body;
   return `---\n${renderPreservingFormatting(header, document)}---\n${text}`;
+}
+
+/**
+ * An existing agent's instructions as the starting text of a new one: without its title, the shared
+ * boundary and clarification lines (newAgentBody adds those again), its attached-skills table
+ * (copied as attachments instead) and its remote resources, which a new agent must lock itself.
+ */
+export function starterInstructions(body) {
+  let text = withoutAttachedSkills(body);
+  for (const heading of ['Remote skills', 'Remote artifact templates', 'Remote generated artifacts']) text = withoutTableSection(text, heading);
+  // A shipped profile may continue a shared sentence in the same paragraph; keep only its own words.
+  const shared = [STORY_AGENT_BOUNDARY, REPOSITORY_AGENT_BOUNDARY, AGENT_CLARIFICATION_GUIDANCE];
+  return text.replace(/^\s*# [^\n]*\n/u, '').split(/\n{2,}/u)
+    .map((paragraph) => shared.reduce((rest, sentence) => rest.startsWith(sentence) ? rest.slice(sentence.length).trim() : rest, paragraph.trim()))
+    .filter(Boolean).join('\n\n');
 }
 
 function newAgentBody(label, instructions) {
@@ -1911,22 +1928,35 @@ class StudioCandidate {
     } else this.summary.push(`Approval group renamed to ${name}.`);
   }
 
-  createAgent({ id, label, description, role = 'blank', tools, views, instructions }) {
+  createAgent({ id, label, description, role = 'blank', from = null, tools, views, instructions }) {
     const agentId = requireId(id, 'An agent ID');
     if (this.agents.has(agentId)) throw new SingularityFlowError(`An agent called '${agentId}' already exists.`, { code: 'STUDIO_AGENT_EXISTS' });
     const presets = agentRolePresets(this.content);
     const preset = presets.find((entry) => entry.id === role) ?? presets.at(-1);
+    // Starting from an existing agent copies what makes it that role: its instructions, tools and
+    // skills. Not the steps it drafts (a step has one default agent; the new one is assigned its own)
+    // and not its remote resources, which a new agent locks itself.
+    const source = from ? this.requireAgent(requireId(from, 'The agent to start from')) : null;
     const name = requireLabel(label, 'The agent');
     const what = String(description ?? '').replace(/\s+/g, ' ').trim();
     if (!what) throw new SingularityFlowError(`Say what ${name} does in one sentence.`, { code: 'STUDIO_AGENT_INVALID' });
-    const toolList = [...new Set((tools ?? preset.tools).map((tool) => String(tool).trim()).filter(Boolean))];
+    const toolList = [...new Set((tools ?? source?.tools ?? preset.tools).map((tool) => String(tool).trim()).filter(Boolean))];
+    const starter = instructions != null ? (source ? starterInstructions(String(instructions)) : instructions)
+      : source ? starterInstructions(this.agentBody(source)) : preset.instructions;
     this.agents.set(agentId, {
       id: agentId, scope: 'repository', text: null, relative: posix(path.join('.github', 'agents', `${agentId}.agent.md`)),
       fileName: `${agentId}.agent.md`, label: name, description: what, tools: toolList,
       views: [...new Set((views ?? preset.views).map(String))], phases: [], defaultFor: [],
-      body: newAgentBody(name, instructions ?? preset.instructions), touched: true, created: true
+      body: newAgentBody(name, starter), touched: true, created: true
     });
-    this.summary.push(`New agent ${name}: ${toolList.map((tool) => TOOL_LABELS[tool] ?? tool).join(', ').toLowerCase() || 'no tools'}.`);
+    const skills = source ? [...this.attachedSkills(source), ...this.attachments.filter((entry) => entry.agent === source.id)]
+      .filter((entry, index, all) => all.findIndex((other) => other.id === entry.id) === index) : [];
+    const summary = this.summary.length;
+    for (const skill of skills) this.attachSkill({ skill: skill.id, agent: agentId, phases: skill.phases, use: skill.use });
+    this.summary.splice(summary);
+    this.summary.push(source
+      ? `New agent ${name}, starting from ${source.label ?? source.id}: its instructions, ${toolList.map((tool) => TOOL_LABELS[tool] ?? tool).join(', ').toLowerCase() || 'no tools'}${skills.length ? ` and ${skills.length} skill${skills.length === 1 ? '' : 's'} (${skills.map((skill) => skill.id).join(', ')})` : ''}. It drafts no step until you choose one, and copies no remote resources.`
+      : `New agent ${name}: ${toolList.map((tool) => TOOL_LABELS[tool] ?? tool).join(', ').toLowerCase() || 'no tools'}.`);
   }
 
   updateAgent({ id, label, description, tools, views, instructions }) {

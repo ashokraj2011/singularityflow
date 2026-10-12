@@ -28,7 +28,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 54
+version: 55
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -164,7 +164,10 @@ the `base` digest), and `singularity-flow workflow studio apply --change-set <FI
 `workflow.create|update|install`, `phase.create|update|agent`, `agent.create|update` and
 `group.create|update`; a stale `base` is refused with `STUDIO_BASE_CHANGED`. `phase.create` and
 `phase.update` accept `authoringSkill` (a skill id, or `null` for automatic), and a `phase.create`
-with `copyOf` names the step to copy and `copyFromWorkflow` the workflow whose settings it keeps. A
+with `copyOf` names the step to copy and `copyFromWorkflow` the workflow whose settings it keeps. An
+`agent.create` with `from` names an existing agent to start from: its instructions, tools and
+attached skills are copied, but not the steps it drafts (choose those for the new agent) or its remote
+resources (lock them for the new agent). The Studio's "Or start from an existing agent" sends it. A
 `workflow` named on `phase.update` must use the step once the whole change set is applied
 (`STUDIO_PHASE_UNKNOWN` otherwise), and a setting for it stays that workflow's own even when the same
 change set adds the step to it. `inputs` left out or `null` means unchanged; a value that

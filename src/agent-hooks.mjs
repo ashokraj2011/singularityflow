@@ -68,6 +68,16 @@ function pathGroundingContext(root, workId = null, workItemRoot = DEFAULT_WORK_I
   return ` Working repository: ${root}.${workItem} Use this exact repository as the cwd for every shell and file tool. Never search $HOME, a parent directory, or outside this repository.`;
 }
 
+/**
+ * Selecting a governed agent in Copilot chooses who drafts, not what to do: the step's composed
+ * prompt carries its artifact, template, checks and permissions, and only a /sf-* skill turn
+ * fetches it. Without this line an agent picked directly knew none of that and never ran the
+ * lifecycle.
+ */
+export function governedAgentRouteHint(agent, workId = null) {
+  return `To draft or continue a Story step${workId ? ` (${workId})` : ''} as ${agent.label ?? agent.id}, run /sf-next, or /sf-phase for the current step: its composed prompt carries the step's artifact, checks and permissions together with this agent's instructions. Selecting the agent alone does not run the workflow.`;
+}
+
 // Copilot exposes the selected custom-agent ID on subagentStart, but it does not pass that
 // selection to child shell processes. Resolve an explicit agent-mappings.yml entry first, then
 // retain same-name matching as a zero-configuration fallback. Record the resolved agent in
@@ -103,9 +113,9 @@ export async function copilotAgentStartHook(root, payload = {}) {
     const session = await loadSession(root, { required: false });
     const definition = await loadDefinition(root).catch(() => null);
     return {
-      additionalContext: pathGroundingContext(
+      additionalContext: `${pathGroundingContext(
         root, session?.workId ?? null, definition?.workItemRoot ?? DEFAULT_WORK_ITEM_ROOT
-      ).trim()
+      ).trim()} ${governedAgentRouteHint(agent, session?.workId ?? null)}`
     };
   }
   const command = status?.status === 'stale'

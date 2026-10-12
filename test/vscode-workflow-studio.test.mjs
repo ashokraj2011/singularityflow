@@ -1967,3 +1967,24 @@ test('a seeded workflow opens on a read-only canvas: its structure without editi
   assert.match(text(decision), /Go on\?/u);
   assert.match(text(decision), /A person chooses:.*Yes → .*Stop → /su, 'each answer and where it goes');
 });
+
+test('a new agent started from an existing one carries "from", and the engine copies that agent', async () => {
+  const root = await repository();
+  const model = JSON.parse(run(process.execPath, [bin, 'workflow', 'studio', '--json'], root).stdout);
+  const { logic } = studioLogic();
+  const draft = logic.initialDraft(model);
+  const qa = model.agents.find((agent) => agent.id === 'qa');
+  assert.ok(qa.starter, 'the model offers each agent\'s starter text');
+  draft.agents['payments-qa'] = { id: 'payments-qa', label: 'Payments QA', description: 'Tests payment flows against the approved specification.',
+    tools: qa.tools.slice(), views: [], instructions: qa.starter, scope: 'repository', isNew: true, role: 'tester', from: 'qa', skills: [] };
+  const changeSet = logic.changeSetFrom(model, draft);
+  const create = changeSet.changes.find((change) => change.op === 'agent.create');
+  assert.equal(create.from, 'qa');
+  const plan = check(root, changeSet);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  assert.deepEqual(plan.files.map((file) => file.path), ['.github/agents/payments-qa.agent.md']);
+  assert.ok(plan.summary.some((line) => /^New agent Payments QA, starting from .+: its instructions, .+\. It drafts no step until you choose one, and copies no remote resources\.$/u.test(line)), JSON.stringify(plan.summary));
+  // A role-only agent sends no "from".
+  delete draft.agents['payments-qa'].from;
+  assert.equal(logic.changeSetFrom(model, draft).changes.find((change) => change.op === 'agent.create').from, undefined);
+});

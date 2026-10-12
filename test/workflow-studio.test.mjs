@@ -1076,3 +1076,32 @@ test('an Epic output change rewrites only that output, in the style its list is 
   assert.ok(added.some((line) => /^ {6}- \{ ?id: risk-register,/.test(line)), 'a new output follows its siblings\' one-line style');
   assert.ok(added.some((line) => /scope-and-outcomes.*required: false/.test(line)));
 });
+
+test('a new agent can start from an existing one: its instructions, tools and skills, never its steps', async () => {
+  const root = await repository();
+  const attach = await changeSet(root, [
+    { op: 'skill.create', id: 'edge-cases', label: 'Edge cases', description: 'Lists boundary and failure cases for a behaviour.', instructions: 'List the boundary, empty and failure cases for each behaviour before writing tests.' },
+    { op: 'skill.attach', skill: 'edge-cases', agent: 'qa', phases: [], use: 'When writing test cases' }
+  ]);
+  assert.equal(json(root, ['workflow', 'studio', 'apply', '--change-set', attach]).valid !== false, true);
+  const qa = json(root, ['workflow', 'studio']).agents.find((agent) => agent.id === 'qa');
+  assert.match(qa.starter, /Map every approved acceptance and behavior clause/u);
+  assert.doesNotMatch(qa.starter, /^# |Resolve the active Story checkout/mu, 'the starter text leaves out the title and shared rules');
+
+  const file = await changeSet(root, [{ op: 'agent.create', id: 'payments-qa', label: 'Payments QA', description: 'Tests payment flows against the approved specification.', from: 'qa' }]);
+  const plan = json(root, ['workflow', 'studio', 'apply', '--change-set', file, '--dry-run']);
+  assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  assert.ok(plan.summary.some((line) => /^New agent Payments QA, starting from .+: its instructions, .+ and 1 skill \(edge-cases\)\. It drafts no step until you choose one, and copies no remote resources\.$/u.test(line)), JSON.stringify(plan.summary));
+  assert.deepEqual(plan.files.map((entry) => entry.path), ['.github/agents/payments-qa.agent.md'], 'the source agent and its steps are unchanged');
+  json(root, ['workflow', 'studio', 'apply', '--change-set', file]);
+  const text = await readFile(path.join(root, '.github/agents/payments-qa.agent.md'), 'utf8');
+  assert.match(text, /^# Payments QA agent$/mu);
+  assert.doesNotMatch(text, /^# QA agent$/mu);
+  assert.match(text, /Map every approved acceptance and behavior clause/u);
+  assert.equal(text.split('Resolve the active Story checkout').length, 2, 'the shared operating rules appear once');
+  assert.equal(text.split("Follow the composed phase prompt's pinned clarification checkpoint").length, 2, 'the clarification rule appears once');
+  assert.match(text, /## Attached skills\n\n\| Skill \| Phases \| When to use it \|\n\|---\|---\|---\|\n\| edge-cases \| \* \| When writing test cases \|/u);
+  assert.match(text, /sflow-default-for: ""/u);
+  const created = json(root, ['workflow', 'studio']).agents.find((agent) => agent.id === 'payments-qa');
+  assert.deepEqual([created.tools, created.defaultFor], [qa.tools, []]);
+});

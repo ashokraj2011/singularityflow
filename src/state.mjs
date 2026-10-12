@@ -7055,17 +7055,30 @@ export async function rejectPhase(root, config, workflow, {
    * is disclosed. Naming a member that is not in the set is refused here rather than silently
    * ignored — a typo that quietly widens the promise to "nothing in particular" would make the whole
    * disclosure vacuous.
+   *
+   * Members are checked against the *target* phase's set, because that is where the promise is
+   * recorded and the phase whose next publication keeps it. Rejecting `planning` back to
+   * `specification` reopens `spec.md`; checking `plan.md` against the planning set would accept a
+   * member the reopened phase does not own and refuse the one it does.
    */
   const requestedMembers = [...new Set(members.map((member) => posix(String(member).trim())).filter(Boolean))];
   if (requestedMembers.length) {
-    const set = resolvedArtifactSet(config, workflow, phase);
-    if (!set) throw new SingularityFlowError(`Phase '${phase.id}' has no artifact set, so it has no members to reopen.`);
+    const reopened = workflow.phases[targetId];
+    const set = resolvedArtifactSet(config, workflow, reopened);
+    if (!set) {
+      throw new SingularityFlowError(`Rejection target '${targetId}' has no artifact set, so it has no members to reopen.`, {
+        code: 'REJECT_MEMBER_UNKNOWN', details: { sourcePhase: phase.id, targetPhase: targetId, members: requestedMembers, known: [] }
+      });
+    }
     const known = new Set(set.members.flatMap((member) => [
-      member.path, posix(path.posix.join(workDirRelative(config, workflow.workItem.id), memberRoot(phase), member.path))
+      member.path, posix(path.posix.join(workDirRelative(config, workflow.workItem.id), memberRoot(reopened), member.path))
     ]));
     const unknown = requestedMembers.filter((member) => !known.has(member));
     if (unknown.length) {
-      throw new SingularityFlowError(`Artifact set '${set.id}' has no member(s): ${unknown.join(', ')}. Members are ${set.members.map((member) => member.path).join(', ')}.`);
+      throw new SingularityFlowError(`Artifact set '${set.id}' of rejection target '${targetId}' has no member(s): ${unknown.join(', ')}. Members are ${set.members.map((member) => member.path).join(', ')}.`, {
+        code: 'REJECT_MEMBER_UNKNOWN',
+        details: { sourcePhase: phase.id, targetPhase: targetId, artifactSet: set.id, members: unknown, known: set.members.map((member) => member.path) }
+      });
     }
   }
 

@@ -163,7 +163,7 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   choices.push(preserve);
   return { code: finding.code ?? 'unknown', path: finding.path ?? null, policy,
     status: resolution.kind.endsWith('owner') || resolution.kind === 'owner-escalation'
-      ? 'needs-owner' : resolution.kind.includes('risk') || resolution.kind.includes('appeal') || ['human-review', 'worktree-review'].includes(resolution.kind) ? 'needs-human' : 'needs-correction',
+      ? 'needs-owner' : resolution.kind.includes('risk') || resolution.kind.includes('appeal') || ['human-review', 'worktree-review', 'plan-amendment'].includes(resolution.kind) ? 'needs-human' : 'needs-correction',
     choices, preserved: ['working-tree bytes', 'Git index', 'published evidence', 'approval history'] };
 }
 

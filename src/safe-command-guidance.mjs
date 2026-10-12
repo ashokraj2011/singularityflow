@@ -348,6 +348,9 @@ export function safeCommandGuidance(value) {
   // /sf-publish owns prepublish followed by publication only when ready. Deterministic
   // preparation legitimately hands off to it; rejecting this pair made prepare itself fail.
   if (safe.argv[0] === 'phase' && safe.argv[1] === 'prepublish') allowedSkills.add('/sf-publish');
+  // /sf-submit begins with exactly this read and follows the source-review route it returns, so a
+  // step that owes a review is routed to the skill through it (src/submit-route.mjs).
+  if (safe.argv[0] === 'status' && safe.argv.includes('--submission-readiness')) allowedSkills.add('/sf-submit');
   const assertedSkill = input.skill != null
     ? normalizedSkill(input.skill)
     : input.copilotCommand != null

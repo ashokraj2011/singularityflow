@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -18,12 +18,8 @@ function run(command, args, cwd, { allowFailure = false } = {}) {
   return result;
 }
 
-/**
- * A skill asks these on whatever step is current. Each is a question, so each is answered on a
- * step it does not concern instead of refusing: an agent that stops on a refusal here stops a Story
- * that has nothing wrong with it. Asked at intake, the step a functional test stopped on.
- */
-test('every read-only question a skill asks is answered at a step it does not concern', async (t) => {
+/** A feature Story whose scope steps owe an enforced source review, started and at intake. */
+async function featureStory(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-read-only-questions-'));
   const remote = `${root}.git`;
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
@@ -51,7 +47,27 @@ test('every read-only question a skill asks is answered at a step it does not co
   cli('precheck', '--run', '--scope', 'dependency-test', '--confirm-plan', readiness.planId, '--json');
   cli('start', W, '--from-branch', 'main', '--work-type', 'feature', '--title', 'Cache the value', '--description', 'Decide how long callers cache the value.');
   cli('prepare', 'intake');
+  return { root, cli };
+}
 
+/** Author a prepared step's placeholders, then compose, clarify and publish it. */
+async function publish(root, cli, phase, text) {
+  cli('prepare', phase);
+  const directory = path.join(root, 'singularity/work-items', W, 'artifacts', phase);
+  const file = path.join(directory, (await readdir(directory)).find((name) => name.endsWith('.md')));
+  await writeFile(file, (await readFile(file, 'utf8')).replace(/TODO:[^\n]*/gu, text).replace(/\bTODO\b/gu, text));
+  cli('wm', 'compose', '--phase', phase);
+  cli('clarification', 'record', phase, '--question', `Is the ${phase} scope agreed?`, '--answer', 'Yes, as written.');
+  cli('phase', 'publish', phase, '--authored', 'human', '--channel', 'manual-in-place');
+}
+
+/**
+ * A skill asks these on whatever step is current. Each is a question, so each is answered on a
+ * step it does not concern instead of refusing: an agent that stops on a refusal here stops a Story
+ * that has nothing wrong with it. Asked at intake, the step a functional test stopped on.
+ */
+test('every read-only question a skill asks is answered at a step it does not concern', async (t) => {
+  const { root } = await featureStory(t);
   const ask = (...args) => {
     const result = run(process.execPath, [CLI, '--no-model', ...args], root, { allowFailure: true });
     assert.equal(result.status, 0, `${args.join(' ')} refused at intake:\n${result.stdout}\n${result.stderr}`);
@@ -73,4 +89,26 @@ test('every read-only question a skill asks is answered at a step it does not co
   assert.equal(json('adhoc', 'status').session, null);
   // Submission readiness is the one place a skill learns whether a review is owed.
   assert.doesNotMatch(ask('status', W, '--submission-readiness', '--json'), /review-source (?:status|context|check) intake/u);
+});
+
+/**
+ * `next` and `run` never submit a step whose source review is not ready: they show the review's own
+ * next step with a route every surface can render, and leave the step as it was. A step that owes
+ * no review is submitted as before.
+ */
+test('next submits an unreviewed intake but shows the review route for a published scope step', async (t) => {
+  const { root, cli } = await featureStory(t);
+  const state = async () => JSON.parse(await readFile(path.join(root, 'singularity/work-items', W, 'workflow.json'), 'utf8'));
+  await publish(root, cli, 'intake', 'Callers read the value from one shared module and keep a copy for at most one hour.');
+  cli('next');
+  assert.equal((await state()).phases.intake.status, 'awaiting_approval', 'intake owes no review, so next submits it');
+  cli('approve', 'intake', '--yes');
+  await publish(root, cli, 'requirements', 'Callers keep a local copy for at most one hour and refresh it when the module changes.');
+  for (const command of ['next', 'run']) {
+    const held = cli(command, '--yes').stdout;
+    assert.match(held, /Copilot: \/sf-review-source requirements/u, command);
+    assert.match(held, /Shell: singularity-flow review-source context requirements --json/u, command);
+    assert.doesNotMatch(held, /unavailable/u, `${command} printed a route no surface can render`);
+    assert.equal((await state()).phases.requirements.status, 'in_progress', `${command} must not submit before the review`);
+  }
 });

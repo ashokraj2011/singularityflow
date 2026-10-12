@@ -6,6 +6,7 @@ import { milestonePhases, requiredInitiativeMilestone } from '../src/initiative-
 import { readSourceReviewStatus } from '../src/source-review-lifecycle.mjs';
 import { sourceReviewRequired } from '../src/source-review-policy.mjs';
 import { submitRoute } from '../src/submit-route.mjs';
+import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 
 /**
  * Guidance follows what a step does, never what it is called. Each case renames or reorders the
@@ -55,6 +56,14 @@ test('every submit route names the check the step really owes', () => {
   const reviewed = submitRoute(workflow, workflow.phases.shape);
   assert.equal(reviewed.command, 'singularity-flow status ROLE-1 --submission-readiness --json');
   assert.doesNotMatch(reviewed.command, /review-source/u, 'readiness reports the review and its exact route');
+  // Every surface renders a route only when its skill and command pair is valid; otherwise it says
+  // "unavailable", which leaves the reader stuck just like a refusal would.
+  for (const id of workflow.phaseOrder) {
+    const route = submitRoute(workflow, workflow.phases[id]);
+    const guidance = safeCommandGuidance({ command: route.command, skill: route.skill });
+    assert.ok(guidance, `${id}: ${route.skill} cannot present ${route.command}`);
+    assert.equal(guidance.copilotCommand.split(' ')[0], '/sf-submit');
+  }
 });
 
 test('asking for a source review status is answered for a skipped or unpublished step', async () => {

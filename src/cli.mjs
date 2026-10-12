@@ -175,6 +175,7 @@ import {
 } from './source-review-lifecycle.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { submitRoute } from './submit-route.mjs';
+import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
 import { sourceReviewContextText } from './source-review-context-display.mjs';
 import { readRecord } from './schema-migrations.mjs';
@@ -344,13 +345,19 @@ import { VERSION } from './version.mjs';
 
 import { HELP } from './help-text.mjs';
 
-/** The route to show instead of submitting: a review not ready yet, or decision values not given. */
+/**
+ * The route to show instead of submitting: the review's own next step while it is not ready, or
+ * the submit command with the decision values it must record.
+ */
 async function submitHeldRoute(root, config, workflow, phase, options) {
   const review = sourceReviewRequired(workflow, phase.id)
     ? await readSourceReviewStatus(root, config, workflow, phase.id).catch(() => null) : null;
-  const held = (review && review.status !== 'ready')
-    || (decisionSubmitArguments(workflow, phase.id) && !optionStrings(options, 'decision').length);
-  return held ? submitRoute(workflow, phase) : null;
+  if (review && review.status !== 'ready') {
+    const continuation = sourceReviewContinuation(workflow, phase, review);
+    return { command: continuation.nextCommand, skill: continuation.nextSkill, reason: continuation.actions[0].reason };
+  }
+  return decisionSubmitArguments(workflow, phase.id) && !optionStrings(options, 'decision').length
+    ? submitRoute(workflow, phase) : null;
 }
 
 /**
@@ -4583,7 +4590,7 @@ async function nextCommand(options) {
       });
     }
     const held = await submitHeldRoute(root, config, workflow, phase, options);
-    if (held) { printCommandRoutes(held.command, { label: held.reason }); return console.log(held.reason); }
+    if (held) { printCommandRoutes(held.command, { skill: held.skill, label: 'Before submitting' }); return console.log(held.reason); }
     printCommandRoutes(`singularity-flow submit ${phase.id}`, { label: `Submit '${phase.id}'` });
     console.log(`Submit published phase '${phase.id}' for approval.`);
     return submitCommand(['submit', phase.id], options);
@@ -11322,7 +11329,7 @@ async function runCommand(positionals, options) {
     return;
   }
   const held = await submitHeldRoute(root, config, workflow, phase, options);
-  if (held) { printCommandRoutes(held.command, { label: held.reason }); return console.log(held.reason); }
+  if (held) { printCommandRoutes(held.command, { skill: held.skill, label: 'Before submitting' }); return console.log(held.reason); }
   const noApproval = phase.approvalPolicy?.mode === 'none';
   const submit = optionBoolean(options, 'yes') || await confirmYesNo(
     `Generation ${phase.generation} is published. ${noApproval

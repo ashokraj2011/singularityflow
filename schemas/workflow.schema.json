@@ -788,6 +788,43 @@
         }]
       }
     },
+    "upstreamIssues": {
+      "description": "Append-only defects a later step recorded against an earlier, approved step (UIF-M2). Raising needs no authority and never refuses the current step; the issue is never edited.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "phase", "raisedIn", "about", "problem", "assumption", "impact", "proposed", "producerGeneration", "producerArtifacts", "source", "raisedBy", "authored", "agent", "at"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^UPI-[0-9]{3,}$" },
+          "phase": { "type": "string", "minLength": 1 },
+          "about": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "problem": { "type": "string", "minLength": 20, "maxLength": 1000 },
+          "proposed": { "enum": ["plan-correction", "amend", "return", "accept-risk", "unknown"] },
+          "authored": { "enum": ["human", "governed-agent"] },
+          "at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "upstreamIssueDecisions": {
+      "description": "Append-only decisions on upstream issues by the earlier step's approvers; an issue's latest decision applies and an expired accepted risk reopens it.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["issue", "outcome", "reason", "link", "expiresAt", "actor", "authorityGroup", "identityAssurance", "at"],
+        "properties": {
+          "issue": { "type": "string", "pattern": "^UPI-[0-9]{3,}$" },
+          "outcome": { "enum": ["plan-correction", "amend", "return", "accept-risk", "dismiss"] },
+          "reason": { "type": "string", "minLength": 20, "maxLength": 1000 },
+          "link": { "type": ["string", "null"], "pattern": "^(PRC|CR|FAM)-[0-9]{3,}$" },
+          "expiresAt": { "type": ["string", "null"], "format": "date-time" },
+          "actor": { "type": "string", "minLength": 1 },
+          "authorityGroup": { "type": "string", "minLength": 1 },
+          "identityAssurance": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "completenessReviews": {
       "description": "A person's review of the accepted-scope inventory's interpretation, bound to its exact digest and answering every article of the requirements-quality checklist. It never claims the scope is correct.",
       "type": "array",

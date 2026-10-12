@@ -720,6 +720,10 @@ Usage:
   singularity-flow decision risk [WORK-ID] [--fetch] (--obligation OBL-ID --category CATEGORY --expires YYYY-MM-DD [--transition terminal] | --revoke RISK-ID) --reason TEXT [--json]
   singularity-flow decision witness [WORK-ID] [--fetch] --criterion AC-ID --slot SLOT --file PATH (--confirm ITEM | --deny ITEM)... --reason TEXT [--json]
   singularity-flow decision scope [WORK-ID] [--fetch] --item SRI-ID|DOC-ID --as included|existing|excluded|deferred|informative|duplicate|superseded [--clause ID,...] --reason TEXT [--json]
+  singularity-flow upstream-issue raise --phase EARLIER --about ID|SECTION --problem TEXT [--assumption TEXT] [--impact TEXT] [--proposed KIND] [--authored human|governed-agent] [--work-id WORK-ID] [--json]
+  singularity-flow upstream-issue raise --from-artifact [--work-id WORK-ID] [--json]
+  singularity-flow upstream-issue list [--open] [--work-id WORK-ID] [--json]
+  singularity-flow upstream-issue decide UPI-ID --outcome plan-correction|return|accept-risk|dismiss --reason TEXT [--link PRC-ID] [--expires YYYY-MM-DD] [--work-id WORK-ID] [--json]
   singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
   singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
   singularity-flow sync [WORK-ID] [--replay [--dry-run]] [--json]

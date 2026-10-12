@@ -165,6 +165,7 @@ import { createReviewBundle, reviewHtml, reviewMarkdown, reviewContinuationLines
 import { phaseContinuationLines } from './phase-continuation.mjs';
 import { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { phaseUpstreamDiscrepancies } from './phase-upstream-discrepancies.mjs';
+import { openUpstreamIssues, upstreamIssueDecideCommand } from './upstream-issues.mjs';
 export { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { criterionResults, describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import { capabilityLines } from './verification/capability.mjs';
@@ -6490,6 +6491,8 @@ async function phaseReview(root, config, workflow, phase, { includeContinuation 
     witnessReview,
     documents,
     upstreamDiscrepancies: phaseUpstreamDiscrepancies(documents, workflow, phase.id),
+    upstreamIssues: openUpstreamIssues(workflow).map(({ issue, status }) => ({ id: issue.id, phase: issue.phase, about: issue.about,
+      problem: issue.problem, status, decide: upstreamIssueDecideCommand(workflow.workItem.id, issue) })),
     ...(await phaseAuthoringSummary(root, config, workflow, phase, { documents, includeContinuation }))
   };
 }
@@ -6576,6 +6579,11 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
   if (review.upstreamDiscrepancies?.length) {
     console.log(`\n${style.heading('Upstream discrepancies')} ${style.detail(`${review.upstreamDiscrepancies.length} recorded; each needs its producer phase to return, amend or accept the risk`)}`);
     for (const item of review.upstreamDiscrepancies) console.log(`  - ${item.phase ? `${item.phase}: ` : ''}${item.text}`);
+    console.log(`  File them for their owners: singularity-flow upstream-issue raise --from-artifact`);
+  }
+  if (review.upstreamIssues?.length) {
+    console.log(`\n${style.heading('Open upstream issues')} ${style.detail(`${review.upstreamIssues.length} waiting for an earlier step's approvers; the Story completes only when each is decided`)}`);
+    for (const item of review.upstreamIssues) console.log(`  - ${item.id} ${item.phase} (${item.about}): ${item.problem}\n    ${item.decide}`);
   }
   const readable = review.documents.filter((document) => !document.error && !document.binary && document.content != null);
   const viewRoute = review.handoff?.find((entry) => entry.optional && entry.skill === '/sf-phase-documents');
@@ -18537,6 +18545,7 @@ async function dispatch(command, positionals, options, argv) {
     watch: () => watchCommand(positionals, options),
     recover: () => recoverCommand(positionals, options),
     appeal: async () => (await import('./commands/appeal.mjs')).run(positionals, { options }),
+    'upstream-issue': async () => (await import('./commands/upstream-issue.mjs')).run(positionals, { options }),
     explain: async () => (await import('./commands/explain.mjs')).run(argv, { positionals, options }),
     why: async () => (await import('./commands/why.mjs')).run(argv, { positionals, options }),
     // The five verbs. Each dispatches into the same router; the registry keeps them distinct

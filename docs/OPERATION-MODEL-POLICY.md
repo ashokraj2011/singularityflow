@@ -697,6 +697,9 @@ Every public operation is classified before its implementation module is importe
 | tokens.compare | read | never | — | — |
 | tokens.report | read | never | — | — |
 | tokens.status | read | never | — | — |
+| upstream-issue.decide | mutation | never | — | — |
+| upstream-issue.list | read | never | — | — |
+| upstream-issue.raise | mutation | never | — | — |
 | validate | read | never | — | — |
 | verify | read | never | — | — |
 | version | read | never | — | — |

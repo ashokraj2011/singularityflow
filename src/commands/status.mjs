@@ -6,6 +6,7 @@ import { buildRepositorySubjectIndex, resolveContext } from '../repository-subje
 import { optionBoolean, SingularityFlowError, table } from '../util.mjs';
 import { noCurrentPhaseLabel, storyStatusLabel } from '../progress.mjs';
 import { storyLineageLines } from '../story-base-lineage.mjs';
+import { openUpstreamIssues } from '../upstream-issues.mjs';
 
 function activePhase(workflow) {
   return workflow.currentPhase ? workflow.phases?.[workflow.currentPhase] ?? null : null;
@@ -22,6 +23,11 @@ function summary(workflow) {
     console.log(`Governed agent: ${active.defaultAgent ?? 'unassigned'}`);
     console.log(`Required artifact: ${active.requiredArtifact?.path ?? 'none'}`);
     console.log(`Registered artifacts: ${active.artifacts.length}`);
+  }
+  const upstream = openUpstreamIssues(workflow);
+  if (upstream.length) {
+    console.log(`Open upstream issues: ${upstream.map(({ issue }) => `${issue.id} (${issue.phase})`).join(', ')}; `
+      + `the Story completes when each is decided (singularity-flow upstream-issue list --open).`);
   }
   if (workflow.sequenceOverrides?.length) console.warn(`Warning: ${workflow.sequenceOverrides.length} confirmed soft sequence override(s) are recorded for this work item.`);
 }

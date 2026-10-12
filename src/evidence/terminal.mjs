@@ -13,6 +13,7 @@ import { evaluateEvidence } from './evaluate.mjs';
 import { evidenceGraphFromAggregate } from './graph.mjs';
 import { gateRefusal } from './gate-refusal.mjs';
 import { completionLabel } from './labels.mjs';
+import { upstreamIssueTerminalBlockers } from '../upstream-issues.mjs';
 
 const MAX_LISTED = 20;
 const BLOCKING_RESULTS = new Set(['failed', 'inconclusive', 'missing', 'pending']);
@@ -68,9 +69,11 @@ export async function evaluateTerminalTransition(root, definition, workflow) {
   const evaluation = evaluateEvidence(graph, { boundary: 'terminal', mode: 'decision' });
   const gate = await runGovernanceGate(root, definition, workflow, { terminal: true, pendingTransition: true });
   const evidenceBlockers = evidenceBlockersOf(evaluation);
-  const blockers = [...new Set([...evidenceBlockers, ...gate.errors])];
-  const recovery = terminalRecoveryActions(workflow.workItem.id, evaluation, gate);
-  return { evaluation, gate, blockers, recovery };
+  // An earlier step's owners decide every upstream issue before the Story ends [UIF-M2].
+  const upstream = upstreamIssueTerminalBlockers(workflow);
+  const blockers = [...new Set([...evidenceBlockers, ...gate.errors, ...upstream.map((entry) => entry.message)])];
+  const recovery = [...new Set([...upstream.map((entry) => entry.command), ...terminalRecoveryActions(workflow.workItem.id, evaluation, gate)])];
+  return { evaluation, gate, blockers, recovery, upstream };
 }
 
 /**
@@ -122,12 +125,16 @@ export async function evaluateTerminalReadiness(root, definition, workflow, { st
     : [];
   const deferredMessages = new Set(deferred.map((finding) => finding.message));
   const deferredObligations = new Set(deferred.flatMap((finding) => finding.obligationIds ?? []));
+  // Upstream issues are decided by earlier steps' owners while the last step is reviewed; only the
+  // ending itself waits for them, so the submission preview defers them too.
+  if (stage === 'submission') result.upstream.forEach((entry) => deferredMessages.add(entry.message));
   const blockers = result.blockers.filter((message) => !omitted.has(message) && !deferredMessages.has(message));
-  const recovery = terminalRecoveryActions(workflow.workItem.id, result.evaluation, gate).filter((command) => {
-    if (stage !== 'submission') return true;
-    if (command.startsWith('singularity-flow decision witness ')) return false;
-    return ![...deferredObligations].some((id) => command.includes(`--obligation ${id}`));
-  });
+  const recovery = [...(stage === 'submission' ? [] : result.upstream.map((entry) => entry.command)),
+    ...terminalRecoveryActions(workflow.workItem.id, result.evaluation, gate).filter((command) => {
+      if (stage !== 'submission') return true;
+      if (command.startsWith('singularity-flow decision witness ')) return false;
+      return ![...deferredObligations].some((id) => command.includes(`--obligation ${id}`));
+    })];
   return {
     ...result,
     gate,
@@ -161,7 +168,8 @@ export async function assertTerminalTransition(root, definition, workflow) {
       evaluation: result.evaluation.decision.gate === 'block' ? result.evaluation : null,
       findings: [
         ...result.evaluation.findings.filter((entry) => entry.blocking !== false).map(({ code, message }) => ({ code, message })),
-        ...(result.gate.findings ?? []).map((finding) => ({ code: finding.code, message: finding.details?.message }))
+        ...(result.gate.findings ?? []).map((finding) => ({ code: finding.code, message: finding.details?.message })),
+        ...result.upstream.map(({ code, message }) => ({ code, message }))
       ],
       actions: result.recovery
     });

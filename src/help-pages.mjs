@@ -1246,6 +1246,33 @@ const PAGES = Object.freeze({
     ],
     seeAlso: ['approve', 'reopen', 'submit']
   },
+  'upstream-issue': {
+    summary: 'Record a defect in an earlier step without stopping the current one; its approvers decide it.',
+    description: [
+      'raise records an issue against an earlier step from any status of the current step. It needs no',
+      'authority, never refuses the current step and changes no artifact. --from-artifact files each item',
+      'the current step\'s artifacts list under "## Upstream discrepancies", once per item.',
+      'decide is for the earlier step\'s approvers: plan-correction (link the decision plan correction),',
+      'return (rework from that step; allowed while the current step is in progress, working files kept,',
+      'repair budgets apply), accept-risk (expires within 90 days) or dismiss.',
+      'A Story completes only when every issue is decided; an expired accepted risk counts as open.'
+    ],
+    options: [
+      ['--phase PHASE', 'The earlier step the issue is about.'],
+      ['--about ID|SECTION', 'The clause or section, at most 200 characters.'],
+      ['--problem TEXT', 'What is wrong, 20 to 1000 characters.'],
+      ['--outcome KIND', 'plan-correction, return, accept-risk or dismiss.'],
+      ['--link PRC-ID', 'The plan correction that resolves the issue.'],
+      ['--expires YYYY-MM-DD', 'When an accepted risk lapses; at most 90 days.']
+    ],
+    examples: [
+      ['singularity-flow upstream-issue raise --phase planning --about AC-002 --problem "The plan has no row for AC-002, so no test covers it."',
+        'Records the issue; the current step keeps working.'],
+      ['singularity-flow upstream-issue decide UPI-001 --outcome plan-correction --link PRC-001 --reason "Planning added the missing row."',
+        'Planning\'s approvers close the issue with the correction they recorded.']
+    ],
+    seeAlso: ['decision', 'reject', 'approve']
+  },
   report: {
     summary: 'Report on a Story: timing, usage, approvals — or the account of how it got here.',
     description: [

@@ -603,6 +603,8 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
     : changedList('riskDecisions') ? { list: 'riskDecisions', event: 'risk_decided', decision: 'risk' }
     : changedList('qualityRiskDecisions') ? { list: 'qualityRiskDecisions', event: 'quality_risk_decided', decision: 'quality-risk' }
     : changedList('witnessRecords') ? { list: 'witnessRecords', event: 'witness_recorded', decision: 'witness' }
+    : changedList('upstreamIssues') ? { list: 'upstreamIssues', event: 'upstream_issue_raised', decision: 'upstream-issue' }
+    : changedList('upstreamIssueDecisions') ? { list: 'upstreamIssueDecisions', event: 'upstream_issue_decided', decision: 'upstream-issue' }
       : { list: 'applicability', event: 'applicability_decided', decision: 'applicability' };
   const DECISION_KEYS = new Set([kind.list, 'history', 'publicationProjections']);
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
@@ -6965,7 +6967,7 @@ function currentTestingRepairPlan(root, workflow, plan, { phaseId, target, confi
 export async function rejectPhase(root, config, workflow, {
   phaseId, target, reason, clauseIds = [], members = [], convergenceRework = null,
   testingRepairConfirm = null, testingRepairPlan = null, channel = 'terminal', actionContext = null,
-  actor = null, agent = undefined
+  actor = null, agent = undefined, upstreamIssue = null
 } = {}) {
   if (workflow.workflowSnapshot) config = (await resolveStoryExecutionCatalog(root, config, workflow)).effectiveDefinition;
   await assertNoPendingPublication(root, config, workflow, 'reject');
@@ -7022,7 +7024,9 @@ export async function rejectPhase(root, config, workflow, {
   }
   const phase = await assertPhaseSequence(root, workflow, 'reject', {
     requestedPhase: phaseId,
-    allowedStatuses: reworkBlockers.length || testingRepair
+    // An upstream issue's return is decided by the earlier step's owners, so the step that found
+    // the defect need not be submitted first [UIF-M2].
+    allowedStatuses: reworkBlockers.length || testingRepair || upstreamIssue
       ? ['awaiting_approval', 'in_progress'] : ['awaiting_approval']
   });
   if ((testingRepair || phase.approvalPolicy.changeRequests?.commentRequired !== false)
@@ -7035,10 +7039,13 @@ export async function rejectPhase(root, config, workflow, {
   assertPhaseAgentMayMutate(config, workflow, phase, session, 'reject');
   const authority = requireApprovalAuthority(
     workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-    phase.approvalPolicy,
+    (upstreamIssue ? workflow.phases[target]?.approvalPolicy : null) ?? phase.approvalPolicy,
     session.actor
   );
-  const targetId = target ?? phase.id; if (!(phase.approvalPolicy.rejectTo ?? [phase.id]).includes(targetId)) throw new SingularityFlowError(`Phase '${phase.id}' cannot be rejected to '${targetId}'. Allowed: ${(phase.approvalPolicy.rejectTo ?? []).join(', ')}.`);
+  if (upstreamIssue && workflow.phaseOrder.indexOf(target) >= workflow.phaseOrder.indexOf(phase.id)) {
+    throw new SingularityFlowError(`${upstreamIssue.id} returns to an earlier step, not '${target}'.`, { code: 'UPSTREAM_ISSUE_NOT_EARLIER' });
+  }
+  const targetId = target ?? phase.id; if (!upstreamIssue && !(phase.approvalPolicy.rejectTo ?? [phase.id]).includes(targetId)) throw new SingularityFlowError(`Phase '${phase.id}' cannot be rejected to '${targetId}'. Allowed: ${(phase.approvalPolicy.rejectTo ?? []).join(', ')}.`);
   const targetIndex = workflow.phaseOrder.indexOf(targetId); if (targetIndex < 0 || targetIndex > workflow.phaseOrder.indexOf(phase.id)) throw new SingularityFlowError(`Invalid rejection target '${targetId}'.`);
   const requestedClauses = [...new Set(clauseIds)];
   if (requestedClauses.length) {
@@ -7089,6 +7096,7 @@ export async function rejectPhase(root, config, workflow, {
       }
     } : {}),
     ...(requestedMembers.length ? { members: requestedMembers } : {}),
+    ...(upstreamIssue ? { upstreamIssue: upstreamIssue.id } : {}),
     ...(testingRepair ? { testingRepair: {
       confirmation: testingRepair.confirmation,
       changeSetDigest: testingRepair.changeSetDigest,

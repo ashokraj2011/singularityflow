@@ -126,6 +126,7 @@ const entries = {
   approve: ['sf-approve'],
   reject: ['sf-reject'],
   decision: ['sf-decide'],
+  'upstream-issue': ['sf-decide'],
   reopen: ['sf-reject'],
   cancel: ['sf-cancel'],
   sync: ['sf-next'],

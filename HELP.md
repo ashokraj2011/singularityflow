@@ -3604,6 +3604,9 @@ singularity-flow review-source context|status <specification|planning> [--json]
 singularity-flow review-source stage <phase> --report-json '<completed-report-json>' --json
 singularity-flow review-source submit <specification|planning> --report-file GIT-PRIVATE-FILE [--json]
 singularity-flow review-source decide <specification|planning> --finding ID --reason TEXT [--json]
+singularity-flow upstream-issue raise --phase EARLIER --about ID|SECTION --problem TEXT [--from-artifact] [--json]
+singularity-flow upstream-issue list [--open] [--json]
+singularity-flow upstream-issue decide UPI-ID --outcome plan-correction|return|accept-risk|dismiss --reason TEXT [--link PRC-ID] [--expires YYYY-MM-DD]
 singularity-flow reopen [WORK-ID] [--fetch] --reason TEXT --to PHASE
 singularity-flow cancel [WORK-ID] [--fetch] --reason TEXT --confirm WORK-ID
 singularity-flow cancel WORK-ID --release [--apply --confirm WORK-ID] [--json]

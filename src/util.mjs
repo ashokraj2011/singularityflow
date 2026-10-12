@@ -141,7 +141,7 @@ export const BOOLEAN_OPTIONS = Object.freeze(new Set([
   'assisted', 'auto', 'automatic', 'blocking', 'bootstrap', 'cached', 'check', 'churn', 'clear-loops', 'cli-only', 'clipboard', 'clone', 'concat',
   'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'derived', 'dry-run', 'evidence', 'no-index',
   'diagnose-only', 'diagnostics', 'disclose-provider-results', 'draft-stdin', 'drop-local', 'experimental', 'feedback-stdin', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'include-proposals', 'initialize', 'intake', 'json',
-  'include-existing', 'include-local-documents', 'independent', 'isolated-worktree',
+  'from-artifact', 'include-existing', 'include-local-documents', 'independent', 'isolated-worktree',
   'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'mint-intake-receipt', 'narrate', 'network', 'offline', 'once', 'open', 'performance', 'plan-only',
   'opt-out', 'optional', 'parallel', 'planned', 'polish', 'portable-discovery', 'prefetch', 'preview', 'probe', 'propose', 'publish', 'push',
   'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'risk-status', 'run',

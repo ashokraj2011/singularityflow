@@ -11,6 +11,9 @@ STRUCTURED.add('appeal');
 MODEL_FREE_MIXED_COMMANDS.add('appeal');
 STRUCTURED.add('instruction');
 MODEL_FREE_MIXED_COMMANDS.add('instruction');
+STRUCTURED.add('upstream-issue');
+MODEL_FREE_MIXED_COMMANDS.add('upstream-issue');
+const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
   'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
@@ -84,6 +87,7 @@ const LAZY_MODULES = Object.freeze({
   revise: './commands/revise.mjs',
   skill: './commands/skill.mjs',
   instruction: './commands/instruction.mjs',
+  'upstream-issue': './commands/upstream-issue.mjs',
   // Machine-level like `reinstall`: product surfaces, never a repository or workspace.
   product: './commands/product.mjs'
 });
@@ -129,7 +133,7 @@ export const COMMAND_REGISTRY = Object.freeze([
   ['instruction'], ['assign'], ['watch'], ['recover'], ['appeal'], ['nextsteps', ['next-steps']], ['action'], ['inputs'], ['spec'],
   ['agents'], ['import'], ['imports'], ['marketplace'], ['mcp'], ['visual'], ['documents'], ['prepare'], ['phase'], ['artifact'], ['pr'], ['stack'], ['regression'], ['submit'],
   ['clarification'], ['comprehension'], ['change'], ['proof'], ['delivery'],
-  ['approve'], ['reject'], ['decision'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
+  ['approve'], ['reject'], ['decision'], ['upstream-issue'], ['reopen'], ['cancel'], ['sync'], ['ledger'], ['capabilities'], ['state'],
   ['validate'], ['gate'], ['wm', ['world-model']], ['jira'], ['plugin'], ['snapshot'], ['configuration', ['config']], ['constitution'], ['initiative'], ['epic'],
   ['story'], ['workspace'], ['copilot'], ['knowledge'], ['capability'], ['repositories', ['repos']], ['revision'], ['revise'], ['hook'], ['bootstrap'], ['secrets'], ['env'],
   // The first-run walkthrough already existed as `guide --first-run` and was the best teaching asset
@@ -435,6 +439,7 @@ const SGOS_SUBCOMMANDS = Object.freeze({
 /** Every command whose subcommands a resolver owns, for the guard that keeps these honest. */
 export const RESOLVER_SUBCOMMANDS = Object.freeze({
   instruction: Object.freeze(['list', 'show', 'create', 'edit', 'remove']),
+  'upstream-issue': UPSTREAM_ISSUE_SUBCOMMANDS,
   pause: Object.freeze(['on', 'off', 'status']),
   decision: DECISION_SUBCOMMANDS,
   import: IMPORT_SUBCOMMANDS,
@@ -1377,6 +1382,11 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
     return never(`instruction.${action}${!['list', 'show'].includes(action) && optionBoolean(options, 'dry-run') ? '.preview' : ''}`, definition,
       ['list', 'show'].includes(action) || optionBoolean(options, 'dry-run') ? 'read' : 'mutation');
   }
+  if (definition.name === 'upstream-issue') {
+    const action = positionals[1] ?? 'list';
+    if (!UPSTREAM_ISSUE_SUBCOMMANDS.includes(action)) return unknownSubcommand('upstream-issue', action, UPSTREAM_ISSUE_SUBCOMMANDS);
+    return never(`upstream-issue.${action}`, definition, action === 'list' ? 'read' : 'mutation');
+  }
   if (definition.name === 'phase') {
     if (positionals[1] === 'enter' && optionBoolean(options, 'compose')) return never('phase.enter.compose', definition, 'mutation');
     return PHASE_READ_SUBCOMMANDS.includes(positionals[1])
@@ -1618,6 +1628,7 @@ export function operationCatalog() {
     ...PHASE_READ_SUBCOMMANDS.map((name) => never(`phase.${name}`, commandDefinition('phase'), 'read')),
     ...SKILL_READ_SUBCOMMANDS.map((name) => never(`skill.${name}`, commandDefinition('skill'), 'read')),
     ...['list', 'show'].map(name => never(`instruction.${name}`, commandDefinition('instruction'), 'read')),
+    ...UPSTREAM_ISSUE_SUBCOMMANDS.map(name => never(`upstream-issue.${name}`, commandDefinition('upstream-issue'), name === 'list' ? 'read' : 'mutation')),
     ...['create', 'edit', 'remove'].flatMap(name => [never(`instruction.${name}.preview`, commandDefinition('instruction'), 'read'), never(`instruction.${name}`, commandDefinition('instruction'), 'mutation')]),
     ...SKILL_MUTATION_SUBCOMMANDS.flatMap((name) => [
       never(`skill.${name}.preview`, commandDefinition('skill'), 'read'), never(`skill.${name}`, commandDefinition('skill'), 'mutation')

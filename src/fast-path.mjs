@@ -74,9 +74,11 @@ export function fastPathProfile(definition, workType) {
       milestone,
       // A verb owns the phases it routes. Absent an explicit list the verb owns the phase it is
       // named for, which is the common case and keeps the profile short.
-      phases: Object.freeze(entry.phases ?? [defaultPhaseForVerb(verb)]),
-      defaulted: !entry.phases
+      phases: Object.freeze(entry.phases ?? [defaultPhaseForVerb(verb)])
     };
+    // Only a verb with no explicit list may find its step by role. Not enumerable: a profile
+    // naming the same steps explicitly (a Studio copy) is the same profile and serializes alike.
+    Object.defineProperty(verbs[verb], 'defaulted', { value: !entry.phases });
   }
   return Object.keys(verbs).length ? Object.freeze({ workType, verbs: Object.freeze(verbs) }) : null;
 }

@@ -1419,17 +1419,17 @@ test('Story diagnostics and editor lifecycle reads survive live root and agent r
     const result = run(process.execPath, [bin, ...args], root);
     assert.ok(result.stdout.trim(), `${args.join(' ')} returned a readable result`);
   }
-  // These readers have no successful value in the minimal fixture: no external document provider
-  // and no submitted review packet exist. They must nevertheless get past accepted-Story loading
-  // and reach that precise domain refusal instead of failing on today's moved root/deleted agent.
+  // No review packet was submitted: receipt show loads the accepted Story under its saved root,
+  // then answers that there is no receipt yet instead of failing on today's moved root/deleted agent.
+  const receipt = JSON.parse(run(process.execPath, [bin, 'receipt', 'show', 'DESK-SAVED', '--json'], root).stdout);
+  assert.deepEqual([receipt.status, receipt.reason, receipt.workId], ['unavailable', 'no-submission', 'DESK-SAVED']);
+  // This reader has no successful value in the minimal fixture: no external document provider
+  // exists. It must nevertheless get past accepted-Story loading and reach that precise domain
+  // refusal instead of failing on today's moved root/deleted agent.
   const boundedFailures = [
     {
       args: ['documents', 'browse', '--work-id', 'DESK-SAVED', '--json'],
       expected: /storage provider|document provider/i
-    },
-    {
-      args: ['receipt', 'show', 'DESK-SAVED', '--json'],
-      expected: /review packet/i
     }
   ];
   for (const { args, expected } of boundedFailures) {

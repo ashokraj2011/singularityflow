@@ -3,7 +3,8 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { branch, head, identity, exactFileAtObject } from './git.mjs';
 import { recordSha256, canonicalJson } from './records.mjs';
-import { readBoundSpecificationClaimMap } from './specifications.mjs';
+import { loadActiveSpecRecords, readBoundSpecificationClaimMap } from './specifications.mjs';
+import { validatePlannedVerification } from './verification/intent.mjs';
 import { EvidenceAmendmentSchema, evidenceCorrectionProjection, evidenceOwnerAuthorities } from './plan-evidence-amendments.mjs';
 import { requiresProspectivePhaseInspection, phaseInspectionGeneration } from './code-submission-evidence.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -98,6 +99,9 @@ export async function prepareEvidenceContractCorrection(root, config, workflow, 
   const groups = evidenceOwnerAuthorities(workflow, owner.id);
   if (!groups.length) fail('There is no pinned plan approval authority.', 'PLAN_EVIDENCE_CORRECTION_AUTHORITY');
   const proposed = evidenceCorrectionProjection(clauseId, claim, evidencePath, method);
+  const active = await loadActiveSpecRecords(path.join(root, itemRoot(config, workflow)), workflow);
+  validatePlannedVerification({ [clauseId]: proposed.claim }, [proposed.contract],
+    active.indexes.flatMap(index => index.clauses ?? []));
   const core = {
     schemaVersion: 1, kind: 'evidence-contract-correction-preview', workId: workflow.workItem.id,
     phaseId: phase.id, generation: phaseInspectionGeneration(workflow, phase), intentId: phase.generationIntent?.id ?? null,

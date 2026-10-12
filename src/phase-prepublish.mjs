@@ -163,7 +163,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
         const sourceSnapshot = await snapshot(source.absolute);
         plannedSource = await readFile(source.absolute, 'utf8');
         const authored = authoredArtifactText(plannedSource);
-        const derived = derivePlannedClaimMap(authored, { clauseIds, policy: specPolicy,
+        const derived = derivePlannedClaimMap(authored, { clauseIds, clauses: indexes.flatMap(index => index.clauses ?? []), policy: specPolicy,
           evidenceRoot: `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence`,
           requireComplete: plannedClaimsEnforced(workflow, specPolicy) });
         // Derivation already validates contracts through the author-owned visibility boundary.
@@ -230,7 +230,7 @@ async function specificationPublicationBlockers(root, config, workflow, phase, d
           { details: { ownerPhase: phase.id, repairScope: 'current-draft' } });
         if (plannedSource != null && ['SPEC_VERIFICATION_CONTRACT_INVALID',
           'SPEC_PLANNED_EVIDENCE_TYPE_INVALID'].includes(error.code)) {
-          evidenceRepair = planningEvidenceRepair(plannedSource, { clauseIds, policy: specPolicy,
+          evidenceRepair = planningEvidenceRepair(plannedSource, { clauseIds, clauses: indexes.flatMap(index => index.clauses ?? []), policy: specPolicy,
             evidenceRoot: `${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}/evidence` });
         }
       }

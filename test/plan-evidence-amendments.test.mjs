@@ -123,6 +123,20 @@ test('another plan reviewer cannot amend the clause owner in a multi-plan workfl
   assert.throws(() => applyPlanEvidenceAmendments(record, workflow), { code: 'PLAN_EVIDENCE_AMENDMENT_INTEGRITY' });
 });
 
+test('evidence correction cannot demote approved automated proof to a supporting test', async t => {
+  const f = await fixture(t);
+  await f.write(`${rootPath}/context/spec-indexes/scope-gen1.json`, canonicalJson({
+    schemaVersion: currentSchemaVersion('specification-index'), phase: 'scope', generation: 1,
+    workId: WORK, clauses: [{ id: AC, type: 'AC', verification: { methods: ['test'], criterionId: AC } }]
+  }));
+  f.workflow.phases.scope = { id: 'scope', status: 'approved', generation: 1, requiredArtifact: { kind: 'requirements' } };
+  f.workflow.resolution.plannedClaims.clausePhases = ['scope'];
+  f.workflow.phaseOrder.unshift('scope');
+  await assert.rejects(prepareEvidenceContractCorrection(f.root, f.config, f.workflow,
+    { clauseId: AC, evidencePath: file, reason: f.amendment.reason }),
+  error => error.code === 'SPEC_VERIFICATION_INTENT_INVALID');
+});
+
 test('approved-document tampering and unsafe evidence cannot be classified into ownership', async t => {
   const f = await fixture(t); const options = { clauseId: AC, evidencePath: file, reason: f.amendment.reason };
   const plan = `${rootPath}/artifacts/decide/plan.md`; const bytes = Buffer.from('Approved plan');

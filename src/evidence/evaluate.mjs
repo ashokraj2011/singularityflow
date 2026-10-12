@@ -362,7 +362,9 @@ export function evaluateEvidence(graph, { boundary = 'view', mode = 'projection'
 
     // Verify: acceptance criteria are verified by tests; other clause types through the criteria
     // that depend on them.
-    let verification = { association: 'through-criteria', criteria: dependents.get(id) ?? [] };
+    let verification = { association: 'through-criteria', criteria: [...new Set([
+      ...(dependents.get(id) ?? []), ...(clause.verification?.criterionId && clause.verification.criterionId !== id ? [clause.verification.criterionId] : [])
+    ])].sort() };
     let assurance = 'not-applicable';
     if (clause.type === 'AC') {
       const verifyId = obligationId(workId, 'verify', id);

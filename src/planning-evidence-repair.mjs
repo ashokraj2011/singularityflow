@@ -47,7 +47,7 @@ function evidencePath(value, evidenceRoot) {
  * witness contracts are never replaced or weakened. Every proposed document is re-parsed by the
  * publication validator; exact before/after patches carry authored-byte hashes, not new authority.
  */
-export function planningEvidenceRepair(markdown, { clauseIds = [], evidenceRoot, policy = {} } = {}) {
+export function planningEvidenceRepair(markdown, { clauseIds = [], clauses = [], evidenceRoot, policy = {} } = {}) {
   const original = String(markdown ?? '');
   const sourceSha256 = digest(original);
   const base = { sourceSha256, mutates: false, evidenceAccepted: false, testsWaived: false,
@@ -142,7 +142,7 @@ export function planningEvidenceRepair(markdown, { clauseIds = [], evidenceRoot,
     candidate = patch.before ? candidate.replace(patch.before, () => patch.after) : candidate + patch.after;
   }
   try {
-    const result = derivePlannedClaimMap(candidate, { clauseIds, evidenceRoot, policy });
+    const result = derivePlannedClaimMap(candidate, { clauseIds, clauses, evidenceRoot, policy });
     if (result.missingClauseIds.length || result.missingTestClauseIds.length) return review('Complete the remaining clause/test allocations before applying an evidence repair.');
   } catch (error) {
     return review(`The proposed plan still needs author correction: ${error.message}`);

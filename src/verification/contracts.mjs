@@ -232,8 +232,8 @@ export function parseVerificationContracts(markdown, { clauseIds = [], plannedCl
     }
     const planned = plannedClaims[contract.clauseId] ?? null;
     for (const entry of contract.slots.filter((candidate) => candidate.method === 'test')) {
-      if (planned?.testDisposition === 'not-applicable') {
-        throw invalid(`${contract.clauseId} plans no tests (not-applicable), so its slot ${entry.slot} cannot be a test.`);
+      if (['not-applicable', 'non-test'].includes(planned?.testDisposition)) {
+        throw invalid(`${contract.clauseId} plans no tests (${planned.testDisposition}), so its slot ${entry.slot} cannot be a test.`);
       }
       if (planned?.tests?.length && !planned.tests.includes(entry.witness.path)) {
         throw invalid(`${contract.clauseId}'s test slot ${entry.slot} names ${entry.witness.path}, which is not among its planned tests (${planned.tests.join(', ')}).`);

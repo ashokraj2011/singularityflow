@@ -55,7 +55,8 @@ function count(value, noun) {
 
 function planCell(row) {
   if (!row.plan) return row.obligations.find((entry) => entry.responsibility === 'plan')?.status === 'pending' ? 'not planned yet' : 'not planned';
-  const tests = row.plan.testDisposition === 'not-applicable' ? 'tests n/a' : count(row.plan.tests.length, 'test');
+  const tests = row.plan.testDisposition === 'non-test' ? 'visual/inspection proof'
+    : row.plan.testDisposition === 'not-applicable' ? 'tests n/a' : count(row.plan.tests.length, 'test');
   return `${count(row.plan.expectedPaths.length, 'path')} · ${tests}`;
 }
 
@@ -73,6 +74,7 @@ function verificationCell(row) {
     return verification.criteria?.length ? `via ${count(verification.criteria.length, 'criterion').replace(/criterions$/, 'criteria')}` : 'no criterion';
   }
   if (verification.testDisposition === 'not-applicable') return 'tests n/a';
+  if (verification.testDisposition === 'non-test') return 'visual/inspection proof required';
   if (verification.association === 'none') return 'no tagged test';
   // Exact tests are named by their own result; a tagged file only by its module command's.
   const outcome = {

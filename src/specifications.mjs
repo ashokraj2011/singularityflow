@@ -17,7 +17,8 @@ import { GOVERNED_CLAUSE_TYPES, GOVERNED_CLAUSE_TYPE_PATTERN, qualifiedClauseIds
 import { isTestAutomationPath } from './source-boundary.mjs';
 import { SUPPORTING_CHANGE_CLASSES, classifySupportingChange } from './supporting-changes.mjs';
 import { accountedAmendmentPaths, planAmendmentRecord } from './plan-amendments.mjs';
-import { normalizeVerificationContracts, parseVerificationContracts, validateRetainedEvidenceDeclarations } from './verification/contracts.mjs';
+import { mergedVerificationContracts, normalizeVerificationContracts, parseVerificationContracts, validateRetainedEvidenceDeclarations } from './verification/contracts.mjs';
+import { nonTestVerification, parseVerificationIntent, validatePlannedVerification } from './verification/intent.mjs';
 import { applyPlanEvidenceAmendments, verifyPlanEvidenceAmendments } from './plan-evidence-amendments.mjs';
 import { collectDraftDiagnostic, draftDiagnosticSummary, inspectDraftValue } from './draft-diagnostics.mjs';
 
@@ -415,6 +416,8 @@ export function extractClauses(markdown, {
     visited.add(id);
   };
   graphClauses.forEach((clause) => visit(clause.id));
+  const verification = parseVerificationIntent(plannedClaimSource(markdown), clauses, { externalClauses: external });
+  for (const clause of clauses) if (verification.has(clause.id)) clause.verification = verification.get(clause.id);
   return clauses;
 }
 
@@ -734,7 +737,7 @@ function supportingFilesFromPlan(lines) {
  * contract. Prose, guessed filenames, globs, and unqualified clause IDs are
  * deliberately ignored/refused rather than interpreted.
  */
-export function inspectPlannedClaimMap(markdown, { clauseIds = [], policy = {}, evidenceRoot = null,
+export function inspectPlannedClaimMap(markdown, { clauseIds = [], clauses = [], policy = {}, evidenceRoot = null,
   requireComplete = false } = {}) {
   if (typeof markdown !== 'string') throw new SingularityFlowError('Planned claim source must be UTF-8 Markdown.');
   const known = new Set(clauseIds.map((id) => String(id).toUpperCase()));
@@ -785,18 +788,22 @@ export function inspectPlannedClaimMap(markdown, { clauseIds = [], policy = {}, 
       const field = (name, actual, read) => inspectDraftValue(diagnostics, read,
         { line: index + 1, clauseId: id, field: name, actual });
       const expected = field('expectedPaths', row[1], () => parseBacktickedPathCell(row[1], `${id ?? 'Clause'}.expectedPaths`));
-      const reason = field('plannedTests', row[2], () => parseNotApplicable(row[2], `${id ?? 'Clause'}.plannedTests`));
-      const tests = reason.valid && reason.value != null ? { valid: true, value: [] }
+      const manual = /^verification:\s*(.+)$/iu.exec(row[2]);
+      const criterion = field('verificationCriterion', manual?.[1], () => manual
+        ? parseClauseCell(manual[1], known, `${id ?? 'Clause'}.verificationCriterion`) : null);
+      const reason = field('plannedTests', row[2], () => manual ? null : parseNotApplicable(row[2], `${id ?? 'Clause'}.plannedTests`));
+      const tests = manual || (reason.valid && reason.value != null) ? { valid: true, value: [] }
         : field('plannedTests', row[2], () => parseBacktickedPathCell(row[2], `${id ?? 'Clause'}.tests`));
       const fulfillment = field('fulfillment', column(row, 'fulfillment'), () => parseFulfillmentCell(column(row, 'fulfillment'), `${id ?? 'Clause'}.fulfillment`));
       const steps = field('steps', column(row, 'steps'), () => parseStepsCell(column(row, 'steps'), `${id ?? 'Clause'}.steps`));
       const observable = field('observableResult', column(row, 'observable result'), () => parseObservableResultCell(column(row, 'observable result'), `${id ?? 'Clause'}.observableResult`));
-      if (![identity, expected, reason, tests, fulfillment, steps, observable].every(value => value.valid)) continue;
+      if (![identity, expected, criterion, reason, tests, fulfillment, steps, observable].every(value => value.valid)) continue;
       const claim = {
         expectedPaths: expected.value,
         tests: tests.value,
-        testDisposition: reason.value == null ? (tests.value.length ? 'applicable' : 'unspecified') : 'not-applicable',
+        testDisposition: manual ? 'non-test' : reason.value == null ? (tests.value.length ? 'applicable' : 'unspecified') : 'not-applicable',
         testReason: reason.value,
+        ...(manual ? { verificationCriterion: criterion.value } : {}),
         deviation: null,
         ...(fulfillment.value ? { fulfillment: fulfillment.value } : {}),
         ...(steps.value.length ? { steps: steps.value } : {}),
@@ -821,9 +828,10 @@ export function inspectPlannedClaimMap(markdown, { clauseIds = [], policy = {}, 
   const contracts = parseVerificationContracts(plannedClaimSource(markdown), {
     clauseIds: [...known], plannedClaims: claims, diagnostics });
   if (contracts.length && claimMap) claimMap.verificationContracts = contracts;
+  inspectDraftValue(diagnostics, () => validatePlannedVerification(claims, contracts, clauses), { field: 'verification' });
   const missingClauseIds = [...known].filter((id) => !claims[id]).sort();
   const missingTestClauseIds = [...known].filter((id) => !claims[id]
-    || (!claims[id].tests.length && claims[id].testDisposition !== 'not-applicable')).sort();
+    || (!claims[id].tests.length && !['not-applicable', 'non-test'].includes(claims[id].testDisposition))).sort();
   if (requireComplete) for (const id of [...new Set([...missingClauseIds, ...missingTestClauseIds])]) {
     collectDraftDiagnostic(diagnostics, new SingularityFlowError(
       `Clause ${id} has no exact planned test or reviewed not-applicable reason. Complete its approved clause row.`,
@@ -902,8 +910,8 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {}, pl
     if (kind === 'planned') {
       const tests = normalizePaths(claim.tests, `${id}.tests`, normalized.limits);
       const testDisposition = claim.testDisposition ?? (tests.length ? 'applicable' : 'unspecified');
-      if (!['applicable', 'not-applicable', 'unspecified'].includes(testDisposition)) {
-        throw new SingularityFlowError(`${id}.testDisposition must be applicable, not-applicable, or unspecified.`);
+      if (!['applicable', 'not-applicable', 'non-test', 'unspecified'].includes(testDisposition)) {
+        throw new SingularityFlowError(`${id}.testDisposition must be applicable, not-applicable, non-test, or unspecified.`);
       }
       const testReason = claim.testReason == null ? null : String(claim.testReason).trim();
       if (testDisposition === 'not-applicable' && (tests.length || !testReason)) {
@@ -913,11 +921,20 @@ export function normalizeClaimMap(value, { kind, clauseIds = [], policy = {}, pl
         throw new SingularityFlowError(`${id}.testReason is only allowed when testDisposition is not-applicable.`);
       }
       const expectedPaths = normalizePaths(claim.expectedPaths, `${id}.expectedPaths`, normalized.limits);
+      const verificationCriterion = claim.verificationCriterion == null ? null : String(claim.verificationCriterion).toUpperCase();
+      if (testDisposition === 'non-test' && (tests.length || !/^[A-Z0-9][A-Z0-9._-]{0,63}:AC-\d{3}$/u.test(verificationCriterion ?? '')
+          || (known.size && !known.has(verificationCriterion)) || (/:AC-\d{3}$/u.test(id) && verificationCriterion !== id))) {
+        throw new SingularityFlowError(`${id} non-test proof requires no executable tests and an exact approved AC verificationCriterion.`, { code: 'SPEC_VERIFICATION_INTENT_INVALID' });
+      }
+      if (testDisposition !== 'non-test' && verificationCriterion != null) {
+        throw new SingularityFlowError(`${id}.verificationCriterion is only allowed for non-test proof.`, { code: 'SPEC_VERIFICATION_INTENT_INVALID' });
+      }
       claims[id] = {
         expectedPaths,
         tests,
         testDisposition,
         testReason,
+        ...(verificationCriterion ? { verificationCriterion } : {}),
         deviation: claim.deviation == null ? null : String(claim.deviation),
         ...plannedObligationFields(id, claim, { expectedPaths, tests, testDisposition })
       };
@@ -1302,7 +1319,7 @@ export function mergePlannedClaimRecords(maps = []) {
   for (const map of [...maps].sort(recordOrder)) {
     for (const [id, claim] of Object.entries(map?.claims ?? {})) {
       const current = grouped.get(id) ?? {
-        expectedPaths: [], tests: [], dispositions: [], reasons: [], deviation: null, fulfillment: null, steps: [], observableResult: null, obligations: []
+        expectedPaths: [], tests: [], dispositions: [], reasons: [], criteria: [], deviation: null, fulfillment: null, steps: [], observableResult: null, obligations: []
       };
       current.obligations.push({ ...claim, owner: map.phase ?? null });
       if (claim.fulfillment) current.fulfillment = claim.fulfillment;
@@ -1311,6 +1328,7 @@ export function mergePlannedClaimRecords(maps = []) {
       current.expectedPaths.push(...(claim.expectedPaths ?? []));
       current.tests.push(...(claim.tests ?? []));
       current.dispositions.push(claim.testDisposition ?? 'unspecified');
+      if (claim.verificationCriterion) current.criteria.push(claim.verificationCriterion);
       if (claim.testReason) current.reasons.push(claim.testReason);
       if (claim.deviation != null) current.deviation = claim.deviation;
       grouped.set(id, current);
@@ -1320,11 +1338,14 @@ export function mergePlannedClaimRecords(maps = []) {
     const tests = sortedUnique(value.tests);
     const allNotApplicable = value.dispositions.length > 0
       && value.dispositions.every((entry) => entry === 'not-applicable');
+    const allNonTest = value.dispositions.length > 0
+      && value.dispositions.every((entry) => entry === 'non-test') && new Set(value.criteria).size === 1;
     return [id, {
       expectedPaths: sortedUnique(value.expectedPaths),
       tests,
-      testDisposition: tests.length ? 'applicable' : allNotApplicable ? 'not-applicable' : 'unspecified',
+      testDisposition: tests.length ? 'applicable' : allNotApplicable ? 'not-applicable' : allNonTest ? 'non-test' : 'unspecified',
       testReason: tests.length || !allNotApplicable ? null : value.reasons.at(-1) ?? null,
+      ...(!tests.length && allNonTest ? { verificationCriterion: value.criteria[0] } : {}),
       deviation: value.deviation,
       ...(value.fulfillment && new Set(value.obligations.map((claim) => claim.fulfillment ?? null)).size === 1 ? { fulfillment: value.fulfillment } : {}),
       ...(value.obligations.length > 1 ? { obligations: value.obligations } : {}),
@@ -1670,6 +1691,11 @@ export function evaluateSpecAcceptance({ indexes = [], planned = [], observed = 
   const normalized = normalizeSpecPolicy(policy);
   const clauses = new Map(indexes.flatMap((index) => index.clauses ?? []).map((clause) => [clause.id, clause]));
   const plannedClaims = mergePlannedClaimRecords(planned);
+  const verificationContracts = mergedVerificationContracts(planned);
+  const nonTestProof = id => plannedClaims[id]?.testDisposition === 'non-test'
+    && nonTestVerification(id, plannedClaims[id], verificationContracts, clauses.get(id)?.verification);
+  const testExemption = id => plannedClaims[id]?.testDisposition === 'not-applicable'
+    && plannedClaims[id]?.testReason && !clauses.get(id)?.verification?.methods.includes('test');
   const observedClaims = mergeObservedClaimRecords(observed, plannedClaims);
   const candidates = [...acceptance].sort(recordOrder);
   const latestRun = candidates.at(-1) ?? null;
@@ -1678,14 +1704,15 @@ export function evaluateSpecAcceptance({ indexes = [], planned = [], observed = 
     : [...clauses.keys()].filter((id) => {
       const claim = plannedClaims[id];
       return !(claim?.tests ?? []).length
-        && !(claim?.testDisposition === 'not-applicable' && claim?.testReason);
+        && !testExemption(id)
+        && !nonTestProof(id);
     }).sort();
   const missingObservedTests = normalized.acceptance !== 'verify'
     ? []
     : [...clauses.keys()].filter((id) => {
-      const plan = plannedClaims[id];
       return !exactPlannedTestEvidence(id, plannedClaims, observedClaims)
-        && !(plan?.testDisposition === 'not-applicable' && plan?.testReason);
+        && !testExemption(id)
+        && !nonTestProof(id);
     }).sort();
   const failedCommands = normalized.acceptance !== 'verify' || !latestRun
     ? []
@@ -1885,6 +1912,7 @@ export function renderClauseContext(clauses) {
     `## ${clause.anchor}`,
     '',
     clause.body,
+    ...(clause.verification ? [`Verification: ${clause.verification.methods.join(', ')} (all required)${clause.verification.criterionId ? ` via ${clause.verification.criterionId}` : ''}.`] : []),
     '',
     `Source: \`${clause.source?.path ?? 'unknown'}:${clause.source?.line ?? 0}\`; SHA-256: \`${clause.bodySha256}\``
   ])].join('\n');

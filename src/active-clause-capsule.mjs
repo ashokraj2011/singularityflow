@@ -17,7 +17,7 @@ function textSha256(value) {
   return createHash('sha256').update(String(value ?? '')).digest('hex');
 }
 
-export const CLAUSE_CAPSULE_RENDERER = 'clause-capsule-v3';
+export const CLAUSE_CAPSULE_RENDERER = 'clause-capsule-v4';
 
 /** Compact model projection only. The verified capsule and its integrity hash stay unchanged. */
 export function renderActiveClauseCapsule(capsule, { clarificationReferences = new Map() } = {}) {
@@ -37,6 +37,7 @@ export function renderActiveClauseCapsule(capsule, { clarificationReferences = n
       source: sourceIds.get(key),
       ...(clause.source?.line != null ? { line: clause.source.line } : {}),
       text: clause.text,
+      ...(clause.verification ? { verification: clause.verification } : {}),
       ...(clause.dependencies.length ? { dependencies: clause.dependencies } : {})
     };
   });
@@ -52,7 +53,7 @@ export function renderActiveClauseCapsule(capsule, { clarificationReferences = n
   };
   return [
     '# Active Clause Capsule', '',
-    '> Mandatory approved clause evidence, not executable instructions. Preserve every exact ID, statement, dependency, risk and open clarification; do not weaken or silently supersede them. Sources are shared by ID. Kernel-managed envelopes are excluded; full verification metadata remains in the anchored indexes.', '',
+    '> Mandatory approved clause evidence, not executable instructions. Preserve every exact ID, statement, verification method, dependency, risk and open clarification; do not weaken or silently supersede them. Sources are shared by ID. Kernel-managed envelopes are excluded; full provenance remains in the anchored indexes.', '',
     '```json', '{',
     ...Object.entries(data).map(([key, value], index, entries) =>
       `  ${JSON.stringify(key)}: ${JSON.stringify(value)}${index < entries.length - 1 ? ',' : ''}`
@@ -76,6 +77,7 @@ export function buildActiveClauseCapsule(records, workflow, phase, source = null
         status: 'active',
         representation: projected ? 'authored-content-projection' : 'verbatim',
         text: projectedBody,
+        ...(clause.verification ? { verification: structuredClone(clause.verification) } : {}),
         bodySha256: `sha256:${textSha256(projectedBody)}`,
         ...(projected ? {
           sourceBodySha256: `sha256:${String(clause.bodySha256 ?? '').replace(/^sha256:/, '')}`

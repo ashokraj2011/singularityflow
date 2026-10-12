@@ -142,6 +142,8 @@ test('publishing a plan refuses an obligation allocated to a step it does not pl
     '| Clause | Expected paths | Planned tests | Fulfillment | Steps | Observable result |', '|---|---|---|---|---|---|',
     `| \`${W}:REQ-001\` | \`src/value.mjs\` | \`test/value.test.mjs\` | modified | \`${steps}\` | The value reads 2. |`,
     `| \`${W}:AC-001\` | \`src/value.mjs\` | \`test/value.test.mjs\` | modified | \`implementation\` | The page shows 2. |`, '',
+    '## Verification intent', '', '| Clause | Methods | Criterion |', '|---|---|---|',
+    `| \`${W}:REQ-001\` | test | - |`, `| \`${W}:AC-001\` | test | \`${W}:AC-001\` |`, '',
     '## Evidence and assumptions', '', 'The pinned repository is the implementation source.', '', '## Out of scope', '', 'No unrelated application changes.'
   ].join('\n');
   await writeFile(specPath, spec('hardening'));
@@ -154,6 +156,9 @@ test('publishing a plan refuses an obligation allocated to a step it does not pl
   sflow('artifact', 'scan', '--phase', 'specification');
   sflow('phase', 'publish', 'specification', '--authored', 'human', '--channel', 'manual-in-place');
   const workflowState = JSON.parse(await readFile(path.join(root, 'singularity/work-items', W, 'workflow.json'), 'utf8'));
+  const index = JSON.parse(await readFile(path.join(root, workflowState.phases.specification.specIndex.path), 'utf8'));
+  assert.deepEqual(index.clauses.find(clause => clause.id === `${W}:AC-001`).verification,
+    { methods: ['test'], criterionId: `${W}:AC-001` }, 'publication retains the approved proof method for subsequent phases');
   const plan = JSON.parse(await readFile(path.join(root, workflowState.phases.specification.claimMaps.planned.path), 'utf8'));
   assert.deepEqual(plan.claims[`${W}:REQ-001`], {
     expectedPaths: ['src/value.mjs'], tests: ['test/value.test.mjs'], testDisposition: 'applicable', testReason: null, deviation: null,

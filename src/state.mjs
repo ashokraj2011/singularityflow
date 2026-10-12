@@ -1780,11 +1780,11 @@ function plannedClaimsTarget(config, workflow, phase) {
  * `subject`, `where` and `again` name the act being refused, so an intent amendment is told to propose again.
  */
 function plannedClaimContract(phase, authored, {
-  clauseIds, policy, enforce, artifactPath, codeSteps = [],
+  clauseIds, clauses = [], policy, enforce, artifactPath, codeSteps = [],
   subject = `Phase ${phase.id} cannot publish`, where = `in ${artifactPath}`, again = 'publish again'
 }) {
   const evidenceRoot = artifactPath?.split('/artifacts/')[0];
-  const derived = derivePlannedClaimMap(authored, { clauseIds, policy,
+  const derived = derivePlannedClaimMap(authored, { clauseIds, clauses, policy,
     evidenceRoot: evidenceRoot ? `${evidenceRoot}/evidence` : null });
   if (evidenceRoot) validatePlannedEvidenceTypes(derived.claimMap.claims, { evidenceRoot: `${evidenceRoot}/evidence` });
   const placeholderReasons = Object.entries(derived.claimMap.claims)
@@ -1857,7 +1857,9 @@ export async function assertAmendedPlannedClaims(root, config, workflow, phase, 
   ])].sort();
   if (!clauseIds.length) return null;
   return plannedClaimContract(phase, authoredArtifactText(proposedText), {
-    clauseIds, policy: target.policy, enforce: target.enforce, artifactPath: requiredRepoPath(config, workflow, phase), codeSteps: target.codeSteps,
+    clauseIds, clauses: [...records.indexes.filter(index => index.phase !== phase.id).flatMap(index => index.clauses ?? []),
+      ...extractClauses(proposedText)],
+    policy: target.policy, enforce: target.enforce, artifactPath: requiredRepoPath(config, workflow, phase), codeSteps: target.codeSteps,
     subject: 'The amended specification cannot be proposed', where: 'in the proposed file', again: 'propose it again'
   });
 }
@@ -1893,7 +1895,9 @@ async function refreshPlannedSpecificationClaims(root, config, workflow, phase) 
   const artifactPath = requiredRepoPath(config, workflow, phase);
   const artifact = await repositoryArtifactSnapshot(root, artifactPath);
   const authored = authoredArtifactText(await readRepositoryArtifactText(root, artifactPath));
-  const { derived, gaps, contracts } = plannedClaimContract(phase, authored, { clauseIds, policy, enforce, artifactPath, codeSteps });
+  const { derived, gaps, contracts } = plannedClaimContract(phase, authored, {
+    clauseIds, clauses: records.indexes.flatMap(index => index.clauses ?? []), policy, enforce, artifactPath, codeSteps
+  });
   // A planned test that could never run here is named now, not first at publication [§12 #18].
   try {
     await assertPlannedTestsRunnable(root, workflow, {

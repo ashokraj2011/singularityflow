@@ -345,6 +345,9 @@ export function safeCommandGuidance(value) {
     allowedSkills.add('/sf-code');
     allowedSkills.add('/sf-converge');
   }
+  // /sf-publish owns prepublish followed by publication only when ready. Deterministic
+  // preparation legitimately hands off to it; rejecting this pair made prepare itself fail.
+  if (safe.argv[0] === 'phase' && safe.argv[1] === 'prepublish') allowedSkills.add('/sf-publish');
   const assertedSkill = input.skill != null
     ? normalizedSkill(input.skill)
     : input.copilotCommand != null

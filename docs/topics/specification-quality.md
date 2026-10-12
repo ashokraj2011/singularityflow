@@ -19,7 +19,7 @@ related:
   - approvals
   - artifacts-and-generation
   - rejection-and-rework
-version: 10
+version: 11
 ---
 Specification quality asks "is the requirement good enough?", which is a different question from verification ("does the implementation satisfy it?") and from conformance ("does the evidence trace to approved intent?"). `sflow spec analyze` answers the deterministic part without a model: unresolved clarification markers, duplicate requirement text, missing scenario sections, and defects the clause extractor refuses. It never claims prose is complete, clear, consistent or correct, and it says so in its own report — a clean run means nothing checkable is wrong, not that the specification is good. `--assisted` adds semantic candidates through one governed model turn with no tools; candidates are observations for a reviewer, are recorded separately with the model, prompt hash and usage, and change no deterministic finding and no gate. Running it again for the same specification, findings and model shows the recorded candidates without another model call; `--refresh` asks again.
 
@@ -47,6 +47,39 @@ explicit human acknowledgement across guide, readiness, fast-path and recovery, 
 authoring, publication or submission. Self-approval warnings remain separate from acknowledgement.
 
 Use this topic when the current goal matches **specification quality**. Start in a governed checkout unless the command explicitly operates on installation or machine-local workspace state. Run `sflow doctor` when setup, identity, credentials, or repository health is uncertain, and use `sflow status` or `sflow home` to confirm the selected work before a mutation.
+
+## Proof method continuity
+
+New specifications declare one row per clause in `## Verification intent`:
+
+| Clause | Methods | Criterion |
+|---|---|---|
+| `STORY:REQ-004` | visual | `STORY:AC-004` |
+| `STORY:AC-004` | visual | `STORY:AC-004` |
+
+Methods are `test`, `visual`, `inspection`, or a comma-separated combination, all required.
+Each AC names itself; visual/inspection requirements link to the AC proving them. A test-only
+requirement may use `-` for Criterion. Once declared, the table must cover every clause, including
+non-functional requirements. Duplicate, unknown, incomplete or inconsistent rows are refused in
+Specification's current draft, before Planning. Legacy publications without the table stay intact;
+the engine never guesses their proof method from prose, a filename or an existing image.
+
+The approved index and compact clause capsule retain these methods for all downstream and custom
+workflow phases. Planning inherits them and supplies exact primary witness slots in its existing
+`## Verification contracts` table. For proof without an executable test, write
+`verification: STORY:AC-004` in the clause's Planned tests cell. This records `non-test` proof,
+not an exemption. A screenshot requirement and its AC can share one visual contract. A primary
+visual/inspection contract in a legacy AC row likewise does not require a duplicate test-exemption
+decision. An unlinked legacy requirement or genuine `not-applicable: <reason>` still needs its
+authorized human disposition.
+
+Planning cannot replace approved automated tests with an exemption, demote required proof to
+supporting, or make required combined methods optional. Evidence-contract corrections obey the
+same rule. Correct an open draft in place, then recheck; an actual scope-method change requires
+its scope authority. These declarations never accept a screenshot: fresh source-bound visual
+or inspection evidence, configured test execution, independent review and phase approval remain
+separate requirements. Existing retained reviews need a fresh review against the corrected plan;
+no prior human decision or published artifact is rewritten.
 
 ## Use it from each surface
 

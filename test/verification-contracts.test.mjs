@@ -152,6 +152,20 @@ test('any is met by one primary slot, and its assurance is the strongest met slo
   assert.equal(verifyRow(evaluation).assurance, 'exact-local-observed');
 });
 
+test('explicit non-test proof still requires a fresh visual witness, not file presence or passing tests', () => {
+  const contracts = parse(table(`| \`${AC1}\` | screen | visual | \`checkout\` | | source-bound | | |`));
+  const evidence = records(contracts);
+  evidence.indexes[0].clauses[0].verification = { methods: ['visual'], criterionId: AC1 };
+  evidence.planned[0].claims[AC1] = { expectedPaths: ['src/value.js'], tests: [],
+    testDisposition: 'non-test', testReason: null, verificationCriterion: AC1 };
+  const result = evaluateEvidence(evidenceGraph({ workflow: story(), records: evidence,
+    deliveries: [delivery([witness('adds')], [occurrence('adds')])] }), { at: NOW });
+  assert.equal(verifyOf(result).status, 'missing');
+  assert.equal(verifyRow(result).verification.contract.slots[0].status, 'missing');
+  assert.ok(result.findings.some(entry => entry.code === 'EVIDENCE_VISUAL_MISSING'));
+  assert.notEqual(verifyRow(result).result, 'satisfied');
+});
+
 test('a reviewer\'s adequacy decision rules a test out or excepts it, and a lapsed exception stops counting', () => {
   const contract = effectiveContract(AC1, new Map(), planned[AC1]);
   const sha = witnessMappingSha256(witnessMappingCore(witness('adds'), { clauseBodySha256: BODY, contract }));

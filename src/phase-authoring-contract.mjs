@@ -32,16 +32,20 @@ export function phaseAuthoringContract(definition, workflow, phase) {
   if (isTestEvidencePhase(phase)) roles.add('verification');
   if (isConformancePhase(phase)) roles.add('closure');
   const evidenceRoot = path.posix.join(definition.workItemRoot ?? 'singularity/work-items', workflow?.workItem?.id ?? '<WORK-ID>', 'evidence');
-  return Object.freeze({ revision: 'phase-authoring-v1', phase: phase.id, roles: [...roles].sort(),
+  return Object.freeze({ revision: 'phase-authoring-v2', phase: phase.id, roles: [...roles].sort(),
     priorApprovalsImmutable: true, revalidatePriorDraftQuality: false,
     executionEvidence: { authority: 'immutable-submission-packets', discoveryIsExecution: false,
       commandSuccessIsCriterionAcceptance: false, priorReportsMutable: false },
     draftDefectsPreventRepair: false, repairIsApproval: false,
     clauseAuthority: 'approved-active-clause-capsule', evidenceRoot,
+    ...(roles.has('scope') ? { verificationIntent: {
+      table: 'Clause | Methods | Criterion', methods: ['test', 'visual', 'inspection'],
+      combination: 'all', oneRowPerDeclaredClause: true, nonTestRequirementCriterion: 'exact-declared-AC'
+    } } : {}),
     ...(plans ? { planning: {
       rows: 'one-per-approved-clause', preserveIdsAndMeaning: true,
       emptyPathCell: 'unquoted-dash', retainedEvidencePrefix: `${evidenceRoot}/`,
-      verification: { criterion: 'exact-approved-AC', method: ['test', 'inspection', 'visual'],
+      verification: { criterion: 'exact-approved-AC', method: ['test', 'inspection', 'visual'], inheritApprovedMethods: true,
         role: ['primary', 'supporting'], visualAssurance: ['declared', 'source-bound'] }
     } } : {}),
     recovery: { currentDraft: 'repair-in-place', publishedDraft: 'reviewed-successor-or-return',
@@ -54,10 +58,13 @@ export function phaseAuthoringContractLines(contract) {
   if (!contract) return [];
   return [
     '- Repair boundary: the configured producer repairs this open draft in place; regenerate kernel-owned artifacts, never hand-edit them. Draft defects do not forbid repairs. Preserve prior approved artifacts and decisions; never re-author an earlier phase to satisfy a new template. Publication and any configured approvals remain separate checks.',
+    ...(contract.verificationIntent ? [
+      '- Specification: author a `## Verification intent` table with Clause | Methods | Criterion, one row per declared clause. Methods = test, visual, inspection, or a comma-separated combination (all required). AC Criterion is its own ID; a visual/inspection requirement names the AC proving it. Test-only requirements may use -. Choose from pinned source obligations: screenshot/visual acceptance is not an executable-test exemption. Resolve material ambiguity here, not in Planning.'
+    ] : []),
     ...(contract.planning ? [
       '- Planning rows: cover every approved requirement and acceptance ID from the authoritative clause capsule; preserve its meaning. Use a bare - for an empty path cell, never `-` (which names a file).',
       `- Evidence planning: put retained files under ${contract.planning.retainedEvidencePrefix} in that clause's Expected paths with Fulfillment \`evidence\`; do not assign screenshot obligations to another clause.`,
-      '- Verification: use the actual `## Verification contracts` table. Criterion = exact approved AC; Slot = lower-hyphen identifier; Method = test/inspection/visual; Role = primary/supporting; visual Required assurance = source-bound. Put scenario/reviewer prose outside these typed cells. File presence is not a passing witness.'
+      '- Verification: inherit approved clause verification methods, without downgrading required proof to supporting or any-of. Use the actual `## Verification contracts` table: exact approved AC Criterion, lower-hyphen Slot, test/inspection/visual Method, primary/supporting Role; visual assurance = source-bound. Put scenario/reviewer prose outside these cells. For non-executable proof put verification: <AC-ID> in Planned tests and define its primary visual/inspection slot. not-applicable: <reason> is only a genuine exemption requiring human disposition, not a screenshot check. File presence is not a passing witness.'
     ] : [])
   ];
 }

@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { derivePlannedClaimMap, extractClauses } from './specifications.mjs';
+import { nonTestVerification } from './verification/intent.mjs';
 import { extractNormativeStatements, normalizeStatement } from './scope/extract.mjs';
 import { SingularityFlowError } from './util.mjs';
 
@@ -278,7 +279,8 @@ function evaluatePlanningRows(report, context, findings, pendingDispositions) {
   }
   const clauses = extractClauses(context.upstreamSpec.text, { sourcePath: context.upstreamSpec.path });
   const ids = clauses.map((clause) => clause.id);
-  const planned = derivePlannedClaimMap(context.artifact.text, { clauseIds: ids });
+  const planned = derivePlannedClaimMap(context.artifact.text, { clauseIds: ids, clauses });
+  const contracts = new Map((planned.claimMap.verificationContracts ?? []).map(contract => [contract.clauseId, contract]));
   const byId = new Map();
   for (const [index, row] of rows.entries()) {
     const label = `Review row ${index + 1}`;
@@ -299,7 +301,7 @@ function evaluatePlanningRows(report, context, findings, pendingDispositions) {
     for (const [field, expected] of Object.entries({ expectedPaths, plannedTests })) {
       if (!Array.isArray(row[field]) || !sameArray([...row[field]].sort(), expected)) mismatches.push({ field, expected, received: row[field] ?? null });
     }
-    for (const field of ['testDisposition', 'testReason', 'fulfillment', 'observableResult']) {
+    for (const field of ['testDisposition', 'testReason', 'verificationCriterion', 'fulfillment', 'observableResult']) {
       // Older reports omitted the optional obligation metadata. When supplied, it must match too.
       if (['fulfillment', 'observableResult'].includes(field) && !Object.hasOwn(row, field)) continue;
       if ((row[field] ?? null) !== (actual[field] ?? null)) mismatches.push({ field, expected: actual[field] ?? null, received: row[field] ?? null });
@@ -312,13 +314,14 @@ function evaluatePlanningRows(report, context, findings, pendingDispositions) {
       { ...mismatch, field: `rows[${index}].${mismatch.field}`, clauseId: row.clauseId }));
     // Only the authoritatively parsed plan can declare test-only; the reviewer cannot waive paths.
     if (!expectedPaths.length && actual.fulfillment !== 'test-only') findings.push(finding('plan-path-missing', `Clause '${row.clauseId}' has no exact expected source path.`));
-    if (!plannedTests.length && actual.testDisposition !== 'not-applicable') {
+    if (!plannedTests.length && !['not-applicable', 'non-test'].includes(actual.testDisposition)) {
       findings.push(finding('plan-test-missing', `Clause '${row.clauseId}' has no exact planned test path.`));
     }
     if (row.assessment !== 'supported') {
       findings.push(finding('plan-assessment-gap', `${label} was not independently assessed as supported.`));
     }
-    if (actual.testDisposition === 'not-applicable') pendingDispositions.push({
+    if (actual.testDisposition === 'not-applicable'
+        && !nonTestVerification(row.clauseId, actual, contracts, clauses.find(clause => clause.id === row.clauseId)?.verification)) pendingDispositions.push({
       id: `not-applicable:${row.clauseId}`, kind: 'not-applicable', clauseId: row.clauseId,
       reason: actual.testReason
     });

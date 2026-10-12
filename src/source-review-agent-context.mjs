@@ -18,6 +18,7 @@ export function compactSourceReviewContext(packet, binding) {
     bindingPath: packet.reportTemplate ? 'reportTemplate.binding' : null,
     reviewGuide: { readOrder: ['reviewer.instructions', 'clarifications', 'sources', 'upstreamSpec', 'artifact', 'reportTemplate', 'reportSchema'],
       exactTexts: true, bindingCopies: packet.reportTemplate ? 1 : 0,
+      verification: 'Specification: assess declared verification intent against pinned source obligations, not tool availability. Planning: preserve approved methods and exact verificationCriterion; primary visual/inspection proof is not a test exemption. A real omitted-test exemption still needs a pending human disposition. Neither a contract nor file presence establishes a visual pass.',
       next: 'Start from reportTemplate; preserve binding/metadata and supply independent assessments/citations. Use stagingProtocol: exact file-edit staging or the standalone kernel stage command, then check and retain. Read captured output with native file-read tools, not shell parsers. Do not enumerate JSON keys or reread inventories; exact material is already in this packet.' } };
 }
 

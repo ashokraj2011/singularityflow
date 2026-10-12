@@ -23,7 +23,8 @@ const planningRow = z.strictObject({
   clauseId: id.describe('One exact approved clause ID; singular clauseId, not clauseIds.'),
   expectedPaths: paths.describe('Copy from reportTemplate; empty is valid for a pinned test-only claim.'),
   plannedTests: paths.describe('Copy from reportTemplate; the review field is plannedTests, not tests.'),
-  testDisposition: z.enum(['applicable', 'unspecified', 'not-applicable']),
+  testDisposition: z.enum(['applicable', 'unspecified', 'not-applicable', 'non-test']),
+  verificationCriterion: id.optional(),
   testReason: text().nullable().optional(),
   fulfillment: z.enum(FULFILLMENT_TYPES).optional(),
   steps: z.array(id).max(2000).optional(),
@@ -76,12 +77,14 @@ export function validateSourceReviewReport(report, kind) {
 export function sourceReviewReportTemplate(input) {
   let rows = [];
   if (input.kind === 'planning') {
-    const clauseIds = extractClauses(input.upstreamSpec.text, { sourcePath: input.upstreamSpec.path }).map((clause) => clause.id);
-    const planned = derivePlannedClaimMap(input.artifact.text, { clauseIds }).claimMap.claims;
+    const clauses = extractClauses(input.upstreamSpec.text, { sourcePath: input.upstreamSpec.path });
+    const clauseIds = clauses.map(clause => clause.id);
+    const planned = derivePlannedClaimMap(input.artifact.text, { clauseIds, clauses }).claimMap.claims;
     rows = clauseIds.map((clauseId) => {
       const claim = planned[clauseId];
       return { clauseId, expectedPaths: claim?.expectedPaths ?? [], plannedTests: claim?.tests ?? [],
         testDisposition: claim?.testDisposition ?? 'unspecified', testReason: claim?.testReason ?? null,
+        ...(claim?.verificationCriterion ? { verificationCriterion: claim.verificationCriterion } : {}),
         ...(claim?.fulfillment ? { fulfillment: claim.fulfillment } : {}),
         ...(claim?.steps ? { steps: claim.steps } : {}),
         ...(claim?.observableResult ? { observableResult: claim.observableResult } : {}),

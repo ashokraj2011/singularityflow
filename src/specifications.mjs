@@ -20,7 +20,8 @@ import { SUPPORTING_CHANGE_CLASSES, classifySupportingChange } from './supportin
 import { accountedAmendmentPaths, planAmendmentRecord } from './plan-amendments.mjs';
 import { mergedVerificationContracts, normalizeVerificationContracts, parseVerificationContracts, validateRetainedEvidenceDeclarations } from './verification/contracts.mjs';
 import { nonTestVerification, parseVerificationIntent, validatePlannedVerification } from './verification/intent.mjs';
-import { applyPlanEvidenceAmendments, verifyPlanEvidenceAmendments } from './plan-evidence-amendments.mjs';
+import { verifyPlanEvidenceAmendments } from './plan-evidence-amendments.mjs';
+import { applyPlanCorrections } from './plan-row-corrections.mjs';
 import { collectDraftDiagnostic, draftDiagnosticSummary, inspectDraftValue } from './draft-diagnostics.mjs';
 
 const CLAUSE_TYPES = new Set(GOVERNED_CLAUSE_TYPES);
@@ -1306,7 +1307,7 @@ export async function readBoundSpecificationClaimMap(root, itemDirectory, workfl
   if (kind === 'planned') {
     const itemRoot = posix(path.relative(root, itemDirectory));
     await verifyPlanEvidenceAmendments(root, workflow, itemRoot);
-    return applyPlanEvidenceAmendments(record, workflow, { evidenceRoot: `${itemRoot}/evidence` });
+    return applyPlanCorrections(record, workflow, { evidenceRoot: `${itemRoot}/evidence` });
   }
   return record;
 }
@@ -1501,7 +1502,7 @@ export async function loadActiveSpecRecords(itemDirectory, workflow) {
 
 /** The Story's plan amendments, merged as one more planned record [E2G-012]. */
 function withAmendmentRecord(records, workflow, { evidenceApplied = false } = {}) {
-  if (!evidenceApplied) records = { ...records, planned: (records.planned ?? []).map(record => applyPlanEvidenceAmendments(record, workflow)) };
+  if (!evidenceApplied) records = { ...records, planned: (records.planned ?? []).map(record => applyPlanCorrections(record, workflow)) };
   const amendment = planAmendmentRecord(workflow);
   return amendment ? { ...records, planned: [...(records.planned ?? []), amendment] } : records;
 }

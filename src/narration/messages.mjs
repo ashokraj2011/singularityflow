@@ -217,6 +217,30 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Amended the plan with ${slot(s.amendment)}: ${slot(s.changes)} change(s) recorded.`,
     preserves: false
   },
+  'decision.plan.corrected': {
+    headline: (s) => `Corrected plan ${slot(s.owner)} with ${slot(s.correction)}: ${slot(s.operations)} change(s); no step was reset.`,
+    preserves: false
+  },
+  'decision.plan.correction-previewed': {
+    headline: (s) => `Plan ${slot(s.owner)} accepts ${slot(s.operations)} correction(s); nothing was recorded.`,
+    preserves: true
+  },
+  'decision.plan.correction-cancelled': {
+    headline: (s) => `The correction of plan ${slot(s.owner)} was cancelled; nothing was recorded.`,
+    preserves: true
+  },
+  'upstream-issue.raise.succeeded': {
+    headline: (s) => `Raised ${slot(s.count, '0')} upstream issue(s); the current step continues while the earlier step's approvers decide.`,
+    preserves: false
+  },
+  'upstream-issue.list.succeeded': {
+    headline: (s) => `${slot(s.count, '0')} upstream issue(s).`,
+    preserves: true
+  },
+  'upstream-issue.decide.succeeded': {
+    headline: (s) => `Decided ${slot(s.issue)}: ${slot(s.outcome)}.`,
+    preserves: false
+  },
   'decision.scope.succeeded': {
     headline: (s) => `Recorded that ${slot(s.item)} is ${slot(s.disposition)}.`,
     preserves: false

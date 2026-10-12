@@ -717,7 +717,7 @@
       }
     },
     "planAmendments": {
-      "description": "Append-only narrow plan amendments: a changed path accounted for as part of one row's delivery, or listed as a supporting change of a closed class, recorded by someone in the group that approves the plan.",
+      "description": "Append-only plan amendments recorded by someone in the group that approves the plan: a changed path accounted for as part of one row's delivery or listed as a supporting change of a closed class, an evidence-contract correction, or a plan row correction.",
       "type": "array",
       "items": {
         "oneOf": [{ "$ref": "plan-evidence-amendment.schema.json" }, {
@@ -746,6 +746,43 @@
           "authorityGroup": { "type": "string", "minLength": 1 },
           "identityAssurance": { "type": ["string", "null"] },
           "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+        }, {
+        "description": "A plan row correction (UIF-M1): rows, tests and paths of an approved plan corrected in place by its approvers, bound to the owner generation, map digest and each replaced row's digest, and applied by every plan reader in recorded order.",
+        "type": "object",
+        "required": ["id", "kind", "ownerPhase", "ownerGeneration", "ownerMapSha256", "operations", "reason", "actor", "authorityGroup", "identityAssurance", "authorizationId", "reviewAssurance", "at", "upstreamIssue"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^PRC-[0-9]{3,}$" },
+          "kind": { "const": "plan-row-correction" },
+          "ownerPhase": { "type": "string", "minLength": 1 },
+          "ownerGeneration": { "type": "integer", "minimum": 1 },
+          "ownerMapSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "operations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "items": {
+              "oneOf": [
+                { "type": "object", "required": ["op", "clauseId", "claim"], "additionalProperties": false,
+                  "properties": { "op": { "const": "add-row" }, "clauseId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,63}:[A-Z]{2,4}-\\d{3}$" }, "claim": { "type": "object" } } },
+                { "type": "object", "required": ["op", "clauseId", "test", "previousClaimSha256"], "additionalProperties": false,
+                  "properties": { "op": { "const": "add-test" }, "clauseId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,63}:[A-Z]{2,4}-\\d{3}$" }, "test": { "type": "string", "minLength": 1, "maxLength": 512 }, "previousClaimSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+                { "type": "object", "required": ["op", "clauseId", "path", "previousClaimSha256"], "additionalProperties": false,
+                  "properties": { "op": { "const": "remove-location" }, "clauseId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,63}:[A-Z]{2,4}-\\d{3}$" }, "path": { "type": "string", "minLength": 1, "maxLength": 512 }, "previousClaimSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } },
+                { "type": "object", "required": ["op", "clauseId", "from", "to", "previousClaimSha256"], "additionalProperties": false,
+                  "properties": { "op": { "const": "replace-location" }, "clauseId": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{0,63}:[A-Z]{2,4}-\\d{3}$" }, "from": { "type": "string", "minLength": 1, "maxLength": 512 }, "to": { "type": "string", "minLength": 1, "maxLength": 512 }, "previousClaimSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" } } }
+              ]
+            }
+          },
+          "reason": { "type": "string", "minLength": 20, "maxLength": 1000 },
+          "actor": { "type": "string", "minLength": 1 },
+          "authorityGroup": { "type": "string", "minLength": 1 },
+          "identityAssurance": { "type": ["string", "null"] },
+          "authorizationId": { "type": "string", "format": "uuid" },
+          "reviewAssurance": { "const": "live-terminal-exact-plan-review" },
+          "at": { "type": "string", "format": "date-time" },
+          "upstreamIssue": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^UPI-[0-9]{3,}$" }] }
         },
         "additionalProperties": false
         }]

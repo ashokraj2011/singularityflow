@@ -716,6 +716,7 @@ Usage:
   singularity-flow decision applicability [WORK-ID] [--fetch] --responsibility scope|plan|implement|verify|review --reason TEXT [--json]
   singularity-flow decision completeness [WORK-ID] [--fetch] --confirm INVENTORY-SHA256 --article ID=satisfied|exception|not-applicable... [--article-reason TEXT]... [--checklist FILE] --reason TEXT [--json]
   singularity-flow decision plan [WORK-ID] [--fetch] (--add-location CLAUSE=PATH | --add-supporting PATH=CLASS [--supporting-reason TEXT])... --reason TEXT [--json]
+  singularity-flow decision plan [WORK-ID] [--fetch] [--owner PHASE] (--add-row CLAUSE=PATH[,PATH] [--test PATH]... [--fulfillment KIND] [--steps STEP,...] | --add-test CLAUSE=PATH | --remove-location CLAUSE=PATH | --replace-location CLAUSE=FROM:TO)... --reason TEXT [--upstream-issue UPI-ID] [--dry-run] [--json]
   singularity-flow decision risk [WORK-ID] [--fetch] (--obligation OBL-ID --category CATEGORY --expires YYYY-MM-DD [--transition terminal] | --revoke RISK-ID) --reason TEXT [--json]
   singularity-flow decision witness [WORK-ID] [--fetch] --criterion AC-ID --slot SLOT --file PATH (--confirm ITEM | --deny ITEM)... --reason TEXT [--json]
   singularity-flow decision scope [WORK-ID] [--fetch] --item SRI-ID|DOC-ID --as included|existing|excluded|deferred|informative|duplicate|superseded [--clause ID,...] --reason TEXT [--json]

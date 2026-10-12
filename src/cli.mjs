@@ -9025,6 +9025,8 @@ async function decisionPlanCommand(positionals, options) {
   if (workflow.status !== 'in_progress') {
     throw new SingularityFlowError(`Story ${id} is ${workflow.status}; its plan is amended while it is in progress.`, { code: 'PLAN_AMENDMENT_STORY_CLOSED' });
   }
+  const correction = await import('./commands/plan-correction.mjs');
+  if (correction.planCorrectionRequested(options)) return correction.runPlanCorrection({ root, config, workflow, options });
   const split = (entry, flag) => {
     const separator = String(entry).indexOf('=');
     if (separator < 1) throw new SingularityFlowError(`${flag} must be <left>=<right>; got '${entry}'.`, { code: 'PLAN_AMENDMENT_INVALID' });

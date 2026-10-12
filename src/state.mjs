@@ -163,7 +163,7 @@ import { assertVisualCoverage } from './visual-coverage.mjs';
 import {
   buildSpecIndex, changedRepositoryPaths, clauseReferences, deriveObservedClaimMap, derivePlannedClaimMap, validatePlannedEvidenceTypes,
   evaluateSpecAcceptance, evaluateSpecCoverage, extractClauses, isSpecificationDefinitionPhase, mergePlannedClaimRecords,
-  loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
+  codeCoverageEnforcement, loadActiveSpecRecords, loadBoundActiveSpecRecords, normalizeClaimMap, normalizeSpecPolicy,
   readBoundSpecificationClaimMap,
   predecessorSpecClauses, plannedClaimsForObservedPhase
 } from './specifications.mjs';
@@ -2083,7 +2083,8 @@ export async function assertFinalCodeSpecificationCoverage(root, config, workflo
 
 export async function assertStrictCodeSpecificationCoverage(root, config, workflow, phase, evidenceCommit, { boundary = 'approved' } = {}) {
   const policy = specificationPolicy(config, workflow);
-  if (policy.coverage !== 'enforce'
+  const enforcement = codeCoverageEnforcement(policy);
+  if (!enforcement
       || !explicitPlannedClaimsRequired(workflow)
       || !phaseRequiresCodeDelivery(phase)) return null;
   const codePhases = (workflow.phaseOrder ?? []).filter((id) =>
@@ -2137,12 +2138,15 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
         evidenceCommit, allocated: allocatedHere, open, coverage: { ...coverage, unimplemented: open } } }
     );
   }
-  if (coverage.complete) return coverage;
+  // A qualified ending refuses what this list holds except unclaimed paths, which it only warns on.
+  const blocking = enforcement === 'enforce' ? coverage : { ...coverage, unclaimedChangedPaths: [] };
+  if (coverage.complete || (enforcement !== 'enforce' && !blocking.unimplemented.length
+    && !blocking.withdrawnButClaimed.length && !blocking.invalidEvidence.length)) return coverage;
   const findings = [
-    ...coverage.unimplemented.map((id) => `clause ${id} is not fully implemented`),
-    ...coverage.unclaimedChangedPaths.map((candidate) => `changed path is not claimed by a clause: ${candidate}; add it to a row with singularity-flow decision plan --add-location <clause>=${candidate} --reason <why>, or list it as a supporting change`),
-    ...coverage.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
-    ...coverage.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
+    ...blocking.unimplemented.map((id) => `clause ${id} is not fully implemented`),
+    ...blocking.unclaimedChangedPaths.map((candidate) => `changed path is not claimed by a clause: ${candidate}; add it to a row with singularity-flow decision plan --add-location <clause>=${candidate} --reason <why>, or list it as a supporting change`),
+    ...blocking.withdrawnButClaimed.map((id) => `withdrawn clause still has an observed claim: ${id}`),
+    ...blocking.invalidEvidence.map((message) => `invalid clause evidence: ${message}`)
   ];
   throw new SingularityFlowError(
     `Phase '${phase.id}' cannot be ${boundary} because specification coverage is incomplete:\n- ${findings.join('\n- ')}\n`
@@ -2151,10 +2155,10 @@ export async function assertStrictCodeSpecificationCoverage(root, config, workfl
       code: 'SPEC_COVERAGE_INCOMPLETE',
       details: {
         workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
-        evidenceCommit, coverage,
+        evidenceCommit, coverage: blocking,
         // An unplanned path is accounted for by a narrow plan amendment, not by deleting it [E2G-012].
-        ...(coverage.unclaimedChangedPaths.length ? {
-          recoveryCommands: coverage.unclaimedChangedPaths.slice(0, 3).map((candidate) =>
+        ...(blocking.unclaimedChangedPaths.length ? {
+          recoveryCommands: blocking.unclaimedChangedPaths.slice(0, 3).map((candidate) =>
             `singularity-flow decision plan ${workflow.workItem.id} --add-location <clause>=${candidate} --reason <why>`)
         } : {})
       }

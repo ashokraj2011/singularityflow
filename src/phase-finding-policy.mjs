@@ -12,6 +12,9 @@ const AUTHOR_CATEGORIES = new Set(['authoring', 'artifact', 'traceability', 'art
 const AUTHOR_CODES = new Set(['AGENT_BRIEF_SUMMARY_REQUIRED', 'AGENT_BRIEF_PRESERVED_SECTION_REQUIRED',
   'AGENT_BRIEF_MAXIMUM_BYTES_EXCEEDED', 'AGENT_BRIEF_HEADING_AMBIGUOUS', 'ARTIFACT_COMMENT_UNCLOSED',
   'CODE_DELIVERY_EVIDENCE_REQUIRED', 'CODE_DELIVERY_RETAINED_EVIDENCE_MISSING']);
+// An honest comparison that finds the delivery incomplete: the gap is the delivering step's, so the
+// report's author never edits the verdict; that step's approvers decide an upstream issue.
+const UPSTREAM_DEFECT_CODES = new Set(['conformance.verdict-incomplete']);
 const DERIVED_CODES = new Set(['phase.grounding.required', 'phase.grounding.not-ready',
   'phase.generation-intent.required', 'GENERATION_INTENT_REQUIRED']);
 const OPERATION_CATEGORIES = new Set(['host', 'integration', 'transport', 'external-evidence',
@@ -39,6 +42,8 @@ export function phaseFindingPolicy(finding) {
     classification = 'integrity-or-authority'; repair = 'authenticated-restoration-or-amendment';
   } else if (ARTIFACT_QUALITY.has(code) && typeof finding.path === 'string') {
     classification = 'quality'; repair = 'owned-author'; riskEligible = true;
+  } else if (UPSTREAM_DEFECT_CODES.has(code)) {
+    classification = 'upstream-defect'; repair = 'raise-upstream-issue';
   } else if (DERIVED_CODES.has(code)) {
     classification = 'current-phase-preparation'; repair = 'prepare-current-generation';
   } else if (/dirty|worktree|working.tree|staged|index.conflict/iu.test(code) || category === 'worktree') {

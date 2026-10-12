@@ -30,8 +30,7 @@ import {
   specificationSourceTreeHash
 } from './specifications.mjs';
 import { verifyAstLifecycleReceipt } from './ast-lifecycle.mjs';
-import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
-import { inspectQualifiedConformanceReport } from './conformance-readiness.mjs';
+import { inspectConformanceReportContract, inspectQualifiedConformanceReport, traceableConformanceIds } from './conformance-readiness.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
@@ -52,10 +51,6 @@ import { resolveStoryExecutionDefinition } from './story-execution-context.mjs';
 import { verifyPhaseApprovalWaiver } from './approval-waiver.mjs';
 
 function trackedFiles(root) { return run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean); }
-function ids(text, pattern) { return [...new Set([...text.matchAll(pattern)].map((match) => match[0]))]; }
-function traceabilitySources(workflow) {
-  return workflow.phaseOrder.map((phaseId) => workflow.phases[phaseId]).filter((phase) => ['requirements', 'implementation-spec'].includes(phase?.requiredArtifact?.kind));
-}
 
 const CONFORMANCE_CODES = Object.freeze({
   'conformance.clause-row-missing': 'gate.conformance.missing-row',
@@ -63,11 +58,14 @@ const CONFORMANCE_CODES = Object.freeze({
   'conformance.verdict-incomplete': 'gate.conformance.blocking-verdict'
 });
 
-/** A qualified conformance report's problems, each with its gate code. */
-function qualifiedConformanceErrors(report, clauseIds) {
-  return inspectQualifiedConformanceReport(report, clauseIds).map((finding) => ({
-    code: CONFORMANCE_CODES[finding.code] ?? `gate.${finding.code}`, message: finding.message
-  }));
+/** The gate code of a conformance finding. */
+export function conformanceGateCode(code) {
+  return CONFORMANCE_CODES[code] ?? `gate.${code}`;
+}
+
+/** A conformance report's problems, each with its gate code. */
+function conformanceGateErrors(findings) {
+  return findings.map((finding) => ({ code: conformanceGateCode(finding.code), message: finding.message }));
 }
 
 export { approvedConfigurationMaterializations } from './configuration-materialization.mjs';
@@ -718,26 +716,23 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       : [];
     if (qualifiedRows.length) {
       qualifiedRows.forEach((id) => expected.add(id));
-      for (const entry of qualifiedConformanceErrors(report, qualifiedRows)) refuse(entry.code, entry.message, { phase: phase.id });
+      for (const entry of conformanceGateErrors(inspectQualifiedConformanceReport(report, qualifiedRows))) refuse(entry.code, entry.message, { phase: phase.id });
     } else {
-      for (const source of traceabilitySources(workflow)) {
-        const text = await readFile(path.join(workDir(root, config, workflow.workItem.id), source.requiredArtifact.path), 'utf8').catch(() => '');
-        ids(text, /\b(?:AC|SPEC)-\d+\b/g).forEach((id) => expected.add(id));
-      }
-      for (const id of expected) if (!report.includes(id)) refuse('gate.conformance.missing-row', `conformance report has no row for ${id}`, { phase: phase.id });
+      (await traceableConformanceIds(root, config, workflow)).forEach((id) => expected.add(id));
     }
+    // The same contract the draft check, publication and submission apply [gate parity]; rows are
+    // reported before disclosures and verdicts after, as they always were.
+    const contract = conformanceGateErrors(inspectConformanceReportContract(report, {
+      rowsQualified: qualifiedRows.length > 0, expected: qualifiedRows.length ? [] : [...expected]
+    }));
+    for (const entry of contract.filter((item) => item.code === 'gate.conformance.missing-row')) refuse(entry.code, entry.message, { phase: phase.id });
     for (const [phaseId, prior] of Object.entries(workflow.phases)) {
       for (const approval of prior.approvals.filter((item) => !item.invalidatedAt && item.selfApproval)) {
         const actor = approval.actor?.login ?? approval.actor?.email ?? approval.actor?.name;
         if (!report.includes(phaseId) || (actor && !report.includes(actor))) refuse('gate.conformance.self-approval-undisclosed', `conformance report does not disclose self-approval for ${phaseId} by ${actor}`, { phase: phase.id });
       }
     }
-    if (!/\b(matched|partial|missing|deviated|unplanned)\b/.test(report)) refuse('gate.conformance.verdict-missing', 'conformance report has no recognized verdict', { phase: phase.id });
-    if (!qualifiedRows.length) {
-      for (const finding of blockingConformanceVerdicts(report)) {
-        refuse('gate.conformance.blocking-verdict', `conformance ${finding.clauseId} remains ${finding.verdict}`, { phase: phase.id });
-      }
-    }
+    for (const entry of contract.filter((item) => item.code !== 'gate.conformance.missing-row')) refuse(entry.code, entry.message, { phase: phase.id });
     if (phase.conformanceTree !== await sourceTreeHash(root, config, workflow)) refuse('gate.conformance.stale', 'conformance report is stale: source/test tree changed after comparison', { phase: phase.id });
     else passes.push(`conformance freshness: ${expected.size} traced identifiers`);
   }

@@ -6,6 +6,7 @@ import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding } from './phase-finding-policy.mjs';
 import { upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mjs';
+import { latestStepBefore } from './phase-roles.mjs';
 
 const UPSTREAM_INPUT_CODES = new Set(['phase_inputs_not_ready', 'phase.inputs.not-ready',
   'specification_index_untrusted', 'convergence_upstream_artifact_stale']);
@@ -60,6 +61,15 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     if (legal) upstreamReturn = { ...route(legal.kind === 'return' ? 'upstream-return' : 'upstream-amendment', producer,
       legal.command.split(' ').slice(1), `${legal.label} The input comes from ${owner}; ${phase.id} must not edit it.`,
       legal.skill ?? '/sf-reject'), command: legal.command };
+  } else if (code === 'conformance.verdict-incomplete') {
+    // The comparison is honest and the delivery is short: never edit the verdict to publish. The
+    // step that delivered the clause owns the gap; its approvers decide the issue (return or amend).
+    const delivering = latestStepBefore(workflow, phase.id, (candidate) => phaseRequiresCodeDelivery(candidate))?.id ?? '<EARLIER-STEP>';
+    resolution = route('upstream-issue', delivering,
+      ['upstream-issue', 'raise', '--phase', delivering, '--about', finding.details?.clauseId ?? finding.value ?? '<CLAUSE-ID>',
+        '--problem', '<what the delivered change is missing>', '--work-id', workId],
+      `Keep the honest verdict. Record what ${delivering} did not deliver as an upstream issue for its approvers, then stop: this report publishes only after that step returns and delivers the clause.`,
+      '/sf-decide');
   } else if (code === 'plan_evidence_correction_review_required') {
     resolution = route('human-review', 'plan-approval-authority',
       ['appeal', 'evidence-prepare', '--phase', phase.id, '--path', finding.path ?? '<EVIDENCE-PATH>',

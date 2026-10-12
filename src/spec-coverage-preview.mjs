@@ -11,7 +11,7 @@ import { accountedAmendmentPaths } from './plan-amendments.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
 import {
-  deriveObservedClaimMap, evaluateSpecCoverage, loadBoundActiveSpecRecords, mergePlannedClaimRecords,
+  codeCoverageEnforcement, deriveObservedClaimMap, evaluateSpecCoverage, loadBoundActiveSpecRecords, mergePlannedClaimRecords,
   normalizeSpecPolicy, plannedSupportingFiles, plannedProductSourcePaths
 } from './specifications.mjs';
 import { isConfigurationPath } from './configuration-paths.mjs';
@@ -33,7 +33,7 @@ export async function assertCandidateSpecificationCoverage(root, config, workflo
 
 export async function assertStrictCandidateSpecificationCoverage(root, config, workflow, phase, delivery) {
   const policy = normalizeSpecPolicy(workflow.resolution?.spec ?? config.spec ?? {});
-  if (policy.coverage !== 'enforce' || workflow.resolution?.plannedClaims?.mode !== 'required') return null;
+  if (!codeCoverageEnforcement(policy) || workflow.resolution?.plannedClaims?.mode !== 'required') return null;
   const codePhases = workflow.phaseOrder.filter((id) => phaseRequiresCodeDelivery(workflow.phases[id]));
   const final = codePhases.at(-1) === phase.id;
   const records = await loadBoundActiveSpecRecords(root, workDir(root, config, workflow.workItem.id), workflow, policy,

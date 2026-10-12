@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  blockingConformanceVerdicts,
   conformanceTableRows,
   duplicateQualifiedConformanceRows,
   missingQualifiedConformanceRows
@@ -11,6 +12,8 @@ import { normalizeQualifiedClauseId } from './traceability-ids.mjs';
 import { secureRepositoryPath } from './util.mjs';
 
 const VERDICT = /^(matched|partial|missing|deviated|unplanned)(?:\s|\(|$)/u;
+const ANY_VERDICT = /\b(matched|partial|missing|deviated|unplanned)\b/;
+const TRACEABILITY_KINDS = new Set(['requirements', 'implementation-spec']);
 const MULTIPLE_VERDICTS = /\b(?:matched|partial|missing|deviated|unplanned)\s*(?:\/|\bor\b)\s*(?:matched|partial|missing|deviated|unplanned)\b/u;
 const MANAGED_INPUTS = /<!-- singularity-flow:inputs:start -->[\s\S]*?<!-- singularity-flow:inputs:end -->/gu;
 const MANAGED_METADATA = /^<!-- singularity-flow:(?:initiative-)?metadata\n[\s\S]*?\n-->\s*/u;
@@ -66,6 +69,45 @@ export function withSelfApprovalDisclosures(markdown, workflow) {
   return `${String(markdown).trimEnd()}\n\n## Self-approval disclosures\n\n${block}\n`;
 }
 
+/**
+ * The identifiers a report without qualified rows must mention: every AC- or SPEC- ID in the
+ * Story's requirements and implementation-spec documents. An unreadable document adds none.
+ */
+export async function traceableConformanceIds(root, config, workflow) {
+  const directory = path.join(root, config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id);
+  const found = new Set();
+  for (const phase of (workflow.phaseOrder ?? []).map((id) => workflow.phases?.[id])) {
+    if (!TRACEABILITY_KINDS.has(phase?.requiredArtifact?.kind)) continue;
+    const text = await readFile(path.join(directory, phase.requiredArtifact.path), 'utf8').catch(() => '');
+    for (const match of text.matchAll(/\b(?:AC|SPEC)-\d+\b/g)) found.add(match[0]);
+  }
+  return [...found];
+}
+
+/**
+ * What every conformance report owes the approval gate apart from qualified rows and self-approval
+ * disclosure, read exactly as the gate reads it: a mention of each traceable identifier, at least
+ * one recognized verdict, and no partial or missing verdict. The gate and the earlier checks call
+ * this one function, so a report is never refused first at approval [gate parity].
+ * `rowsQualified` means the qualified row contract already judged the rows and their verdicts.
+ */
+export function inspectConformanceReportContract(report, { expected = [], rowsQualified = false } = {}) {
+  const text = String(report ?? '');
+  const findings = [];
+  if (!rowsQualified) {
+    for (const id of expected) {
+      if (!text.includes(id)) findings.push({ code: 'conformance.clause-row-missing', clauseId: id, line: null, message: `conformance report has no row for ${id}` });
+    }
+  }
+  if (!ANY_VERDICT.test(text)) findings.push({ code: 'conformance.verdict-invalid', clauseId: null, line: null, message: 'conformance report has no recognized verdict' });
+  if (!rowsQualified) {
+    for (const finding of blockingConformanceVerdicts(text)) {
+      findings.push({ code: 'conformance.verdict-incomplete', clauseId: finding.clauseId, line: null, message: `conformance ${finding.clauseId} remains ${finding.verdict}` });
+    }
+  }
+  return findings;
+}
+
 /** One report-row contract for draft, publication, approval, and terminal review. */
 export function inspectQualifiedConformanceReport(markdown, clauseIds) {
   const known = new Set((clauseIds ?? []).map(normalizeQualifiedClauseId).filter(Boolean));
@@ -103,9 +145,10 @@ export function inspectQualifiedConformanceReport(markdown, clauseIds) {
 /**
  * Inspect only the immutable policy captured by this Story, never the current workspace default.
  *
- * Qualified clause rows follow the pinned policy. Self-approval disclosure is checked for every
- * conformance report, because the approval gate checks it for every one: a report authored under
- * another row policy was published without the disclosure and refused only at approval.
+ * Qualified clause rows follow the pinned policy. Self-approval disclosure, the traceable
+ * identifiers and the verdicts are checked for every conformance report, because the approval gate
+ * checks them for every one: a report authored under another row policy was published without
+ * them and refused only at approval.
  */
 export async function inspectPhaseQualifiedConformance(root, config, workflow, phase) {
   if (phase?.requiredArtifact?.kind !== 'conformance-report') return [];
@@ -122,8 +165,13 @@ export async function inspectPhaseQualifiedConformance(root, config, workflow, p
   const markdown = await readFile(safe.absolute, 'utf8');
   const clauseIds = qualified ? [...new Set((await loadActiveSpecRecords(itemDirectory, workflow)).indexes
     .flatMap((index) => (index.clauses ?? []).map((clause) => clause.id)))] : [];
+  // As the gate: qualified rows replace the identifier mentions only when there are clauses.
+  const rowsQualified = clauseIds.length > 0;
   return [
-    ...(qualified ? inspectQualifiedConformanceReport(markdown, clauseIds) : []),
+    ...(rowsQualified ? inspectQualifiedConformanceReport(markdown, clauseIds) : []),
+    ...inspectConformanceReportContract(markdown, {
+      rowsQualified, expected: rowsQualified ? [] : await traceableConformanceIds(root, config, workflow)
+    }),
     ...inspectSelfApprovalDisclosures(markdown, workflow)
   ].map((finding) => ({
     ...finding, path: relative

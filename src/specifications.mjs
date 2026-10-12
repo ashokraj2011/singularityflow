@@ -99,6 +99,18 @@ export function isSpecificationDefinitionPhase(phase) {
   return kind == null || SPECIFICATION_DEFINITION_KIND_SET.has(kind);
 }
 
+/**
+ * Whether code steps must answer for clause coverage. Enforced coverage always does. Recorded
+ * coverage on a Story whose conformance report has qualified rows does too, for what its ending
+ * refuses (an unimplemented, withdrawn or invalidly evidenced clause; an unclaimed path only warns
+ * there): the code step is the last place that can still fix it [gate parity].
+ */
+export function codeCoverageEnforcement(policy) {
+  if (policy?.coverage === 'enforce') return 'enforce';
+  if (policy?.coverage === 'record' && (policy.conformanceRows ?? 'qualified') === 'qualified') return 'qualified-ending';
+  return null;
+}
+
 export function normalizeSpecPolicy(value = {}) {
   if (value == null) value = {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) {

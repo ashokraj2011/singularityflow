@@ -110,7 +110,7 @@ Usage:
     [--gate-mode hard|soft]
     [--test-baseline-disposition fix --test-execution-mode changed-and-affected|all-configured --test-baseline-scope reuse --test-policy-confirm PLAN-DIGEST]
   singularity-flow choices begin start <WORK-ID> [--json]
-  singularity-flow choices begin approve <WORK-ID> [--fetch] [--json]
+  singularity-flow choices begin approve <WORK-ID> [--fetch] [--json] [--review-packet]
   singularity-flow choices answer <TOKEN> <CHOICE> <ID> [--json]
   singularity-flow choices status <TOKEN> [--json]
   singularity-flow resume <WORK-ID|BRANCH> [--fetch] [--allow-dirty]
@@ -191,6 +191,7 @@ Usage:
   singularity-flow adhoc close [SESSION-ID] --local-only [--json]
   singularity-flow inbox [--offline] [--json]
   singularity-flow status [WORK-ID] [--git-shadow] [--submission-readiness] [--json]
+  singularity-flow status <WORK-ID> --submission-readiness --json --submit-if-ready
   singularity-flow progress [WORK-ID] [--json|--markdown]
   singularity-flow report [WORK-ID] [--format md|html|json] [--out FILE] [--timings]
   singularity-flow report [WORK-ID] --recap [--length brief|standard|full] [--locale TAG] [--timezone ZONE]

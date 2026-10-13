@@ -49,7 +49,7 @@ export async function run({ positionals, options }) {
       command: prepublish.commands?.publish ?? null
     } }));
   }
-  const published = step(argv, cwd);
+  const published = step([...argv, '--json'], cwd);
   if (!published.ok) stop(published, 'phase publish');
   const shown = step(['phase', 'show', phaseId, '--for-agent', '--json'], cwd);
   if (!shown.ok) stop(shown, 'phase show');

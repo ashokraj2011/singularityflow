@@ -245,7 +245,7 @@ skills:
   sflow-work-interval: { class: mutation }
   sflow-story-start: { class: interactive, kernelModelPolicy: never, executionBoundary: repository }
   sflow-story-skill-version: { class: mutation }
-  sflow-submit: { class: review }
+  sflow-submit: { class: review, maximumTokenOverride: 807, exception: "Readiness with `--submit-if-ready` submits and returns the review in the same command instead of three Copilot round trips, so the skill names when not to run the submit command itself." }
   sflow-telemetry: { class: echo, executionBoundary: repository }
   sflow-upload: { class: delegation, executionBoundary: machine, delegatesTo: sflow-documents }
   sflow-validate: { class: echo, executionBoundary: repository }

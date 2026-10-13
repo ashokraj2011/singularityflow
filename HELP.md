@@ -3623,7 +3623,13 @@ singularity-flow phase publish [PHASE] [--usage-json FILE]
 singularity-flow artifact add <PATH...> [--kind KIND] [--phase PHASE]
 singularity-flow artifact scan [--phase PHASE]
 singularity-flow submit [PHASE] [--work-id WORK-ID] [--phase PHASE] [--decision NAME=VALUE]...
+singularity-flow status <WORK-ID> --submission-readiness --json --submit-if-ready
+# /sf-submit in one command: the same readiness result; when it is ready-to-attempt with nothing to
+# confirm, the returned submit command runs once and submitIfReady.review carries the phase show result.
 singularity-flow approve [PHASE] [--work-id WORK-ID] [--fetch]
+singularity-flow choices begin approve <WORK-ID> [--fetch] --json --review-packet
+# What /sf-approve shows before the review: the receipt plus approvalPacket (readiness and phase show).
+# The person's typed phase, choices answer and approve stay separate.
 singularity-flow reject [PHASE] [--work-id WORK-ID] [--fetch] --reason TEXT [--to PHASE]
 singularity-flow reject testing --to implementation --repair --reason TEXT [--confirm SHA256]
 singularity-flow decision show [WORK-ID] [--json]

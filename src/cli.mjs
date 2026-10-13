@@ -3602,6 +3602,7 @@ function printSelectionReceipt(receipt) {
 
 async function choicesCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'choices subcommand');
+  if (subcommand === 'begin' && positionals[2] === 'approve' && options['review-packet'] === true) return (await import('./commands/approval-packet.mjs')).run({ positionals, options });
   const root = repoRoot();
   let receipt;
   if (subcommand === 'begin') {

@@ -65,6 +65,9 @@ export async function galStatusSelection(cwd = process.cwd(), options = {}) {
 
 export async function run(_argv, { positionals, options }) {
   const root = galStatusRepositoryRoot();
+  if (optionBoolean(options, 'submission-readiness') && optionBoolean(options, 'submit-if-ready')) {
+    return (await import('./submit-if-ready.mjs')).run({ positionals, options });
+  }
   if (optionBoolean(options, 'submission-readiness')) {
     const [
       { loadAcceptedStoryExecution },

@@ -9,6 +9,7 @@ import YAML from 'yaml';
 
 import { resolveOperation } from '../src/command-registry.mjs';
 import { publicationArguments } from '../src/commands/phase-publish-if-ready.mjs';
+import { submitArguments } from '../src/commands/submit-if-ready.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -25,6 +26,17 @@ test('only the exact publication command prepublish returns for the same phase i
     'sflow phase publish intake --authored human --channel manual-in-place',
     null
   ]) assert.equal(publicationArguments(command, 'intake'), null, String(command));
+  // Only the exact readiness route submits: no confirmation, no other classification or command.
+  const ready = { classification: 'ready-to-attempt', lifecycleReady: true, confirmationRequired: false, nextSkill: '/sf-submit',
+    phaseId: 'code', workId: 'A-1', nextCommand: 'singularity-flow submit code --work-id A-1' };
+  assert.deepEqual(submitArguments(ready), ['submit', 'code', '--work-id', 'A-1']);
+  for (const change of [{ confirmationRequired: true }, { classification: 'source-review-required' }, { lifecycleReady: false },
+    { nextSkill: '/sf-recover' }, { nextCommand: 'singularity-flow submit code --work-id A-1 --skip-checks' }, { nextCommand: 'singularity-flow submit other --work-id A-1' }]) {
+    assert.equal(submitArguments({ ...ready, ...change }), null, JSON.stringify(change));
+  }
+  const status = (options) => resolveOperation({ requestedCommand: 'status', positionals: ['status', 'A-1'], options });
+  assert.equal(status({ 'submission-readiness': true, json: true }).classification, 'read');
+  assert.equal(status({ 'submission-readiness': true, json: true, 'submit-if-ready': true }).classification, 'mutation');
   // It publishes, so every guard sees a mutation, unlike a plain prepublish.
   const operation = (options) => resolveOperation({ requestedCommand: 'phase', positionals: ['phase', 'prepublish', 'intake'], options });
   assert.equal(operation({ 'for-agent': true, json: true }).classification, 'read');
@@ -54,6 +66,7 @@ test('prepublish --publish-if-ready returns the unchanged check, and publishes w
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.worldModel.grounding = 'off';
   config.approvalSecurity = { profile: 'poc' };
+  for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
   await writeFile(configPath, YAML.stringify(config));
   must('git', ['add', '.']);
   must('git', ['commit', '-q', '-m', 'Publish if ready fixture']);
@@ -89,6 +102,26 @@ test('prepublish --publish-if-ready returns the unchanged check, and publishes w
   const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(workflow.phases.intake.generation, 1);
   assert.equal(must('git', ['status', '--porcelain']), '', 'the publication was committed');
+
+  // Submission: readiness says ready-to-attempt, so the same command submits and shows the review.
+  const submitted = JSON.parse(sflow('status', 'READY-1', '--submission-readiness', '--json', '--submit-if-ready'));
+  assert.equal(submitted.classification, 'ready-to-attempt');
+  assert.equal(submitted.submitIfReady.submitted, true);
+  assert.equal(submitted.submitIfReady.command, 'singularity-flow submit intake --work-id READY-1');
+  assert.equal(submitted.submitIfReady.review.phase, 'intake');
+  assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.intake.status, 'awaiting_approval');
+  const again = JSON.parse(sflow('status', 'READY-1', '--submission-readiness', '--json', '--submit-if-ready'));
+  assert.deepEqual(again.submitIfReady, { submitted: false, reason: again.classification, command: again.nextCommand ?? null });
+  assert.notEqual(again.classification, 'ready-to-attempt');
+
+  // Approval: readiness, the receipt and the review arrive together; nothing is answered or approved.
+  const packet = JSON.parse(sflow('choices', 'begin', 'approve', 'READY-1', '--json', '--review-packet'));
+  assert.equal(packet.approvalContext.phase, 'intake');
+  assert.equal(packet.ready, false);
+  assert.match(packet.token, /^[0-9a-f-]{36}$/u);
+  assert.equal(packet.approvalPacket.readiness.classification, again.classification);
+  assert.equal(packet.approvalPacket.review.phase, 'intake');
+  assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.intake.status, 'awaiting_approval');
 
   const unsupported = run(process.execPath, [cli, '--no-model', 'phase', 'prepublish', 'intake', '--publish-if-ready']);
   assert.notEqual(unsupported.status, 0);

@@ -1356,6 +1356,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
     if (!['on', 'off', 'status'].includes(action)) return unknownSubcommand('pause', action, ['on', 'off', 'status']);
     return never(`pause.${action}`, definition, action === 'status' ? 'read' : 'mutation');
   }
+  if (definition.name === 'status' && optionBoolean(options, 'submit-if-ready')) return never('status.submission-readiness.submit', definition, 'mutation');
   if (definition.operation) return definition.operation;
   if (definition.name === 'init') {
     if (optionBoolean(options, 'recover')) return never('init.smart-detect.recover', definition, 'mutation');
@@ -1635,6 +1636,7 @@ export function operationCatalog() {
     never('phase', commandDefinition('phase'), 'mutation'),
     never('phase.enter.compose', commandDefinition('phase'), 'mutation'),
     never('phase.prepublish.publish', commandDefinition('phase'), 'mutation'),
+    never('status.submission-readiness.submit', commandDefinition('status'), 'mutation'),
     ...PHASE_READ_SUBCOMMANDS.map((name) => never(`phase.${name}`, commandDefinition('phase'), 'read')),
     ...SKILL_READ_SUBCOMMANDS.map((name) => never(`skill.${name}`, commandDefinition('skill'), 'read')),
     ...['list', 'show'].map(name => never(`instruction.${name}`, commandDefinition('instruction'), 'read')),

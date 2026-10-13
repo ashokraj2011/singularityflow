@@ -629,6 +629,7 @@ Every public operation is classified before its implementation module is importe
 | start | mutation | never | — | — |
 | state | mutation | never | — | — |
 | status | read | never | — | — |
+| status.submission-readiness.submit | mutation | never | — | — |
 | story.adjudicate | mutation | never | — | — |
 | story.advance | mutation | never | — | — |
 | story.branch.attach | mutation | never | — | — |

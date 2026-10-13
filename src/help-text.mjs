@@ -609,6 +609,8 @@ Usage:
   singularity-flow delivery local-runner-verify --attestation-file FILE --signer ID [--json]
   singularity-flow delivery readiness [--provider-file FILE] [--runner-provider-file FILE] [--json]
   singularity-flow agents list
+  singularity-flow agents create <ID> --label TEXT --description TEXT [--role ROLE] [--from-agent AGENT] [--tools a,b] [--instructions TEXT | --from FILE] [--dry-run | --propose] [--json]
+  singularity-flow agents edit <ID> [--label TEXT] [--description TEXT] [--tools a,b] [--instructions TEXT | --from FILE] [--dry-run | --propose] [--json]
   singularity-flow agents mappings
   singularity-flow agents lock <PACK> [--update]
   singularity-flow agents sync <PACK>
@@ -776,7 +778,11 @@ Usage:
   singularity-flow pause [on|off|status] [--json]       Pause SFlow Copilot guidance; preserve Story state
   singularity-flow plugin uninstall | list | verify [--json] | path
   singularity-flow snapshot [WORK-ID] [--include SLICE] [--if-revision HASH] [--timings] [--git-shadow] --json
-  singularity-flow configuration validate --json
+  singularity-flow configuration validate [--json]       Lists every workflow.yml problem with its line and fix
+  singularity-flow configuration drafts [--json]         Agent, skill and instruction changes saved as drafts (no Story uses them yet)
+  singularity-flow configuration propose [--message TEXT] [--json]  Propose every draft as one review
+  singularity-flow configuration discard <NUMBER> | --all [--json]
+  singularity-flow configuration approve [<PROPOSAL>] [--yes] [--json]  Show what a proposal changes, confirm, and activate exactly that revision
   singularity-flow configuration recreate-sync [--apply] [--json]  Replay pending configuration intent, archive old refs, and sync without a Git merge; preview unless --apply
   singularity-flow configuration cleanup-history [--keep-recent 10] [--apply --confirm <HASH>] [--json]  Preview exact snapshot branches; archive commits as tags before retiring old branch refs (up to 100 per confirmed batch)
   singularity-flow configuration transactions [--json]     Inspect retained configuration operations; the journal grants no authority

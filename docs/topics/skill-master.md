@@ -16,7 +16,7 @@ related:
   - agents-and-routing
   - importing-assets
   - workflow-authoring
-version: 5
+version: 6
 ---
 The skill master is the repository's collection of named skills. Attach a skill to a **workflow** to apply it only within that workflow, or to an **agent** to apply it wherever that agent is selected. Each attachment can restrict its steps and say when to use it. Both scopes eagerly inject exact instructions by default; explicitly optional procedures can instead use a retained catalog.
 
@@ -33,7 +33,7 @@ Agent instructions and applicable agent skills are composed with the applicable 
 
 ## Purpose and prerequisites
 
-Use this topic to write a checklist, a house style or a review procedure once and have several agents follow it. For example, the developer can run a security review before it publishes code, and QA can run the same review when it verifies. Run the commands in a governed checkout. The skill master is configuration, so in a repository with an approved configuration authority add `--propose` and review the proposal like any other configuration change.
+Use this topic to write a checklist, a house style or a review procedure once and have several agents follow it. For example, the developer can run a security review before it publishes code, and QA can run the same review when it verifies. Run the commands in a governed checkout. The skill master is configuration. In a repository with an approved configuration authority (`sflow/config`) each change is saved as a draft that no Story uses yet; when the batch is ready, `singularity-flow configuration propose` sends every draft as one review and `singularity-flow configuration approve` activates it. Without an authority, changes are written to the working tree for your usual review.
 
 ## What a skill is
 
@@ -144,7 +144,7 @@ These skills are not the compiled skill packages under `singularity/skills/` tha
   - `sflow skill attach <ID> --workflow <WORKFLOW> [--phases a,b] [--use "<when>"]` and `sflow skill detach <ID> --workflow <WORKFLOW>` change workflow-local use.
   - `sflow skill remove <ID>` deletes it.
 
-  Every change accepts `--dry-run` and `--propose`.
+  A change is saved as a draft while the repository has an approved configuration authority; `--dry-run` previews it on top of your drafts, and `--propose` proposes your drafts and this change together. `sflow configuration drafts` lists the drafts, and `sflow configuration discard <NUMBER>` drops one.
 - **Copilot:** `/sf-help` followed by the `skill` commands above. The skill must preserve the CLI result and ask before any governed mutation.
 - **VS Code:**
   - **Singularity Flow: Skills** in the command palette, or **Configuration Center → Skills**, opens **Workflow Studio → Skill master**. It lists every skill and the workflows and agents that use it.
@@ -165,19 +165,21 @@ These skills are not the compiled skill packages under `singularity/skills/` tha
    ```bash
    singularity-flow skill create security-review \
      --description "Checks a change for common security mistakes. Use it before code is published." \
-     --from ./security-review.md --propose
+     --from ./security-review.md
    ```
 
-2. Attach it to this workflow only, or choose `--agent developer` instead if it should follow that agent across workflows:
+   It is saved as a draft. Nothing uses it yet.
+
+2. Attach it to this workflow only, or choose `--agent developer` instead if it should follow that agent across workflows. Attaching a skill that is still a draft works: each draft is checked together with the earlier ones.
 
    ```bash
    singularity-flow skill attach security-review --workflow feature --phases implementation \
-     --use "After you write the code, before you publish it" --propose
+     --use "After you write the code, before you publish it"
    ```
 
-3. Review the proposal. It holds one `SKILL.md` and each attachment: a row in the `## Attached skills` table of an agent this repository owns, or an entry in `singularity/skill-library/attachments.yml` for a workflow or any other agent.
-4. Check it. `singularity-flow skill show security-review` lists its users, and `singularity-flow workflow validate` checks every attachment.
-5. To change the skill, run `singularity-flow skill edit security-review --from ./security-review.md --propose`. Each attached workflow and agent uses the new text in Stories started after the change.
+3. Send both drafts for one review with `singularity-flow configuration propose`. The proposal holds one `SKILL.md` and each attachment: a row in the `## Attached skills` table of an agent this repository owns, or an entry in `singularity/skill-library/attachments.yml` for a workflow or any other agent.
+4. Approve it with `singularity-flow configuration approve`. It shows every file the proposal changes, asks for confirmation (`--yes` when there is no terminal), and activates exactly the revision it showed; there is no commit to copy. If your Git host protects `sflow/config`, merge the proposal there and run the command again to record it.
+5. Check it. `singularity-flow skill show security-review` lists its users, and `singularity-flow workflow validate` checks every attachment. To change the skill later, run `singularity-flow skill edit security-review --from ./security-review.md` and propose it the same way. Each attached workflow and agent uses the new text in Stories started after the approval.
 
 ## State and safety
 

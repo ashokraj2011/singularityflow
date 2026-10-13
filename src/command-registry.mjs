@@ -16,7 +16,7 @@ MODEL_FREE_MIXED_COMMANDS.add('upstream-issue');
 const UPSTREAM_ISSUE_SUBCOMMANDS = Object.freeze(['raise', 'list', 'decide', 'propose-amendment', 'decide-amendment', 'revalidate']);
 
 const CONFIGURATION_READ_SUBCOMMANDS = Object.freeze([
-  'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
+  'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain', 'drafts'
 ]);
 const PHASE_READ_SUBCOMMANDS = Object.freeze(['show', 'draft-check', 'prepublish', 'enter']);
 // Skill packages are only inspected; the skill master also has edits, which --dry-run previews.

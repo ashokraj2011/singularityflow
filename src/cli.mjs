@@ -5944,13 +5944,18 @@ async function specCommand(positionals, options) {
 
 async function agentsCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'agents subcommand');
+  if (['create', 'edit'].includes(subcommand)) {
+    return (await import('./commands/agent-authoring.mjs')).run({ positionals, options, printResult: printImportResult,
+      applyChangeSet: (repository, changeSet, meta) => applyAuthoringChange(repository, changeSet, options, meta) });
+  }
   const root = repoRoot();
   if (subcommand === 'list') {
     const agents = await discoverAgents(root);
-    if (!agents.length) return console.log('No repository or bundled agents found.');
-    return console.log(table(agents.map((agent) => ({ id: agent.id, scope: agent.scope, source: agent.source, dependencies: agent.dependencies.length })), [
+    const { lines: drafted } = await import('./configuration-drafts.mjs').then(({ draftNotice }) => draftNotice(root, 'agent'));
+    if (!agents.length) return console.log(['No repository or bundled agents found.', ...drafted].join('\n'));
+    return console.log([table(agents.map((agent) => ({ id: agent.id, scope: agent.scope, source: agent.source, dependencies: agent.dependencies.length })), [
       { key: 'id', label: 'AGENT' }, { key: 'scope', label: 'SCOPE' }, { key: 'source', label: 'SOURCE' }, { key: 'dependencies', label: 'REMOTE' }
-    ]));
+    ]), ...drafted].join('\n'));
   }
   if (subcommand === 'mappings') {
     const result = await agentMappingStatus(root);
@@ -8347,7 +8352,29 @@ async function applyImportChangeSet(root, changeSet, options, { subject, message
   return mutate(root);
 }
 
+/** Agent, skill and instruction changes: saved as drafts while an approved configuration exists. */
+async function applyAuthoringChange(root, changeSet, options, meta) {
+  const [{ authorChange }, { planStudioChangeSet }] = await Promise.all([import('./configuration-drafts.mjs'), import('./workflow-studio.mjs')]);
+  return authorChange(root, changeSet, { dryRun: optionBoolean(options, 'dry-run'), propose: optionBoolean(options, 'propose'), ...meta,
+    apply: (set, { dryRun = false, propose = false, subject = meta.subject, message = meta.message } = {}) => applyImportChangeSet(root, set,
+      { ...options, 'dry-run': dryRun || undefined, propose: propose || undefined }, { subject, message }),
+    check: async (set) => {
+      let source = null;
+      const plan = await withApprovedConfigurationRead(root, (seen) => { source = seen; return planStudioChangeSet(root, set); }, { preferAuthority: true });
+      return { plan, source };
+    } });
+}
+
 function printImportResult(result, { dryRun }) {
+  if (result?.draft) {
+    console.log(`Saved as a draft; no Story uses it until it is approved. Drafts waiting: ${result.drafts.pending}.`);
+    for (const line of result.drafts.added ?? []) console.log(`  ${line}`);
+    for (const warning of result.warnings ?? []) console.log(`  Warning: ${warning.message}`);
+    console.log('  See them: singularity-flow configuration drafts');
+    console.log('  When the batch is ready: singularity-flow configuration propose   (one review for all of them)');
+    return;
+  }
+  if (result?.drafts?.included && (dryRun || result.reviewRequired)) console.log(`Includes your ${result.drafts.included} earlier draft${result.drafts.included === 1 ? '' : 's'}.`);
   if (result.reviewRequired) {
     console.log(`Configuration proposal ${result.pushed === false ? 'saved locally; upload pending' : 'published'}: ${result.branch}`);
     console.log(`  ${result.files.join(', ')}`);
@@ -10653,6 +10680,9 @@ async function workflowCommand(positionals, options) {
     if (action === 'show') {
       // The Studio edits what a proposal would edit: the approved configuration when one exists.
       const model = await withApprovedConfigurationRead(root, (authority) => buildStudioModel(root, { authority }), { preferAuthority: true });
+      // Drafts saved from the CLI or Copilot are shown, and published with the Studio's own batch.
+      model.drafts = await import('./configuration-drafts.mjs').then(({ readDrafts }) => readDrafts(root))
+        .then((drafts) => drafts.changes.map((entry) => ({ description: entry.description })), () => []);
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(model, null, 2));
       console.log(`Workflow Studio: ${model.workflows.length} workflows, ${model.agents.length} agents, ${model.groups.length} approval groups.`);
       for (const workflow of model.workflows) {
@@ -10665,7 +10695,9 @@ async function workflowCommand(positionals, options) {
     if (action !== 'apply') throw new SingularityFlowError("workflow studio supports 'show' and 'apply'.", { code: 'STUDIO_ACTION_UNKNOWN' });
     const source = optionString(options, 'change-set');
     if (!source) throw new SingularityFlowError('Provide the change set: workflow studio apply --change-set <file|->.', { code: 'STUDIO_CHANGE_SET_REQUIRED' });
-    const changeSet = readStudioChangeSet(source === '-' ? await stdinText() : await readFile(path.resolve(source), 'utf8'));
+    const studioChanges = readStudioChangeSet(source === '-' ? await stdinText() : await readFile(path.resolve(source), 'utf8'));
+    const { changeSet, included: drafted } = await import('./configuration-drafts.mjs').then(({ withSavedDrafts }) => withSavedDrafts(root, studioChanges));
+    if (drafted.length && !optionBoolean(options, 'json')) console.log(`Includes ${drafted.length} saved draft${drafted.length === 1 ? '' : 's'}: ${drafted.join('; ')}.`);
     const printStudioPlan = (plan) => {
       for (const line of plan.summary) console.log(`  ${line}`);
       for (const problem of plan.problems) console.log(`  Problem: ${problem.message}`);
@@ -10689,6 +10721,7 @@ async function workflowCommand(positionals, options) {
       expectedAuthority: expectedConfigurationAuthority(options),
       mutate: (target) => planStudioChangeSet(target, changeSet, { write: true, imports })
     });
+    await import('./configuration-drafts.mjs').then(({ settleDrafts }) => settleDrafts(root, result, drafted));
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     if (printProposal(result)) return;
     console.log(`Workflow Studio applied ${result.written?.length ?? 0} file change(s).`);
@@ -14869,6 +14902,10 @@ async function initiativeCommand(positionals, options) {
 async function editorCommand(positionals, options, namespace = 'configuration') {
   const subcommand = requirePositional(positionals, 1, `${namespace} subcommand`);
   const root = repoRoot();
+  if (['drafts', 'propose', 'discard', 'approve'].includes(subcommand)) {
+    return (await import('./commands/configuration-drafts.mjs')).run({ subcommand, positionals, options, root, printResult: printImportResult,
+      apply: (set, { propose = false, subject, message } = {}) => applyImportChangeSet(root, set, { ...options, propose: propose || undefined }, { subject, message }) });
+  }
   let result;
   if (subcommand === 'transactions') {
     result = await import('./configuration-proposal.mjs').then(({ configurationTransactions }) => configurationTransactions(root));
@@ -18610,8 +18647,8 @@ async function dispatch(command, positionals, options, argv) {
     'review-source': () => reviewSourceCommand(positionals, options),
     receipt: () => receiptCommand(positionals, options),
     workflow: () => workflowCommand(positionals, options),
-    skill: async () => (await import('./commands/skill.mjs')).run(null, { positionals, options, applyChangeSet: (root, changeSet, meta) => applyImportChangeSet(root, changeSet, options, meta), printResult: printImportResult }),
-    instruction: async () => (await import('./commands/instruction.mjs')).run(null, { positionals, options, applyChangeSet: (root, changeSet, meta) => applyImportChangeSet(root, changeSet, options, meta), printResult: printImportResult }),
+    skill: async () => (await import('./commands/skill.mjs')).run(null, { positionals, options, applyChangeSet: (root, changeSet, meta) => applyAuthoringChange(root, changeSet, options, meta), printResult: printImportResult }),
+    instruction: async () => (await import('./commands/instruction.mjs')).run(null, { positionals, options, applyChangeSet: (root, changeSet, meta) => applyAuthoringChange(root, changeSet, options, meta), printResult: printImportResult }),
     assign: () => assignCommand(positionals),
     watch: () => watchCommand(positionals, options),
     recover: () => recoverCommand(positionals, options),

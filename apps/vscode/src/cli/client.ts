@@ -203,7 +203,7 @@ const READ_ONLY_COMMANDS = new Set([
 ]);
 const READ_ONLY_CONFIGURATION_COMMANDS = new Set([
   'transactions',
-  'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain'
+  'snapshot', 'validate', 'read', 'export-bundle', 'initiative-materialize-preview', 'explain', 'drafts'
 ]);
 const REMOTE_CAPABILITY_OPERATIONS = new Set([
   'map', 'map-team', 'edit', 'publish', 'proposals', 'proposal', 'activate', 'world-model', 'organisation',

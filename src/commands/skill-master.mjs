@@ -147,8 +147,11 @@ export async function runSkillMaster({ positionals, options, applyChangeSet, pri
   if (SKILL_MASTER_READS.includes(action)) {
     const model = await withApprovedConfigurationRead(root, () => buildStudioModel(root), { preferAuthority: true });
     if (action === 'list') {
-      if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'skill-master', skills: model.skills, problems: model.skillProblems ?? [] }, null, 2));
-      return printSkills(model);
+      const notice = await import('../configuration-drafts.mjs').then(({ draftNotice }) => draftNotice(root, 'skill'));
+      if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'skill-master', skills: model.skills, problems: model.skillProblems ?? [], drafts: notice.entries }, null, 2));
+      printSkills(model);
+      for (const line of notice.lines) console.log(line);
+      return;
     }
     const skill = model.skills.find((entry) => entry.id === positionals[2]);
     if (!skill) fail(`There is no skill '${positionals[2]}' in the skill master. List them with: singularity-flow skill list`, 'SKILL_MASTER_UNKNOWN');

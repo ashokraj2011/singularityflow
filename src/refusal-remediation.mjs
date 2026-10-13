@@ -881,6 +881,9 @@ export function refusalRemediationPlan(error, argv = []) {
     'TRP_PUBLICATION_PENDING', 'TRP_RISK_ADAPTER_UNAVAILABLE', 'TRP_AUTHORITY_REQUIRED'].includes(code);
   // A soft gate names its own way through; generic help and diagnostics only bury it.
   const softGateBlocked = code === 'SEQUENCE_CONFIRMATION_REQUIRED';
+  // Configuration drafts and approval name their own next step; generic help would only bury it.
+  const selfGuidedBlocked = ['CONFIGURATION_APPROVE_CONFIRMATION_REQUIRED', 'CONFIGURATION_APPROVE_PROPOSAL_REQUIRED',
+    'CONFIGURATION_APPROVE_NOTHING', 'CONFIGURATION_DRAFTS_EMPTY'].includes(code);
   const unknownRecoveryPhase = code === 'RECOVERY_PHASE_UNKNOWN';
   const pinnedTestPolicyBlocked = ['CODE_TEST_RESULT_REQUIRED', 'CODE_TEST_SUPPRESSED'].includes(code)
     && error?.details?.configurationDependency === true;
@@ -928,6 +931,7 @@ export function refusalRemediationPlan(error, argv = []) {
   // identity. This makes future uncoded phase refusals recoverable without adding another code-keyed
   // entry here, and keeps approval repair outside the approval-only turn.
   const ordered = configurationProblemsBlocked ? [...known, ...nonDuplicateExplicit]
+    : selfGuidedBlocked ? [...nonDuplicateExplicit, ...known]
     : repositoryRunnerBlocked || pinnedTestPolicyBlocked || softGateBlocked || unknownRecoveryPhase ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
@@ -970,6 +974,8 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Run it again with the override added, or take the Story\'s next step; repeating it unchanged is refused the same way.'
     : configurationProblemsBlocked
       ? 'Retry the original command once the configuration check reports no problems.'
+    : selfGuidedBlocked
+      ? 'Nothing was changed. Follow the step above when you are ready.'
     : authoringIncomplete
       ? 'Retry the original command only after the author has corrected every finding and the same read-only prepublish check reports ready.'
       : 'Retry the original command only after the blocking condition is resolved.';

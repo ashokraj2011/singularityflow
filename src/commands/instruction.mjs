@@ -39,8 +39,10 @@ export async function run(argv, { positionals, options, applyChangeSet, printRes
     if (action === 'show' && !item) throw new SingularityFlowError(`Instruction '${positionals[2]}' does not exist. Run instruction list.`, { code: 'INSTRUCTION_UNKNOWN' });
     const result = action === 'show' ? { schemaVersion: 1, resultType: 'instruction', instruction: item }
       : { schemaVersion: 1, resultType: 'instruction-library', instructions: model.instructions.map(({ instructions: body, ...summary }) => summary), problems: model.instructionProblems };
+    const notice = action === 'list' ? await import('../configuration-drafts.mjs').then(({ draftNotice }) => draftNotice(root, 'instruction')) : { lines: [], entries: [] };
+    if (notice.entries.length) result.drafts = notice.entries;
     const text = item ? `${item.label} (${item.id})\n${item.path}\nUsed by skills: ${item.usedBy.join(', ') || 'none'}\n\n${item.instructions}`
-      : model.instructions.map(item => `${item.label} (${item.id}) — ${item.description}`).join('\n') || 'No reusable instructions yet.';
+      : [model.instructions.map(item => `${item.label} (${item.id}) — ${item.description}`).join('\n') || 'No reusable instructions yet.', ...notice.lines].join('\n');
     return emitCommandResult(commandResult({ operation: { id: `instruction.${action}`, classification: 'read' },
       outcome: succeeded('instruction.inspected', { text }), effects: effects(), restState: 'informational', data: result
     }), { json: Boolean(options.json), restStateWhenIdle: 'informational' });

@@ -10,7 +10,7 @@ related:
   - skill-master
   - workflow-authoring
   - importing-assets
-version: 5
+version: 6
 ---
 
 ## Purpose and prerequisites
@@ -137,7 +137,9 @@ skills. A missing skill actually used by that Story still requires configuration
 
 - **Shell:** `singularity-flow instruction list --json` and `singularity-flow instruction show <ID> --json`
   read the catalog. `instruction create`, `instruction edit` and `instruction remove` change it; each
-  accepts `--dry-run` and `--propose`. `singularity-flow skill edit <SKILL-ID> --instruction-refs <ID,ID>`
+  accepts `--dry-run` and `--propose`; without either, a repository with an approved configuration
+  authority saves it as a draft for one review with your other drafts (`singularity-flow configuration
+  propose`, then `configuration approve`). `singularity-flow skill edit <SKILL-ID> --instruction-refs <ID,ID>`
   connects a skill. Run `singularity-flow instruction --help` for the exact forms in this build.
 - **Copilot:** `/sf-instructions` lists or shows definitions and previews create, edit and remove.
   It shows the exact proposed bytes before using the returned configuration-proposal route, and it

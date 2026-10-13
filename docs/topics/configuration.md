@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 5
+version: 6
 commands:
   - configuration
   - workflow
@@ -69,6 +69,10 @@ Authored code/documents are preserved; fresh execution evidence is required. Ins
 does not establish the pre-code failure baseline, accept failures, or alter intake's test-scope choice.
 
 These commands can mutate governed or machine-local state: `configuration`, `workflow`. They remain subject to identity, authority, sequence, freshness, branch, worktree, and exact-confirmation checks. Signed handles are session-bound and are never shared between the shell, Copilot, and VS Code. Durable repository and workspace records are the shared source of truth.
+
+## Change agents, skills and instructions
+
+In a repository with an approved configuration authority (`sflow/config`), `agents create|edit`, `skill create|edit|attach|detach|remove` and `instruction create|edit|remove` save each change as a draft on this machine. A draft is checked against the approved configuration together with every earlier draft, so a skill that is still a draft can already be attached. No Story uses a draft. `singularity-flow configuration drafts` lists them (`skill list`, `instruction list` and `agents list` show them too), `configuration discard <NUMBER>` drops one, and `configuration propose` sends all of them as one review. `configuration approve` then shows what the proposal changes, asks once, and activates exactly that revision; nobody copies a commit. Workflow Studio shows the same drafts under **Changes** and publishes them with its own edits. Without an authority, changes are written to the working tree as before.
 
 ## Troubleshooting
 

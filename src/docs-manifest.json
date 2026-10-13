@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "297afd0437bf457b7716443642e1414ecdf383b8",
+  "sourceCommit": "6105495c50a0644c75e5f99408436ad2a0b58f5e",
   "topicCount": 81,
-  "contentSha256": "c06435d6275403755e0175a9de2d97c3866719b355bdf17e329cc5fd0fcc84e5",
+  "contentSha256": "aa438b8568b94234ed395fc0e438c1ed8e430209acee97e4b2833e709c890dda",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -112,8 +112,8 @@
     {
       "id": "configuration",
       "title": "Configuration, capabilities, and the policy fold",
-      "version": 5,
-      "sha256": "92b11889e0d5c5d8a77b539331d542299ca1b4141ae0e8b60fb871088fe35684",
+      "version": 6,
+      "sha256": "76410305af2afaff7b37391c748ac3e3640ccf6d3c1206980d2f7155268b1d53",
       "routingSha256": "2d2fa1c092e101abe3c2074545597f9ed25b38d2627aeaa9e9d89c3c24c15c58",
       "file": "configuration.md"
     },
@@ -472,8 +472,8 @@
     {
       "id": "reusable-instructions",
       "title": "Reusable instructions referenced by skills",
-      "version": 5,
-      "sha256": "3e9abfb5993962529c8da3fc4a71fe399599d14a4aaa41e70cf71da1af89e295",
+      "version": 6,
+      "sha256": "f9811ff72f4bda01c6a1b27991baf70bcc6ef08545663f86767f0d73d062690f",
       "routingSha256": "819508e7d86f0c94478e4e14ff69d396888fe9a2769c18b780d25b0d43747622",
       "file": "reusable-instructions.md"
     },
@@ -520,8 +520,8 @@
     {
       "id": "skill-master",
       "title": "Skill master and attached skills",
-      "version": 5,
-      "sha256": "fad93014dea8e7e7b8ee1b0a149ee1ac271dd46ebfb7890627698e1fc34988bf",
+      "version": 6,
+      "sha256": "1b85be62019a4f13587ec3809f6eb115c71158bdc0187f2a7d985d1d15b4df8d",
       "routingSha256": "0fd4468408d098ee8b88433a15885071003c69e6fab735de15d09d1f424aa4da",
       "file": "skill-master.md"
     },

@@ -1205,7 +1205,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   }
 
   function renderNav(root) {
-    var pending = changesNow().length;
+    var pending = changesNow().length + savedDrafts().length;
     var blocked = Object.keys(state.draft.groups).filter(groupBlocked).length;
     // A target some step sends to, whose secret this machine does not have: its deliveries would wait.
     var secretsHere = integrationsState().secrets;
@@ -1272,7 +1272,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var workflows = state.draft.order.concat(Object.keys(state.draft.workflows).filter(function (id) { return state.draft.order.indexOf(id) < 0; }));
     var noAgent = Object.keys(state.draft.phases).filter(function (id) { return !state.draft.phases[id].agent && workflows.some(function (workflowId) { return workflowSteps(workflowId).indexOf(id) >= 0; }); });
     var blocked = Object.keys(state.draft.groups).filter(groupBlocked);
-    var pending = changesNow().length;
+    var pending = changesNow().length + savedDrafts().length;
     main.appendChild(el('header', { class: 'studio-card', style: 'border:0;background:transparent;padding:0' },
       el('h1', { text: 'Design how your team works' }),
       el('p', { class: 'studio-lede', text: 'A workflow is the list of steps a Story goes through. In each step an agent drafts the work and people sign it off. Arrange the steps, pick who does what from the lists, then publish once.' })));
@@ -5277,24 +5277,32 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       })));
   }
 
+  /** Agent, skill and instruction drafts saved from the command line or Copilot; they publish with this batch. */
+  function savedDrafts() { return (state.model && Array.isArray(state.model.drafts)) ? state.model.drafts : []; }
   function renderChanges(main) {
     var changeSet = changeSetFrom(state.model, state.draft);
     var key = JSON.stringify(changeSet);
-    main.appendChild(el('header', null, el('h1', { text: changeSet.changes.length ? changeSet.changes.length + (changeSet.changes.length === 1 ? ' change ready' : ' changes ready') : 'No changes yet' }),
+    var drafts = savedDrafts();
+    var total = changeSet.changes.length + drafts.length;
+    main.appendChild(el('header', null, el('h1', { text: total ? total + (total === 1 ? ' change ready' : ' changes ready') : 'No changes yet' }),
       el('p', { class: 'studio-lede', text: 'Changes are published together as one change, so nothing is ever half-applied. Check them first; Singularity Flow validates the whole configuration.' })));
-    if (!changeSet.changes.length) { main.appendChild(el('p', { class: 'muted', text: 'Edit a workflow, an agent or an approval group and your changes collect here.' })); renderProposals(main); return; }
-    main.appendChild(el('ol', { class: 'change-list' }, changeSet.changes.map(function (change) { return el('li', { text: describe(change, state.draft) }); })));
+    if (!total) { main.appendChild(el('p', { class: 'muted', text: 'Edit a workflow, an agent or an approval group and your changes collect here.' })); renderProposals(main); return; }
+    if (changeSet.changes.length) main.appendChild(el('ol', { class: 'change-list' }, changeSet.changes.map(function (change) { return el('li', { text: describe(change, state.draft) }); })));
+    if (drafts.length) main.appendChild(el('section', { class: 'studio-card', 'aria-label': 'Saved drafts' },
+      el('h2', { text: drafts.length === 1 ? 'Also included: 1 saved draft' : 'Also included: ' + drafts.length + ' saved drafts' }),
+      el('p', { class: 'muted', text: 'Saved from the command line or Copilot. No Story uses them until they are approved; they are published with this batch as one review.' }),
+      el('ol', { class: 'change-list' }, drafts.map(function (draft) { return el('li', { text: draft.description }); }))));
     var fresh = state.plan && state.planKey === key;
     main.appendChild(el('div', { class: 'studio-row' },
       button(state.busy === 'check' ? 'Checking…' : 'Check changes', function () { state.busy = 'check'; render(); post({ type: 'studio.preview', changeSet: key }); }, { class: fresh && state.plan.valid ? 'secondary' : 'primary', disabled: Boolean(state.busy) }),
-      button(state.busy === 'publish' ? 'Publishing…' : publishLabel(), function () { state.busy = 'publish'; render(); post({ type: 'studio.publish', changeSet: key, count: changeSet.changes.length }); }, { class: fresh && state.plan.valid ? 'primary' : 'secondary', disabled: !fresh || !state.plan.valid || Boolean(state.busy) }),
+      button(state.busy === 'publish' ? 'Publishing…' : publishLabel(), function () { state.busy = 'publish'; render(); post({ type: 'studio.publish', changeSet: key, count: total }); }, { class: fresh && state.plan.valid ? 'primary' : 'secondary', disabled: !fresh || !state.plan.valid || Boolean(state.busy) }),
       button('Discard all changes', function () {
         var count = changeSet.changes.length;
         var listed = changeSet.changes.slice(0, 6).map(function (change) { return describe(change, state.draft); });
         confirmAction('Discard ' + count + (count === 1 ? ' unpublished change?' : ' unpublished changes?'),
           'Everything changed in Workflow Studio since the last publish is lost: ' + listed.join('; ') + (count > listed.length ? '; and ' + (count - listed.length) + ' more' : '') + '.',
           'Discard changes', discardDraft);
-      }, { class: 'secondary', disabled: Boolean(state.busy) })));
+      }, { class: 'secondary', disabled: Boolean(state.busy) || !changeSet.changes.length })));
     if (state.plan && !fresh) main.appendChild(el('p', { class: 'muted', text: 'You changed something since the last check. Check again before publishing.' }));
     if (fresh) main.appendChild(renderPlan(state.plan));
     renderProposals(main);

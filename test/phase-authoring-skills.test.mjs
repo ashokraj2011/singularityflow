@@ -7,7 +7,7 @@ const skill = name => readFile(new URL(`../plugin/skills/${name}/SKILL.md`, impo
 test('code author opens the exact generation before composition and verifies permission before native edits', async () => {
   const code = await skill('sflow-code');
   const begin = code.indexOf('singularity-flow phase begin <phase> --json');
-  const compose = code.indexOf('singularity-flow phase enter <phase> --work-id <WORK-ID> --compose');
+  const compose = code.indexOf('rerun it once with `<phase> --work-id <WORK-ID> --compose`');
   const permission = code.indexOf('Source edits require `codeAuthoringReady: true`');
   const edit = code.indexOf('6. Native file-edit tool:');
   assert.ok(begin > 0 && begin < compose);

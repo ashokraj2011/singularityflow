@@ -684,7 +684,7 @@ test('all authoring skills use a single prepublish validator pass and entry has 
     assert.match(skill, /phase prepublish .*--for-agent --json/);
     assert.equal([...skill.matchAll(/<!-- sflow-execution-boundary -->/g)].length, 1, name);
     if (['code', 'phase', 'design', 'requirements', 'release', 'scenario-check', 'document-intake'].includes(name)) {
-      assert.match(skill, /phase enter --for-agent --json/);
+      assert.match(skill, /phase enter --compose --for-agent --json/);
       assert.doesNotMatch(skill, /singularity-flow (?:pause status|session current|status --json|clarification status|story references verify)/);
     }
   }

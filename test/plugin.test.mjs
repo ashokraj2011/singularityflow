@@ -382,7 +382,7 @@ test('fast-path authoring skills execute the returned preparation checkpoint bef
 
 test('code skill reads readiness and task policy from their real structured sources', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
-  assert.match(content, /phase enter --for-agent --json/);
+  assert.match(content, /phase enter --compose --for-agent --json/);
   assert.match(content, /(?:require|reuse entry) `ready`\/`workId`, valid `phaseAgent`; cwd=`repositoryPath`/i);
   assert.match(content, /Require entry `phase`, `phaseAgent.valid: true`, `generatesCode: true`, `authoring.policyVerified`/);
   assert.match(content, /never draft sign-off/);
@@ -1228,7 +1228,7 @@ test('progress renders its deterministic Markdown visibly in Copilot', async () 
 test('governed phase skills reuse the shared repository model without Story task guides', async () => {
   for (const name of ['sflow-story-start', 'sflow-phase', 'sflow-requirements', 'sflow-design', 'sflow-code', 'sflow-verify', 'sflow-review', 'sflow-release']) {
     const content = await readFile(path.join(pluginRoot, 'skills', name, 'SKILL.md'), 'utf8');
-    assert.match(content, /wm (?:compose|availability) --phase|phase enter <phase> --work-id <WORK-ID> --compose/i,
+    assert.match(content, /wm (?:compose|availability) --phase|phase enter <phase> --work-id <WORK-ID> --compose|phase enter --compose --for-agent --json/i,
       `${name} must inspect or compose repository grounding`);
     assert.doesNotMatch(content, /singularity-flow wm (?:compose|availability) --phase [^`\n]*--task/i, `${name} must not create a Story-specific task guide`);
     assert.match(content, /Story context|governed workflow|entry packet[^\n]*binding, recovery, clarification and references|reuse binding\/recovery\/clarification\/references/i,

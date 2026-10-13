@@ -4,7 +4,7 @@ title: Compact phase entry for Copilot
 commands: [phase, nextsteps, inputs, review-source]
 aliases: [phase-entry]
 related: [artifacts-and-generation, approvals, phase-appeals, nextsteps]
-version: 13
+version: 14
 ---
 # Compact phase entry for Copilot
 
@@ -95,12 +95,16 @@ receipt remain unchanged, and the delivered prompt audit records the refresh.
 
 ## Guided workflow
 
-1. Read the entry packet with `singularity-flow phase enter --for-agent --json` and inspect its
-   binding, recovery actions, clarification status and `contextAdmission`.
+1. Read the entry packet with `singularity-flow phase enter --compose --for-agent --json` and
+   inspect its binding, recovery actions, clarification status and `contextAdmission`. It composes
+   only when composition is admitted, so one call returns both the packet and `context.text`
+   (`contextComposition: delivered`).
 2. If composition is not admitted, relay the blockers and the returned `next` route, then stop.
 3. If entry returns `status: successor-preparation-required`, run the returned preparation once
    through `/sf-phase`, then refresh entry.
-4. Compose once with `--compose` and use the returned `context.text`.
+4. Use the returned `context.text`. Compose again, once, with
+   `phase enter PHASE --work-id WORK-ID --compose --for-agent --json` only when the packet was read
+   without `--compose` (`contextComposition: not-requested`) or the Story changed since it.
 5. Resolve `clarification.checkpoint`, then author the draft and run `phase prepublish PHASE --for-agent --json` once.
 6. Follow the returned continuation. It does not authorize another lifecycle action in the same
    turn.
@@ -180,7 +184,7 @@ edits, unsafe Git operations and lifecycle/authority failures cannot use this co
 
 ### Compose preparation context
 
-After reviewing that entry packet, use:
+The drafting skills compose in their first entry call. To compose for a named Story and step, use:
 
 ```sh
 singularity-flow phase enter PHASE --work-id WORK-ID --compose --for-agent --json

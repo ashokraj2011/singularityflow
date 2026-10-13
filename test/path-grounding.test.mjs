@@ -83,7 +83,7 @@ test('broad reads retain their repository fence and implementation aliases deleg
   assert.match(epicStories, /singularity\/initiatives\/<EPIC-ID>\/artifacts\/epic-planning\/story-plan\.yml/);
   assert.match(implement, /Run `\/sflow-code` once/);
   const code = await readFile(path.join(root, 'plugin', 'skills', 'sflow-code', 'SKILL.md'), 'utf8');
-  assert.match(code, /singularity-flow phase enter --for-agent --json/);
+  assert.match(code, /singularity-flow phase enter --compose --for-agent --json/);
   assert.match(code, /cwd=`repositoryPath`/);
   assert.doesNotMatch(implement, /`singularity-flow /, 'the canonical code skill owns executable preflight');
 });

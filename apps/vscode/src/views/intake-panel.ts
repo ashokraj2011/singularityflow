@@ -721,7 +721,7 @@ export class IntakePanel {
         if (!this.disposed && this.form.favouriteWorkflows === next) {
           this.form = { ...this.form, favouriteWorkflows: workflowFavourites(this.preferences.get(key)) };
           this.render();
-          void vscode.window.showWarningMessage('Workflow favourites could not be saved. Your Story choices are unchanged; try starring the workflow again.');
+          void showCompactWarningMessage('Workflow favourites could not be saved. Your Story choices are unchanged; try starring the workflow again.');
         }
       }
     },

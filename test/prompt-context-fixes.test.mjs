@@ -153,11 +153,15 @@ test('a pending prompt is stale once a change request for its phase opens or clo
   assert.equal(stakeholderRequestDrift({ renderer: 'stakeholder-requests-v1', requests: [] }, [request]), null);
 });
 
-test('agent JSON stays compact but pages by line: one top-level field, or list element, per line', () => {
+test('agent JSON stays compact but pages by line, two levels deep: no field hides inside a long line', () => {
   const value = { ready: true, next: [{ id: 'a' }, { id: 'b', note: undefined }], context: { text: 'x\ny' }, empty: [], skipped: undefined, fn() {} };
   const text = agentJson(value);
   assert.deepEqual(JSON.parse(text), JSON.parse(JSON.stringify(value)), 'the same data as JSON.stringify');
-  assert.deepEqual(text.split('\n'), ['{', '"ready":true,', '"next":[', '{"id":"a"},', '{"id":"b"}', '],', '"context":{"text":"x\\ny"},', '"empty":[]', '}']);
+  assert.deepEqual(text.split('\n'), ['{', '"ready":true,', '"next":[', '{"id":"a"},', '{"id":"b"}', '],', '"context":{', '"text":"x\\ny"', '},', '"empty":[]', '}']);
+  // A host search shortens long lines in the middle; a nested path field keeps a short line of its own.
+  const staged = agentJson({ clarification: { checkpoint: { notes: 'n'.repeat(6000) }, responseStagingPath: '/repo/.git/worktrees/w/x.json' } });
+  assert.ok(staged.split('\n').includes('"responseStagingPath":"/repo/.git/worktrees/w/x.json"'));
+  assert.equal(agentJson({ at: new Date(0), none: {} }), '{\n"at":"1970-01-01T00:00:00.000Z",\n"none":{}\n}');
   assert.equal(agentJson([1, 2]), '[1,2]');
   assert.equal(agentJson({}), '{}');
   assert.equal(agentOrIndentedJson(false, { a: 1 }), '{\n  "a": 1\n}', 'people keep the indented form');

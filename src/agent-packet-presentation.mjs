@@ -1,17 +1,29 @@
 import { createHash } from 'node:crypto';
 
 /**
- * Compact JSON a host can page: one top-level field per line, and one element per line in a
- * top-level list. A host that saves a long tool result to a file shows it by lines, and one-line
- * JSON could not be read there at all, so a skill stopped with "next action unavailable". The bytes
- * stay compact (only line breaks are added) and JSON.parse and jq read it unchanged.
+ * Compact JSON a host can page: one top-level field per line, one field per line inside a
+ * top-level object, and one element per line in a top-level list. A host that saves a long tool
+ * result to a file shows it by lines, and one-line JSON could not be read there at all, so a skill
+ * stopped with "next action unavailable". Its search tool also shortens a long line in the middle:
+ * on the 5,600-character `clarification` line, `responseStagingPath` showed as `[+5565 chars]`
+ * and a file name, and the author rebuilt a wrong path from the worktree and was refused. The
+ * bytes stay compact (only line breaks are added) and JSON.parse and jq read it unchanged.
  */
 export function agentJson(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return JSON.stringify(value);
-  const fields = Object.entries(value).filter(([, child]) => child !== undefined && typeof child !== 'function')
-    .map(([key, child]) => Array.isArray(child) && child.length
-      ? `${JSON.stringify(key)}:[\n${child.map((entry) => JSON.stringify(entry) ?? 'null').join(',\n')}\n]`
-      : `${JSON.stringify(key)}:${JSON.stringify(child)}`);
+  const fields = presentFields(value).map(([key, child]) => `${JSON.stringify(key)}:${pagedValue(child)}`);
+  return fields.length ? `{\n${fields.join(',\n')}\n}` : '{}';
+}
+
+const presentFields = (value) => Object.entries(value)
+  .filter(([, child]) => child !== undefined && typeof child !== 'function');
+
+function pagedValue(child) {
+  if (Array.isArray(child)) {
+    return child.length ? `[\n${child.map((entry) => JSON.stringify(entry) ?? 'null').join(',\n')}\n]` : '[]';
+  }
+  if (!child || typeof child !== 'object' || typeof child.toJSON === 'function') return JSON.stringify(child);
+  const fields = presentFields(child).map(([key, nested]) => `${JSON.stringify(key)}:${JSON.stringify(nested)}`);
   return fields.length ? `{\n${fields.join(',\n')}\n}` : '{}';
 }
 
@@ -63,7 +75,7 @@ export function phaseEntryAgentPresentation(packet) {
     retainedExecutionEvidencePath: 'retainedExecutionEvidence',
     contextFilePath: 'context.file.path',
     platform: process.platform,
-    instruction: 'Read authority fields together once, without key enumeration; they come first and are complete, one top-level field per line. status clarification-required is this skill\'s own next step: compose and ask the unanswered questions in this turn. Never relay the skill you are running as a next action; do that step. Binding ready is not source-edit permission: use mutationContract and codeAuthoringReady before edits. authoringProgress describes the remaining draft milestone, not completed code or permission to publish. Read clarification.checkpoint before interpreting authoringAllowed. Use retainedExecutionEvidence for governed outcomes; recovery.testExecution describes this phase\'s runner, not absence of upstream execution. Reconcile stale narrative and IDE discovery separately; command success is not criterion acceptance. Never truncate control instructions with arbitrary string/byte slices. If a tool cuts context.text, read context.file.path (the same composed prompt, verified by context.file.sha256, without the presentation-only reply personalization) in bounded portions, or complete named sections from the same saved packet; do not recompose or infer absent instructions, and never author from partial context. Reuse context.text; changed bindings need fresh checks. Never reuse approval consent.'
+    instruction: 'Read authority fields together once, without key enumeration; they come first and are complete, one field per line two levels deep. status clarification-required is this skill\'s own next step: compose and ask the unanswered questions in this turn. Never relay the skill you are running as a next action; do that step. Binding ready is not source-edit permission: use mutationContract and codeAuthoringReady before edits. authoringProgress describes the remaining draft milestone, not completed code or permission to publish. Read clarification.checkpoint before interpreting authoringAllowed. Use retainedExecutionEvidence for governed outcomes; recovery.testExecution describes this phase\'s runner, not absence of upstream execution. Reconcile stale narrative and IDE discovery separately; command success is not criterion acceptance. Never truncate control instructions with arbitrary string/byte slices. If a tool cuts context.text, read context.file.path (the same composed prompt, verified by context.file.sha256, without the presentation-only reply personalization) in bounded portions, or complete named sections from the same saved packet; do not recompose or infer absent instructions, and never author from partial context. Reuse context.text; changed bindings need fresh checks. Never reuse approval consent.'
   },
   ...Object.fromEntries([...control, ...material].map((key) => [key, projected[key]])),
   ...(Object.hasOwn(projected, 'context') ? { context: projected.context } : {}) };

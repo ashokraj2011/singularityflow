@@ -570,6 +570,24 @@ test('clarification staging paths are data in every authoring phase, not CLI exe
   }
 });
 
+test('a rebuilt staging path is refused with the exact issued path, not the phase routes', async t => {
+  // Copilot saw only the tail of the issued path (its search shortened the long line), rebuilt it
+  // under the linked worktree, was refused with "prepare" routes, and stopped before recording.
+  const f = await fixture(t); const payload = await f.enter('/sf-phase');
+  const staging = path.join(f.root, '.git', 'singularity-flow', 'clarification-responses', 'specification-gen1.json');
+  await issueMutationStaging(f.root, staging, 'clarification');
+  const guessed = path.join(f.root, 'singularity-flow', 'clarification-responses', 'specification-gen1.json');
+  const patch = `*** Begin Patch\n*** Add File: ${guessed}\n+{"responses":[]}\n*** End Patch`;
+  const decision = await mutationToolGuard({ sessionId: payload.sessionId, cwd: payload.cwd,
+    toolCalls: [{ id: 'c1', name: 'apply_patch', args: patch }] });
+  assert.equal(decision.permissionDecision, 'deny', 'a near miss is never granted');
+  assert.match(decision.permissionDecisionReason, /^PHASE_MUTATION_STAGING_PATH_MISMATCH/u);
+  assert.ok(decision.permissionDecisionReason.includes(`write the issued staging file at exactly ${staging}.`));
+  assert.doesNotMatch(decision.permissionDecisionReason, /prepare/u);
+  assert.deepEqual(await mutationToolGuard({ sessionId: payload.sessionId, cwd: payload.cwd,
+    toolCalls: [{ id: 'c2', name: 'apply_patch', args: patch.replace(guessed, staging) }] }), {});
+});
+
 test('literal answer punctuation and PowerShell argv do not become shell operators', async t => {
   const f = await fixture(t); const payload = await f.enter('/sf-phase');
   const shell = (command, toolName = 'bash') => ({ ...payload, toolName, toolArgs: { command } });

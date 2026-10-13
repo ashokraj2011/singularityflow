@@ -338,6 +338,13 @@ export async function mutationToolGuard(payload = {}) {
     const paths = targets(call.args);
     if (!paths.length) return mutationDenial(contract, 'PHASE_MUTATION_TARGET_UNKNOWN');
     const denied = paths.filter(target => !mutationPathDecision(contract, target, call.args.cwd ?? payload.cwd ?? contract.repositoryRoot).allowed);
+    // An author that rebuilt an issued staging path (a linked worktree keeps it under the main
+    // repository's .git/worktrees, not the worktree) was refused with only the phase's routes and
+    // stopped. Name the exact issued file so it corrects the target in this turn; never grant it.
+    const issued = (contract.allow.staging ?? []).filter(file => denied.some(target => path.basename(target) === path.basename(file)));
+    if (issued.length) return { permissionDecision: 'deny', next: [], permissionDecisionReason:
+      `PHASE_MUTATION_STAGING_PATH_MISMATCH (${denied.join(', ')}): write the issued staging file at exactly ${issued.join(', ')}. `
+      + 'Copy the path from the entry; do not rebuild it from the worktree. Correct the target in this turn; the human replies stay valid and need not be asked again.' };
     if (denied.length) return mutationDenial(contract, 'PHASE_MUTATION_PATH_DENIED', denied);
   }
   return {};

@@ -7,6 +7,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { readLocalGitBlobs } from '../src/git-blob-batch.mjs';
+import { withLocalReadDeadline } from '../src/local-read-deadline.mjs';
+import { run } from '../src/util.mjs';
 
 function git(root, args, { input, encoding = 'utf8', env = process.env } = {}) {
   const result = spawnSync('git', args, {
@@ -108,7 +110,9 @@ test('a well-framed but hash-mismatched blob is rejected', () => {
     assert.match(error.message, /do not match the requested object identity/);
     return true;
   });
-  assert.equal(calls.length, 3);
+  // The single read sees the mismatch and hands over; the sized read refuses it.
+  assert.deepEqual(calls.map(({ args }) => args[1] ?? args[0]), ['--show-object-format', '--batch',
+    '--batch-check=%(objectname) %(objecttype) %(objectsize)', '--batch']);
   assert.equal(calls.every(({ options }) => options.env.GIT_NO_REPLACE_OBJECTS === '1'), true);
   assert.equal(calls.every(({ options }) => options.env.GIT_NO_LAZY_FETCH === '1'), true);
 });
@@ -139,4 +143,56 @@ test('content requests split at the bounded object-count ceiling', () => {
   });
   assert.equal(result.size, 513);
   assert.equal(contentCalls, 2);
+});
+
+function blobRepository(t) {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'sflow-blob-reads-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, ['init', '--quiet']);
+  const write = (body) => git(root, ['hash-object', '-w', '--stdin'], { input: body }).trim();
+  const calls = [];
+  const runCommand = (command, args, options) => { calls.push(args[1] ?? args[0]); return run(command, args, options); };
+  return { root, write, calls, runCommand };
+}
+
+test('a small set is read with one cat-file process and the same verified bytes', (t) => {
+  const { root, write, calls, runCommand } = blobRepository(t);
+  const first = Buffer.from([0, 10, 255, 13, 10]);
+  const empty = Buffer.alloc(0);
+  const [firstOid, emptyOid] = [write(first), write(empty)];
+  const blobs = readLocalGitBlobs(root, [firstOid, emptyOid, firstOid], { runCommand, maximumBytes: 64 });
+  assert.deepEqual([...blobs.keys()], [firstOid, emptyOid]);
+  assert.deepEqual(blobs.get(firstOid), first);
+  assert.deepEqual(blobs.get(emptyOid), empty);
+  assert.deepEqual(calls, ['--show-object-format', '--batch'], 'no separate sizing process');
+});
+
+test('what one read cannot prove is refused by the sized read, exactly as before', async (t) => {
+  const { root, write, calls, runCommand } = blobRepository(t);
+  const large = Buffer.alloc(4096, 7);
+  const largeOid = write(large);
+  const sized = ['--show-object-format', '--batch', '--batch-check=%(objectname) %(objecttype) %(objectsize)'];
+
+  const missing = 'f'.repeat(40);
+  assert.throws(() => readLocalGitBlobs(root, [missing], { runCommand, code: 'X_UNAVAILABLE' }), (error) => {
+    assert.equal(error.code, 'X_UNAVAILABLE');
+    assert.match(error.message, /unavailable, unsupported, or oversized object/);
+    assert.deepEqual(error.details, { object: missing, maximumObjectBytes: Number.POSITIVE_INFINITY });
+    return true;
+  });
+  assert.deepEqual(calls.splice(0), sized);
+
+  assert.throws(() => readLocalGitBlobs(root, [largeOid], { runCommand, maximumObjectBytes: 1024, limitCode: 'X_LIMIT' }), (error) => {
+    assert.equal(error.code, 'X_LIMIT');
+    assert.deepEqual(error.details, { object: largeOid, bytes: 4096, maximumObjectBytes: 1024 });
+    return true;
+  });
+  assert.deepEqual(calls.splice(0), sized, 'a full buffer hands over to the sized read');
+
+  // A scoped read deadline refuses a full buffer itself, so reads under one keep the sized read.
+  await withLocalReadDeadline(10_000, async () => {
+    assert.deepEqual(readLocalGitBlobs(root, [largeOid], { runCommand }).get(largeOid), large);
+  });
+  assert.deepEqual(calls.splice(0), ['--show-object-format',
+    '--batch-check=%(objectname) %(objecttype) %(objectsize)', '--batch']);
 });

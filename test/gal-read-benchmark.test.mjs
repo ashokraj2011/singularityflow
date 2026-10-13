@@ -44,8 +44,10 @@ test('GAL read benchmark separates cold discovery and warm object reads with exa
   }
   assert.ok(report.profiles.coldRuntimeAndRepositoryDiscovery.physicalGitSpawns
     .every((count) => count > 0));
+  // The synchronous helper reads a small set once; its sizing pass runs only when that read
+  // cannot prove the set (the historical key keeps its metadata-first name).
   assert.deepEqual(report.profiles.referenceMetadataFirstSynchronousBatch.physicalGitSpawns,
-    [3, 3]);
+    [2, 2]);
   assert.deepEqual(report.profiles.referenceMetadataFirstAsyncBatch.physicalGitSpawns,
     [3, 3]);
   assert.deepEqual(report.profiles.referenceMetadataFirstAsyncBatch.logicalRequests,

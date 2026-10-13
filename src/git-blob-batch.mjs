@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 
+import { localReadDeadlineRemainingMs } from './local-read-deadline.mjs';
 import { SingularityFlowError, run } from './util.mjs';
 
 const OBJECT_ID = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
@@ -10,12 +11,76 @@ function refusal(message, code, details) {
   throw new SingularityFlowError(message, { code, details });
 }
 
+function blobId(objectFormat, body) {
+  return createHash(objectFormat).update(`blob ${body.length}\0`, 'utf8').update(body).digest('hex');
+}
+
+/** One `cat-file --batch` read of `objectIds`: its output bytes, or null when Git did not answer. */
+function batchOutput(root, objectIds, { runCommand, env, maxBuffer }) {
+  const batch = runCommand('git', ['cat-file', '--batch'], {
+    cwd: root,
+    env,
+    input: `${objectIds.join('\n')}\n`,
+    encoding: 'buffer',
+    allowFailure: true,
+    timeoutClass: 'local-read',
+    maxBuffer
+  });
+  if (batch.status !== 0) return null;
+  return Buffer.isBuffer(batch.stdout) ? batch.stdout : Buffer.from(batch.stdout ?? '');
+}
+
+/**
+ * The blobs from one read without the sizing pass, or null when only that pass can answer exactly.
+ *
+ * The sizing pass exists so a large set splits below the buffer ceiling and an unavailable,
+ * non-blob or oversized object is refused with its exact reason before its bytes are read. Most
+ * reads are a few small records, where it is a second process repeating what the read's own
+ * headers say: about forty processes in one intake step. This reads once with the buffer capped
+ * at what the caller would accept anyway, and checks every header, ceiling and object hash as the
+ * sized read does. Anything else (a missing, non-blob or oversized object, a full buffer, a failed
+ * process) returns null and the sized read answers, so every refusal is unchanged. A scoped read
+ * deadline turns a full buffer into a refusal of its own, so reads under one keep the sized read.
+ */
+function readWithoutSizing(root, objectIds, {
+  runCommand, env, objectFormat, maximumBytes, maximumObjectBytes, maximumBatchBytes
+}) {
+  if (objectIds.length > MAXIMUM_BATCH_OBJECTS || localReadDeadlineRemainingMs() !== null) return null;
+  const budget = Math.min(maximumBytes, maximumBatchBytes, objectIds.length * maximumObjectBytes);
+  if (!Number.isSafeInteger(budget) || budget < 0) return null;
+  const bytes = batchOutput(root, objectIds, {
+    runCommand, env, maxBuffer: budget + (objectIds.length * 160) + 1024
+  });
+  if (!bytes) return null;
+  const output = new Map();
+  let cursor = 0;
+  let totalBytes = 0;
+  for (const oid of objectIds) {
+    const newline = bytes.indexOf(0x0a, cursor);
+    if (newline < 0) return null;
+    const [observed, type, rawSize] = bytes.toString('utf8', cursor, newline).trim().split(' ');
+    const size = Number(rawSize);
+    const start = newline + 1;
+    const end = start + size;
+    totalBytes += size;
+    if (observed !== oid || type !== 'blob' || !Number.isSafeInteger(size) || size < 0
+        || size > maximumObjectBytes || totalBytes > maximumBytes
+        || end >= bytes.length || bytes[end] !== 0x0a) return null;
+    const body = bytes.subarray(start, end);
+    if (blobId(objectFormat, body) !== oid) return null;
+    output.set(oid, Buffer.from(body));
+    cursor = end + 1;
+  }
+  return cursor === bytes.length ? output : null;
+}
+
 /**
  * Read an exact, already-resolved set of local Git blobs with bounded batch processes.
  *
  * The check pass supplies authoritative byte sizes before materialization, allowing callers to
  * enforce their aggregate ceiling and allowing this helper to split output below Node's buffer
- * ceiling. Raw reads disable object replacement and lazy fetch: an exact local object admission
+ * ceiling. A small set is first read once without it (`readWithoutSizing`); whatever that read
+ * cannot prove takes the check pass. Raw reads disable object replacement and lazy fetch: an exact local object admission
  * must neither substitute another object's bytes nor become a hidden network operation.
  */
 export function readLocalGitBlobs(root, objectIds, {
@@ -49,6 +114,10 @@ export function readLocalGitBlobs(root, objectIds, {
   if (unique.some((oid) => oid.length !== objectIdLength)) {
     refusal(`${label} contains an object identity for a different repository format.`, code);
   }
+  const unsized = readWithoutSizing(root, unique, {
+    runCommand, env: localEnv, objectFormat, maximumBytes, maximumObjectBytes, maximumBatchBytes
+  });
+  if (unsized) return unsized;
   const input = `${unique.join('\n')}\n`;
   const checked = runCommand('git', [
     'cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'
@@ -106,17 +175,10 @@ export function readLocalGitBlobs(root, objectIds, {
   const output = new Map();
   for (const entries of groups) {
     const expectedBytes = entries.reduce((sum, entry) => sum + entry.size, 0);
-    const batch = runCommand('git', ['cat-file', '--batch'], {
-      cwd: root,
-      env: localEnv,
-      input: `${entries.map((entry) => entry.oid).join('\n')}\n`,
-      encoding: 'buffer',
-      allowFailure: true,
-      timeoutClass: 'local-read',
-      maxBuffer: expectedBytes + (entries.length * 160) + 1024
+    const bytes = batchOutput(root, entries.map((entry) => entry.oid), {
+      runCommand, env: localEnv, maxBuffer: expectedBytes + (entries.length * 160) + 1024
     });
-    const bytes = Buffer.isBuffer(batch.stdout) ? batch.stdout : Buffer.from(batch.stdout ?? '');
-    if (batch.status !== 0) refusal(`${label} could not read every retained object.`, code);
+    if (!bytes) refusal(`${label} could not read every retained object.`, code);
     let cursor = 0;
     for (const entry of entries) {
       const newline = bytes.indexOf(0x0a, cursor);
@@ -130,11 +192,7 @@ export function readLocalGitBlobs(root, objectIds, {
         refusal(`${label} returned a malformed or truncated object stream.`, code);
       }
       const body = bytes.subarray(start, end);
-      const observedOid = createHash(objectFormat)
-        .update(`blob ${size}\0`, 'utf8')
-        .update(body)
-        .digest('hex');
-      if (observedOid !== entry.oid) {
+      if (blobId(objectFormat, body) !== entry.oid) {
         refusal(`${label} returned blob bytes that do not match the requested object identity.`, code, {
           object: entry.oid
         });

@@ -5,7 +5,7 @@ import { commandDefinition, operationById, resolveOperation } from './command-re
 import {
   commandTimer, recordCommandTiming, withCommandTiming, writeCommandTimings
 } from './dx-command-timing.mjs';
-import { repoRoot } from './git.mjs';
+import { repoRoot } from './git-execution.mjs';
 import {
   gitReadOutput, optionBoolean, optionString, optionStrings, parseArgs, requirePositional, run, SingularityFlowError
 } from './util.mjs';

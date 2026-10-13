@@ -18,20 +18,20 @@ export async function run({ positionals, options }) {
   }
   const workId = positionals[3];
   const cwd = process.cwd();
-  const checked = step(['status', workId, '--submission-readiness', '--json'], cwd);
+  const checked = await step(['status', workId, '--submission-readiness', '--json'], cwd);
   if (!checked.ok) stop(checked, 'status --submission-readiness');
   const readiness = checked.value;
   if (readiness?.classification === 'terminal-obligations-required') {
     return console.log(JSON.stringify({ resultType: 'sflow-approval-packet', begun: false,
       reason: 'terminal-obligations-required', approvalPacket: { readiness, review: null } }, null, 2));
   }
-  const begun = step(['choices', 'begin', 'approve', workId, ...(options.fetch === true ? ['--fetch'] : []), '--json'], cwd);
+  const begun = await step(['choices', 'begin', 'approve', workId, ...(options.fetch === true ? ['--fetch'] : []), '--json'], cwd);
   if (!begun.ok) stop(begun, 'choices begin approve');
   const phase = begun.value?.approvalContext?.phase;
   if (typeof phase !== 'string') {
     throw new SingularityFlowError(`The approval selection for ${workId} names no phase awaiting approval.`, { code: 'APPROVAL_PACKET_PHASE_MISSING' });
   }
-  const shown = step(['phase', 'show', phase, '--for-agent', '--json'], cwd);
+  const shown = await step(['phase', 'show', phase, '--for-agent', '--json'], cwd);
   if (!shown.ok) stop(shown, 'phase show');
   console.log(JSON.stringify({ ...begun.value, approvalPacket: { readiness, review: shown.value } }, null, 2));
 }

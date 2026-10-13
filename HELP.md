@@ -2966,6 +2966,15 @@ Windows accelerators require qualified private ACLs; unsupported hosts use the o
 The resident worker targets repeated proposal reads; its first cold read includes startup cost.
 These layers do not make approval, remote synchronization or Story publication asynchronous.
 
+Frequent session, preparation, input, source-review, submission and approval operations have
+independent handlers; they do not load the legacy CLI dispatcher. Combined session/publication/
+submission commands reuse the dispatcher for fixed model-free read steps, with a fresh read context
+and configuration overlay boundary for each step. Publications, submissions, selection receipts
+and other mutations remain isolated child processes with the original checks and timeouts.
+`SINGULARITY_FLOW_COMPOSED_READS=off` restores a separate CLI process for every combined step.
+The `cli.steps.read-reused` and `cli.steps.process-spawns` timing counters distinguish those paths.
+This accelerates engine work; it does not weaken human review or make lifecycle writes asynchronous.
+
 `skill inspect` reads the exact local directory you name and returns a portable package digest,
 captured-file metadata, candidate output/input fields, findings, and capture costs. It does not run
 skill scripts, fetch URLs, install a skill, write configuration, or approve a phase. Candidate fields

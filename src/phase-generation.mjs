@@ -1,4 +1,12 @@
-import { SingularityFlowError } from './util.mjs';
+import { invariant, SingularityFlowError } from './util.mjs';
+
+/** Pure selection, shared with the persistence API without importing that API. */
+export function currentPhase(workflow) {
+  if (!workflow.currentPhase) return null;
+  const phase = workflow.phases[workflow.currentPhase];
+  invariant(phase, `Unknown current phase ${workflow.currentPhase}.`);
+  return phase;
+}
 
 /**
  * A restored checkpoint selects earlier evidence; it does not make later publication identities

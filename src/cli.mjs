@@ -1,13 +1,33 @@
+import { withReadScope } from './read-scope.mjs';
+import { preparedPhaseNextActions } from './commands/shared/prepared-phase-next-actions.mjs';
+import { acceptedStoryExecutionIfPresent } from './commands/shared/accepted-story-execution-if-present.mjs';
+import { printCommandRoutes } from './commands/shared/print-command-routes.mjs';
+import { sessionRepositoryAuthority } from './commands/shared/session-repository-authority.mjs';
+import { gitAnswer } from './commands/shared/git-answer.mjs';
+import { sessionDiscoveryConfiguration } from './commands/shared/session-discovery-configuration.mjs';
+import { postPublicationStep } from './commands/shared/post-publication-step.mjs';
+import { pathForDisplay } from './commands/shared/path-for-display.mjs';
+import { storyDraftTransaction } from './commands/shared/story-draft-transaction.mjs';
+import { convergencePreparationState } from './commands/shared/convergence-preparation-state.mjs';
+import { prepareConfiguredPhase } from './commands/shared/prepare-configured-phase.mjs';
+import { completionContinuation } from './commands/shared/completion-continuation.mjs';
+import { recordRequiredReceiptsAfterTransition } from './commands/shared/record-required-receipts-after-transition.mjs';
+import { withRefusalMemory } from './commands/shared/with-refusal-memory.mjs';
+import { copilotActivityLine } from './commands/shared/copilot-activity-line.mjs';
+import { selectedPhaseArgument } from './commands/shared/selected-phase-argument.mjs';
+import { checklistDecisions } from './commands/shared/checklist-decisions.mjs';
+import { decisionWorkflow } from './commands/shared/decision-workflow.mjs';
+import { printSelectionReceipt } from './commands/shared/print-selection-receipt.mjs';
 import { recordCompletenessReview, recordScopeDecision, scopeAuthorities } from './scope/decisions.mjs';
 import { planAuthorities, recordPlanAmendment } from './plan-amendments.mjs';
 import { recordRiskDecision, recordRiskRevocation, riskAuthorities } from './evidence/risk-decisions.mjs';
 import { normalizeQualityGateMode } from './phase-quality-risk.mjs';
 import { readStdinText as stdinText } from './read-stdin.mjs';
 import { recordWitness } from './verification/witness-records.mjs';
-import { isConvergencePhase, scopeStepOf, sourceReviewKind, stepResponsibilities } from './phase-roles.mjs';
+import { isConvergencePhase, scopeStepOf, stepResponsibilities } from './phase-roles.mjs';
 import readline from 'node:readline/promises';
 
-import { actionActor, activatePhaseAgent, activeActionContext, confirm, summary } from './commands/kernel.mjs';
+import { actionActor, activatePhaseAgent, activeActionContext, summary } from './commands/kernel.mjs';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,120 +36,63 @@ import * as style from './style.mjs';
 import { stdin as input, stdout as output } from 'node:process';
 import { chmodSync, constants as fsConstants, existsSync, readFileSync } from 'node:fs';
 import { addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput } from './workflow-authoring.mjs';
-import {
-  activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed,
-  configurationProposalCommitStatus,
-  inspectWorkflowConfigurationProposal, listWorkflowConfigurationProposals,
-  proposeConfigurationChange
-} from './configuration-proposal.mjs';
+import { activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed, configurationProposalCommitStatus, inspectWorkflowConfigurationProposal, listWorkflowConfigurationProposals, proposeConfigurationChange } from './configuration-proposal.mjs';
 import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { SingularityFlowError, commandExists, didYouMean, exists, gitHeadIsUnborn, gitReadOutput, nearestNames, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
-import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, isAncestor, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, remoteNames, removeCleanAttachStagingWorktree, repoRoot, validBranch } from './git.mjs';
-import { buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
-import { discoverRemoteStoryCandidates, validatedRemoteStoryDefinition } from './session-story-discovery.mjs';
-import { discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch } from './session-remote-url-discovery.mjs';
-import { samePlatformPath } from './story-worktree.mjs';
+import { SingularityFlowError, commandExists, didYouMean, exists, gitHeadIsUnborn, nearestNames, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
+import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, remoteNames, repoRoot, validBranch } from './git.mjs';
+import { buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { worldModelStateAuthority } from './state-authority.mjs';
 import { mintStoryIntakeReceipt, storyIntakeReceiptsDisabled } from './story-intake-receipt.mjs';
-import {
-  STORY_INTAKE_AUTHORITY_REUSE_MS, admitStoryIntakeReceipt, isStoryIntakeProof, verifyStoryIntakeWave
-} from './story-intake-verification.mjs';
+import { STORY_INTAKE_AUTHORITY_REUSE_MS, admitStoryIntakeReceipt, isStoryIntakeProof, verifyStoryIntakeWave } from './story-intake-verification.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
 import { settleStoryStartReadWave } from './story-start-read-wave.mjs';
 import { storyPublicationPreflightError } from './story-publication-preflight.mjs';
-import { applyTestRecoveryAdmission, confirmTestRecoveryIntake, prepareTestRecoveryIntake,
-  testRecoveryChoices } from './test-recovery-intake.mjs';
-import { buildRepositoryChangeSet } from './repository-change-set.mjs';
-import { actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, createWorkflow, currentPhase, decideStory, generationResultDigest, generationResultMatches, loadConfig, prefetchStoryPublicationObservation, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
-import {
-  generationSkillForPhase, phaseRequiresCodeDelivery, workflowAuthoringRoutes, workflowCodeGeneration
-} from './code-delivery-policy.mjs';
+import { applyTestRecoveryAdmission, confirmTestRecoveryIntake, prepareTestRecoveryIntake, testRecoveryChoices } from './test-recovery-intake.mjs';
+import { actorKey, assertNoPendingPublication, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, createWorkflow, currentPhase, decideStory, loadConfig, preparePhaseInputs, promoteDesignSource, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workDir, workDirRelative } from './state-stores.mjs';
+import { generationSkillForPhase, workflowAuthoringRoutes, workflowCodeGeneration } from './code-delivery-policy.mjs';
 import { directCopilotSkill } from './copilot-guidance.mjs';
 import { phasePreparationCommandLines } from './phase-preparation-guidance.mjs';
-import { commandGuidanceLines, commandRouteLines, renderChangeDirectoryCommand, renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
-import { generationStartPublicationBinding, verifyOpenGenerationIntent } from './generation-boundary.mjs';
+import { renderChangeDirectoryCommand, renderPlatformCommand } from './safe-command-guidance.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
-import { applicationChangeSetProjection, applicationPathContext } from './work-intervals.mjs';
-import {
-  assertAutoCandidateMatches, observeAutoCandidateWorktree
-} from './auto/auto-candidate.mjs';
-import { currentInteractiveRevisionPublication } from './revision/publication-adapter.mjs';
+import { applicationPathContext } from './work-intervals.mjs';
 import { LIFECYCLE_EVENT } from './lifecycle-event.mjs';
-import {
-  captureTelemetryCursorsForWorkItem, copilotTelemetryStatus,
-  pendingTelemetryNote, restoreTelemetryCursorsForWorkItem
-} from './telemetry.mjs';
+import { copilotTelemetryStatus } from './telemetry.mjs';
 import { contextXray } from './context-xray.mjs';
 import { compileEvidencePacket, expandEvidencePacketHandle } from './evidence-packet.mjs';
-import {
-  classifyTokenOptimization, normalizeTokenEconomy, selectedTokenEconomyProfile,
-  tokenEconomyDigest
-} from './token-economy.mjs';
-import {
-  explainTelemetryStatus,
-  prepareTelemetryLaunch,
-  probeTelemetry,
-  setTelemetryCapture,
-  TELEMETRY_DISCLOSURE,
-  TELEMETRY_DISCLOSURE_CONFIRMATION
-} from './telemetry-provision.mjs';
-import {
-  clearPromptAudits, listPromptAudits, promptAuditStatus, readPromptAudit, renderPromptAudit,
-  repairPromptAudits, setPromptAudit, setPromptAuditRetention
-} from './prompt-audit.mjs';
+import { classifyTokenOptimization, normalizeTokenEconomy, selectedTokenEconomyProfile, tokenEconomyDigest } from './token-economy.mjs';
+import { explainTelemetryStatus, prepareTelemetryLaunch, probeTelemetry, setTelemetryCapture, TELEMETRY_DISCLOSURE, TELEMETRY_DISCLOSURE_CONFIRMATION } from './telemetry-provision.mjs';
+import { clearPromptAudits, listPromptAudits, promptAuditStatus, readPromptAudit, renderPromptAudit, repairPromptAudits, setPromptAudit, setPromptAuditRetention } from './prompt-audit.mjs';
 import { clearHelpMetrics, helpMetricsStatus, setHelpMetrics } from './help-metrics.mjs';
 import { assertPhaseSequence, sequenceConfirmationRequired, withConfirmationPort } from './sequence.mjs';
 import { addComment, assignIssue, discoverJiraConnection, getIssue, getIssueHierarchy, getMyPermissions, issueToMarkdown, listBoards, listBoardStories, listEpicStories, listEpics, listFields, listIssueTransitions, listMyIssues, listProjects, moveIssueToSprint, setIssuePriority, transitionIssue } from './jira.mjs';
 import { jiraDoctor, jiraDoctorText } from './jira-doctor.mjs';
-import {
-  installPlugin, listPlugins, pluginPath, uninstallPlugin, verifyPluginInstallation
-} from './plugin.mjs';
+import { installPlugin, listPlugins, pluginPath, uninstallPlugin, verifyPluginInstallation } from './plugin.mjs';
 import { runGovernanceGate } from './governance.mjs';
 import { gateRecoveryReopenPlan } from './gate-recovery.mjs';
 import { worldModelCommand } from './worldmodel.mjs';
 import { runDraftTransaction } from './draft-unit-of-work.mjs';
-import { captureAggregateRecovery, restoreAggregateRecovery } from './aggregate-recovery.mjs';
 import { launchHostSession } from './host-session-launcher.mjs';
 import { operationContext } from './operation-context.mjs';
-import {
-  invokeModel, listModelInvocationAudits, listModelInvocations, resolveModelProvider
-} from './model-runner.mjs';
+import { invokeModel, listModelInvocationAudits, resolveModelProvider } from './model-runner.mjs';
 import { summarizingRoute } from './model-tiers.mjs';
 import { contextPacketTelemetryRecords } from './context-packet-telemetry.mjs';
-import {
-  dailyTokenLedgerPeriod, dailyTokenLedgerProjection
-} from './token-ledger.mjs';
-import {
-  assertProducerAllowed, buildGenerationAuthorship, effectivePhasePublicationProducer,
-  importManualArtifact, inspectDeterministicInPlaceArtifact, inspectInPlaceArtifact,
-  normalizeAuthorshipOptions, phasePublicationCommand, phasePublicationCommandForProducer,
-  phasePublicationContract, phaseUsesDeterministicGeneration
-} from './manual-authorship.mjs';
-import { phaseDraftCheck } from './phase-draft-check.mjs';
-import { phasePrepublish, prepublishTestExecutionLines } from './phase-prepublish.mjs';
-import { assertConvergencePublicationReady } from './convergence-context.mjs';
-import { loadStoryDecisionExecution } from './story-decision-context.mjs';
-import { assertWorkTypeStartable, initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { dailyTokenLedgerPeriod, dailyTokenLedgerProjection } from './token-ledger.mjs';
+import { effectivePhasePublicationProducer, phasePublicationCommand, phasePublicationCommandForProducer } from './manual-authorship.mjs';
+import { assertWorkTypeStartable, initializationStatus, initializeDefinition, loadDefinition, resolveWorkType, WORKFLOW_PATH } from './config.mjs';
 import { loadImpactDefinition } from './impact-config.mjs';
 import { collectImpactEvidence, compareImpactReceipts, confirmImpactEnrollment, exportImpactReceipts, hydrateImpactPlan, impactDoctor, importImpactEvidence, listImpactReceipts, recordImpactExposure, verifyImpactReceipt } from './impact.mjs';
-import {
-  explainChangeFlightPlanFinding, previewChangeFlightPlan, readChangeFlightPlan,
-  recordChangeFlightPlanDisposition, recordChangeFlightPlanExpansionDisposition,
-  refreshChangeFlightPlan, startChangeFlightPlan
-} from './change-flight-plan.mjs';
+import { explainChangeFlightPlanFinding, previewChangeFlightPlan, readChangeFlightPlan, recordChangeFlightPlanDisposition, recordChangeFlightPlanExpansionDisposition, refreshChangeFlightPlan, startChangeFlightPlan } from './change-flight-plan.mjs';
 import { registerReference, resolveReference } from './harness-imports.mjs';
 import { beginHarnessInvocation, completeHarnessInvocation, harnessReport } from './harness-events.mjs';
-import { activateWorkItemSession, loadCopilotSession, loadSession, agentSessionStatus, recordStartedWorkItemSelection, requireCopilotWorkItemSelection, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
+import { activateWorkItemSession, loadCopilotSession, loadSession, recordStartedWorkItemSelection, selectIntakeSource, selectAgent, selectWorkType, setAgentSession } from './session.mjs';
 import { addDocuments, browseEpicSources, detachDocuments, documentCatalog, fetchRemoteDocument, importableEpicSources, jiraAttachments, listRemoteDocuments, pendingPromptRelative, previewDocument, scopeDocuments, storeDocumentInGit, viewDocument } from './documents.mjs';
 import { documentOfferedToPhase, resolveDocumentRecord } from './document-identity.mjs';
 import { phaseArtifactCatalog, viewPhaseArtifact } from './phase-artifact-browser.mjs';
 import { documentStorageChoices } from './document-storage-policy.mjs';
 import { documentSetLifecycleBinding } from './document-publication.mjs';
-import {
-  assertClarificationRecordingAllowed, recordClarificationResponses, verifyClarificationRecord
-} from './clarifications.mjs';
+import { assertClarificationRecordingAllowed, recordClarificationResponses, verifyClarificationRecord } from './clarifications.mjs';
 import { progressBar, progressFlow, progressMarkdown, progressSnapshot } from './progress.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from './report.mjs';
 import { loadManualStory, promptManualStory } from './intake.mjs';
@@ -138,13 +101,7 @@ import { runFirstRunGuide } from './first-run-guide.mjs';
 import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
 import { loadHelpDocument } from './help.mjs';
 import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, syncAgent } from './agents.mjs';
-import {
-  attestMcpHost, clearPlaywrightAuthProfile, importPlaywrightAuthProfile, mcpDoctor, mcpStatus,
-  playwrightAuthProfileStatus, previewClearPlaywrightAuthProfile,
-  previewPlaywrightAuthImport, probeMcpHost,
-  recordMcpEvidence, removePlaywrightAuthProfile, scaffoldFigmaMcp, scaffoldMcpServer,
-  scaffoldPlaywrightMcp, serveMcpHost, smokeMcpHost, verifyMcpHostOffline, warmMcpHost
-} from './mcp.mjs';
+import { attestMcpHost, clearPlaywrightAuthProfile, importPlaywrightAuthProfile, mcpDoctor, mcpStatus, playwrightAuthProfileStatus, previewClearPlaywrightAuthProfile, previewPlaywrightAuthImport, probeMcpHost, recordMcpEvidence, removePlaywrightAuthProfile, scaffoldFigmaMcp, scaffoldMcpServer, scaffoldPlaywrightMcp, serveMcpHost, smokeMcpHost, verifyMcpHostOffline, warmMcpHost } from './mcp.mjs';
 import { message as gatewayMessage } from './gateway/messages.mjs';
 import { normalizeMcpTargetOrigin } from './mcp-target.mjs';
 import { approvedDesignSourceBinding, verifyDesignSourceLifecycle } from './design-sources.mjs';
@@ -156,58 +113,34 @@ import { automaticEnrollmentMayPublish, publishCurrentIdentityToConfiguration } 
 import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, redactCommandArgv, repositoryLogger, resolveLogging } from './logging.mjs';
 import { collectWorkspaceLogs } from './workspace-logs.mjs';
 import { doctorSnapshot, doctorText } from './doctor.mjs';
-import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
-import {
-  configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport,
-  redactDiagnosticText
-} from './git-remote-diagnostics.mjs';
-import { createReviewBundle, reviewHtml, reviewMarkdown, reviewContinuationLines, witnessMappingReview } from './review.mjs';
-import { phaseContinuationLines } from './phase-continuation.mjs';
-import { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
-import { phaseUpstreamDiscrepancies } from './phase-upstream-discrepancies.mjs';
-import { openUpstreamIssues, upstreamIssueDecideCommand } from './upstream-issues.mjs';
-import { owedDecisionLines, owedDecisions, stepsThrough } from './owed-decisions.mjs';
+import { GitRemoteSession } from './git-execution.mjs';
+import { configuredRemoteAuthority, configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
+import { createReviewBundle, reviewHtml, reviewMarkdown, reviewContinuationLines } from './review.mjs';
+import { openUpstreamIssues } from './upstream-issues.mjs';
 export { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
-import { criterionResults, describeWitnessResult, witnessResult } from './verification/witness-results.mjs';
 import { capabilityLines } from './verification/capability.mjs';
-import {
-  checkSourceReviewReport, evaluateSubmittedSourceReview, readSourceReviewStatus, retainSourceReview,
-  retainSourceReviewDecision, scopedSourceReviewerSession, sourceReviewContext, sourceReviewInput
-} from './source-review-lifecycle.mjs';
+import { readSourceReviewStatus } from './source-review-lifecycle.mjs';
 import { sourceReviewRequired } from './source-review-policy.mjs';
 import { submitRoute } from './submit-route.mjs';
 import { sourceReviewContinuation } from './source-review-continuation.mjs';
 import { decisionSubmitArguments } from './workflow-decisions.mjs';
-import { sourceReviewContextText } from './source-review-context-display.mjs';
 import { readRecord } from './schema-migrations.mjs';
-import {
-  materializeReferenceRepositories, materializeReferenceRepositoriesFromBranches, parseReferenceRepositoryOptions,
-  resolveReferenceRepositoryPins
-} from './reference-repositories.mjs';
-import {
-  resolveStoryExecutionCatalog, resolveStoryExecutionContext
-} from './story-execution-context.mjs';
+import { materializeReferenceRepositories, materializeReferenceRepositoriesFromBranches, parseReferenceRepositoryOptions, resolveReferenceRepositoryPins } from './reference-repositories.mjs';
+import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
-import { completionRecoveryActions, completionVerdict, finalCheckRefusalMessage, printCompletionVerdict, recordedCompletion } from './completion-verdict.mjs';
+import { completionVerdict, finalCheckRefusalMessage, printCompletionVerdict, recordedCompletion } from './completion-verdict.mjs';
 import { applicabilityStatus, omissionAuthorities, recordApplicabilityDecision } from './evidence/applicability.mjs';
-import { assertRefusalChanged, forgetRefusal, refusalFingerprint, rememberRefusal } from './evidence/refusal-memory.mjs';
 import { installWorkflow, optionalWorkflowCatalog, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowCatalogForDefinition, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
-import { assertLifecycleWorktreeClean } from './lifecycle-worktree.mjs';
-import { generationRecovery } from './recovery-plan.mjs';
 import { copilotAgentStartHook, agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
 import { approvalInbox, approvalInboxText } from './inbox.mjs';
-import { remainingRequiredAuthorities, requireApprovalAuthority } from './approval-authority.mjs';
-import { phaseDisplayBinding, phaseDocumentVersionMatches } from './review-display.mjs';
-import { answerSelectionReceipt, approvalReviewBinding, beginCustomSelectionReceipt, beginSelectionReceipt, consumeSelectionReceipt, readStartSelectionReceipt, resolveCustomSelectionReceipt, resolveHandedOffStartSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
+import { requireApprovalAuthority } from './approval-authority.mjs';
+import { answerSelectionReceipt, beginCustomSelectionReceipt, consumeSelectionReceipt, readStartSelectionReceipt, resolveCustomSelectionReceipt, resolveHandedOffStartSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
 import { loadPortfolio, usesEpicPlanningLifecycle } from './initiative-config.mjs';
 import { KNOWLEDGE_ROOT, currentKnowledge, filterKnowledge, harvestInitiativeKnowledge, readKnowledge, recordKnowledge, resolveKnowledge } from './knowledge.mjs';
 import { importKnowledgeSeedManifest } from './knowledge-seed-import.mjs';
 import { commitInitiativeChange, createInitiative, initiativeProgress, initiativeStartPreflight, listInitiatives, availableInitiativeOutputs, initiativeRelative, prepareInitiativePhase, restartInitiative, secureInitiativePath, selectInitiativePhaseOutputs, setInitiativeApplicability, initiativeApplicabilityState, syncInitiativePublication, validateInitiativeId } from './state-stores.mjs';
-import {
-  approveInitiative, evaluateInitiativePhase, initiativeBundle, initiativePhaseDraftCheck,
-  publishInitiativePhase, readInitiativeRecords, registerInitiativeEvidence
-} from './initiative-evidence.mjs';
+import { approveInitiative, evaluateInitiativePhase, initiativeBundle, initiativePhaseDraftCheck, publishInitiativePhase, readInitiativeRecords, registerInitiativeEvidence } from './initiative-evidence.mjs';
 import { rejectInitiative } from './initiative-graph.mjs';
 import { impactDocument, impactFindings, initiativeImpact } from './initiative-impact.mjs';
 import { initiativeBreakdownReview, initiativeMergeState, loadInitiativeBreakdown, materializeInitiative, syncInitiativeRepositories } from './initiative-repositories.mjs';
@@ -222,71 +155,36 @@ import { createPlanningContext, promotePlanningArtifact, promotePlanningArtifact
 import { formatContextBoundaryHandoff } from './context-policy.mjs';
 import { detachEpicSource, listEpicSources, registerEpicSource, registerEpicTextSource, verifyEpicSources } from './epic-sources.mjs';
 import { adoptEpicStory, completeEpicIntake, completeEpicPublication, EPIC_PHASES, addEpicStory, splitEpicStory, updateEpicStory, verifyEpicPlanningPackage } from './epic-lifecycle.mjs';
-import { createStoryReviewPacket, finalizeStoryDelivery, readStoryReviewPacket } from './story-lineage.mjs';
+import { finalizeStoryDelivery, readStoryReviewPacket } from './story-lineage.mjs';
 import { cancelledWorktreeReleasePlan, releaseCancelledWorktree } from './cancelled-worktree.mjs';
-import {
-  composeEvidenceReceipt, renderEvidenceReceipt, renderEvidenceReceiptMarkdown
-} from './evidence-receipt.mjs';
+import { composeEvidenceReceipt, renderEvidenceReceipt, renderEvidenceReceiptMarkdown } from './evidence-receipt.mjs';
 import { readReturnLocatorAtRef, writeReturnLocator } from './return-locator.mjs';
 import { getGitHubIssue, normalizeWorkSource, workflowSourceIdentity } from './work-source.mjs';
-import { composeContextBrief } from './context-broker.mjs';
-import { compileObservation } from './observation-compiler.mjs';
-import {
-  attemptRepair, authorizeRepair, cancelRepair, diagnoseFault, listFaults, listRepairs,
-  governedFaultRepairPolicy, parseVerificationArgv, readFault, readRepair, repairNextActions, reportFault, requestRepair,
-  wrapCommandWithFaultRepair
-} from './fault-repair.mjs';
+import { attemptRepair, authorizeRepair, cancelRepair, diagnoseFault, listFaults, listRepairs, governedFaultRepairPolicy, parseVerificationArgv, readFault, readRepair, repairNextActions, reportFault, requestRepair, wrapCommandWithFaultRepair } from './fault-repair.mjs';
 
 import { createPullRequest, createStoryPullRequest, epicPullRequestPlan, storyPullRequestPlan, updateStoryPullRequest } from './pull-request.mjs';
 import { copyToClipboard } from './clipboard.mjs';
 import { epicCheckStory, epicReviewDecision, epicReviewStory, listEpicReviewInbox } from './epic-review.mjs';
-import {
-  assertEpicCompletionAuthorized, completeEpicDelivery, epicCompletionAuthorizationStatus,
-  epicDeliveryReadiness
-} from './epic-completion.mjs';
+import { assertEpicCompletionAuthorized, completeEpicDelivery, epicCompletionAuthorizationStatus, epicDeliveryReadiness } from './epic-completion.mjs';
 
-import {
-  currentLocalEpicReservation, reserveLocalEpicBranch, syncLocalEpicReservation
-} from './local-identity.mjs';
-import { adoptWorkspaceConfiguration, archiveWorkspace, changeWorkspaceCapability, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceCapabilityChange, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, remoteDefaultBranch, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceRepositoryPath, workspaceStatus } from './workspace.mjs';
-import {
-  captureConfigurationState, CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, configurationBranchHead,
-  materializeConfigurationSnapshot, loadStoryConfigurationSnapshot, readConfigurationSource, resolveNewStoryConfigurationAuthority,
-  resolveStoryConfigurationAuthority,
-  withStoryConfigurationSnapshotRead
-} from './configuration-branch.mjs';
+import { currentLocalEpicReservation, reserveLocalEpicBranch, syncLocalEpicReservation } from './local-identity.mjs';
+import { adoptWorkspaceConfiguration, archiveWorkspace, changeWorkspaceCapability, createWorkspace, createWorkspaceConfiguration, fetchWorkspace, forgetWorkspace, listWorkspaceDocuments, previewWorkspace, previewWorkspaceCapabilityChange, previewWorkspaceConfiguration, previewWorkspaceUpdate, readWorkspace, readWorkspaceRegistry, rememberWorkspace, repairWorkspace, restoreWorkspace, duplicateWorkspaceConfiguration, isCloneTarget, stageWorkspaceDocuments, updateWorkspaceConfiguration, workspaceRemoteCapabilities, workspaceRemoteDefaults, workspaceRepositoryDefaults, workspaceArchiveReadiness, workspaceRepositoryPath, workspaceStatus } from './workspace.mjs';
+import { captureConfigurationState, CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, configurationBranchHead, materializeConfigurationSnapshot, loadStoryConfigurationSnapshot, readConfigurationSource, resolveNewStoryConfigurationAuthority, resolveStoryConfigurationAuthority, withStoryConfigurationSnapshotRead } from './configuration-branch.mjs';
 import { fosStoryConfigurationAuthority, readFosAttachment } from './onboard.mjs';
-import {
-  beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart,
-  serializeConfigurationRestorePoint, updateStoryStartJournal
-} from './story-start-journal.mjs';
-import {
-  assertStartDocuments, preflightInitialStoryDocuments, stageInitialStoryDocuments
-} from './story-start-documents.mjs';
-import {
-  assertStoryStartReady, inspectStoryStartReadiness,
-  requiredRepositoryReadinessScope, repositoryReadinessRequired
-} from './story-start-readiness.mjs';
+import { beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart, serializeConfigurationRestorePoint, updateStoryStartJournal } from './story-start-journal.mjs';
+import { assertStartDocuments, preflightInitialStoryDocuments, stageInitialStoryDocuments } from './story-start-documents.mjs';
+import { assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope, repositoryReadinessRequired } from './story-start-readiness.mjs';
 import { collectRepositoryReadinessEvidence, preflightTestReadiness } from './repository-readiness-evidence.mjs';
 import { baselineDeferralAllowed, intakeBaselineChoice } from './intake-baseline.mjs';
 import { storyBaseRequired, assertStoryStartChoices } from './story-start-inputs.mjs';
 import { markCliFailureLogged } from './cli-failure.mjs';
-import {
-  loadLegacyMaterializedStoryDefinition, loadLegacyStoryBaseContext, storyConfigurationUnavailableError,
-} from './story-start-base-configuration.mjs';
+import { loadLegacyMaterializedStoryDefinition, loadLegacyStoryBaseContext, storyConfigurationUnavailableError } from './story-start-base-configuration.mjs';
 import { analyzeWorkspaceImpact, listWorkspaceImpacts, previewWorkspaceImpact, promoteWorkspaceImpact, workspaceImpactStatus } from './workspace-impact.mjs';
-import {
-  activateWorkspaceContext, activateWorkspaceStoryContext, activeWorkspaceFile, buildWorkspaceContext,
-  clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext,
-  resolveWorkspaceExecutionContext, workspacePromptLabel, workspaceRegistryFile
-} from './workspace-context.mjs';
+import { activateWorkspaceContext, activateWorkspaceStoryContext, activeWorkspaceFile, clearActiveWorkspaceContext, discardUnsupportedWorkflowWorkspaces, readActiveWorkspaceContext, workspacePromptLabel, workspaceRegistryFile } from './workspace-context.mjs';
 import { refreshWorkspaceConfigurations } from './workspace-configuration-refresh.mjs';
 import { reinitializeWorkspaces } from './workspace-reinitialize.mjs';
 import { withApprovedConfigurationRead } from './approved-configuration-reader.mjs';
-import {
-  configurationReadAuthority, configurationReadSnapshot
-} from './configuration-read-scope.mjs';
-import { withReadScope } from './read-scope.mjs';
+import { configurationReadSnapshot } from './configuration-read-scope.mjs';
 import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, repairLedgerPins, verifyLedger, withLedgerRemoteView } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
@@ -298,31 +196,18 @@ import { canonicalCommand, commandDefinition, operationById, SECRETS_SUBCOMMANDS
 // `action` is already a command name in this file, so the narration constructor is renamed rather
 // than shadowing it.
 import { action as narrationAction, commandResult, effects, noEffects, noop, plannedAction as plannedNarrationAction, succeeded } from './narration/command-result.mjs';
-import {
-  decisionFedBy, decisionInputsHint, normalizeDecisionInputValues, parseDecisionAssignments,
-  recordedDecisionValues, resolveDecisionChoice, storyDecisionView
-} from './workflow-decisions.mjs';
+import { parseDecisionAssignments, resolveDecisionChoice, storyDecisionView } from './workflow-decisions.mjs';
 import { emitCommandResult } from './narration/emit.mjs';
 import { factoryResetAll, factoryResetAllPlan, factoryResetPlan, factoryResetRepository } from './factory-reset.mjs';
-import {
-  FRESH_INSTALL_CONFIRMATION, freshInstallReset, freshInstallResetPlan, localReset, localResetPlan,
-  installerGeneratedResetPaths, sameResetPathIdentity
-} from './fresh-install-reset.mjs';
-import {
-  applyLocalReinstall, assertReinstallNodeVersion, normalizeReinstallRegistry, reinstallPlanText,
-  resolveReinstallPlan
-} from './reinstall.mjs';
+import { FRESH_INSTALL_CONFIRMATION, freshInstallReset, freshInstallResetPlan, localReset, localResetPlan, installerGeneratedResetPaths, sameResetPathIdentity } from './fresh-install-reset.mjs';
+import { applyLocalReinstall, assertReinstallNodeVersion, normalizeReinstallRegistry, reinstallPlanText, resolveReinstallPlan } from './reinstall.mjs';
 import { withoutGitProcessOverrides } from './git-enterprise-environment.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import { capabilityDoctor } from './capability-doctor.mjs';
 import { inspectStatePlanes, reconcileStateProjections } from './state-planes.mjs';
-import {
-  clearPendingPublication, readPendingPublication, recoverPreparedPublicationBySubject,
-  writePendingPublication
-} from './publication-pending.mjs';
+import { recoverPreparedPublicationBySubject } from './publication-pending.mjs';
 import { InitiativeStateStore, StoryStateStore, loadInitiativeAggregate, loadStoryAggregate } from './state-stores.mjs';
-import { storyRequiresStepActions } from './step-actions.mjs';
-import { assertRequiredStepActionsRecorded, requiredStepActionHold, stepActionHoldSentence } from './step-action-receipts.mjs';
+import { assertRequiredStepActionsRecorded } from './step-action-receipts.mjs';
 
 import { SnapshotCoordinator } from './snapshot-coordinator.mjs';
 import { TimingCollector, writeHumanTimings } from './dx-timings.mjs';
@@ -331,9 +216,7 @@ import { assertActionPlanFresh, createActionPlan, loadActionPlan, readActionResu
 import { consumeActionAuthorization, issueActionAuthorization } from './action-authorization.mjs';
 import { refreshBranch } from './branch-refresh.mjs';
 import { buildStoryStack, publishedStackForStory, syncStoryStack } from './story-stack.mjs';
-import {
-  publishCapabilityRepositoriesDurably, retainCapabilityPublicationRecovery
-} from './capability-publication-recovery.mjs';
+import { publishCapabilityRepositoriesDurably, retainCapabilityPublicationRecovery } from './capability-publication-recovery.mjs';
 import { analyzeRegression, regressionReportMarkdown } from './regression-analysis.mjs';
 import { buildSpecIndex, changedRepositoryPaths, configuredAcceptanceCommandSetSha256, evaluateSpecAcceptance, evaluateSpecCoverage, isSpecificationDefinitionPhase, loadActiveSpecRecords, mergePlannedClaimRecords, normalizeClaimMap, predecessorSpecClauses, readStructuredFile, runSpecAcceptance, specificationSourceTreeHash, traceClause, traceCsv } from './specifications.mjs';
 import { evaluateSpecificationGate } from './specification-gate.mjs';
@@ -360,70 +243,6 @@ async function submitHeldRoute(root, config, workflow, phase, options) {
   }
   return decisionSubmitArguments(workflow, phase.id) && !optionStrings(options, 'decision').length
     ? submitRoute(workflow, phase) : null;
-}
-
-/**
- * Print one actionable CLI instruction through all supported user surfaces.
- *
- * Keep this at the presentation boundary: callers still execute exactly one governed mutation,
- * while a reader can choose either the shell command or the owning Copilot skill without having
- * to translate the command by hand.
- */
-function printCommandRoutes(command, { skill = null, indent = '', label = null } = {}) {
-  if (label) console.log(`${indent}${label}:`);
-  const guidance = safeCommandGuidance(typeof command === 'string'
-    ? { command, skill }
-    : { ...command, skill });
-  if (!guidance) {
-    console.log(`${indent}Copilot: unavailable — ask /sf-next for a current governed action.`);
-    console.log(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
-    console.log(`${indent}VS Code (model-free): not available for this action`);
-    return;
-  }
-  console.log(`${indent}Copilot: ${guidance.copilotCommand}`);
-  console.log(`${indent}Shell: ${guidance.command}`);
-  console.log(`${indent}VS Code (model-free): ${guidance.modelFreeCommand ?? 'not available for this action'}`);
-}
-
-/**
- * A governed commit is the lifecycle outcome; presentation and local-session refresh are a tail.
- * Once the commit has landed, a tail failure must not turn success into a red lifecycle refusal
- * that invites a duplicate mutation. Report it as bounded local recovery and keep exit status 0.
- */
-async function postPublicationStep(label, workId, operation) {
-  try {
-    return { ok: true, value: await operation() };
-  } catch (error) {
-    console.warn(`Warning: governed publication succeeded, but ${label} could not be completed: ${redactDiagnosticText(error?.message ?? String(error))}`);
-    printCommandRoutes(`singularity-flow resume ${workId} --fetch`, {
-      label: 'Refresh local phase/session state'
-    });
-    return { ok: false, value: null, error };
-  }
-}
-
-/**
- * Right after this machine delivered a required after-step action, record the Story's receipts so
- * the next step is not held. Returns a line to print, or null. Never fails the command it follows.
- */
-async function recordRequiredReceiptsAfterTransition(root, workflow) {
-  if (!storyRequiresStepActions(workflow)) return null;
-  try {
-    const { recordRequiredReceiptsAfterDelivery, recordedReceiptsLine } = await import('./step-action-recording.mjs');
-    return recordedReceiptsLine(await recordRequiredReceiptsAfterDelivery(root, { workId: workflow.workItem.id }));
-  } catch (error) {
-    console.warn(`Warning: a required after-step action was delivered, but its receipt could not be recorded: ${redactDiagnosticText(error?.message ?? String(error))} Run singularity-flow integrations record.`);
-    return null;
-  }
-}
-
-/** What holds the Story after a transition, for the next actions it prints; null when nothing does. */
-async function stepActionHoldAfterTransition(root, config, workflow) {
-  if (!storyRequiresStepActions(workflow)) return null;
-  try {
-    const hold = await requiredStepActionHold(root, config, workflow);
-    return hold ? { ...hold, reason: stepActionHoldSentence(hold) } : null;
-  } catch { return null; }
 }
 
 /** The only deliberately Shell-only instruction: restore a locally retained Git stash commit. */
@@ -544,16 +363,6 @@ async function approvedInitializationAuthority(root) {
   // This is a positive absence, not a swallowed network failure. The canonical resolver made one
   // classified observation of both authority refs for each candidate before returning null.
   return { state: 'absent', authority: null, status: null };
-}
-
-/**
- * Git's answer to a read a command decision rests on, or a refusal when Git could not give one.
- *
- * An empty answer here means "unborn", "no parent", "no remotes" or "never published", so only a
- * read that succeeded, or Git's own documented negative answer, may produce one.
- */
-function gitAnswer(root, args, label, options) {
-  return gitReadOutput(run('git', args, { cwd: root, allowFailure: true }), label, options);
 }
 
 function configurationBranchInitializationRelation(root, authorityProbe) {
@@ -3589,71 +3398,6 @@ export async function startCommand(positionals, options) {
   }
 }
 
-function printSelectionReceipt(receipt) {
-  console.log(`Selection receipt: ${receipt.token}`);
-  console.log(`Action: ${receipt.action} ${receipt.workId} · expires: ${receipt.expiresAt}`);
-  for (const choices of receipt.choiceSets) {
-    const selected = receipt.answers?.[choices.id]?.id;
-    console.log(`\n${choices.label}${selected ? ` — selected: ${selected}` : ''}`);
-    for (const item of choices.options) console.log(`  ${item.id}\t${item.label}${item.description ? ` — ${item.description}` : ''}`);
-  }
-  console.log(`\nReady: ${receipt.ready ? 'yes' : 'no'}`);
-}
-
-async function choicesCommand(positionals, options) {
-  const subcommand = requirePositional(positionals, 1, 'choices subcommand');
-  if (subcommand === 'begin' && positionals[2] === 'approve' && options['review-packet'] === true) return (await import('./commands/approval-packet.mjs')).run({ positionals, options });
-  const root = repoRoot();
-  let receipt;
-  if (subcommand === 'begin') {
-    const action = requirePositional(positionals, 2, 'selection action');
-    const workId = requirePositional(positionals, 3, 'work ID');
-    if (action === 'start') {
-      // Keep the approved read scope alive through choice collection. `choiceSets` needs the exact
-      // retained portfolio snapshot to reject stale workspace repository URLs before ls-remote.
-      receipt = await withApprovedConfigurationRead(root, async () => {
-        const config = (await sessionDiscoveryConfiguration(
-          root, await sessionRepositoryAuthority(root)
-        )).definition;
-        validateId(config, workId);
-        return beginSelectionReceipt(root, config, { action, workId, workflow: null });
-      }, { preferAuthority: true });
-    } else {
-      let config = (await withApprovedConfigurationRead(
-        root, async () => sessionDiscoveryConfiguration(
-          root, await sessionRepositoryAuthority(root)
-        )
-      )).definition;
-      validateId(config, workId);
-      let workflow = null;
-      if (action === 'approve') {
-        assertLifecycleWorktreeClean(root, config, null, { workId });
-        if (workId !== branch(root) || optionBoolean(options, 'fetch')) await checkout(root, workId, {
-          base: config.defaultBaseBranch,
-          fetch: optionBoolean(options, 'fetch'),
-          existingOnly: true,
-          remote: config.git?.remote ?? 'origin'
-        });
-        config = await loadConfig(root);
-        workflow = await loadStoryAggregate(root, config, workId);
-        await assertNoPendingPublication(root, config, workflow, 'prepare an approval selection');
-        assertLifecycleWorktreeClean(root, config, workflow);
-      }
-      receipt = await beginSelectionReceipt(root, config, { action, workId, workflow });
-    }
-  } else if (subcommand === 'answer') {
-    receipt = await answerSelectionReceipt(
-      root,
-      requirePositional(positionals, 2, 'selection receipt token'),
-      requirePositional(positionals, 3, 'choice ID'),
-      requirePositional(positionals, 4, 'selected option ID')
-    );
-  } else if (subcommand === 'status') receipt = await selectionReceiptStatus(root, requirePositional(positionals, 2, 'selection receipt token'));
-  else throw new SingularityFlowError(`Unknown choices subcommand: ${subcommand}`);
-  if (optionBoolean(options, 'json')) console.log(JSON.stringify(receipt, null, 2));
-  else printSelectionReceipt(receipt);
-}
-
 async function resumeCommand(positionals, options) {
   const reference = requirePositional(positionals, 1, 'work ID or branch reference');
   const root = repoRoot();
@@ -4408,14 +4152,6 @@ async function guideCommand(positionals, options) {
   else process.stdout.write(guideText(guide));
 }
 
-async function acceptedStoryExecutionIfPresent(root, reference = null) {
-  try { return await loadAcceptedStoryExecution(root, reference); }
-  catch (error) {
-    if (error?.code === 'STORY_NOT_FOUND') return null;
-    throw error;
-  }
-}
-
 async function resolveNextStepsSnapshot(positionals, options) {
   const { resolveSnapshot } = await import('./commands/nextsteps.mjs');
   return resolveSnapshot(positionals);
@@ -4578,7 +4314,7 @@ async function nextCommand(options) {
       label: `Review and decide '${phase.id}'`
     });
     console.log(`Review and decide submitted phase '${phase.id}'.`);
-    return approveCommand(['approve', workflow.workItem.id], { ...options, fetch: optionBoolean(options, 'fetch', true) });
+    return (await import('./commands/approve.mjs')).approveCommand(['approve', workflow.workItem.id], { ...options, fetch: optionBoolean(options, 'fetch', true) });
   }
   if (phase.status !== 'in_progress') throw new SingularityFlowError(`Cannot automatically continue phase '${phase.id}' while it is ${phase.status}.\nCopilot: /sf-nextsteps ${workflow.workItem.id}\nShell: singularity-flow nextsteps ${workflow.workItem.id}\nVS Code (model-free): not available for this action`);
   if (!phaseNeedsGeneration(workflow, phase)) {
@@ -4596,7 +4332,7 @@ async function nextCommand(options) {
     if (held) { printCommandRoutes(held.command, { skill: held.skill, label: 'Before submitting' }); return console.log(held.reason); }
     printCommandRoutes(`singularity-flow submit ${phase.id}`, { label: `Submit '${phase.id}'` });
     console.log(`Submit published phase '${phase.id}' for approval.`);
-    return submitCommand(['submit', phase.id], options);
+    return (await import('./commands/submit.mjs')).submitCommand(['submit', phase.id], options);
   }
 
   const effectiveProducer = effectivePhasePublicationProducer(phase, {
@@ -5171,219 +4907,7 @@ async function documentsScopeCommand(root, positionals, options) {
   printCommandRoutes('singularity-flow nextsteps', { label: 'Continue' });
 }
 
-function pathForDisplay(root, relative) { return path.join(root, relative); }
-
-async function storyDraftTransaction(root, config, workflow, operation, write, validate = null) {
-  let aggregateRecovery = null;
-  let telemetryRecovery = null;
-  try {
-    return await runDraftTransaction(root, {
-      subject: {
-        kind: 'story',
-        id: workflow.workItem.id,
-        branch: workflowPublicationBranch(root, workflow)
-      },
-      expectedRevision: workflow[Symbol.for('singularity-flow.state-revision')] ?? null,
-      allowedPaths: [posix(path.relative(root, workDir(root, config, workflow.workItem.id)))],
-      operation,
-      // Capture caller-visible and optional machine-local state only after the Story lock and durable
-      // draft journal exist. Capturing earlier lets a competing same-Story command complete between
-      // snapshot and acquisition, after which this rollback could erase its valid cursor state.
-      write: async (...args) => {
-        aggregateRecovery = captureAggregateRecovery(workflow);
-        telemetryRecovery = await captureTelemetryCursorsForWorkItem(
-          root, workflow.workItem.id
-        );
-        return write(...args);
-      },
-      validate,
-      afterRollback: async () => {
-        if (aggregateRecovery) restoreAggregateRecovery(workflow, aggregateRecovery);
-        await restoreTelemetryCursorsForWorkItem(
-          root, workflow.workItem.id, telemetryRecovery
-        );
-      }
-    });
-  } catch (error) {
-    // Preserve safe phase identity at the transaction boundary even when the user omitted the
-    // optional phase argument (for example `phase begin`). The shared refusal presenter can then
-    // keep recovery inside this Story and phase instead of falling back to repository-wide doctor.
-    const phaseId = String(operation).split(':').at(-1);
-    if (error && typeof error === 'object' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(phaseId)) {
-      try {
-        error.details = {
-          ...(error.details && typeof error.details === 'object' ? error.details : {}),
-          workId: workflow.workItem.id,
-          phase: phaseId,
-          operation
-        };
-      } catch { /* A frozen provider error keeps its original safe refusal. */ }
-    }
-    throw error;
-  }
-}
-
-/**
- * Prepare one phase through its configured generator.
- *
- * Convergence is not a generic template: its deterministic artifact is a projection of the
- * implementation reconciliation and clause evidence. Keeping this dispatch beside both CLI
- * preparation entry points prevents `next` and `prepare` from drifting into different generators.
- */
-async function prepareConfiguredPhase(root, config, workflow, phase) {
-  const publicationProducer = effectivePhasePublicationProducer(phase, {
-    modelEnabled: operationContext()?.modelMode.enabled !== false
-  });
-  if (isConvergencePhase(phase) && publicationProducer === 'deterministic') {
-    const { prepareDeterministicConvergence } = await import('./commands/story.mjs');
-    const prepared = await prepareDeterministicConvergence(root, config, workflow.workItem.id);
-    return {
-      artifact: prepared.artifactPath,
-      workflow: prepared.workflow,
-      convergence: prepared.projection,
-      publicationProducer
-    };
-  }
-  const artifact = await storyDraftTransaction(root, config, workflow, `prepare:${phase.id}`, async () => {
-    const prepared = await preparePhase(root, config, workflow, phase.id);
-    await saveStoryDraft(root, config, workflow);
-    return prepared;
-  });
-  return { artifact, workflow, convergence: null, publicationProducer };
-}
-
-function convergencePreparationState(projection) {
-  if (!projection) return null;
-  const disposed = new Set((projection.findings ?? []).map((finding) => finding.itemId));
-  const undisposedItemIds = [...(projection.facts ?? []), ...(projection.candidateSnapshot ?? [])]
-    .map((item) => item.id)
-    .filter((id) => !disposed.has(id));
-  return {
-    iteration: projection.iteration,
-    sha256: projection.convergenceSha256,
-    factCount: projection.facts?.length ?? 0,
-    findingCount: projection.findings?.length ?? 0,
-    undisposedItemIds,
-    unresolvedBlockers: projection.unresolvedBlockers ?? [],
-    allowedNext: projection.allowedNext ?? []
-  };
-}
-
-/** Exact post-preparation actions; deterministic convergence cannot be published before review. */
-export function preparedPhaseNextActions(workflow, phase, prepared) {
-  const inputs = narrationAction({
-    id: 'prepare.inputs',
-    label: 'See the approved upstream decisions this phase was given',
-    command: `singularity-flow inputs ${phase.id}`,
-    rank: 'LATER'
-  });
-  const convergence = convergencePreparationState(prepared.convergence);
-  if (!convergence) return [
-    narrationAction({
-      id: 'prepare.author',
-      // After preparation the next step is authoring, never preparation again: the Copilot route is
-      // the step's authoring skill, and the terminal route checks the draft once it is written.
-      label: prepared.publicationProducer === 'deterministic'
-        ? 'Check the prepared deterministic artifact before publication'
-        : 'Author the prepared draft (preparation is not completed authoring), then check it with prepublish',
-      command: prepared.publicationProducer === 'deterministic'
-        ? `singularity-flow phase prepublish ${phase.id} --for-agent --json`
-        : `singularity-flow phase prepublish ${phase.id}`,
-      skill: prepared.publicationProducer === 'deterministic'
-        ? '/sf-publish'
-        : generationSkillForPhase(phase, workflow)
-    }),
-    inputs
-  ];
-
-  if (convergence.undisposedItemIds.length) {
-    const itemId = convergence.undisposedItemIds[0];
-    return [
-      narrationAction({
-        id: 'convergence.adjudicate',
-        label: `Review and disposition ${itemId}; ${convergence.undisposedItemIds.length} item(s) remain`,
-      command: `singularity-flow story adjudicate ${itemId} --disposition <rework|update-intent|accepted-deviation|dismissed|deferred> --reason <reason> [--clause <CLAUSE-ID> ...]`,
-        kind: 'review'
-      }),
-      inputs
-    ];
-  }
-  if (convergence.allowedNext.includes('create-rework')) return [
-    narrationAction({
-      id: 'convergence.rework',
-      label: 'Preview the bounded rework required by the convergence decisions',
-      command: 'singularity-flow story rework',
-      kind: 'review'
-    }),
-    inputs
-  ];
-  if (convergence.allowedNext.includes('propose-intent-amendment')) return [
-    narrationAction({
-      id: 'convergence.intent-amendment',
-      label: 'Propose the intent amendment required by the convergence decisions',
-      command: 'singularity-flow story intent-amendment propose --file <AMENDED-SPEC.md> --reason <reason>',
-      kind: 'review'
-    }),
-    inputs
-  ];
-  if (convergence.unresolvedBlockers.length) return [
-    narrationAction({
-      id: 'convergence.inspect',
-      label: 'Inspect the blocked deterministic convergence projection',
-      command: `singularity-flow story converge --work-id ${workflow.workItem.id} --json`,
-      kind: 'review'
-    }),
-    inputs
-  ];
-  return [
-    narrationAction({
-      id: 'convergence.publish',
-      label: 'Publish the reviewed deterministic convergence projection',
-      command: phasePublicationCommandForProducer(
-        phase, prepared.publicationProducer ?? phasePublicationContract(phase).producer
-      ),
-      skill: generationSkillForPhase(phase, workflow)
-    }),
-    inputs
-  ];
-}
-
-async function prepareCommand(positionals, options) {
-  const root = repoRoot();
-  const accepted = await loadAcceptedStoryExecution(root);
-  const config = accepted.config;
-  let workflow = accepted.workflow;
-  const phase = positionals[1] ?? workflow.currentPhase;
-  let phaseContract = workflow.phases[phase];
-  if (!phaseContract) throw new SingularityFlowError(`Unknown or unavailable phase '${phase ?? ''}'. Provide a phase ID.`);
-  const prepared = await prepareConfiguredPhase(root, config, workflow, phaseContract);
-  workflow = prepared.workflow;
-  phaseContract = workflow.phases[phase] ?? phaseContract;
-  const artifact = prepared.artifact;
-  emitCommandResult(commandResult({
-    operation: { id: 'prepare', classification: 'mutation' },
-    subject: { kind: 'story', id: workflow.workItem.id },
-    outcome: succeeded('prepare.succeeded', { phase, path: artifact }),
-    // Materialises the artifact from its template and captures the interval baseline. Nothing is
-    // committed or pushed: preparing is not a governed transition.
-    effects: effects({ filesChanged: true, stateChanged: true }),
-    next: preparedPhaseNextActions(workflow, phaseContract, prepared),
-    data: {
-      preparation: {
-        path: artifact,
-        stage: 'prepared',
-        producer: prepared.publicationProducer,
-        authoringRequired: prepared.publicationProducer !== 'deterministic',
-        instruction: prepared.publicationProducer === 'deterministic'
-          ? 'The kernel owns this artifact. Check readiness; do not hand-edit deterministic output.'
-          : prepared.publicationProducer === 'governed-agent'
-            ? 'Preparation preserves the draft and captures inputs; it does not author it. Use the composed prompt and native file-edit tool to complete the existing artifact, then check readiness. Do not stop merely because the prepared template has TODOs.'
-            : 'Preparation is not authoring. The configured human or external-tool producer owns completion; preserve its output and check readiness after that owner completes the draft.'
-      },
-      ...(prepared.convergence ? { convergence: convergencePreparationState(prepared.convergence) } : {})
-    }
-  }), { json: optionBoolean(options, 'json'), postState: workflow });
-}
+export { preparedPhaseNextActions } from './commands/shared/prepared-phase-next-actions.mjs';
 
 async function clarificationCommand(positionals, options) {
   const root = repoRoot();
@@ -5508,87 +5032,6 @@ async function clarificationCommand(positionals, options) {
     restState: 'informational',
     data: { path: result.path, sha256: result.sha256, completed: result.record.completed, reused: result.reused === true }
   }), { json });
-}
-
-async function inputsCommand(positionals, options) {
-  if (positionals[1] === 'restore') return (await import('./commands/input-restore.mjs')).inputsRestoreCommand(repoRoot(), positionals, options);
-  const forAgent = optionBoolean(options, 'for-agent');
-  if (forAgent) (await import('./agent-entry-options.mjs')).validateAgentEntryRequest('inputs', { positionals, options });
-  const { phaseEntryContext } = await import('./phase-entry.mjs');
-  const entry = forAgent ? await phaseEntryContext({ phaseId: positionals[1] ?? null }) : null;
-  if (entry?.packet.paused || (entry && !entry.packet.ready)) {
-    console.log(JSON.stringify(entry.packet));
-    return;
-  }
-  const root = entry?.root ?? repoRoot();
-  const { loadAcceptedStoryExecution } = await import('./accepted-story-execution.mjs');
-  const accepted = entry ?? await loadAcceptedStoryExecution(root);
-  const { definition: config, workflow } = accepted;
-  const { resolveStorySnapshot, agentNextSteps, snapshotContinuation } = await import('./commands/nextsteps.mjs');
-  const { inputRepresentationLabel, phaseInputArtifacts, compactInputContinuation } = await import('./phase-input-presentation.mjs');
-  const dryRun = optionBoolean(options, 'dry-run');
-  const prepareInputs = async () => {
-    const prepared = await preparePhaseInputs(root, config, workflow, positionals[1], { dryRun });
-    if (!dryRun) await saveStoryDraft(root, config, workflow);
-    return prepared;
-  };
-  const result = dryRun
-    ? await prepareInputs()
-    : await storyDraftTransaction(
-      root, config, workflow, `inputs:${positionals[1] ?? workflow.currentPhase}`, prepareInputs
-    );
-  const workItemDirectory = posix(path.relative(root, workDir(root, config, workflow.workItem.id)));
-  const records = result.records.map(({ content, ...entry }) => entry);
-  const nextSnapshot = await resolveStorySnapshot(root, accepted);
-  const continuation = snapshotContinuation(workflow, forAgent ? agentNextSteps(nextSnapshot) : nextSnapshot);
-  const artifacts = await phaseInputArtifacts(root, result.phase, result, dryRun);
-  const { inputReadinessReport, inputReadinessLines } = await import('./inputs.mjs');
-  const readiness = inputReadinessReport(workflow, result.phase, result);
-  if (optionBoolean(options, 'json')) {
-    console.log((await import('./agent-packet-presentation.mjs')).agentOrIndentedJson(forAgent, {
-      ...(entry?.packet ?? {}),
-      resultType: 'sflow-phase-inputs',
-      phase: result.phase.id,
-      mode: result.mode,
-      dryRun,
-      generation: result.generation,
-      phaseGeneration: result.phase.generation,
-      ...(forAgent ? { intent: result.phase.generationIntent ?? null,
-        effects: { inputAuditRecorded: Boolean(artifacts.audit), artifactRendered: !dryRun,
-          testsRun: false, storyAdvanced: false, committed: false, pushed: false }, modelInvocations: 0 } : {}),
-      continuation: forAgent ? compactInputContinuation(continuation) : continuation,
-      workItemDirectory,
-      ...artifacts,
-      records,
-      readiness,
-      warnings: result.warnings,
-      remoteWarnings: result.remoteWarnings
-    }));
-    return;
-  }
-  console.log(`Phase inputs: ${result.phase.id} (${result.mode})${dryRun ? ' [dry-run]' : ''}`);
-  console.log(`Work-item directory: ${workItemDirectory}`);
-  if (!records.length) console.log(result.mode === 'off' ? 'Input dataflow is disabled for this work item.' : 'This phase declares no phase inputs.');
-  else console.log(table(records.map((entry) => ({
-    phase: entry.phase,
-    status: entry.status,
-    optional: entry.optional ? 'yes' : 'no',
-    sha256: entry.sha256?.slice(0, 12) ?? '',
-    bytes: inputRepresentationLabel(entry),
-    path: entry.repositoryPath ?? entry.path ?? ''
-  })), [
-    { key: 'phase', label: 'INPUT' },
-    { key: 'status', label: 'STATUS' },
-    { key: 'optional', label: 'OPTIONAL' },
-    { key: 'sha256', label: 'SHA256' },
-    { key: 'bytes', label: 'REPRESENTATION' },
-    { key: 'path', label: 'PATH', kind: 'path' }
-  ]));
-  result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-  result.remoteWarnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-  inputReadinessLines(result.phase, readiness).forEach((line) => console.log(line));
-  if (!dryRun && result.records.length) console.log(`Recorded generation ${result.generation} inputs and rendered the managed artifact block.`);
-  if (!dryRun) console.log(phaseContinuationLines(continuation).join('\n'));
 }
 
 /**
@@ -6408,700 +5851,6 @@ async function wmCommand(positionals, options) {
   console.log(`Design inventory: ${result.digest.digestSha256}\nJSON: ${result.json.path}\nMarkdown: ${result.markdown.path}`);
 }
 
-async function phaseReview(root, config, workflow, phase, { includeContinuation = false } = {}) {
-  const records = (await documentCatalog(root, config, workflow))
-    .filter((record) => ['artifact', 'agent-brief'].includes(record.type)
-      && record.phase === phase.id
-      && Number(record.generation ?? phase.generation) === Number(phase.generation));
-  const documents = [];
-  for (const record of records) {
-    try {
-      const viewed = await viewDocument(root, config, workflow, record.id);
-      if (!phaseDocumentVersionMatches(record, viewed)) {
-        throw new SingularityFlowError(`Document '${record.id}' changed while reading this review. Read the current phase again.`, {
-          code: 'DOCUMENT_REVIEW_CHANGED'
-        });
-      }
-      const source = ['code', 'test'].includes(record.kind) && viewed.content != null;
-      const previewBytes = workflow.resolution?.codeDelivery?.display?.previewBytes ?? 4096;
-      const fullDocumentMaximumBytes = workflow.resolution?.codeDelivery?.display?.fullDocumentMaximumBytes ?? 65536;
-      const sourceBytes = source && viewed.content != null ? Buffer.from(viewed.content) : null;
-      documents.push({
-        id: record.id,
-        label: record.label,
-        kind: record.kind,
-        path: record.path,
-        mimeType: record.mimeType,
-        size: record.size,
-        sha256: record.sha256,
-        generation: record.generation ?? phase.generation,
-        binary: viewed.binary,
-        previewBytes: viewed.previewBytes,
-        truncated: viewed.truncated,
-        absolutePath: viewed.absolutePath ?? pathForDisplay(root, record.path),
-        ...(source ? {
-          display: {
-            mode: 'reference-preview',
-            preview: sourceBytes.subarray(0, previewBytes).toString('utf8'),
-            previewBytes: Math.min(sourceBytes.length, previewBytes),
-            truncated: sourceBytes.length > previewBytes,
-            full: sourceBytes.length <= fullDocumentMaximumBytes ? viewed.content : null,
-            fullDocumentMaximumBytes,
-            reference: `sfref://generation/${encodeURIComponent(workflow.workItem.id)}/${encodeURIComponent(phase.id)}/${phase.generation}/${record.path.split('/').map(encodeURIComponent).join('/')}`
-          }
-        } : { content: viewed.content })
-      });
-    } catch (error) {
-      documents.push({
-        id: record.id,
-        label: record.label,
-        kind: record.kind,
-        path: record.path,
-        mimeType: record.mimeType,
-        size: record.size,
-        sha256: record.sha256,
-        generation: record.generation ?? phase.generation,
-        error: error?.message ?? String(error)
-      });
-    }
-  }
-  // Each criterion witness of this delivery, judged against the attempt its command bound [E2G-016];
-  // a delivery published but not yet submitted shows what its preflight run observed.
-  const attempts = new Map();
-  let skippedTests = 0;
-  const submittedDelivery = phase.deliveryEvidence?.status === 'ready';
-  const boundAttempts = submittedDelivery ? phase.deliveryEvidence?.testExecutions : phase.deliveryEvidence?.preflightAttempts;
-  for (const execution of boundAttempts ?? []) {
-    if (execution.kind === 'phase-validation-observation') continue;
-    try {
-      const receipt = readRecord('test-execution', await readFile(path.join(root, execution.receiptPath))).record;
-      skippedTests += Math.max(0, Number(receipt.tests?.skipped ?? 0) || 0);
-      attempts.set(execution.commandId, receipt);
-    } catch {
-      attempts.set(execution.commandId, { attemptId: null, status: 'unavailable', terminal: false, tests: {}, occurrences: [] });
-    }
-  }
-  const covering = (testSource) => (boundAttempts ?? []).find((execution) =>
-    (execution.affectedRoots ?? []).some((affected) => affected === '.' || testSource === affected
-      || testSource.startsWith(`${affected.replace(/\/$/u, '')}/`)))?.commandId ?? null;
-  const criteria = criterionResults((phase.deliveryEvidence?.acceptanceCriteria?.witnesses ?? []).map((witness) => {
-    const commandId = attempts.has(witness.commandId) ? witness.commandId : covering(witness.testSource);
-    return witnessResult({ ...witness, commandId }, attempts.get(commandId) ?? null, { submitted: submittedDelivery });
-  }));
-  const verifiedCriteria = criteria.filter((entry) => entry.status === 'met');
-  const exactCriteria = verifiedCriteria.filter((entry) => entry.identity === 'source-bound').length;
-  const unmet = criteria.length - verifiedCriteria.length;
-  // Both read the one submitted packet; a read scope verifies it once for the two of them.
-  const { witnessReview, reviewBinding } = await withReadScope(async () => ({
-    witnessReview: await witnessMappingReview(root, config, workflow, phase),
-    // Only an available, current submitted review can be bound by a human approval surface.
-    // Drafts, historical phases and unavailable document bodies convey no reusable approval binding.
-    reviewBinding: phase.id === workflow.currentPhase && phase.status === 'awaiting_approval'
-      && documents.every((document) => !document.error)
-      ? await approvalReviewBinding(root, config, workflow)
-      : null
-  }));
-  return {
-    schemaVersion: 1,
-    workId: workflow.workItem.id,
-    phase: phase.id,
-    phaseLabel: phase.label,
-    status: phase.status,
-    generation: phase.generation,
-    reviewBinding,
-    displayBinding: phaseDisplayBinding(root, workflow.workItem.id, phase, documents),
-    testEvidence: phase.deliveryEvidence ? {
-      status: phase.deliveryEvidence.status ?? 'unavailable',
-      executions: phase.deliveryEvidence.testExecutions?.length ?? 0,
-      attempts: phase.deliveryEvidence.attemptHistory?.length ?? 0,
-      // What the approver is shown about acceptance criteria, stated at its real strength [E2G-017].
-      acceptance: {
-        criteria: criteria.map((entry) => ({
-          clauseId: entry.clauseId, status: entry.status, assurance: entry.assurance, identity: entry.identity, execution: entry.execution,
-          witnesses: entry.witnesses.map((result) => ({
-            test: result.label, testSource: result.testSource, profile: result.profile, commandId: result.commandId,
-            attemptId: result.attemptId, outcome: result.outcome, status: result.status, assurance: result.assurance,
-            requiredAssurance: result.requiredAssurance, reasons: result.reasons ?? [], words: describeWitnessResult(result)
-          }))
-        })),
-        unattachedTags: phase.deliveryEvidence.acceptanceCriteria?.unattachedTags ?? [],
-        skippedTests,
-        statement: criteria.length
-          ? `${submittedDelivery ? '' : 'In the preflight run, '}${verifiedCriteria.length} of ${criteria.length} acceptance criteria verified (${exactCriteria} by their own test result, ${verifiedCriteria.length - exactCriteria} by a module test command)${unmet ? `; ${unmet} not verified yet` : ''}${submittedDelivery ? '.' : '; submission runs the tests again.'}`
-          : 'No acceptance criterion is tagged on a test in this delivery.'
-      },
-      notice: 'A criterion is judged by its own tagged test where the runner reports exact cases (Node, Jest, Vitest, JUnit 5); counts-only Node reports cannot verify it. Local observation is not independent attestation.'
-    } : null,
-    witnessReview,
-    owedDecisions: reviewBinding ? await owedDecisions(root, config, workflow, stepsThrough(workflow, phase.id)) : null,
-    documents,
-    upstreamDiscrepancies: phaseUpstreamDiscrepancies(documents, workflow, phase.id),
-    upstreamIssues: openUpstreamIssues(workflow).map(({ issue, status }) => ({ id: issue.id, phase: issue.phase, about: issue.about,
-      problem: issue.problem, status, decide: upstreamIssueDecideCommand(workflow.workItem.id, issue) })),
-    ...(await phaseAuthoringSummary(root, config, workflow, phase, { documents, includeContinuation }))
-  };
-}
-
-/**
- * Report the artifacts a phase produced.
- *
- * The full body used to be printed unconditionally, and `viewDocument` allows a megabyte, so one
- * `submit` ran to several hundred lines of which about twenty-five were the result — the commit SHA
- * and the next step at opposite ends of the wall. The default is now the inventory: what was
- * produced, where it is, and how to read it. `--show-artifact` prints the bodies.
- *
- * Only the terminal is affected. `--json` never reached this function.
- */
-function printPhaseReview(review, { showArtifact = false } = {}) {
-  console.log(`\n${style.heading('Generated documents ready for review')} ${style.detail(style.fields(review.workId, review.phase, `generation ${review.generation}`))}`);
-  // The step's route, not a record of who produced this generation: that is its authorship. The
-  // automatic route is what every step that names no skill drafts on, so repeating it on every
-  // submit, approve and review says nothing; it is printed only with the warning that a configured
-  // choice was ignored. `--json` keeps every route field.
-  if (review.policyVerified === false) console.log(`Drafting route withheld: ${review.policyReason}`);
-  else if (review.effectiveAuthoringSkill
-      && (review.authoringSkillSource !== 'automatic' || review.authoringSkillWarning)) {
-    console.log(`Drafting skill: ${review.effectiveAuthoringSkill} (${review.authoringSkillSource})`);
-    if (review.authoringSkillWarning) console.log(`  ${review.authoringSkillWarning}`);
-  }
-  if (review.testEvidence) {
-    console.log(`Test evidence: ${review.testEvidence.status} · ${review.testEvidence.executions} module execution(s) · ${review.testEvidence.attempts} attempt(s)`);
-    console.log(`  ${review.testEvidence.notice}`);
-    if (review.testEvidence.acceptance) {
-      console.log(`Acceptance evidence: ${review.testEvidence.acceptance.statement}`);
-      for (const criterion of review.testEvidence.acceptance.criteria) {
-        console.log(`  ${criterion.clauseId} ${criterion.status}${criterion.status === 'met' ? ` (${criterion.assurance})` : ''}`);
-        for (const witness of criterion.witnesses) console.log(`    - ${witness.words}`);
-      }
-      for (const tag of review.testEvidence.acceptance.unattachedTags) {
-        console.warn(`  The tag for ${tag.clauseIds.join(', ')} at ${tag.testSource}${tag.line ? `:${tag.line}` : ''} is not on a test, so it binds nothing.`);
-      }
-      if (review.testEvidence.acceptance.skippedTests > 0) {
-        console.warn(`  ${review.testEvidence.acceptance.skippedTests} test(s) were skipped; a skipped test verifies nothing.`);
-      }
-    }
-  }
-  for (const mapping of review.witnessReview?.mappings ?? []) {
-    const safe = (value) => String(value ?? 'unavailable')
-      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, '�');
-    console.log(`\n  Witness ${safe(mapping.mappingSha256)} (accepted as adequate on approval unless decided with --witness-mapping)`);
-    console.log(`    Clause: ${safe(mapping.clauseId)} · ${safe(mapping.clauseStatus)}`);
-    console.log(`    Test: ${safe(mapping.test ?? mapping.sourcePath)}${mapping.slot ? ` · slot ${safe(mapping.slot)}` : ''} · ${safe(mapping.logicalTestId)}`);
-    console.log(`    Declaration: ${safe(mapping.sourceDeclarationSha256)}`);
-    console.log(`    Behavior: ${safe(mapping.clauseFields?.behavior)}`);
-    console.log(`    Observable: ${safe(mapping.clauseFields?.observable)}`);
-    console.log(`    Exact clause:\n${safe(mapping.clauseText).split('\n').map((line) => `      ${line}`).join('\n')}`);
-  }
-  owedDecisionLines(review.owedDecisions).forEach((line) => console.log(line));
-  if (!review.documents.length) {
-    console.log('No generated documents are registered for this phase.');
-    return;
-  }
-  for (const [index, document] of review.documents.entries()) {
-    console.log(`\n${style.bold(`[${index + 1}] ${document.label}`)} ${style.detail(`(${document.id})`)}`);
-    console.log(`  ${document.path}`);
-    console.log(`  ${style.detail(style.fields(
-      document.kind ?? 'artifact',
-      document.mimeType ?? 'unknown',
-      `${document.size ?? 'unknown'} bytes`,
-      document.sha256 ? `sha256:${String(document.sha256).slice(0, 12)}` : 'sha256 unavailable'
-    ))}`);
-    if (document.error) console.warn(`  Warning: document preview unavailable: ${document.error}`);
-    else if (document.binary) console.log(`  Binary document: open ${document.absolutePath}`);
-    else if (document.display?.mode === 'reference-preview') {
-      console.log(`  ${style.detail(`Reference: ${document.display.reference}`)}`);
-      if (showArtifact) {
-        const body = document.display.full ?? document.display.preview;
-        const truncated = document.display.full == null && document.display.truncated;
-        console.log(`\n${body}${truncated ? `\n… preview truncated at policy limit; use the sfref handle for the full document (maximum inline bytes ${document.display.fullDocumentMaximumBytes}) …` : ''}`);
-      }
-    }
-    else if (document.content != null && showArtifact) {
-      console.log(`\n--- BEGIN ${document.path} ---`);
-      process.stdout.write(document.content.endsWith('\n') ? document.content : `${document.content}\n`);
-      console.log(`--- END ${document.path} ---`);
-    }
-  }
-  if (review.upstreamDiscrepancies?.length) {
-    console.log(`\n${style.heading('Upstream discrepancies')} ${style.detail(`${review.upstreamDiscrepancies.length} recorded; each needs its producer phase to return, amend or accept the risk`)}`);
-    for (const item of review.upstreamDiscrepancies) console.log(`  - ${item.phase ? `${item.phase}: ` : ''}${item.text}`);
-    console.log(`  File them for their owners: singularity-flow upstream-issue raise --from-artifact`);
-  }
-  if (review.upstreamIssues?.length) {
-    console.log(`\n${style.heading('Open upstream issues')} ${style.detail(`${review.upstreamIssues.length} waiting for an earlier step's approvers; the Story completes only when each is decided`)}`);
-    for (const item of review.upstreamIssues) console.log(`  - ${item.id} ${item.phase} (${item.about}): ${item.problem}\n    ${item.decide}`);
-  }
-  const readable = review.documents.filter((document) => !document.error && !document.binary && document.content != null);
-  const viewRoute = review.handoff?.find((entry) => entry.optional && entry.skill === '/sf-phase-documents');
-  if (viewRoute && !showArtifact) {
-    console.log('');
-    printCommandRoutes(viewRoute, { label: style.action('View phase documents before submitting') });
-    if (readable.length) console.log(style.detail(`Add --show-artifact to print ${readable.length === 1 ? 'the document' : `all ${readable.length} documents`} here instead.`));
-  } else if (readable.length && !showArtifact) {
-    console.log('');
-    printCommandRoutes(`singularity-flow documents view <id> --work-id ${review.workId}`, { label: style.action('Read them') });
-  }
-}
-async function phaseCommand(positionals, options) {
-  const subcommand = requirePositional(positionals, 1, 'phase subcommand');
-  if (subcommand === 'prepublish' && options['publish-if-ready'] === true) return (await import('./commands/phase-publish-if-ready.mjs')).run({ positionals, options });
-  const root = repoRoot();
-  const accepted = await loadAcceptedStoryExecution(root);
-  const config = accepted.definition;
-  const workflow = accepted.workflow;
-  if (subcommand === 'rollover') {
-    const phaseId = positionals[2] ?? workflow.currentPhase;
-    const phase = workflow.phases[phaseId];
-    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
-    const plan = await generationRecovery(
-      root, workflow, phase,
-      async (repositoryRoot, selectedPhase) => await generationResultMatches(
-        repositoryRoot, config, workflow, selectedPhase
-      )
-        ? selectedPhase.generationIntent.publication.resultDigest
-        : generationResultDigest(repositoryRoot, config, workflow, selectedPhase)
-    );
-    if (plan?.action.id === `return-submitted-generation:${phase.id}`) throw new SingularityFlowError(
-      'Return the submitted packet through authorized rejection before opening a successor; direct rollover is not legal while awaiting approval.',
-      { code: 'GENERATION_ROLLOVER_REVIEW_REQUIRED', details: { actions: [plan.action] } }
-    );
-    if (!plan || plan.action.mode === 'manual' || !plan.action.command) {
-      throw new SingularityFlowError(
-        plan?.action.detail ?? `Phase '${phaseId}' has no changed consumed generation to roll over.`,
-        { code: 'GENERATION_ROLLOVER_UNAVAILABLE', details: plan ?? null }
-      );
-    }
-    const expected = plan.blocker.details.rolloverConfirmation;
-    const route = safeCommandGuidance(plan.action);
-    if (!route) throw new SingularityFlowError(
-      'The reviewed rollover action has no validated Shell and Copilot route. Re-run recovery before changing state.',
-      { code: 'GENERATION_ROLLOVER_ROUTE_UNAVAILABLE', details: { action: plan.action } }
-    );
-    const supplied = optionString(options, 'confirm');
-    const preview = {
-      schemaVersion: 1,
-      workId: workflow.workItem.id,
-      phase: phase.id,
-      fromGeneration: phase.generation,
-      toGeneration: nextPhaseGeneration(phase),
-      confirmation: expected,
-      changeSetDigest: plan.blocker.details.changeSetDigest,
-      currentResultDigest: plan.blocker.details.currentResultDigest,
-      command: route.command,
-      executable: route.executable,
-      argv: route.argv,
-      skill: route.skill,
-      copilotCommand: route.copilotCommand,
-      platformCommands: route.platformCommands,
-      mutates: Boolean(supplied)
-    };
-    if (!supplied) {
-      if (optionBoolean(options, 'json')) console.log(JSON.stringify(preview, null, 2));
-      else {
-        console.log(`Generation rollover preview for ${phase.id}: ${phase.generation} -> ${nextPhaseGeneration(phase)}.`);
-        console.log(`Confirm exact current bytes: ${expected}`);
-        printCommandRoutes(route, { label: 'Continue' });
-        console.log('Nothing was changed.');
-      }
-      return;
-    }
-    if (supplied !== expected) {
-      throw new SingularityFlowError(
-        `Generation rollover confirmation must equal the current digest ${expected}. Re-run the preview if files are still changing.`,
-        { code: 'GENERATION_ROLLOVER_STALE', details: preview }
-      );
-    }
-    const intent = await storyDraftTransaction(root, config, workflow, `phase-rollover:${phaseId}`, async () => {
-      const opened = await beginPhaseGeneration(root, config, workflow, {
-        phaseId,
-        adoptExisting: Boolean(plan.blocker.details.changeSetDigest),
-        confirm: plan.blocker.details.changeSetDigest
-      });
-      await saveStoryDraft(root, config, workflow);
-      await verifyOpenGenerationIntent(root, workflow, phase);
-      return opened;
-    });
-    const result = { ...preview, mutates: true, generationIntent: intent };
-    if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2));
-    else console.log(`Opened ${phase.id} generation ${intent.generation} from exact confirmed bytes. The previous generation remains preserved.`);
-    return;
-  }
-  if (subcommand === 'begin') {
-    const phaseId = positionals[2] ?? workflow.currentPhase;
-    const phase = workflow.phases[phaseId];
-    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
-    const existing = phase.generationIntent;
-    if (existing?.status === 'open' && Number(existing.generation) === nextPhaseGeneration(phase)) {
-      await verifyOpenGenerationIntent(root, workflow, phase);
-      if (optionBoolean(options, 'json')) console.log(JSON.stringify(existing, null, 2));
-      else console.log(`Generation intent ${existing.id} is already open for ${phase.id} generation ${existing.generation}.`);
-      return;
-    }
-    const generation = nextPhaseGeneration(phase);
-    const intent = await storyDraftTransaction(root, config, workflow, `phase-begin:${phaseId}`, async () => {
-      const opened = await beginPhaseGeneration(root, config, workflow, {
-        phaseId,
-        adoptExisting: optionBoolean(options, 'adopt-existing') || optionBoolean(options, 'adopt-current-interval'),
-        confirm: optionString(options, 'confirm')
-      });
-      // Generation begin is a local authoring boundary, not lifecycle authority. Persist the
-      // workflow and receipt without a commit, but with a hard-crash recovery journal.
-      await saveStoryDraft(root, config, workflow);
-      await verifyOpenGenerationIntent(root, workflow, phase);
-      return opened;
-    });
-    const output = { ...intent, local: true, lifecycleEvent: null };
-    if (optionBoolean(options, 'json')) console.log(JSON.stringify(output, null, 2));
-    else console.log(`Began ${phaseId} generation ${generation} with local intent ${intent.id}. The receipt will be bound into the generation publication.`);
-    return;
-  }
-  if (subcommand === 'show') {
-    const phaseId = positionals[2] ?? workflow.currentPhase;
-    const phase = workflow.phases[phaseId];
-    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
-    const review = await phaseReview(root, config, workflow, phase, { includeContinuation: true });
-    if (optionBoolean(options, 'for-agent') && !optionBoolean(options, 'json')) throw new SingularityFlowError('--for-agent requires --json.');
-    if (optionBoolean(options, 'for-agent')) { const presentation = await import('./agent-packet-presentation.mjs'); console.log(presentation.agentJson(presentation.phaseReviewAgentPresentation(review))); }
-    else if (optionBoolean(options, 'json')) console.log(JSON.stringify(review, null, 2));
-    else {
-      printPhaseReview(review, { showArtifact: optionBoolean(options, 'show-artifact') });
-      if (review.continuation) console.log(`\n${phaseContinuationLines(review.continuation).join('\n')}`);
-    }
-    return;
-  }
-  if (subcommand === 'draft-check' || subcommand === 'prepublish') {
-    const phaseId = positionals[2] ?? workflow.currentPhase;
-    const phase = workflow.phases[phaseId];
-    if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
-    if (phaseId !== workflow.currentPhase && !['in_progress', 'awaiting_approval'].includes(phase.status)) {
-      throw new SingularityFlowError(
-        `Phase '${phaseId}' is not the active review draft. Check '${workflow.currentPhase ?? 'none'}' instead.`,
-        { code: 'PHASE_DRAFT_NOT_ACTIVE', details: { requestedPhase: phaseId, currentPhase: workflow.currentPhase } }
-      );
-    }
-    const session = await loadSession(root, { required: false });
-    const check = subcommand === 'prepublish' ? phasePrepublish : phaseDraftCheck;
-    const result = await check(root, config, workflow, phase, {
-      modelEnabled: operationContext()?.modelMode.enabled !== false,
-      session
-    });
-    if (optionBoolean(options, 'for-agent')) {
-      const { phaseAgentResult } = await import('./phase-agent-result.mjs');
-      return console.log(JSON.stringify(phaseAgentResult(result)));
-    }
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    const pendingTests = subcommand === 'prepublish'
-      && result.testExecution?.status === 'not-run';
-    console.log(`${phase.label} ${subcommand === 'prepublish' ? 'prepublish' : 'draft'}: ${result.status}${pendingTests && result.status === 'ready' ? ' for a publication attempt' : ''}.`);
-    if (result.artifact) console.log(`Artifact: ${result.artifact.path}${result.artifact.sha256 ? ` · ${result.artifact.sha256}` : ''}`);
-    if (pendingTests) for (const line of prepublishTestExecutionLines(result.testExecution)) console.log(line);
-    if (result.qualityDisposition === 'accepted-risk') console.log('Document quality: unmet, accepted risk for the exact reviewed bytes. Tests, independent review and approval remain required.');
-    for (const finding of result.findings) console.log(`  - ${finding.message}`);
-    for (const warning of result.warnings ?? result.grounding?.warnings ?? []) console.log(`Readiness warning: ${warning}`);
-    const coverageAdvisories = (result.advisories ?? []).filter((advisory) => advisory.category === 'coverage');
-    if (coverageAdvisories.length) {
-      console.log(`Coverage warnings: approval would refuse ${result.coverage?.unclaimed ?? coverageAdvisories.length} changed path(s). Name each in a clause's Expected paths, or under ## Supporting files in the plan if it cannot carry a @clause tag.`);
-      for (const advisory of coverageAdvisories.slice(0, 10)) console.log(`  · ${advisory.message}`);
-    }
-    const documentationAdvisories = (result.advisories ?? []).filter((advisory) => advisory.category !== 'coverage');
-    if (documentationAdvisories.length) {
-      console.log(`Documentation advisories (never block publication): ${result.documentation.undocumented} public declaration(s) without a doc comment.`);
-      for (const advisory of documentationAdvisories.slice(0, 10)) console.log(`  · ${advisory.message}`);
-      if (result.documentation.undocumented > 10) console.log(`  · …and ${result.documentation.undocumented - 10} more (--json lists up to 50).`);
-      console.log(`Documentation: ${result.documentation.guidance}`);
-    } else if (result.documentation?.status === 'unavailable') {
-      console.log(`Documentation advisories: the check could not run (${result.documentation.reason ?? 'unknown reason'}); it never blocks publication.`);
-    }
-    if (result.status === 'correction-required') {
-      console.log(`Correction: ${result.correction.guidance}`);
-      for (const [id, label] of [['next', 'Next'], ['recover', 'Recover'], ['recheck', 'Recheck']]) {
-        for (const line of commandGuidanceLines(result.commandGuidance[id], label)) console.log(line);
-      }
-    } else {
-      for (const line of commandGuidanceLines(result.commandGuidance.publish, 'Publish')) console.log(line);
-    }
-    return;
-  }
-  if (subcommand !== 'publish') throw new SingularityFlowError(`Unknown phase subcommand: ${subcommand}`);
-  const usageFile = optionString(options, 'usage-json'); const usage = usageFile ? await readJson(usageFile) : null;
-  const phaseId = positionals[2] ?? workflow.currentPhase;
-  const requestedPhase = workflow.phases[phaseId];
-  if (!requestedPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
-  if (phaseRequiresCodeDelivery(requestedPhase)
-      && requestedPhase.generationIntent?.status === 'consumed'
-      && Number(requestedPhase.generationIntent.generation) === Number(requestedPhase.generation)) {
-    if (!(await generationResultMatches(root, config, workflow, requestedPhase))) {
-      throw new SingularityFlowError(
-        `Generation intent ${requestedPhase.generationIntent.id} was already consumed and the source or artifact bytes now differ. Run singularity-flow phase rollover ${phaseId} to preview the exact guarded next-generation command.`,
-        { code: 'GENERATION_INTENT_ALREADY_CONSUMED' }
-      );
-    }
-    console.log(`Published ${requestedPhase.id} generation ${requestedPhase.generation} already exists; the idempotent retry created no commit.`);
-    printPhaseReview(await phaseReview(root, config, workflow, requestedPhase), { showArtifact: optionBoolean(options, 'show-artifact') });
-    return;
-  }
-  const sourcePath = optionString(options, 'from');
-  const explicitAuthored = optionString(options, 'authored');
-  const implicitProducer = effectivePhasePublicationProducer(requestedPhase, {
-    modelEnabled: operationContext()?.modelMode.enabled !== false
-  });
-  // A deterministic default is an exact contract, not legacy provenance. Preserve the historical
-  // omission warning elsewhere while preventing a missing flag from disabling deterministic
-  // publication checks.
-  const authored = explicitAuthored ?? (implicitProducer === 'deterministic' ? 'deterministic' : null);
-  const requestedChangeOrigins = optionStrings(options, 'change-origin');
-  const authorshipOptions = normalizeAuthorshipOptions({
-    producer: authored,
-    channel: optionString(options, 'channel'),
-    imported: Boolean(sourcePath),
-    externalAiUse: optionString(options, 'external-ai'),
-    changeOrigins: requestedChangeOrigins.length ? requestedChangeOrigins : null
-  });
-  if (!explicitAuthored && authored !== 'deterministic') console.warn('Deprecation warning: phase publish without --authored records legacy-unspecified. Pass --authored human or --authored governed-agent.');
-  if (isConvergencePhase(requestedPhase) && sourcePath) {
-    throw new SingularityFlowError(
-      `The convergence artifact is a kernel-owned deterministic projection and cannot be imported. Run singularity-flow prepare ${requestedPhase.id}.`,
-      { code: 'CONVERGENCE_ARTIFACT_KERNEL_OWNED' }
-    );
-  }
-  if (sourcePath && !['human', 'external-tool'].includes(authorshipOptions.producer)) {
-    throw new SingularityFlowError('--from requires --authored human or --authored external-tool.', { code: 'MANUAL_AUTHORSHIP_REQUIRED' });
-  }
-  if (usageFile && authorshipOptions.producer !== 'governed-agent') {
-    throw new SingularityFlowError('--usage-json is valid only with --authored governed-agent. Manual and deterministic publication record model usage as not-invoked.');
-  }
-  assertProducerAllowed(requestedPhase, authorshipOptions.producer);
-  // Ask for the remote tip now; it arrives while publication checks run.
-  prefetchStoryPublicationObservation(root, config, workflow);
-  const deterministicPublication = authorshipOptions.producer === 'deterministic';
-  const session = deterministicPublication
-    ? { actor: actionActor(root), agent: null }
-    : await loadSession(root);
-  const targetPath = path.join(workDir(root, config, workflow.workItem.id), requestedPhase.requiredArtifact.path);
-  const targetRelative = path.relative(root, targetPath).replaceAll(path.sep, '/');
-  const generation = nextPhaseGeneration(requestedPhase);
-  const publicationArtifactContract = {
-    ...requestedPhase.requiredArtifact,
-    generation: nextPhaseGeneration(requestedPhase)
-  };
-  const publicationAuthoringOptions = {
-    qualityContext: { root, config, workflow, phase: requestedPhase, generation },
-    baseline: requestedPhase.authoringBaseline ?? null,
-    retrySkill: directCopilotSkill(generationSkillForPhase(requestedPhase, workflow))
-  };
-  const deterministicConvergence = isConvergencePhase(requestedPhase);
-  const inspectPublicationArtifact = deterministicConvergence
-    ? (candidatePath) => inspectDeterministicInPlaceArtifact(candidatePath, publicationArtifactContract)
-    : (candidatePath) => inspectInPlaceArtifact(candidatePath, publicationArtifactContract, publicationAuthoringOptions);
-  // Refuse an incomplete in-place artifact before artifact discovery mutates even the in-memory
-  // aggregate. The transaction repeats this inspection to close the change-between-check-and-use
-  // window; this first read gives CLI and Copilot hosts the complete deterministic remediation
-  // without beginning publication work.
-  if (!sourcePath) await inspectPublicationArtifact(targetPath);
-  if (deterministicConvergence) {
-    await assertConvergencePublicationReady(root, config, workflow, requestedPhase);
-  }
-  // Discover the prospective generation's artifact set before opening the publication unit. This
-  // changes only the in-memory aggregate; the unit below still owns every durable write. Without
-  // this preflight, implementation source/tests first discovered inside `publishGeneration` were
-  // absent from the transaction's immutable path allowlist and therefore absent from the exact
-  // generation commit later used by governed references and review packets.
-  await scanArtifacts(root, config, workflow, phaseId);
-  // Attribute only invocations explicitly bound to this generation intent. Story-wide unclaimed
-  // audits may come from exploration, another phase, or an abandoned attempt and can never prove
-  // the model assurance of the generation being published.
-  const attributedInvocations = new Set(Object.values(workflow.phases ?? {})
-    .flatMap((item) => item.authorship ?? [])
-    .flatMap((record) => record.kernelModel?.invocationIds ?? []));
-  const kernelInvocations = (await listModelInvocations(root, {
-    subjectId: workflow.workItem.id,
-    phase: requestedPhase.id,
-    generationIntentId: requestedPhase.generationIntent?.id ?? null,
-    generation,
-    task: 'code',
-    startedAfter: requestedPhase.generationIntent?.startedAt ?? null
-  }))
-    .filter((record) => !attributedInvocations.has(record.id));
-  const kernelInvocationIds = kernelInvocations.map((record) => record.id);
-  const generationStart = await generationStartPublicationBinding(root, workflow, requestedPhase);
-  // A code phase with no REV loop keeps the ordinary publication path. Once the guarded REV flow
-  // has established any private pointer/journal state, publication may proceed only through its
-  // exact current prechecked selected head; missing, stale, abandoned, or uncertain state refuses
-  // instead of silently publishing whatever happens to be in the worktree.
-  const revisionPublication = phaseRequiresCodeDelivery(requestedPhase)
-    ? await currentInteractiveRevisionPublication(root, accepted)
-    : null;
-  let phase = requestedPhase;
-  let publicationStabilityGuard = null;
-  const result = await commitAndPublish(
-    root,
-    config,
-    workflow,
-    {
-      type: LIFECYCLE_EVENT.ARTIFACT_GENERATED,
-      phaseId,
-      generation,
-      payload: generationStart ?? {}
-    },
-    `[${workflow.workItem.id}][phase:${phaseId}][generated:${generation}] publish artifacts`,
-    [...new Set([...requestedPhase.artifacts.map((item) => item.path), targetRelative])],
-    {
-      beforeStateWrite: async (publicationEvent, transactionContext) => {
-        const source = sourcePath
-          ? await importManualArtifact({
-              sourcePath: path.resolve(sourcePath), targetPath,
-              contract: publicationArtifactContract,
-              baseline: publicationAuthoringOptions.baseline,
-              retrySkill: publicationAuthoringOptions.retrySkill
-            })
-          : await inspectPublicationArtifact(targetPath);
-        const authorship = buildGenerationAuthorship({
-          options: authorshipOptions,
-          actor: session.actor,
-          governedAgentContext: session.agent,
-          source,
-          kernelInvocationIds,
-          kernelInvocations,
-          generation
-        });
-        await scanArtifacts(root, config, workflow, phaseId);
-        phase = await publishGeneration(root, config, workflow, {
-          phaseId,
-          usage,
-          authorship,
-          persist: false,
-          publicationTransaction: {
-            publicationEvent,
-            transactionId: transactionContext.transactionId,
-            expectedHead: transactionContext.expectedHead
-          }
-        });
-        // Deterministic phases may legitimately replace their prepared scaffold during
-        // `publishGeneration`; all phases also receive engine-owned metadata. The stability
-        // boundary therefore begins from the validated post-transition artifact, not from the
-        // pre-transition author/import source.
-        const expectedArtifactSha256 = (await inspectPublicationArtifact(targetPath)).sha256;
-        const expectedConvergenceSnapshotSha256 = deterministicConvergence
-          ? (await assertConvergencePublicationReady(root, config, workflow, phase)).snapshotSha256
-          : null;
-        const deliveryBaseline = phase.deliveryEvidence?.baselineCommit ?? null;
-        const pathContext = applicationPathContext(config, workflow);
-        const expectedApplicationDigest = phase.deliveryEvidence?.changeSet
-          ? applicationChangeSetProjection(phase.deliveryEvidence.changeSet, pathContext).digest
-          : null;
-        publicationStabilityGuard = async () => {
-          const artifact = await inspectPublicationArtifact(targetPath);
-          if (artifact.sha256 !== expectedArtifactSha256) {
-            throw new SingularityFlowError(
-              `The authored ${phase.id} artifact changed while publication was running. Nothing was committed; retry after the editor is stable.`,
-              {
-                code: 'PUBLICATION_SNAPSHOT_CHANGED',
-                details: { expectedArtifactSha256, currentArtifactSha256: artifact.sha256 }
-              }
-            );
-          }
-          if (expectedConvergenceSnapshotSha256) {
-            const currentConvergence = await assertConvergencePublicationReady(root, config, workflow, phase);
-            if (currentConvergence.snapshotSha256 !== expectedConvergenceSnapshotSha256) {
-              throw new SingularityFlowError(
-                `The reviewed convergence projection or one of its exact inputs changed while publication was running. Nothing was committed; run singularity-flow prepare ${phase.id} again.`,
-                {
-                  code: 'PUBLICATION_SNAPSHOT_CHANGED',
-                  details: {
-                    expectedConvergenceSnapshotSha256,
-                    currentConvergenceSnapshotSha256: currentConvergence.snapshotSha256
-                  }
-                }
-              );
-            }
-          }
-          let applicationDigest = null;
-          if (deliveryBaseline && expectedApplicationDigest) {
-            const current = await buildRepositoryChangeSet(root, {
-              baseCommit: deliveryBaseline,
-              subject: {
-                workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
-                generationIntentId: phase.generationIntent?.id ?? null
-              }
-            });
-            applicationDigest = applicationChangeSetProjection(current, pathContext).digest;
-            if (applicationDigest !== expectedApplicationDigest) {
-              throw new SingularityFlowError(
-                'Application source or test bytes changed after validation and before the governed commit. '
-                + 'Nothing was committed; wait for editor, formatter, generator, and test writes to finish, then retry.',
-                {
-                  code: 'PUBLICATION_SNAPSHOT_CHANGED',
-                  details: { expectedApplicationDigest, currentApplicationDigest: applicationDigest }
-                }
-              );
-            }
-          }
-          // The generic delivery digest closes ordinary editor/test races. Auto publication has a
-          // stronger one-Candidate law: immediately before and after the isolated Git index is
-          // staged, reproduce the exact frozen Candidate resource identity as well. This keeps
-          // the lifecycle commit/event/trailer bound to the same Candidate that was verified even
-          // when a concurrent writer changes source after the earlier generation preflight.
-          let autoCandidateDigest = null;
-          if (phase.deliveryEvidence?.autoCandidate) {
-            const candidate = phase.deliveryEvidence.autoCandidate;
-            const observation = await observeAutoCandidateWorktree(root, candidate, pathContext);
-            assertAutoCandidateMatches(candidate, observation);
-            autoCandidateDigest = `${candidate.bindingSha256}:${observation.applicationResourceDigest}`;
-          }
-          return `${expectedArtifactSha256}:${applicationDigest ?? 'artifact-only'}:${autoCandidateDigest ?? 'manual'}`;
-        };
-      },
-      worktreeGuard: async () => {
-        if (!publicationStabilityGuard) {
-          throw new SingularityFlowError('Publication stability guard was not initialized.', {
-            code: 'PUBLICATION_SNAPSHOT_CHANGED'
-          });
-        }
-        return publicationStabilityGuard();
-      },
-      revisionPublication
-    }
-  );
-  console.log(`Published ${phase.id} generation ${phase.generation} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}${result.revisionSelection ? ` from REV Candidate ${result.revisionSelection.candidateId}` : ''}.`);
-  const telemetry = (phase.telemetry ?? []).find((item) => item.generation === phase.generation);
-  const generationUsage = (phase.usage ?? []).filter((item) => item.generation === phase.generation);
-  const tokens = generationUsage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0);
-  const costs = generationUsage.map((item) => item.providerCost).filter(Number.isFinite);
-  const providerCost = costs.length ? costs.reduce((sum, value) => sum + value, 0) : null;
-  if (telemetry) {
-    const unavailable = telemetry.status === 'not-invoked' ? 'not invoked' : 'unavailable';
-    console.log(style.fields(
-      `Telemetry: ${telemetry.status}`,
-      `models: ${telemetry.models.join(', ') || unavailable}`,
-      `tokens: ${tokens || unavailable}`,
-      `provider cost: ${providerCost == null ? unavailable : `$${providerCost.toFixed(6)}`}`
-    ));
-    const activity = telemetry.activity;
-    const prompt = telemetry.prompt;
-    if (activity || prompt) {
-      const events = (activity?.events ?? []).reduce((sum, event) => sum + event.count, 0);
-      console.log(style.fields(
-        ...(activity ? [
-          `Copilot requests: ${activity.requests ?? 'unavailable'}`,
-          `turns: ${activity.turns ?? 'unavailable'}`,
-          `tool calls: ${activity.toolCalls}`,
-          ...(events ? [`quota/model events: ${events}`] : [])
-        ] : []),
-        ...(prompt ? [`governed prompt: ${prompt.bytes.toLocaleString('en-US')} bytes (~${prompt.estimatedTokens.toLocaleString('en-US')} tokens)`] : [])
-      ));
-    }
-    console.log(`Telemetry record: ${telemetry.path}`);
-    if (telemetry.status === 'pending') console.log(pendingTelemetryNote(telemetry.captureGap));
-  }
-  const publishedReview = await postPublicationStep(
-    'the phase review projection', workflow.workItem.id,
-    () => phaseReview(root, config, workflow, phase)
-  );
-  if (publishedReview.ok) {
-    printPhaseReview(publishedReview.value, { showArtifact: optionBoolean(options, 'show-artifact') });
-  }
-}
-
 async function artifactCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'artifact subcommand');
   const root = repoRoot();
@@ -7325,284 +6074,9 @@ async function regressionCommand(positionals, options) {
   console.log(regressionReportMarkdown(report));
 }
 
-function selectedPhaseArgument(positionals, options, command) {
-  const positional = positionals[1];
-  const flagged = optionString(options, 'phase');
-  if (positional && flagged && positional !== flagged) {
-    throw new SingularityFlowError(`${command} received two different phases: '${positional}' and '${flagged}'. Pass the phase once, either positionally or with --phase.`);
-  }
-  return flagged ?? positional;
-}
+export { submitCommand } from './commands/submit.mjs';
 
-async function runSubmitCommand(positionals, options, submitContext) {
-  const convergenceConfirmation = submitContext?.convergenceConfirmation ?? null;
-  const root = repoRoot();
-  const requestedWorkId = optionString(options, 'work-id');
-  const accepted = await loadAcceptedStoryExecution(root, requestedWorkId);
-  const config = accepted.definition;
-  let workflow = accepted.workflow;
-  // Resolve the target once, then pin every subsequent read to that exact Story. In particular,
-  // telemetry reconciliation may commit and reload while another UI/session changes the globally
-  // active Story; submission must not cross that Story boundary.
-  const resolvedWorkId = workflow.workItem.id;
-  const requestedPhase = selectedPhaseArgument(positionals, options, 'submit');
-  const initialPhaseId = requestedPhase ?? workflow.currentPhase;
-  const initialPhase = workflow.phases[initialPhaseId];
-  if (!initialPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${initialPhaseId ?? ''}'. Provide a phase ID.`);
-  prefetchStoryPublicationObservation(root, config, workflow);
-  // Checked before telemetry reconciliation or the publication unit opens, so a mistyped value is
-  // refused with nothing written. The transition records the same values again.
-  const decisionValues = parseDecisionAssignments(optionStrings(options, 'decision'));
-  const fedDecision = decisionFedBy(workflow, initialPhase.id);
-  if (initialPhase.status !== 'awaiting_approval') {
-    if (!fedDecision && Object.keys(decisionValues).length) {
-      throw new SingularityFlowError(`Phase '${initialPhase.id}' feeds no decision that records values; submit it without --decision.`,
-        { code: 'DECISION_INPUT_UNKNOWN' });
-    }
-    if (fedDecision && Object.keys(decisionValues).length) normalizeDecisionInputValues(fedDecision, decisionValues);
-    else if (fedDecision && !recordedDecisionValues(initialPhase, fedDecision)) {
-      throw new SingularityFlowError(
-        `Decision '${fedDecision.label}' after '${initialPhase.id}' reads values this submission must record. Submit with ${decisionInputsHint(fedDecision)}.`,
-        { code: 'DECISION_INPUTS_MISSING', details: { decision: fedDecision.id, inputs: fedDecision.inputs } }
-      );
-    }
-  } else if (Object.keys(decisionValues).length) {
-    console.warn(`Phase '${initialPhase.id}' is already submitted; the decision values recorded then stand. Request changes to record different ones.`);
-  }
-  // Submission is an idempotent boundary. A retry can come from Copilot replaying an action after
-  // the first command succeeded, or from a person not seeing the prior terminal result. Letting the
-  // ordinary soft phase-status gate handle it opens the publication journal and subject lock before
-  // asking "continue?"; while that prompt waits, every other surface mistakes the live command for
-  // an interrupted commit. The committed aggregate already proves the exact phase and generation
-  // awaiting review, so no transaction or override is appropriate.
-  if (initialPhase.status === 'awaiting_approval') {
-    if (isConvergencePhase(initialPhase)) {
-      await assertConvergencePublicationReady(root, config, workflow, initialPhase);
-    }
-    if (await storyPublicationPending(root, config, workflow.workItem.id)) {
-      await assertNoPendingPublication(root, config, workflow, 'submit for approval');
-    }
-    emitCommandResult(commandResult({
-      operation: { id: 'submit', classification: 'mutation' },
-      subject: { kind: 'story', id: workflow.workItem.id },
-      outcome: noop('submit.noop', { phase: initialPhase.id }),
-      effects: noEffects(),
-      data: {
-        phase: initialPhase.id,
-        generation: initialPhase.generation,
-        submittedAt: initialPhase.submittedAt ?? null
-      }
-    }), { json: optionBoolean(options, 'json'), postState: workflow });
-    return;
-  }
-  // Refuse a generic `submit convergence` before telemetry reconciliation or any other write. The
-  // only combined confirmation route is `story advance --confirm`; command-line options cannot
-  // set this private function argument.
-  if (isConvergencePhase(initialPhase)) {
-    if (typeof convergenceConfirmation !== 'string'
-        || !/^sha256:[0-9a-f]{64}$/.test(convergenceConfirmation)) {
-      throw new SingularityFlowError(
-        `Convergence can be submitted only through explicit human advancement. Run singularity-flow story advance --work-id ${resolvedWorkId} to review the deterministic result and receive its digest-bound confirmation command.`,
-        { code: 'CONVERGENCE_ADVANCE_CONFIRMATION_REQUIRED', details: { workId: resolvedWorkId } }
-      );
-    }
-    if (initialPhase.approvalPolicy?.mode !== 'required') {
-      throw new SingularityFlowError(
-        `Convergence phase '${initialPhase.id}' requires a non-waivable human approval after explicit advancement; approval modes 'none' and 'policy' are not permitted.`,
-        { code: 'CONVERGENCE_HUMAN_APPROVAL_REQUIRED' }
-      );
-    }
-    const confirmed = await assertConvergencePublicationReady(root, config, workflow, initialPhase);
-    if (convergenceConfirmation !== confirmed.snapshotSha256) {
-      throw new SingularityFlowError(
-        `The convergence result changed after preview. Review the current result and confirm ${confirmed.snapshotSha256}.`,
-        {
-          code: 'CONVERGENCE_ADVANCE_CONFIRMATION_STALE',
-          details: {
-            workId: resolvedWorkId,
-            supplied: convergenceConfirmation,
-            expected: confirmed.snapshotSha256
-          }
-        }
-      );
-    }
-  }
-  // A failed required push is a transport recovery, not an opportunity to open a second draft
-  // transaction for telemetry. Preserve the established sequence-gate refusal (including its
-  // structured recovery command and exit code) before any reconciliation boundary is opened.
-  await assertNoPendingPublication(root, config, workflow, 'submit');
-  let reconciliation;
-  let telemetryPublication = null;
-  await storyDraftTransaction(root, config, workflow, `telemetry-reconcile:${initialPhaseId}`, async (recoveryPreimage) => {
-    reconciliation = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: requestedPhase });
-    if (reconciliation.updated) {
-      telemetryPublication = await commitAndPublish(
-        root,
-        config,
-        workflow,
-        { type: LIFECYCLE_EVENT.TELEMETRY_RECORDED, phaseId: reconciliation.phase, generation: reconciliation.generation },
-        `[${workflow.workItem.id}][phase:${reconciliation.phase}][telemetry:${reconciliation.generation}] reconcile Copilot usage`,
-        [],
-        { recoveryPreimage }
-      );
-    }
-    return reconciliation;
-  });
-  if (reconciliation.updated) {
-    console.log(`Reconciled ${reconciliation.phase} generation ${reconciliation.generation} telemetry at ${telemetryPublication.sha.slice(0, 8)}${telemetryPublication.pushed ? ' and pushed' : ''}.`);
-    console.log(`Models: ${reconciliation.models.join(', ') || 'unavailable'} | Tokens: ${reconciliation.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0) || 'unavailable'} | Provider cost: ${reconciliation.providerCost == null ? 'unavailable' : `$${reconciliation.providerCost.toFixed(6)}`}`);
-    const reconciledActivity = copilotActivityLine(reconciliation.activity);
-    if (reconciledActivity) console.log(reconciledActivity);
-    workflow = await loadStoryAggregate(root, config, resolvedWorkId);
-  } else if (reconciliation.pending) console.warn(`Telemetry remains pending: ${reconciliation.reason}`);
-  const workflowBeforeSubmission = structuredClone(workflow);
-  const phaseId = requestedPhase ?? workflow.currentPhase;
-  const requested = workflow.phases[phaseId];
-  if (!requested) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
-  const registrationRepairCount = requested.artifactRegistrationRepairs?.length ?? 0;
-  let phase = requested;
-  let reviewPacket = null;
-  const expectedConvergenceSnapshotSha256 = isConvergencePhase(requested)
-    ? (await assertConvergencePublicationReady(root, config, workflow, requested)).snapshotSha256
-    : null;
-  const submissionStabilityGuard = async () => {
-        let convergenceIdentity = 'not-convergence';
-        if (expectedConvergenceSnapshotSha256) {
-        const current = await assertConvergencePublicationReady(root, config, workflow, requested);
-        if (current.snapshotSha256 !== expectedConvergenceSnapshotSha256) {
-          throw new SingularityFlowError(
-            `The reviewed convergence projection or one of its exact inputs changed while submission was running. Nothing was committed; run singularity-flow prepare ${requested.id} again.`,
-            {
-              code: 'PUBLICATION_SNAPSHOT_CHANGED',
-              details: {
-                expectedConvergenceSnapshotSha256,
-                currentConvergenceSnapshotSha256: current.snapshotSha256
-              }
-            }
-          );
-        }
-        convergenceIdentity = current.snapshotSha256;
-        }
-        return convergenceIdentity;
-      };
-  const publication = await withRefusalMemory(root, {
-    operation: 'submit', workId: workflow.workItem.id, phase: requested.id, actor: actorKey(actionActor(root)),
-    args: [decisionValues ?? null, optionBoolean(options, 'skip-checks')]
-  }, () => commitAndPublish(
-    root,
-    config,
-    workflow,
-    { type: LIFECYCLE_EVENT.APPROVAL_REQUESTED, phaseId: requested.id, generation: requested.generation },
-    `[${workflow.workItem.id}][phase:${requested.id}][submit] request approval`,
-    requested.artifacts.map((item) => item.path),
-    {
-      rollbackWorkflow: workflowBeforeSubmission,
-      beforeStateWrite: async () => {
-        const submit = isConvergencePhase(requested)
-          ? submitConfirmedConvergencePhase
-          : submitPhase;
-        const deterministicSubmission = phaseUsesDeterministicGeneration(requested);
-        phase = await submit(root, config, workflow, {
-          phaseId: requested.id,
-          runChecks: !optionBoolean(options, 'skip-checks'),
-          persist: false,
-          decisionValues,
-          ...(deterministicSubmission ? { actor: actionActor(root), agent: null } : {}),
-          ...(isConvergencePhase(requested)
-            ? { confirmation: convergenceConfirmation }
-            : {})
-        });
-        reviewPacket = await createStoryReviewPacket(root, config, workflow, phase);
-      },
-      worktreeGuard: submissionStabilityGuard
-    }
-  ));
-  if (!reviewPacket) {
-    console.warn('Warning: the governed submission commit succeeded, but its review packet was not returned to the caller. Do not submit again; reload the committed Story and inspect recovery.');
-    printCommandRoutes(`singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`, {
-      label: 'Inspect committed submission evidence'
-    });
-  }
-  const registrationRepairs = (phase.artifactRegistrationRepairs ?? []).slice(registrationRepairCount);
-  const evidenceReceiptResult = reviewPacket
-    ? await postPublicationStep(
-        'the evidence-receipt projection', workflow.workItem.id,
-        () => composeEvidenceReceipt(root, config, workflow, reviewPacket.packet)
-      )
-    : { ok: false, value: null };
-  const evidenceReceipt = evidenceReceiptResult.value;
-  const approvalMode = phase.approvalPolicy?.mode ?? 'required';
-  const completedWithoutReview = phase.status === 'approved' && approvalMode === 'none';
-  const completedByPolicy = phase.status === 'approved' && approvalMode === 'policy';
-  if (phase.status === 'approved') {
-    // No-approval and policy-waived submission advance inside the submit transaction, without a
-    // later approve command to perform the handoff. Bind the exact committed next phase now; a
-    // stale prior-phase session must never be reported ready merely because the next phase happens
-    // to use the same agent ID.
-    await postPublicationStep('the next-phase session activation', workflow.workItem.id, async () => {
-      const afterSubmission = await loadAcceptedStoryExecution(root, workflow.workItem.id);
-      return activateWorkItemSession(root, afterSubmission.config, afterSubmission.workflow);
-    });
-  }
-  const receiptsLine = phase.status === 'approved' ? await recordRequiredReceiptsAfterTransition(root, workflow) : null;
-  if (completedWithoutReview) console.log(`\nCompleted ${phase.id} phase (configured approval mode: none).`);
-  else if (completedByPolicy) console.log(`\nCompleted ${phase.id} phase using its deterministic policy waiver.`);
-  else console.log(`\nSubmitted ${phase.id} phase for approval.`);
-  for (const repair of registrationRepairs) {
-    console.log(`Repaired stale artifact registration for ${repair.path} and continued; authored content still matches generation ${repair.generation}.`);
-  }
-  console.log(`Commit: ${publication.sha.slice(0, 8)} — ${phase.status === 'approved' ? 'complete phase' : 'request approval'} (${workflow.workItem.id})`);
-  console.log(`Push: ${publication.pushed ? `${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}` : 'disabled by git.publish: off'}`);
-  if (receiptsLine) console.log(receiptsLine);
-  if (reviewPacket) {
-    console.log(`Review packet: ${reviewPacket.path} (${reviewPacket.packet.packetSha256.slice(0, 12)})`);
-  }
-  if (evidenceReceipt) console.log(`\n${renderEvidenceReceipt(evidenceReceipt)}`);
-  const submittedReview = await postPublicationStep(
-    'the submitted phase review projection', workflow.workItem.id,
-    () => phaseReview(root, config, workflow, phase)
-  );
-  if (submittedReview.ok) {
-    printPhaseReview(submittedReview.value, { showArtifact: optionBoolean(options, 'show-artifact') });
-  }
-  // The trailer is narrated. It used to name a Copilot skill and a CLI equivalent chosen by hand
-  // here; NEXT now comes from the deterministic planner against the state the submission left.
-  const advanced = currentPhase(workflow);
-  // An approval-free last phase ends the Story here; its transaction passed the final evaluation.
-  const completion = !advanced ? recordedCompletion(workflow) : null;
-  if (completion) printCompletionVerdict(completion);
-  emitCommandResult(commandResult({
-    operation: { id: 'submit', classification: 'mutation' },
-    subject: { kind: 'story', id: workflow.workItem.id },
-    outcome: succeeded(phase.status === 'approved' ? 'submit.completed' : 'submit.succeeded', {
-      phase: phase.id, documents: phase.artifacts.length,
-      ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed', completionLabel: completion.label ?? null } : {})
-    }),
-    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    ...completionContinuation(completion),
-    data: {
-      commit: publication.sha,
-      pushed: publication.pushed,
-      reviewPacket: reviewPacket?.packet?.packetSha256 ?? null,
-      evidenceReceipt,
-      registrationRepairs,
-      ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
-    }
-  }), {
-    postState: workflow, restStateWhenIdle: advanced || completion ? null : 'complete',
-    stepActionHold: phase.status === 'approved' ? await stepActionHoldAfterTransition(root, config, workflow) : null
-  });
-}
-
-/** Generic phase submission can never opt into the convergence advancement context. */
-export async function submitCommand(positionals, options) {
-  return runSubmitCommand(positionals, options);
-}
-
-/** Combined command used only after `story advance` has received its explicit confirmation. */
-export async function submitConfirmedConvergenceCommand(positionals, options, confirmation) {
-  return runSubmitCommand(positionals, options, { convergenceConfirmation: confirmation });
-}
+export { submitConfirmedConvergenceCommand } from './commands/submit.mjs';
 
 async function telemetryCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
@@ -7729,18 +6203,6 @@ async function telemetryCommand(positionals, options) {
   const reconciledActivity = copilotActivityLine(result.activity);
   if (reconciledActivity) console.log(reconciledActivity);
   console.log(`Commit: ${result.commit.slice(0, 8)}${result.pushed ? ' and pushed' : ''}`);
-}
-
-/** The Copilot activity a reconciled generation recorded, for the line after its models and tokens. */
-function copilotActivityLine(activity) {
-  if (!activity) return null;
-  const events = (activity.events ?? []).reduce((sum, event) => sum + event.count, 0);
-  return [
-    `Copilot requests: ${activity.requests ?? 'unavailable'}`,
-    `Turns: ${activity.turns ?? 'unavailable'}`,
-    `Tool calls: ${activity.toolCalls}`,
-    ...(events ? [`Quota/model events: ${events}`] : [])
-  ].join(' | ');
 }
 
 async function xrayProjection(positionals, options, { defaultToCurrentPhase = true } = {}) {
@@ -7905,338 +6367,6 @@ async function tokensCommand(positionals, options) {
     restState: 'informational',
     data: { ledger: projection.ledger }
   }), { json: optionBoolean(options, 'json') });
-}
-
-async function decisionWorkflow(positionals, options, action) {
-  const root = repoRoot();
-  const receiptToken = optionString(options, 'selection-receipt');
-  const { requestedPhase, definition: config, workflow } = await loadStoryDecisionExecution(root, positionals, options, action);
-  prefetchStoryPublicationObservation(root, config, workflow);
-  if (action === 'approve' && requestedPhase && workflow.phases[requestedPhase]?.status === 'approved') {
-    await assertPhaseSequence(root, workflow, action, { requestedPhase });
-  }
-  if (receiptToken) assertLifecycleWorktreeClean(root, null, null, { workId: optionString(options, 'work-id') ?? branch(root) });
-  if (action === 'approve') assertLifecycleWorktreeClean(root, config, workflow);
-  const workId = workflow.workItem.id;
-  const overridesBefore = workflow.sequenceOverrides?.length ?? 0;
-  await assertNoPendingPublication(root, config, workflow, action);
-  const testingRepair = action === 'reject' && optionBoolean(options, 'repair');
-  if (testingRepair && optionString(options, 'selection-receipt')) {
-    throw new SingularityFlowError(
-      'Early review repair requires an exact phase and Code target, without a selection receipt.',
-      { code: 'TESTING_REPAIR_ROUTE_INVALID' }
-    );
-  }
-  const phase = await assertPhaseSequence(root, workflow, action, {
-    requestedPhase,
-    allowedStatuses: testingRepair ? ['in_progress'] : ['awaiting_approval']
-  });
-  const testingRepairPlan = testingRepair ? await previewTestingRepair(root, config, workflow) : null;
-  if (testingRepairPlan && (requestedPhase !== testingRepairPlan.phase
-      || optionString(options, 'to') !== testingRepairPlan.targetPhase)) {
-    throw new SingularityFlowError(
-      `Early review repair requires reject ${testingRepairPlan.phase} --to ${testingRepairPlan.targetPhase} --repair.`,
-      { code: 'TESTING_REPAIR_ROUTE_INVALID' }
-    );
-  }
-  if (testingRepairPlan && optionString(options, 'confirm') !== testingRepairPlan.confirmation) {
-    throw new SingularityFlowError(
-      `The review contains source or test edits. Review ${testingRepairPlan.changedPaths.join(', ')} and return them to Code only after confirmation. `
-      + 'Copilot: /sf-reject. '
-      + `Shell: singularity-flow reject ${testingRepairPlan.phase} --to ${testingRepairPlan.targetPhase} --repair --reason <REASON> --confirm ${testingRepairPlan.confirmation}. VS Code (model-free): not available for this action.`,
-      { code: 'TESTING_REPAIR_CONFIRMATION_REQUIRED', details: { plan: testingRepairPlan } }
-    );
-  }
-  const receipt = receiptToken
-    ? await resolveSelectionReceipt(root, config, receiptToken, { action, workId: workflow.workItem.id, workflow })
-    : null;
-  const session = phaseUsesDeterministicGeneration(phase)
-    ? { actor: actionActor(root), agent: null }
-    : await activatePhaseAgent(
-        root, config, workflow.workItem.id, phase, optionString(options, 'agent') ?? null,
-        // `config` already carries this Story's verified saved agent catalog. Passing the workflow
-        // here would verify the same closure a second time inside the same approval operation.
-        null
-      );
-  for (const override of (workflow.sequenceOverrides ?? []).slice(overridesBefore)) {
-    override.actor = session.actor;
-    override.agent = session.agent;
-    const history = workflow.history?.find((event) => event.event === 'sequence_gate_overridden' && event.at === override.at);
-    if (history) {
-      history.actor = session.actor.login ?? session.actor.email ?? session.actor.name ?? 'interactive-user';
-      history.agent = session.agent;
-    }
-  }
-  return { root, config, workflow, phase, session, receipt, receiptToken, testingRepairPlan };
-}
-
-/**
- * The reviewer's checklist decisions, from `--article` or `--checklist`. `[SPK:REQ-060]`
- *
- * When the pinned phase policy requires the legacy checklist, `--article completeness=satisfied`
- * reads well for an individual decision and `--checklist decisions.json` carries longer reasons.
- * There is deliberately no flag that answers every article at once: that would turn the required
- * checklist into the rubber stamp `[SPK:REQ-060]` exists to prevent. The starter policy is off,
- * so its approvals do not accept these flags.
- *
- * Reasons come from `--article-reason` and not `--reason`, which already means "why this Story is
- * being returned" on `reject` and on `epic review`. Two meanings on one flag would have made
- * `epic review --decision reject --reason "..."` start failing as a malformed checklist.
- * `--article-reason` values pair with the non-`satisfied` articles in the order both are given.
- */
-async function checklistDecisions(options) {
-  const file = optionString(options, 'checklist');
-  if (file) {
-    const payload = await readJson(path.resolve(file));
-    const entries = Array.isArray(payload) ? payload : payload.checklist ?? payload.decisions;
-    if (!Array.isArray(entries)) throw new SingularityFlowError('--checklist must contain an array of {article, decision, reason} entries.');
-    return entries;
-  }
-  const articles = optionStrings(options, 'article');
-  const reasons = optionStrings(options, 'article-reason');
-  if (!articles.length) {
-    if (reasons.length) throw new SingularityFlowError('--article-reason applies to a checklist article; pass --article <id>=exception alongside it.');
-    return [];
-  }
-  let reasonIndex = 0;
-  return articles.map((entry) => {
-    const separator = String(entry).indexOf('=');
-    const article = separator === -1 ? '' : String(entry).slice(0, separator).trim();
-    const decision = separator === -1 ? '' : String(entry).slice(separator + 1).trim();
-    if (!article || !decision) throw new SingularityFlowError(`--article must be <id>=satisfied|exception|not-applicable; got '${entry}'.`);
-    return {
-      article,
-      decision,
-      ...(decision === 'satisfied' ? {} : { reason: reasons[reasonIndex++] ?? null })
-    };
-  });
-}
-
-/**
- * Per-binding decisions from `--binding <clause>=accept|exception`; each exception takes the next
- * `--binding-reason`. Approving with none accepts every submitted binding as a batch [E2G-011].
- */
-function implementationBindingDecisions(options) {
-  const reasons = optionStrings(options, 'binding-reason');
-  let next = 0;
-  return optionStrings(options, 'binding').map((entry) => {
-    const separator = String(entry).lastIndexOf('=');
-    if (separator < 1) throw new SingularityFlowError(`--binding must be <clause>=accept|exception; got '${entry}'.`, { code: 'IMPLEMENTATION_BINDING_DECISION_INVALID' });
-    const decision = String(entry).slice(separator + 1).trim();
-    return { clauseId: String(entry).slice(0, separator).trim(), decision, ...(decision === 'exception' ? { reason: reasons[next++] ?? null } : {}) };
-  });
-}
-
-function witnessMappingDecisions(options) {
-  const mappings = optionStrings(options, 'witness-mapping');
-  const reasons = optionStrings(options, 'witness-mapping-reason');
-  const expiries = optionStrings(options, 'witness-mapping-expires');
-  let reasonIndex = 0;
-  let expiryIndex = 0;
-  const decisions = mappings.map((entry) => {
-    const separator = String(entry).indexOf('=');
-    const mappingSha256 = separator === -1 ? '' : String(entry).slice(0, separator).trim();
-    // An exception names the adequacy facets the test falls short on: exception:assertions,boundaries.
-    const [decision, facets = ''] = (separator === -1 ? '' : String(entry).slice(separator + 1).trim()).split(':');
-    const inadequate = facets.split(',').map((facet) => facet.trim()).filter(Boolean);
-    if (!/^sha256:[a-f0-9]{64}$/.test(mappingSha256)
-        || !['satisfied', 'exception', 'not-applicable'].includes(decision)
-        || (decision === 'exception') !== (inadequate.length > 0)) {
-      throw new SingularityFlowError(
-        `--witness-mapping must be <sha256>=satisfied, <sha256>=exception:<facet>[,<facet>] (facets: setup, action, assertions, boundaries, implementation) or <sha256>=not-applicable; got '${entry}'.`
-      );
-    }
-    const needsReason = decision !== 'satisfied';
-    const needsExpiry = decision === 'exception';
-    return {
-      mappingSha256,
-      decision,
-      ...(inadequate.length ? { inadequate } : {}),
-      ...(needsReason ? { reason: reasons[reasonIndex++] ?? null } : {}),
-      ...(needsExpiry ? { expiresAt: expiries[expiryIndex++] ?? null } : {})
-    };
-  });
-  if (reasonIndex !== reasons.length) {
-    throw new SingularityFlowError('--witness-mapping-reason applies only to exception or not-applicable witness decisions.');
-  }
-  if (expiryIndex !== expiries.length) {
-    throw new SingularityFlowError('--witness-mapping-expires applies only to exception witness decisions.');
-  }
-  return decisions;
-}
-
-/**
- * Run a transition that can end a Story, answering an unchanged retry of a gate refusal from memory
- * instead of running its checks again [E2G-024]. Success forgets the refusal.
- */
-async function withRefusalMemory(root, subject, transition) {
-  const fingerprint = await refusalFingerprint(root, subject);
-  await assertRefusalChanged(root, subject.workId, fingerprint);
-  try {
-    const value = await transition();
-    await forgetRefusal(root, subject.workId);
-    return value;
-  } catch (error) {
-    if (error?.details?.gate) await rememberRefusal(root, subject.workId, fingerprint, error.details.gate, nowIso());
-    throw error;
-  }
-}
-
-async function approveCommand(positionals, options) {
-  const forAgent = optionBoolean(options, 'for-agent');
-  if (forAgent && !optionBoolean(options, 'json')) throw new SingularityFlowError('--for-agent approval requires --json; it changes presentation only.');
-  if (optionString(options, 'selection-receipt') && optionBoolean(options, 'yes')) {
-    throw new SingularityFlowError('Do not combine --selection-receipt with --yes; the receipt already carries the reviewer\'s exact phase confirmation.');
-  }
-  const { root, config, workflow, phase, session, receipt, receiptToken } = await decisionWorkflow(positionals, options, 'approve');
-  const selfApproval = (phase.generatedBy?.login ?? phase.generatedBy?.email ?? phase.generatedBy?.name) === (session.actor.login ?? session.actor.email ?? session.actor.name);
-  if (!forAgent) printPhaseReview(await phaseReview(root, config, workflow, phase), { showArtifact: optionBoolean(options, 'show-artifact') });
-  const approvalAuthority = requireApprovalAuthority(
-    workflow.resolution.approvalAuthorities ?? config.approvalAuthorities,
-    phase.approvalPolicy,
-    session.actor,
-    { preferredAuthorities: remainingRequiredAuthorities(phase.approvalPolicy, phase.approvals) }
-  );
-  if (!forAgent) {
-  console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id}`);
-  console.log(`Reviewer: ${session.actor.name ?? session.actor.email ?? session.actor.login} · authority: ${approvalAuthority.authorityLabel} (${approvalAuthority.authorityGroup})`);
-  console.log(`governed agent: ${session.agent} (prompt/audit context only)`);
-  console.log(`Artifacts: ${phase.artifacts.map((item) => `${item.path} (${item.sha256?.slice(0, 18) ?? 'no hash'})`).join(', ')}`);
-  console.log(`Checks: ${phase.checks.map((item) => `${item.command}=${item.status}`).join(', ') || 'none'}`);
-  console.log(`Tokens: ${phase.usage.map((item) => item.totalTokens ?? item.status).join(', ') || 'unavailable'}`);
-  console.log(`Prior approvals: ${phase.approvals.filter((item) => !item.invalidatedAt).map((item) => `${item.actor?.name ?? item.actor?.email ?? 'unknown'} via ${item.authorityGroup ?? 'unrecorded authority'}; agent ${item.agent ?? 'unavailable'} (${item.decision})`).join(', ') || 'none'}`);
-  if (selfApproval) console.warn('Warning: this identity generated the phase; approval will be recorded as self-approval.');
-  }
-  if (!receipt && !optionBoolean(options, 'yes') && !(await confirm(phase))) throw new SingularityFlowError('Approval cancelled.');
-  const checklist = await checklistDecisions(options);
-  const witnessMappings = witnessMappingDecisions(options);
-  const bindingDecisions = implementationBindingDecisions(options);
-  // The transition mutates the aggregate in place, so the convergence guard uses an immutable
-  // pre-decision projection while rereading external files/refs at the isolated-commit boundary.
-  const approvalStabilityWorkflow = structuredClone(workflow);
-  const approvalStabilityPhase = approvalStabilityWorkflow.phases[phase.id];
-  const expectedConvergenceApprovalSnapshot = isConvergencePhase(phase)
-    ? (await assertConvergencePublicationReady(
-        root, config, approvalStabilityWorkflow, approvalStabilityPhase
-      )).snapshotSha256
-    : null;
-  const approvalStabilityGuard = async () => {
-    let convergenceIdentity = 'not-convergence';
-    if (expectedConvergenceApprovalSnapshot) {
-      const current = await assertConvergencePublicationReady(
-        root, config, approvalStabilityWorkflow, approvalStabilityPhase
-      );
-      if (current.snapshotSha256 !== expectedConvergenceApprovalSnapshot) {
-        throw new SingularityFlowError(
-          'Convergence evidence changed while approval was being recorded. Nothing was committed; review and submit the current projection again.',
-          { code: 'PUBLICATION_SNAPSHOT_CHANGED' }
-        );
-      }
-      convergenceIdentity = current.snapshotSha256;
-    }
-    return convergenceIdentity;
-  };
-  const { value: result, publication } = await withRefusalMemory(root, {
-    operation: 'approve', workId: workflow.workItem.id, phase: phase.id, actor: actorKey(session.actor),
-    args: [checklist ?? null, witnessMappings ?? null, bindingDecisions]
-  }, () => transactStory(
-    root,
-    config,
-    workflow,
-    {
-      type: LIFECYCLE_EVENT.PHASE_APPROVED,
-      phaseId: phase.id,
-      generation: phase.generation,
-      actor: session.actor,
-      agent: session.agent,
-      authorityGroup: approvalAuthority.authorityGroup
-    },
-    `[${workflow.workItem.id}][phase:${phase.id}][approve] ${approvalAuthority.authorityGroup}`,
-    (aggregate) => approvePhase(root, config, aggregate, {
-      phaseId: phase.id,
-      channel: process.env.SINGULARITY_FLOW_GITHUB_ACTOR ? 'github-pr-comment' : receipt ? 'copilot-selection-receipt' : 'terminal',
-      actionContext: activeActionContext() ?? receipt?.approvalContext ?? null,
-      checklist,
-      witnessMappings,
-      bindingDecisions,
-      actor: session.actor,
-      agent: session.agent,
-      persist: false
-    }),
-    {
-      paths: phase.artifacts.map((item) => item.path),
-      eventFromResult: (transition) => ({
-        actor: transition.approval.actor,
-        agent: transition.approval.agent,
-        authorityGroup: transition.approval.authorityGroup,
-        identityAssurance: transition.approval.identityAssurance,
-        payload: {
-          decision: transition.approval.decision,
-          reviewPacketSha256: transition.approval.reviewPacketSha256,
-          evidenceCommit: transition.approval.evidenceCommit,
-          artifactSetSha256: transition.approval.artifactSetSha256,
-          witnessMappingsSha256: transition.approval.witnessMappingsSha256 ?? null
-        }
-      }),
-      worktreeGuard: approvalStabilityGuard
-    }
-  ));
-  // Spent once the approval has actually landed. Consuming it up front — before the confirmation
-  // prompt, let alone the publication — meant declining at the prompt or hitting any refusal burned
-  // the reviewer's one-shot receipt, and a new one had to be issued before they could try again.
-  if (receiptToken) {
-    try { await consumeSelectionReceipt(root, receiptToken); }
-    catch (error) {
-      // The governed decision is already committed and may already be on the remote. Treat receipt
-      // cleanup as a local recovery warning so retry cannot strand the reviewer behind an
-      // "already approved" refusal after a successful gate transition.
-      console.warn(`Warning: approval succeeded, but selection receipt cleanup is pending: ${error.message}`);
-    }
-  }
-  // Approval may cross a phase boundary. Rebind from the committed aggregate rather than the
-  // caller's pre-transaction object so a same-agent transition (for example verification →
-  // release) still changes the phase binding, and deterministic convergence clears agent
-  // authority instead of inheriting the previous phase's session.
-  await postPublicationStep('the next-phase session activation', workflow.workItem.id, async () => {
-    const accepted = await loadAcceptedStoryExecution(root, workflow.workItem.id);
-    return activateWorkItemSession(root, accepted.config, accepted.workflow);
-  });
-  if (!forAgent) console.log(publication.pushed
-    ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
-    : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
-  if (!forAgent) console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; governed agent ${result.approval.agent}.`);
-  if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
-  const receiptsLine = await recordRequiredReceiptsAfterTransition(root, workflow);
-  if (receiptsLine && !forAgent) console.log(receiptsLine);
-  if (!forAgent) formatContextBoundaryHandoff(result.contextBoundary).forEach((line) => console.log(line));
-  // The last approval ends the Story only after its transaction passed the final evaluation.
-  const completion = result.next ? null : recordedCompletion(workflow);
-  if (completion && !forAgent) printCompletionVerdict(completion);
-  emitCommandResult(commandResult({
-    operation: { id: 'approve', classification: 'mutation' },
-    subject: { kind: 'story', id: workflow.workItem.id },
-    outcome: succeeded('approve.succeeded', {
-      phase: result.phase.id, next: result.next?.id ?? null, reached: result.reached !== false,
-      ...(completion ? { finalCheck: completion.verified ? 'passed' : 'failed', completionLabel: completion.label ?? null } : {})
-    }),
-    effects: effects({ stateChanged: true, filesChanged: true, publicationCreated: true }),
-    ...completionContinuation(completion),
-    data: {
-      commit: publication.sha, pushed: publication.pushed, authorityGroup: result.approval.authorityGroup,
-      turnBoundary: 'end', selfApproval: result.approval.selfApproval === true,
-      contextBoundary: result.contextBoundary,
-      reviewer: result.approval.approvedBy, reviewPacketSha256: result.approval.reviewPacketSha256,
-      artifactSetSha256: result.approval.artifactSetSha256,
-      ...(completion ? { finalCheck: { verified: completion.verified, errors: completion.errors } } : {})
-    }
-  }), { postState: workflow, json: optionBoolean(options, 'json'), forAgent,
-    stepActionHold: await stepActionHoldAfterTransition(root, config, workflow) });
-}
-
-/** A Story that reached its end rests complete only when the final check passed; otherwise it says how to recover. */
-function completionContinuation(completion) {
-  if (!completion) return {};
-  return completion.verified ? { restState: 'complete' } : { next: completionRecoveryActions(completion) };
 }
 
 async function rejectCommand(positionals, options) {
@@ -10272,207 +8402,6 @@ async function reviewCommand(positionals, options) {
   process.stdout.write(rendered);
 }
 
-async function reviewSourceCommand(positionals, options) {
-  if (options['for-agent'] !== undefined) {
-    const { validateAgentEntryRequest } = await import('./agent-entry-options.mjs');
-    validateAgentEntryRequest('review-source', { positionals, options });
-    const { sourceReviewAgentContext } = await import('./source-review-agent-context.mjs');
-    return console.log(JSON.stringify(await sourceReviewAgentContext({ phaseId: positionals[2] ?? null }), null, 2));
-  }
-  const action = requirePositional(positionals, 1, 'source review action');
-  if (!['context', 'decision-context', 'stage', 'check', 'submit', 'decide', 'status'].includes(action)) {
-    throw new SingularityFlowError("Source review action must be context, decision-context, stage, check, submit, decide, or status.");
-  }
-  const phaseId = requirePositional(positionals, 2, 'step that defines the scope or plans the claims');
-  const root = repoRoot();
-  const { config, workflow } = await loadAcceptedStoryExecution(root, optionString(options, 'work-id'));
-  // Reviewable by what the step does, not what it is called [E2G-001]. Asking whether a review is
-  // needed is answered for every step, so a caller never stops on a step that needs none.
-  if (['status', 'context', 'decision-context', 'check'].includes(action) && !sourceReviewKind(workflow, phaseId) && workflow.phases?.[phaseId]) {
-    const result = { schemaVersion: 1, resultType: 'source-review-status', workId: workflow.workItem.id, phase: phaseId,
-      mode: 'not-applicable', status: 'not-required', findings: [], pendingDispositions: [],
-      reason: `'${phaseId}' neither defines the scope nor plans the claims, so it has no source review.` };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    return console.log(`Source review: not required for ${workflow.workItem.id} ${phaseId}; ${result.reason}`);
-  }
-  if (!sourceReviewKind(workflow, phaseId)) {
-    throw new SingularityFlowError(`Source review applies only to a step that defines the scope or plans the claims; '${phaseId}' does neither.`);
-  }
-  if (!workflowBranchAllowed(workflow, branch(root))) {
-    throw new SingularityFlowError(`Current branch is not registered for Story '${workflow.workItem.id}'.`);
-  }
-  const phase = workflow.phases?.[phaseId];
-  if (!phase) throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no '${phaseId}' phase.`);
-  const emitReview = (operation, outcome, changed, data) => emitCommandResult(commandResult({
-    operation: { id: `review-source.${operation}`, classification: changed ? 'mutation' : 'read' },
-    subject: { kind: 'story', id: workflow.workItem.id }, outcome,
-    effects: changed ? effects({ stateChanged: true, filesChanged: true, publicationCreated: true }) : noEffects(),
-    restState: changed ? 'complete' : 'informational', data,
-    next: (data?.continuation?.actions ?? []).map((entry, index) => narrationAction({ id: `source-review.next.${index}`, command: entry.command, skill: entry.skill, label: entry.reason, rank: 'NOW' }))
-  }), { postState: workflow });
-  if (action === 'status' && !sourceReviewRequired(workflow, phaseId)) {
-    const result = { schemaVersion: 1, resultType: 'source-review-status',
-      workId: workflow.workItem.id, phase: phaseId, mode: 'off', status: 'not-required',
-      findings: [], pendingDispositions: [] };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Source review: not required for ${workflow.workItem.id} ${phaseId} (pinned policy is off).`);
-    return emitReview('status', noop('source-review.status-reported', {
-      workId: workflow.workItem.id, phase: phaseId, status: 'not-required'
-    }), false, result);
-  }
-  const stagingPath = path.join(gitDir(root), 'singularity-flow', 'source-reviews',
-    `${workflow.workItem.id}-${phaseId}-gen${phase.generation}.json`);
-  if (action === 'context') {
-    if (workflow.currentPhase !== phaseId || phase.status !== 'in_progress') {
-      throw new SingularityFlowError(`Source review context requires current in-progress phase '${phaseId}'.`);
-    }
-    const packet = await sourceReviewContext(root, config, workflow, phaseId, stagingPath);
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(packet, null, 2));
-    console.log(sourceReviewContextText(packet));
-    return emitReview('context', noop('source-review.context-reported', {
-      workId: workflow.workItem.id, phase: phaseId, generation: packet.generation, canReview: packet.canReview
-    }), false, packet);
-  }
-  if (action === 'status') {
-    const status = await readSourceReviewStatus(root, config, workflow, phaseId);
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
-    console.log(`Source review: ${status.status} for ${status.workId} ${phaseId} generation ${status.generation}`);
-    if (status.reportSha256) console.log(`Report: ${status.reportSha256} · ${status.reportPath}`);
-    for (const finding of status.findings) console.log(`- ${finding.code}: ${finding.message}`);
-    for (const pending of status.pendingDispositions) console.log(`- Human decision pending: ${pending.id} — ${pending.reason}`);
-    return emitReview('status', noop('source-review.status-reported', {
-      workId: workflow.workItem.id, phase: phaseId, status: status.status
-    }), false, status);
-  }
-  if (workflow.currentPhase !== phaseId || phase.status !== 'in_progress') {
-    throw new SingularityFlowError(`Source review ${action} requires current in-progress phase '${phaseId}'.`);
-  }
-  if (action !== 'check' && action !== 'decision-context') await assertNoPendingPublication(root, config, workflow, `record source review ${action}`);
-  if (action === 'stage') {
-    const { stageSourceReviewReport } = await import('./source-review-staging.mjs');
-    const result = await stageSourceReviewReport(root, config, workflow, phaseId, optionString(options, 'report-json'));
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Review draft staged: ${result.stagingPath}; no review, submission or approval retained.`);
-    console.log(commandRouteLines(result.commandGuidance).join('\n'));
-    return;
-  }
-  if (action === 'check' || action === 'submit') {
-    const reportFile = optionString(options, 'report-file');
-    if (!reportFile || path.resolve(reportFile) !== path.resolve(stagingPath)) {
-      throw new SingularityFlowError(`Source review report must be staged at ${stagingPath}.`, {
-        code: 'SOURCE_REVIEW_REPORT_STAGING_REQUIRED'
-      });
-    }
-    const input = await sourceReviewInput(root, config, workflow, phaseId);
-    const stagingEntry = await lstat(stagingPath).catch(() => null);
-    if (!stagingEntry?.isFile() || stagingEntry.size > 8 * 1024 * 1024) {
-      throw new SingularityFlowError('Staged source review must be a regular JSON file of at most 8 MiB.', {
-        code: 'SOURCE_REVIEW_REPORT_STAGING_INVALID'
-      });
-    }
-    let report;
-    try { report = JSON.parse(await readFile(stagingPath, 'utf8')); }
-    catch { throw new SingularityFlowError('Staged source review is not valid JSON. Repair the staging file; no review was retained.', {
-      code: 'SOURCE_REVIEW_REPORT_INVALID'
-    }); }
-    if (action === 'check') {
-      const checked = checkSourceReviewReport(report, input);
-      const result = { schemaVersion: 1, resultType: 'source-review-check', // schema-transient
-        workId: workflow.workItem.id, phase: phaseId, generation: phase.generation,
-        status: checked.format.status !== 'ready' ? checked.format.status : checked.evaluation.status,
-        ...checked, findings: [...checked.format.findings, ...(checked.evaluation?.findings ?? [])] };
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      console.log(`Source review check: ${result.status}; format ${result.format.status}; retention ${result.retentionReady ? 'ready' : 'blocked'} (no changes).`);
-      for (const finding of result.findings) console.log(`- ${finding.field ?? finding.code}: ${finding.message}`);
-      return emitReview('check', noop('source-review.checked', {
-        workId: workflow.workItem.id, phase: phaseId, retentionReady: result.retentionReady
-      }), false, result);
-    }
-    const session = scopedSourceReviewerSession(input, await loadSession(root));
-    const evaluation = evaluateSubmittedSourceReview(report, input, session);
-    let retained;
-    const { publication } = await transactStory(root, config, workflow, {
-      type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, generation: phase.generation,
-      actor: session.actor, agent: session.agent,
-      payload: { kind: 'source-grounded-review', reportSha256: evaluation.reportSha256 }
-    }, `[${workflow.workItem.id}][phase:${phaseId}][source-review] ${evaluation.reportSha256.slice(0, 12)}`,
-    async (aggregate, publicationEvent) => {
-      const current = await sourceReviewInput(root, config, aggregate, phaseId);
-      if (JSON.stringify(current.binding) !== JSON.stringify(input.binding)) throw new SingularityFlowError(
-        'Review sources or artifact changed during submission.', { code: 'SOURCE_REVIEW_BINDING_STALE' }
-      );
-      retained = await retainSourceReview(root, config, aggregate, phaseId, report, evaluation, session, publicationEvent);
-      return retained;
-    });
-    const status = await readSourceReviewStatus(root, config, await loadStoryAggregate(root, config, workflow.workItem.id), phaseId);
-    const result = { ...status, commit: publication.sha, pushed: publication.pushed };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Source review retained: ${retained.reportSha256} · ${retained.path}`);
-    console.log(`Commit: ${publication.sha}${publication.pushed ? ' (pushed)' : ' (local)'}`);
-    console.log(`Status: ${status.status}; ${status.findings.length} finding(s), ${status.pendingDispositions.length} human decision(s) pending.`);
-    return emitReview('submit', succeeded('source-review.submitted', {
-      workId: workflow.workItem.id, phase: phaseId, reportSha256: retained.reportSha256
-    }), true, result);
-  }
-  const decisionSession = await loadSession(root, { required: false });
-  if (decisionSession?.agent === workflow.resolution?.sourceReview?.reviewerAgent) {
-    throw new SingularityFlowError(
-      `The read-only source reviewer '${decisionSession.agent}' cannot record a human source review decision. Select a different agent or use an authorized human shell session, then retry.`,
-      { code: 'SOURCE_REVIEW_REVIEWER_CANNOT_DECIDE', details: {
-        recoveryCommand: `singularity-flow agent --agent ${phase.defaultAgent}`,
-        recoverySkill: '/sf-agent', retrySkill: '/sf-review-decide' } }
-    );
-  }
-  const status = await readSourceReviewStatus(root, config, workflow, phaseId);
-  const id = optionString(options, 'finding');
-  const reason = optionString(options, 'reason');
-  if (!status.reportSha256 || !id || !reason) throw new SingularityFlowError(
-    'Source review decision requires a retained report, --finding ID, and --reason TEXT.'
-  );
-  const actor = identity(root);
-  const authorities = workflow.resolution?.approvalAuthorities ?? config.approvalAuthorities;
-  const authority = requireApprovalAuthority(authorities, phase.approvalPolicy, actor);
-  const { sourceReviewDecisionPacket, assertSourceReviewDecisionConfirmation } = await import('./source-review-decision.mjs');
-  const decisionPacket = sourceReviewDecisionPacket({ workflow, phaseId, status, findingId: id, reason, actor, authority });
-  if (action === 'decision-context') {
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(decisionPacket, null, 2));
-    console.log(`${decisionPacket.instruction}\nReport: ${status.reportSha256}\nFinding: ${id}\nReason: ${reason}\nAuthority: ${authority.authorityGroup}`);
-    console.log(commandRouteLines(decisionPacket.commandGuidance).join('\n'));
-    return;
-  }
-  assertSourceReviewDecisionConfirmation(decisionPacket, optionString(options, 'confirm'));
-  let retained;
-  const { publication } = await transactStory(root, config, workflow, {
-    type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, phaseId, generation: phase.generation,
-    actor, agent: null, authorityGroup: authority.authorityGroup,
-    payload: { kind: 'source-review-disposition',
-      reportSha256: status.reportSha256, findingId: id }
-  }, `[${workflow.workItem.id}][phase:${phaseId}][source-review-decision] ${id}`,
-  async (aggregate, publicationEvent) => {
-    const current = await readSourceReviewStatus(root, config, aggregate, phaseId);
-    if (current.reportSha256 !== status.reportSha256 || current.status === 'stale') throw new SingularityFlowError(
-      'Source review changed before the human decision was recorded.', {
-        code: 'SOURCE_REVIEW_BINDING_STALE'
-      }
-    );
-    assertSourceReviewDecisionConfirmation(sourceReviewDecisionPacket({ workflow: aggregate, phaseId,
-      status: current, findingId: id, reason, actor, authority }), optionString(options, 'confirm'));
-    retained = await retainSourceReviewDecision(root, config, aggregate, phaseId, current,
-      id, reason, actor, authority, publicationEvent);
-    return retained;
-  });
-  const updated = await readSourceReviewStatus(root, config, await loadStoryAggregate(root, config, workflow.workItem.id), phaseId);
-  const result = { ...updated, decision: retained, commit: publication.sha, pushed: publication.pushed,
-    turnBoundary: 'end', effects: { decisionRecorded: true, phaseAdvanced: false, approvalRecorded: false } };
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-  console.log(`Human source review decision retained: ${id} · ${retained.recordSha256}`);
-  console.log(`Commit: ${publication.sha}${publication.pushed ? ' (pushed)' : ' (local)'}`);
-  console.log(`Status: ${updated.status}; ${updated.findings.length} finding(s) remain.`);
-  return emitReview('decide', succeeded('source-review.decided', {
-    workId: workflow.workItem.id, phase: phaseId, findingId: id
-  }), true, result);
-}
-
 async function receiptCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'show';
   if (subcommand !== 'show') throw new SingularityFlowError("receipt supports only 'show'.");
@@ -11390,7 +9319,7 @@ async function runCommand(positionals, options) {
     printCommandRoutes(`singularity-flow submit ${phase.id}`, { label: 'Submit when ready' });
     return;
   }
-  await submitCommand(['submit', phase.id], options);
+  await (await import('./commands/submit.mjs')).submitCommand(['submit', phase.id], options);
   const afterSubmission = await loadStoryAggregate(root, config);
   const submittedPhase = afterSubmission.phases[phase.id];
   if (submittedPhase?.status === 'awaiting_approval') {
@@ -11511,1052 +9440,6 @@ async function hookCommand(positionals) {
     if (event === 'session-start') return console.log(JSON.stringify(await sessionStartAgentHook(root, config, workflow, payload)));
     if (event === 'agent-guard') return console.log(JSON.stringify(await agentGuardHook(root, config, workflow, payload)));
   } catch { console.log('{}'); }
-}
-
-/**
- * Which repository a session command is about. `[session]`
- *
- * The working directory is asked first and always wins when it is a governed repository: a person
- * standing in one clone must never be answered about another, however recently they selected it.
- *
- * When the working directory is not a governed repository, the active workspace selection answers
- * instead. That selection is an explicit act — someone chose this workspace and this repository —
- * and it already records the absolute path. Copilot does not run with its working directory inside
- * the clone, so without this fallback `session status` reported `initialized: false` and the only
- * remedy on offer was to reopen the editor somewhere else. The repository was known the whole time.
- *
- * The caller is always told which of the two answered, because the same JSON otherwise describes
- * two materially different situations.
- */
-function sessionRepositoryRemotes(root) {
-  const names = gitAnswer(root, ['remote'], 'Session repository remotes')
-    .split(/\r?\n/).map((name) => name.trim()).filter(Boolean);
-  return [...new Set(['origin', ...names].filter((name) => names.includes(name)))];
-}
-
-function definitionAtRef(root, ref) {
-  const source = fileAtRef(root, ref, WORKFLOW_PATH);
-  if (source == null) return null;
-  const definition = YAML.parse(source);
-  validateDefinition(definition);
-  return definition;
-}
-
-/**
- * A production bootstrap keeps approved configuration on `sflow/config`, not application `main`.
- * Treat the remote authority (or an already-published lifecycle branch carrying its snapshot) as
- * proof that the checkout is governed; requiring a working-tree copy made every fresh clone look
- * uninitialised until somebody manually checked out the Story branch.
- */
-async function sessionRepositoryAuthority(root, { remoteProbe = true } = {}) {
-  if (!root) return null;
-  const workingTreeDefinition = existsSync(path.join(root, WORKFLOW_PATH));
-  // An active Story carries its own immutable configuration source. Application branches can
-  // retain an old workflow file, but that file must not shadow a current approved sflow/config.
-  if (workingTreeDefinition && existsSync(path.join(root, CONFIGURATION_SOURCE_PATH))) {
-    return { source: 'working-tree', remote: null };
-  }
-  let localLifecycle = null;
-  for (const remote of sessionRepositoryRemotes(root)) {
-    const configurationRef = `refs/remotes/${remote}/${CONFIGURATION_BRANCH}`;
-    if (refExists(root, configurationRef)) {
-      return { source: 'configuration-branch', remote, ref: `${remote}/${CONFIGURATION_BRANCH}` };
-    }
-    const storyRef = remoteBranches(root, remote)
-      .map((branchName) => `${remote}/${branchName}`)
-      .find((ref) => fileAtRef(root, ref, WORKFLOW_PATH) !== null);
-    if (storyRef && !localLifecycle) {
-      localLifecycle = { source: 'lifecycle-branch', remote, ref: storyRef };
-    }
-  }
-  // A --single-branch clone may not have fetched the configuration namespace yet. The session
-  // operation is remote-backed anyway, so prove the authority without changing the checkout.
-  // `session context` reads only the local Story, so it does not pay for a network round trip.
-  for (const remote of remoteProbe ? sessionRepositoryRemotes(root) : []) {
-    const identity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
-    if (!identity.configured || identity.ambiguous) continue;
-    const transport = frozenRemoteTransport(identity.url);
-    const available = await runRemoteGitAsync([
-      'ls-remote', '--heads', '--', transport.remote, `refs/heads/${CONFIGURATION_BRANCH}`
-    ], {
-      cwd: root, operation: 'remote-probe', env: transport.env
-    });
-    if (available.status === 0 && available.stdout.trim()) {
-      return { source: 'configuration-remote', remote, ref: `${remote}/${CONFIGURATION_BRANCH}` };
-    }
-  }
-  return localLifecycle ?? (workingTreeDefinition ? { source: 'working-tree', remote: null } : null);
-}
-
-async function sessionDiscoveryConfiguration(root, authority = null, { storyBootstrap = false } = {}) {
-  authority ??= await sessionRepositoryAuthority(root);
-  if (configurationReadAuthority(root)) {
-    const definition = await loadConfig(root, { storyBootstrap });
-    return {
-      definition,
-      remote: definition.git?.remote ?? 'origin',
-      source: 'approved-configuration-overlay'
-    };
-  }
-  if (authority?.source === 'working-tree') {
-    const definition = await loadConfig(root, { storyBootstrap });
-    return { definition, remote: definition.git?.remote ?? 'origin', source: 'working-tree' };
-  }
-  if (!authority?.remote) {
-    throw new SingularityFlowError(
-      `Repository '${root}' has no working-tree definition and no published ${CONFIGURATION_BRANCH} authority.`,
-      { code: 'SESSION_REPOSITORY_NOT_GOVERNED' }
-    );
-  }
-  const approvedRef = `${authority.remote}/${CONFIGURATION_BRANCH}`;
-  if (refExists(root, `refs/remotes/${approvedRef}`)) {
-    const definition = definitionAtRef(root, approvedRef);
-    if (!definition) {
-      throw new SingularityFlowError(
-        `Approved ${CONFIGURATION_BRANCH} is missing ${WORKFLOW_PATH}; refresh or repair its review proposal.`,
-        { code: 'SESSION_CONFIGURATION_UNAVAILABLE' }
-      );
-    }
-    return { definition, remote: definition.git?.remote ?? authority.remote, source: approvedRef };
-  }
-  if (authority.source === 'configuration-remote') {
-    await fetchRemote(root, authority.remote, { respectPartialClone: true });
-    const definition = definitionAtRef(root, approvedRef);
-    if (!definition) {
-      throw new SingularityFlowError(
-        `Approved ${CONFIGURATION_BRANCH} is missing ${WORKFLOW_PATH}; refresh or repair its review proposal.`,
-        { code: 'SESSION_CONFIGURATION_UNAVAILABLE' }
-      );
-    }
-    return { definition, remote: definition.git?.remote ?? authority.remote, source: approvedRef };
-  }
-  // Legacy branch-local workflows remain readable only when no approved configuration was found.
-  // They must not replace a known, malformed sflow/config with an unrelated lifecycle definition.
-  const legacyCandidates = [authority.ref, ...localBranches(root), branch(root)].filter(Boolean);
-  for (const ref of [...new Set(legacyCandidates)]) {
-    try {
-      const definition = definitionAtRef(root, ref);
-      if (definition) return { definition, remote: authority.remote, source: ref };
-    } catch { /* Try another legacy lifecycle ref; attachment validates the selected Story strictly. */ }
-  }
-  throw new SingularityFlowError(
-    `Remote '${authority.remote}' has no readable governed definition on ${CONFIGURATION_BRANCH} or a lifecycle branch.`,
-    { code: 'SESSION_CONFIGURATION_UNAVAILABLE' }
-  );
-}
-
-async function resolveSessionRepository({
-  workspaceReference = null, repositoryId = null, localStoryOnly = false, remoteProbe = true
-} = {}) {
-  // An existing managed checkout proves its governance through its accepted Story aggregate.
-  // Resolving that local candidate must not probe a remote for configuration authority.
-  const governed = (candidate) => localStoryOnly
-    ? candidate ? { source: 'local-story-candidate', remote: null } : null
-    : sessionRepositoryAuthority(candidate, { remoteProbe });
-
-  if (repositoryId != null && workspaceReference == null) throw new SingularityFlowError(
-    '--repository requires --workspace for session candidates or attach.',
-    { code: 'SESSION_WORKSPACE_SELECTION_REQUIRED' }
-  );
-
-  // An exact workspace/repository selector is independent of the host's current directory. In
-  // particular, VS Code may be rooted in a different Story worktree when its Inbox opens a remote
-  // Story from another mapped repository. This read does not change the active local selection.
-  const explicit = workspaceReference == null ? null : await buildWorkspaceContext(
-    workspaceRegistryFile(), workspaceReference, { repositoryId, detectStory: false }
-  );
-  if (explicit && repositoryId == null
-      && Object.keys((await readWorkspace(explicit.workspacePath)).repositories).length > 1) {
-    throw new SingularityFlowError(
-      `Workspace '${explicit.workspaceName}' contains multiple repositories. Choose one with --repository <ID>.`,
-      { code: 'SESSION_REPOSITORY_SELECTION_REQUIRED' }
-    );
-  }
-
-  let cwdRoot = null;
-  if (!explicit) {
-    try { cwdRoot = repoRoot(); } catch { /* Not inside a Git repository at all. */ }
-    const cwdAuthority = await governed(cwdRoot);
-    if (cwdAuthority) {
-      return { root: cwdRoot, resolvedFrom: 'working-directory', workspaceId: null, authority: cwdAuthority };
-    }
-  }
-
-  let context = explicit;
-  if (!context) {
-    try {
-      context = await readActiveWorkspaceContext(activeWorkspaceFile(), workspaceRegistryFile());
-    } catch { /* An unreadable or stale selection is a miss, not a failure of the command. */ }
-  }
-
-  if (!context) {
-    return {
-      root: null,
-      reason: 'no-workspace-selected',
-      detail: 'Select a workspace with `singularity-flow session workspace <workspace>`.'
-    };
-  }
-  if (context.repositoryState !== 'ready') {
-    // Candidates can inspect a deferred repository without cloning. Attach will preflight the
-    // exact Story before materializing only this reviewed workspace member.
-    return {
-      root: null,
-      reason: 'workspace-repository-not-ready',
-      workspaceContext: context,
-      detail: `Workspace '${context.workspaceName}' repository '${context.repositoryId}' is ${context.repositoryState}. `
-        + `Run \`singularity-flow workspace repair ${context.workspacePath}\`.`
-    };
-  }
-  const workspaceRoot = context.canonicalRepositoryPath ?? context.repositoryPath;
-  const workspaceAuthority = await governed(workspaceRoot);
-  if (!workspaceAuthority) {
-    return {
-      root: null,
-      reason: 'workspace-repository-not-initialized',
-      detail: `Workspace '${context.workspaceName}' repository '${context.repositoryId}' has no ${WORKFLOW_PATH}.`
-    };
-  }
-  return {
-    root: path.resolve(explicit ? workspaceRoot : context.repositoryPath),
-    resolvedFrom: explicit ? 'explicit-workspace' : 'active-workspace',
-    workspaceId: context.workspaceId,
-    authority: workspaceAuthority,
-    workspaceContext: context
-  };
-}
-
-async function selectedSessionRemote(context) {
-  const workspace = await readWorkspace(context.workspacePath);
-  if (workspace.id !== context.workspaceId) throw new SingularityFlowError(
-    'The selected workspace identity changed before Story discovery. Select the workspace again.',
-    { code: 'SESSION_WORKSPACE_CHANGED' }
-  );
-  const member = workspace.repositories?.[context.repositoryId];
-  if (!member || !samePlatformPath(
-    workspaceRepositoryPath(workspace, member), context.canonicalRepositoryPath
-  )) {
-    throw new SingularityFlowError(
-      'The selected workspace repository changed before Story discovery. Select it again.',
-      { code: 'SESSION_WORKSPACE_CHANGED' }
-    );
-  }
-  const lead = workspace.repositories?.[workspace.leadRepository];
-  const configurationUrl = workspace.capabilityAuthority?.url ?? lead?.url;
-  if (!member.url || !configurationUrl) throw new SingularityFlowError(
-    'The selected workspace does not identify both Story and approved configuration Git authorities.',
-    { code: 'SESSION_REMOTE_CONFIGURATION_REQUIRED' }
-  );
-  return { url: member.url, configurationUrl };
-}
-
-function exactDiscoveredStory(discovery, reference) {
-  const matches = discovery.items.filter((item) => item.id === reference || item.branch === reference);
-  if (matches.length !== 1) throw new SingularityFlowError(
-    matches.length ? `Story reference '${reference}' is ambiguous on the selected remote.`
-      : `No governed Story matches '${reference}' on the selected remote. Refresh Story candidates and choose an exact ID or branch.`,
-    { code: matches.length ? 'SESSION_STORY_AMBIGUOUS' : 'SESSION_STORY_NOT_FOUND' }
-  );
-  if (discovery.unavailable?.some((entry) => entry.claimedId === matches[0].id
-      || entry.branch === matches[0].branch)) throw new SingularityFlowError(
-    `Story '${matches[0].id}' has conflicting or unreadable claims on the selected remote. Repair its governed state before attaching.`,
-    { code: 'SESSION_STORY_INVALID' }
-  );
-  return matches[0];
-}
-
-const SESSION_METADATA_BLOB_LIMIT = 1024 * 1024;
-
-async function exactStoryMetadataAtRef(root, remote, item, expectedCommit = null) {
-  const ref = `${remote}/${item.branch}`;
-  const commit = refHead(root, `refs/remotes/${ref}`);
-  if (!commit || (expectedCommit && commit !== expectedCommit)) throw new SingularityFlowError(
-    `Story branch '${item.branch}' changed after discovery. Refresh candidates and retry.`,
-    { code: 'SESSION_REMOTE_CHANGED' }
-  );
-  const identity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
-  if (!identity.configured || identity.ambiguous) throw new SingularityFlowError(
-    `Story remote '${remote}' has no single configured fetch authority.`,
-    { code: 'GIT_REMOTE_CONFIG_INVALID' }
-  );
-  const readMetadata = async (relative) => {
-    const oid = refHead(root, `${ref}:${relative}`, {
-      env: { ...process.env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' }
-    });
-    if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(oid ?? '')) throw new SingularityFlowError(
-      `Story branch '${item.branch}' is missing required metadata '${relative}'.`,
-      { code: 'SESSION_STORY_INVALID' }
-    );
-    // The exact tree path fixes the immutable blob OID. In a partial clone this may fetch only
-    // that promised blob, never the application tree. The registered remote executor bounds the
-    // network wait/output and disables interactive credential prompts.
-    const observed = await runRemoteGitAsync(['cat-file', 'blob', oid], {
-      cwd: root, operation: 'remote-configuration', maxBuffer: SESSION_METADATA_BLOB_LIMIT + 1
-    });
-    if (observed.status !== 0 || Buffer.byteLength(observed.stdout ?? '', 'utf8') > SESSION_METADATA_BLOB_LIMIT) {
-      throw new SingularityFlowError(
-        `Story branch '${item.branch}' has unavailable or oversized metadata '${relative}'.`,
-        { code: 'SESSION_STORY_METADATA_UNAVAILABLE' }
-      );
-    }
-    return observed.stdout;
-  };
-  let definition;
-  try {
-    definition = YAML.parse(await readMetadata(WORKFLOW_PATH));
-    validateDefinition(definition);
-    validateId(definition, item.id);
-  } catch (error) {
-    if (error instanceof SingularityFlowError) throw error;
-    throw new SingularityFlowError(`Story '${item.id}' has an invalid pinned workflow definition.`, {
-      code: 'SESSION_STORY_INVALID'
-    });
-  }
-  const itemPath = posix(path.join(
-    definition.workItemRoot ?? 'singularity/work-items', item.id, 'workflow.json'
-  ));
-  let state;
-  try { state = readRecord('story-workflow', JSON.parse(await readMetadata(itemPath))).record; }
-  catch (error) {
-    if (error instanceof SingularityFlowError) throw error;
-    throw new SingularityFlowError(`Story '${item.id}' has invalid governed state.`, {
-      code: 'SESSION_STORY_INVALID'
-    });
-  }
-  const canonical = state.lineage?.canonicalBranch ?? state.workItem?.branch ?? item.id;
-  if (state.workItem?.id !== item.id || !state.phases || !Array.isArray(state.phaseOrder)
-      || canonical !== item.branch) throw new SingularityFlowError(
-    `Story '${item.id}' does not own branch '${item.branch}' in its pinned state.`,
-    { code: 'SESSION_STORY_INVALID' }
-  );
-  return {
-    id: item.id, kind: 'story', canonicalBranch: canonical, selectedBranch: item.branch,
-    location: { source: 'ref', ref, branch: item.branch, path: itemPath, commit },
-    state
-  };
-}
-
-async function printSessionCandidateResult(discovered, options, scope = {}) {
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(
-    optionBoolean(options, 'diagnostics') ? discovered : discovered.items, null, 2
-  ));
-  if (optionBoolean(options, 'table')) {
-    const { renderStoryRoster } = await import('./session-roster.mjs');
-    return console.log(renderStoryRoster(discovered, { scope }));
-  }
-  if (!discovered.items.length) return console.log(`No remote Singularity Flow work-item branches were found on ${discovered.remote}.`);
-  return console.log(table(discovered.items, [
-    { key: 'id', label: 'WORK/JIRA ID' }, { key: 'title', label: 'TITLE' },
-    { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
-    { key: 'commit', label: 'REMOTE COMMIT' }
-  ]));
-}
-
-async function sessionCommand(positionals, options) {
-  const agentEntry = options['for-agent'] != null ? await import('./session-agent-entry.mjs') : null;
-  const paused = agentEntry?.sessionAgentEntryGuard(positionals, options);
-  if (paused) return console.log(JSON.stringify(paused));
-  const subcommand = positionals[1] ?? 'status';
-  if (subcommand === 'open') return (await import('./commands/session-open.mjs')).run({ positionals, options });
-  if (optionBoolean(options, 'table') && (subcommand !== 'candidates' || optionBoolean(options, 'json'))) {
-    throw new SingularityFlowError('Use --table only with session candidates, without --json.', {
-      code: 'SESSION_TABLE_FORMAT_INVALID'
-    });
-  }
-  const repositoryUrl = optionString(options, 'repository-url');
-  const configurationUrl = optionString(options, 'configuration-url');
-  const workspaceReference = optionString(options, 'workspace');
-  const selectedRepositoryId = optionString(options, 'repository');
-  if (subcommand !== 'workspace'
-      && (workspaceReference != null || selectedRepositoryId != null)
-      && !['candidates', 'attach', 'open-local'].includes(subcommand)) throw new SingularityFlowError(
-    '--workspace and --repository are supported by session candidates, attach, and open-local.',
-    { code: 'SESSION_WORKSPACE_SELECTION_INVALID' }
-  );
-  if (repositoryUrl != null && workspaceReference != null) throw new SingularityFlowError(
-    'Choose either --repository-url or --workspace, not both.',
-    { code: 'SESSION_REMOTE_URL_COMMAND_INVALID' }
-  );
-  if (configurationUrl != null && repositoryUrl == null) throw new SingularityFlowError(
-    '--configuration-url requires --repository-url for session candidates.',
-    { code: 'SESSION_REMOTE_URL_COMMAND_INVALID' }
-  );
-  if (repositoryUrl != null) {
-    if (subcommand !== 'candidates') throw new SingularityFlowError(
-      '--repository-url is available only for session candidates.',
-      { code: 'SESSION_REMOTE_URL_COMMAND_INVALID' }
-    );
-    const discovered = await discoverRemoteStoryCandidatesByUrl(repositoryUrl, { configurationUrl });
-    return printSessionCandidateResult(discovered, options, { repositoryUrl });
-  }
-  if (subcommand === 'workspace') {
-    const registry = workspaceRegistryFile();
-    const selectionFile = activeWorkspaceFile();
-    const reference = requirePositional(positionals, 2, 'workspace ID, name, Jira anchor, or directory');
-    const requestedStoryId = optionString(options, 'story');
-    const context = await activateWorkspaceContext(registry, selectionFile, reference, {
-      repositoryId: optionString(options, 'repository'),
-      storyId: requestedStoryId,
-      // Selecting a workspace is not selecting whatever Story its lead clone happens to have
-      // checked out. Only an explicit --story may pin a Story in this operation.
-      detectStory: requestedStoryId != null
-    });
-    if (context.repositoryState !== 'ready') {
-      throw new SingularityFlowError(
-        `Workspace '${context.workspaceName}' is selected, but repository '${context.repositoryId}' is ${context.repositoryState}. `
-        + `Run 'singularity-flow workspace repair ${context.workspacePath}' before attaching a session.`
-      );
-    }
-    const currentDirectory = path.resolve(process.cwd());
-    const repositoryPath = path.resolve(context.repositoryPath);
-    // Selected absolute paths route governed commands even when the editor is elsewhere.
-    const hostAction = 'ready';
-    const editorRooted = currentDirectory === repositoryPath;
-    if (!requestedStoryId) {
-      const authority = await sessionRepositoryAuthority(repositoryPath);
-      const { definition } = await sessionDiscoveryConfiguration(repositoryPath, authority);
-      let candidate = null;
-      if (existsSync(path.join(repositoryPath, WORKFLOW_PATH))) {
-        try { candidate = await loadStoryAggregate(repositoryPath, definition); } catch { /* no Story on this branch */ }
-      }
-      await requireCopilotWorkItemSelection(repositoryPath, definition, candidate);
-    }
-    const result = {
-      attached: true,
-      workspaceId: context.workspaceId,
-      workspaceName: context.workspaceName,
-      workspacePath: context.workspacePath,
-      repositoryId: context.repositoryId,
-      repositoryPath: context.repositoryPath,
-      storyId: context.storyId,
-      prompt: workspacePromptLabel(context),
-      hostAction,
-      editorRooted,
-      commands: {
-        openCopilot: `singularity-flow workspace copilot ${JSON.stringify(context.workspaceId)}`
-          + ` --repository ${JSON.stringify(context.repositoryId)}`
-          + (context.storyId ? ` --story ${JSON.stringify(context.storyId)}` : ''),
-        attachStory: context.storyId
-          ? `singularity-flow session attach ${JSON.stringify(context.storyId)}`
-          : 'singularity-flow session candidates'
-      }
-    };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Attached workspace session: ${workspacePromptLabel(context)}`);
-    console.log(`Repository: ${context.repositoryId} · ${context.repositoryPath}`);
-    console.log(`Story: ${context.storyId ?? 'not selected'}`);
-    if (!editorRooted) {
-      // Information, not an instruction. Governed commands resolve the repository from this
-      // selection; only hand-editing files in the editor needs the folder open.
-      console.log(`Governed commands will use ${context.repositoryPath}; this shell is elsewhere.`);
-      console.log(`To edit files in this repository directly: ${result.commands.openCopilot}`);
-    }
-    if (context.storyId) {
-      console.log(`Synchronize the Story branch: ${result.commands.attachStory}`);
-    } else {
-      console.log('The workspace is active. Select a Story with /sf-session before lifecycle work.');
-    }
-    return;
-  }
-  if (subcommand === 'current') {
-    let context = null;
-    try {
-      context = await resolveWorkspaceExecutionContext(
-        activeWorkspaceFile(), workspaceRegistryFile(), { cwd: process.cwd() }
-      );
-    } catch (error) {
-      if (optionBoolean(options, 'json')) {
-        return console.log(JSON.stringify({
-          ready: false,
-          code: error.code ?? 'ACTIVE_SUBJECT_UNAVAILABLE',
-          message: error.message,
-          details: error.details ?? null
-        }, null, 2));
-      }
-      throw error;
-    }
-    if (!context) {
-      const resolved = await resolveSessionRepository();
-      if (!resolved.root) {
-        const empty = {
-          ready: false, workId: null, repositoryPath: null,
-          selectionSource: null, reason: resolved.reason, detail: resolved.detail
-        };
-        return console.log(optionBoolean(options, 'json')
-          ? JSON.stringify(empty, null, 2)
-          : `No Singularity Flow execution context is active. ${resolved.detail}`);
-      }
-      context = {
-        repositoryPath: resolved.root,
-        canonicalRepositoryPath: resolved.root,
-        checkoutPath: resolved.root,
-        workspaceId: resolved.workspaceId,
-        workspaceName: null,
-        repositoryId: null,
-        storyId: null,
-        branch: branch(resolved.root),
-        head: head(resolved.root),
-        selectionSource: resolved.resolvedFrom,
-        selectionStatus: 'ready',
-        storyWorktree: gitDir(resolved.root) !== gitCommonDir(resolved.root)
-      };
-    }
-    const executionRoot = path.resolve(context.repositoryPath);
-    const authority = await sessionRepositoryAuthority(executionRoot);
-    const { definition } = await sessionDiscoveryConfiguration(executionRoot, authority);
-    let workflow = null;
-    try { workflow = await loadStoryAggregate(executionRoot, definition); } catch { /* No Story is a valid workspace context. */ }
-    const actualWorkId = workflow?.workItem?.id ?? null;
-    if (context.storyId && actualWorkId !== context.storyId) {
-      throw new SingularityFlowError(
-        `Selected Story '${context.storyId}' does not match checkout Story '${actualWorkId ?? 'none'}'. Nothing was changed.`,
-        {
-          code: 'ACTIVE_SUBJECT_MISMATCH',
-          details: {
-            expectedWorkId: context.storyId,
-            actualWorkId,
-            repositoryPath: executionRoot,
-            nextCommand: `singularity-flow session attach ${context.storyId} --json`
-          }
-        }
-      );
-    }
-    const phaseSession = workflow
-      ? await agentSessionStatus(executionRoot, definition, workflow)
-      : null;
-    const result = {
-      ready: context.selectionStatus === 'ready' && (phaseSession?.ready ?? true),
-      workspaceId: context.workspaceId ?? null,
-      workspaceName: context.workspaceName ?? null,
-      repositoryId: context.repositoryId ?? null,
-      repositoryPath: executionRoot,
-      canonicalRepositoryPath: context.canonicalRepositoryPath ?? executionRoot,
-      checkoutPath: context.checkoutPath ?? executionRoot,
-      storyWorktree: context.storyWorktree === true,
-      workId: actualWorkId,
-      branch: branch(executionRoot),
-      head: head(executionRoot),
-      phase: workflow?.currentPhase ?? null,
-      status: workflow?.status ?? null,
-      activeAgent: phaseSession?.activeAgent ?? null,
-      phaseAgent: phaseSession?.phaseAgent ?? {
-        required: false, phaseId: null, expectedAgent: null, sessionPhaseId: null,
-        activeAgent: null, valid: true, reason: 'no-active-story', handoff: null
-      },
-      selectionSource: context.selectionSource ?? null,
-      selectionStatus: context.selectionStatus ?? 'ready'
-    };
-    if (agentEntry) return console.log(JSON.stringify(agentEntry.sessionAgentResult(result, definition.workItemRoot)));
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Repository: ${result.repositoryPath}`);
-    console.log(`Story: ${result.workId ?? 'not selected'} · branch ${result.branch}`);
-    console.log(`Phase: ${result.phase ?? '—'} · status ${result.status ?? '—'}`);
-    if (result.phaseAgent.required) {
-      console.log(`Phase agent: ${result.activeAgent ?? 'not ready'} · ${result.phaseAgent.reason}`);
-      if (result.phaseAgent.handoff) {
-        printCommandRoutes(result.phaseAgent.handoff.command, {
-          skill: result.phaseAgent.handoff.copilotCommand,
-          label: 'Rebind the phase session'
-        });
-      }
-    } else if (result.phase) console.log('Phase agent: not required (deterministic phase).');
-    console.log(`Selection: ${result.selectionSource} · ${result.selectionStatus}`);
-    return result;
-  }
-  if (subcommand === 'doctor') {
-    const selected = await readActiveWorkspaceContext(
-      activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
-    ).catch(() => null);
-    let execution = null;
-    let executionError = null;
-    try {
-      execution = await resolveWorkspaceExecutionContext(
-        activeWorkspaceFile(), workspaceRegistryFile(), { cwd: process.cwd() }
-      );
-    } catch (error) { executionError = error; }
-    let currentRoot = null;
-    try { currentRoot = repoRoot(); } catch { /* Outside Git is a reported condition. */ }
-    const currentSession = currentRoot
-      ? await loadSession(currentRoot, { required: false }).catch(() => null)
-      : null;
-    const findings = [];
-    if (!selected) findings.push({ severity: 'warning', code: 'workspace-selection-missing', message: 'No active workspace is selected.' });
-    if (executionError) findings.push({
-      severity: 'error', code: executionError.code ?? 'active-subject-unavailable',
-      message: executionError.message, details: executionError.details ?? null
-    });
-    if (selected?.storyId && currentSession?.workId && selected.storyId !== currentSession.workId) {
-      findings.push({
-        severity: 'warning', code: 'current-directory-session-differs',
-        message: `Current directory session '${currentSession.workId}' differs from selected Story '${selected.storyId}'.`
-      });
-    }
-    const result = {
-      healthy: !findings.some((finding) => finding.severity === 'error'),
-      selected: selected ? {
-        workspaceId: selected.workspaceId, repositoryId: selected.repositoryId,
-        workId: selected.storyId ?? null, repositoryPath: selected.repositoryPath,
-        checkoutPath: selected.checkoutPath ?? null, selectionStatus: selected.selectionStatus ?? null
-      } : null,
-      execution: execution ? {
-        workId: execution.storyId ?? null, repositoryPath: execution.repositoryPath,
-        branch: execution.branch ?? null, selectionSource: execution.selectionSource ?? null
-      } : null,
-      currentDirectory: currentRoot ? {
-        repositoryPath: currentRoot, branch: branch(currentRoot), sessionWorkId: currentSession?.workId ?? null
-      } : null,
-      findings
-    };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Session routing: ${result.healthy ? 'healthy' : 'needs repair'}`);
-    for (const finding of findings) console.log(`- ${finding.severity}: ${finding.message}`);
-    return result;
-  }
-  if (subcommand === 'repair-selection') {
-    const workId = requirePositional(positionals, 2, 'work ID');
-    if (optionString(options, 'confirm') !== workId) {
-      throw new SingularityFlowError(
-        `Repairing the machine-local Story selection requires --confirm ${workId}. No Git state was changed.`,
-        { code: 'ACTIVE_SUBJECT_REPAIR_CONFIRMATION_REQUIRED' }
-      );
-    }
-    const selected = await readActiveWorkspaceContext(
-      activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
-    );
-    if (!selected) throw new SingularityFlowError('No active workspace is selected.');
-    const canonicalRoot = selected.canonicalRepositoryPath ?? selected.repositoryPath;
-    const { storyWorktreeForBranch } = await import('./story-worktree.mjs');
-    const managed = storyWorktreeForBranch(canonicalRoot, workId);
-    if (!managed) {
-      throw new SingularityFlowError(
-        `No managed checkout currently owns Story '${workId}'. Reattach it with 'singularity-flow session attach ${workId} --json'.`,
-        { code: 'ACTIVE_SUBJECT_UNAVAILABLE' }
-      );
-    }
-    const repaired = await activateWorkspaceStoryContext(
-      activeWorkspaceFile(), workspaceRegistryFile(), managed.repositoryPath,
-      { storyId: workId, selectionSource: 'session-repair' }
-    );
-    const result = {
-      repaired: true, workId, repositoryPath: repaired.repositoryPath,
-      branch: repaired.branch, head: repaired.head, gitChanged: false
-    };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Selected Story ${workId} at ${result.repositoryPath}. No Git state was changed.`);
-    return result;
-  }
-  if (subcommand === 'open-local') {
-    const workId = requirePositional(positionals, 2, 'work ID');
-    const resolved = await resolveSessionRepository({
-      workspaceReference, repositoryId: selectedRepositoryId, localStoryOnly: true
-    });
-    if (!resolved.root) throw new SingularityFlowError(
-      `No ready repository is available for local Story '${workId}'. Select its exact workspace and repository, or use session attach to materialize it.`,
-      { code: 'SESSION_LOCAL_REPOSITORY_UNAVAILABLE' }
-    );
-    const root = resolved.workspaceContext?.canonicalRepositoryPath ?? resolved.root;
-    const { listStoryWorktrees } = await import('./story-worktree.mjs');
-    const commonDir = gitCommonDir(root);
-    const matches = [];
-    // Verifying a Story is the expensive step, and only a checkout holding this Story's state can
-    // match. Try those first; any other layout falls back to verifying every registered checkout.
-    const registeredWorktrees = listStoryWorktrees(root);
-    const holding = registeredWorktrees.filter((entry) => existsSync(path.join(entry.repositoryPath, 'singularity/work-items', workId, 'workflow.json')));
-    for (const registered of holding.length ? holding : registeredWorktrees) {
-      const checkout = registered.repositoryPath;
-      try {
-        // The Git worktree registry supplies paths, never a webview or caller-supplied path.
-        // A same-named Story in another workspace repository cannot satisfy this selection.
-        if (!samePlatformPath(gitCommonDir(checkout), commonDir)
-            || branch(checkout) !== registered.branch) continue;
-        const accepted = await loadAcceptedStoryExecution(checkout);
-        const workflow = accepted.workflow;
-        if (workflow.workItem?.id !== workId
-            || workflow.workItem?.branch !== registered.branch
-            || (workflow.lineage?.canonicalBranch ?? registered.branch) !== registered.branch) continue;
-        matches.push({ checkout, accepted });
-      } catch {
-        // A stale or damaged registered worktree is not an authority for local selection.
-        // Remote attachment remains available and retains its strict synchronization gate.
-      }
-    }
-    if (matches.length !== 1) throw new SingularityFlowError(
-      matches.length
-        ? `More than one managed checkout claims Story '${workId}'. Inspect the registered worktrees before selecting it.`
-        : `No verified managed checkout owns local Story '${workId}'. Use session attach to synchronize or materialize it.`,
-      { code: matches.length ? 'SESSION_LOCAL_STORY_AMBIGUOUS' : 'SESSION_LOCAL_STORY_UNAVAILABLE' }
-    );
-    const { checkout, accepted } = matches[0];
-    // A repository-local caller may win resolution even while the machine's selected workspace
-    // points at another repository. Refuse that ambiguity before changing phase session metadata.
-    if (!workspaceReference) {
-      const active = await readActiveWorkspaceContext(
-        activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
-      );
-      if (active && !samePlatformPath(
-        gitCommonDir(active.canonicalRepositoryPath ?? active.repositoryPath), commonDir
-      )) throw new SingularityFlowError(
-        `Local Story '${workId}' belongs to a different repository than the active workspace. Select its exact workspace and repository before opening it.`,
-        { code: 'SESSION_LOCAL_WORKSPACE_MISMATCH' }
-      );
-    }
-    const session = await activateWorkItemSession(checkout, accepted.definition, accepted.workflow);
-    const readiness = await agentSessionStatus(checkout, accepted.definition, accepted.workflow);
-    if (!readiness.ready) throw new SingularityFlowError(
-      `Local Story '${workId}' could not bind its current phase agent. No Git state was changed.`,
-      { code: 'SESSION_LOCAL_AGENT_UNAVAILABLE' }
-    );
-    if (workspaceReference && resolved.workspaceContext) await activateWorkspaceContext(
-      workspaceRegistryFile(), activeWorkspaceFile(), resolved.workspaceContext.workspaceId,
-      { repositoryId: resolved.workspaceContext.repositoryId, detectStory: false }
-    );
-    const selection = await activateWorkspaceStoryContext(
-      activeWorkspaceFile(), workspaceRegistryFile(), checkout,
-      { storyId: workId, selectionSource: 'session-open-local' }
-    );
-    if (!selection) {
-      const active = await readActiveWorkspaceContext(
-        activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
-      );
-      if (resolved.workspaceContext || active) throw new SingularityFlowError(
-        `Local Story '${workId}' could not be selected in its mapped workspace repository. No Git state was changed.`,
-        { code: 'SESSION_LOCAL_WORKSPACE_MISMATCH' }
-      );
-    }
-    const result = {
-      ready: true, localOnly: true, remoteSynchronized: false,
-      workId, branch: branch(checkout), head: head(checkout), repositoryPath: checkout,
-      workspaceId: selection?.workspaceId ?? resolved.workspaceId ?? null,
-      repositoryId: selection?.repositoryId ?? null,
-      phase: accepted.workflow.currentPhase, status: accepted.workflow.status,
-      agent: session.selectedAgent ?? readiness.activeAgent ?? null,
-      materialization: 'opened-existing-managed-story-worktree'
-    };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Opened local Story ${workId} at ${checkout}. Remote synchronization was not attempted.`);
-    return result;
-  }
-  let resolved = await resolveSessionRepository({ workspaceReference, repositoryId: selectedRepositoryId, remoteProbe: subcommand !== 'context' });
-  let root = resolved.root;
-  let preflightStory = null;
-  let prefetchedRemote = null;
-  if (!root && resolved.workspaceContext && ['candidates', 'attach'].includes(subcommand)) {
-    const context = resolved.workspaceContext;
-    const authority = await selectedSessionRemote(context);
-    const discovered = await discoverRemoteStoryCandidatesByUrl(authority.url, {
-      configurationUrl: authority.configurationUrl
-    });
-    if (subcommand === 'candidates') {
-      return printSessionCandidateResult(discovered, options, {
-        workspaceReference: workspaceReference ?? context.workspacePath,
-        repositoryId: selectedRepositoryId ?? context.repositoryId
-      });
-    }
-    const reference = requirePositional(positionals, 2, 'work, Jira, or branch reference');
-    preflightStory = exactDiscoveredStory(discovered, reference);
-    // Materialize only the selected, manifest-bound repository after the exact Story has been
-    // proven on the remote. A bad/unknown Story must not cause a new application clone.
-    await repairWorkspace(context.workspacePath, {
-      repositoryIds: [context.repositoryId], returnIfSelectedReady: true,
-      statusLevel: 'readiness'
-    });
-    const refreshed = await buildWorkspaceContext(workspaceRegistryFile(), context.workspaceId, {
-      repositoryId: context.repositoryId, detectStory: false
-    });
-    if (refreshed.repositoryState !== 'ready') throw new SingularityFlowError(
-      `Workspace repository '${context.repositoryId}' was not ready after materialization.`,
-      { code: 'SESSION_REPOSITORY_REQUIRED' }
-    );
-    const currentAuthority = await selectedSessionRemote(refreshed);
-    if (currentAuthority.url !== authority.url
-        || currentAuthority.configurationUrl !== authority.configurationUrl) throw new SingularityFlowError(
-      'The selected Story or configuration Git authority changed during materialization. Nothing was attached.',
-      { code: 'SESSION_REMOTE_CHANGED' }
-    );
-    root = refreshed.repositoryPath;
-    // A deferred clone may initially track only its default branch. Fetch the reviewed delivery
-    // remote before resolving its Story-carried configuration; do not mistake that for an
-    // ungoverned repository merely because the Story ref is not yet locally advertised.
-    await fetchRemote(root, 'origin', { respectPartialClone: true });
-    prefetchedRemote = 'origin';
-    resolved = {
-      root, workspaceId: refreshed.workspaceId, workspaceContext: refreshed,
-      resolvedFrom: workspaceReference ? 'explicit-workspace' : 'active-workspace',
-      authority: await sessionRepositoryAuthority(root)
-    };
-  }
-  if (!root) {
-    if (subcommand === 'attach' || subcommand === 'candidates') {
-      throw new SingularityFlowError(
-        subcommand === 'attach'
-          ? `Cannot attach a Story because no governed repository is active. ${resolved.detail}`
-          : `Cannot discover Stories because no governed delivery repository is active. ${resolved.detail}`,
-        { code: 'SESSION_REPOSITORY_REQUIRED' }
-      );
-    }
-    const empty = {
-      initialized: false, workId: null, selectionRequired: false, bound: false, activeAgent: null, choices: [],
-      resolvedFrom: null, repositoryPath: null, workspaceId: null,
-      // Why there is no repository, so the caller can act instead of guessing at a URL.
-      reason: resolved.reason
-    };
-    return console.log(optionBoolean(options, 'json') ? JSON.stringify(empty, null, 2) : `No Singularity Flow repository is active. ${resolved.detail}`);
-  }
-  const discovery = await sessionDiscoveryConfiguration(root, resolved.authority, {
-    storyBootstrap: subcommand === 'status'
-  });
-  const config = discovery.definition;
-  if (subcommand === 'context') {
-    const expandHandle = optionString(options, 'expand-handle');
-    const observationKind = optionString(options, 'observation-kind');
-    const observationFile = optionString(options, 'observation-file');
-    if (Boolean(observationKind) !== Boolean(observationFile)) {
-      throw new SingularityFlowError('Observation context requires both --observation-kind and --observation-file.');
-    }
-    let observation = null;
-    if (observationFile) {
-      const resolvedObservation = await secureRepositoryPath(root, observationFile, {
-        label: 'Observation input', mustExist: true, type: 'file'
-      });
-      observation = await compileObservation(root, {
-        kind: observationKind,
-        raw: await readFile(resolvedObservation.absolute),
-        commandClass: optionString(options, 'observation-command-class', 'configured-operation'),
-        exitCode: optionNumber(options, 'observation-exit-code'),
-        binding: {
-          workId: optionString(options, 'work-id'),
-          flightPlanId: optionString(options, 'flight-plan'),
-          sourceRevision: head(root),
-          maximumOutputBytes: optionNumber(options, 'max-output-bytes')
-        }
-      });
-    }
-    const context = await composeContextBrief(root, {
-      workId: optionString(options, 'work-id'),
-      slice: optionString(options, 'slice', 'brief'),
-      flightPlanId: optionString(options, 'flight-plan'),
-      expandHandle,
-      observation,
-      maxOutputBytes: optionNumber(options, 'max-output-bytes')
-    });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(context, null, 2));
-    if (context.kind === 'evidence-packet-expansion') {
-      console.log(`${context.packetId} · ${context.representation}`);
-      console.log(`Included: ${context.accounting.includedContentBytes}/${context.accounting.maximumOutputBytes} bytes · ~${context.accounting.estimatedInputTokens} tokens`);
-      console.log(context.content);
-      return;
-    }
-    if (context.kind === 'evidence-packet') {
-      console.log(`${context.binding.workId ?? 'preview'} · ${context.binding.phase ?? 'unbound'} · ${context.requestedSlices.join(',')} evidence packet`);
-      console.log(`Packet: ${context.packetId} · ${context.status} · revision ${context.binding.sourceRevision.slice(0, 12)}`);
-      console.log(`Included: ${context.budget.includedContentBytes}/${context.budget.maximumOutputBytes} bytes · ~${context.budget.estimatedInputTokens} estimated tokens`);
-      console.log(`Items: ${context.items.length} · omissions: ${context.omissions.reduce((total, entry) => total + (entry.count ?? 1), 0)} · unavailable: ${context.unavailable.length}`);
-      console.log(JSON.stringify({ items: context.items, omissions: context.omissions, unavailable: context.unavailable }, null, 2));
-      return;
-    }
-    console.log(`${context.work.id} · ${context.phase?.id ?? 'closed'} · ${context.slice} context`);
-    console.log(`Revision: ${(context.sourceRevision.commit ?? 'unavailable').slice(0, 12)}`);
-    console.log(`Included: ${context.accounting.includedContentBytes}/${context.accounting.maximumOutputBytes} bytes · ~${context.accounting.estimatedInputTokens} tokens`);
-    if (context.omissions.length) console.log(`Omitted: ${context.omissions.join(', ')}`);
-    console.log(JSON.stringify(context.payload, null, 2));
-    return;
-  }
-  if (subcommand === 'candidates') {
-    const discovered = await discoverRemoteStoryCandidates(root, config, { remote: discovery.remote });
-    return printSessionCandidateResult(discovered, options, {
-      workspaceReference: workspaceReference ?? resolved.workspaceContext?.workspacePath ?? null,
-      repositoryId: selectedRepositoryId ?? resolved.workspaceContext?.repositoryId ?? null
-    });
-  }
-  if (subcommand === 'attach') {
-    const reference = requirePositional(positionals, 2, 'work, Jira, or branch reference');
-    // A new Copilot session may begin after the previous session prepared an unpublished
-    // generation. Those governed edits must not make the exact, already-synchronized Story
-    // branch impossible to select. We still require a clean tree before changing branches or
-    // advancing HEAD; the sole exception below only binds local session metadata in place.
-    const remote = discovery.remote;
-    if (prefetchedRemote !== remote) await fetchRemote(root, remote, { respectPartialClone: true });
-    const refs = remoteBranches(root, remote)
-      .filter(isStoryDiscoveryBranch)
-      .map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }));
-    const subjectIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: config, refs });
-    let subject = resolveContext(subjectIndex, { reference, kind: 'story', required: false });
-    if (!subject) {
-      const identity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
-      if (!identity.configured || identity.ambiguous) throw new SingularityFlowError(
-        `Story remote '${remote}' has no single configured fetch authority.`,
-        { code: 'GIT_REMOTE_CONFIG_INVALID' }
-      );
-      const recovered = preflightStory
-        ? { items: [preflightStory] }
-        : await discoverRemoteStoryCandidatesByUrl(identity.url, { approvedDefinition: config });
-      const item = exactDiscoveredStory(recovered, reference);
-      subject = await exactStoryMetadataAtRef(root, remote, item, item.commitOid);
-    }
-    if (preflightStory && (subject.id !== preflightStory.id
-        || subject.selectedBranch !== preflightStory.branch)) throw new SingularityFlowError(
-      'The selected Story changed between remote preflight and local checkout. Refresh candidates and retry.',
-      { code: 'SESSION_REMOTE_CHANGED' }
-    );
-    const id = subject.id;
-    const targetBranch = subject.selectedBranch;
-    // A Story started from VS Code or a dirty launch checkout owns an isolated managed worktree.
-    // Git will not check the same branch out in the canonical clone, so attaching from that clone
-    // must resolve and operate on the checkout that already owns it. The managed path is discovered
-    // from Git's worktree registry rather than reconstructed from mutable workspace configuration.
-    const { completeStoryWorktree, prepareStoryWorktree, storyWorktreeForBranch } = await import('./story-worktree.mjs');
-    const managedWorktree = storyWorktreeForBranch(root, targetBranch);
-    const remoteName = `${remote}/${targetBranch}`;
-    const remoteRef = `refs/remotes/${remote}/${targetBranch}`;
-    const remoteSha = refHead(root, remoteRef);
-    if (!remoteSha) throw new SingularityFlowError(`No committed lifecycle branch '${targetBranch}' exists on ${remote}. Start it with /sf-start or verify the Story reference.`);
-    if (preflightStory?.commitOid && remoteSha !== preflightStory.commitOid) throw new SingularityFlowError(
-      `Story branch '${targetBranch}' changed after remote preflight. Refresh candidates and retry.`,
-      { code: 'SESSION_REMOTE_CHANGED' }
-    );
-    const localStoryHead = refHead(root, `refs/heads/${targetBranch}`);
-    if (localStoryHead && localStoryHead !== remoteSha
-        && !isAncestor(root, localStoryHead, remoteSha)) throw new SingularityFlowError(
-      `Local branch '${targetBranch}' contains commits that are not on ${remoteName}. Push them or use a clean clone before attaching; Singularity Flow will not discard local history.`
-    );
-    let pinned;
-    try {
-      pinned = validatedRemoteStoryDefinition(root, remoteName, subject);
-    } catch {
-      throw new SingularityFlowError(
-        `Remote branch ${remote}/${targetBranch} is not a valid Singularity Flow Story branch. `
-        + `Expected matching state at ${subject.location.path} and a valid pinned ${WORKFLOW_PATH}.`
-      );
-    }
-    // Do not switch an unrelated Story's linked checkout merely because the command was launched
-    // there. Start an isolated managed checkout for the selected Story after remote proof succeeds.
-    // A normal canonical clone keeps its historical clean-checkout attach behavior.
-    let preparedWorktree = null;
-    let attachmentRoot = managedWorktree?.repositoryPath ?? root;
-    if (!managedWorktree && !samePlatformPath(gitDir(root), gitCommonDir(root))
-        && branch(root) !== targetBranch) {
-      // A linked Story checkout is nested under story-worktrees; using it as the worktree path
-      // anchor would nest another story-worktrees directory inside Story A. Anchor on the shared
-      // repository's canonical checkout instead, while leaving A's branch/index untouched.
-      const commonDir = gitCommonDir(root);
-      if (path.basename(commonDir) !== '.git') throw new SingularityFlowError(
-        'Cannot locate the canonical checkout for this linked Story worktree.',
-        { code: 'STORY_WORKTREE_RECOVERY_REQUIRED' }
-      );
-      preparedWorktree = await prepareStoryWorktree(path.dirname(commonDir), id, { base: remoteSha });
-      attachmentRoot = preparedWorktree.repositoryPath;
-    }
-    let materialization;
-    try {
-      const alreadyCurrent = branch(attachmentRoot) === targetBranch;
-      if (!alreadyCurrent) assertClean(attachmentRoot);
-      const dirtyInPlace = alreadyCurrent && Boolean(changes(attachmentRoot).trim());
-      if (dirtyInPlace) {
-        if (head(attachmentRoot) !== remoteSha) {
-          throw new SingularityFlowError(
-            `Local branch '${targetBranch}' has uncommitted changes and is not at the exact ${remote}/${targetBranch} head. `
-            + 'Commit or preserve the changes before synchronizing; Singularity Flow will not merge, rebase, reset, stash, or discard them.'
-          );
-        }
-        materialization = managedWorktree
-          ? 'bound-managed-story-worktree-with-local-changes'
-          : 'bound-current-with-local-changes';
-      } else {
-        materialization = managedWorktree
-          ? 'reused-managed-story-worktree'
-          : await checkout(attachmentRoot, targetBranch, { base: pinned.definition.defaultBaseBranch, existingOnly: true, remote });
-        try { fastForwardTo(attachmentRoot, remoteName); }
-        catch { throw new SingularityFlowError(`Local branch '${targetBranch}' cannot fast-forward to ${remote}/${targetBranch}. Resolve or preserve the local commits in another clone; Singularity Flow will not merge, rebase, reset, or discard them.`); }
-      }
-    } catch (error) {
-      if (preparedWorktree?.created) removeCleanAttachStagingWorktree(
-        root, attachmentRoot, preparedWorktree.stagingBranch
-      );
-      throw error;
-    }
-    if (preparedWorktree?.created) {
-      completeStoryWorktree(preparedWorktree);
-      materialization = 'created-managed-story-worktree';
-    }
-    if (head(attachmentRoot) !== remoteSha) throw new SingularityFlowError(`Local branch '${targetBranch}' contains commits that are not on ${remote}/${targetBranch}. Push them or use a clean clone before attaching; Singularity Flow will not discard local history.`);
-    const attachedConfig = await loadConfig(attachmentRoot);
-    const workflow = await loadStoryAggregate(attachmentRoot, attachedConfig, id);
-    const session = await activateWorkItemSession(attachmentRoot, attachedConfig, workflow);
-    if (workspaceReference && resolved.workspaceContext) await activateWorkspaceContext(
-      workspaceRegistryFile(), activeWorkspaceFile(), resolved.workspaceContext.workspaceId,
-      { repositoryId: resolved.workspaceContext.repositoryId, detectStory: false }
-    );
-    await activateWorkspaceStoryContext(
-      activeWorkspaceFile(), workspaceRegistryFile(), attachmentRoot,
-      { storyId: id, selectionSource: 'session-attach' }
-    );
-    const result = {
-      workId: id, branch: workflow.workItem.branch, remote, commit: remoteSha,
-      phase: workflow.currentPhase, status: workflow.status, materialization, agent: session.selectedAgent,
-      context: {
-        operation: 'context.brief',
-        arguments: { workId: id, slice: 'brief', maxOutputBytes: 32768 },
-        command: `singularity-flow session context --work-id ${id} --slice brief --max-output-bytes 32768 --json`
-      }
-    };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
-      ...result,
-      repositoryPath: attachmentRoot,
-      resolvedFrom: managedWorktree || preparedWorktree ? 'managed-story-worktree' : resolved.resolvedFrom,
-      ...(managedWorktree || preparedWorktree ? { sourceRepositoryPath: root } : {})
-    }, null, 2));
-    // This checked out a branch. When the repository came from the selection rather than from where
-    // the caller is standing, saying which one is the difference between an attach and a surprise.
-    if (resolved.resolvedFrom === 'active-workspace') console.log(`Repository: ${root} (from the active workspace)`);
-    if (managedWorktree) console.log(`Story worktree: ${attachmentRoot}`);
-    console.log(`Attached to ${id} from ${remote}/${targetBranch} at ${remoteSha.slice(0, 8)}.`);
-    console.log(`Current phase: ${workflow.currentPhase ?? 'none'} · status: ${workflow.status}`);
-    if (session.selectedAgent) console.log(`Phase agent: ${session.selectedAgent} (activated automatically).`);
-    else console.log(`The Story is ${workflow.status}; no phase agent is required for read-only inspection.`);
-    if (managedWorktree && path.resolve(process.cwd()) !== path.resolve(attachmentRoot)) {
-      console.log(`Continue in the isolated Story checkout: ${renderChangeDirectoryCommand(attachmentRoot)}`);
-    }
-    console.log(`Bounded Copilot context: ${result.context.command}`);
-    return;
-  }
-  if (subcommand !== 'status') throw new SingularityFlowError(`Unknown session subcommand: ${subcommand}`);
-  let workflow;
-  let statusConfig = config;
-  // A workspace-only handoff records an explicit local gate before this command runs. The branch
-  // may still happen to contain a Story candidate, but that is not consent to select it. Inspect
-  // the gate before opening the accepted Story closure: besides adopting the candidate, doing the
-  // strict read here made an unrelated legacy/damaged Story prevent the user from selecting one.
-  // `session attach` clears this flag, after which status resumes the strict saved-closure path.
-  const copilotSelection = await loadCopilotSession(root);
-  const accepted = copilotSelection?.workItemSelectionRequired === true
-    ? null
-    : await acceptedStoryExecutionIfPresent(root);
-  if (accepted) {
-    workflow = accepted.workflow;
-    statusConfig = accepted.definition;
-  } else workflow = null;
-  /**
-   * The repository this answer is about, and how it was chosen.
-   *
-   * Without it the caller cannot tell an answer about the directory it is standing in from an answer
-   * about a workspace selected an hour ago in a different window — and those warrant different
-   * confidence before anything is written.
-   */
-  const status = {
-    ...await agentSessionStatus(root, statusConfig, workflow),
-    repositoryPath: root,
-    resolvedFrom: resolved.resolvedFrom,
-    workspaceId: resolved.workspaceId
-  };
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
-  if (resolved.resolvedFrom === 'active-workspace') console.log(`Repository: ${root} (from the active workspace, not the working directory)`);
-  console.log(`Work item: ${status.workId ?? 'not selected'}${status.candidateWorkId && !status.workId ? ` · current candidate: ${status.candidateWorkId}` : ''}`);
-  console.log(`governed agent: ${status.activeAgent ?? 'not selected'}`);
-  console.log(`Copilot session: ${status.copilotSessionId ?? 'not bound'}`);
-  console.log(`Work-item selection: ${status.workItemSelectionRequired ? 'required' : 'complete'} · governed agent: ${status.activeAgent ?? 'phase default pending'}`);
-  console.log(`Policy: work item ${status.policy.workItemSelection ?? 'off'} · phase agent automatic · before tools: ${status.policy.requireBeforeTools ? 'required' : 'not required'}`);
-  if (status.workItemSelectionRequired) {
-    printCommandRoutes('singularity-flow session attach <WORK-ID>', { label: 'Select the Story' });
-  }
 }
 
 async function inboxCommand(options) {
@@ -18548,10 +15431,14 @@ export async function main(argv) {
   // `logs` reads the file; logging its own invocation would append noise to what it is showing.
   if (!['logs', 'factory-reset', 'reset-all', 'local-reset', 'fresh-install', 'reinstall'].includes(command)) {
     const persistedArgv = redactCommandArgv(argv);
-    const log = await commandLogger(command, argv, {
-      json: optionBoolean(options, 'json'), verbose: optionBoolean(options, 'verbose')
-    });
-    const harness = await harnessInvocation(command, persistedArgv);
+    // Accounting reads the same definition twice. Its bounded read scope ends before dispatch;
+    // a writer always obtains fresh policy, identity and worktree evidence in its own handler.
+    const { log, harness } = await withReadScope(async () => ({
+      log: await commandLogger(command, argv, {
+        json: optionBoolean(options, 'json'), verbose: optionBoolean(options, 'verbose')
+      }),
+      harness: await harnessInvocation(command, persistedArgv)
+    }));
     const started = Date.now();
     log.info('command.start', null, { argv: persistedArgv.slice(0, 24) });
     try {
@@ -18595,12 +15482,12 @@ async function dispatch(command, positionals, options, argv) {
     'fresh-install': () => freshInstallCommand(options),
     reinstall: () => reinstallCommand(options),
     product: async () => (await import('./commands/product.mjs')).run(argv, { positionals, options }),
-    choices: () => choicesCommand(positionals, options),
+    "choices": async () => (await import('./commands/choices.mjs')).choicesCommand(positionals, options),
     start: () => startCommand(positionals, options),
     resume: () => resumeCommand(positionals, options),
     return: () => returnCommand(positionals, options),
     agent: () => agentCommand(positionals, options),
-    session: () => sessionCommand(positionals, options),
+    "session": async () => (await import('./commands/session.mjs')).sessionCommand(positionals, options),
     inbox: () => inboxCommand(options),
     finalize: () => finalizeCommand(options),
     status: () => statusCommand(positionals, options),
@@ -18653,7 +15540,7 @@ async function dispatch(command, positionals, options, argv) {
     logs: () => logsCommand(positionals, options),
     doctor: () => doctorCommand(positionals, options),
     review: () => reviewCommand(positionals, options),
-    'review-source': () => reviewSourceCommand(positionals, options),
+    "review-source": async () => (await import('./commands/review-source.mjs')).reviewSourceCommand(positionals, options),
     receipt: () => receiptCommand(positionals, options),
     workflow: () => workflowCommand(positionals, options),
     skill: async () => (await import('./commands/skill.mjs')).run(null, { positionals, options, applyChangeSet: (root, changeSet, meta) => applyAuthoringChange(root, changeSet, options, meta), printResult: printImportResult }),
@@ -18673,7 +15560,7 @@ async function dispatch(command, positionals, options, argv) {
     ])),
     nextsteps: () => nextStepsCommand(positionals, options),
     action: () => actionCommand(positionals, options),
-    inputs: () => inputsCommand(positionals, options),
+    "inputs": async () => (await import('./commands/inputs.mjs')).inputsCommand(positionals, options),
     spec: () => specCommand(positionals, options),
     comprehension: async () => (await import('./commands/comprehension.mjs')).run(argv, { positionals, options }),
     change: async () => (await import('./commands/change.mjs')).run(argv, { positionals, options }),
@@ -18686,15 +15573,15 @@ async function dispatch(command, positionals, options, argv) {
     mcp: () => mcpCommand(positionals, options),
     visual: () => visualCommand(positionals, options),
     documents: () => documentsCommand(positionals, options),
-    prepare: () => prepareCommand(positionals, options),
+    "prepare": async () => (await import('./commands/prepare.mjs')).prepareCommand(positionals, options),
     clarification: () => clarificationCommand(positionals, options),
-    phase: () => phaseCommand(positionals, options),
+    "phase": async () => (await import('./commands/phase-lifecycle.mjs')).phaseCommand(positionals, options),
     artifact: () => artifactCommand(positionals, options),
     pr: () => pullRequestCommand(positionals, options),
     stack: () => stackCommand(positionals, options),
     regression: () => regressionCommand(positionals, options),
-    submit: () => submitCommand(positionals, options),
-    approve: () => approveCommand(positionals, options),
+    "submit": async () => (await import('./commands/submit.mjs')).submitCommand(positionals, options),
+    "approve": async () => (await import('./commands/approve.mjs')).approveCommand(positionals, options),
     reject: () => rejectCommand(positionals, options),
     decision: () => decisionCommand(positionals, options),
     reopen: () => reopenCommand(positionals, options),

@@ -1561,12 +1561,8 @@ export async function resolveWorkItem(root, config, idOrRef = branch(root), { mu
   throw new SingularityFlowError(`No governed Story matches '${requested}'. Use a creation command to reserve a new Work ID.`);
 }
 
-export function currentPhase(workflow) {
-  if (!workflow.currentPhase) return null;
-  const phase = workflow.phases[workflow.currentPhase];
-  invariant(phase, `Unknown current phase ${workflow.currentPhase}.`);
-  return phase;
-}
+import { currentPhase } from './phase-generation.mjs';
+export { currentPhase };
 
 const TRANSITION_REPAIR_SWITCH = 'SINGULARITY_FLOW_TRANSITION_REPAIR';
 

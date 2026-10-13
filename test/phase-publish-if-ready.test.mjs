@@ -81,6 +81,17 @@ test('prepublish --publish-if-ready returns the unchanged check, and publishes w
   // The prepared template still has its TODOs: the check is returned as-is and nothing is published.
   const draft = JSON.parse(sflow(...combined));
   const plain = JSON.parse(sflow('phase', 'prepublish', 'intake', '--for-agent', '--json'));
+  // A composed read must not inherit an approved-config overlay or cached policy from its caller.
+  const { step } = await import('../src/cli-steps.mjs');
+  const { withConfigurationReadRoot } = await import('../src/configuration-read-scope.mjs');
+  const { withReadScope, scopedRead } = await import('../src/read-scope.mjs');
+  const isolated = await withConfigurationReadRoot(root, path.join(base, 'invalid-caller-overlay'), {},
+    () => withReadScope(async () => {
+      await scopedRead(`config.definition:${root}:${root}:current`, () => ({ version: -1 }));
+      return step(['--no-model', 'phase', 'prepublish', 'intake', '--for-agent', '--json'], root);
+    }));
+  assert.equal(isolated.ok, true, isolated.stderr);
+  assert.equal(isolated.value.status, plain.status);
   assert.notEqual(draft.status, 'ready');
   assert.deepEqual({ ...draft, publishIfReady: undefined }, { ...plain, publishIfReady: undefined }, 'the same check, field for field');
   assert.deepEqual(draft.publishIfReady, { published: false, reason: 'not-ready', command: null });

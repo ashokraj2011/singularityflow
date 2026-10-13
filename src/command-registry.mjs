@@ -25,6 +25,13 @@ const SKILL_MUTATION_SUBCOMMANDS = Object.freeze(['create', 'edit', 'attach', 'd
 const PROMPT_LOG_READ_SUBCOMMANDS = Object.freeze(['status', 'list', 'view']);
 
 const LAZY_MODULES = Object.freeze({
+  session: './commands/session-entry.mjs',
+  choices: './commands/choices-entry.mjs',
+  prepare: './commands/prepare.mjs',
+  inputs: './commands/inputs.mjs',
+  'review-source': './commands/review-source.mjs',
+  submit: './commands/submit.mjs',
+  approve: './commands/approve.mjs',
   appeal: './commands/appeal.mjs',
   pause: './commands/pause.mjs',
   phase: './commands/phase.mjs',

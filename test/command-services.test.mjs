@@ -55,17 +55,21 @@ test('every command module imports the default modules it uses', async () => {
  * entrypoint. It still has to be reached from one of those services or it is dead command code.
  */
 test('every nested command helper is reached from a command service', async () => {
-  const roots = await Promise.all((await services()).map(async (file) => ({
-    file,
-    source: withoutComments(await readFile(file, 'utf8'))
-  })));
+  const sources = new Map(await Promise.all((await modules()).map(async file =>
+    [file, withoutComments(await readFile(file, 'utf8'))])));
+  const reached = new Set(await services());
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const file of [...reached]) {
+      for (const match of (sources.get(file) ?? '').matchAll(/(?:from\s*|import\(\s*)['"]([^'"]+)['"]/g)) {
+        if (!match[1].startsWith('.')) continue;
+        const target = path.resolve(path.dirname(file), match[1]);
+        if (sources.has(target) && !reached.has(target)) { reached.add(target); changed = true; }
+      }
+    }
+  }
   for (const helper of await helpers()) {
-    const reached = roots.some(({ file, source }) => {
-      const relative = path.relative(path.dirname(file), helper).split(path.sep).join('/');
-      const specifier = relative.startsWith('.') ? relative : `./${relative}`;
-      return source.includes(`from '${specifier}'`) || source.includes(`import('${specifier}')`);
-    });
-    assert.ok(reached,
+    assert.ok(reached.has(helper),
       `${path.relative(path.join(SRC, 'commands'), helper)} is reached from no command service`);
   }
 });
@@ -84,7 +88,8 @@ function reachedServices({ cli, registry, sources }) {
     grew = false;
     for (const name of sources.keys()) {
       if (reached.has(name)) continue;
-      if ([...reached].some((loader) => sources.get(loader).includes(`import('./${name}')`))) {
+      if ([...reached].some((loader) => sources.get(loader).includes(`import('./${name}')`)
+          || sources.get(loader).includes(`import("./${name}")`))) {
         reached.add(name);
         grew = true;
       }
@@ -132,6 +137,9 @@ test('a service only an unreached service loads is not reached', () => {
 test('the router imports services lazily, never statically', async () => {
   const cli = withoutComments(await readFile(path.join(SRC, 'cli.mjs'), 'utf8'));
   for (const match of cli.matchAll(/^import[^\n]*from '(\.\/commands\/[^']+)';$/gm)) {
+    // Extracted shared functions are the legacy compatibility spine, not dispatched services.
+    // Direct services never import cli.mjs; dependency-budget tests guard that boundary.
+    if (match[1].startsWith('./commands/shared/')) continue;
     assert.equal(match[1], './commands/kernel.mjs',
       `${match[1]} is imported statically; use await import() so it loads only when its command runs`);
   }

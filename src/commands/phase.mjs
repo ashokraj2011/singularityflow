@@ -11,8 +11,22 @@ export function validatePhaseEntryRequest({ positionals, options }) {
     && typeof options[flag] !== 'boolean') throw new SingularityFlowError(`--${flag} is a boolean flag.`);
 }
 
+let lifecycleModule, publicationModule;
+export async function load({ positionals, options }) {
+  if (positionals[1] === 'enter') return;
+  if (positionals[1] === 'prepublish' && options['publish-if-ready'] === true) {
+    publicationModule ??= import('./phase-publish-if-ready.mjs');
+    return publicationModule;
+  }
+  lifecycleModule ??= import('./phase-lifecycle.mjs');
+  return lifecycleModule;
+}
+
 export async function run(argv, { positionals, options }) {
-  if (positionals[1] !== 'enter') return (await import('./legacy.mjs')).run(argv);
+  if (positionals[1] === 'prepublish' && options['publish-if-ready'] === true) {
+    return (await load({ positionals, options })).run({ positionals, options });
+  }
+  if (positionals[1] !== 'enter') return (await load({ positionals, options })).run(argv, { positionals, options });
   validatePhaseEntryRequest({ positionals, options });
   const { enterPhase } = await import('../phase-entry.mjs');
   const result = await enterPhase({ phaseId: positionals[2] ?? null,

@@ -18,7 +18,23 @@ const DECIDING_MODULES = Object.freeze([
   'story-intake-verification.mjs', 'build-info.mjs', 'version.mjs',
   'configuration-state-service.mjs', 'configuration-state-git.mjs', 'configuration-proposal.mjs',
   'configuration-definition-cache.mjs', 'configuration-object-store.mjs',
-  'configuration-read-worker.mjs', 'configuration-read-worker-client.mjs', 'config.mjs'
+  'configuration-read-worker.mjs', 'configuration-read-worker-client.mjs', 'config.mjs',
+  'command-observability.mjs', 'command-confirmation.mjs', 'phase-generation.mjs', 'cli-steps.mjs',
+  'commands/session.mjs', 'commands/session-entry.mjs', 'commands/choices.mjs', 'commands/choices-entry.mjs',
+  'commands/phase-lifecycle.mjs', 'commands/prepare.mjs', 'commands/inputs.mjs',
+  'commands/review-source.mjs', 'commands/submit.mjs', 'commands/approve.mjs',
+  'commands/shared/session-repository-authority.mjs', 'commands/shared/session-repository-remotes.mjs',
+  'commands/shared/session-discovery-configuration.mjs', 'commands/shared/definition-at-ref.mjs',
+  'commands/shared/git-answer.mjs', 'commands/shared/accepted-story-execution-if-present.mjs',
+  'commands/shared/checklist-decisions.mjs', 'commands/shared/completion-continuation.mjs',
+  'commands/shared/convergence-preparation-state.mjs', 'commands/shared/copilot-activity-line.mjs',
+  'commands/shared/decision-workflow.mjs', 'commands/shared/path-for-display.mjs',
+  'commands/shared/phase-review.mjs', 'commands/shared/post-publication-step.mjs',
+  'commands/shared/prepare-configured-phase.mjs', 'commands/shared/prepared-phase-next-actions.mjs',
+  'commands/shared/print-command-routes.mjs', 'commands/shared/print-phase-review.mjs',
+  'commands/shared/print-selection-receipt.mjs', 'commands/shared/record-required-receipts-after-transition.mjs',
+  'commands/shared/selected-phase-argument.mjs', 'commands/shared/step-action-hold-after-transition.mjs',
+  'commands/shared/story-draft-transaction.mjs', 'commands/shared/with-refusal-memory.mjs'
 ]);
 
 let memoized = null;

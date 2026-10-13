@@ -34,7 +34,7 @@ export async function run({ positionals, options }) {
   }
   const cwd = process.cwd();
   const workId = positionals[1] ?? null;
-  const checked = step(['status', ...(workId ? [workId] : []), '--submission-readiness', '--json'], cwd);
+  const checked = await step(['status', ...(workId ? [workId] : []), '--submission-readiness', '--json'], cwd);
   if (!checked.ok) stop(checked, 'status --submission-readiness');
   const readiness = checked.value;
   const argv = submitArguments(readiness);
@@ -43,9 +43,9 @@ export async function run({ positionals, options }) {
       submitted: false, reason: notSubmittedReason(readiness), command: readiness?.nextCommand ?? null
     } }, null, 2));
   }
-  const submitted = step([...argv, '--json'], cwd);
+  const submitted = await step([...argv, '--json'], cwd);
   if (!submitted.ok) stop(submitted, 'submit');
-  const shown = step(['phase', 'show', readiness.phaseId, '--for-agent', '--json'], cwd);
+  const shown = await step(['phase', 'show', readiness.phaseId, '--for-agent', '--json'], cwd);
   if (!shown.ok) stop(shown, 'phase show');
   console.log(JSON.stringify({ ...readiness, submitIfReady: {
     submitted: true, command: readiness.nextCommand,

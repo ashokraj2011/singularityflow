@@ -14,11 +14,9 @@ import readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 
 import { identity } from '../git.mjs';
-import { setAgentSession } from '../session.mjs';
 import { storyLineageLines } from '../story-base-lineage.mjs';
-import { currentPhase } from '../state-stores.mjs';
+import { currentPhase } from '../phase-generation.mjs';
 import { SingularityFlowError } from '../util.mjs';
-import { resolveStoryExecutionCatalog } from '../story-execution-context.mjs';
 
 /**
  * Where a Story records its parent lineage on the Jira issue.
@@ -89,6 +87,7 @@ export async function activatePhaseAgent(
   root, definition, workId, phase, requestedAgent = null, workflow = null
 ) {
   if (workflow) {
+    const { resolveStoryExecutionCatalog } = await import('../story-execution-context.mjs');
     definition = (await resolveStoryExecutionCatalog(root, definition, workflow)).effectiveDefinition;
   }
   const defaultAgent = phase?.defaultAgent
@@ -100,6 +99,7 @@ export async function activatePhaseAgent(
   if (requestedAgent && !compatible) {
     console.warn(`Warning: agent '${requestedAgent}' is not declared for phase '${phase.id}'. Continuing with an audited prompt override; human approval authority is unchanged.`);
   }
+  const { setAgentSession } = await import('../session.mjs');
   return setAgentSession(root, definition, actionActor(root), agent, workId, {
     phaseId: phase?.id ?? null,
     source: requestedAgent ? 'explicit-override' : 'phase-default'

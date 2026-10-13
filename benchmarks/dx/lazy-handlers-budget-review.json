@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "scope": "lazy command handler extraction and composed reads",
+  "baselineCommit": "6c077ff186a9065ecf51f44c597df1a92f794de6",
+  "runtime": "macOS arm64; Node 22.14.0; locked esbuild workspace dependency",
+  "gateway": {
+    "baselineBytes": 7379928,
+    "candidateBytes": 7390267,
+    "baselineModules": 682,
+    "candidateModules": 682,
+    "previousByteCeiling": 7380000,
+    "reviewedByteCeiling": 7400000,
+    "moduleCeilingUnchanged": 682
+  },
+  "totalJavaScript": {
+    "baselineBytes": 12950240,
+    "candidateBytes": 12952747
+  },
+  "reason": "Retain the existing module and startup budgets while allowing the measured small compiled gateway delta. Direct CLI handlers have separate tighter eager dependency budgets; live authorization, review and publication checks are unchanged.",
+  "caveats": [
+    "This is a size review, not native Windows or VS Code host latency qualification.",
+    "Source-module counts exclude third-party package internals.",
+    "No other entry ceiling or total byte ceiling was increased."
+  ]
+}

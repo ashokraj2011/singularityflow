@@ -37,7 +37,7 @@ export async function run({ positionals, options }) {
   }
   const cwd = process.cwd();
   const requested = positionals[2] ?? null;
-  const checked = step(['phase', 'prepublish', ...(requested ? [requested] : []), '--for-agent', '--json'], cwd);
+  const checked = await step(['phase', 'prepublish', ...(requested ? [requested] : []), '--for-agent', '--json'], cwd);
   if (!checked.ok) stop(checked, 'phase prepublish');
   const prepublish = checked.value;
   const phaseId = prepublish.phase ?? requested;
@@ -49,9 +49,9 @@ export async function run({ positionals, options }) {
       command: prepublish.commands?.publish ?? null
     } }));
   }
-  const published = step([...argv, '--json'], cwd);
+  const published = await step([...argv, '--json'], cwd);
   if (!published.ok) stop(published, 'phase publish');
-  const shown = step(['phase', 'show', phaseId, '--for-agent', '--json'], cwd);
+  const shown = await step(['phase', 'show', phaseId, '--for-agent', '--json'], cwd);
   if (!shown.ok) stop(shown, 'phase show');
   console.log(JSON.stringify({ ...prepublish, publishIfReady: {
     published: true, command: prepublish.commands.publish,

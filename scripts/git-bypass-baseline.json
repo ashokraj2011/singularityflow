@@ -529,14 +529,14 @@
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "5f48f0a92673b3425a21e0cd173ff44a06c747df891ad7587cef09520d1e8105"
+      "digest": "f8b8540656767076ce889ee1ab88a80b0716303296fdf1176f2424726f913599"
     },
     "src/cli.mjs": {
       "counts": {
-        "command-run": 27,
+        "command-run": 26,
         "command-runCommand": 1
       },
-      "digest": "f6dbfe88b5fe46960010517413e6751f23fb94a8968dd5851e8ebe076b47e9d5"
+      "digest": "d6c4da9e383bb84f11b21e1bcb615942348d3a6d10620f4f5ce0dee190657348"
     },
     "src/clipboard.mjs": {
       "counts": {
@@ -1445,6 +1445,12 @@
         "command-run": 1
       },
       "digest": "824ddda0377a1b344f19c17ed9affcec246efe5376f6e8a43e22a96e3f5c9521"
+    },
+    "src/commands/shared/git-answer.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "691435376e179ea53cd69f62265e1f5603954af2de40206d39bd219d204a882a"
     }
   }
 }

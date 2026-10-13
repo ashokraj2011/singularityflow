@@ -29,6 +29,11 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 
 const scopes = new AsyncLocalStorage();
 
+/** A composed CLI step starts without its caller's cached mutable observations. */
+export function withoutReadScope(fn) {
+  return scopes.exit(fn);
+}
+
 /** Open a read scope for the duration of `fn`, unless one is already open. */
 export async function withReadScope(fn) {
   if (scopes.getStore()) return fn();

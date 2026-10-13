@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto';
 import { lstat, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
+import { parseYamlText } from './yaml-parse-cache.mjs';
 import { SingularityFlowError, secureRepositoryPath } from './util.mjs';
 import { instructionReferences, resolveSkillInstructions } from './instruction-library.mjs';
 import { instructionSlots } from './skill-instruction-composition.mjs';
@@ -69,7 +70,7 @@ function splitFrontMatter(text, label) {
   const closing = /\r?\n---(?:\r?\n|$)/.exec(remainder);
   if (!closing) fail(`${label} front matter is not closed.`);
   let value;
-  try { value = YAML.parse(remainder.slice(0, closing.index)) ?? {}; }
+  try { value = parseYamlText(remainder.slice(0, closing.index)) ?? {}; }
   catch (error) { fail(`${label} front matter is not valid YAML: ${error.message}`); }
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${label} front matter must be a map.`);
   return { frontMatter: value, body: remainder.slice(closing.index + closing[0].length) };
@@ -161,7 +162,7 @@ export async function loadSkillLibrary(configRoot) {
  */
 export function parseSkillAttachments(text, source = SKILL_ATTACHMENTS_PATH) {
   let value;
-  try { value = YAML.parse(String(text ?? '')) ?? {}; }
+  try { value = parseYamlText(String(text ?? '')) ?? {}; }
   catch (error) { fail(`${source} is not valid YAML: ${error.message}`, 'SKILL_ATTACHMENTS_INVALID'); }
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${source} must be a map holding an attachments list.`, 'SKILL_ATTACHMENTS_INVALID');
   const unknown = Object.keys(value).filter((key) => key !== 'attachments');

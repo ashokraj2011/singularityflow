@@ -13,12 +13,12 @@
  */
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import YAML from 'yaml';
 
 import { applicationPathContext, isApplicationChangePath } from '../application-paths.mjs';
 import { withApprovedConfigurationRead } from '../approved-configuration-reader.mjs';
 import { configurationReadRoot } from '../configuration-read-scope.mjs';
 import { buildRepositoryChangeSet, repositoryChangeSetDigest } from '../repository-change-set.mjs';
+import { parseYamlText } from '../yaml-parse-cache.mjs';
 
 const MACHINE_STATE_ROOT = '.singularity-flow';
 const MAX_HIDDEN_GROUPS = 20;
@@ -32,7 +32,7 @@ const MAX_DIFF_PATHS = 2_000;
 export async function comprehensionDefinition(root) {
   try {
     return await withApprovedConfigurationRead(root, async () => {
-      const parsed = YAML.parse(await readFile(path.join(configurationReadRoot(root), 'singularity', 'workflow.yml'), 'utf8'));
+      const parsed = parseYamlText(await readFile(path.join(configurationReadRoot(root), 'singularity', 'workflow.yml'), 'utf8'));
       return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
     }, { preferAuthority: true, refreshAuthority: false, selectPaths: ['singularity/workflow.yml'] });
   } catch {

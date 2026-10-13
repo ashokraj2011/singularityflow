@@ -4,6 +4,7 @@ import { lstat, readdir, open } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
+import { parseYamlText } from './yaml-parse-cache.mjs';
 import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 export const INSTRUCTION_LIBRARY_ROOT = 'singularity/instruction-library';
@@ -49,7 +50,7 @@ export function parseInstruction(text, { id, source = instructionPath(id) } = {}
   const match = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/u.exec(text);
   if (!match) fail(`${source} needs name and description front matter.`);
   let front;
-  try { front = YAML.parse(match[1]); } catch (error) { fail(`${source}: ${error.message}`); }
+  try { front = parseYamlText(match[1]); } catch (error) { fail(`${source}: ${error.message}`); }
   if (!front || typeof front !== 'object' || Array.isArray(front)
       || Object.keys(front).some(key => !['name', 'description', 'metadata'].includes(key))) fail(`${source} has invalid front matter.`);
   if (typeof front.name !== 'string' || !ID.test(front.name) || (id != null && front.name !== id)) fail(`${source} must name its own lower-case instruction ID.`);

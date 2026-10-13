@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
+import { parseYamlText } from './yaml-parse-cache.mjs';
 import { exists, nowIso, posix, secureRepositoryPath, snapshot, writeBytes, writeJson, writeText, SingularityFlowError } from './util.mjs';
 import {
   DEFAULT_REMOTE_MAX_BYTES, HARD_REMOTE_MAX_BYTES, fetchRemoteMarkdown, validatePublicHttpsUrl
@@ -88,7 +89,7 @@ function parseAgentDocument(text, file) {
   const remainder = normalized.slice(opening[0].length);
   const closing = /\r?\n---(?:\r?\n|$)/.exec(remainder);
   if (!closing) throw new SingularityFlowError(`Agent frontmatter is not closed: ${file}`);
-  const value = YAML.parse(remainder.slice(0, closing.index)) ?? {};
+  const value = parseYamlText(remainder.slice(0, closing.index)) ?? {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError(`Agent frontmatter must be an object: ${file}`);
   return { frontmatter: value, body: remainder.slice(closing.index + closing[0].length) };
 }

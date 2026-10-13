@@ -22,6 +22,11 @@ remain unmeasured. No server-side protection or remote verification was bypassed
 A 10,000-file scale probe retained the same 47-process review and 78-process activation counts.
 That is a subprocess-growth check, not a claim of constant transfer bytes or wall time.
 
+The final benchmark harness additionally neutralizes ambient Git selectors and global
+hooks/fsmonitor settings. That isolation adds one readiness query per CLI invocation: a final
+1,000-file probe reported 48 review / 79 activation processes. The table above records the
+earlier paired measurements; the extra harness query does not change the product's reduction.
+
 The remaining cold clone/fetch, full validation, durable journal, real leased push, post-push
 observation and workspace-reference refresh are still paid. This change does not introduce a
 cross-invocation authority cache or claim that large repository transfer is free. A server that

@@ -460,6 +460,7 @@ Every public operation is classified before its implementation module is importe
 | phase.enter | read | never | — | — |
 | phase.enter.compose | mutation | never | — | — |
 | phase.prepublish | read | never | — | — |
+| phase.prepublish.publish | mutation | never | — | — |
 | phase.show | read | never | — | — |
 | plan | read | never | — | — |
 | plugin | mutation | never | — | — |

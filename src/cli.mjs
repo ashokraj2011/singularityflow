@@ -6643,6 +6643,7 @@ function printPhaseReview(review, { showArtifact = false } = {}) {
 }
 async function phaseCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'phase subcommand');
+  if (subcommand === 'prepublish' && options['publish-if-ready'] === true) return (await import('./commands/phase-publish-if-ready.mjs')).run({ positionals, options });
   const root = repoRoot();
   const accepted = await loadAcceptedStoryExecution(root);
   const config = accepted.definition;

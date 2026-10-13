@@ -384,7 +384,7 @@ test('code skill reads readiness and task policy from their real structured sour
   assert.match(content, /Require entry `phase`, `phaseAgent.valid: true`, `generatesCode: true`, `authoring.policyVerified`/);
   assert.match(content, /never draft sign-off/);
   assert.match(content, /no duplicate lookups/i);
-  assert.match(content, /phase show <phase> --for-agent --json`: viewing only/);
+  assert.match(content, /`publishIfReady\.review`: viewing only/);
 });
 
 test('code skill treats a prepared draft as authoring work without bypassing genuine recovery', async () => {
@@ -565,7 +565,7 @@ test('Copilot phase authoring repairs structured draft findings before publicati
   assert.match(workflowAgent, /skills\/sflow-phase\/SKILL.md/);
   assert.match(workflowAgent, /bounded correction and publication; preparation alone is not a completed artifact/);
   for (const [name, content] of [['workflow rules', workflowRules]]) {
-    assert.match(content, /singularity-flow phase prepublish <phase> --for-agent --json` \(includes draft-check\)/,
+    assert.match(content, /singularity-flow phase prepublish <phase> --for-agent --json --publish-if-ready` \(includes draft-check\)/,
       `${name} omits the shared combined authoring preflight`);
     assert.match(content, /singularity-flow recover <WORK-ID> --phase <phase> --json/,
       `${name} omits current-phase recovery`);

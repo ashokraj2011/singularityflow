@@ -1395,6 +1395,7 @@ export function resolveOperation({ requestedCommand, positionals, options = {}, 
   }
   if (definition.name === 'phase') {
     if (positionals[1] === 'enter' && optionBoolean(options, 'compose')) return never('phase.enter.compose', definition, 'mutation');
+    if (positionals[1] === 'prepublish' && optionBoolean(options, 'publish-if-ready')) return never('phase.prepublish.publish', definition, 'mutation');
     return PHASE_READ_SUBCOMMANDS.includes(positionals[1])
       ? never(`phase.${positionals[1]}`, definition, 'read')
       : never('phase', definition, 'mutation');
@@ -1633,6 +1634,7 @@ export function operationCatalog() {
     ...['on', 'off', 'status'].map((action) => never(`pause.${action}`, commandDefinition('pause'), action === 'status' ? 'read' : 'mutation')),
     never('phase', commandDefinition('phase'), 'mutation'),
     never('phase.enter.compose', commandDefinition('phase'), 'mutation'),
+    never('phase.prepublish.publish', commandDefinition('phase'), 'mutation'),
     ...PHASE_READ_SUBCOMMANDS.map((name) => never(`phase.${name}`, commandDefinition('phase'), 'read')),
     ...SKILL_READ_SUBCOMMANDS.map((name) => never(`skill.${name}`, commandDefinition('skill'), 'read')),
     ...['list', 'show'].map(name => never(`instruction.${name}`, commandDefinition('instruction'), 'read')),

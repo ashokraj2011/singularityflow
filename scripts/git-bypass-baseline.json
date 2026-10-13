@@ -12,13 +12,6 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
-    "src/commands/session-open.mjs": {
-      "counts": {
-        "process-import": 1,
-        "process-launch": 1
-      },
-      "digest": "011e67483a8d78aad8902b861b3de085307cda74c74b80ed780f7fd7152edb9e"
-    },
     "src/phase-continuation-runtime.mjs": {
       "counts": {
         "command-run": 1
@@ -530,6 +523,13 @@
         "command-run": 1
       },
       "digest": "99b130cb399c156259384709603b6cb8c9d5bc32c2a1ab7b4b7aab18c5abde0c"
+    },
+    "src/cli-steps.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "5f48f0a92673b3425a21e0cd173ff44a06c747df891ad7587cef09520d1e8105"
     },
     "src/cli.mjs": {
       "counts": {

@@ -39,7 +39,11 @@ export async function reportCliFailure(error, argv = []) {
   }
 
   const structuredBeside = !json && process.env.SINGULARITY_FLOW_REFUSAL_ENVELOPE === 'stderr-v1';
-  if (result) {
+  // A command made of steps (cli-steps.mjs) relays the failed step's own JSON result as it is.
+  const relayed = error?.relayedResult;
+  if (relayed && json) {
+    console.log(JSON.stringify(relayed, null, 2));
+  } else if (result) {
     if (json) console.log(renderCommandResultJson(result));
     else {
       console.error(`\n${redactDiagnosticText(error?.message ?? String(error), { multiline: true })}`);
@@ -47,7 +51,7 @@ export async function reportCliFailure(error, argv = []) {
       if (structuredBeside) console.error(`\n${REFUSAL_ENVELOPE_MARKER}\n${JSON.stringify(JSON.parse(renderCommandResultJson(result)))}`);
     }
   } else {
-    const envelope = refusalEnvelope(error, argv);
+    const envelope = relayed?.resultType === 'sflow-refusal-plan' && relayed.remediationPlan ? relayed : refusalEnvelope(error, argv);
     if (json) console.log(JSON.stringify(envelope, null, 2));
     else {
       console.error(`\nSingularity Flow error: ${redactDiagnosticText(error?.message ?? String(error), { multiline: true })}`);

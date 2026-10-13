@@ -49,8 +49,10 @@ test('every public skill has a bounded class and output contract', async () => {
   assert.ok(result.rows.every((row) => row.class
     && row.bodyTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - (row.applicabilityTokens ?? 0) - row.pauseGuardTokens <= (policy.skills[row.name]?.maximumTokenOverride ?? 800)));
   // Code generation, the specialised skills a step may choose (they follow that step's contract),
-  // and the two skills that relay a step routed elsewhere.
-  const overridden = ['sflow-code', 'sflow-design', 'sflow-phase', 'sflow-release', 'sflow-requirements'];
+  // the two skills that relay a step routed elsewhere, and the skills whose single
+  // `prepublish --publish-if-ready` call must say when not to publish again.
+  const overridden = ['sflow-code', 'sflow-converge', 'sflow-design', 'sflow-document-intake', 'sflow-phase',
+    'sflow-plan', 'sflow-release', 'sflow-requirements', 'sflow-scenario-check'];
   assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - (row.applicabilityTokens ?? 0) - row.pauseGuardTokens > 800).map((row) => row.name), overridden);
   for (const name of overridden) assert.ok(policy.skills[name].exception, `${name} explains its token override`);
   assert.ok(result.rows.every((row) => ['never', 'conditional'].includes(row.kernelModelPolicy)));
@@ -141,7 +143,7 @@ test('generative requirements retains interactive clarification and governed pub
   const content = await readFile(path.join(root, 'plugin', 'skills', 'sflow-requirements', 'SKILL.md'), 'utf8');
   assert.match(content, /sflow-output-contract: clarification-and-artifact/);
   assert.match(content, /Human clarification checkpoint|ask_user/);
-  assert.match(content, /Use returned `commands\.publish` when `ready`; absent: relay `commands\.next`, stop/);
+  assert.match(content, /Use returned `commands\.publish` when `ready` unless `publishIfReady\.published`; absent: relay `commands\.next`, stop/);
   assert.match(content, /Preparation is not authoring/);
   assert.match(content, /native file-edit tool/);
   assert.match(content, /verified Markdown-preview links/);

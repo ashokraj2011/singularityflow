@@ -238,7 +238,9 @@ function shellAllowed(call, mode, value) {
   if (mode === 'read-only-review') return positionals[0] === 'review-source'
     && ['stage', 'check', 'submit'].includes(positionals[1]) && positionals[2] === value.contract.phaseId
     && (!options['work-id'] || options['work-id'] === value.contract.workId);
-  if (mode === 'publish-only') return positionals[0] === 'phase' && positionals[1] === 'publish'
+  // The combined form publishes only the command its own prepublish returns, for the same phase.
+  if (mode === 'publish-only') return positionals[0] === 'phase'
+    && (positionals[1] === 'publish' || positionals[1] === 'prepublish' && options['publish-if-ready'] === true)
     && positionals[2] === value.contract.phaseId && (!options['work-id'] || options['work-id'] === value.contract.workId);
   if (mode === 'read') return false;
   // Deciding an upstream issue is the earlier step's approvers' call, like approve and reject; an

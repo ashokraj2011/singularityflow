@@ -698,7 +698,7 @@ Usage:
   singularity-flow phase show [PHASE] [--json] [--for-agent]
   singularity-flow phase enter [PHASE] [--work-id WORK-ID] [--compose] [--for-agent] [--json]
   singularity-flow phase draft-check [PHASE] [--json]
-  singularity-flow phase prepublish [PHASE] [--json] [--for-agent]
+  singularity-flow phase prepublish [PHASE] [--json] [--for-agent] [--publish-if-ready]
   singularity-flow phase begin [PHASE] [--json]
     [--adopt-existing|--adopt-current-interval] [--confirm CHANGE-SET-DIGEST]
   singularity-flow phase rollover [PHASE] [--json|--confirm CURRENT-DIGEST]

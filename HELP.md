@@ -3612,6 +3612,9 @@ singularity-flow phase enter [PHASE] [--work-id WORK-ID] [--compose] [--for-agen
 singularity-flow phase show [PHASE] [--json]
 singularity-flow phase draft-check [PHASE] [--json]
 singularity-flow phase prepublish [PHASE] [--for-agent] [--json]
+singularity-flow phase prepublish [PHASE] --for-agent --json --publish-if-ready
+# The end of every drafting skill in one command: the same prepublish result, and when it is ready
+# the returned commands.publish runs once and publishIfReady.review carries the phase show result.
 singularity-flow initiative phase draft-check [PHASE] [--initiative INIT-ID] [--json]
 singularity-flow phase rollover [PHASE] [--json|--confirm CURRENT-DIGEST]
 singularity-flow phase publish [PHASE] [--usage-json FILE]

@@ -9,39 +9,12 @@
  * re-implements a rule. Without a work ID it returns the candidate table, because choosing a Story
  * is the person's decision, never inferred.
  */
-import { spawnSync } from 'node:child_process';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { step, stop as stopStep } from '../cli-steps.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
-const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../bin/singularity-flow.mjs');
 const LOCAL_FALLBACK = new Set(['SESSION_LOCAL_STORY_UNAVAILABLE', 'SESSION_LOCAL_REPOSITORY_UNAVAILABLE']);
 const OPTIONS = new Set(['workspace', 'repository', 'json']);
-
-/** One step: the same command, in its own process, with its JSON answer or its refusal. */
-function step(args, cwd) {
-  const child = spawnSync(process.execPath, [CLI, ...args], {
-    cwd, env: process.env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 10 * 60 * 1000
-  });
-  let value = null;
-  try { value = JSON.parse(child.stdout); } catch { value = null; }
-  return { ok: child.status === 0, status: child.status, value, stdout: child.stdout, stderr: child.stderr };
-}
-
-/** A failed step ends the command with that step's own refusal, untouched. */
-function stop(result, label) {
-  if (result.value?.resultType === 'sflow-refusal-plan' || result.value?.error) {
-    const error = new SingularityFlowError(result.value.error?.message ?? `${label} was refused.`, {
-      code: result.value.error?.code ?? 'SESSION_OPEN_STEP_REFUSED',
-      exitCode: Number.isInteger(result.status) ? result.status : 1,
-      details: { step: label, ...(result.value.error?.details ?? {}) }
-    });
-    throw error;
-  }
-  throw new SingularityFlowError(`${label} did not complete: ${(result.stderr || result.stdout || '').trim().split('\n').at(-1) ?? 'no output'}`, {
-    code: 'SESSION_OPEN_STEP_FAILED', exitCode: Number.isInteger(result.status) ? result.status : 1, details: { step: label }
-  });
-}
+const stop = (result, label) => stopStep(result, label, 'SESSION_OPEN_STEP_FAILED');
 
 export async function run({ positionals, options }) {
   for (const key of Object.keys(options)) {

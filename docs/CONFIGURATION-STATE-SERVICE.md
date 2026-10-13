@@ -41,6 +41,27 @@ update commits the complete configuration/receipt together; a fresh observation 
 The receipt file is kernel-owned: proposals and recreation cannot supply replacements for it.
 Malformed shared receipts are an integrity refusal, not a disposable-cache repair.
 
+## Proposal performance
+
+VS Code opens the exact diff, obtains its confirmation and separate direct-push acknowledgement,
+then performs one activation attempt. It no longer clones/prepares an unacknowledged activation
+just to discover that acknowledgement is required. Declining either choice performs no activation;
+a failure is not silently retried. CLI callers still need the explicit acknowledgement.
+
+Review, listing and transaction preparation share exact hydrated configuration objects within
+their disposable checkout. Inventories are keyed by immutable commit and path set, with fresh
+admission predicates and 128-entry/4-MiB bounds. A local lazy-fetch seal can be reused only while
+the bounded actual configuration bytes and qualified file identity still match; explicit fetches
+invalidate it. Unsupported layouts fall back to Git. No mutable branch, remote observation,
+permission or approval decision is cached. Complete configuration validation and the exact leased
+push remain required; application code, the caller's index and existing Story pins stay untouched.
+
+Run `node scripts/proposal-performance-benchmark.mjs --samples=3 --files=1000` for a disposable
+local-remote report. `--source=<checkout>` selects another build for comparison. It measures CLI
+wall time and real Git subprocess counts, not human reading time, office-network latency or native
+Windows performance. `--timings` also exposes proposal materialization, hydration, transaction
+preparation, final validation and push spans for ordinary CLI diagnostics.
+
 ## Interruption and recovery
 
 The local operation is `prepared` before push. Stable candidate construction reconstructs the same

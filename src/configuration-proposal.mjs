@@ -36,6 +36,7 @@ import {
   GitRemoteSession, requireRemoteObservation, runRemoteGitAsync
 } from './git-execution.mjs';
 import { executeGitQuery } from './git-query.mjs';
+import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
 import { createAndPushTransportIntent } from './transport-intents.mjs';
 import { openConfigurationStateService, readConfigurationTransactionJournals } from './configuration-state-service.mjs';
@@ -234,11 +235,12 @@ function yamlAtRef(root, ref, relative, env) {
   return YAML.parse(shown.stdout) ?? {};
 }
 
-function workflowChanges(root, base, proposal, env) {
-  const baseDefinition = yamlAtRef(root, base, 'singularity/workflow.yml', env);
-  const proposedDefinition = yamlAtRef(root, proposal, 'singularity/workflow.yml', env);
-  const basePortfolio = yamlAtRef(root, base, 'singularity/portfolio.yml', env);
-  const proposedPortfolio = yamlAtRef(root, proposal, 'singularity/portfolio.yml', env);
+function workflowChanges(reader, base, proposal) {
+  const yaml = (commit, relative) => YAML.parse(reader.file(commit, relative)?.bytes.toString('utf8') ?? '{}') ?? {};
+  const baseDefinition = yaml(base, 'singularity/workflow.yml');
+  const proposedDefinition = yaml(proposal, 'singularity/workflow.yml');
+  const basePortfolio = yaml(base, 'singularity/portfolio.yml');
+  const proposedPortfolio = yaml(proposal, 'singularity/portfolio.yml');
   const rows = [];
   for (const [governs, before, after] of [
     ['story', baseDefinition.workTypes ?? {}, proposedDefinition.workTypes ?? {}],
@@ -263,16 +265,12 @@ function changedConfigurationFiles(root, base, proposal, env) {
   return readGitNameStatusDiff(root, base, proposal, { env });
 }
 
-function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
-  includeDiff = true, env = process.env
+async function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
+  includeDiff = true, env = process.env, reader, binding
 } = {}) {
-  const targetCommit = configurationRepositoryHead(root, env);
-  const proposalCommit = run('git', ['rev-parse', '--verify', `${ref}^{commit}`], {
-    cwd: root, env
-  }).stdout.trim();
-  const proposalBase = run('git', ['rev-parse', '--verify', `${ref}^`], {
-    cwd: root, env
-  }).stdout.trim();
+  // These exact commits were resolved just once during hydration in the same owned checkout.
+  // Never carry this binding across invocations or reuse it for the final remote push proof.
+  const { targetCommit, proposalCommit, proposalBase } = binding;
   const createdSeconds = Number(run('git', ['show', '-s', '--format=%ct', proposalCommit], { cwd: root, env }).stdout.trim());
   const proposalCreatedAt = Number.isSafeInteger(createdSeconds) && createdSeconds > 0 && createdSeconds <= 8_640_000_000_000
     ? new Date(createdSeconds * 1000).toISOString() : null;
@@ -288,6 +286,8 @@ function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
   const mergeBase = mergeBaseResult.stdout.trim();
   const merged = gitIsAncestor(root, ref, 'HEAD', { env });
   const reviewBase = merged ? proposalBase : mergeBase;
+  await reader.hydrate([reviewBase, proposalCommit].flatMap(commit => reader.inventory(commit,
+    ['singularity/workflow.yml', 'singularity/portfolio.yml'])));
   const changed = changedConfigurationFiles(root, reviewBase, ref, env);
   const invalidFiles = changed.names.filter((file) => !isConfigurationReadPath(file));
   const diff = includeDiff && invalidFiles.length === 0
@@ -300,7 +300,7 @@ function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
     targetCommit, proposalCommit, proposalBase, proposalCreatedAt, mergeBase, merged,
     valid: changed.names.length > 0 && invalidFiles.length === 0,
     invalidFiles, changedFiles: changed.statuses,
-    workflows: workflowChanges(root, reviewBase, ref, env),
+    workflows: workflowChanges(reader, reviewBase, proposalCommit),
     diff: diff == null ? null
       : diff.length > 200_000 ? `${diff.slice(0, 200_000)}\n… diff truncated …\n` : diff,
     diffDeferred: diff == null
@@ -350,13 +350,13 @@ async function withWorkflowProposalCheckout(root, requestedBranch, operation, {
         { code: fetched.failure?.code ?? 'WORKFLOW_PROPOSAL_UNAVAILABLE' }
       );
     }
-    const reader = await materializeConfigurationSnapshot(scratch, transport.remote,
-      configurationRepositoryHead(scratch, transport.env), transport.env, runRemoteGitAsync);
-    await hydrateConfigurationProposal(reader, `refs/remotes/origin/${branch}`, transport.env);
+    const reader = await measureCommandSpan('proposal.materialize', () => materializeConfigurationSnapshot(scratch, transport.remote,
+      configurationRepositoryHead(scratch, transport.env), transport.env, runRemoteGitAsync));
+    const binding = await measureCommandSpan('proposal.hydrate', () => hydrateConfigurationProposal(reader, `refs/remotes/origin/${branch}`, transport.env));
     return await operation(
       scratch, remote, branch, `refs/remotes/origin/${branch}`,
       {
-        env: transport.env, identityEnv, remote: transport.remote, session: remoteSession
+        env: transport.env, identityEnv, remote: transport.remote, session: remoteSession, reader, binding
       }
     );
   } finally {
@@ -391,7 +391,10 @@ export async function listWorkflowConfigurationProposals(root, {
   try { stateService = await openConfigurationStateService(root, remote); } catch { /* disposable read cache */ }
   if (!includeDiff && stateService) {
     const cached = await stateService.cachedProposals(authorityCommit, branches);
-    if (cached) return includeMerged ? cached : cached.filter(record => !record.merged);
+    if (cached) {
+      incrementCommandCounter('configuration.proposals-reuse');
+      return includeMerged ? cached : cached.filter(record => !record.merged);
+    }
   }
   const transport = frozenRemoteTransport(remote, { env: gitEnv });
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposals-'));
@@ -416,9 +419,9 @@ export async function listWorkflowConfigurationProposals(root, {
     for (const entry of branches) {
       const ref = `refs/remotes/origin/${entry.branch}`;
       try {
-        await hydrateConfigurationProposal(reader, ref, transport.env);
-        const inspected = inspectWorkflowProposalCheckout(
-          scratch, remote, entry.branch, ref, { includeDiff, env: transport.env }
+        const binding = await hydrateConfigurationProposal(reader, ref, transport.env);
+        const inspected = await inspectWorkflowProposalCheckout(
+          scratch, remote, entry.branch, ref, { includeDiff, env: transport.env, reader, binding }
         );
         if (inspected.proposalCommit !== entry.proposalCommit) {
           throw new SingularityFlowError('Proposal revision changed during inspection. Refresh before reviewing it.', { code: 'CONFIGURATION_SNAPSHOT_STALE' });
@@ -450,7 +453,7 @@ export async function inspectWorkflowConfigurationProposal(root, branch) {
   return withWorkflowProposalCheckout(root, branch, (
     scratch, remote, proposalBranch, ref, transport
   ) => inspectWorkflowProposalCheckout(scratch, remote, proposalBranch, ref, {
-    env: transport.env
+    env: transport.env, reader: transport.reader, binding: transport.binding
   }));
 }
 
@@ -545,8 +548,8 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
     return await withWorkflowProposalCheckout(root, branch, async (
     scratch, remote, proposalBranch, ref, transport
   ) => {
-    const reviewed = inspectWorkflowProposalCheckout(scratch, remote, proposalBranch, ref, {
-      env: transport.env
+    const reviewed = await inspectWorkflowProposalCheckout(scratch, remote, proposalBranch, ref, {
+      env: transport.env, includeDiff: false, reader: transport.reader, binding: transport.binding
     });
     if (String(confirm ?? '').trim() !== reviewed.proposalCommit) {
       const nextAction = workflowProposalCommand('activate', proposalBranch, reviewed.proposalCommit);
@@ -581,10 +584,10 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
         );
       }
       const actor = gitCommitIdentity(root, { env: transport.identityEnv });
-      prepared = await prepareConfigurationStateTransaction(scratch, transport.remote, reviewed, {
+      prepared = await measureCommandSpan('proposal.prepare', () => prepareConfigurationStateTransaction(scratch, transport.remote, reviewed, {
         env: transport.env, runRemoteCommand: runRemoteGitAsync, actor: { name: actor.name, email: actor.email },
-        proposalId: stateService.identity(proposalBranch)
-      });
+        proposalId: stateService.identity(proposalBranch), objectReader: transport.reader
+      }));
       await stateService.prepare(prepared.transaction, prepared.targetCommit);
     }
 
@@ -593,16 +596,16 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
     const baselineDefinition = validateDefinition(
       yamlAtRef(scratch, reviewed.targetCommit, 'singularity/workflow.yml', transport.env)
     );
-    await import('./editor.mjs').then(({ validateEditorConfiguration }) =>
-      validateEditorConfiguration(scratch, { baselineDefinition }));
+    await measureCommandSpan('proposal.validate', () => import('./editor.mjs').then(({ validateEditorConfiguration }) =>
+      validateEditorConfiguration(scratch, { baselineDefinition })));
     const targetCommit = configurationRepositoryHead(scratch, transport.env);
     if (!alreadyMerged) {
       const targetRef = `refs/heads/${CONFIGURATION_BRANCH}`;
-      let pushed = await runRemoteGitAsync([
+      let pushed = await measureCommandSpan('proposal.push', () => runRemoteGitAsync([
         'push', '--porcelain',
         `--force-with-lease=${targetRef}:${reviewed.targetCommit}`,
         '--', transport.remote, `HEAD:${targetRef}`
-      ], { cwd: scratch, operation: 'remote-push', env: transport.env });
+      ], { cwd: scratch, operation: 'remote-push', env: transport.env }));
       const transition = pushed.status === 0
         ? pushed.stdout.split(/\r?\n/).map((line) => {
           const [flag, refspec] = line.split('\t');

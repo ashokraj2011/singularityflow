@@ -99,3 +99,18 @@ export function configurationSaveDisposition(output: string, plannedProposal: bo
   if (result.authorityMode === 'local') return { kind: 'local' };
   return { kind: 'unchanged' };
 }
+
+/** Consent precedes expensive preparation. Neither a review nor a failed command grants it. */
+export async function activateReviewedWorkflowProposal<T>(
+  reviewed: { branch: string; proposalCommit: string; merged?: boolean },
+  boundary: { acknowledge: () => Promise<boolean>; activate: (args: string[]) => Promise<T> }
+): Promise<T | null> {
+  const args = ['workflow', 'activate', reviewed.branch, '--confirm', reviewed.proposalCommit];
+  if (!reviewed.merged) {
+    if (!await boundary.acknowledge()) return null;
+    args.push('--acknowledge-unprotected');
+  }
+  // One attempt only: a changed ref, lease refusal or server policy needs a fresh review,
+  // not an automatic retry. The kernel still re-observes and validates the exact commit.
+  return boundary.activate([...args, '--json']);
+}

@@ -12,6 +12,14 @@ The Story-intake performance change extends the existing `test:platform:windows`
 with Git-fact invalidation and intake receipt/start suites. Its reviewed package-script digest changes
 only because those test paths are added; it adds no production Git owner or launcher.
 
+The proposal-performance change removes two legacy ref-resolution sites from
+`src/configuration-proposal.mjs`; the same exact commits are resolved during hydration in that
+invocation's disposable checkout. Its fresh remote push/lease verification is unchanged.
+`scripts/proposal-performance-benchmark.mjs` has one frozen process launcher and fixture Git calls:
+it creates its own bounded temporary application/configuration repository and local bare remote,
+redirects SFlow machine state, invokes the CLI with models disabled, and removes only its fixture
+in `finally`. It is never imported by product commands and is not a registered Git owner.
+
 The opt-in `src/skp-docker-hash-probe.mjs` has one reviewed process import and one launch in its fixed Docker CLI hash helper. It is deliberately a frozen baseline site rather than a registered owner: changing the launcher call must trigger a fresh review. That candidate stages inert bytes, requires a local digest-pinned image with no pull, and never grants SKP lifecycle execution or host qualification. The GAL signature checks the import and launch expression; the probe's focused tests check its Docker arguments, environment, output bound, and refusal paths.
 
 The bundled Java semantic AST adapter, `src/ast-packs/java-semantic-adapter.mjs`, has one reviewed process import and one launch: it runs the packaged `JavaCallResolver.java` on the `java` launcher found on `PATH`, the toolchain a confirmed `wm ast warm --semantic --provider sflow-java` bound the project to. It never runs Git, Maven, Gradle, or repository code; the resolver reads sources as data with an empty class path and no annotation processors. The adapter is itself an out-of-process pack started through the bounded adapter runner (structured argv, closed environment, time and output limits, tree kill), and it must stay self-contained so retained evidence can replay it, so it cannot import the hardened process primitive. It is a frozen site, not a registered owner.

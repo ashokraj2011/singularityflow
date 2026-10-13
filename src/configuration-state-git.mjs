@@ -83,6 +83,7 @@ export async function hydrateConfigurationProposal(reader, proposalRef, env) {
   const assetPolicy = mergeConfigurationAssetPolicies(...[base, proposal, current].map(commit => policy(reader, commit)));
   const paths = readGitNameStatusDiff(reader.root, base, proposal, { env, maximumRecords: 2_000 }).names.filter(relative => isConfigurationAssetPath(relative, assetPolicy));
   await reader.hydrate(paths.flatMap(relative => [proposal, base, current].map(commit => reader.lookup(commit, relative))));
+  return { proposalCommit: proposal, proposalBase: base, targetCommit: current };
 }
 
 export async function configurationStateAtRef(root, remote, commit, env, runRemoteCommand) {
@@ -94,9 +95,10 @@ export async function configurationStateAtRef(root, remote, commit, env, runRemo
 
 /** Changed values are applied to the current snapshot; competing values are explicit conflicts. */
 export async function prepareConfigurationStateTransaction(root, remote, reviewed, {
-  env, runRemoteCommand, actor, proposalId
+  env, runRemoteCommand, actor, proposalId, objectReader = null
 }) {
-  const reader = new ConfigurationObjectReader(root, remote, env, runRemoteCommand);
+  const reader = objectReader ?? new ConfigurationObjectReader(root, remote, env, runRemoteCommand);
+  if (reader.root !== root || reader.remote !== remote) fail('Configuration object reader belongs to another checkout or authority.');
   const commits = [reviewed.proposalBase, reviewed.proposalCommit, reviewed.targetCommit];
   await reader.hydrate(commits.flatMap(commit => reader.inventory(commit, [
     'singularity/workflow.yml', 'singularity/portfolio.yml', CONFIGURATION_STATE_PATH

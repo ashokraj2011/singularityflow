@@ -62,7 +62,7 @@ import {
 import type { ConfigurationCenterMessage, ConfigurationCenterReply } from './views/configuration-center.ts';
 import type { ConfigurationTab } from './views/configuration-center-model.ts';
 import { configurationPathTarget } from './views/configuration-path-target.ts';
-import { configurationSaveDisposition, configurationSavePlanCliArgs } from './views/configuration-save.ts';
+import { activateReviewedWorkflowProposal, configurationSaveDisposition, configurationSavePlanCliArgs } from './views/configuration-save.ts';
 import type { HelpDocument } from './views/help-page.ts';
 import type { WorkspacesMessage } from './views/workspaces-panel.ts';
 import type { Mapped } from './views/bootstrap-panel.ts';
@@ -7391,7 +7391,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try {
       const inspected = await client.run<{
         branch: string; proposalCommit: string; targetBranch: string; diff: string;
-        valid: boolean; workflows?: Array<{ id: string; change: string }>;
+        valid: boolean; merged?: boolean; workflows?: Array<{ id: string; change: string }>;
       }>(['workflow', 'proposal', branch, '--json']);
       await showReviewDocument(`${inspected.branch}.diff`, inspected.diff || 'No textual diff.');
       if (!inspected.valid) {
@@ -7404,35 +7404,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         `Merge ${inspected.branch}@${inspected.proposalCommit.slice(0, 12)} into ${inspected.targetBranch}?`,
         {
           modal: true,
-          detail: 'The complete diff is open for review. Git dry-runs cannot prove server review enforcement, so the command stops before the exact leased update and asks for a separate acknowledgement. The application branch is never changed.'
+          detail: 'The complete diff is open for review. A separate acknowledgement authorizes an exact leased update before preparation starts. Server review controls may still refuse it. The application branch is never changed.'
         },
         merge
       );
       if (confirmed !== merge) return null;
-      const baseArguments = [
-        'workflow', 'activate', inspected.branch,
-        '--confirm', inspected.proposalCommit, '--json'
-      ];
-      let activation: {
+      const activation = await activateReviewedWorkflowProposal<{
         activated?: boolean; status?: string; targetBranch?: string; targetCommit?: string;
         failure?: { message?: string }; nextAction?: string;
-      };
-      try {
-        activation = await client.run(baseArguments);
-      } catch (error) {
-        if (!/WORKFLOW_CONFIGURATION_UNPROTECTED|cannot prove whether|branch protection is not enforced|accepted the exact dry-run update/i
-          .test((error as Error).message)) throw error;
-        const acknowledge = 'Acknowledge and merge';
-        const accepted = await showCompactWarningMessage(
-          `Git cannot determine whether ${inspected.targetBranch} permits this direct update without attempting it. Authorize one exact leased update for the reviewed workflow proposal?`,
-          { modal: true, detail: 'The acknowledgement applies only to this exact proposal commit. Server review controls and hooks may still refuse it. The application branch remains unchanged.' },
-          acknowledge
-        );
-        if (accepted !== acknowledge) return null;
-        activation = await client.run([
-          ...baseArguments.slice(0, -1), '--acknowledge-unprotected', '--json'
-        ]);
-      }
+      }>(inspected, {
+        acknowledge: async () => {
+          const acknowledge = 'Acknowledge and merge';
+          return await showCompactWarningMessage(
+            `Git cannot determine whether ${inspected.targetBranch} permits this direct update without attempting it. Authorize one exact leased update for the reviewed workflow proposal?`,
+            { modal: true, detail: 'The acknowledgement applies only to this exact proposal commit. Server review controls and hooks may still refuse it. The application branch remains unchanged.' },
+            acknowledge
+          ) === acknowledge;
+        },
+        activate: args => client.run(args)
+      });
+      if (activation === null) return null;
       if (activation.activated === false) {
         const message = activation.failure?.message
           ?? `Workflow activation is ${activation.status ?? 'waiting for repository review'}.`;

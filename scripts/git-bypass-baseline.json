@@ -179,6 +179,15 @@
       },
       "digest": "74bfd1d280b654235b1ee0b99dc6397bd5a02f18d3360e2051b2950383a6db68"
     },
+    "scripts/proposal-performance-benchmark.mjs": {
+      "counts": {
+        "command-git-literal": 2,
+        "command-git": 8,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "05abe37f4a308a421a01b7f72c36d3195308f9270ad986d6b26e1f546c273a75"
+    },
     "scripts/packaged-cli-smoke.mjs": {
       "counts": {
         "command-run": 13,
@@ -586,9 +595,9 @@
     },
     "src/configuration-proposal.mjs": {
       "counts": {
-        "command-run": 16
+        "command-run": 14
       },
-      "digest": "e03c4ee82847a01554fe15eceffa3aa2cff0af34c3bbb66c8e207c526b298434"
+      "digest": "65db42425ed5da6e0acb0644f085dd4660237104519c168e95e2ba21f5190af2"
     },
     "src/configuration-state-git.mjs": {
       "counts": {

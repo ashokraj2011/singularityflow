@@ -12,7 +12,8 @@ import {
 } from './util.mjs';
 import { validateInjectionDefinition } from './inject.mjs';
 import { scopedRead, withReadScope } from './read-scope.mjs';
-import { configurationReadRoot } from './configuration-read-scope.mjs';
+import { configurationReadRoot, configurationReadDefinition } from './configuration-read-scope.mjs';
+import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { assertAttachedLibrarySkills } from './skill-library.mjs';
 import {
   discoverAgents, isAgentTemplateReference, materializeAgentTemplate, parseAgentTemplateReference, validateAgentCatalog
@@ -1285,7 +1286,32 @@ export async function loadDefinition(root, { storyBootstrap = false } = {}) {
   // leak into a later exact-base/approved-authority read in the same command.
   const definitionRoot = configurationReadRoot(root);
   return scopedRead(`config.definition:${root}:${definitionRoot}:${storyBootstrap ? 'story-bootstrap' : 'current'}`,
-    () => loadDefinitionUncached(root, { storyBootstrap }));
+    async () => {
+      const compiled = !storyBootstrap && configurationReadDefinition(root);
+      if (compiled) {
+        // The application checkout remains mutable. Never use an immutable configuration receipt
+        // to skip containment of runtime output roots or today's environment-local exclusions.
+        await validateDefinitionRuntimeRoots(root, compiled, await loadPortfolio(definitionRoot, { required: false }));
+        return withEnvironmentWorldModelExclusions(compiled, await loadEnvironmentDeclaration(root, { optional: true }));
+      }
+      incrementCommandCounter('configuration.definition-load');
+      return measureCommandSpan('configuration.definition-load', () => loadDefinitionUncached(root, { storyBootstrap }));
+    });
+}
+
+async function validateDefinitionRuntimeRoots(root, definition, portfolio = null) {
+  for (const [relative, label] of [
+    [definition.workItemRoot, 'Story state root'],
+    [definition.templatesRoot, 'Repository templates root'],
+    ['singularity/world-model', 'World-model output root'],
+    [definition.agentPromptsRoot, 'Governed-agent prompt root'],
+    [portfolio?.initiativeRoot ?? definition.initiativeRoot, 'Initiative state root'],
+    [portfolio?.templatesRoot, 'Initiative templates root']
+  ]) {
+    if (!relative) continue;
+    const secured = await secureRepositoryPath(root, relative, { label });
+    if (secured.exists && !secured.entry?.isDirectory()) throw new SingularityFlowError(`${label} must be a directory: ${secured.relative}`);
+  }
 }
 
 /**
@@ -1450,20 +1476,7 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
       initiativeRoot: { value: portfolio?.initiativeRoot ?? 'singularity/initiatives', enumerable: false },
       governedRoots: { value: Object.freeze(governedRoots), enumerable: false }
     });
-    for (const [relative, label] of [
-      [definition.workItemRoot, 'Story state root'],
-      [definition.templatesRoot, 'Repository templates root'],
-      ['singularity/world-model', 'World-model output root'],
-      [definition.agentPromptsRoot, 'Governed-agent prompt root'],
-      [portfolio?.initiativeRoot, 'Initiative state root'],
-      [portfolio?.templatesRoot, 'Initiative templates root']
-    ]) {
-      if (!relative) continue;
-      const secured = await secureRepositoryPath(root, relative, { label });
-      if (secured.exists && !secured.entry?.isDirectory()) {
-        throw new SingularityFlowError(`${label} must be a directory: ${secured.relative}`);
-      }
-    }
+    await validateDefinitionRuntimeRoots(root, definition, portfolio);
     if (!storyBootstrap) {
       for (const workTypeId of Object.keys(definition.workTypes)) for (const phase of resolveWorkType(definition, workTypeId).phases) {
         if (phase.kind === 'skill') {

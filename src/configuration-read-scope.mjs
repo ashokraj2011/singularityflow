@@ -24,14 +24,16 @@ export function isConfigurationReadPath(value, policy = scopes.getStore()?.asset
 
 export function withConfigurationReadRoot(applicationRoot, configurationRoot, authority, fn, {
   assetPolicy = DEFAULT_CONFIGURATION_ASSET_POLICY,
-  configurationSnapshot = null
+  configurationSnapshot = null,
+  compiledDefinition = null
 } = {}) {
   return scopes.run({
     applicationRoot: path.resolve(applicationRoot),
     configurationRoot: path.resolve(configurationRoot),
     authority,
     assetPolicy,
-    configurationSnapshot
+    configurationSnapshot,
+    compiledDefinition
   }, fn);
 }
 
@@ -69,4 +71,10 @@ export function configurationReadSnapshot(root) {
   return scope && path.resolve(root) === scope.applicationRoot
     ? scope.configurationSnapshot ?? null
     : null;
+}
+
+/** Only a complete owner-verified overlay may supply its compiled dependency closure. */
+export function configurationReadDefinition(root) {
+  const scope = configurationReadScope(root);
+  return scope?.compiledDefinition ? scope.compiledDefinition() : null;
 }

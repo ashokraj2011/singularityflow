@@ -14,6 +14,9 @@ import { CONFIGURATION_STATE_PATH, readConfigurationState } from '../src/configu
 import { remoteFingerprint } from '../src/git-remote-diagnostics.mjs';
 import { saveConfigurationFile, deleteConfigurationFile } from '../src/editor.mjs';
 import { openConfigurationStateService } from '../src/configuration-state-service.mjs';
+import { configurationReadFromWorker } from '../src/configuration-read-worker-client.mjs';
+import { readTransportIntent } from '../src/transport-intents.mjs';
+import { syncConfigurationProposal } from '../src/configuration-proposal-sync.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 async function fixture() {
@@ -40,7 +43,7 @@ async function fixture() {
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active.json') };
   return { base, seed, remote, story, env };
 }
-async function propose(f, label, phase = 'spec-driven-standard') {
+async function propose(f, label, phase = 'spec-driven-standard', transport = {}) {
   return proposeConfigurationChange(f.story, { operation: 'edit-workflow', subject: phase,
     async mutate(root) {
       const file = path.join(root, 'singularity/workflow.yml');
@@ -49,10 +52,28 @@ async function propose(f, label, phase = 'spec-driven-standard') {
       await writeFile(file, YAML.stringify(definition));
       return { id: phase };
     }
-  }, { env: f.env });
+  }, { env: f.env, transport });
 }
 function remoteText(f, relative) { return run('git', ['--git-dir', f.remote, 'show', `sflow/config:${relative}`]).stdout; }
 const activate = (f, proposal) => activateWorkflowConfigurationProposal(f.story, proposal.branch, { confirm: proposal.commit, acknowledgeUnprotected: true });
+
+test('deferred proposal publication is honestly pending and resumes from retained exact objects', async () => {
+  const f = await fixture();
+  f.env.SINGULARITY_FLOW_CONFIGURATION_BACKGROUND_SYNC = 'off';
+  try {
+    const before = remoteText(f, 'singularity/workflow.yml');
+    const result = await propose(f, 'Deferred review', 'spec-driven-standard', { backgroundSync: true });
+    assert.equal(result.pushed, false);
+    assert.equal(result.syncStatus, 'saved-locally');
+    assert.equal(result.backgroundStarted, false);
+    assert.equal((await readTransportIntent(result.transportIntent, { env: f.env })).status, 'pending');
+    assert.equal(run('git', ['--git-dir', f.remote, 'show-ref', '--verify', '--quiet', `refs/heads/${result.branch}`], { allowFailure: true }).status, 1);
+    assert.equal((await syncConfigurationProposal(result.transportIntent, { env: f.env })).status, 'succeeded');
+    assert.equal(run('git', ['--git-dir', f.remote, 'rev-parse', `refs/heads/${result.branch}`]).stdout.trim(), result.commit);
+    assert.equal(remoteText(f, 'singularity/workflow.yml'), before, 'upload never activates the proposal');
+    assert.equal(run('git', ['status', '--porcelain'], { cwd: f.story }).stdout, '');
+  } finally { await rm(f.base, { recursive: true, force: true }); }
+});
 
 test('two saves on the same base are immutable revisions of one stable proposal entity', async () => {
   const f = await fixture();
@@ -66,6 +87,11 @@ test('two saves on the same base are immutable revisions of one stable proposal 
     assert.equal(rows.length, 2);
     assert.equal(rows[0].proposalId, rows[1].proposalId);
     assert.deepEqual(await listWorkflowConfigurationProposals(f.story), rows, 'exact advertised snapshot is served from SQLite');
+    const workerRead = () => configurationReadFromWorker(f.story, 'proposals', {}, { env: f.env });
+    const workerResult = await workerRead();
+    if (process.platform !== 'win32' || workerResult) {
+      assert.deepEqual(workerResult.value, rows, 'worker returns the same exact proposal inventory');
+    }
     const outcome = await activate(f, b);
     assert.equal(outcome.activated, true);
     assert.equal(outcome.activationMethod, 'semantic-transaction');
@@ -74,6 +100,11 @@ test('two saves on the same base are immutable revisions of one stable proposal 
     assert.equal(state.transactions[0].proposalRevision, b.commit);
     await assert.rejects(() => activate(f, a), error => error.code === 'CONFIGURATION_ENTITY_CONFLICT');
     assert.equal(YAML.parse(remoteText(f, 'singularity/workflow.yml')).workTypes['spec-driven-standard'].label, 'Revision two');
+    if (workerResult) {
+      const refreshed = (await workerRead()).value;
+      assert.deepEqual(refreshed, await listWorkflowConfigurationProposals(f.story), 'a resident worker sees the freshly advanced authority');
+      assert.equal(refreshed.some(row => row.branch === b.branch), false);
+    }
   } finally { await rm(f.base, { recursive: true, force: true }); }
 });
 

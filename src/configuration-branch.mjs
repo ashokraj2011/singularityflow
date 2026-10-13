@@ -55,6 +55,7 @@ import {
 } from './configuration-assets.mjs';
 import { withConfigurationReadRoot } from './configuration-read-scope.mjs';
 import { recordSha256 } from './records.mjs';
+import { compiledConfiguration, copyCompiledDefinition } from './configuration-definition-cache.mjs';
 import { configurationHistoryRefs, retainedConfigurationHistoryRef } from './configuration-history-refs.mjs';
 import { readLocalGitBlobs } from './git-blob-batch.mjs';
 import {
@@ -1965,7 +1966,6 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
     throw error;
   });
   if (!workflow) throw missingStoryConfigurationWorkflow(authority, sourceCommit);
-  const definition = retainedDefinition ?? await loadDefinition(scratch);
   const assets = [];
   // The clone was obtained under frozen enterprise Git policy. Keep every subsequent tree/blob
   // query on that same authority boundary; ambient GIT_DIR, alternates, and command-scoped config
@@ -2036,6 +2036,10 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   if (!assets.some((entry) => entry.relative === 'singularity/workflow.yml')) {
     throw missingStoryConfigurationWorkflow(authority, sourceCommit);
   }
+  // Compile only after the complete retained closure is captured. A template, skill, instruction,
+  // constitution or agent change therefore invalidates the receipt even if workflow.yml is equal.
+  const definition = retainedDefinition ?? await compiledConfiguration(gitRoot, scratch, assets,
+    () => loadDefinition(scratch), { env });
   const snapshot = Object.freeze({
     [STORY_CONFIGURATION_SNAPSHOT]: true,
     authority: Object.freeze({
@@ -2056,7 +2060,8 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
     assets: Object.freeze(assets)
   });
   STORY_CONFIGURATION_VERIFIED_DEFINITIONS.set(snapshot, Object.freeze({
-    definition: structuredClone(definition),
+    definition: copyCompiledDefinition(definition, scratch, scratch),
+    root: scratch,
     definitionSha256: recordSha256(definition)
   }));
   if (captureAuthoringBytes === true) STORY_CONFIGURATION_AUTHORING_GIT_BYTES.set(snapshot, authoringBytes ?? { unavailable: true });
@@ -2918,7 +2923,13 @@ export async function withStoryConfigurationSnapshotRead(root, snapshot, fn, { s
     return await withConfigurationReadRoot(root, scratch, readAuthority, () => fn(readAuthority), {
       assetPolicy,
       // A partial mount must not expose bytes omitted by selectPaths through request-local state.
-      configurationSnapshot: selectPaths == null ? snapshot : null
+      configurationSnapshot: selectPaths == null ? snapshot : null,
+      compiledDefinition: selectPaths == null ? () => {
+        const definition = verifiedStoryDefinition(snapshot);
+        const retained = STORY_CONFIGURATION_VERIFIED_DEFINITIONS.get(snapshot);
+        incrementCommandCounter('configuration.compiled-overlay-reuse');
+        return copyCompiledDefinition(definition, retained.root, scratch);
+      } : null
     });
   } finally {
     await removeTemporaryTree(scratch);

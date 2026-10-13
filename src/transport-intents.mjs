@@ -135,6 +135,14 @@ function assertTargetRef(targetRef) {
   return value;
 }
 
+function assertRequiredLocalRef(value, sourceCommit) {
+  // Configuration proposals are retained privately rather than as user-visible branches.
+  // This exception is an exact commit binding; remote targets remain heads-only.
+  if (/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(sourceCommit ?? '')
+      && value === `refs/singularity/transport/configuration-proposals/${sourceCommit}`) return value;
+  return assertTargetRef(value);
+}
+
 function boundedTransportDiagnostic(value) {
   const redacted = redactDiagnosticText(value);
   const encoded = Buffer.from(redacted, 'utf8');
@@ -202,7 +210,7 @@ export async function createTransportIntent({
   const normalizedScope = {
     ...scope,
     ...(scope?.requiredLocalRef
-      ? { requiredLocalRef: assertTargetRef(scope.requiredLocalRef) }
+      ? { requiredLocalRef: assertRequiredLocalRef(scope.requiredLocalRef, commit.stdout.trim()) }
       : {}),
     kind: 'transport'
   };
@@ -466,7 +474,7 @@ export async function retryTransportIntent(intentId, {
     // compare-and-swap never installed the commit. Bind those intents to the exact local ref which
     // makes the commit durable and operator-visible before contacting the remote.
     if (intent.scope?.requiredLocalRef) {
-      const requiredLocalRef = assertTargetRef(intent.scope.requiredLocalRef);
+      const requiredLocalRef = assertRequiredLocalRef(intent.scope.requiredLocalRef, intent.sourceCommit);
       const retained = runCommand('git', [
         'rev-parse', '--verify', `${requiredLocalRef}^{commit}`
       ], { cwd: intent.repositoryRoot, allowFailure: true, env: localGitEnv });

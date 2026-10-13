@@ -11,7 +11,7 @@ import { configurationReadRoot } from '../configuration-read-scope.mjs';
 import { canonicalJson, recordSha256 } from '../records.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { draftDeletePlan, openGitDraftStore } from '../wca-git-drafts.mjs';
-import { SingularityFlowError, isPortableRepositoryPathComponent } from '../util.mjs';
+import { SingularityFlowError, isPortableRepositoryPathComponent, optionBoolean } from '../util.mjs';
 import { parseLocalStoryInventorySubjects, SKP_STORY_INVENTORY_LIMITS } from '../skp-story-inventory-request.mjs';
 import { parseCrossRepositoryStoryInventorySubjects } from '../skp-cross-repository-story-inventory.mjs';
 
@@ -30,7 +30,7 @@ const OPTIONS = {
   show: new Set(['json', 'revision']),
   preview: new Set(['json', 'revision']),
   catalog: new Set(['json', 'kind', 'limit', 'cursor']),
-  submit: new Set(['json', 'revision']),
+  submit: new Set(['json', 'revision', 'background-sync']),
   'where-used': new Set(['json', 'package-sha256', 'limit', 'cursor', 'expected-source', 'story', 'ref', 'commit', 'snapshot-revision', 'story-refs', 'repository-story-refs', 'history-depth'])
 };
 const DRAFT_ID = /^WFD-[A-Z0-9]{6,32}$/u;
@@ -63,7 +63,7 @@ export function validateWorkflowAuthorRequest({ positionals, options }) {
     fail(`workflow author ${action} has an invalid target selection.`);
   }
   for (const [key, value] of Object.entries(options)) {
-    if (!OPTIONS[action].has(key) || (key === 'json' ? value !== true
+    if (!OPTIONS[action].has(key) || (['json', 'background-sync'].includes(key) ? value !== true
       : typeof value !== 'string' || !value.trim())) {
       fail(`workflow author ${action} does not support the supplied --${key} value.`);
     }
@@ -385,7 +385,7 @@ export async function run(root, positionals, options, { scope } = {}) {
         if (!stdin.isTTY || !stdout.isTTY) {
           status = 'needs-human-input'; data = { code: 'WCA_NEEDS_HUMAN_INPUT', preview, review,
             handoff: { kind: 'terminal-review', ...nextRoute(['workflow', 'author', 'submit', target,
-              '--revision', String(revision)]) }, nativeConfirmation: 'unavailable' };
+              '--revision', String(revision), ...(optionBoolean(options, 'background-sync') ? ['--background-sync'] : [])]) }, nativeConfirmation: 'unavailable' };
         } else {
           console.log(JSON.stringify({ preview, review }, null, 2));
           console.log(preview.skillFinalization?.status === 'requires-exact-terminal-consent'
@@ -396,9 +396,12 @@ export async function run(root, positionals, options, { scope } = {}) {
           if (!authorization) { status = 'cancelled'; data = { preview, review }; }
           else {
             data = await submission.createWorkflowDraftReviewProposal(root, { draftId: target, revision,
-              expectedPlanSha256: preview.planSha256, confirmation: authorization.token });
+              expectedPlanSha256: preview.planSha256, confirmation: authorization.token }, {
+              backgroundSync: optionBoolean(options, 'background-sync')
+            });
             status = data.changed ? 'proposed' : 'unchanged';
-            if (data.changed) declaredEffects = { ...EFFECTS_NONE, stateChanged: true, publicationCreated: true, externalSystemsChanged: true };
+            if (data.changed) declaredEffects = { ...EFFECTS_NONE, stateChanged: true,
+              publicationCreated: data.pushed === true, externalSystemsChanged: data.pushed === true };
           }
         }
       }

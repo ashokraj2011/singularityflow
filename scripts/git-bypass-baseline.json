@@ -593,6 +593,27 @@
       },
       "digest": "e1571298001f1a17dae61f457b27ec4fd6482c5140556a2327e53fcc0c59d357"
     },
+    "src/configuration-object-store.mjs": {
+      "counts": {
+        "command-git": 7,
+        "command-run": 1
+      },
+      "digest": "889f9f914526c19b8db8b00c2f6016f6e726539704a0abdada68fe76178589af"
+    },
+    "src/configuration-proposal-sync.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "82bbe8bebe78403faf41674f781b8cecb5d240acf26981044003a5f8c3ee4f44"
+    },
+    "src/configuration-read-worker-client.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "8eb406f77ecf6f2c4b2f59f6bc84af96964993b53e22f6d5d31d92b6d51694f6"
+    },
     "src/configuration-proposal.mjs": {
       "counts": {
         "command-run": 14

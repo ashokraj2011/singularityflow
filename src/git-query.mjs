@@ -328,8 +328,14 @@ export function executeGitQuery(root, id, params = {}, { env = process.env, runn
       code: 'GIT_QUERY_INPUT_INVALID'
     });
   }
-  incrementCommandCounter('git.requests');
-  incrementCommandCounter('git.spawns');
+  // The native runner owns physical spawn/cache-hit accounting. Counting before calling it
+  // mislabeled an immutable fact-cache hit as a child process. Injectable runners retain the
+  // descriptor-owned accounting used by qualification fixtures.
+  const ownsTiming = runner !== run;
+  if (ownsTiming) {
+    incrementCommandCounter('git.requests');
+    incrementCommandCounter('git.spawns');
+  }
   const started = performance.now();
   let result;
   try {
@@ -341,12 +347,12 @@ export function executeGitQuery(root, id, params = {}, { env = process.env, runn
     result = runner(entry.executable, argv, {
       cwd: path.resolve(root), env: queryEnvironment, allowFailure: entry.allowFailure,
       operation: entry.id, network: entry.network, timeoutClass: entry.timeoutClass,
-      recordGitTiming: false,
+      recordGitTiming: !ownsTiming,
       ...(entry.maxBuffer == null ? {} : { maxBuffer: entry.maxBuffer }),
       ...(entry.encoding === 'buffer' ? { encoding: 'buffer' } : {})
     });
   } finally {
-    incrementCommandCounter('git.service-ms', Math.max(0, Math.round(performance.now() - started)));
+    if (ownsTiming) incrementCommandCounter('git.service-ms', Math.max(0, Math.round(performance.now() - started)));
   }
   // A zero process exit accompanied by any execution-boundary failure is never parseable, even
   // for descriptors that intentionally interpret a documented non-zero exit themselves.

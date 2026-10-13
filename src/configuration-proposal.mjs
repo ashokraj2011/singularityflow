@@ -37,8 +37,9 @@ import {
 } from './git-execution.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
+import { prepareConfigurationObjectCheckout } from './configuration-object-store.mjs';
 import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
-import { createAndPushTransportIntent } from './transport-intents.mjs';
+import { createAndPushTransportIntent, createTransportIntent } from './transport-intents.mjs';
 import { openConfigurationStateService, readConfigurationTransactionJournals } from './configuration-state-service.mjs';
 import { prepareConfigurationStateTransaction, materializeConfigurationSnapshot,
   hydrateConfigurationProposal, configurationStateAtRef } from './configuration-state-git.mjs';
@@ -328,7 +329,21 @@ async function withWorkflowProposalCheckout(root, requestedBranch, operation, {
   const remote = await proposalRemote(root, remoteSession);
   const transport = frozenRemoteTransport(remote, { push: true, env: gitEnv });
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-review-'));
+  let objectStore = null;
   try {
+    const authorityRef = `refs/heads/${CONFIGURATION_BRANCH}`;
+    const proposalRef = `refs/heads/${branch}`;
+    const advertised = await remoteSession.observeAsync(remote, {
+      refs: [authorityRef, proposalRef], includeHead: false, refresh: true
+    });
+    requireRemoteObservation(advertised, 'workflow proposal authority');
+    if (!advertised.refs.get(proposalRef)) throw new SingularityFlowError(`Workflow proposal '${branch}' is no longer advertised.`, {
+      code: 'WORKFLOW_PROPOSAL_UNAVAILABLE'
+    });
+    objectStore = await prepareConfigurationObjectCheckout(root, scratch, { remote, transport, env,
+      authorityCommit: advertised.refs.get(authorityRef),
+      branches: [{ branch, proposalCommit: advertised.refs.get(proposalRef) }], runRemoteCommand: runRemoteGitAsync });
+    if (!objectStore) {
     const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
       '--no-checkout', '--filter=blob:none',
@@ -350,8 +365,9 @@ async function withWorkflowProposalCheckout(root, requestedBranch, operation, {
         { code: fetched.failure?.code ?? 'WORKFLOW_PROPOSAL_UNAVAILABLE' }
       );
     }
+    }
     const reader = await measureCommandSpan('proposal.materialize', () => materializeConfigurationSnapshot(scratch, transport.remote,
-      configurationRepositoryHead(scratch, transport.env), transport.env, runRemoteGitAsync));
+      configurationRepositoryHead(scratch, transport.env), transport.env, objectStore?.download ?? runRemoteGitAsync));
     const binding = await measureCommandSpan('proposal.hydrate', () => hydrateConfigurationProposal(reader, `refs/remotes/origin/${branch}`, transport.env));
     return await operation(
       scratch, remote, branch, `refs/remotes/origin/${branch}`,
@@ -360,7 +376,9 @@ async function withWorkflowProposalCheckout(root, requestedBranch, operation, {
       }
     );
   } finally {
-    await removeTemporaryTree(scratch);
+    let cleaned = false;
+    try { await removeTemporaryTree(scratch); cleaned = true; }
+    finally { await objectStore?.release({ cleanupConfirmed: cleaned }); }
   }
 }
 
@@ -398,7 +416,11 @@ export async function listWorkflowConfigurationProposals(root, {
   }
   const transport = frozenRemoteTransport(remote, { env: gitEnv });
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-proposals-'));
+  let objectStore = null;
   try {
+    objectStore = await prepareConfigurationObjectCheckout(root, scratch, { remote, transport, env,
+      authorityCommit, branches, runRemoteCommand: runRemoteGitAsync });
+    if (!objectStore) {
     const cloned = await runRemoteGitAsync([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--no-checkout',
       '--filter=blob:none',
@@ -410,11 +432,12 @@ export async function listWorkflowConfigurationProposals(root, {
       `+refs/heads/${REVIEW_PREFIX}*:refs/remotes/origin/${REVIEW_PREFIX}*`
     ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
     if (fetched.status !== 0) throw new SingularityFlowError(fetched.failure?.advice ?? 'Workflow proposals could not be fetched.');
+    }
     if (configurationRepositoryHead(scratch, transport.env) !== authorityCommit) {
       throw new SingularityFlowError('Approved configuration changed during proposal inspection. Refresh its exact snapshot and retry.', { code: 'CONFIGURATION_SNAPSHOT_STALE' });
     }
     const reader = await materializeConfigurationSnapshot(scratch, transport.remote,
-      authorityCommit, transport.env, runRemoteGitAsync);
+      authorityCommit, transport.env, objectStore?.download ?? runRemoteGitAsync);
     const proposals = [];
     for (const entry of branches) {
       const ref = `refs/remotes/origin/${entry.branch}`;
@@ -444,7 +467,9 @@ export async function listWorkflowConfigurationProposals(root, {
     }
     return includeMerged ? proposals : proposals.filter(record => !record.merged);
   } finally {
-    await removeTemporaryTree(scratch);
+    let cleaned = false;
+    try { await removeTemporaryTree(scratch); cleaned = true; }
+    finally { await objectStore?.release({ cleanupConfirmed: cleaned }); }
   }
 }
 
@@ -1117,7 +1142,7 @@ export async function proposeConfigurationChange(root, {
     }
     await retainConfigurationProposalCommit(root, commit, gitEnv);
     const remote = matchingRemote(root, remoteUrl, gitEnv);
-    const publication = await createAndPushTransportIntent({
+    const publication = await (transport.backgroundSync ? createTransportIntent : createAndPushTransportIntent)({
       repositoryRoot: root,
       remote,
       expectedRemoteUrl: remoteUrl,
@@ -1129,9 +1154,20 @@ export async function proposeConfigurationChange(root, {
         subject: subjectId,
         baseBranch: CONFIGURATION_BRANCH,
         baseCommit,
-        files
+        files,
+        requiredLocalRef: `refs/singularity/transport/configuration-proposals/${commit}`
       }
     }, { ...transport, env: gitEnv });
+    if (transport.backgroundSync) {
+      const { startConfigurationProposalSync } = await import('./configuration-proposal-sync.mjs');
+      const backgroundStarted = await startConfigurationProposalSync(publication.intentId, { env: gitEnv }).catch(() => false);
+      return { ...result, changed: true, pushed: false, reviewRequired: true,
+        branch: reviewBranch, proposalId, proposalRevision: commit,
+        baseBranch: CONFIGURATION_BRANCH, baseCommit, commit, files,
+        transportIntent: publication.intentId, transportStatus: publication.status,
+        backgroundStarted, syncStatus: 'saved-locally',
+        nextAction: `singularity-flow push status ${publication.intentId} --json` };
+    }
     if (publication.status !== 'succeeded') {
       throw new SingularityFlowError(
         `Workflow proposal ${reviewBranch} was retained but publication is ${publication.status}. `

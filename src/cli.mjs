@@ -8337,7 +8337,7 @@ async function applyImportChangeSet(root, changeSet, options, { subject, message
   if (optionBoolean(options, 'propose')) {
     return authorProposedOrLocalConfiguration(root, {
       operation: 'studio', subject, message, mutate, expectedAuthority: expectedConfigurationAuthority(options)
-    });
+    }, { backgroundSync: optionBoolean(options, 'background-sync') });
   }
   assertLocalConfigurationAuthoringAllowed(root);
   return mutate(root);
@@ -8345,7 +8345,7 @@ async function applyImportChangeSet(root, changeSet, options, { subject, message
 
 function printImportResult(result, { dryRun }) {
   if (result.reviewRequired) {
-    console.log(`Configuration proposal published: ${result.branch}`);
+    console.log(`Configuration proposal ${result.pushed === false ? 'saved locally; upload pending' : 'published'}: ${result.branch}`);
     console.log(`  ${result.files.join(', ')}`);
     console.log(`  Approved ${result.baseBranch} and the current Story checkout were not changed.`);
     printCommandRoutes(result.nextAction, { indent: '  ', label: 'Next' });
@@ -10458,7 +10458,7 @@ async function receiptCommand(positionals, options) {
 }
 
 async function authorProposedOrLocalConfiguration(root, proposal, {
-  requireExpectedRemoteAuthority = false
+  requireExpectedRemoteAuthority = false, backgroundSync = false
 } = {}) {
   const attachment = await readFosAttachment(root);
   if (attachment?.descriptor?.route?.kind !== 'local') {
@@ -10468,7 +10468,7 @@ async function authorProposedOrLocalConfiguration(root, proposal, {
         { code: 'WORKFLOW_TRANSFER_DESTINATION_UNAVAILABLE' }
       );
     }
-    return proposeConfigurationChange(root, proposal);
+    return proposeConfigurationChange(root, proposal, { transport: { backgroundSync } });
   }
   await fosStoryConfigurationAuthority(root); // Prove repository/worktree and locator, not just stored pin bytes.
   assertLocalConfigurationAuthoringAllowed(root);
@@ -10630,13 +10630,13 @@ async function workflowCommand(positionals, options) {
   }) => {
     if (proposing) return authorProposedOrLocalConfiguration(root, {
       operation, subject, message, mutate, expectedAuthority
-    }, { requireExpectedRemoteAuthority });
+    }, { requireExpectedRemoteAuthority, backgroundSync: optionBoolean(options, 'background-sync') });
     assertLocalConfigurationAuthoringAllowed(root);
     return mutate(root);
   };
   const printProposal = (result) => {
     if (!result.reviewRequired) return false;
-    console.log(`Workflow configuration proposal published: ${result.branch}`);
+    console.log(`Workflow configuration proposal ${result.pushed === false ? 'saved locally; upload pending' : 'published'}: ${result.branch}`);
     console.log(`  ${result.files.join(', ')}`);
     console.log(`  Approved ${result.baseBranch} and the current Story checkout were not changed.`);
     printCommandRoutes(result.nextAction, { indent: '  ', label: 'Next' });
@@ -14903,7 +14903,7 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
         message: `[configuration] update ${requestedPath}`,
         expectedAuthority: expectedConfigurationAuthority(options),
         mutate: (target) => saveConfigurationFile(target, requestedPath, content, saveOptions)
-      });
+      }, { backgroundSync: optionBoolean(options, 'background-sync') });
     } else {
       result = await saveConfigurationFile(root, requestedPath, content, saveOptions);
     }

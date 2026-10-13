@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
 import { incrementCommandCounter } from './dx-timing-context.mjs';
-import { signalProcessTree } from './util.mjs';
+import { signalProcessTree, recordSubprocessTiming } from './util.mjs';
 
 const MAXIMUM_BATCH_OBJECTS = 512;
 const MAXIMUM_METADATA_OBJECTS = 4_096;
@@ -26,6 +26,8 @@ async function runLocalGitBytes(executable, args, {
   const remaining = deadlineAt - Date.now();
   if (remaining <= 0) return { status: 1, stdout: Buffer.alloc(0), timedOut: true };
   return new Promise((resolve) => {
+    const started = performance.now();
+    let spawned = false;
     let child;
     try {
       child = spawn(executable, args, {
@@ -59,6 +61,7 @@ async function runLocalGitBytes(executable, args, {
     const finish = (code, terminationSignal = null) => {
       if (settled) return;
       settled = true;
+      if (spawned) recordSubprocessTiming('git', args, performance.now() - started);
       cleanup();
       if (boundary) {
         child.stdin?.destroy();
@@ -123,7 +126,7 @@ async function runLocalGitBytes(executable, args, {
     child.on('error', onError);
     // Count a physical child only after Node confirms it spawned. A synchronous spawn refusal
     // and an ENOENT/error event are attempts, not successfully launched Git processes.
-    child.once('spawn', () => incrementCommandCounter('git.spawns'));
+    child.once('spawn', () => { spawned = true; incrementCommandCounter('git.spawns'); });
     child.on('close', onClose);
     deadlineTimer = setTimeout(() => terminate('timeout'), remaining);
     if (signal?.aborted) onAbort();

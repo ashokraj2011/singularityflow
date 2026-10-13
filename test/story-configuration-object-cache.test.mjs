@@ -10,8 +10,9 @@ import YAML from 'yaml';
 import {
   CONFIGURATION_BRANCH, loadStoryConfigurationSnapshot, resolveRemoteStoryConfigurationAuthority,
   resolveApprovedStoryWorkType, captureVerifiedConfigurationAssetBytes,
-  STORY_CONFIGURATION_OBJECT_CACHE_LIMITS
+  STORY_CONFIGURATION_OBJECT_CACHE_LIMITS, withStoryConfigurationSnapshotRead
 } from '../src/configuration-branch.mjs';
+import { loadDefinition } from '../src/config.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
 import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
 import { readApprovedProductRequirement } from '../src/product-requirement.mjs';
@@ -111,6 +112,27 @@ const projection = (snapshot) => ({ authority: snapshot.authority, observedCommi
     ...asset, contents: asset.contents.toString('base64') })) });
 const cacheProfile = { skip: process.platform === 'win32' ? 'Windows cache profile is deliberately deferred; original clone remains supported.' : false };
 const cacheKeys = async (cache) => (await readdir(cache)).filter((entry) => /^[a-f0-9]{64}$/u.test(entry));
+
+test('complete overlays reuse the compiled closure, but runtime paths and altered captured bytes stay guarded', cacheProfile, async t => {
+  const f = await fixture(t);
+  const { snapshot } = await read(f);
+  const timer = commandTimer('compiled-overlay-test', { commandClass: 'read' });
+  const definition = await withCommandTiming(timer, () => withStoryConfigurationSnapshotRead(f.source, snapshot,
+    () => loadDefinition(f.source)));
+  assert.equal(timer.finish().counters['configuration.compiled-overlay-reuse'], 1);
+  assert.equal(definition.initiativeRoot, snapshot.definition.initiativeRoot);
+  assert.deepEqual(definition.governedRoots, snapshot.definition.governedRoots);
+  assert.deepEqual(Object.keys(definition.agents), Object.keys(snapshot.definition.agents));
+  const outside = path.join(f.base, 'outside'); await mkdir(outside);
+  await symlink(outside, path.join(f.source, 'singularity/work-items'), 'dir');
+  await assert.rejects(withStoryConfigurationSnapshotRead(f.source, snapshot, () => loadDefinition(f.source)),
+    /symbolic|symlink|escape/u);
+  await rm(path.join(f.source, 'singularity/work-items'));
+  const asset = snapshot.assets.find(entry => entry.relative.endsWith('note.md'));
+  asset.contents[0] ^= 1;
+  await assert.rejects(withStoryConfigurationSnapshotRead(f.source, snapshot, () => loadDefinition(f.source)),
+    /changed|digest|hash|match/u);
+});
 
 test('the product-version gate warms the exact objects subsequently used by Story start', cacheProfile, async (t) => {
   const f = await fixture(t);

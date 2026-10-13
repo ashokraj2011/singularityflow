@@ -300,7 +300,7 @@ async function writeCandidateFile(root, relative, bytes, assetPolicy) {
 }
 
 /** Only called after live exact terminal presentation; public issuer/JSON tokens alone fail. */
-export async function createWorkflowDraftReviewProposal(root, options = {}) {
+export async function createWorkflowDraftReviewProposal(root, options = {}, { backgroundSync = false } = {}) {
   if (!options || Object.getPrototypeOf(options) !== Object.prototype
       || Object.keys(options).some((key) => !['draftId', 'revision', 'expectedPlanSha256', 'confirmation'].includes(key))
       || typeof options.draftId !== 'string' || !Number.isSafeInteger(options.revision)
@@ -346,5 +346,5 @@ export async function createWorkflowDraftReviewProposal(root, options = {}) {
         reviewedFiles: current.files.map(({ path: file, mode, bytes, sha256 }) => ({ path: file, mode, bytes, sha256 })),
         approval: 'not-granted', activation: 'inactive', execution: 'not-started' };
     }
-  });
+  }, { transport: { backgroundSync } });
 }

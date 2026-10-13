@@ -7454,6 +7454,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const proposeWorkflowChange = async (baseCommand: string[], title: string): Promise<WorkflowChangeOutcome> => {
     const command = [...baseCommand];
     if (!command.includes('--propose')) command.push('--propose');
+    if (!command.includes('--background-sync')) command.push('--background-sync');
     if (!command.includes('--json')) command.push('--json');
     output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
     try {
@@ -7463,11 +7464,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         cancellable: false
       }, () => client.run<{
         branch?: string; commit?: string; files?: string[]; reviewRequired?: boolean;
-        baseBranch?: string; nextAction?: string; authorityMode?: string;
+        baseBranch?: string; nextAction?: string; authorityMode?: string; pushed?: boolean; transportIntent?: string;
       }>(command));
       await refreshAfterKnownMutation();
       if (proposal.reviewRequired && proposal.branch) {
         const files = proposal.files?.length ?? 0;
+        if (proposal.pushed === false) {
+          void showCompactInformationMessage(
+            `Workflow proposal saved locally with ${files} configuration file${files === 1 ? '' : 's'}. Upload is pending in Push recovery; review and activation become available after the exact commit reaches the remote. The active Story was not changed.`
+          );
+          if (proposal.nextAction) output.appendLine(`  Sync status: ${proposal.nextAction}`);
+          return { outcome: 'proposed', branch: proposal.branch, error: null };
+        }
         const review = 'Review and activate';
         const selected = await showCompactInformationMessage(
           `Workflow proposal ${proposal.branch} was pushed with ${files} configuration file${files === 1 ? '' : 's'}. `

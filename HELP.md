@@ -2936,9 +2936,33 @@ singularity-flow workflow simulate figma-mobile
 singularity-flow workflow diff figma-mobile
 singularity-flow workflow add figma-mobile --dry-run
 singularity-flow workflow create customer-onboarding --phases requirements,implementation-spec,implementation,verification --governs story --propose
+singularity-flow workflow create pilot-check --phases testing,verification --propose --background-sync --json
 singularity-flow skill inspect ./skills/threat-model --json
 singularity-flow skill inspect ./skills/threat-model --skill-id threat-model --json
 ```
+
+`--background-sync` saves an exact configuration proposal commit and durable Push recovery intent
+before starting a bounded background upload. It is supported by workflow proposals (including
+terminal-confirmed `workflow author submit --background-sync`), Studio change
+sets and `configuration save --propose`. A returned `pushed: false` / `syncStatus: saved-locally` is
+not publication, review or activation. Inspect `singularity-flow push status <INTENT-ID> --json`;
+after interruptions, explicitly resume with `singularity-flow push retry <INTENT-ID>`. Upload only
+creates the proposal branch. It never approves, activates or updates an application branch.
+
+Verified complete Story configuration snapshots reuse an authenticated compiled definition bound
+to all captured asset hashes and the installed validator. Portfolio, environment, local containment,
+permission and lifecycle checks remain live. Proposal inspection reuses bounded private Git objects
+with fresh remote advertisements and disposable checkouts; repeated CLI/VS Code reads can reuse a
+private, authenticated, idle-expiring read worker. Partial views do not inherit a full definition.
+Unavailable or unsafe local acceleration falls back to ordinary reads, not weaker validation.
+For diagnostics, disable each layer independently with
+`SINGULARITY_FLOW_COMPILED_CONFIGURATION_CACHE=off`,
+`SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE=off`, or
+`SINGULARITY_FLOW_CONFIGURATION_READ_WORKER=off`.
+`SINGULARITY_FLOW_CONFIGURATION_BACKGROUND_SYNC=off` leaves queued uploads for explicit retry.
+Windows accelerators require qualified private ACLs; unsupported hosts use the original read path.
+The resident worker targets repeated proposal reads; its first cold read includes startup cost.
+These layers do not make approval, remote synchronization or Story publication asynchronous.
 
 `skill inspect` reads the exact local directory you name and returns a portable package digest,
 captured-file metadata, candidate output/input fields, findings, and capture costs. It does not run

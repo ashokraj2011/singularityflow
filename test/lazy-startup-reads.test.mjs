@@ -125,3 +125,14 @@ test('startup read entrypoints do not statically reach the legacy monolith', asy
       `startup read graph reaches unrelated heavyweight domain ${file}`);
   }
 });
+
+test('the Copilot edit guard, run on every tool call, stays clear of the configuration and sequence graphs', async () => {
+  // Each guarded tool call starts a process that loads this graph. One constant imported from
+  // config.mjs and one predicate from sequence.mjs used to pull in 234 modules (about 230 ms a call).
+  const closure = await staticClosure('src/copilot-mutation-guard.mjs');
+  const names = [...closure].map((file) => path.relative(packageRoot, file).replaceAll(path.sep, '/'));
+  for (const heavy of ['src/config.mjs', 'src/sequence.mjs', 'src/cli.mjs']) {
+    assert.ok(!names.includes(heavy), `the edit guard statically reaches ${heavy}`);
+  }
+  assert.ok(closure.size <= 60, `the edit guard loads ${closure.size} static modules; ceiling is 60`);
+});

@@ -68,6 +68,7 @@ import { worldModelStateAuthority } from './state-authority.mjs';
 import {
   governedInitializationRoot, INITIALIZATION_MAPPINGS
 } from './initialization-assets.mjs';
+import { GOVERNED_ROOTS } from './governed-roots.mjs';
 import {
   hasRetiredPackagedAssetHistory, isCurrentPackagedAssetHash,
   isRetiredPackagedAsset, packagedAssetSha256
@@ -90,9 +91,7 @@ export const DEFAULT_PLANNING_PROMPT = 'singularity/prompts/copilot-planning.md'
  * and to omit them from the governance proposal. A new mapping under a new root now reaches every
  * stager automatically.
  */
-export const GOVERNED_ROOTS = Object.freeze([
-  ...new Set(INITIALIZATION_MAPPINGS.map(([, destination]) => governedInitializationRoot(destination)))
-]);
+export { GOVERNED_ROOTS };
 const INPUT_MODES = new Set(['off', 'record', 'enforce']);
 export const SEQUENCE_GATE_IDS = [
   'completion', 'currentPhase', 'phaseStatus', 'freshGeneration',

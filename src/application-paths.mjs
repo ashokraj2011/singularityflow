@@ -1,4 +1,4 @@
-import { GOVERNED_ROOTS } from './config.mjs';
+import { GOVERNED_ROOTS } from './governed-roots.mjs';
 import { SingularityFlowError } from './util.mjs';
 
 function safeGovernedRoot(value) {

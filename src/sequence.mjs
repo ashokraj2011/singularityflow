@@ -13,7 +13,9 @@ import { generationSkillForPhase } from './code-delivery-policy.mjs';
 import { gitDir } from './git.mjs';
 import { phasePublicationCommand, phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { clearApprovalDisposition, clearDecisionState, completionPhaseOf } from './lifecycle-transitions.mjs';
-import { sourceReviewAuthorConflict } from './source-review-policy.mjs';
+import { phaseNeedsGeneration } from './phase-generation-need.mjs';
+
+export { phaseNeedsGeneration };
 
 const confirmed = new WeakMap();
 let activeConfirmationPort = null;
@@ -38,24 +40,6 @@ export function phaseExplicitlyReopened(workflow, phase) {
     || Boolean(phase?.intentAmendmentRevalidation && !phase.intentAmendmentRevalidation.revalidatedAt);
 }
 
-export function phaseNeedsGeneration(workflow, phase) {
-  if (sourceReviewAuthorConflict(workflow, phase)) return true;
-  // A reviewed skill-version amendment invalidates only its affected phases. Their earlier
-  // publication remains in the audit trail but is not fresh evidence under the new WFA pin.
-  const amendment = phase?.skillAmendmentRevalidation;
-  if (amendment?.state === 'affected') {
-    const baseline = amendment.generationAtAdoption;
-    if (!Number.isSafeInteger(baseline) || baseline < 0
-        || !Number.isSafeInteger(phase.generation) || phase.generation <= baseline) return true;
-  }
-  if (phase?.generationPolicy?.requirement === 'none') return false;
-  if (!phase || phase.generation < 1) return true;
-  if (phase.reworkRevalidation
-      && phase.generation <= phase.reworkRevalidation.generation) return true;
-  if (!phase.rejectedAt) return false;
-  return !(workflow.history ?? []).some((event) =>
-    event.phase === phase.id && event.event === 'phase_generated' && event.at > phase.rejectedAt);
-}
 
 export function sequenceGuidance(workflow) {
   const workId = workflow.workItem.id;

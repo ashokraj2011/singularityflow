@@ -14,7 +14,7 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 24
+version: 25
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -36,7 +36,9 @@ directory without another Git clone or checkout. Unsupported trees use the origi
 clone path. Windows receipts use a separate integrity key and a recursively verified private ACL
 store; unavailable or unsafe storage simply falls back to full start validation, without repairing
 ACLs or weakening readiness. The configuration object cache remains POSIX-only; the selected-base
-refresh and process-local reuse of unchanged Git location/HEAD facts are cross-platform.
+refresh and process-local reuse of unchanged Git location, HEAD and configuration answers and of
+ref-name checks are cross-platform (on Windows every place Git for Windows may read configuration
+from is tracked, including both home-folder candidates and `%PROGRAMDATA%\Git\config`).
 
 For timing diagnostics, add `--timings` to the CLI start. The Git-private command timing record
 separates `start.publication.workflow` from `start.publication.commit`, in addition to authority,

@@ -10,7 +10,7 @@ import {
 import { SingularityFlowError, gitReadOutput, invariant, run, writeAtomic, removeTemporaryTree } from './util.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { gitEmptyConfigPath, gitDisabledHooksPath } from './git-isolation-paths.mjs';
-import { readLocalGitBlobs } from './git-blob-batch.mjs';
+import { readLocalGitBlobs, repositoryObjectFormat } from './git-blob-batch.mjs';
 import { repositoryGitPath } from './git-directory.mjs';
 import {
   branch, gitCommonDir, gitDir, head, localGitDisplayName, refHead, repoRoot, resetGitDirCache,
@@ -805,7 +805,12 @@ export function changes(root) {
 /** Exact local status roster for lifecycle decisions; paths are never quote/line parsed. */
 export function worktreeStatusDetail(root) {
   const env = immutableLocalGitEnvironment();
-  const objectFormat = git(['rev-parse', '--show-object-format'], { cwd: root, env }).stdout.trim();
+  const objectFormat = repositoryObjectFormat(root, { env });
+  if (!objectFormat) {
+    throw new SingularityFlowError('Git could not establish the repository object format for the worktree status.', {
+      code: 'GIT_OBJECT_FORMAT_UNAVAILABLE'
+    });
+  }
   const bytes = git(['status', '--porcelain=v2', '-z', '--untracked-files=all'], {
     cwd: root, env, encoding: 'buffer'
   }).stdout;

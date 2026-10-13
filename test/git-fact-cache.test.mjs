@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -10,8 +10,6 @@ import {
   gitFactSnapshot, rememberGitFact
 } from '../src/git-fact-cache.mjs';
 import { run } from '../src/util.mjs';
-
-const skip = process.platform === 'win32' ? 'ambient configuration caching is POSIX-only' : false;
 
 /** Git outside `run()`: another program, a child process or a test changing the repository. */
 function outside(cwd, args) {
@@ -37,7 +35,7 @@ function asked(root, args, options = {}) {
   return run('git', args, { cwd: root, allowFailure: true, ...options });
 }
 
-test('only repository location, HEAD and configuration reads are cacheable', () => {
+test('only repository location, HEAD, configuration and ref-name checks are cacheable', () => {
   const sha = 'a'.repeat(40);
   const cases = [
     [['branch', '--show-current'], 'head'],
@@ -50,6 +48,11 @@ test('only repository location, HEAD and configuration reads are cacheable', () 
     [['config', '--get', 'user.name'], 'config'],
     [['remote', 'get-url', '--push', 'origin'], 'config'],
     [['remote'], 'config'],
+    // A name checked as a string, with no repository or file behind the answer.
+    [['check-ref-format', '--branch', 'feature/x'], 'ref-format'],
+    [['check-ref-format', 'refs/remotes/origin/feature'], 'ref-format'],
+    [['check-ref-format', '--branch', '@{-1}'], null],
+    [['check-ref-format', '--normalize', 'refs/heads/x'], null],
     // An object read is also a proof the object is present now; destructive checks rely on it.
     [['show', `${sha}:singularity/workflow.yml`], null],
     [['ls-tree', '-r', '-z', sha, '--', 'docs'], null],
@@ -73,7 +76,7 @@ test('only repository location, HEAD and configuration reads are cacheable', () 
   for (const [args, kind] of cases) assert.equal(gitFactKind(args), kind, args.join(' '));
 });
 
-test('a repeated HEAD, branch, location or configuration question is answered without Git', { skip }, async (t) => {
+test('a repeated HEAD, branch, location or configuration question is answered without Git', async (t) => {
   const root = await repository(t);
   for (const args of [['rev-parse', 'HEAD'], ['branch', '--show-current'], ['rev-parse', '--show-toplevel'],
     ['config', '--get', 'user.name']]) {
@@ -85,7 +88,7 @@ test('a repeated HEAD, branch, location or configuration question is answered wi
   }
 });
 
-test('an answer is not reused after anything changes the files it came from', { skip }, async (t) => {
+test('an answer is not reused after anything changes the files it came from', async (t) => {
   const root = await repository(t);
   const firstHead = asked(root, ['rev-parse', 'HEAD']).stdout.trim();
   assert.equal(asked(root, ['branch', '--show-current']).stdout.trim(), 'main');
@@ -122,7 +125,7 @@ test('an answer is not reused after anything changes the files it came from', { 
   assert.equal(asked(root, ['branch', '--show-current']).stdout.trim(), '');
 });
 
-test('a missing configuration value is an answer; a failure and any object read are not kept', { skip }, async (t) => {
+test('a missing configuration value is an answer; a failure and any object read are not kept', async (t) => {
   const root = await repository(t);
   const missing = asked(root, ['config', '--get', 'example.absent']);
   assert.equal(missing.status, 1);
@@ -145,7 +148,7 @@ test('a missing configuration value is an answer; a failure and any object read 
   assert.equal(gitFactCacheHits(), afterSuccess, 'an object read always asks Git, so it proves presence now');
 });
 
-test('a relocating environment, includes, stdin, an injected runner and the switch all bypass the cache', { skip }, async (t) => {
+test('a relocating environment, includes, stdin, an injected runner and the switch all bypass the cache', async (t) => {
   const root = await repository(t);
   const bypassed = (args, options) => {
     asked(root, args, options);
@@ -178,7 +181,7 @@ test('the same question in two checkouts of one repository has two answers', asy
   assert.notEqual(asked(linked, ['rev-parse', 'HEAD']).stdout.trim(), asked(root, ['rev-parse', 'HEAD']).stdout.trim());
 });
 
-test('Windows reuses only location/HEAD facts and invalidates an external ref update', async (t) => {
+test('Windows reuses location, HEAD and configuration facts and invalidates an external ref update', async (t) => {
   const root = await repository(t);
   const env = { GIT_NO_REPLACE_OBJECTS: '1' };
   for (const args of [['branch', '--show-current'], ['rev-parse', 'HEAD'], ['rev-parse', '--git-common-dir']]) {
@@ -193,8 +196,11 @@ test('Windows reuses only location/HEAD facts and invalidates an external ref up
   await writeFile(path.join(root, 'a.txt'), 'external update\n');
   outside(root, ['commit', '-q', '-am', 'external update']);
   assert.equal(cachedGitFact(head), null, 'a different program moving the ref invalidates reuse');
-  for (const args of [['config', '--get', 'user.name'], ['remote', 'get-url', 'origin'],
-    ['show-ref', '--verify', 'refs/heads/main'], ['cat-file', '-t', 'HEAD']]) {
+  // Every Git process is dearer on Windows; configuration reads are reused there too.
+  for (const args of [['config', '--get', 'user.name'], ['remote', 'get-url', 'origin']]) {
+    assert.equal(gitFactRequest(args, { cwd: root, env, platform: 'win32' })?.kind, 'config', args.join(' '));
+  }
+  for (const args of [['show-ref', '--verify', 'refs/heads/main'], ['cat-file', '-t', 'HEAD']]) {
     assert.equal(gitFactRequest(args, { cwd: root, env, platform: 'win32' }), null);
   }
   for (const env of [{ Git_Dir: root }, { Home: root }, { GIT_DIR: root },
@@ -211,4 +217,56 @@ test('Windows facts are not reused when dependencies changed during Git executio
   outside(root, ['checkout', '-q', '-b', 'different']);
   rememberGitFact(request, result, { before });
   assert.equal(cachedGitFact(request), null);
+});
+
+test('a Windows configuration answer is tied to every file Git for Windows may read it from', async (t) => {
+  const root = await repository(t);
+  const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-git-facts-machine-'));
+  t.after(() => rm(machine, { recursive: true, force: true }));
+  const share = path.join(machine, 'share');
+  const profile = path.join(machine, 'profile');
+  const programData = path.join(machine, 'ProgramData');
+  for (const directory of [share, profile, path.join(programData, 'Git')]) await mkdir(directory, { recursive: true });
+  // HOME unset: Git for Windows takes HOMEDRIVE+HOMEPATH when it exists, else USERPROFILE.
+  const env = { GIT_NO_REPLACE_OBJECTS: '1', HOMEDRIVE: machine, HOMEPATH: 'share', USERPROFILE: profile, ProgramData: programData };
+  const args = ['config', '--get', 'user.name'];
+  const answer = () => {
+    const request = gitFactRequest(args, { cwd: root, env, platform: 'win32' });
+    rememberGitFact(request, spawnSync('git', args, { cwd: root, encoding: 'utf8' }), { before: gitFactSnapshot(request) });
+    assert.ok(cachedGitFact(request), 'kept');
+    return request;
+  };
+  for (const changed of [path.join(share, '.gitconfig'), path.join(profile, '.gitconfig'),
+    path.join(share, '.config', 'git', 'config'), path.join(programData, 'Git', 'config')]) {
+    const request = answer();
+    await mkdir(path.dirname(changed), { recursive: true });
+    await writeFile(changed, '[core]\n\tautocrlf = true\n');
+    assert.equal(cachedGitFact(request), null, `a change to ${path.relative(machine, changed)} invalidates the answer`);
+  }
+  // An include in the machine-wide file cannot be followed: nothing is kept.
+  await writeFile(path.join(programData, 'Git', 'config'), '[include]\n\tpath = elsewhere\n');
+  const included = gitFactRequest(args, { cwd: root, env, platform: 'win32' });
+  rememberGitFact(included, spawnSync('git', args, { cwd: root, encoding: 'utf8' }), { before: gitFactSnapshot(included) });
+  assert.equal(cachedGitFact(included), null);
+  // Two spellings of ProgramData that disagree are ambiguous: Git is asked.
+  assert.equal(gitFactRequest(args, { cwd: root, env: { ...env, PROGRAMDATA: share }, platform: 'win32' }), null);
+  assert.ok(gitFactRequest(args, { cwd: root, env: { ...env, PROGRAMDATA: programData }, platform: 'win32' }), 'agreeing spellings are one variable');
+});
+
+test('a ref-name check is answered once, valid or not, without a repository behind it', async (t) => {
+  const root = await repository(t);
+  // A valid branch name, and an invalid ref (exit 1): both are answers, kept outright.
+  for (const args of [['check-ref-format', '--branch', 'feature/ok'], ['check-ref-format', 'refs/heads/bad..name']]) {
+    const first = asked(root, args);
+    const hitsBefore = gitFactCacheHits();
+    const second = asked(root, args);
+    assert.equal(gitFactCacheHits(), hitsBefore + 1, `${args.join(' ')} came from the cache`);
+    assert.equal(second.status, first.status, args.join(' '));
+  }
+  // An invalid --branch name is a fatal exit, which is never kept: Git refuses it every time.
+  const hitsBefore = gitFactCacheHits();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    assert.notEqual(asked(root, ['check-ref-format', '--branch', 'bad..name']).status, 0);
+  }
+  assert.equal(gitFactCacheHits(), hitsBefore);
 });

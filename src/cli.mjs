@@ -286,6 +286,7 @@ import { withApprovedConfigurationRead } from './approved-configuration-reader.m
 import {
   configurationReadAuthority, configurationReadSnapshot
 } from './configuration-read-scope.mjs';
+import { withReadScope } from './read-scope.mjs';
 import { appendLedgerIntent, archiveLedger, createLedgerIntent, initializeLedger, ledgerDoctor, ledgerLog, ledgerShow, ledgerStatus, reconcileLedger, repairLedgerPins, verifyLedger, withLedgerRemoteView } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { validateLedgerDeployment } from './ledger-deployment.mjs';
@@ -6484,13 +6485,16 @@ async function phaseReview(root, config, workflow, phase, { includeContinuation 
   const verifiedCriteria = criteria.filter((entry) => entry.status === 'met');
   const exactCriteria = verifiedCriteria.filter((entry) => entry.identity === 'source-bound').length;
   const unmet = criteria.length - verifiedCriteria.length;
-  const witnessReview = await witnessMappingReview(root, config, workflow, phase);
-  // Only an available, current submitted review can be bound by a human approval surface.
-  // Drafts, historical phases and unavailable document bodies convey no reusable approval binding.
-  const reviewBinding = phase.id === workflow.currentPhase && phase.status === 'awaiting_approval'
-    && documents.every((document) => !document.error)
-    ? await approvalReviewBinding(root, config, workflow)
-    : null;
+  // Both read the one submitted packet; a read scope verifies it once for the two of them.
+  const { witnessReview, reviewBinding } = await withReadScope(async () => ({
+    witnessReview: await witnessMappingReview(root, config, workflow, phase),
+    // Only an available, current submitted review can be bound by a human approval surface.
+    // Drafts, historical phases and unavailable document bodies convey no reusable approval binding.
+    reviewBinding: phase.id === workflow.currentPhase && phase.status === 'awaiting_approval'
+      && documents.every((document) => !document.error)
+      ? await approvalReviewBinding(root, config, workflow)
+      : null
+  }));
   return {
     schemaVersion: 1,
     workId: workflow.workItem.id,

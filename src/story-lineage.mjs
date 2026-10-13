@@ -36,6 +36,7 @@ import {
   readPendingPublication, writePendingPublication
 } from './publication-pending.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
+import { inReadScope, scopedRead } from './read-scope.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 import { loadActiveSpecRecords, mergePlannedClaimRecords } from './specifications.mjs';
 import { effectiveContract, mergedVerificationContracts, witnessMappingCore, witnessMappingSha256 } from './verification/contracts.mjs';
@@ -531,7 +532,23 @@ export async function createStoryReviewPacket(root, config, workflow, phase) {
   return { packet, path: path.relative(root, file).split(path.sep).join('/') };
 }
 
+/**
+ * The submitted review packet, verified against the commit that holds its evidence.
+ *
+ * Inside a read scope (one review rendered for a person) the same packet at the same HEAD is
+ * verified once and each caller gets its own copy: the review used to verify it twice in a row,
+ * four Git processes each time. Outside a scope every call verifies afresh, exactly as before.
+ */
 export async function readStoryReviewPacket(root, config, workflow, packetSha256 = null) {
+  if (!inReadScope()) return verifiedStoryReviewPacket(root, config, workflow, packetSha256);
+  let tip;
+  try { tip = head(root); } catch { return verifiedStoryReviewPacket(root, config, workflow, packetSha256); }
+  const key = JSON.stringify(['story-review-packet', path.resolve(root), workflow.workItem?.id ?? null,
+    packetSha256 ?? workflow.lineage?.submissions?.at(-1)?.packetSha256 ?? null, tip]);
+  return structuredClone(await scopedRead(key, () => verifiedStoryReviewPacket(root, config, workflow, packetSha256)));
+}
+
+async function verifiedStoryReviewPacket(root, config, workflow, packetSha256) {
   const selected = packetSha256
     ? workflow.lineage?.submissions?.find((entry) => entry.packetSha256 === packetSha256)
     : workflow.lineage?.submissions?.at(-1);

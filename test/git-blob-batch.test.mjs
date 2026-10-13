@@ -196,3 +196,31 @@ test('what one read cannot prove is refused by the sized read, exactly as before
   assert.deepEqual(calls.splice(0), ['--show-object-format',
     '--batch-check=%(objectname) %(objecttype) %(objectsize)', '--batch']);
 });
+
+test('the object format is asked once per checkout, and again for a repository recreated in place', (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'sflow-object-format-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const module = new URL('../src/git-blob-batch.mjs', import.meta.url).href;
+  const script = `import { repositoryObjectFormat } from ${JSON.stringify(module)};
+import { rmSync } from 'node:fs'; import { spawnSync } from 'node:child_process';
+const root = process.argv[1]; const formats = [];
+for (let i = 0; i < 3; i += 1) formats.push(repositoryObjectFormat(root));
+if (process.argv[2] === 'recreate') {
+  rmSync(root + '/.git', { recursive: true, force: true });
+  if (spawnSync('git', ['init', '-q', '--object-format=sha256'], { cwd: root }).status !== 0) { console.log(JSON.stringify({ skip: true })); process.exit(0); }
+  formats.push(repositoryObjectFormat(root));
+}
+console.log(JSON.stringify({ formats }));`;
+  const runChild = (mode) => spawnSync(process.execPath, ['--input-type=module', '-e', script, root, mode], {
+    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' }, timeout: 30_000
+  });
+  git(root, ['init', '--quiet']);
+  const same = runChild('same');
+  assert.equal(same.status, 0, same.stderr);
+  assert.deepEqual(JSON.parse(same.stdout.trim().split('\n').at(-1)).formats, ['sha1', 'sha1', 'sha1']);
+  assert.match(same.stderr, /^\s+1x\s+\d+ ms\s+git rev-parse --show-object-format/mu, 'one Git process for three answers');
+  const recreated = runChild('recreate');
+  const report = JSON.parse(recreated.stdout.trim().split('\n').at(-1));
+  if (report.skip) { t.skip('This Git does not support SHA-256 repositories.'); return; }
+  assert.deepEqual(report.formats, ['sha1', 'sha1', 'sha1', 'sha256'], 'a new .git at the same path is asked afresh');
+});

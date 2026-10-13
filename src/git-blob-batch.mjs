@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { lstatSync } from 'node:fs';
+import path from 'node:path';
 
 import { localReadDeadlineRemainingMs } from './local-read-deadline.mjs';
 import { SingularityFlowError, run } from './util.mjs';
@@ -9,6 +11,43 @@ const MAXIMUM_BATCH_OBJECTS = 512;
 
 function refusal(message, code, details) {
   throw new SingularityFlowError(message, { code, details });
+}
+
+/**
+ * A checkout's object format, asked of Git once per checkout. `[perf]`
+ *
+ * Callers read blobs under different Git environments (a temporary index, no replacement refs),
+ * so the general fact cache keyed each one separately and a mutating command asked three or four
+ * times. sha1 or sha256 is fixed when a repository is created, so it is kept per checkout path and
+ * the identity of its `.git` entry: a repository recreated at the same path is asked afresh. A
+ * relocating environment or an injected runner always asks Git.
+ */
+const objectFormats = new Map();
+const RELOCATING = ['GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE'];
+
+/** sha1 or sha256 for `root`, or null when Git could not say; asked once per checkout. */
+export function repositoryObjectFormat(root, { env = process.env, runCommand = run } = {}) {
+  const key = objectFormatKey(root, env, runCommand);
+  if (key && objectFormats.has(key)) return objectFormats.get(key);
+  const formatResult = runCommand('git', ['rev-parse', '--show-object-format'], {
+    cwd: root,
+    env,
+    allowFailure: true,
+    timeoutClass: 'local-read',
+    maxBuffer: 1024
+  });
+  const objectFormat = String(formatResult.stdout ?? '').trim();
+  if (formatResult.status !== 0 || !['sha1', 'sha256'].includes(objectFormat)) return null;
+  if (key) objectFormats.set(key, objectFormat);
+  return objectFormat;
+}
+
+function objectFormatKey(root, env, runCommand) {
+  if (runCommand !== run || RELOCATING.some((name) => env[name])) return null;
+  try {
+    const marker = lstatSync(path.join(root, '.git'), { bigint: true });
+    return marker.ino === 0n ? null : `${path.resolve(root)}\0${marker.ino}:${marker.birthtimeNs}`;
+  } catch { return null; }
 }
 
 function blobId(objectFormat, body) {
@@ -99,17 +138,8 @@ export function readLocalGitBlobs(root, objectIds, {
     refusal(`${label} contains an invalid object identity.`, code);
   }
   const localEnv = { ...env, GIT_NO_LAZY_FETCH: '1', GIT_NO_REPLACE_OBJECTS: '1' };
-  const formatResult = runCommand('git', ['rev-parse', '--show-object-format'], {
-    cwd: root,
-    env: localEnv,
-    allowFailure: true,
-    timeoutClass: 'local-read',
-    maxBuffer: 1024
-  });
-  const objectFormat = String(formatResult.stdout ?? '').trim();
-  if (formatResult.status !== 0 || !['sha1', 'sha256'].includes(objectFormat)) {
-    refusal(`${label} could not establish the repository object format.`, code);
-  }
+  const objectFormat = repositoryObjectFormat(root, { env: localEnv, runCommand });
+  if (!objectFormat) refusal(`${label} could not establish the repository object format.`, code);
   const objectIdLength = objectFormat === 'sha1' ? 40 : 64;
   if (unique.some((oid) => oid.length !== objectIdLength)) {
     refusal(`${label} contains an object identity for a different repository format.`, code);

@@ -29,13 +29,25 @@
  *
  * Anything this module cannot prove is left to Git: a global option before the subcommand, a Git
  * environment that relocates the repository, standard input, a configuration file with `include`
- * directives, the reftable ref format, and an injected process runner. Windows reuses only
- * repository-location and HEAD answers; its ambient configuration discovery is left to Git.
+ * directives, the reftable ref format, and an injected process runner.
  * `SINGULARITY_FLOW_GIT_FACT_CACHE=off` turns it off.
  *
  * One assumption is made: the system-wide Git configuration (for example
- * `/opt/homebrew/etc/gitconfig`) does not change during one command. Its location is compiled into
- * Git and cannot be found without asking Git, so it is tracked only when `GIT_CONFIG_SYSTEM` names it.
+ * `/opt/homebrew/etc/gitconfig`, or `etc\gitconfig` under a Git for Windows installation) does not
+ * change during one command. Its location is compiled into Git and cannot be found without asking
+ * Git, so it is tracked only when `GIT_CONFIG_SYSTEM` names it.
+ *
+ * ## Windows
+ *
+ * Every Git process is several times dearer on Windows, so configuration answers are reused there
+ * too. Git for Windows finds its files differently, and each place it may read is fingerprinted:
+ * with HOME unset it takes HOMEDRIVE+HOMEPATH when that directory exists, else USERPROFILE, so
+ * both are tracked; and it also reads the machine-wide `%PROGRAMDATA%\Git\config`, which is
+ * tracked and checked for `include` directives like the others. Variable names are
+ * case-insensitive there (`ProgramData`); two spellings with different values decline the cache.
+ *
+ * `check-ref-format` checks a name as a string, with no repository or file behind it, so its
+ * answer (valid or not) is kept outright, except a `--branch` name that refers to the reflog.
  *
  * This module imports nothing but Node, so `util.mjs` can use it without growing any command's
  * static import graph.
@@ -66,6 +78,7 @@ const HEAD_QUERIES = new Set([
   ])
 ]);
 const CONFIG_READS = new Set(['--get', '--get-all', '--get-regexp', '-l', '--list']);
+const REF_FORMAT_FLAGS = new Set(['--branch', '--allow-onelevel', '--no-allow-onelevel', '--refspec-pattern']);
 const CONFIG_MODIFIERS = new Set([
   '--local', '--global', '--worktree', '--null', '-z', '--name-only', '--show-origin', '--show-scope',
   '--bool', '--int', '--bool-or-int', '--path', '--type=bool', '--type=int', '--type=path', '--type=bool-or-int'
@@ -92,6 +105,12 @@ export function gitFactKind(args) {
     if (!rest.some((arg) => CONFIG_READS.has(arg))) return null;
     const flags = rest.filter((arg) => arg.startsWith('-'));
     return flags.every((arg) => CONFIG_READS.has(arg) || CONFIG_MODIFIERS.has(arg)) ? 'config' : null;
+  }
+  if (command === 'check-ref-format') {
+    const names = rest.filter((arg) => !arg.startsWith('-'));
+    // `--branch @{-1}` resolves through the reflog; every other name is checked as a string.
+    return names.length === 1 && !names[0].includes('@{')
+      && rest.filter((arg) => arg.startsWith('-')).every((arg) => REF_FORMAT_FLAGS.has(arg)) ? 'ref-format' : null;
   }
   if (command === 'remote') {
     if (rest.length === 0 || (rest.length === 1 && rest[0] === '-v')) return 'config';
@@ -146,14 +165,37 @@ function checkoutOf(cwd) {
   return null;
 }
 
+/** A Windows variable by any spelling: null when absent, undefined when two spellings disagree. */
+function windowsVariable(env, name) {
+  const values = [...new Set(Object.keys(env).filter((key) => key.toUpperCase() === name)
+    .map((key) => env[key]).filter(Boolean))];
+  return values.length === 1 ? values[0] : values.length ? undefined : null;
+}
+
+/**
+ * The user-level configuration files Git may read. With HOME unset, Git for Windows takes
+ * HOMEDRIVE+HOMEPATH when that directory exists (often a network share) and USERPROFILE otherwise;
+ * both are fingerprinted, since a spare fingerprint costs one stat and a missed one a stale answer.
+ */
 function globalConfigFiles(env, platform) {
   if (env.GIT_CONFIG_GLOBAL) return [env.GIT_CONFIG_GLOBAL];
+  const homes = env.HOME ? [env.HOME] : platform === 'win32'
+    ? [env.HOMEDRIVE && env.HOMEPATH ? path.join(env.HOMEDRIVE, env.HOMEPATH) : null, env.USERPROFILE].filter(Boolean)
+    : [];
   const files = [];
-  const home = env.HOME || (platform === 'win32' ? env.USERPROFILE
-    || (env.HOMEDRIVE && env.HOMEPATH ? path.win32.join(env.HOMEDRIVE, env.HOMEPATH) : null) : null);
-  if (home) files.push(path.join(home, '.gitconfig'));
-  const xdg = env.XDG_CONFIG_HOME || (home ? path.join(home, '.config') : null);
-  if (xdg) files.push(path.join(xdg, 'git', 'config'));
+  for (const home of homes) {
+    files.push(path.join(home, '.gitconfig'));
+    if (!env.XDG_CONFIG_HOME) files.push(path.join(home, '.config', 'git', 'config'));
+  }
+  if (env.XDG_CONFIG_HOME) files.push(path.join(env.XDG_CONFIG_HOME, 'git', 'config'));
+  return [...new Set(files)];
+}
+
+/** Machine-wide files that can be located: GIT_CONFIG_SYSTEM, and Git for Windows' ProgramData file. */
+function systemConfigFiles(env, platform) {
+  const files = env.GIT_CONFIG_SYSTEM ? [env.GIT_CONFIG_SYSTEM] : [];
+  const programData = platform === 'win32' ? windowsVariable(env, 'PROGRAMDATA') : null;
+  if (programData) files.push(path.join(programData, 'Git', 'config'));
   return files;
 }
 
@@ -170,7 +212,7 @@ function readsIncludes(file) {
 function dependencies(kind, checkout, env, platform) {
   const configuration = [path.join(checkout.commonDir, 'config'),
     path.join(checkout.gitDir, 'config.worktree'), ...globalConfigFiles(env, platform),
-    ...(env.GIT_CONFIG_SYSTEM ? [env.GIT_CONFIG_SYSTEM] : [])];
+    ...systemConfigFiles(env, platform)];
   if (configuration.some(readsIncludes)) return null;
   // A linked worktree's commondir pointer may change without its .git marker or HEAD changing.
   const topology = [checkout.marker, path.join(checkout.gitDir, 'commondir')];
@@ -213,12 +255,14 @@ export function gitFactRequest(args, { cwd, env = process.env, stdio = 'pipe', i
   if (platform === 'win32' && Object.keys(env).some((name) =>
     /^(?:git_|home$|userprofile$|homedrive$|homepath$|xdg_config_home$)/iu.test(name)
       && name !== name.toUpperCase())) return null;
+  if (platform === 'win32' && windowsVariable(env, 'PROGRAMDATA') === undefined) return null;
   if (RELOCATING.some((name) => env[name] != null && env[name] !== '')) return null;
   const kind = gitFactKind(args);
-  if (!kind || (platform === 'win32' && kind === 'config')) return null;
+  if (!kind) return null;
   const directory = path.resolve(cwd ?? process.cwd());
   const variables = [...KEYED, ...Object.keys(env).filter((name) => name.startsWith('GIT_')).sort()]
-    .map((name) => `${name}=${env[name] ?? ''}`).join('\0');
+    .map((name) => `${name}=${env[name] ?? ''}`)
+    .concat(platform === 'win32' ? [`PROGRAMDATA=${windowsVariable(env, 'PROGRAMDATA') ?? ''}`] : []).join('\0');
   return { kind, key: `${platform}\0${directory}\0${variables}\0${args.join('\0')}`, directory, env, platform };
 }
 
@@ -243,8 +287,13 @@ export function rememberGitFact(request, result, { before = null } = {}) {
   if (result.stdout.length > MAXIMUM_ANSWER_BYTES) return;
   const status = result.status;
   // Only answers Git gave: success, or the documented "nothing here" of a configuration or HEAD read.
-  if (!(status === 0 || (status === 1 && (request.kind === 'config' || request.kind === 'head'))
+  if (!(status === 0 || (status === 1 && ['config', 'head', 'ref-format'].includes(request.kind))
     || (status === 2 && request.kind === 'config' && request.key.includes('\0get-url\0')))) return;
+  if (request.kind === 'ref-format') {
+    if (entries.size >= MAXIMUM_ENTRIES) entries.clear();
+    entries.set(request.key, { files: [], status, stdout: result.stdout, stderr: typeof result.stderr === 'string' ? result.stderr : '' });
+    return;
+  }
   const checkout = checkoutOf(request.directory);
   if (!checkout) return;
   const files = dependencies(request.kind, checkout, request.env, request.platform);
@@ -267,7 +316,7 @@ export function rememberGitFact(request, result, { before = null } = {}) {
  * depends on changed while Git was reading it.
  */
 export function gitFactSnapshot(request) {
-  if (!request) return null;
+  if (!request || request.kind === 'ref-format') return null;
   const checkout = checkoutOf(request.directory);
   if (!checkout) return null;
   const files = dependencies(request.kind, checkout, request.env, request.platform);

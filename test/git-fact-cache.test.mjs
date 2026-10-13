@@ -35,7 +35,7 @@ function asked(root, args, options = {}) {
   return run('git', args, { cwd: root, allowFailure: true, ...options });
 }
 
-test('only repository location, HEAD, history from HEAD, configuration and ref-name checks are cacheable', () => {
+test('only repository location, HEAD, the index, history from HEAD, configuration and ref-name checks are cacheable', () => {
   const sha = 'a'.repeat(40);
   const cases = [
     [['branch', '--show-current'], 'head'],
@@ -85,7 +85,16 @@ test('only repository location, HEAD, history from HEAD, configuration and ref-n
     [['log', '--format=%cr', '--', 'a.txt'], null],
     [['log', '--follow', '--format=%H', '--', 'a.txt'], null],
     [['log', '--format=%H', '--'], null],
-    [['log', '--format=%H'], null]
+    [['log', '--format=%H'], null],
+    // The index alone answers a cached-mode listing; one that reads the working tree goes to Git.
+    [['ls-files', '--stage', '-z'], 'index'],
+    [['ls-files', '-v', '-z'], 'index'],
+    [['ls-files', '--unmerged', '-z'], 'index'],
+    [['ls-files', '-z', '--', '*workflow.json'], 'index'],
+    [['ls-files', '--others', '--exclude-standard', '-z'], null],
+    [['ls-files', '--modified', '-z'], null],
+    [['ls-files', '--deleted'], null],
+    [['--no-optional-locks', 'ls-files', '--stage'], null]
   ];
   for (const [args, kind] of cases) assert.equal(gitFactKind(args), kind, args.join(' '));
 });
@@ -169,6 +178,38 @@ test('history from HEAD is reused until HEAD, a replacement or the shallow bound
   // A shallow boundary at HEAD hides everything older.
   await writeFile(path.join(root, '.git', 'shallow'), `${second}\n`);
   assert.equal(asked(root, history).stdout.trim(), second, 'the shallow boundary changed which commits Git can see');
+});
+
+test('an index listing is reused until the index changes; another index file and working-tree listings always ask Git', async (t) => {
+  const root = await repository(t);
+  const listing = ['ls-files', '--stage', '-z'];
+  const first = asked(root, listing).stdout;
+  assert.match(first, /\ta\.txt\0$/u);
+  let before = gitFactCacheHits();
+  assert.equal(asked(root, listing).stdout, first);
+  assert.equal(gitFactCacheHits(), before + 1, 'an unchanged index is not listed again');
+
+  // Staged by another program, outside run().
+  await writeFile(path.join(root, 'b.txt'), 'b\n');
+  outside(root, ['add', 'b.txt']);
+  assert.match(asked(root, listing).stdout, /\tb\.txt\0$/u, 'a staged file is listed');
+  outside(root, ['update-index', '--skip-worktree', 'a.txt']);
+  assert.match(asked(root, ['ls-files', '-v', '-z']).stdout, /^S a\.txt\0/mu);
+  before = gitFactCacheHits();
+  asked(root, ['ls-files', '-v', '-z']);
+  assert.equal(gitFactCacheHits(), before + 1);
+
+  // A scratch index and a working-tree listing are always read from Git.
+  const scratch = path.join(root, '.git', 'scratch-index');
+  outside(root, ['read-tree', `--index-output=${scratch}`, 'HEAD']);
+  before = gitFactCacheHits();
+  for (let index = 0; index < 2; index += 1) {
+    asked(root, listing, { env: { ...process.env, GIT_INDEX_FILE: scratch } });
+    asked(root, ['ls-files', '--others', '--exclude-standard', '-z']);
+  }
+  assert.equal(gitFactCacheHits(), before, 'neither was answered from the cache');
+  await writeFile(path.join(root, 'c.txt'), 'c\n');
+  assert.match(asked(root, ['ls-files', '--others', '--exclude-standard', '-z']).stdout, /c\.txt/u);
 });
 
 test('a missing configuration value is an answer; a failure and any object read are not kept', async (t) => {

@@ -49,6 +49,15 @@
  * `check-ref-format` checks a name as a string, with no repository or file behind it, so its
  * answer (valid or not) is kept outright, except a `--branch` name that refers to the reflog.
  *
+ * ## The index
+ *
+ * `ls-files` in its cached mode (`--stage`, `-v`, `--unmerged`, plain) lists the index and
+ * nothing else; a publish read the same 40,000-entry index up to 12 times. Git rewrites the index
+ * only through a lock file and a rename, so an unchanged `.git/index` identity (with the
+ * configuration) proves the listing unchanged. Listings that read the working tree (`--others`,
+ * `--modified`, `--deleted`) always go to Git, and so does any read of another index file
+ * (`GIT_INDEX_FILE`).
+ *
  * ## History from HEAD
  *
  * Phase commands ask which commit created a Story file, and whether it changed since, with
@@ -97,6 +106,8 @@ const HEAD_QUERIES = new Set([
 const CONFIG_READS = new Set(['--get', '--get-all', '--get-regexp', '-l', '--list']);
 const REF_FORMAT_FLAGS = new Set(['--branch', '--allow-onelevel', '--no-allow-onelevel', '--refspec-pattern']);
 const FANOUT = Array.from({ length: 256 }, (_, index) => index.toString(16).padStart(2, '0'));
+// Cached-mode listing flags: the index alone answers them.
+const INDEX_FLAGS = new Set(['--stage', '-s', '-z', '-v', '--unmerged', '-u', '--cached', '-c', '--full-name']);
 const HISTORY_FLAGS = new Set(['--reverse', '--full-history', '--first-parent', '--no-merges', '-z']);
 // Commit fields the commits fix: full hashes, parents, tree, subject, body, and literal or hex text.
 const HISTORY_FORMAT = /^--(?:format|pretty=format):(?:%[HPTsbB%n]|%x[0-9a-fA-F]{2}|[^%])*$/u;
@@ -134,6 +145,10 @@ export function gitFactKind(args) {
       && rest.filter((arg) => arg.startsWith('-')).every((arg) => REF_FORMAT_FLAGS.has(arg)) ? 'ref-format' : null;
   }
   if (command === 'log') return historyQuery(rest) ? 'history' : null;
+  if (command === 'ls-files') {
+    const separator = rest.indexOf('--');
+    return (separator < 0 ? rest : rest.slice(0, separator)).every((arg) => INDEX_FLAGS.has(arg)) ? 'index' : null;
+  }
   if (command === 'remote') {
     if (rest.length === 0 || (rest.length === 1 && rest[0] === '-v')) return 'config';
     if (rest[0] === 'get-url' && rest.slice(1, -1).every((arg) => arg === '--push' || arg === '--all')
@@ -255,6 +270,7 @@ function dependencies(kind, checkout, env, platform) {
   if (kind === 'location') {
     return [...topology, path.join(checkout.commonDir, 'shallow'), ...configuration];
   }
+  if (kind === 'index') return [...topology, path.join(checkout.gitDir, 'index'), ...configuration];
   if (lstatSafe(path.join(checkout.commonDir, 'reftable'))) return null;
   if (kind === 'head' || kind === 'history') {
     const head = path.join(checkout.gitDir, 'HEAD');
@@ -298,6 +314,8 @@ export function gitFactRequest(args, { cwd, env = process.env, stdio = 'pipe', i
   if (RELOCATING.some((name) => env[name] != null && env[name] !== '')) return null;
   const kind = gitFactKind(args);
   if (!kind) return null;
+  // Another index file is somebody's scratch staging area; only the checkout's own index is tracked.
+  if (kind === 'index' && env.GIT_INDEX_FILE) return null;
   const directory = path.resolve(cwd ?? process.cwd());
   const variables = [...KEYED, ...Object.keys(env).filter((name) => name.startsWith('GIT_')).sort()]
     .map((name) => `${name}=${env[name] ?? ''}`)

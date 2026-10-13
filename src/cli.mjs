@@ -11853,6 +11853,7 @@ async function sessionCommand(positionals, options) {
   const paused = agentEntry?.sessionAgentEntryGuard(positionals, options);
   if (paused) return console.log(JSON.stringify(paused));
   const subcommand = positionals[1] ?? 'status';
+  if (subcommand === 'open') return (await import('./commands/session-open.mjs')).run({ positionals, options });
   if (optionBoolean(options, 'table') && (subcommand !== 'candidates' || optionBoolean(options, 'json'))) {
     throw new SingularityFlowError('Use --table only with session candidates, without --json.', {
       code: 'SESSION_TABLE_FORMAT_INVALID'
@@ -12153,7 +12154,11 @@ async function sessionCommand(positionals, options) {
     const { listStoryWorktrees } = await import('./story-worktree.mjs');
     const commonDir = gitCommonDir(root);
     const matches = [];
-    for (const registered of listStoryWorktrees(root)) {
+    // Verifying a Story is the expensive step, and only a checkout holding this Story's state can
+    // match. Try those first; any other layout falls back to verifying every registered checkout.
+    const registeredWorktrees = listStoryWorktrees(root);
+    const holding = registeredWorktrees.filter((entry) => existsSync(path.join(entry.repositoryPath, 'singularity/work-items', workId, 'workflow.json')));
+    for (const registered of holding.length ? holding : registeredWorktrees) {
       const checkout = registered.repositoryPath;
       try {
         // The Git worktree registry supplies paths, never a webview or caller-supplied path.

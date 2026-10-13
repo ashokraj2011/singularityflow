@@ -285,3 +285,98 @@ export function readRefTree(root, ref, pathspecs = [], options = {}) {
     }
   );
 }
+
+/**
+ * Many object reads in two Git processes, for scans that otherwise run several processes per ref.
+ *
+ * `specs` are `<rev>:<path>` or object IDs. Each answer is `{ status: 'ok', oid, type, size,
+ * bytes }`, `{ status: 'missing' }` when the path (or ref) does not exist, `{ status: 'unavailable',
+ * reason }` when the object exists but is not readable here (a blobless clone) or Git answered
+ * something else, or `{ status: 'too-large', oid, size }`. Sizes are checked first, so an object over
+ * the limit is never read, and every body is checked against its object ID before it is returned.
+ * Returns null when Git itself fails, so a caller keeps its exact per-ref path for that case.
+ */
+export function readObjectsBatch(root, specs, {
+  runCommand = run, env = process.env, maxObjectBytes = DEFAULT_OBJECT_BYTES, maxBatchBytes = DEFAULT_BATCH_BYTES, checkOnly = false
+} = {}) {
+  const answers = new Map();
+  const unique = [...new Set(specs)];
+  if (!unique.length) return answers;
+  if (unique.some((spec) => typeof spec !== 'string' || !spec || /[\r\n]/u.test(spec))) return null;
+  const localEnv = gitEnvironment(env);
+  const checked = runCommand('git', ['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], {
+    cwd: root, allowFailure: true, env: localEnv, maxBuffer: unique.length * 256 + 1024, input: `${unique.join('\n')}\n`
+  });
+  if (checked.status !== 0 || checked.timedOut || checked.error) return null;
+  const lines = String(checked.stdout ?? '').replace(/\n$/u, '').split('\n');
+  if (lines.length !== unique.length) return null;
+  const wanted = [];
+  for (let index = 0; index < unique.length; index += 1) {
+    const spec = unique[index]; const line = lines[index];
+    if (line === `${spec} missing`) {
+      // A `<rev>:<path>` Git cannot resolve is an absent path; an object ID it cannot find is not.
+      answers.set(spec, spec.includes(':') ? { status: 'missing' } : { status: 'unavailable', reason: 'object is not available locally' });
+      continue;
+    }
+    const [oid, type, rawSize, extra] = line.split(' ');
+    const size = Number(rawSize);
+    if (extra !== undefined || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(oid ?? '') || !Number.isSafeInteger(size) || size < 0) {
+      answers.set(spec, { status: 'unavailable', reason: line.endsWith(' missing') ? 'object is not available locally' : `Git answered '${line.slice(0, 120)}'` });
+      continue;
+    }
+    if (checkOnly) { answers.set(spec, { status: 'ok', oid, type, size, bytes: null }); continue; }
+    if (size > maxObjectBytes) { answers.set(spec, { status: 'too-large', oid, size }); continue; }
+    answers.set(spec, { status: 'pending', oid, type, size });
+    wanted.push({ oid, type, size });
+  }
+  const objects = new Map();
+  const distinct = [...new Map(wanted.map((entry) => [entry.oid, entry])).values()];
+  for (const group of batches(distinct, Math.max(1, maxBatchBytes))) {
+    const expected = group.reduce((sum, entry) => sum + entry.size, 0);
+    const batch = runCommand('git', ['cat-file', '--batch'], {
+      cwd: root, allowFailure: true, encoding: 'buffer', env: localEnv,
+      maxBuffer: expected + HEADER_ALLOWANCE, input: `${group.map((entry) => entry.oid).join('\n')}\n`
+    });
+    if (batch.status !== 0 || batch.timedOut || batch.error) return null;
+    const buffer = Buffer.isBuffer(batch.stdout) ? batch.stdout : Buffer.from(batch.stdout ?? '', 'utf8');
+    let cursor = 0;
+    for (const entry of group) {
+      const newline = buffer.indexOf(0x0a, cursor);
+      if (newline < 0) return null;
+      const [oid, type, rawSize] = buffer.toString('utf8', cursor, newline).trim().split(' ');
+      const size = Number(rawSize);
+      if (oid !== entry.oid || type !== entry.type || size !== entry.size) return null;
+      const start = newline + 1; const end = start + size;
+      if (end >= buffer.length || buffer[end] !== 0x0a) return null;
+      const body = buffer.subarray(start, end);
+      const actual = createHash(oid.length === 64 ? 'sha256' : 'sha1').update(`${type} ${size}\0`).update(body).digest('hex');
+      if (actual !== oid) return null;
+      objects.set(oid, Buffer.from(body));
+      cursor = end + 1;
+    }
+    if (cursor !== buffer.length) return null;
+  }
+  for (const [spec, answer] of answers) {
+    if (answer.status === 'pending') answers.set(spec, { status: 'ok', oid: answer.oid, type: answer.type, size: answer.size, bytes: objects.get(answer.oid) });
+  }
+  return answers;
+}
+
+/** The entries of one tree object: `{ mode, name, oid }`, in Git's order. Null when malformed. */
+export function treeEntries(bytes, oidLength = 40) {
+  const entries = [];
+  const width = oidLength / 2;
+  let cursor = 0;
+  while (cursor < bytes.length) {
+    const space = bytes.indexOf(0x20, cursor);
+    const nul = space < 0 ? -1 : bytes.indexOf(0x00, space + 1);
+    if (space < 0 || nul < 0 || nul + 1 + width > bytes.length) return null;
+    entries.push({
+      mode: bytes.toString('utf8', cursor, space),
+      name: bytes.toString('utf8', space + 1, nul),
+      oid: bytes.subarray(nul + 1, nul + 1 + width).toString('hex')
+    });
+    cursor = nul + 1 + width;
+  }
+  return entries;
+}

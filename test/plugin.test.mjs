@@ -65,14 +65,11 @@ test('workflow skill governs dependency-complete transfer and linked duplication
 test('session and progress skills ground every follow-up command in the resolved repository', async () => {
   const session = await readFile(path.join(pluginRoot, 'skills', 'sflow-session', 'SKILL.md'), 'utf8');
   const progress = await readFile(path.join(pluginRoot, 'skills', 'sflow-progress', 'SKILL.md'), 'utf8');
-  assert.match(session, /session attach <WORK-ID> --json/);
+  assert.match(session, /singularity-flow session open --json/);
   assert.match(session, /--workspace <WORKSPACE> --repository <REPOSITORY-ID>/);
-  assert.match(session, /session open-local <WORK-ID> --json/);
-  assert.match(session, /Candidate `repositoryPath` is only the scan source/);
-  assert.match(session, /synchronizes the selected remote Story and returns its checkout/);
-  assert.match(session, /At the returned `repositoryPath`/);
-  assert.match(session, /There run `singularity-flow session context/);
-  assert.match(session, /Tell shell users to `cd` there/);
+  assert.match(session, /singularity-flow session open <WORK-ID> --json/);
+  assert.match(session, /attaches and synchronizes the remote Story/);
+  assert.match(session, /tell shell users to `cd` to `repositoryPath`/);
   assert.match(progress, /session current --json/);
   assert.match(progress, /explicit Work ID[\s\S]*do not require or change the active Story/i);
   assert.match(progress, /Without an ID[\s\S]*session current --json[\s\S]*exact `repositoryPath`/i);
@@ -805,46 +802,43 @@ test('plugin hooks avoid session prompt tax and scope discovery guards to explic
 
 test('session skill synchronizes work-item state and activates the phase agent automatically', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-session', 'SKILL.md'), 'utf8');
-  assert.match(content, /session candidates --json/);
-  assert.match(content, /workspace current --json[\s\S]*carry active `workspacePath`\/`repositoryId` explicitly/);
+  // One command does open-local, the remote fallback, the status check, context and nextsteps,
+  // so the skill makes two calls where it made seven; the rules live in `session open` itself.
+  assert.match(content, /session candidates --json --diagnostics/);
+  assert.match(content, /workspace current --json[\s\S]*carries the active `workspacePath`\/`repositoryId` explicitly/);
   assert.match(content, /old host cwd must not replace that scope/);
-  assert.match(content, /Without an explicit work ID[\s\S]*session candidates --table[\s\S]*before status/);
-  assert.ok(content.indexOf('session candidates --table') < content.indexOf('session status --json'));
+  assert.match(content, /Without an explicit work ID, run `singularity-flow session open --json`[\s\S]*Relay its `table` verbatim/);
+  assert.ok(content.indexOf('session open --json') < content.indexOf('session open <WORK-ID> --json'));
   assert.match(content, /current binding or first row is not selection/);
   assert.match(content, /Stop without attaching if no choice exists/);
   assert.match(content, /`ask_user` or plain chat/);
-  assert.match(content, /session attach <WORK-ID>/);
-  assert.match(content, /for an exact ID if missing/i);
-  assert.match(content, /require `ready === true`, `workId` exactly the chosen ID, and `activeAgent` equal the open\/attach result's `agent`/);
-  assert.match(content, /`null` is valid for a completed Story/);
-  assert.match(content, /Stop on mismatch before context\/nextsteps/);
+  assert.match(content, /ask with `ask_user` or plain chat for an exact ID/i);
+  assert.match(content, /requires `ready`, the exact `workId` and the open\/attach result's `agent` as `activeAgent`/);
+  assert.match(content, /`null` for a completed Story/);
+  assert.match(content, /before reading brief `context` and `nextsteps`/);
   assert.match(content, /Never manually merge, rebase, reset, force-checkout, stash, or discard work/);
   assert.match(content, /Session setup only: no raw Git, source reads, edits, or lifecycle work/);
   assert.match(content, /For each action preserve order, timing, reason/i);
   assert.match(content, /`Copilot: <copilotCommand>`.*`Shell: <command>`/s);
   assert.match(content, /from that same object/);
   assert.match(content, /Do not merge distinct actions or invent missing routes/);
-  assert.match(content, /Only `SESSION_LOCAL_STORY_UNAVAILABLE` or `SESSION_LOCAL_REPOSITORY_UNAVAILABLE` permits remote fallback/);
+  assert.match(content, /only when no local Story or repository exists attaches/);
   assert.match(content, /End the turn; do not continue into Story work/);
 });
 
-test('session setup fences partial selectors and status mismatches before context or next actions', async () => {
+test('session setup fences partial selectors, and one command checks the binding before context or next actions', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-session', 'SKILL.md'), 'utf8');
   for (const body of [content, renderDirectSkill(content, 'sflow-session')]) {
     assert.match(body, /Partial selectors: resolve only within the explicit workspace or ask; never fill from active workspace\/cwd/);
-    assert.ok(body.indexOf('Partial selectors:') < body.indexOf('With none, read'),
+    assert.ok(body.indexOf('Partial selectors:') < body.indexOf('With none,'),
       'a partial explicit scope cannot fall into the active-workspace fallback');
-    const statusStep = body.split(/\n5\. /)[1]?.split(/\n6\. /)[0];
-    assert.ok(statusStep, 'the post-attachment status guard remains a distinct preflight step');
-    assert.match(statusStep, /At the returned `repositoryPath`/);
-    assert.match(statusStep, /require `ready === true`, `workId` exactly the chosen ID/);
-    assert.match(statusStep, /`activeAgent` equal the open\/attach result's `agent`/);
-    assert.doesNotMatch(statusStep, /result(?:'s)?[. ]+`?activeAgent/,
-      'open-local/attach expose agent, while the verified status exposes activeAgent');
-    assert.match(statusStep, /`null` is valid for a completed Story/);
-    assert.match(statusStep, /Stop on mismatch before context\/nextsteps/);
-    assert.ok(body.indexOf('Stop on mismatch before context/nextsteps') < body.indexOf('session context --work-id'));
-    assert.ok(body.indexOf('Stop on mismatch before context/nextsteps') < body.indexOf('singularity-flow nextsteps'));
+    const openStep = body.split(/\n3\. /)[1]?.split(/\n4\. /)[0];
+    assert.ok(openStep, 'opening the chosen Story is its own step');
+    assert.match(openStep, /session open <WORK-ID> --json/);
+    assert.match(openStep, /requires `ready`, the exact `workId` and the open\/attach result's `agent` as `activeAgent`/);
+    assert.match(openStep, /Relay any refusal and stop/);
+    assert.doesNotMatch(body, /singularity-flow session status --json|singularity-flow nextsteps <WORK-ID>/,
+      'the separate status, context and nextsteps round trips are gone');
   }
 });
 

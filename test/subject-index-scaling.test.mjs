@@ -88,19 +88,18 @@ test('adding Stories does not add subprocesses', { timeout: 120_000 }, async () 
     + ' The read is per-Story again.');
 });
 
-test('adding refs adds a bounded, constant number of subprocesses', { timeout: 120_000 }, async () => {
+test('adding refs adds no subprocesses: every ref is read in the same batches', { timeout: 120_000 }, async () => {
   /**
-   * Refs are the factor that legitimately costs something — twelve branches genuinely hold twelve
-   * trees to read. The property is that each one costs a fixed handful and not a handful per
-   * subject, so this pins the per-ref constant rather than requiring it to be zero.
+   * Refs were the factor that legitimately cost something: about seven processes each, so a
+   * repository with sixty-eight remote branches spent 630 processes on one `session candidates`.
+   * The batch reads every ref's head, configuration, state roots and records in one batch per
+   * tree level, so two more refs, each holding eight Stories, must not add even one process.
    */
   const stories = 8;
   const two = measure(await repository(stories, 3), ['main', 'work-1']);
   const four = measure(await repository(stories, 5), ['main', 'work-1', 'work-2', 'work-3']);
-
-  const perRef = (four.subprocesses - two.subprocesses) / 2;
-  assert.ok(Number.isInteger(perRef) && perRef > 0, `implausible per-ref cost: ${perRef}`);
-  assert.ok(perRef <= 6,
-    `each additional ref costs ${perRef} subprocesses; with ${stories} Stories on it that is`
-    + ' close enough to per-Story work to be worth reading again.');
+  assert.equal(four.subjects, two.subjects, 'the larger set of refs lost or invented subjects');
+  assert.equal(four.subprocesses, two.subprocesses,
+    `four refs cost ${four.subprocesses} subprocesses against ${two.subprocesses} for two; the read is per-ref again.`);
+  assert.ok(two.subprocesses <= 16, `the batched read costs ${two.subprocesses} subprocesses`);
 });

@@ -10,12 +10,23 @@ import { storyLifecycleProgress } from './session-roster.mjs';
 import { validateId } from './state-stores.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
 
-/** Prove that a remote ref contains the Story it claims, under its own pinned definition. */
-export function validatedRemoteStoryDefinition(root, remoteRef, subject) {
-  const source = fileAtRef(root, remoteRef, WORKFLOW_PATH);
+/**
+ * Prove that a remote ref contains the Story it claims, under its own pinned definition.
+ *
+ * `files` holds bytes discovery already read, by `<commit>:<path>`, and `definitions` the
+ * definitions already validated, by their exact text; both only save repeating the same work for
+ * the same bytes. Anything absent from them is read from the ref as before.
+ */
+export function validatedRemoteStoryDefinition(root, remoteRef, subject, { files = null, definitions = null } = {}) {
+  const at = (relative) => files?.get(`${subject.location?.commit}:${relative}`) ?? fileAtRef(root, remoteRef, relative);
+  const source = at(WORKFLOW_PATH);
   if (source == null) throw new Error(`missing ${WORKFLOW_PATH}`);
-  const definition = YAML.parse(source);
-  validateDefinition(definition);
+  let definition = definitions?.get(source);
+  if (!definition) {
+    definition = YAML.parse(source);
+    validateDefinition(definition);
+    definitions?.set(source, definition);
+  }
   validateId(definition, subject.id);
   const expectedPath = posix(path.join(
     definition.workItemRoot ?? 'singularity/work-items', subject.id, 'workflow.json'
@@ -23,7 +34,7 @@ export function validatedRemoteStoryDefinition(root, remoteRef, subject) {
   if (subject.location.path !== expectedPath) {
     throw new Error(`state path '${subject.location.path}' does not match pinned root '${expectedPath}'`);
   }
-  const retainedWorkflow = JSON.parse(fileAtRef(root, remoteRef, expectedPath) ?? 'null');
+  const retainedWorkflow = JSON.parse(at(expectedPath) ?? 'null');
   const workflow = readRecord('story-workflow', retainedWorkflow).record;
   if (workflow?.workItem?.id !== subject.id) throw new Error('identity mismatch');
   return { definition, workflow, retainedWorkflow, itemPath: expectedPath };
@@ -51,9 +62,11 @@ export async function discoverRemoteStoryCandidates(root, definition, {
   const index = await buildRepositorySubjectIndexFromRefs(root, { definition, refs });
   const unavailable = [...index.unreadable, ...(index.conflicts ?? [])];
   const items = [];
+  const definitions = new Map();
   for (const subject of index.list('story')) {
     try {
-      const { workflow, retainedWorkflow } = validatedRemoteStoryDefinition(root, subject.location.ref, subject);
+      const { workflow, retainedWorkflow } = validatedRemoteStoryDefinition(root, subject.location.ref, subject,
+        { files: index.refFiles, definitions });
       items.push({
         id: subject.id,
         branch: subject.canonicalBranch,

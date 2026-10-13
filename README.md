@@ -2792,6 +2792,7 @@ evidence workflow.
 | `singularity-flow resume <ID\|BRANCH> --fetch` | Resolve the Work ID/canonical-branch binding, fast-forward it, and activate the current phase agent. |
 | `sflow-agent [ID]` | Select or change the prompt-only governed agent for the current local work-item session. |
 | `singularity-flow session candidates` | Fetch and list committed remote work-item branches available for session attachment. |
+| `singularity-flow session open [<ID>] [--workspace W --repository ID]` | One command for `/sf-session`: without an ID, the candidate table; with one, open or attach it, check the session binding, and return the brief context and next steps. |
 | `singularity-flow session current` | Resolve the verified Story checkout, Work ID, branch, phase, and agent that lifecycle commands must use. |
 | `singularity-flow session doctor` | Compare workspace selection, current directory, and worktree-local session state without changing Git. |
 | `singularity-flow session workspace <WORKSPACE> [--repository ID] [--story ID]` | Attach session context to a saved workspace from any directory and return the exact governed repository/host handoff. |

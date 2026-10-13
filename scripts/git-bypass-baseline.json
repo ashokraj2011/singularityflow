@@ -12,6 +12,13 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "src/commands/session-open.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "011e67483a8d78aad8902b861b3de085307cda74c74b80ed780f7fd7152edb9e"
+    },
     "src/phase-continuation-runtime.mjs": {
       "counts": {
         "command-run": 1
@@ -853,9 +860,9 @@
     },
     "src/git-ref-tree.mjs": {
       "counts": {
-        "command-runCommand": 4
+        "command-runCommand": 6
       },
-      "digest": "b8a2d5877e3525ac72c327e9885d13f7a85d612d5971efa619451aef81282dd1"
+      "digest": "885aeaad527cd9ebf3dc71989654bbd0f40a948d798b8d5304dc26dffbd79d78"
     },
     "src/git-remote-diagnostics.mjs": {
       "counts": {

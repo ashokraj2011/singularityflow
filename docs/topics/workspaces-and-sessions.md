@@ -15,7 +15,7 @@ related:
   - developer-home
   - capability-management
   - repository-state-and-snapshots
-version: 10
+version: 11
 ---
 A workspace is the machine-local collection of capability repositories used for one delivery context. Sessions bind a contributor and selected work item without replacing governed repository state.
 
@@ -151,6 +151,22 @@ without remote synchronization. Only `SESSION_LOCAL_STORY_UNAVAILABLE` or
 refusals stop setup. For missing candidate evidence, use the same explicit selectors
 with `session candidates --json --diagnostics`. Progress absent from durable evidence
 is reported as unavailable, not estimated by chat.
+
+`session open` runs that whole sequence as one command, which is what `/sf-session` uses so
+Copilot does not spend a model round trip on each step:
+
+```bash
+singularity-flow session open --json
+singularity-flow session open <WORK-ID> --workspace <WORKSPACE> --repository <REPOSITORY-ID> --json
+```
+
+Without a work ID it checks the pause state, reads the active workspace selection when no
+selectors are given, and returns the candidate table with `status: "choose"`: choosing a Story
+stays the person's decision. With a work ID it runs `open-local`, falls back to `attach` only on
+the two codes above, checks `session status` at the returned checkout (ready, the same Story, the
+same agent), and returns the brief context and the next steps with `status: "ready"`. Each step
+is the same command in its own process, so a refusal keeps that step's code, message and
+recovery plan.
 
 To use a clone already on the machine, run `sflow workspace adopt <DIRECTORY> --id <ID> --base <DIRECTORY> --dry-run --json`. Review its canonical path, origin, branch, worktrees, submodules, SFlow configuration, changed paths, and preservation list. A dirty clone requires the exact content-aware hash returned by the preview in `--confirm-dirty`; changing file bytes invalidates it. Adoption creates a separate workspace shell and never fetches, checks out, stashes, commits, resets, cleans, or edits the clone remote.
 

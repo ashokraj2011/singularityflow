@@ -241,6 +241,9 @@ test('packaged PowerShell launcher finds the Windows-style APPDATA runtime and f
   await writeFile(path.join(runtime, 'bin/singularity-flow.mjs'), '// installed runtime fixture\n');
   await writeFile(path.join(runtime, 'src/cli-entry.mjs'),
     'export async function main(argv) { let input=""; for await (const chunk of process.stdin) input+=chunk; console.log(JSON.stringify({argv,input})); }\n');
+  // A recorded turn: without one the guard, after-tool and end hooks answer without Node (tested below).
+  await mkdir(path.join(item.directory, 'copilot-boundaries'));
+  await writeFile(path.join(item.directory, 'copilot-boundaries', 'session.json'), '{}');
   for (const [action, command] of await manifestCommands('powershell')) {
     const result = spawnSync(powershell, [...powershellArgs, command], {
       cwd: item.cwd, env: { ...rootEnvironment(item.env, { PLUGIN_ROOT: pluginRoot }), APPDATA: appData,
@@ -327,4 +330,36 @@ test('a runtime that cannot load keeps the shell guard failing closed until a wo
   assert.equal(existsSync(started), true, 'not answered by the shell fast path');
   assert.deepEqual(JSON.parse(item.invoke('boundary-turn', [cli], '{"sessionId":"native","prompt":"hello"}').stdout), {});
   assert.deepEqual(readdirSync(boundaries), [], 'a working runtime cleared the marker');
+});
+
+test('with no SFlow turn recorded, PowerShell guard, after-tool and end hooks answer without starting Node', {
+  skip: !powershell && 'PowerShell host unavailable'
+}, async t => {
+  const item = await fixture(t);
+  const bin = path.join(item.directory, 'host-bin');
+  await mkdir(bin);
+  const started = path.join(item.directory, 'node-started');
+  // A stand-in node that only records each start; no installed runtime is ever loaded.
+  const standIn = process.platform === 'win32'
+    ? [path.join(bin, 'node.cmd'), `@echo started>>"${started}"\r\n@echo {}\r\n`]
+    : [path.join(bin, 'node'), `#!/bin/sh\necho started >> '${started}'\necho '{}'\n`];
+  await writeFile(standIn[0], standIn[1], { mode: 0o755 });
+  const launch = (action, input = '{"sessionId":"native"}') => spawnSync(powershell,
+    [...powershellArgs, `& '${path.join(pluginRoot, 'hook-launcher.ps1')}' ${action}`], {
+      cwd: item.cwd, env: { ...item.env, PATH: `${bin}${path.delimiter}${item.env.PATH}` }, input, encoding: 'utf8', timeout: 30_000
+    });
+  const nodeStarts = () => (existsSync(started) ? readFileSync(started, 'utf8').split(/\r?\n/u).filter(Boolean).length : 0);
+  for (const action of ['boundary-guard', 'boundary-after', 'boundary-end']) {
+    const result = launch(action);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), {}, action);
+  }
+  const large = JSON.stringify({ sessionId: 'native', toolArgs: { content: 'x'.repeat(256 * 1024) } });
+  assert.deepEqual(JSON.parse(launch('boundary-guard', large).stdout), {}, 'a large payload is read and answered');
+  assert.equal(nodeStarts(), 0, 'no hook started Node');
+  // Any boundary entry (a recorded turn, or the marker of a runtime that could not load) goes to Node.
+  await mkdir(path.join(item.directory, 'copilot-boundaries'));
+  await writeFile(path.join(item.directory, 'copilot-boundaries', RUNTIME_UNAVAILABLE_MARKER), '');
+  launch('boundary-guard');
+  assert.equal(nodeStarts(), 1, 'the marker sends the guard to the runtime');
 });

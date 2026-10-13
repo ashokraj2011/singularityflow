@@ -24,7 +24,7 @@ import YAML from 'yaml';
 import { parseYamlText } from './yaml-parse-cache.mjs';
 import { SingularityFlowError, secureRepositoryPath } from './util.mjs';
 import { instructionReferences, resolveSkillInstructions } from './instruction-library.mjs';
-import { instructionSlots } from './skill-instruction-composition.mjs';
+import { inlineInstructionTags, instructionSlots, skillInstructionIds } from './skill-instruction-composition.mjs';
 
 export const SKILL_LIBRARY_ROOT = 'singularity/skill-library';
 export const SKILL_FILE = 'SKILL.md';
@@ -97,16 +97,20 @@ export function parseLibrarySkill(text, { id, source = librarySkillPath(id) } = 
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) fail(`Skill '${name}' metadata must be a map.`);
   const rawLabel = metadata['sflow-label'];
   const loading = metadata['sflow-loading'] ?? 'eager';
-  const instructionRefs = instructionReferences(metadata['sflow-instructions']);
+  const declaredInstructionRefs = instructionReferences(metadata['sflow-instructions']);
   if (!['eager', 'on-demand'].includes(loading)) fail(`Skill '${name}' sflow-loading must be eager or on-demand.`);
   if (rawLabel != null && (typeof rawLabel !== 'string' || !rawLabel.trim() || rawLabel.length > MAX_LABEL)) {
     fail(`Skill '${name}' has an invalid sflow-label.`);
   }
   const instructions = body.trim();
   if (!instructions) fail(`Skill '${name}' has no instructions.`);
+  // An inline <instruction> tag selects its instruction by itself; metadata lists the rest.
+  const instructionRefs = instructionReferences(skillInstructionIds(declaredInstructionRefs, instructions));
   const instructionPlacements = instructionSlots(instructions, instructionRefs);
+  const inlineInstructionPlacements = Object.freeze(inlineInstructionTags(instructions).map(tag => Object.freeze(tag)));
   return Object.freeze({
-    id: name, label: rawLabel?.trim() ?? defaultSkillLabel(name), description, instructions, loading, instructionRefs, instructionPlacements,
+    id: name, label: rawLabel?.trim() ?? defaultSkillLabel(name), description, instructions, loading, instructionRefs, declaredInstructionRefs,
+    instructionPlacements, inlineInstructionPlacements,
     path: librarySkillPath(name), sha256: sha256(text), bytes: Buffer.byteLength(text, 'utf8'), text
   });
 }
@@ -118,7 +122,10 @@ export function librarySkillText({ id, label = null, description, instructions, 
   const name = String(label ?? '').trim();
   if (name && name !== defaultSkillLabel(id)) front.metadata = { 'sflow-label': name };
   if (loading !== 'eager') front.metadata = { ...front.metadata, 'sflow-loading': loading };
-  if (instructionReferences(instructionRefs).length) front.metadata = { ...front.metadata, 'sflow-instructions': [...instructionRefs] };
+  // Tagged instructions select themselves, so only the untagged ones are written to metadata.
+  const tagged = new Set(inlineInstructionTags(String(instructions ?? '')).map(tag => tag.id));
+  const listed = instructionReferences(instructionRefs ?? []).filter(id => !tagged.has(id));
+  if (listed.length) front.metadata = { ...front.metadata, 'sflow-instructions': listed };
   const text = `---\n${YAML.stringify(front, { lineWidth: 0 })}---\n\n${String(instructions ?? '').trim()}\n`;
   parseLibrarySkill(text, { id });
   return text;

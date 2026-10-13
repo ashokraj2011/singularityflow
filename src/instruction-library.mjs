@@ -5,7 +5,7 @@ import { constants } from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
 import { parseYamlText } from './yaml-parse-cache.mjs';
-import { secureRepositoryPath, SingularityFlowError } from './util.mjs';
+import { nearestNames, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 export const INSTRUCTION_LIBRARY_ROOT = 'singularity/instruction-library';
 export const MAX_INSTRUCTION_BYTES = 64 * 1024;
@@ -101,7 +101,13 @@ export async function loadInstructionLibrary(root) {
 export async function resolveSkillInstructions(root, skill) {
   return Promise.all((skill.instructionRefs ?? []).map(async id => {
     const item = await readInstruction(root, id);
-    if (!item) fail(`Skill '${skill.id}' references missing instruction '${id}'. Create it or remove the reference through configuration review.`, 'INSTRUCTION_REFERENCE_MISSING');
+    if (!item) {
+      // Only the refusal pays for listing the library, to name the likely intended ID.
+      const known = await loadInstructionLibrary(root).then(library => [...library.instructions.keys()], () => []);
+      const near = nearestNames(id, known, { limit: 1 });
+      fail(`Skill '${skill.id}' uses instruction '${id}', which does not exist.${near.length ? ` Did you mean '${near[0]}'?` : ''} `
+        + 'Fix the ID in the skill, or create the instruction, through configuration review.', 'INSTRUCTION_REFERENCE_MISSING');
+    }
     return item;
   }));
 }

@@ -20,6 +20,6 @@ Run `singularity-flow instruction list --json` or `singularity-flow instruction 
 
 For creation or editing, collect a unique lower-case ID, purpose and Markdown body. Preview `singularity-flow instruction create <ID> --description <TEXT> --instructions <TEXT> --dry-run --json` or `singularity-flow instruction edit <ID> --instructions <TEXT> --dry-run --json`. Review exact proposed bytes before using the returned configuration-proposal route. Never approve configuration yourself.
 
-Connect a skill with `singularity-flow skill edit <SKILL-ID> --instruction-refs <ID,ID> --dry-run --json`, then follow its reviewed proposal route. Removal requires explicitly clearing references first. Eager skills inject referenced instructions once per prompt; on-demand skills retain them for verified expansion. Existing Stories keep their accepted bytes.
+To place an instruction inside a skill step, write `<instruction><ID></instruction>` where it applies, even mid-sentence, and preview `singularity-flow skill edit <SKILL-ID> --from <FILE> --dry-run --json`; the tag selects it. To carry one unplaced, use `--instruction-refs <ID,ID>`. Then follow the reviewed proposal route. Removal requires explicitly clearing references first. Eager skills inject referenced instructions once per prompt; on-demand skills retain them for verified expansion. Existing Stories keep their accepted bytes.
 
 Use only returned paths and commands. Never edit generated snapshots or silently copy instructions into every workflow. Configuration approval remains an authorized human action.

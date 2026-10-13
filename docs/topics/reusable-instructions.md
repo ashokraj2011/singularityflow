@@ -10,7 +10,7 @@ related:
   - skill-master
   - workflow-authoring
   - importing-assets
-version: 4
+version: 5
 ---
 
 ## Purpose and prerequisites
@@ -43,15 +43,38 @@ Use semantic controls with accessible names. Preserve keyboard interaction.
 - `metadata.sflow-label` is an optional display name; without it, the ID is shown as words. No
   other metadata is accepted: instruction references and loading policies belong to skills.
 
-A catalog skill selects definitions by their exact IDs in its own front matter, under
-`metadata.sflow-instructions` (a list such as `- web-conventions`).
+A catalog skill uses a definition by writing `<instruction>web-conventions</instruction>` where the
+guidance belongs, anywhere in a sentence. The tag selects the definition by itself; nothing else
+needs listing. A definition the skill should carry without placing it goes in its front matter,
+under `metadata.sflow-instructions` (a list such as `- web-conventions`).
 
-## Place guidance at a procedure step
+## Place guidance inside a sentence
 
-In Workflow Studio → Skill master → Edit, position the cursor at the desired step and choose
-**Insert at cursor** beside a reusable instruction. This selects its ID and inserts a standalone
-placement line. Write the condition immediately before the line; the condition belongs to the
-skill procedure, not to the shared definition.
+Write the tag where the guidance applies; the surrounding sentence is its condition:
+
+```markdown
+---
+name: code-review
+description: Reviews a change and writes the comments.
+---
+
+Read every changed file. Write each comment <instruction>review-tone</instruction> and link the line it is about.
+```
+
+The prompt carries the definition's exact pinned text in place of the tag, still inside the sentence:
+`<instruction id="review-tone" label="Review tone" sha256="…">…</instruction>`. The tag may appear
+again later; the first use carries the text and later uses refer back to it. In Workflow Studio →
+Skill master → Edit, put the cursor where the guidance belongs and choose **Insert at cursor** beside
+an instruction to type the tag for you.
+
+A tag inside backticks or a fenced code block is an example and stays as written. Anything else that
+looks like a tag but is not `<instruction>lower-case-id</instruction>` on one line refuses with
+`SKILL_INSTRUCTION_PLACEMENT_INVALID`, naming the line and the form to write, so a typo never drops
+guidance silently.
+
+## Place guidance as its own step
+
+The earlier form still works: a standalone placement line, with the ID also listed in the front matter.
 
 ```markdown
 ---
@@ -71,7 +94,7 @@ metadata:
 <!-- sflow-instruction: demo-reviewed-routing -->
 ```
 
-The composer expands each line into the exact pinned definition body, labelled with its ID and
+The composer expands each such line into the exact pinned definition body, labelled with its ID and
 SHA-256. It sends the resulting procedure as part of the active agent's phase prompt; Copilot
 does not need another catalog lookup. A shared definition appears once per prompt, with subsequent
 placements referring to that retained definition. Selected definitions without placement lines
@@ -83,8 +106,9 @@ Unselected, malformed or duplicate placements refuse configuration validation wi
 preview. Story-bound on-demand retrieval also returns `composedText`, using only the accepted
 snapshot, never a later library edit. The source SKILL.md and definition hashes remain separate;
 composition does not overwrite either source file. Placed instructions pin the v4 **skill prompt
-composer** interpretation; this is independent of the World Model format. Older unplaced snapshots
-retain their existing v3 instruction interpretation.
+composer** interpretation and inline tags pin v5, so an older Singularity Flow refuses that Story
+rather than printing the tag without its text; this is independent of the World Model format. Older
+unplaced snapshots retain their existing v3 instruction interpretation.
 
 ## Seeded demonstration
 
@@ -120,7 +144,8 @@ skills. A missing skill actually used by that Story still requires configuration
   never approves configuration.
 - **VS Code:** **Singularity Flow: Reusable Instructions** in the command palette, or
   **Configuration Center → Instructions**, opens Workflow Studio's Instructions view to create, edit,
-  inspect usage or remove a definition. In **Skills**, select a skill's reusable instructions. In
+  inspect usage or remove a definition. In **Skills**, put the cursor in the procedure and choose
+  **Insert at cursor** to place an instruction there. In
   chat, `@sflow /instructions` lists the catalog and its skill references without calling a model;
   it is read-only, and authoring and approval remain separate reviewed actions.
 
@@ -170,8 +195,12 @@ To retire a definition, first clear its references, for example with
   `create`, the same code means the ID already exists or has a leftover file to repair.
 - **`INSTRUCTION_REFERENCE_MISSING`**: a skill references a definition that is not in the catalog.
   Create it, or remove the reference through configuration review. Never edit generated snapshots.
-- **`INSTRUCTION_REFERENCES_INVALID`**: a skill's `sflow-instructions` list has more than 32 IDs,
-  duplicates, or entries that are not lower-case IDs (such as paths or URLs).
+- **`INSTRUCTION_REFERENCES_INVALID`**: a skill uses more than 32 instructions (tags and its
+  `sflow-instructions` list together), or the list has duplicates or entries that are not lower-case
+  IDs (such as paths or URLs).
+- **`SKILL_INSTRUCTION_PLACEMENT_INVALID`**: a tag is not written as
+  `<instruction>lower-case-id</instruction>` on one line, or a standalone placement line is malformed.
+  The message names the line and the form to write; put a tag in backticks to show it as an example.
 - **`INSTRUCTION_LIBRARY_INVALID`**: a definition's front matter is wrong, for example a `name` that
   does not match its folder, a missing description or extra metadata. `instruction list` reports
   definitions that fail to load under `problems`.

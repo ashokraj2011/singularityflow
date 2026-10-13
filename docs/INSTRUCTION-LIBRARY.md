@@ -1,6 +1,6 @@
 # Reusable instructions
 
-Instructions are named, reusable Markdown definitions, separate from an agent's role and a skill's procedure. Open **Configuration → Instructions** in VS Code to create, edit, inspect usage or remove a definition. In **Skills**, select its reusable instructions. Changes use the same exact configuration preview, human review and activation path as workflow and agent changes.
+Instructions are named, reusable Markdown definitions, separate from an agent's role and a skill's procedure. Open **Configuration → Instructions** in VS Code to create, edit, inspect usage or remove a definition. In **Skills**, put the cursor where the guidance belongs and choose **Insert at cursor**. Changes use the same exact configuration preview, human review and activation path as workflow and agent changes.
 
 Each definition lives at `singularity/instruction-library/<id>/INSTRUCTIONS.md`:
 
@@ -16,19 +16,18 @@ Use semantic controls with accessible names. Preserve keyboard interaction.
 Keep network and persistence changes explicit in the implementation summary.
 ```
 
-A catalog skill references definitions by their exact lower-case IDs:
+A catalog skill uses a definition by writing an `<instruction>` tag where it applies, even in the middle of a sentence. The tag selects the definition by itself, and the prompt carries the definition's pinned text in its place:
 
 ```markdown
 ---
 name: web-review
 description: Review a web change before publication.
-metadata:
-  sflow-instructions:
-    - web-conventions
 ---
 
-Review the changed controls against the referenced conventions. Report findings.
+Review the changed controls <instruction>web-conventions</instruction> and report findings.
 ```
+
+A definition the skill carries without placing it is listed in the front matter instead, under `metadata.sflow-instructions`. See `singularity-flow explain reusable-instructions` for the details.
 
 ## Scope and prompt injection
 

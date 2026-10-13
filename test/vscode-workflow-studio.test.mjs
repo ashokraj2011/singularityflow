@@ -80,17 +80,22 @@ test('the page loads without a document and says nothing changed until something
   assert.doesNotMatch(WORKFLOW_STUDIO_SCRIPT, /setAttribute\('style'/, 'the nonce-only CSP would drop style attributes');
 });
 
-test('skill authoring inserts a selected reusable instruction at the cursor without deleting surrounding text', () => {
+test('skill authoring places an inline <instruction> tag at the cursor, mid-sentence, without deleting surrounding text', () => {
   const { logic } = studioLogic();
-  const body = 'Read sources.\nIf screenshots apply:\nRun checks.';
-  const cursor = body.indexOf('Run checks.');
+  const body = 'Read sources.\nIf screenshots apply, follow before you run checks.';
+  const cursor = body.indexOf('before you');
   const result = logic.insertSkillInstruction(body, 'visual-guide', cursor, ['test-guide']);
   assert.deepEqual(result.instructionRefs, ['test-guide', 'visual-guide']);
-  assert.equal(result.instructions, 'Read sources.\nIf screenshots apply:\n<!-- sflow-instruction: visual-guide -->\nRun checks.');
-  assert.match(logic.insertSkillInstruction(result.instructions, 'visual-guide', 0, result.instructionRefs).error, /already has an insertion/);
-  const example = '```md\n<!-- sflow-instruction: visual-guide -->\n```\nApply here:\n';
+  assert.equal(result.instructions, 'Read sources.\nIf screenshots apply, follow <instruction>visual-guide</instruction> before you run checks.');
+  assert.equal(result.placed, false);
+  const again = logic.insertSkillInstruction(result.instructions, 'visual-guide', result.instructions.length, result.instructionRefs);
+  assert.equal(again.placed, true, 'the deselect guard sees an existing tag');
+  assert.equal(again.instructions, result.instructions + ' <instruction>visual-guide</instruction>', 'a later use may repeat the tag');
+  assert.equal(logic.insertSkillInstruction('Run checks.', 'visual-guide', 0, []).instructions, '<instruction>visual-guide</instruction> Run checks.');
+  assert.equal(logic.insertSkillInstruction('<!-- sflow-instruction: visual-guide -->\n', 'visual-guide', 0, []).placed, true, 'older slot lines still count');
+  const example = '```md\n<instruction>visual-guide</instruction>\n```\nApply here:\n';
   const withExample = logic.insertSkillInstruction(example, 'visual-guide', example.length, []);
-  assert.equal(withExample.instructions, example + '<!-- sflow-instruction: visual-guide -->\n');
+  assert.equal(withExample.instructions, example + '<instruction>visual-guide</instruction>');
   assert.match(logic.insertSkillInstruction(example, 'visual-guide', 8, []).error, /outside fenced/);
   assert.match(WORKFLOW_STUDIO_SCRIPT, /Insert at cursor/);
 });

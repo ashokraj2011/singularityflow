@@ -54,7 +54,7 @@ import { configurationReadRoot, withoutConfigurationReadScope } from './configur
 import { KNOWLEDGE_READER_RULES, knowledgePromptPolicy } from './knowledge/render.mjs';
 import { INITIATIVE_OUTPUT_KINDS, PORTFOLIO_PATH, loadPortfolio } from './initiative-config.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
-import { SingularityFlowError, posix, secureRepositoryPath } from './util.mjs';
+import { SingularityFlowError, nearestNames, posix, secureRepositoryPath } from './util.mjs';
 import { lineOperations, preserveYamlFormatting, renderPreservingFormatting } from './yaml-formatting.mjs';
 
 export { preserveYamlFormatting };
@@ -1025,7 +1025,7 @@ class StudioCandidate {
     const skill = this.writeSkill(current.id, {
       label: label ?? current.label, description: description ?? current.description,
       instructions: instructions ?? current.instructions, loading: loading ?? current.loading,
-      instructionRefs: instructionRefs ?? current.instructionRefs
+      instructionRefs: instructionRefs ?? current.declaredInstructionRefs ?? current.instructionRefs
     });
     // The agents that use the new text are known once every change is applied.
     this.updatedSkills.set(skill.id, this.summary.push(`Skill ${skill.label} updated.`) - 1);
@@ -1160,7 +1160,7 @@ class StudioCandidate {
       const current = replace ? this.skills.get(skillId) : null;
       const what = String(description ?? current?.description ?? '').replace(/\s+/g, ' ').trim();
       if (!what) throw new SingularityFlowError('This file is plain Markdown, so the skill needs a description of what it does and when to use it (--description on the command line).', { code: 'STUDIO_SKILL_INVALID' });
-      text = librarySkillText({ id: skillId, label: current?.label ?? null, description: what, instructions: staged.text, loading: current?.loading, instructionRefs: current?.instructionRefs });
+      text = librarySkillText({ id: skillId, label: current?.label ?? null, description: what, instructions: staged.text, loading: current?.loading, instructionRefs: current?.declaredInstructionRefs ?? current?.instructionRefs });
       skill = parseLibrarySkill(text, { id: skillId });
       extra = { transforms: ['wrapped-as-skill'], fileSha256: sha256Of(Buffer.from(text, 'utf8')) };
     }
@@ -2557,8 +2557,11 @@ class StudioCandidate {
   /** Pin planned claims, trim agents to existing steps, and check every step has one agent. */
   finalize(problems) {
     for (const skill of this.skills.values()) for (const id of skill.instructionRefs ?? []) {
-      if (!this.instructions.has(id)) problems.push({ code: 'INSTRUCTION_REFERENCE_MISSING',
-        message: `Skill '${skill.id}' references missing instruction '${id}'. Remove its reference explicitly or create the instruction in this change set.`, subject: { kind: 'skill', id: skill.id } });
+      if (this.instructions.has(id)) continue;
+      const near = nearestNames(id, [...this.instructions.keys()], { limit: 1 });
+      problems.push({ code: 'INSTRUCTION_REFERENCE_MISSING', subject: { kind: 'skill', id: skill.id },
+        message: `Skill '${skill.id}' uses instruction '${id}', which does not exist.${near.length ? ` Did you mean '${near[0]}'?` : ''} `
+          + 'Fix the ID, remove its reference, or create the instruction in this change set.' });
     }
     this.rewireCopies();
     for (const [skillId, index] of this.updatedSkills) {

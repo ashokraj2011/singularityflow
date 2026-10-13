@@ -8355,8 +8355,8 @@ function printImportResult(result, { dryRun }) {
     printCommandRoutes(result.nextAction, { indent: '  ', label: 'Next' });
     return;
   }
-  if (dryRun) console.log(result.valid ? `Preview: ${result.files.length} file(s) would change.` : 'These changes cannot be applied yet.');
-  for (const line of result.summary ?? []) console.log(`  ${line}`);
+  if (dryRun) console.log(result.valid ? `Preview: ${result.files.length} file(s) would change.` : 'These changes cannot be applied yet. Fix this first:');
+  for (const line of result.valid === false ? [] : result.summary ?? []) console.log(`  ${line}`);
   for (const problem of result.problems ?? []) console.log(`  Problem: ${problem.message}`);
   for (const warning of result.warnings ?? []) console.log(`  Warning: ${warning.message}`);
   for (const file of result.files ?? []) console.log(`  ${file.action === 'create' ? 'new' : file.action === 'delete' ? 'removed' : 'changed'}: ${file.path}`);

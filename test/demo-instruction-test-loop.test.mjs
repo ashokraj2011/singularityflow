@@ -242,3 +242,31 @@ test('a real Story snapshot pins placed instructions offline and protects seed d
   assert.equal(refused.valid, false);
   assert.ok(refused.problems.some(error => error.code === 'SEEDED_WORKFLOW_READ_ONLY'), JSON.stringify(refused.problems));
 });
+
+test('a real Story pins inline <instruction> tags with the v5 composer and renders them inside the sentence offline', async t => {
+  const root = await fixture(t);
+  // The checker skill written with inline tags only: no metadata list, no standalone slot lines.
+  await writeFile(path.join(root, librarySkillPath(SKILLS[1])), librarySkillText({ id: SKILLS[1],
+    description: 'Checks supplied behavior with fresh tests and proposes the reviewed route.',
+    instructions: `Read the sources <instruction>${REFERENCES[0]}</instruction> before testing.\nRun the approved tests, keeping <instruction>${REFERENCES[1]}</instruction> for every result.\nPropose a route only <instruction>${REFERENCES[2]}</instruction>.` }));
+  git(root, 'init', '-q', '-b', 'main');
+  git(root, 'config', 'user.name', 'Instruction Tester'); git(root, 'config', 'user.email', 'instruction@example.invalid');
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'fixture authority'); git(root, 'switch', '-c', 'DEMO-INS-2');
+  const config = await loadConfig(root); const resolved = resolveWorkType(config, ID);
+  const workflow = await createWorkflow(root, config, { id: 'DEMO-INS-2', title: 'Inline instruction tags',
+    baseBranch: 'main', workType: ID, agent: AGENTS[0], resolved,
+    source: { type: 'manual', key: 'DEMO-INS-2', title: 'Inline instruction tags', description: 'Test supplied behavior.', acceptanceCriteria: ['Every agreed scenario is freshly tested.'] } });
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'accepted Story');
+  const manifest = JSON.parse(await readFile(path.join(root, workflow.workflowSnapshot.manifestPath), 'utf8'));
+  assert.equal(manifest.semantics.promptComposer, 'story-snapshot-agent-v5');
+  assert.equal(manifest.assets.filter(asset => asset.purpose === 'shared-instruction').length, 3);
+  const context = await resolveStoryExecutionContext(root, config, workflow, { agentId: AGENTS[1], phaseId: PHASES[1] });
+  const first = await renderAgentSkills(root, workflow, resolved.phases[1], { agent: AGENTS[1] }, { executionContext: context });
+  assert.match(first.text, new RegExp(`Read the sources <instruction id="${REFERENCES[0]}" [^>]*>[\\s\\S]+?</instruction> before testing\\.`));
+  assert.match(first.text, /Text inside <instruction> tags is reusable guidance/);
+  assert.doesNotMatch(first.text, new RegExp(`<instruction>${REFERENCES[0]}</instruction>`));
+  await rm(path.join(root, 'singularity/instruction-library'), { recursive: true });
+  const retained = await resolveStoryExecutionContext(root, config, workflow, { agentId: AGENTS[1], phaseId: PHASES[1] });
+  const again = await renderAgentSkills(root, workflow, resolved.phases[1], { agent: AGENTS[1] }, { executionContext: retained });
+  assert.equal(again.text, first.text, 'the Story keeps its pinned instruction text');
+});

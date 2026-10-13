@@ -13,7 +13,7 @@ import { syncAgent } from './agents.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { effectiveLibrarySkills, librarySkillPath, librarySkillReference, parseLibrarySkill, readSkillAttachments } from './skill-library.mjs';
 import { instructionPath, parseInstruction, instructionUtf8 } from './instruction-library.mjs';
-import { assertInstructionClosure, instructionOwner, INSTRUCTION_COMPOSER, PLACED_INSTRUCTION_COMPOSER, INSTRUCTION_COMPOSERS } from './instruction-snapshots.mjs';
+import { assertInstructionClosure, instructionComposerFor, instructionOwner, INSTRUCTION_COMPOSERS } from './instruction-snapshots.mjs';
 import { approvedStoryApprovalAuthorities, inspectApprovedSkillPackage,
   resolveApprovedStoryWorkType } from './configuration-branch.mjs';
 import { verifySkillConfigurationAncestry } from './skp-amendment-audit.mjs';
@@ -338,13 +338,14 @@ async function captureWorkflowLibrarySkills(root, config, workflow) {
 }
 
 async function captureReferencedInstructions(root, config, workId, assets) {
-  const required = new Set(); const bytes = new Map(); const capturedAssets = []; let placed = false;
+  const required = new Set(); const bytes = new Map(); const capturedAssets = []; let placed = false; let inline = false;
   for (const asset of assets.filter(instructionOwner)) {
     const source = await stableFile(path.join(root, asset.blob.path), 'Retained skill instructions');
     if (qualified(source.sha256) !== asset.blob.sha256) fail('Retained skill changed during instruction capture.', 'WFA_SOURCE_STALE');
     bytes.set(asset.logicalId, source.bytes);
     const skill = parseLibrarySkill(source.bytes.toString('utf8'), { id: asset.source.skillId ?? asset.source.dependencyId });
     placed ||= skill.instructionPlacements.length > 0;
+    inline ||= skill.inlineInstructionPlacements.length > 0;
     for (const id of skill.instructionRefs) required.add(id);
   }
   for (const id of [...required].sort()) {
@@ -357,7 +358,7 @@ async function captureReferencedInstructions(root, config, workId, assets) {
     capturedAssets.push({ logicalId, purpose: 'shared-instruction', dependencies: [], blob,
       source: { kind: 'reviewed-instruction', instructionId: id, sha256: blob.sha256 } });
   }
-  return { assets: capturedAssets, bytes, placed };
+  return { assets: capturedAssets, bytes, placed, inline };
 }
 
 async function captureRemoteAgentDependencies(root, config, workId, agent) {
@@ -1169,7 +1170,7 @@ export async function captureWorkflowSnapshot(root, config, workflow, {
       canonicalJson: 'singularity-flow-canonical-json-v1',
       policyReaderMinimum: selectedSkills.length ? 9 : 5,
       agentDocumentParser: 'sflow-agent-document-v1',
-      promptComposer: instructionClosure.assets.length ? (instructionClosure.placed ? PLACED_INSTRUCTION_COMPOSER : INSTRUCTION_COMPOSER)
+      promptComposer: instructionClosure.assets.length ? instructionComposerFor(instructionClosure)
         : workflowSkills.attachments.length ? 'story-snapshot-agent-v2' : 'story-snapshot-agent-v1',
       ...(workflow.resolution.phaseSemantics ? { phaseSemantics: workflow.resolution.phaseSemantics.profile } : {}),
       ...(selectedSkills.length ? {

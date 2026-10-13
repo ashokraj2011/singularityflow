@@ -5022,9 +5022,10 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     render();
   }
 
+  /** Puts <instruction>id</instruction> exactly at the cursor, inside the sentence. Tags may repeat. */
   function insertSkillInstruction(body, ref, cursor, references) {
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(ref)) return { error: 'Choose a valid reusable instruction.' };
-    var marker = '<!-- sflow-instruction: ' + ref + ' -->';
+    var marker = '<!-- sflow-instruction: ' + ref + ' -->'; var tag = '<instruction>' + ref + '</instruction>'; var placed = false;
     var offset = Number.isInteger(cursor) ? Math.max(0, Math.min(cursor, body.length)) : body.length;
     var lines = body.split('\n'); var lineOffset = 0; var fence = null; var inExample = false;
     for (var index = 0; index < lines.length; index += 1) {
@@ -5037,13 +5038,14 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
           fence = { character: opening[1][0], length: opening[1].length };
           if (offset >= lineOffset && offset < lineOffset + line.length + 1) inExample = true;
         }
-        else if (!/^(?: {4}|\t)/.test(line) && line.trim() === marker) return { error: 'This instruction already has an insertion. Move that line to the desired step.' };
+        else if ((!/^(?: {4}|\t)/.test(line) && line.trim() === marker) || line.indexOf(tag) >= 0) placed = true;
       }
       lineOffset += line.length + 1;
     }
     if (inExample) return { error: 'Place the instruction outside fenced code examples.' };
     var before = body.slice(0, offset); var after = body.slice(offset);
-    return { instructions: before + (before && !before.endsWith('\n') ? '\n' : '') + marker + '\n' + after,
+    var lead = before && !/\s$/.test(before) ? ' ' : ''; var trail = /^[A-Za-z0-9]/.test(after) ? ' ' : '';
+    return { instructions: before + lead + tag + trail + after, placed: placed,
       instructionRefs: Array.from(new Set((references || []).concat(ref))) };
   }
 
@@ -5058,12 +5060,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       field('skill-description', 'What it does and when to use it', textInput('skill-description', form.description, function (value) { form.description = value; }, { placeholder: 'Checks a change for common security mistakes before it is published.' }))));
     var procedure = el('textarea', { id: 'skill-instructions', 'data-key': 'skill-instructions', rows: 12, oninput: function (event) { form.instructions = event.target.value; } }, form.instructions || '');
     card.appendChild(field('skill-instructions', 'Instructions', procedure,
-      'Write the procedure and its conditions in Markdown. Position the cursor at a step, then Insert at cursor below to place reusable guidance there.'));
-    var refs = el('fieldset', { class: 'studio-card' }, el('legend', { text: 'Reusable instructions' }), el('p', { class: 'hint', text: 'Only selected instructions follow this skill. Insertions expand pinned instruction text at that step; selected instructions without an insertion appear after the skills. Shared bodies render once. Running Stories keep their pinned bytes.' }));
+      'Write the procedure and its conditions in Markdown. Put the cursor where the guidance belongs, even mid-sentence, then Insert at cursor below; or type <instruction>instruction-id</instruction> yourself.'));
+    var refs = el('fieldset', { class: 'studio-card' }, el('legend', { text: 'Reusable instructions' }), el('p', { class: 'hint', text: 'An <instruction> tag in the procedure selects its instruction and places its text right there. Ticked instructions without a tag appear after the skills. Shared text appears once. Running Stories keep their pinned bytes.' }));
     Array.from(new Set(Object.keys(state.draft.instructions || {}).concat(form.instructionRefs))).sort().forEach(function (ref) {
       refs.appendChild(el('div', { class: 'studio-row' }, el('label', { class: 'studio-row' }, el('input', { type: 'checkbox', checked: form.instructionRefs.indexOf(ref) >= 0, onchange: function (event) {
         var placement = insertSkillInstruction(procedure.value, ref, 0, []);
-        if (!event.target.checked && placement.error && placement.error.indexOf('already has an insertion') >= 0) { event.target.checked = true; setStatus('Remove this instruction placement from the procedure before deselecting its reference.'); return; }
+        if (!event.target.checked && placement.placed) { event.target.checked = true; setStatus('The procedure still places this instruction. Remove its <instruction>' + ref + '</instruction> tag first.'); return; }
         form.instructionRefs = form.instructionRefs.filter(function (id) { return id !== ref; }); if (event.target.checked) form.instructionRefs.push(ref);
       } }), (state.draft.instructions[ref] ? state.draft.instructions[ref].label : 'Missing definition — create it or deselect') + ' (' + ref + ')'),
         button('Insert at cursor', function () {
@@ -5071,7 +5073,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
           var inserted = insertSkillInstruction(procedure.value, ref, procedure.selectionStart, form.instructionRefs);
           if (inserted.error) { setStatus(inserted.error); return; }
           form.instructions = inserted.instructions; form.instructionRefs = inserted.instructionRefs;
-          render(); setStatus('Instruction linked at the selected step. Conditions in that step govern when it applies.');
+          render(); setStatus('Instruction placed at the cursor. The surrounding sentence decides when it applies.');
         }, { class: 'secondary', 'aria-label': 'Insert ' + ref + ' at cursor' })));
     });
     if (!Object.keys(state.draft.instructions || {}).length) refs.appendChild(el('span', { class: 'hint', text: 'No reusable instructions yet. Create one in Instructions first.' }));

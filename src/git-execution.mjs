@@ -197,6 +197,11 @@ const REMOTE_GIT_VERBS = new Set(['clone', 'fetch', 'ls-remote', 'pull', 'push']
  * Count only closed-vocabulary transport facts. Arguments may contain credentials, repository
  * paths, refs, and Work IDs, so they must never become timing keys or values.
  */
+let remotePushes = 0;
+
+/** Remote pushes this process has started; an early remote observation is void after one. */
+export function remotePushCount() { return remotePushes; }
+
 function recordRemoteGitInvocation(args, operation) {
   incrementCommandCounter('git.requests');
   incrementCommandCounter('git.remote.total');
@@ -206,6 +211,8 @@ function recordRemoteGitInvocation(args, operation) {
   }
   const verb = (args ?? []).find((candidate) => REMOTE_GIT_VERBS.has(String(candidate)));
   if (verb) incrementCommandCounter(`git.remote.command.${verb}`);
+  // A push can move the remote tip an early observation reported; see remote-observation-prefetch.mjs.
+  if (verb === 'push') remotePushes += 1;
 }
 
 function recordRemoteGitOutcome(result) {

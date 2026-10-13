@@ -3273,13 +3273,13 @@ export function publicationPushOutcome(result) {
 }
 
 /** Deadline-supervised async form for operator-facing recovery paths. */
-export async function exactRemoteBranchObservationAsync(root, remote, branchName) {
+export async function exactRemoteBranchObservationAsync(root, remote, branchName, { signal = null } = {}) {
   validBranch(root, branchName);
   const expectedRef = `refs/heads/${branchName}`;
   const frozen = frozenRemoteTransport(remote);
   const observed = await runRemoteGitAsync([
     'ls-remote', '--heads', '--', frozen.remote, expectedRef
-  ], { cwd: root, operation: 'remote-probe', env: frozen.env });
+  ], { cwd: root, operation: 'remote-probe', env: frozen.env, signal });
   if (observed.status !== 0) {
     return { reachable: false, sha: null, malformed: false, result: observed };
   }

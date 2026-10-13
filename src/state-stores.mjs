@@ -238,7 +238,7 @@ export {
   sourceTreeHash, testInputTreeHash, storyPublicationPending, storySkillVersionStatus, storyWelEnrollmentStatus,
   submitConfirmedConvergencePhase,
   submitPhase, validateId, workflowBranchAllowed,
-  workflowPublicationBranch, workDir, workDirRelative, pendingPublicationPath
+  workflowPublicationBranch, workDir, workDirRelative, pendingPublicationPath, prefetchStoryPublicationObservation
 } from './state.mjs';
 export {
   commitInitiativeChange, initiativeStatePath, loadInitiative,

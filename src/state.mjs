@@ -137,6 +137,7 @@ import {
   verifyCapabilityPublicationRecoveryPlan
 } from './capability-publication-recovery.mjs';
 import { configuredRemoteAuthority, redactDiagnosticText } from './git-remote-diagnostics.mjs';
+import { prefetchRemoteBranchObservation, takeRemoteBranchObservation } from './remote-observation-prefetch.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { LIFECYCLE_EVENT, lifecycleEvent, recordPublicationProjection } from './lifecycle-event.mjs';
 import { publishLifecycleChange } from './publication-unit-of-work.mjs';
@@ -406,6 +407,18 @@ export function workflowBranchNames(workflow) {
 
 export function workflowBranchAllowed(workflow, branchName) {
   return workflowBranchNames(workflow).includes(branchName);
+}
+
+/**
+ * Ask for the Story branch's remote tip that `commitAndPublish` checks before publishing, now, so
+ * the answer arrives while the command's own checks run (remote-observation-prefetch.mjs).
+ */
+export function prefetchStoryPublicationObservation(root, config, workflow) {
+  try {
+    if (workflowPublicationMode(config, workflow) === 'off') return;
+    const url = configuredRemoteAuthority(root, config.git?.remote ?? 'origin')?.url;
+    if (url) prefetchRemoteBranchObservation(root, url, workflowPublicationBranch(root, workflow), exactRemoteBranchObservationAsync);
+  } catch { /* commitAndPublish asks, and refuses, exactly as before */ }
 }
 
 export function workflowPublicationBranch(root, workflow) {
@@ -9512,9 +9525,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       root, config.git?.remote ?? 'origin'
     );
     const observation = governedPublicationAuthority?.url
-      ? await exactRemoteBranchObservationAsync(
-        root, governedPublicationAuthority.url, targetBranch
-      )
+      ? await takeRemoteBranchObservation(root, governedPublicationAuthority.url, targetBranch)
+        ?? await exactRemoteBranchObservationAsync(root, governedPublicationAuthority.url, targetBranch)
       : { reachable: false, malformed: false, sha: null };
     if (observation.reachable && !observation.malformed && observation.sha !== null) {
       if (!commitIsAncestor(root, observation.sha, governedLocalParent)) {

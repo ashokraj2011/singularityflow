@@ -15,6 +15,7 @@ import { versionLine } from './build-info.mjs';
 import { resolveModelMode, stripGlobalModelOptions } from './model-mode.mjs';
 import { withOperationContext } from './operation-context.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
+import { abandonRemoteBranchObservations } from './remote-observation-prefetch.mjs';
 import { installFileLeaseSignalHandlers } from './file-lease.mjs';
 import { configurationReviewRetryDue, firstRunPassDue } from './product-alignment-gate.mjs';
 import { productRequirementDue } from './product-requirement-gate.mjs';
@@ -112,6 +113,21 @@ export function excludesActiveWorkspaceRouting(
  */
 export function readsOpenedRepository(command, subcommand = null) {
   return (command === 'wm' && subcommand === 'knowledge') || (command === 'explain' && subcommand === 'code');
+}
+
+/**
+ * These commands check the Story branch's remote tip before they publish. Ask now, from the
+ * current branch and the default remote, so the answer arrives during loading and checks rather
+ * than after them (remote-observation-prefetch.mjs). A Story publishing to another remote asks
+ * again from its handler; an unused ask is abandoned when the command ends.
+ */
+function askPublicationTipEarly(root) {
+  Promise.all([import('./git.mjs'), import('./git-remote-diagnostics.mjs'), import('./remote-observation-prefetch.mjs')])
+    .then(([{ branch, exactRemoteBranchObservationAsync }, { configuredRemoteAuthority }, { prefetchRemoteBranchObservation }]) => {
+      const url = configuredRemoteAuthority(root, 'origin')?.url;
+      const current = branch(root);
+      if (url && current) prefetchRemoteBranchObservation(root, url, current, exactRemoteBranchObservationAsync);
+    }).catch(() => { /* the command asks at publication */ });
 }
 
 function rootIfAvailable(cwd = process.cwd()) {
@@ -687,6 +703,9 @@ async function runMain(argv) {
       { code: 'REPOSITORY_CONTEXT_REQUIRED' }
     );
   }
+  if (root && (['submit', 'approve', 'reject'].includes(definition.name) || (definition.name === 'phase' && subcommand === 'publish'))) {
+    askPublicationTipEarly(root);
+  }
   const requestedOperation = resolveOperation({
     requestedCommand: requested,
     positionals: [definition.name, ...positionals.slice(1)],
@@ -820,7 +839,8 @@ async function runMain(argv) {
       && !REPOSITORY_MUTATION_LEASE_EXCLUSIONS.has(definition.name)
       ? () => withExplicitRepositoryMutationLeases(mutationRoots, operation.id, execute)
       : execute;
-    const result = await withCommandTiming(timer, guardedExecute);
+    // A command that did not publish leaves its early remote ask unanswered; never wait for it.
+    const result = await withCommandTiming(timer, guardedExecute).finally(abandonRemoteBranchObservations);
     timer.stage('execute');
     // A private refresh cannot turn a successful publication into a replayable failure.
     if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && definition.name !== 'hook' && root) {

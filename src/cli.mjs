@@ -42,7 +42,7 @@ import { storyPublicationPreflightError } from './story-publication-preflight.mj
 import { applyTestRecoveryAdmission, confirmTestRecoveryIntake, prepareTestRecoveryIntake,
   testRecoveryChoices } from './test-recovery-intake.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
-import { actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, createWorkflow, currentPhase, decideStory, generationResultDigest, generationResultMatches, loadConfig, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
+import { actorKey, approvePhase, assertNoPendingPublication, beginPhaseGeneration, cancelWorkflow, commitAndPublish, completionPhaseOf, CONFIG_PATH, createWorkflow, currentPhase, decideStory, generationResultDigest, generationResultMatches, loadConfig, prefetchStoryPublicationObservation, preparePhase, preparePhaseInputs, previewTestingRepair, promoteDesignSource, publishGeneration, reconcilePhaseTelemetry, registerArtifact, rejectPhase, reopenWorkflow, resolveWorkItem, saveStoryDraft, transactStory, scanArtifacts, storyPublicationPending, storyWelEnrollmentStatus, submitConfirmedConvergencePhase, submitPhase, syncPublication, validateId, validateWorkflow, workflowBranchAllowed, workflowPublicationBranch, workflowPath, workDir, workDirRelative } from './state-stores.mjs';
 import {
   generationSkillForPhase, phaseRequiresCodeDelivery, workflowAuthoringRoutes, workflowCodeGeneration
 } from './code-delivery-policy.mjs';
@@ -6860,6 +6860,8 @@ async function phaseCommand(positionals, options) {
     throw new SingularityFlowError('--usage-json is valid only with --authored governed-agent. Manual and deterministic publication record model usage as not-invoked.');
   }
   assertProducerAllowed(requestedPhase, authorshipOptions.producer);
+  // Ask for the remote tip now; it arrives while publication checks run.
+  prefetchStoryPublicationObservation(root, config, workflow);
   const deterministicPublication = authorshipOptions.producer === 'deterministic';
   const session = deterministicPublication
     ? { actor: actionActor(root), agent: null }
@@ -7336,6 +7338,7 @@ async function runSubmitCommand(positionals, options, submitContext) {
   const initialPhaseId = requestedPhase ?? workflow.currentPhase;
   const initialPhase = workflow.phases[initialPhaseId];
   if (!initialPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${initialPhaseId ?? ''}'. Provide a phase ID.`);
+  prefetchStoryPublicationObservation(root, config, workflow);
   // Checked before telemetry reconciliation or the publication unit opens, so a mistyped value is
   // refused with nothing written. The transition records the same values again.
   const decisionValues = parseDecisionAssignments(optionStrings(options, 'decision'));
@@ -7897,6 +7900,7 @@ async function decisionWorkflow(positionals, options, action) {
   const root = repoRoot();
   const receiptToken = optionString(options, 'selection-receipt');
   const { requestedPhase, definition: config, workflow } = await loadStoryDecisionExecution(root, positionals, options, action);
+  prefetchStoryPublicationObservation(root, config, workflow);
   if (action === 'approve' && requestedPhase && workflow.phases[requestedPhase]?.status === 'approved') {
     await assertPhaseSequence(root, workflow, action, { requestedPhase });
   }

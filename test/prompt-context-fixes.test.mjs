@@ -12,6 +12,7 @@ import { renderAutoAuthoringPrompt } from '../src/auto/auto-phase-contract.mjs';
 import { withoutAttachedSkills, withoutTableSection } from '../src/skill-library.mjs';
 import { stakeholderRequestDigests, stakeholderRequestDrift, STAKEHOLDER_PROMPT_RENDERER } from '../src/stakeholder-prompt-context.mjs';
 import { turnBoundaryErrors } from '../scripts/skill-policy.mjs';
+import { agentJson, agentOrIndentedJson } from '../src/agent-packet-presentation.mjs';
 
 const CONSTITUTION = [
   '---',
@@ -150,4 +151,14 @@ test('a pending prompt is stale once a change request for its phase opens or clo
   assert.equal(stakeholderRequestDrift(projection, [{ ...request, comment: 'Edited.' }]), 'open stakeholder change requests changed');
   assert.equal(stakeholderRequestDrift(null, [request]), null, 'a record from before requests were projected is left alone');
   assert.equal(stakeholderRequestDrift({ renderer: 'stakeholder-requests-v1', requests: [] }, [request]), null);
+});
+
+test('agent JSON stays compact but pages by line: one top-level field, or list element, per line', () => {
+  const value = { ready: true, next: [{ id: 'a' }, { id: 'b', note: undefined }], context: { text: 'x\ny' }, empty: [], skipped: undefined, fn() {} };
+  const text = agentJson(value);
+  assert.deepEqual(JSON.parse(text), JSON.parse(JSON.stringify(value)), 'the same data as JSON.stringify');
+  assert.deepEqual(text.split('\n'), ['{', '"ready":true,', '"next":[', '{"id":"a"},', '{"id":"b"}', '],', '"context":{"text":"x\\ny"},', '"empty":[]', '}']);
+  assert.equal(agentJson([1, 2]), '[1,2]');
+  assert.equal(agentJson({}), '{}');
+  assert.equal(agentOrIndentedJson(false, { a: 1 }), '{\n  "a": 1\n}', 'people keep the indented form');
 });

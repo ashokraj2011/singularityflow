@@ -208,8 +208,12 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   const preparationAdmitted = authoring.policyVerified
     && authoring.entry?.status === 'successor-preparation-required'
     && !recovery.requiresRecovery && !requiresDecision && references.status !== 'blocked';
+  // Unanswered questions are the authoring skill's own next step (compose, then ask), not a hold:
+  // reported as attention-required, a skill relayed itself as the next action and stopped.
   const status = authoring.entry?.status === 'retained-generation' ? 'retained-generation'
-    : preparationAdmitted ? 'successor-preparation-required' : authoringAllowed ? 'authoring-entry' : 'attention-required';
+    : preparationAdmitted ? 'successor-preparation-required' : authoringAllowed ? 'authoring-entry'
+      : canCompose && authoring.entry?.status === 'authoring-entry' && checkpoint.questioningAllowed ? 'clarification-required'
+        : 'attention-required';
   let next = preparationAdmitted ? authoring.entry.actions
     : authoring.entry?.status === 'attention-required' ? authoring.entry.actions
     : status === 'retained-generation' ? authoring.entry?.actions ?? authoring.handoff : recovery.actions;

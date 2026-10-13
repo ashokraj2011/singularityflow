@@ -5543,7 +5543,7 @@ async function inputsCommand(positionals, options) {
   const { inputReadinessReport, inputReadinessLines } = await import('./inputs.mjs');
   const readiness = inputReadinessReport(workflow, result.phase, result);
   if (optionBoolean(options, 'json')) {
-    console.log(JSON.stringify({
+    console.log((await import('./agent-packet-presentation.mjs')).agentOrIndentedJson(forAgent, {
       ...(entry?.packet ?? {}),
       resultType: 'sflow-phase-inputs',
       phase: result.phase.id,
@@ -5561,7 +5561,7 @@ async function inputsCommand(positionals, options) {
       readiness,
       warnings: result.warnings,
       remoteWarnings: result.remoteWarnings
-    }, null, forAgent ? undefined : 2));
+    }));
     return;
   }
   console.log(`Phase inputs: ${result.phase.id} (${result.mode})${dryRun ? ' [dry-run]' : ''}`);
@@ -6750,7 +6750,7 @@ async function phaseCommand(positionals, options) {
     if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
     const review = await phaseReview(root, config, workflow, phase, { includeContinuation: true });
     if (optionBoolean(options, 'for-agent') && !optionBoolean(options, 'json')) throw new SingularityFlowError('--for-agent requires --json.');
-    if (optionBoolean(options, 'for-agent')) console.log(JSON.stringify((await import('./agent-packet-presentation.mjs')).phaseReviewAgentPresentation(review)));
+    if (optionBoolean(options, 'for-agent')) { const presentation = await import('./agent-packet-presentation.mjs'); console.log(presentation.agentJson(presentation.phaseReviewAgentPresentation(review))); }
     else if (optionBoolean(options, 'json')) console.log(JSON.stringify(review, null, 2));
     else {
       printPhaseReview(review, { showArtifact: optionBoolean(options, 'show-artifact') });

@@ -295,6 +295,13 @@ test('a future user-created workflow composes a question-only checkpoint for its
   assert.equal(entry.contextComposition, 'delivered');
   assert.equal(entry.authoringAllowed, false);
   assert.equal(entry.clarification.checkpoint.questioningAllowed, true);
+  // Unanswered questions are this skill's own next step, not a hold it relays and stops on.
+  assert.equal(entry.status, 'clarification-required');
+  assert.match(entry.agentGuide.instruction, /Never relay the skill you are running as a next action/u);
+  // One top-level field per line, so a host that saves a long result to a file can page it.
+  const lines = result.stdout.trim().split('\n');
+  assert.ok(lines.length > 10, 'the agent packet pages by line');
+  assert.ok(lines.includes('"status":"clarification-required",'), 'control fields are their own lines');
   assert.equal(entry.next[0].agentAction, 'derive-and-ask');
   assert.equal(entry.next[0].copilotCommand, '/sf-phase');
   assert.equal(entry.next[0].commandGuidance.copilotCommand, '/sf-phase');

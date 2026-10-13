@@ -19,7 +19,7 @@ import { sourceReviewRequired } from '../source-review-policy.mjs';
 import { phaseContinuation } from '../phase-continuation.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { authoringSkillCatalog } from '../authoring-skills.mjs';
-import { agentPacketPresentation } from '../agent-packet-presentation.mjs';
+import { agentOrIndentedJson, agentPacketPresentation } from '../agent-packet-presentation.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');
@@ -268,6 +268,6 @@ export async function run(_argv, { positionals, options }) {
   const forAgent = optionBoolean(options, 'for-agent');
   if (forAgent) validateAgentEntryRequest('nextsteps', { positionals, options });
   const snapshot = forAgent ? await nextStepsAgentPacket(positionals[1] ?? null) : await resolveSnapshot(positionals);
-  if (optionBoolean(options, 'json')) console.log(JSON.stringify(snapshot, null, forAgent ? undefined : 2));
+  if (optionBoolean(options, 'json')) console.log(agentOrIndentedJson(forAgent, snapshot));
   else process.stdout.write(nextStepsText(snapshot));
 }

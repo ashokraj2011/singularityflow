@@ -1,6 +1,6 @@
 import { operationContext } from '../operation-context.mjs';
 import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
-import { phaseEntryAgentPresentation } from '../agent-packet-presentation.mjs';
+import { agentOrIndentedJson, phaseEntryAgentPresentation } from '../agent-packet-presentation.mjs';
 
 export function validatePhaseEntryRequest({ positionals, options }) {
   if (positionals.length > 3) throw new SingularityFlowError('phase enter accepts only an optional phase ID.');
@@ -19,5 +19,5 @@ export async function run(argv, { positionals, options }) {
     workId: optionString(options, 'work-id'), compose: optionBoolean(options, 'compose'),
     modelEnabled: operationContext()?.modelMode?.enabled !== false });
   const forAgent = optionBoolean(options, 'for-agent');
-  console.log(JSON.stringify(forAgent ? phaseEntryAgentPresentation(result) : result, null, forAgent ? undefined : 2));
+  console.log(agentOrIndentedJson(forAgent, forAgent ? phaseEntryAgentPresentation(result) : result));
 }

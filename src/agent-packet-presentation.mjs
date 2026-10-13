@@ -1,5 +1,25 @@
 import { createHash } from 'node:crypto';
 
+/**
+ * Compact JSON a host can page: one top-level field per line, and one element per line in a
+ * top-level list. A host that saves a long tool result to a file shows it by lines, and one-line
+ * JSON could not be read there at all, so a skill stopped with "next action unavailable". The bytes
+ * stay compact (only line breaks are added) and JSON.parse and jq read it unchanged.
+ */
+export function agentJson(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return JSON.stringify(value);
+  const fields = Object.entries(value).filter(([, child]) => child !== undefined && typeof child !== 'function')
+    .map(([key, child]) => Array.isArray(child) && child.length
+      ? `${JSON.stringify(key)}:[\n${child.map((entry) => JSON.stringify(entry) ?? 'null').join(',\n')}\n]`
+      : `${JSON.stringify(key)}:${JSON.stringify(child)}`);
+  return fields.length ? `{\n${fields.join(',\n')}\n}` : '{}';
+}
+
+/** Agent output pages by line; everything else keeps the indented JSON people read. */
+export function agentOrIndentedJson(forAgent, value) {
+  return forAgent ? agentJson(value) : JSON.stringify(value, null, 2);
+}
+
 /** Native-host presentation only; do not alter persisted records, bindings or gate decisions. */
 export function agentPacketPresentation(packet, platform = process.platform) {
   const visit = value => {
@@ -43,7 +63,7 @@ export function phaseEntryAgentPresentation(packet) {
     retainedExecutionEvidencePath: 'retainedExecutionEvidence',
     contextFilePath: 'context.file.path',
     platform: process.platform,
-    instruction: 'Read authority fields together once, without key enumeration; they come first and are complete. Binding ready is not source-edit permission: use mutationContract and codeAuthoringReady before edits. authoringProgress describes the remaining draft milestone, not completed code or permission to publish. Read clarification.checkpoint before interpreting authoringAllowed. Use retainedExecutionEvidence for governed outcomes; recovery.testExecution describes this phase\'s runner, not absence of upstream execution. Reconcile stale narrative and IDE discovery separately; command success is not criterion acceptance. Never truncate control instructions with arbitrary string/byte slices. If a tool cuts context.text, read context.file.path (the same composed prompt, verified by context.file.sha256, without the presentation-only reply personalization) in bounded portions, or complete named sections from the same saved packet; do not recompose or infer absent instructions, and never author from partial context. Reuse context.text; changed bindings need fresh checks. Never reuse approval consent.'
+    instruction: 'Read authority fields together once, without key enumeration; they come first and are complete, one top-level field per line. status clarification-required is this skill\'s own next step: compose and ask the unanswered questions in this turn. Never relay the skill you are running as a next action; do that step. Binding ready is not source-edit permission: use mutationContract and codeAuthoringReady before edits. authoringProgress describes the remaining draft milestone, not completed code or permission to publish. Read clarification.checkpoint before interpreting authoringAllowed. Use retainedExecutionEvidence for governed outcomes; recovery.testExecution describes this phase\'s runner, not absence of upstream execution. Reconcile stale narrative and IDE discovery separately; command success is not criterion acceptance. Never truncate control instructions with arbitrary string/byte slices. If a tool cuts context.text, read context.file.path (the same composed prompt, verified by context.file.sha256, without the presentation-only reply personalization) in bounded portions, or complete named sections from the same saved packet; do not recompose or infer absent instructions, and never author from partial context. Reuse context.text; changed bindings need fresh checks. Never reuse approval consent.'
   },
   ...Object.fromEntries([...control, ...material].map((key) => [key, projected[key]])),
   ...(Object.hasOwn(projected, 'context') ? { context: projected.context } : {}) };

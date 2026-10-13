@@ -1135,9 +1135,12 @@ test('recovery exposes the same authored-byte findings and a bounded Copilot ret
     beforeRetry: 'singularity-flow recover PREFLIGHT-1 --phase intake --json',
     command: 'singularity-flow phase publish intake --authored governed-agent --channel copilot-host'
   });
-  assert.equal(action.skill, '/sf-phase-documents');
+  // An unpublished draft's blockers go back to its drafting skill, which rechecks and lists each one;
+  // a document view could fix none of them.
+  assert.equal(action.skill, '/sf-phase');
   assert.equal(action.authoringSkill, '/sf-phase');
-  assert.ok(safeCommandGuidance(action), 'document inspection must not assert an authoring skill for a read-only command');
+  assert.equal(action.command, 'singularity-flow phase prepublish intake --for-agent --json');
+  assert.ok(safeCommandGuidance(action), 'the drafting skill and its recheck are a valid route pair');
 });
 
 test('recovery routes exact current-phase draft and preparation changes to reviewed authoring', async () => {
@@ -1356,9 +1359,9 @@ test('code-phase recovery keeps a prepared untouched implementation summary in a
   assert.deepEqual(workingTree?.unexpectedPaths, []);
   assert.equal(workingTree?.safe, false);
   assert.equal(authoring?.mode, 'guided');
-  assert.equal(authoring?.skill, '/sf-phase-documents');
+  assert.equal(authoring?.skill, '/sf-code');
   assert.equal(authoring?.authoringSkill, '/sf-code');
-  assert.equal(authoring?.command, 'singularity-flow phase show implementation --show-artifact');
+  assert.equal(authoring?.command, 'singularity-flow phase prepublish implementation --for-agent --json');
   assert.ok(plan.blockers.some((entry) => entry.code === 'artifact.placeholder.unresolved'));
   assert.equal(plan.requiresRecovery, false);
 });

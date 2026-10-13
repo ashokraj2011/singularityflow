@@ -12864,7 +12864,6 @@ async function intakeReceiptForPreflight(root, {
   const declined = (reason) => ({ issued: false, reason });
   if (storyIntakeReceiptsDisabled()) return declined('disabled');
   if (!passed) return declined('not-ready');
-  if (process.platform === 'win32') return declined('platform');
   if (!workType) return declined('work-type');
   if (snapshot?.authority?.branch !== CONFIGURATION_BRANCH) return declined('configuration');
   if (repositories.length !== 1) return declined('capability');
@@ -12901,7 +12900,10 @@ async function intakeReceiptForPreflight(root, {
         commit: refHead(root, `refs/remotes/${entry.remote}/${stateAuthority.branch}`)
       } : null
     }]
-  });
+  }).catch(() => null);
+  // Receipt storage is a best-effort optimization, never a new Story-start prerequisite. In
+  // particular an unqualified Windows ACL or unavailable system tool leaves full validation on.
+  if (!minted) return declined('storage');
   return { issued: true, id: minted.id, expiresAt: minted.expiresAt };
 }
 

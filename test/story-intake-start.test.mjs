@@ -18,10 +18,10 @@ import { onboardRepository } from '../src/onboard.mjs';
 import { storyWorktreePath } from '../src/story-worktree.mjs';
 
 const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'singularity-flow.mjs');
-const posix = { skip: process.platform === 'win32' ? 'Story intake receipts are POSIX-only.' : false };
+const intakePlatforms = {}; // Windows receipts require qualified private ACLs; otherwise start falls back.
 const EMAIL = 'story.publisher@example.com';
 
-test('old required-baseline policies start with pending tests and never install or execute them', posix, async t => {
+test('old required-baseline policies start with pending tests and never install or execute them', intakePlatforms, async t => {
   const { root } = await repository(t);
   git(root, 'fetch', '-q', 'origin');
   git(root, 'merge', '--ff-only', 'origin/sflow/config');
@@ -67,7 +67,7 @@ test('old required-baseline policies start with pending tests and never install 
   assert.equal(git(root, 'worktree', 'list', '--porcelain').includes('BASELINE-REQUIRED'), true);
 });
 
-test('nested Angular with no root test detection starts without a receipt or implicit test execution', posix, async t => {
+test('nested Angular with no root test detection starts without a receipt or implicit test execution', intakePlatforms, async t => {
   const { root } = await repository(t);
   git(root, 'fetch', '-q', 'origin');
   git(root, 'merge', '--ff-only', 'origin/sflow/config');
@@ -163,7 +163,7 @@ const data = (result) => {
 const counter = (stderr, name) =>
   Number(new RegExp(`(?:^|\\s)${name.replaceAll('.', '\\.')}=(\\d+)(?:\\s|$)`).exec(stderr)?.[1] ?? 0);
 
-test('a passing preview\'s receipt lets start verify every input in one wave, once', posix, async (t) => {
+test('a passing preview\'s receipt lets start verify every input in one wave, once', intakePlatforms, async (t) => {
   const { root } = await repository(t);
   const receipt = preflight(root, 'STORY-FAST');
   assert.equal(receipt.issued, true);
@@ -196,7 +196,7 @@ test('a passing preview\'s receipt lets start verify every input in one wave, on
     'a receipt serves one start only');
 });
 
-test('pre-worktree refusals release the exact intake receipt for a corrected retry', posix, async (t) => {
+test('pre-worktree refusals release the exact intake receipt for a corrected retry', intakePlatforms, async (t) => {
   const { root } = await repository(t);
   const directory = path.join(root, '.git', 'singularity-flow', 'intake-receipts');
   for (const [id, extra, code] of [
@@ -242,7 +242,7 @@ test('pre-worktree refusals release the exact intake receipt for a corrected ret
   }
 });
 
-test('an exact sealed onboarding pin permits receipt reuse without repinning configuration', posix, async (t) => {
+test('an exact sealed onboarding pin permits receipt reuse without repinning configuration', intakePlatforms, async (t) => {
   const { root } = await repository(t);
   const attached = await onboardRepository(root, { remote: 'origin' });
   const receipt = preflight(root, 'STORY-FOS-FAST');
@@ -259,7 +259,7 @@ test('an exact sealed onboarding pin permits receipt reuse without repinning con
   assert.equal(git(root, 'branch', '--show-current'), 'main');
 });
 
-test('a start without a receipt fetches only its chosen base and preserves the launch checkout', posix, async (t) => {
+test('a start without a receipt fetches only its chosen base and preserves the launch checkout', intakePlatforms, async (t) => {
   const { root, remote, base } = await repository(t);
   const producer = path.join(base, 'producer');
   git(base, 'clone', '-q', remote, producer);
@@ -298,7 +298,7 @@ test('a start without a receipt fetches only its chosen base and preserves the l
   assert.ok(timing.spans['start.publication.commit'] >= 0);
 });
 
-test('a stale deleted Story tracking ref retains the ordinary prune and collision validation path', posix, async (t) => {
+test('a stale deleted Story tracking ref retains the ordinary prune and collision validation path', intakePlatforms, async (t) => {
   const { root } = await repository(t);
   git(root, 'update-ref', 'refs/remotes/origin/STORY-DELETED-TRACKING', git(root, 'rev-parse', 'HEAD'));
   const started = start(root, 'STORY-DELETED-TRACKING');
@@ -308,7 +308,7 @@ test('a stale deleted Story tracking ref retains the ordinary prune and collisio
   assert.equal(git(root, 'branch', '--show-current'), 'main');
 });
 
-test('a Story started with a receipt is the Story started without one', posix, async (t) => {
+test('a Story started with a receipt is the Story started without one', intakePlatforms, async (t) => {
   const { root } = await repository(t);
   start(root, 'STORY-PLAIN');
   const receipt = preflight(root, 'STORY-RECEIPT');
@@ -335,7 +335,7 @@ test('a Story started with a receipt is the Story started without one', posix, a
   assert.deepEqual(state('STORY-RECEIPT'), state('STORY-PLAIN'));
 });
 
-test('whatever the wave cannot confirm runs the ordinary start, which still succeeds', posix, async (t) => {
+test('whatever the wave cannot confirm runs the ordinary start, which still succeeds', intakePlatforms, async (t) => {
   const { base, root } = await repository(t);
   const receiptsDirectory = path.join(root, '.git', 'singularity-flow', 'intake-receipts');
   const outcome = (result) => [result.intakeReceipt.status, result.intakeReceipt.reason];
@@ -393,7 +393,7 @@ test('whatever the wave cannot confirm runs the ordinary start, which still succ
     'no claimed receipt is left behind');
 });
 
-test('a state tip that moved on is brought up to date by fetching that ref alone', posix, async (t) => {
+test('a state tip that moved on is brought up to date by fetching that ref alone', intakePlatforms, async (t) => {
   const { base, root } = await repository(t);
   const stateRef = 'refs/remotes/origin/state';
   git(root, 'push', '-q', 'origin', 'main:refs/heads/state');
@@ -416,7 +416,7 @@ test('a state tip that moved on is brought up to date by fetching that ref alone
   assert.equal(git(root, 'rev-parse', stateRef), moved);
 });
 
-test('a receipt is issued only for a request start can verify, and says why not otherwise', posix, async (t) => {
+test('a receipt is issued only for a request start can verify, and says why not otherwise', intakePlatforms, async (t) => {
   const { root } = await repository(t);
   const listed = (extra) => JSON.parse(flow(root, [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', 'STORY-WHY', '--from-branch', 'main',
@@ -426,7 +426,7 @@ test('a receipt is issued only for a request start can verify, and says why not 
   assert.deepEqual(listed(['--mint-intake-receipt']).intakeReceipt, { issued: false, reason: 'work-type' });
 });
 
-test('a reference fetched during intake is copied at start, which then transfers nothing', posix, async (t) => {
+test('a reference fetched during intake is copied at start, which then transfers nothing', intakePlatforms, async (t) => {
   const { base, root } = await repository(t);
   const source = path.join(base, 'reference-source');
   const referenceRemote = path.join(base, 'reference.git');
@@ -450,7 +450,7 @@ test('a reference fetched during intake is copied at start, which then transfers
     'neither the base nor the reference is transferred again');
 });
 
-test('a readiness preview lists its own origin once and fetches only when a tip moved', posix, async (t) => {
+test('a readiness preview lists its own origin once and fetches only when a tip moved', intakePlatforms, async (t) => {
   const { base, root } = await repository(t);
   const previewArgs = [
     'workspace', 'branches', '--json', '--intake', '--preflight-story', 'STORY-UNION', '--from-branch', 'main',
@@ -484,7 +484,7 @@ test('a readiness preview lists its own origin once and fetches only when a tip 
   assert.equal(JSON.parse(moved.stdout).preflight.repositories[0].baseCommit, git(other, 'rev-parse', 'HEAD'));
 });
 
-test('a reference branch that disappeared after the preview sends start down its ordinary path', posix, async (t) => {
+test('a reference branch that disappeared after the preview sends start down its ordinary path', intakePlatforms, async (t) => {
   const { base, root } = await repository(t);
   const source = path.join(base, 'reference-source');
   const referenceRemote = path.join(base, 'reference.git');

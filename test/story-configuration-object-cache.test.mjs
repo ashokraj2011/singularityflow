@@ -120,8 +120,9 @@ test('the product-version gate warms the exact objects subsequently used by Stor
     assert.equal(warm.snapshot.sourceCommit, f.commit);
     assert.equal(warm.counters['configuration.object-cache-hit'], 1);
     assert.equal(warm.counters['configuration.object-cache-fetch'] ?? 0, 0);
-    assert.equal(warm.counters['git.remote.command.clone'], 1,
-      'only the local exact-object projection remains; no new authority transfer');
+    assert.equal(warm.counters['git.remote.command.clone'] ?? 0, 0,
+      'exact regular blobs are projected without another local or remote clone');
+    assert.equal(warm.counters['configuration.object-cache-projection'], 1);
     await advanceAuthority(f, 1);
     const timer = commandTimer('requirement-cache-fixture', { commandClass: 'read' });
     assert.equal(await withCommandTiming(timer, () => readApprovedProductRequirement(f.source)), null);
@@ -374,8 +375,8 @@ test('approved online reader requires explicit cache opt-in, reuses warm transfe
     assert.equal(cold.counters['configuration.object-cache-fetch'], 1);
     assert.equal(warm.counters['configuration.object-cache-hit'], 1);
     assert.equal(warm.counters['configuration.object-cache-fetch'] ?? 0, 0);
-    assert.equal(warm.counters['git.remote.command.clone'], 1,
-      'generic clone counter still includes the local exact-object projection; transfer reuse is not a no-clone claim');
+    assert.equal(warm.counters['git.remote.command.clone'] ?? 0, 0,
+      'a warm exact snapshot has no clone or upload-pack process');
     assert.equal(warm.counters['git.remote.command.ls-remote'], 2,
       'canonical selection and cache admission retain their fresh exact observations');
     assert.equal(warm.value.sourceCommit, f.commit);

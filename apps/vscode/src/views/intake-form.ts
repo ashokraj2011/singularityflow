@@ -1290,6 +1290,13 @@ function inFlightHtml(form: IntakeForm): string {
 }
 
 export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null = null): string {
+  const regions = intakeRegions(form, journey);
+  return `<div class="intake-view" aria-busy="${form.busy ? 'true' : 'false'}">${Object.entries(regions)
+    .map(([id, html]) => `<div data-intake-region="${id}">${html}</div>`).join('')}</div>`;
+}
+
+/** Independently replaceable sections: a progress result must not rebuild the branch catalog. */
+export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | null = null): Record<string, string> {
   const problems = intakeProblems(form);
   // Keep every mutation gate while rendering the workflow authority failure only once.
   const workflowProblem = form.shape === 'story' && !form.storyWorkflows.length
@@ -1301,21 +1308,20 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
     : problems;
   const noun = form.shape === 'initiative' ? 'Initiative' : form.shape === 'epic' ? 'Epic' : 'Story';
   const recoveryRoute = commandGuidance(form.recoveryRouteCommand);
-  return `<div class="intake-view" aria-busy="${form.busy ? 'true' : 'false'}">
-  ${startWizardProgress(journey)}
-  ${heroHeader({
+  const regions: Record<string, string> = {
+    progress: startWizardProgress(journey),
+    heading: heroHeader({
     title: 'Start new governed work',
     status: problems.length ? 'Needs input' : 'Gates ready',
     subtitle: 'Work arrives in three shapes and with or without a tracker. Both are answered here, and the rest of the form follows from the answers.'
-  })}
-  ${contextStrip([
+  }),
+    context: contextStrip([
     { key: 'Target_workspace', value: form.targetWorkspace ?? '', chip: true },
     { key: 'Repo', value: form.targetRepository ?? '' },
     { key: 'Current_base', value: form.targetBranch ? `git:${form.targetBranch}` : '', accent: true }
-  ])}
-  ${form.shape === 'story' ? infoNote('This Story gets a dedicated Git checkout. The target branch, index, and uncommitted files stay unchanged; the editor opens the new checkout only after its governed start succeeds.') : ''}
+  ]) + (form.shape === 'story' ? infoNote('This Story gets a dedicated Git checkout. The target branch, index, and uncommitted files stay unchanged; the editor opens the new checkout only after its governed start succeeds.') : ''),
 
-  <div class="sf-panels">
+    scope: `<div class="sf-panels">
     <section class="sf-panel">
       ${stepHeading(1, 'What scope are you starting?', 'Choose by what happens afterwards: an Initiative breaks into Epics, an Epic into Stories, and a Story delivers one reviewed change.')}
       ${shapeHtml(form)}
@@ -1324,19 +1330,26 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
       ${stepHeading(2, 'Where is it tracked?', 'A tracker is optional. Without one, the work is described here and governed in Git commits.')}
       ${trackerHtml(form)}
     </section>
-  </div>
+  </div>`,
 
-  <section class="sf-panel">
+    identification: `<section class="sf-panel">
     <div class="sf-panel-head">${stepHeading(3, `${noun} specification & identification`)}${form.shape === 'story' ? '<span class="sf-format">Format: Markdown GFM</span>' : ''}</div>
     ${fieldsHtml(form)}
-  </section>
+  </section>`
+  };
 
-  ${numberedSections([
-    profileHtml(form), storyWorkflowHtml(form), pocReadinessHtml(form), storyAttachmentsHtml(form),
-    referenceRepositoriesHtml(form), baseBranchHtml(form), form.shape === 'story' ? testRecoveryHtml(form) : '', inFlightHtml(form)
-  ].join(''), 4)}
+  let nextSection = 4;
+  for (const [id, html] of Object.entries({
+    profile: profileHtml(form), workflow: storyWorkflowHtml(form), poc: pocReadinessHtml(form),
+    attachments: storyAttachmentsHtml(form), references: referenceRepositoriesHtml(form),
+    base: baseBranchHtml(form), recovery: form.shape === 'story' ? testRecoveryHtml(form) : '',
+    inFlight: inFlightHtml(form)
+  })) {
+    regions[id] = numberedSections(html, nextSection);
+    nextSection += [...regions[id].matchAll(/class="sf-step"/gu)].length;
+  }
 
-  <section class="sf-panel">
+  regions.status = `<section class="sf-panel">
     ${problems.length
     ? `<h2>${icon('bad')}Before this can start</h2>${summaryProblems.length
       ? `<ul class="blockers">${summaryProblems.map((problem) => `<li>${escape(problem)}</li>`).join('')}</ul>`
@@ -1362,7 +1375,8 @@ export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null
       <button type="button" class="secondary" data-intake-cancel ${form.busy ? 'disabled' : ''}>Cancel</button>
       ${form.busy && form.startStep ? `<span class="meta" role="status" aria-live="polite">${escape(form.startStep)}…</span>` : ''}
     </p>
-  </section></div>`;
+  </section>`;
+  return regions;
 }
 
 /**
@@ -1380,8 +1394,8 @@ function numberedSections(html: string, first: number): string {
 export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
   const vscode = window.__sfVscode;
   // Search only the already-offered catalog. It never selects a base or asks the host/Git to read.
-  const branchSearch = document.querySelector('[data-base-branch-search]');
-  const branchRows = [...document.querySelectorAll('[data-base-branch-choice]')].map((row) => ({
+  let branchSearch = document.querySelector('[data-base-branch-search]');
+  let branchRows = [...document.querySelectorAll('[data-base-branch-choice]')].map((row) => ({
     row, text: (row.dataset.baseBranchSearchText || '').normalize('NFC').toLowerCase()
   }));
   const filterBaseBranches = () => {
@@ -1408,10 +1422,10 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
   const savedBranchSearch = vscode.getState ? (vscode.getState() || {}).intakeView?.branchSearch : null;
   if (branchSearch && typeof savedBranchSearch === 'string') branchSearch.value = savedBranchSearch;
   filterBaseBranches();
-  const workflowSearch = document.querySelector('[data-workflow-search]');
-  const workflowRows = [...document.querySelectorAll('[data-workflow-search-text]')];
+  let workflowSearch = document.querySelector('[data-workflow-search]');
+  let workflowRows = [...document.querySelectorAll('[data-workflow-search-text]')];
   const savedWorkflowView = vscode.getState ? (vscode.getState() || {}).intakeView || {} : {};
-  const otherWorkflows = document.querySelector('[data-workflow-other]');
+  let otherWorkflows = document.querySelector('[data-workflow-other]');
   if (workflowSearch && typeof savedWorkflowView.workflowSearch === 'string') workflowSearch.value = savedWorkflowView.workflowSearch;
   let workflowOtherOpen = savedWorkflowView.workflowOtherOpen === true;
   const arrangeWorkflows = () => {
@@ -1447,11 +1461,12 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
   };
   arrangeWorkflows();
   filterWorkflows();
-  otherWorkflows?.addEventListener('toggle', () => {
+  const bindWorkflowToggle = () => otherWorkflows?.addEventListener('toggle', () => {
     if (workflowSearch?.value.trim()) return;
     workflowOtherOpen = otherWorkflows.open;
     saveIntakeView();
   });
+  bindWorkflowToggle();
   document.addEventListener('click', (event) => {
     if (event.target.closest('[data-workflow-search-button]')) { workflowSearch?.focus({ preventScroll: true }); filterWorkflows(); return; }
     if (event.target.closest('[data-workflow-search-clear]')) { workflowSearch.value = ''; filterWorkflows(); workflowSearch.focus({ preventScroll: true }); saveIntakeView(); return; }
@@ -1603,4 +1618,51 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
     if (typeof saved.fieldScroll === 'number') el.scrollTop = saved.fieldScroll;
   };
   restoreIntakeView();
+  let intakePatchSequence = 0;
+  window.addEventListener('message', (event) => {
+    const patch = event.data;
+    if (patch?.type !== 'intakePatch' || !Number.isSafeInteger(patch.sequence)
+        || patch.sequence <= intakePatchSequence || !Array.isArray(patch.regions)) return;
+    const targets = patch.regions.map((region) => ({ region,
+      target: typeof region?.id === 'string' && /^[a-zA-Z]+$/.test(region.id)
+        ? document.querySelector('[data-intake-region="' + region.id + '"]') : null }));
+    if (targets.some(({ region, target }) => !target || typeof region.html !== 'string')) {
+      vscode.postMessage({ type: 'intakeReload' }); return;
+    }
+    saveIntakeView();
+    // A background result cannot overwrite locally typed text still in transit to the host.
+    // Explicit user actions (including applying an enhanced description) use the host's values.
+    const drafts = patch.preserveDraft ? [...document.querySelectorAll(
+      'input[data-field],textarea[data-field],input[data-reference-field],input[data-attachment-name]'
+    )].map((el) => ({ key: intakeFocusKey(el), value: el.value })).filter(({ key }) => key) : [];
+    for (const { region, target } of targets) target.innerHTML = region.html;
+    document.querySelector('.intake-view')?.setAttribute('aria-busy', patch.busy ? 'true' : 'false');
+    // Refresh only catalogs actually replaced. Otherwise preserve their node identities and focus.
+    const changed = new Set(patch.regions.map((region) => region.id));
+    const saved = vscode.getState ? (vscode.getState() || {}).intakeView || {} : {};
+    if (changed.has('base')) {
+      branchSearch = document.querySelector('[data-base-branch-search]');
+      branchRows = [...document.querySelectorAll('[data-base-branch-choice]')].map((row) => ({
+        row, text: (row.dataset.baseBranchSearchText || '').normalize('NFC').toLowerCase()
+      }));
+      if (branchSearch) branchSearch.value = saved.branchSearch || '';
+      filterBaseBranches();
+    }
+    if (changed.has('workflow')) {
+      workflowSearch = document.querySelector('[data-workflow-search]');
+      workflowRows = [...document.querySelectorAll('[data-workflow-search-text]')];
+      otherWorkflows = document.querySelector('[data-workflow-other]');
+      if (workflowSearch) workflowSearch.value = saved.workflowSearch || '';
+      arrangeWorkflows(); filterWorkflows(); bindWorkflowToggle();
+    }
+    for (const draft of drafts) {
+      const el = [...document.querySelectorAll(
+        'input[data-field],textarea[data-field],input[data-reference-field],input[data-attachment-name]'
+      )].find((candidate) => intakeFocusKey(candidate) === draft.key);
+      if (el) el.value = draft.value;
+    }
+    intakePatchSequence = patch.sequence;
+    restoreIntakeView();
+  });
+  vscode.postMessage({ type: 'intakeReady' });
 `;

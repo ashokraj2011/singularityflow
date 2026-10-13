@@ -14,7 +14,7 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 23
+version: 24
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -27,20 +27,23 @@ objects and inherits its sparse checkout. Starting a Story does not pull or merg
 workspace's current branch. Resume, stale tracking refs, missing repositories, reference repositories,
 and required authority/state refreshes can still need their own Git reads or transfers.
 
-On supported POSIX hosts, an exact passing intake receipt can be reused even when onboarding has
+On supported hosts, an exact passing intake receipt can be reused even when onboarding has
 pinned the configuration authority. Start still verifies live base, destination, configuration and
 publication permission; changed inputs fall back to full validation and never repin the authority.
 The daily product-version check uses the same exact-commit configuration object cache as start.
-It still observes approved authority; a local disposable configuration projection is not a second
-network clone of the application. Windows keeps the full receipt/cache fallback until its storage
-profile is qualified; the selected-base refresh itself is cross-platform.
+It still observes approved authority; admitted regular-blob trees are projected into a disposable
+directory without another Git clone or checkout. Unsupported trees use the original validated
+clone path. Windows receipts use a separate integrity key and a recursively verified private ACL
+store; unavailable or unsafe storage simply falls back to full start validation, without repairing
+ACLs or weakening readiness. The configuration object cache remains POSIX-only; the selected-base
+refresh and process-local reuse of unchanged Git location/HEAD facts are cross-platform.
 
 For timing diagnostics, add `--timings` to the CLI start. The Git-private command timing record
 separates `start.publication.workflow` from `start.publication.commit`, in addition to authority,
 intake, fetch, worktree and readiness spans. This distinguishes repository setup from the durable
 commit/push/ledger transaction without logging credentials or repository contents.
 
-In VS Code, Start Work opens at once on Story. It shows the last complete workflow and branch listing for the repository, labelled as last known, while it reads the current one; with none recorded yet, it says it is reading. Readiness is checked once typing the Story ID pauses, not only when the field loses focus. No base is ever preselected, and neither the last known listing nor an earlier answer enables Start: only a passing readiness check for the chosen base and workflow does.
+In VS Code, Start Work opens at once on Story. It shows the last complete workflow and branch listing for the repository, labelled as last known, while it reads the current one; with none recorded yet, it says it is reading. Readiness is checked once typing the Story ID or changing readiness options pauses, not only when the field loses focus. Rapid option changes are coalesced into one check of the final request. Changed inputs immediately invalidate the old result, including during the pause. Background results update only changed form sections rather than reloading the whole page, preserving search, focus and draft text. No base is ever preselected, and neither the last known listing nor an earlier answer enables Start: only a passing readiness check for the chosen base and workflow does.
 
 For manual intake, the VS Code User Story form provides four optional local-document slots, for
 documents or images. Each selected file needs a name, unique within the Story, and has its own

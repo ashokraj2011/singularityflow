@@ -400,14 +400,40 @@ function stubVscode() {
     // The handler is kept, not discarded: a panel that is only ever rendered is half-tested. Driving
     // a real message through it is what proves the button on the page reaches the engine.
     let handler = null;
+    let documentHtml = '';
     const viewState = new EventEmitter();
     const disposal = new EventEmitter();
     const panel = {
       id, title, options, visible: true, sent: [],
       webview: {
-        html: '', cspSource: 'vscode-resource:',
+        get html() { return documentHtml; },
+        set html(value) {
+          documentHtml = value;
+          if (id === 'singularityFlow.intake') queueMicrotask(() => handler?.({ type: 'intakeReady' }));
+        },
+        cspSource: 'vscode-resource:',
         onDidReceiveMessage: (listener) => { handler = listener; return { dispose() { handler = null; } }; },
-        postMessage: async (message) => { panel.sent.push(message); return true; }
+        postMessage: async (message) => {
+          panel.sent.push(message);
+          if (message.type === 'intakePatch') {
+            // Model fragment replacement, preserving the rest of the page for host assertions.
+            // The actual page script, focus and event behavior run in the browser-like tests.
+            for (const { id: region, html } of message.regions) {
+              const marker = `<div data-intake-region="${region}">`;
+              const index = documentHtml.indexOf(marker);
+              assert.ok(index >= 0, `patch root ${region} exists`);
+              const start = index + marker.length;
+              let depth = 1; let end = -1;
+              for (const tag of documentHtml.slice(start).matchAll(/<div\b[^>]*>|<\/div>/gu)) {
+                depth += tag[0].startsWith('</') ? -1 : 1;
+                if (depth === 0) { end = start + tag.index; break; }
+              }
+              assert.ok(end >= start);
+              documentHtml = documentHtml.slice(0, start) + html + documentHtml.slice(end);
+            }
+          }
+          return true;
+        }
       },
       post: async (message) => { await handler?.(message); },
       onDidChangeViewState: viewState.event,
@@ -3058,6 +3084,7 @@ test('Story intake remains available when another checkout has uncommitted work'
 test('a manual Story is submitted end to end from the editor', async (t) => {
   if (!requireBundle(t)) return;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-intake-'));
+  t.after(() => removeFixture(base));
   const root = path.join(base, 'service');
   await mkdir(root);
   run('git', ['init', '-q', '-b', 'main', root], { cwd: base });
@@ -3091,6 +3118,7 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
   await registered.commands.get('singularityFlow.startWork')();
   const intakePanel = registered.panels.find((entry) => entry.id === 'singularityFlow.intake');
   assert.ok(intakePanel, 'a clean repository opens Story intake');
+  t.after(() => intakePanel.dispose());
   await intakePanel.post({ type: 'shape', value: 'story' });
   await until(() => intakePanel.webview.html.includes('data-work-type="feature"') ? true : null);
   assert.match(intakePanel.webview.html, /data-base-branch="main"/);
@@ -3105,6 +3133,9 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
   registered.pickedFile = supportingDocument;
   await intakePanel.post({ type: 'attachmentsPick' });
   assert.match(intakePanel.webview.html, /story-brief\.markdown/);
+  await until(() => /Story-start readiness confirmed for[\s\S]*?create <code>STORY-UI<\/code>/
+    .test(intakePanel.webview.html) ? true : null,
+  { what: 'the coalesced Story readiness check before Start', attempts: 400 });
   await intakePanel.post({ type: 'start' });
 
   const openFolder = await until(() => registered.executedCommands.find(

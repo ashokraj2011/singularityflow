@@ -47,8 +47,13 @@ test('a receipt is claimed once, for the request it answers, and consumed or giv
   const minted = await mint(root);
   assert.match(minted.id, /^sir_[0-9a-f]{32}$/);
   const file = path.join(directory, `${minted.id}.json`);
-  assert.equal((await lstat(file)).mode & 0o777, 0o600, 'readable only by its owner');
-  assert.equal((await lstat(directory)).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') {
+    assert.equal((await lstat(file)).mode & 0o777, 0o600, 'readable only by its owner');
+    assert.equal((await lstat(directory)).mode & 0o777, 0o700);
+  } else {
+    const { secureWindowsAuthAcl } = await import('../src/mcp-auth-profile.mjs');
+    assert.equal((await secureWindowsAuthAcl(directory, { directory: true, recursive: true, apply: false })).protected, true);
+  }
   const bytes = await readFile(file, 'utf8');
   assert.doesNotMatch(bytes, new RegExp(root.replaceAll('/', '\\/')), 'no checkout path is recorded');
 
@@ -63,6 +68,48 @@ test('a receipt is claimed once, for the request it answers, and consumed or giv
   await again.consume();
   assert.equal((await claimStoryIntakeReceipt(root, minted.id, { inputs })).reason, 'missing');
   assert.deepEqual((await readdir(directory)).filter((name) => name.startsWith(minted.id)), []);
+});
+
+test('Windows uses a separate private key and qualified ACLs without changing publication recovery keys', async (t) => {
+  const { root, directory } = await repository(t);
+  const checks = [];
+  const storageOptions = { platform: 'win32', windowsAcl: async (target, options) => {
+    checks.push({ target, ...options });
+  } };
+  const minted = await mint(root, { storageOptions });
+  assert.equal((await readFile(path.join(directory, 'integrity.key'))).length, 32);
+  assert.ok(checks.some(({ target, apply, directory: dir, recursive }) => target === directory && apply && dir && recursive));
+  assert.ok(checks.some(({ target, apply }) => target.endsWith('integrity.key') && apply));
+  assert.ok(checks.some(({ target, apply }) => target.endsWith(`${minted.id}.json`) && apply));
+  await assert.rejects(lstat(path.join(root, '.git/singularity-flow/pending-publication-integrity.key')), { code: 'ENOENT' });
+  const claimed = await claimStoryIntakeReceipt(root, minted.id, { inputs, storageOptions });
+  assert.equal(claimed.status, 'claimed'); await claimed.release();
+  const again = await claimStoryIntakeReceipt(root, minted.id, { inputs, storageOptions });
+  assert.equal(again.status, 'claimed'); await again.consume();
+});
+
+test('unqualified Windows privacy fails closed and does not implicitly rewrite existing ACLs', async (t) => {
+  const { root, directory } = await repository(t);
+  const minted = await mint(root, { storageOptions: { platform: 'win32', windowsAcl: async () => {} } });
+  const checks = [];
+  const storageOptions = { platform: 'win32', windowsAcl: async (_target, options) => {
+    checks.push(options); throw new Error('ACL is not private');
+  } };
+  const claim = await claimStoryIntakeReceipt(root, minted.id, { inputs, storageOptions });
+  assert.equal(claim.reason, 'storage');
+  assert.ok(checks.every(({ apply }) => apply === false));
+  assert.ok(await lstat(path.join(directory, `${minted.id}.json`)), 'the preserved token is not consumed on storage refusal');
+  await assert.rejects(mint(root, { storageOptions }), /ACL is not private/);
+});
+
+test('receipt file protection failure returns no token and removes only that failed file', async (t) => {
+  const { root, directory } = await repository(t);
+  const storageOptions = { platform: 'win32', windowsAcl: async (target) => {
+    if (/sir_.*\.json$/u.test(target)) throw new Error('cannot protect receipt');
+  } };
+  await assert.rejects(mint(root, { storageOptions }), /cannot protect receipt/);
+  assert.deepEqual((await readdir(directory)).filter((name) => name.endsWith('.json')), []);
+  assert.equal((await readFile(path.join(directory, 'integrity.key'))).length, 32);
 });
 
 test('an edited, expired, foreign or disabled receipt is refused and discarded', async (t) => {

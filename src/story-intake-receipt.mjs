@@ -15,7 +15,8 @@
  * any intake content: the request itself is bound by digest.
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { lstat, open, readdir, readFile, realpath, rename, rm } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, open, readdir, realpath, rename, rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import { runningBuildIdentity } from './build-identity.mjs';
@@ -23,13 +24,12 @@ import { gitCommonDir } from './git.mjs';
 import {
   sealMachineLocalPublicationReceipt, verifyMachineLocalPublicationReceipt
 } from './publication-machine-integrity.mjs';
-import { prepareSharedPublicationStorage } from './publication-storage.mjs';
+import { storyIntakeStorage } from './story-intake-storage.mjs';
 import { recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 export const STORY_INTAKE_RECEIPT_TTL_MS = 15 * 60_000;
 const PURPOSE = 'story-intake-receipt';
-const DIRECTORY = 'intake-receipts';
 const RECEIPT_ID = /^sir_[0-9a-f]{32}$/u;
 const OBJECT_ID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
@@ -101,10 +101,6 @@ function validShape(record) {
     && record.repositories.every(validRepository);
 }
 
-async function storage(root) {
-  return prepareSharedPublicationStorage(root, DIRECTORY, 'Story intake receipt');
-}
-
 /** Remove expired receipts and abandoned claims. Best effort: a leftover file is only garbage. */
 async function prune(directory, now) {
   let names = [];
@@ -125,8 +121,11 @@ async function prune(directory, now) {
  * Seal and store a receipt for a readiness preview that passed. `repositories` are what the preview
  * proved for each one: base commit, destination absent, dry run accepted, and the state tip it saw.
  */
-export async function mintStoryIntakeReceipt(root, { inputs, authority, repositories, now = Date.now() }) {
-  const directory = await storage(root);
+export async function mintStoryIntakeReceipt(root, {
+  inputs, authority, repositories, now = Date.now(), storageOptions = {}
+}) {
+  const store = await storyIntakeStorage(root, storageOptions);
+  const { directory } = store;
   const id = `sir_${randomBytes(16).toString('hex')}`;
   const record = await sealMachineLocalPublicationReceipt(root, PURPOSE, {
     schemaVersion: currentSchemaVersion(PURPOSE),
@@ -148,14 +147,20 @@ export async function mintStoryIntakeReceipt(root, { inputs, authority, reposito
       push: entry.push ? { url: entry.push.url, fingerprint: entry.push.fingerprint } : null,
       state: entry.state ? { branch: entry.state.branch, commit: entry.state.commit ?? null } : null
     }))
-  });
+  }, { key: store.key });
   if (!validShape(record)) throw new Error('A Story intake receipt could not be formed from the preview result.');
-  const handle = await open(path.join(directory, `${id}.json`), 'wx', 0o600);
+  const target = path.join(directory, `${id}.json`);
+  const handle = await open(target, 'wx', 0o600);
   try {
     await handle.writeFile(`${JSON.stringify(record, null, 2)}\n`);
     await handle.sync();
-  } finally {
+    await store.protect(target);
+  } catch (error) {
     await handle.close();
+    await rm(target, { force: true }).catch(() => {});
+    throw error;
+  } finally {
+    await handle.close().catch(() => {});
   }
   await prune(directory, now);
   return { id, expiresAt: record.expiresAt };
@@ -165,11 +170,15 @@ export async function mintStoryIntakeReceipt(root, { inputs, authority, reposito
  * Take a receipt for one start. Returns why it cannot be used, or the verified record together with
  * `consume()` (a durable Story commit exists) and `release()` (nothing durable happened).
  */
-export async function claimStoryIntakeReceipt(root, id, { inputs, now = Date.now(), env = process.env } = {}) {
+export async function claimStoryIntakeReceipt(root, id, {
+  inputs, now = Date.now(), env = process.env, storageOptions = {}
+} = {}) {
   if (storyIntakeReceiptsDisabled(env)) return { status: 'rejected', reason: 'disabled' };
   if (!RECEIPT_ID.test(String(id ?? ''))) return { status: 'rejected', reason: 'malformed' };
-  let directory;
-  try { directory = await storage(root); } catch { return { status: 'rejected', reason: 'storage' }; }
+  let store;
+  try { store = await storyIntakeStorage(root, { ...storageOptions, create: false }); }
+  catch { return { status: 'rejected', reason: 'storage' }; }
+  const { directory } = store;
   const target = path.join(directory, `${id}.json`);
   const claimed = path.join(directory, `${id}.claim-${process.pid}-${randomBytes(4).toString('hex')}.json`);
   try { await rename(target, claimed); } catch (error) {
@@ -178,15 +187,28 @@ export async function claimStoryIntakeReceipt(root, id, { inputs, now = Date.now
   const discard = async () => { await rm(claimed, { force: true }).catch(() => {}); };
   const reject = async (reason) => { await discard(); return { status: 'rejected', reason }; };
   let record;
+  let handle;
   try {
     const info = await lstat(claimed);
-    if (!info.isFile() || info.size > 64 * 1024) return reject('unreadable');
-    record = readRecord(PURPOSE, await readFile(claimed, 'utf8')).record;
+    if (!info.isFile() || info.nlink !== 1 || info.size > 64 * 1024) return reject('unreadable');
+    handle = await open(claimed, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.nlink !== 1 || opened.dev !== info.dev || opened.ino !== info.ino
+        || opened.size > 64 * 1024) return reject('unreadable');
+    const bytes = Buffer.alloc(64 * 1024 + 1);
+    let size = 0;
+    while (size < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, size, bytes.length - size, size);
+      if (!bytesRead) break;
+      size += bytesRead;
+    }
+    if (size > 64 * 1024) return reject('unreadable');
+    record = readRecord(PURPOSE, bytes.toString('utf8', 0, size)).record;
   } catch {
     return reject('unreadable');
-  }
+  } finally { await handle?.close().catch(() => {}); }
   if (!validShape(record) || record.id !== id) return reject('unreadable');
-  if (!await verifyMachineLocalPublicationReceipt(root, PURPOSE, record)) return reject('integrity');
+  if (!await verifyMachineLocalPublicationReceipt(root, PURPOSE, record, { key: store.key })) return reject('integrity');
   const expiresAt = Date.parse(record.expiresAt);
   if (!Number.isFinite(expiresAt) || expiresAt <= now) return reject('expired');
   if (record.build !== runningBuildIdentity()) return reject('build');

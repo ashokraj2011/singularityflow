@@ -1955,7 +1955,9 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   mirror = null,
   definition: retainedDefinition = null,
   env = process.env,
-  captureAuthoringBytes = false
+  captureAuthoringBytes = false,
+  gitRoot = scratch,
+  gitRef = 'HEAD'
 }) {
   // A remote authority must use reviewed workspace repair, not repository-local init advice.
   const workflow = await lstat(path.join(scratch, 'singularity/workflow.yml')).catch((error) => {
@@ -1971,9 +1973,9 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   const gitEnv = mirror ? null : enterpriseGitEnvironment(env);
   const treeEntries = mirror?.assets
     ? new Map(Object.entries(mirror.assets))
-    : configurationTreeEntries(scratch, 'HEAD', null, { env: gitEnv });
+    : configurationTreeEntries(gitRoot, gitRef, null, { env: gitEnv });
   const authoringBytes = captureAuthoringBytes === true
-    ? (mirror ? MIRROR_AUTHORING_GIT_BYTES.get(mirror) : captureAuthoringGitBytes(scratch, treeEntries, gitEnv))
+    ? (mirror ? MIRROR_AUTHORING_GIT_BYTES.get(mirror) : captureAuthoringGitBytes(gitRoot, treeEntries, gitEnv))
     : null;
   // Both direct clones and recovery mirrors retain skill bytes directly from exact commit objects.
   // Materialized package paths are never authority to replace that already captured byte closure.
@@ -1982,7 +1984,7 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
       code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
     });
   }
-  const skillEntries = mirror ? mirror.skillEntries : approvedSkillTreeEntries(scratch, gitEnv, observedCommit);
+  const skillEntries = mirror ? mirror.skillEntries : approvedSkillTreeEntries(gitRoot, gitEnv, observedCommit);
   const materializedPaths = await configurationAssetPaths(scratch);
   // A recovery mirror's package membership is the closed committed inventory retained above,
   // not whichever skill paths happen to remain in its disposable materialization afterward.
@@ -2002,7 +2004,7 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
       });
     }
   }
-  const skillBlobs = mirror ? mirror.skillBlobs : approvedSkillBlobs(scratch, skillEntries, gitEnv);
+  const skillBlobs = mirror ? mirror.skillBlobs : approvedSkillBlobs(gitRoot, skillEntries, gitEnv);
   for (const relative of assetPaths) {
     const file = path.join(scratch, relative);
     if (!skillEntries.has(relative)) {
@@ -2344,6 +2346,7 @@ function storyObjectCacheProfile(directory, commit, env, state) {
   const rows = listing.slice(0, -1).split('\0');
   if (rows.length > STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.files) return declined('files');
   const objects = [];
+  const files = [];
   const aliases = new Map();
   for (const row of rows) {
     const matched = /^(100644|100755) blob ([0-9a-f]{40}|[0-9a-f]{64})\t(.+)$/u.exec(row);
@@ -2353,6 +2356,8 @@ function storyObjectCacheProfile(directory, commit, env, state) {
         || matched[3].split('/').some((part) => part === '.gitattributes' || part === '.gitmodules')
         || /[\u0000-\u001f\u007f]/u.test(matched[3])) return declined('shape');
     const parts = matched[3].split('/');
+    if (parts.some((part) => !part || part === '.' || part === '..' || part.toLowerCase() === '.git')
+        || /[\\:]/u.test(matched[3])) return declined('shape');
     for (let depth = 1; depth <= parts.length; depth += 1) {
       const prefix = parts.slice(0, depth).join('/');
       const alias = prefix.normalize('NFC').toLowerCase();
@@ -2363,6 +2368,7 @@ function storyObjectCacheProfile(directory, commit, env, state) {
       aliases.set(alias, { path: prefix, kind });
     }
     objects.push(matched[2]);
+    files.push({ relative: matched[3], object: matched[2], mode: matched[1] });
   }
   const sizes = storyObjectCacheLocal(state, ['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], {
     cwd: directory, env, input: `${objects.join('\n')}\n`, maxBuffer: Math.max(1024, objects.length * 160)
@@ -2377,7 +2383,24 @@ function storyObjectCacheProfile(directory, commit, env, state) {
       && bytes <= STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.objectBytes
       && (total += bytes) <= STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.materializedBytes;
   });
-  return withinBounds || declined('bytes');
+  return withinBounds ? { files } : declined('bytes');
+}
+
+/** Exact regular blobs, not a checkout: no index, filters, hardlinks, or local Git transport. */
+async function materializeStoryObjectCache(directory, scratch, profile, env, state) {
+  const blobs = readLocalGitBlobs(directory, profile.files.map((entry) => entry.object), {
+    env,
+    runCommand: (_command, args, options) => storyObjectCacheLocal(state, args, options),
+    maximumBytes: STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.materializedBytes,
+    maximumObjectBytes: STORY_CONFIGURATION_OBJECT_CACHE_LIMITS.objectBytes,
+    label: 'Approved configuration projection', code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+  });
+  for (const entry of profile.files) {
+    const target = path.join(scratch, entry.relative);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, blobs.get(entry.object), { flag: 'wx', mode: entry.mode === '100755' ? 0o755 : 0o644 });
+  }
+  incrementCommandCounter('configuration.object-cache-projection');
 }
 
 async function cachedStoryConfigurationSnapshot(authority, {
@@ -2484,7 +2507,8 @@ async function cachedStoryConfigurationSnapshot(authority, {
     const sealed = sealTemporaryGitReadTransport(directory, { env: gitEnv });
     if (sealed.cleanupUnproven) state.cleanupUnproven = true;
     if (!sealed.ok) return null;
-    if (!storyObjectCacheProfile(directory, authority.commit, localEnv, state)) {
+    const profile = storyObjectCacheProfile(directory, authority.commit, localEnv, state);
+    if (!profile) {
       // A just-created, unsupported/over-budget derived entry has no admitted consumers. Reclaim
       // only that exact key while its lease is held and all native process outcomes are known.
       if (!exists && !state.cleanupUnproven) await removeTemporaryTree(directory);
@@ -2509,27 +2533,17 @@ async function cachedStoryConfigurationSnapshot(authority, {
       const now = new Date();
       await utimes(directory, now, now);
     }
-    // Local transport copies (never hardlinks) the verified objects into the same disposable
-    // checkout profile used by ordinary reads. No cache file or serialized definition is mounted.
+    // Project verified bounded blobs without spawning another clone/upload-pack/checkout. The
+    // existing snapshot validator still resolves exact identities from the leased object store.
+    // No cached definition is trusted and unsupported trees keep the ordinary clone fallback.
     scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-config-cache-read-'));
-    const transport = frozenRemoteTransport(directory, { env: gitEnv });
-    const cloned = await storyObjectCacheRemote(state, [
-      '-c', `core.hooksPath=${gitDisabledHooksPath()}`, '-c', 'core.autocrlf=false',
-      '-c', 'gc.auto=0', '-c', 'maintenance.auto=false',
-      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-      '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
-    ], { cwd: path.dirname(scratch), env: transport.env, operation: 'remote-configuration', maxBuffer: 64 * 1024 });
-    if (!processResultSucceeded(cloned)) return null;
-    const head = storyObjectCacheLocal(state, ['rev-parse', '--verify', 'HEAD'], {
-      cwd: scratch, env: localEnv, maxBuffer: 1024
-    });
-    if (!processResultSucceeded(head) || head.stdout.trim() !== authority.commit) return null;
+    await materializeStoryObjectCache(directory, scratch, profile, localEnv, state);
     incrementCommandCounter(exists ? 'configuration.object-cache-hit' : 'configuration.object-cache-miss');
     incrementCommandCounter('configuration.snapshot-read');
     try {
       return await storyConfigurationSnapshotFromDirectory(authority, scratch, {
         observedCommit: authority.commit, sourceCommit: authority.commit, env: gitEnv,
-        captureAuthoringBytes
+        captureAuthoringBytes, gitRoot: directory, gitRef: authority.commit
       });
     } catch (error) {
       // Older snapshot readers can turn an opaque allowFailure Git result into an ordinary

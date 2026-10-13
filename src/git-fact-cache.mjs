@@ -29,7 +29,8 @@
  *
  * Anything this module cannot prove is left to Git: a global option before the subcommand, a Git
  * environment that relocates the repository, standard input, a configuration file with `include`
- * directives, the reftable ref format, an injected process runner, and Windows hosts.
+ * directives, the reftable ref format, and an injected process runner. Windows reuses only
+ * repository-location and HEAD answers; its ambient configuration discovery is left to Git.
  * `SINGULARITY_FLOW_GIT_FACT_CACHE=off` turns it off.
  *
  * One assumption is made: the system-wide Git configuration (for example
@@ -74,10 +75,10 @@ const CONFIG_MODIFIERS = new Set([
 // the key instead, so callers with different environments never share an answer.
 const RELOCATING = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_NAMESPACE', 'GIT_CONFIG',
   'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT', 'GIT_REPLACE_REF_BASE', 'GIT_SHALLOW_FILE', 'GIT_GRAFT_FILE'];
-const KEYED = ['HOME', 'XDG_CONFIG_HOME', 'LANG', 'LC_ALL', 'LC_MESSAGES'];
+const KEYED = ['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'XDG_CONFIG_HOME', 'LANG', 'LC_ALL', 'LC_MESSAGES'];
 
 function enabled(env) {
-  return process.platform !== 'win32' && String(env.SINGULARITY_FLOW_GIT_FACT_CACHE ?? '').toLowerCase() !== 'off';
+  return String(env.SINGULARITY_FLOW_GIT_FACT_CACHE ?? '').toLowerCase() !== 'off';
 }
 
 /** What kind of answer `args` asks for, or null when it is not one this module can vouch for. */
@@ -101,12 +102,16 @@ export function gitFactKind(args) {
   return null;
 }
 
-function fingerprint(file) {
+function fingerprint(file, identityOnly = false) {
   try {
     const info = lstatSync(file, { bigint: true });
-    // A main checkout's `.git` directory gains and loses lock files on every index write; only its
-    // identity matters here. Files Git answers from are compared completely.
-    if (info.isDirectory()) return `dir:${info.ino}`;
+    // Filesystems without stable file identities, and indirections whose targets are untracked,
+    // cannot prove that a prior answer is still current.
+    if (info.ino === 0n || info.isSymbolicLink()) return null;
+    // The .git marker's identity matters, not index lock churn. Replacement-ref directories do
+    // need timestamps to invalidate atomic updates to children without changing the directory inode.
+    if (info.isDirectory()) return identityOnly ? `dir:${info.ino}`
+      : `dir:${info.ino}:${info.mtimeNs}:${info.ctimeNs}`;
     return `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
   } catch (error) {
     return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? 'absent' : null;
@@ -141,11 +146,13 @@ function checkoutOf(cwd) {
   return null;
 }
 
-function globalConfigFiles(env) {
+function globalConfigFiles(env, platform) {
   if (env.GIT_CONFIG_GLOBAL) return [env.GIT_CONFIG_GLOBAL];
   const files = [];
-  if (env.HOME) files.push(path.join(env.HOME, '.gitconfig'));
-  const xdg = env.XDG_CONFIG_HOME || (env.HOME ? path.join(env.HOME, '.config') : null);
+  const home = env.HOME || (platform === 'win32' ? env.USERPROFILE
+    || (env.HOMEDRIVE && env.HOMEPATH ? path.win32.join(env.HOMEDRIVE, env.HOMEPATH) : null) : null);
+  if (home) files.push(path.join(home, '.gitconfig'));
+  const xdg = env.XDG_CONFIG_HOME || (home ? path.join(home, '.config') : null);
   if (xdg) files.push(path.join(xdg, 'git', 'config'));
   return files;
 }
@@ -160,12 +167,18 @@ function readsIncludes(file) {
 }
 
 /** The files `kind` answers from, or null when the answer cannot be tied to files. */
-function dependencies(kind, checkout, env) {
+function dependencies(kind, checkout, env, platform) {
+  const configuration = [path.join(checkout.commonDir, 'config'),
+    path.join(checkout.gitDir, 'config.worktree'), ...globalConfigFiles(env, platform),
+    ...(env.GIT_CONFIG_SYSTEM ? [env.GIT_CONFIG_SYSTEM] : [])];
+  if (configuration.some(readsIncludes)) return null;
+  // A linked worktree's commondir pointer may change without its .git marker or HEAD changing.
+  const topology = [checkout.marker, path.join(checkout.gitDir, 'commondir')];
   // Without GIT_NO_REPLACE_OBJECTS, a replace ref created mid-run changes what `HEAD^{tree}` peels to.
   const replacements = env.GIT_NO_REPLACE_OBJECTS === '1' ? []
     : [path.join(checkout.commonDir, 'refs', 'replace'), path.join(checkout.commonDir, 'packed-refs')];
   if (kind === 'location') {
-    return [checkout.marker, path.join(checkout.commonDir, 'shallow'), path.join(checkout.commonDir, 'config')];
+    return [...topology, path.join(checkout.commonDir, 'shallow'), ...configuration];
   }
   if (lstatSafe(path.join(checkout.commonDir, 'reftable'))) return null;
   if (kind === 'head') {
@@ -173,19 +186,12 @@ function dependencies(kind, checkout, env) {
     let text;
     try { text = readFileSync(head, 'utf8'); } catch { return null; }
     const ref = /^ref:\s*(refs\/\S+)\s*$/u.exec(text)?.[1];
-    if (!ref) return SHA.test(text.trim()) ? [checkout.marker, head, ...replacements] : null;
+    if (!ref) return SHA.test(text.trim()) ? [...topology, head, ...configuration, ...replacements] : null;
     if (ref.split('/').some((part) => part === '..' || part === '')) return null;
-    return [...new Set([checkout.marker, head, path.join(checkout.commonDir, ...ref.split('/')),
+    return [...new Set([...topology, head, ...configuration, path.join(checkout.commonDir, ...ref.split('/')),
       path.join(checkout.commonDir, 'packed-refs'), ...replacements])];
   }
-  const files = [
-    path.join(checkout.commonDir, 'config'),
-    path.join(checkout.gitDir, 'config.worktree'),
-    ...globalConfigFiles(env),
-    ...(env.GIT_CONFIG_SYSTEM ? [env.GIT_CONFIG_SYSTEM] : [])
-  ];
-  if (files.some(readsIncludes)) return null;
-  return [checkout.marker, ...files];
+  return [...topology, ...configuration];
 }
 
 function lstatSafe(file) {
@@ -199,16 +205,21 @@ function lstatSafe(file) {
  * of the key (the arguments, the directory, and the variables that choose configuration files) or
  * a reason not to cache at all.
  */
-export function gitFactRequest(args, { cwd, env = process.env, stdio = 'pipe', input, encoding = 'utf8', shell = false, injected = false }) {
+export function gitFactRequest(args, { cwd, env = process.env, stdio = 'pipe', input, encoding = 'utf8', shell = false, injected = false, platform = process.platform }) {
   if (injected || shell || stdio !== 'pipe' || input != null || encoding !== 'utf8') return null;
   if (!enabled(env) || !Array.isArray(args)) return null;
+  // Git for Windows treats environment names case-insensitively. Decline ambiguous aliases
+  // instead of normalizing caller-owned authority and accidentally sharing two different reads.
+  if (platform === 'win32' && Object.keys(env).some((name) =>
+    /^(?:git_|home$|userprofile$|homedrive$|homepath$|xdg_config_home$)/iu.test(name)
+      && name !== name.toUpperCase())) return null;
   if (RELOCATING.some((name) => env[name] != null && env[name] !== '')) return null;
   const kind = gitFactKind(args);
-  if (!kind) return null;
+  if (!kind || (platform === 'win32' && kind === 'config')) return null;
   const directory = path.resolve(cwd ?? process.cwd());
   const variables = [...KEYED, ...Object.keys(env).filter((name) => name.startsWith('GIT_')).sort()]
     .map((name) => `${name}=${env[name] ?? ''}`).join('\0');
-  return { kind, key: `${directory}\0${variables}\0${args.join('\0')}`, directory, env };
+  return { kind, key: `${platform}\0${directory}\0${variables}\0${args.join('\0')}`, directory, env, platform };
 }
 
 /** A completed answer for `request` whose files have not changed, or null. */
@@ -216,8 +227,8 @@ export function cachedGitFact(request) {
   if (!request) return null;
   const entry = entries.get(request.key);
   if (!entry) return null;
-  for (const [file, expected] of entry.files) {
-    if (fingerprint(file) !== expected) {
+  for (const [file, expected, identityOnly] of entry.files) {
+    if (fingerprint(file, identityOnly) !== expected) {
       entries.delete(request.key);
       return null;
     }
@@ -236,15 +247,16 @@ export function rememberGitFact(request, result, { before = null } = {}) {
     || (status === 2 && request.kind === 'config' && request.key.includes('\0get-url\0')))) return;
   const checkout = checkoutOf(request.directory);
   if (!checkout) return;
-  const files = dependencies(request.kind, checkout, request.env);
+  const files = dependencies(request.kind, checkout, request.env, request.platform);
   if (!files) return;
   const recorded = [];
   for (const file of files) {
-    const value = fingerprint(file);
+    const identityOnly = file === checkout.marker;
+    const value = fingerprint(file, identityOnly);
     if (value === null) return;
     // A file that changed while Git was answering may have been read either way: do not keep it.
     if (before && before.get(file) !== undefined && before.get(file) !== value) return;
-    recorded.push([file, value]);
+    recorded.push([file, value, identityOnly]);
   }
   if (entries.size >= MAXIMUM_ENTRIES) entries.clear();
   entries.set(request.key, { files: recorded, status, stdout: result.stdout, stderr: typeof result.stderr === 'string' ? result.stderr : '' });
@@ -258,9 +270,9 @@ export function gitFactSnapshot(request) {
   if (!request) return null;
   const checkout = checkoutOf(request.directory);
   if (!checkout) return null;
-  const files = dependencies(request.kind, checkout, request.env);
+  const files = dependencies(request.kind, checkout, request.env, request.platform);
   if (!files) return null;
-  return new Map(files.map((file) => [file, fingerprint(file)]));
+  return new Map(files.map((file) => [file, fingerprint(file, file === checkout.marker)]));
 }
 
 /** How many answers came from this cache in this process, for timing counters and tests. */

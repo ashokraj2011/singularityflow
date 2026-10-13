@@ -14,7 +14,7 @@ import {
 import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
-  EMPTY_INTAKE_FORM, intakeCommand, intakeHasInput, intakeHtml, intakeIdentifier, intakePlanInputKey, intakeProblems, INTAKE_SCRIPT,
+  EMPTY_INTAKE_FORM, intakeCommand, intakeHasInput, intakeHtml, intakeRegions, intakeIdentifier, intakePlanInputKey, intakeProblems, INTAKE_SCRIPT,
   MAX_STORY_ATTACHMENT_SLOTS, mergeStoryAttachments, referenceRepositoryEntries, SHAPES,
   storyPreflightCommand, storyWorkflowSelection, suggestedStoryDocumentName,
   storyWorkflowSelectionForReload,
@@ -27,6 +27,7 @@ import { startProgressLabel } from '../cli/progress.ts';
 import { canonicalFilesystemPath } from '../repository-refresh-model.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 import type { IntakeCatalogCacheBinding } from '../intake-catalog-cache.ts';
+import { IntakePreflightScheduler } from '../intake-preflight-scheduler.ts';
 import type { BackgroundHold } from '../background-governor.ts';
 import {
   testRecoveryCanConfirm, testRecoveryChoiceSupported, testRecoveryConfirmation, testRecoveryEnabled,
@@ -36,8 +37,6 @@ import {
 
 /** A background result waits this long after the last keystroke before it redraws the page. */
 const INTAKE_TYPING_QUIET_MS = 300;
-/** Readiness is checked once somebody pauses typing the identifier this long, not only on blur. */
-const INTAKE_ID_PREFLIGHT_DEBOUNCE_MS = 400;
 const PORTABLE_WORK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 /** A completed reference row is checked, and its commit fetched ahead of Start, after this pause. */
 const INTAKE_REFERENCE_PREFETCH_DEBOUNCE_MS = 600;
@@ -232,7 +231,7 @@ export class IntakePanel {
   private formTouched = false;
   private lastDraftAt = 0;
   private renderTimer: ReturnType<typeof setTimeout> | null = null;
-  private idPreflightTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly preflightScheduler = new IntakePreflightScheduler();
   /** The exact readiness command in flight or last completed, so blur does not repeat it. */
   private preflightKey: string | null = null;
   /**
@@ -248,6 +247,9 @@ export class IntakePanel {
   /** The base whose readiness answer replaced the workflow choices with that base's own. */
   private exactCatalogBase: string | null = null;
   private disposed = false;
+  private renderedRegions: Record<string, string> | null = null;
+  private webviewReady = false;
+  private renderSequence = 0;
   private favouriteWrite: Promise<void> = Promise.resolve();
 
   private constructor(
@@ -368,12 +370,27 @@ export class IntakePanel {
     return true;
   }
 
-  private render(): void {
+  private render(preserveDraft = false): void {
+    const regions = intakeRegions(this.form, this.journey);
+    if (this.renderedRegions) {
+      // Initial HTML can finish loading after a fast catalog response. Wait for the script's
+      // handshake rather than losing that patch, or restarting the entire webview document.
+      if (!this.webviewReady) return;
+      const changed = Object.entries(regions).filter(([id, html]) => this.renderedRegions![id] !== html)
+        .map(([id, html]) => ({ id, html }));
+      this.renderedRegions = regions;
+      if (changed.length) void this.panel.webview.postMessage({
+        type: 'intakePatch', sequence: ++this.renderSequence, regions: changed,
+        preserveDraft, busy: this.form.busy
+      });
+      return;
+    }
     const token = nonce();
     this.panel.webview.html = page(
       this.journey ? 'Guided start' : 'Start work', intakeHtml(this.form, this.journey),
       contentSecurityPolicy(this.panel.webview, token), token, INTAKE_SCRIPT
     );
+    this.renderedRegions = regions;
   }
 
   /**
@@ -394,15 +411,15 @@ export class IntakePanel {
     else this.renderNow();
   }
 
-  private renderNow(): void {
+  private renderNow(preserveDraft = false): void {
     if (this.renderTimer) clearTimeout(this.renderTimer);
     this.renderTimer = null;
-    this.render();
+    this.render(preserveDraft);
   }
 
   private scheduleRender(): void {
     const quiet = Date.now() - this.lastDraftAt;
-    if (quiet >= INTAKE_TYPING_QUIET_MS) return this.renderNow();
+    if (quiet >= INTAKE_TYPING_QUIET_MS) return this.renderNow(true);
     if (this.renderTimer) return;
     this.renderTimer = setTimeout(() => {
       this.renderTimer = null;
@@ -415,22 +432,28 @@ export class IntakePanel {
     this.preflightController = null;
     this.preflightKey = null;
     this.intakeReceipt = null;
-    if (this.idPreflightTimer) clearTimeout(this.idPreflightTimer);
-    this.idPreflightTimer = null;
+    this.preflightScheduler.cancel();
   }
 
   /** Check readiness once the request has stopped changing, instead of waiting for blur. */
   private scheduleIdentifierPreflight(): void {
-    if (this.idPreflightTimer) clearTimeout(this.idPreflightTimer);
-    this.idPreflightTimer = setTimeout(() => {
-      this.idPreflightTimer = null;
-      if (this.disposed || this.form.shape !== 'story') return;
+    const command = storyPreflightCommand(this.form);
+    if (command && JSON.stringify(command) === this.preflightKey) return;
+    this.cancelBasePreflight();
+    this.preflightVersion += 1;
+    // Invalidate readiness immediately, including during the debounce. A late native result or
+    // delayed Start click cannot authorize the new tuple using the previous passing preview.
+    const pending = this.form.shape === 'story' && Boolean(command)
+      && PORTABLE_WORK_ID.test(intakeIdentifier(this.form));
+    this.update({ ...emptyStoryPreflight(), basePreflightChecking: pending }, { background: true });
+    if (!pending) return;
+    this.preflightScheduler.schedule(() => {
+      if (this.disposed || this.form.busy || this.form.shape !== 'story') return;
       const command = storyPreflightCommand(this.form);
       if (!command || !PORTABLE_WORK_ID.test(intakeIdentifier(this.form))) return;
       if (JSON.stringify(command) === this.preflightKey) return;
-      this.preflightVersion += 1;
       void this.preflightBaseBranch();
-    }, INTAKE_ID_PREFLIGHT_DEBOUNCE_MS);
+    });
   }
 
   /** Cancel an advisory rewrite whenever any input it was based on changes. */
@@ -673,6 +696,16 @@ export class IntakePanel {
    * takes the caret with it; the committed value arrives again as `field`, and that one redraws.
    */
   private router = registerMessageRouter('singularityFlow.intake', {
+    intakeReady: () => {
+      if (this.webviewReady || this.disposed) return;
+      this.webviewReady = true;
+      this.render(true);
+    },
+    intakeReload: () => {
+      this.webviewReady = false;
+      this.renderedRegions = null;
+      this.render();
+    },
     workflowFavourite: async (message) => {
       const id = stringField(message, 'value');
       if (!id || !this.form.storyWorkflows.some((workflow) => workflow.id === id) || typeof message.favourite !== 'boolean') return;
@@ -697,21 +730,21 @@ export class IntakePanel {
       const value = stringField(message, 'value');
       if (!['hard', 'soft'].includes(value ?? '')) return;
       this.update({ qualityGateMode: value as IntakeForm['qualityGateMode'] });
-      return this.preflightBaseBranch();
+      return this.scheduleIdentifierPreflight();
     },
     readinessBaseline: (message) => {
       if (this.form.busy || this.form.baselineRunning) return;
       const value = stringField(message, 'value');
       if (!['reuse', 'run', 'defer'].includes(value ?? '')) return;
       this.update({ readinessBaseline: value as IntakeForm['readinessBaseline'], baselineMessage: null, baselineRunCommit: null });
-      return this.preflightBaseBranch();
+      return this.scheduleIdentifierPreflight();
     },
     storyTestScope: (message) => {
       if (this.form.busy || this.form.baselineRunning) return;
       const value = stringField(message, 'value');
       if (!['changed-and-affected', 'all-configured'].includes(value ?? '')) return;
       this.update({ testExecutionMode: value as IntakeForm['testExecutionMode'] });
-      return this.preflightBaseBranch();
+      return this.scheduleIdentifierPreflight();
     },
     baselineRun: () => this.runBaseline(),
     // Cancel closes Start Work; typed or attached input is thrown away only after a yes.
@@ -732,7 +765,7 @@ export class IntakePanel {
       this.cancelBasePreflight();
       this.preflightVersion += 1;
       this.update({ [field]: value, testRecoveryConfirmedDigest: null, error: null } as Partial<IntakeForm>);
-      return this.preflightBaseBranch();
+      return this.scheduleIdentifierPreflight();
     },
     testRecoveryConfirm: (message) => {
       if (this.form.busy || this.form.basePreflightChecking || !testRecoveryCanConfirm(this.form)) return;
@@ -771,7 +804,7 @@ export class IntakePanel {
         tracker: tracker as Tracker, error: null,
         ...emptyStoryPreflight()
       });
-      return this.preflightBaseBranch();
+      return this.scheduleIdentifierPreflight();
     },
     profile: (message) => {
       const profile = this.form.profiles.find((entry) => entry.id === stringField(message, 'value'));
@@ -785,7 +818,7 @@ export class IntakePanel {
           baseBranch: choice.branch, error: null,
           ...emptyStoryPreflight()
         });
-        return this.preflightBaseBranch();
+        return this.scheduleIdentifierPreflight();
       }
     },
     workType: (message) => {
@@ -798,7 +831,7 @@ export class IntakePanel {
           workType: workflow.id, error: null, ...emptyStoryPreflight(),
           storyAttachments: this.form.storyAttachments.map((entry) => entry ? { ...entry, phases: null } : entry)
         });
-        return this.preflightBaseBranch();
+        return this.scheduleIdentifierPreflight();
       }
     },
     workflowRefresh: () => vscode.commands.executeCommand(
@@ -914,7 +947,7 @@ export class IntakePanel {
             ...emptyStoryPreflight()
           } : {})
         } as Partial<IntakeForm>);
-        if (invalidatesPreflight) return this.preflightBaseBranch();
+        if (invalidatesPreflight) return this.scheduleIdentifierPreflight();
       }
     },
     enhanceDescription: () => this.enhanceStoryDescription(),

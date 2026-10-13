@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import {
-  EMPTY_INTAKE_FORM, INTAKE_SCRIPT, intakeHtml, intakeProblems, intakeCommand, storyPreflightCommand
+  EMPTY_INTAKE_FORM, INTAKE_SCRIPT, intakeHtml, intakeRegions, intakeProblems, intakeCommand, storyPreflightCommand
 } from '../apps/vscode/src/views/intake-form.ts';
 
 const choice = (branch, story) => ({ branch, story, present: 1, total: 1, everywhere: true, missingFrom: [] });
@@ -47,6 +47,7 @@ const workflowForm = (overrides = {}) => form({
 function mount(intake = form(), priorState = {}) {
   const html = intakeHtml(intake);
   const handlers = {};
+  const windowHandlers = {};
   const messages = [];
   let state = structuredClone(priorState);
   const element = (data = {}) => ({
@@ -74,7 +75,10 @@ function mount(intake = form(), priorState = {}) {
       if (selector === 'input[data-work-type]:checked') return workflowRows.find((row) => row.input?.checked)?.input ?? null;
       return controls[selector] ?? null;
     },
-    querySelectorAll(selector) { return selector === '[data-base-branch-choice]' ? rows : selector === '[data-workflow-search-text]' ? workflowRows : []; }
+    querySelectorAll(selector) {
+      if (selector.startsWith('input[data-field]')) return Object.values(controls).filter((el) => el.dataset?.field);
+      return selector === '[data-base-branch-choice]' ? rows : selector === '[data-workflow-search-text]' ? workflowRows : [];
+    }
   };
   const rows = [...html.matchAll(/<label\b[^>]*data-base-branch-choice[^>]*>([\s\S]*?)<\/label>/g)].map(([markup]) => {
     const row = element({ baseBranchChoice: '', baseBranchSearchText: attribute(markup, 'data-base-branch-search-text') });
@@ -116,18 +120,25 @@ function mount(intake = form(), priorState = {}) {
       [`baseBranch${name[0].toUpperCase()}${name.slice(1)}`]: ''
     });
   }
+  for (const [id, html] of Object.entries(intakeRegions(intake))) {
+    controls['[data-intake-region="' + id + '"]'] = { innerHTML: html };
+  }
+  controls['.intake-view'] = element();
   const window = {
-    scrollY: 0, addEventListener() {}, scrollTo(_x, y) { this.scrollY = y; },
+    scrollY: 0, addEventListener(name, handler) { (windowHandlers[name] ??= []).push(handler); }, scrollTo(_x, y) { this.scrollY = y; },
     __sfVscode: {
       getState: () => structuredClone(state), setState: (value) => { state = structuredClone(value); },
       postMessage: (message) => { messages.push(JSON.parse(JSON.stringify(message))); }
     }
   };
   runInNewContext(INTAKE_SCRIPT, { window, document, setTimeout });
+  assert.deepEqual(messages.splice(0), [{ type: 'intakeReady' }], 'one view-only handshake, not a readiness/Git call');
   const dispatch = (name, target) => { for (const handler of handlers[name] ?? []) handler({ target }); };
   const search = controls['[data-base-branch-search]'];
   return {
     html, rows, search, messages, controls, document, window, workflowRows,
+    element,
+    patch(data) { for (const handler of windowHandlers.message ?? []) handler({ data: { type: 'intakePatch', ...data } }); },
     state: () => structuredClone(state),
     visible: () => rows.filter((row) => !row.hidden).map((row) => row.input.value),
     type(query) {
@@ -165,6 +176,54 @@ test('intake favourites are first; other installed workflows are initially colla
   const packaged = view.workflowRows.find((row) => !row.input);
   assert.equal(packaged.favourite, undefined); assert.match(view.html, /aria-disabled="true" data-available-workflow="packaged"/);
   assert.deepEqual(view.messages, []);
+});
+
+test('a progress patch keeps a large catalog, search, focus and scroll without reloading the document', () => {
+  const view = mount(form({ baseBranchChoices: Array.from({ length: 1_000 }, (_, index) => choice('feature/' + index)) }));
+  view.type('feature/99'); view.selectText(2, 7); view.window.scrollY = 480;
+  const rows = view.rows;
+  const catalog = view.controls['[data-intake-region="base"]'].innerHTML;
+  view.patch({ sequence: 1, regions: [{ id: 'status', html: '<p>Creating the Story checkout…</p>' }], busy: true });
+  assert.equal(view.controls['[data-intake-region="status"]'].innerHTML, '<p>Creating the Story checkout…</p>');
+  assert.equal(view.controls['[data-intake-region="base"]'].innerHTML, catalog);
+  assert.equal(view.rows, rows);
+  assert.equal(view.document.activeElement, view.search);
+  assert.equal(view.search.value, 'feature/99'); assert.equal(view.search.selectionStart, 2);
+  assert.equal(view.window.scrollY, 480);
+  assert.equal(view.controls['.intake-view'].attributes['aria-busy'], 'true');
+  assert.deepEqual(view.messages, []);
+  view.patch({ sequence: 0, regions: [{ id: 'status', html: 'stale' }] });
+  assert.equal(view.controls['[data-intake-region="status"]'].innerHTML, '<p>Creating the Story checkout…</p>');
+});
+
+test('background patches retain in-transit text, while explicit user actions use host-authored values', () => {
+  const view = mount();
+  const title = view.element({ field: 'title' }); title.value = 'Locally typed new title';
+  view.controls['[data-field="title"]'] = title; title.focus();
+  Object.defineProperty(view.controls['[data-intake-region="identification"]'], 'innerHTML', {
+    set() { title.value = 'Returned host value'; }, get() { return ''; }, configurable: true
+  });
+  view.patch({ sequence: 1, regions: [{ id: 'identification', html: 'background' }], preserveDraft: true });
+  assert.equal(title.value, 'Locally typed new title');
+  view.patch({ sequence: 2, regions: [{ id: 'identification', html: 'explicit' }], preserveDraft: false });
+  assert.equal(title.value, 'Returned host value');
+});
+
+test('missing patch roots request a view-only reload without partially applying the packet', () => {
+  const view = mount(); const status = view.controls['[data-intake-region="status"]'].innerHTML;
+  view.patch({ sequence: 1, regions: [{ id: 'status', html: 'new' }, { id: 'missing', html: 'bad' }] });
+  assert.equal(view.controls['[data-intake-region="status"]'].innerHTML, status);
+  assert.deepEqual(view.messages, [{ type: 'intakeReload' }]);
+});
+
+test('progress-only region changes do not resend workflows or thousands of branch rows', () => {
+  const intake = form({ baseBranchChoices: Array.from({ length: 1_000 }, (_, index) => choice('branch/' + index)),
+    baseBranch: 'branch/1', basePreflightPassed: true, busy: true, startStep: 'Verifying readiness' });
+  const before = intakeRegions(intake);
+  const after = intakeRegions({ ...intake, startStep: 'Publishing the Story' });
+  const changed = Object.keys(after).filter((id) => before[id] !== after[id]);
+  assert.deepEqual(changed, ['status']);
+  assert.ok(Buffer.byteLength(after.status) < Buffer.byteLength(intakeHtml(intake)) / 10);
 });
 
 test('workflow search is local, opens other choices for results and preserves selection, caret and query across redraw', () => {

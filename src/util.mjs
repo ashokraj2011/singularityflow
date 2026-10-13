@@ -652,7 +652,7 @@ export function run(command, args = [], {
   // A repeated local question whose files have not changed is answered without a process; see
   // git-fact-cache.mjs for what qualifies. The answer still passes through every check below.
   const factRequest = command === 'git' ? gitFactRequest(args, {
-    cwd, env, stdio, input, encoding, shell, injected: spawnSyncCommand !== spawnSync
+    cwd, env, stdio, input, encoding, shell, injected: spawnSyncCommand !== spawnSync, platform
   }) : null;
   const cachedFact = cachedGitFact(factRequest);
   const probe = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE && !cachedFact ? performance.now() : 0;

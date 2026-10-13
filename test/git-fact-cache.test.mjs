@@ -5,10 +5,13 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { clearGitFactCache, gitFactCacheHits, gitFactKind } from '../src/git-fact-cache.mjs';
+import {
+  cachedGitFact, clearGitFactCache, gitFactCacheHits, gitFactKind, gitFactRequest,
+  gitFactSnapshot, rememberGitFact
+} from '../src/git-fact-cache.mjs';
 import { run } from '../src/util.mjs';
 
-const skip = process.platform === 'win32' ? 'the Git fact cache is POSIX-only' : false;
+const skip = process.platform === 'win32' ? 'ambient configuration caching is POSIX-only' : false;
 
 /** Git outside `run()`: another program, a child process or a test changing the repository. */
 function outside(cwd, args) {
@@ -161,7 +164,7 @@ test('a relocating environment, includes, stdin, an injected runner and the swit
   assert.equal(asked(root, ['config', '--get', 'example.value']).stdout.trim(), 'included');
 });
 
-test('the same question in two checkouts of one repository has two answers', { skip }, async (t) => {
+test('the same question in two checkouts of one repository has two answers', async (t) => {
   const root = await repository(t);
   const linked = path.join(root, '..', `${path.basename(root)}-linked`);
   t.after(() => rm(linked, { recursive: true, force: true }));
@@ -173,4 +176,39 @@ test('the same question in two checkouts of one repository has two answers', { s
   outside(linked, ['commit', '-q', '-am', 'linked']);
   assert.equal(asked(linked, ['rev-parse', 'HEAD']).stdout.trim(), outside(linked, ['rev-parse', 'HEAD']));
   assert.notEqual(asked(linked, ['rev-parse', 'HEAD']).stdout.trim(), asked(root, ['rev-parse', 'HEAD']).stdout.trim());
+});
+
+test('Windows reuses only location/HEAD facts and invalidates an external ref update', async (t) => {
+  const root = await repository(t);
+  const env = { GIT_NO_REPLACE_OBJECTS: '1' };
+  for (const args of [['branch', '--show-current'], ['rev-parse', 'HEAD'], ['rev-parse', '--git-common-dir']]) {
+    const request = gitFactRequest(args, { cwd: root, env, platform: 'win32' });
+    assert.ok(request);
+    const before = gitFactSnapshot(request);
+    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+    rememberGitFact(request, result, { before });
+    assert.equal(cachedGitFact(request)?.stdout, result.stdout);
+  }
+  const head = gitFactRequest(['rev-parse', 'HEAD'], { cwd: root, env, platform: 'win32' });
+  await writeFile(path.join(root, 'a.txt'), 'external update\n');
+  outside(root, ['commit', '-q', '-am', 'external update']);
+  assert.equal(cachedGitFact(head), null, 'a different program moving the ref invalidates reuse');
+  for (const args of [['config', '--get', 'user.name'], ['remote', 'get-url', 'origin'],
+    ['show-ref', '--verify', 'refs/heads/main'], ['cat-file', '-t', 'HEAD']]) {
+    assert.equal(gitFactRequest(args, { cwd: root, env, platform: 'win32' }), null);
+  }
+  for (const env of [{ Git_Dir: root }, { Home: root }, { GIT_DIR: root },
+    { SINGULARITY_FLOW_GIT_FACT_CACHE: 'off' }]) {
+    assert.equal(gitFactRequest(['rev-parse', 'HEAD'], { cwd: root, env, platform: 'win32' }), null);
+  }
+});
+
+test('Windows facts are not reused when dependencies changed during Git execution', async (t) => {
+  const root = await repository(t);
+  const request = gitFactRequest(['rev-parse', 'HEAD'], { cwd: root, env: {}, platform: 'win32' });
+  const before = gitFactSnapshot(request);
+  const result = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
+  outside(root, ['checkout', '-q', '-b', 'different']);
+  rememberGitFact(request, result, { before });
+  assert.equal(cachedGitFact(request), null);
 });

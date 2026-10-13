@@ -72,13 +72,14 @@ function payload(purpose, record) {
 }
 
 /** Seal machine-local publication/recovery evidence with a purpose-separated repository key. */
-export async function sealMachineLocalPublicationReceipt(root, purpose, record) {
+export async function sealMachineLocalPublicationReceipt(root, purpose, record, { key: suppliedKey } = {}) {
   if (!/^[a-z][a-z0-9-]{2,63}$/.test(String(purpose ?? ''))
       || !record || typeof record !== 'object' || Array.isArray(record)) {
     throw new SingularityFlowError('Machine-local publication receipt input is invalid.');
   }
-  const key = await machineLocalPublicationIntegrityKey(root, { create: true });
-  if (!key) throw new SingularityFlowError('Machine-local publication integrity key is unavailable.');
+  const key = suppliedKey === undefined
+    ? await machineLocalPublicationIntegrityKey(root, { create: true }) : suppliedKey;
+  if (!Buffer.isBuffer(key) || key.length !== 32) throw new SingularityFlowError('Machine-local publication integrity key is unavailable.');
   return {
     ...record,
     machineLocalIntegrity: {
@@ -90,10 +91,10 @@ export async function sealMachineLocalPublicationReceipt(root, purpose, record) 
   };
 }
 
-export async function verifyMachineLocalPublicationReceipt(root, purpose, record) {
+export async function verifyMachineLocalPublicationReceipt(root, purpose, record, { key: suppliedKey } = {}) {
   const integrity = record?.machineLocalIntegrity;
-  const key = await machineLocalPublicationIntegrityKey(root);
-  if (!key || integrity?.scheme !== MACHINE_LOCAL_PUBLICATION_INTEGRITY_SCHEME
+  const key = suppliedKey === undefined ? await machineLocalPublicationIntegrityKey(root) : suppliedKey;
+  if (!Buffer.isBuffer(key) || key.length !== 32 || integrity?.scheme !== MACHINE_LOCAL_PUBLICATION_INTEGRITY_SCHEME
       || integrity.purpose !== purpose
       || integrity.keyId !== createHash('sha256').update(key).digest('hex').slice(0, 16)
       || !/^sha256:[0-9a-f]{64}$/.test(integrity.mac ?? '')) return false;

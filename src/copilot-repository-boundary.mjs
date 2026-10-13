@@ -6,6 +6,12 @@ import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 
 const FAMILY = 'copilot-repository-boundary';
+/**
+ * Left in the boundary directory by plugin/hook-launcher.mjs when it cannot load the runtime. The
+ * shell launcher answers guards without Node only while that directory is empty, so a runtime
+ * that could not record a turn keeps failing closed until a working one handles the next prompt.
+ */
+export const RUNTIME_UNAVAILABLE_MARKER = 'runtime-unavailable';
 const MAX_AGE_MS = 30 * 60 * 1000;
 const SEARCH_TOOLS = new Set(['grep', 'rg', 'glob', 'search_code_subagent']);
 const BUNDLED_AGENTS = new Set(['sflow-workflow', 'sflow-utility', 'sflow-source-reviewer']);
@@ -48,6 +54,8 @@ async function removeRecord(file) {
 
 /** Reset on EVERY prompt, including native turns; never retain the prompt or its attachments. */
 export async function recordRepositoryBoundaryTurn(payload = {}, { now = Date.now(), captureMutation = null } = {}) {
+  await removeRecord(path.join(path.dirname(copilotModeFile()), 'copilot-boundaries', RUNTIME_UNAVAILABLE_MARKER))
+    .catch(() => {});
   const file = recordPath(payload);
   if (!file) return {};
   const mode = readCopilotMode();

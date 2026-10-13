@@ -16,6 +16,25 @@ if [[ "$node_path" != /* || ! -x "$node_path" ]]; then
   done
 fi
 if [[ -n "$node_path" ]]; then
+  # Copilot runs the guard before every tool, in every chat. With no SFlow turn recorded on this
+  # machine the runtime's guard, after-tool and end hooks return no decision, so give that answer
+  # here instead of starting Node (100-180 ms a call). Any entry, including the marker a runtime
+  # that failed to load leaves, sends the hook to Node as before. Mirrors copilotModeFile().
+  case "$action" in
+    boundary-guard|boundary-after|boundary-end)
+      mode_file=${SINGULARITY_FLOW_COPILOT_MODE_FILE:-}
+      if [[ -z "$mode_file" && "${HOME:-}" == /* ]]; then mode_file="$HOME/.singularity-flow/copilot-mode.json"; fi
+      if [[ "$mode_file" == /* && "$mode_file" != */ && "$mode_file" != *'/./'* && "$mode_file" != *'/../'* ]]; then
+        shopt -s nullglob
+        boundary_entries=("${mode_file%/*}/copilot-boundaries"/*)
+        shopt -u nullglob
+        if (( ${#boundary_entries[@]} == 0 )); then
+          cat >/dev/null 2>&1 || true
+          printf '%s\n' '{}'
+          exit 0
+        fi
+      fi ;;
+  esac
   cli_path=$(command -v singularity-flow 2>/dev/null || true)
   # Pass candidates as arguments, not shell text. The Node bootstrap verifies the package/entry.
   exec "$node_path" "$launcher_dir/hook-launcher.mjs" "$action" "$cli_path" \

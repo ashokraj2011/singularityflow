@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { copilotHookCommand } from '../src/copilot-hook-commands.mjs';
+import { RUNTIME_UNAVAILABLE_MARKER } from '../src/copilot-repository-boundary.mjs';
 
 const packageRoot = fileURLToPath(new URL('../', import.meta.url));
 const pluginRoot = path.join(packageRoot, 'plugin');
@@ -269,4 +271,60 @@ test('PowerShell hook uses applications and closed operations without profile or
   assert.match(content, /@candidates/);
   assert.doesNotMatch(content, /Invoke-Expression|Get-ChildItem|\.\s+\$PROFILE/);
   for (const action of actions) assert.ok(content.includes(`'${action}'`));
+});
+
+test('with no SFlow turn recorded, bash guard, after-tool and end hooks answer without starting Node', {
+  skip: process.platform === 'win32'
+}, async t => {
+  const item = await fixture(t);
+  const bin = path.join(item.directory, 'host-bin');
+  await mkdir(bin);
+  const started = path.join(item.directory, 'node-started');
+  // A stand-in node that records each start, then runs the real one.
+  await writeFile(path.join(bin, 'node'), `#!/bin/sh\necho started >> '${started}'\nexec '${process.execPath}' "$@"\n`, { mode: 0o755 });
+  await symlink(cli, path.join(bin, 'singularity-flow'));
+  const launch = (action, input = '{"sessionId":"native"}') => spawnSync('/bin/bash', [path.join(pluginRoot, 'hook-launcher.sh'), action], {
+    cwd: item.cwd, env: { ...item.env, PATH: `${bin}:/usr/bin:/bin` }, input, encoding: 'utf8', timeout: 10_000
+  });
+  const nodeStarts = () => (existsSync(started) ? readFileSync(started, 'utf8').split('\n').filter(Boolean).length : 0);
+  for (const action of ['boundary-guard', 'boundary-after', 'boundary-end']) {
+    const result = launch(action);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout), {}, action);
+  }
+  const large = JSON.stringify({ sessionId: 'native', toolArgs: { content: 'x'.repeat(256 * 1024) } });
+  assert.deepEqual(JSON.parse(launch('boundary-guard', large).stdout), {}, 'a large payload is read and answered');
+  assert.equal(nodeStarts(), 0, 'no hook started Node');
+
+  // An explicit SFlow turn records a boundary; while it exists every guard goes to the runtime.
+  assert.equal(launch('boundary-turn', JSON.stringify({ sessionId: 'sflow', prompt: '/sf-phase' })).status, 0);
+  assert.equal(nodeStarts(), 1);
+  assert.deepEqual(JSON.parse(launch('boundary-guard').stdout), {}, 'another session still gets no decision');
+  assert.equal(nodeStarts(), 2, 'but from the runtime');
+  assert.equal(launch('boundary-turn', JSON.stringify({ sessionId: 'sflow', prompt: 'thanks' })).status, 0);
+  launch('boundary-guard');
+  assert.equal(nodeStarts(), 3, 'a native prompt removed the record; the guard answers without Node again');
+});
+
+test('a runtime that cannot load keeps the shell guard failing closed until a working one takes a prompt', {
+  skip: process.platform === 'win32'
+}, async t => {
+  const item = await fixture(t);
+  const boundaries = path.join(item.directory, 'copilot-boundaries');
+  const broken = item.invoke('boundary-guard', ['/missing/bin/singularity-flow.mjs']);
+  assert.equal(JSON.parse(broken.stdout).permissionDecision, 'deny');
+  assert.deepEqual(readdirSync(boundaries), [RUNTIME_UNAVAILABLE_MARKER], 'the shell launcher now sends hooks to Node');
+  const bin = path.join(item.directory, 'host-bin');
+  await mkdir(bin);
+  const started = path.join(item.directory, 'node-started');
+  // A stand-in node that only records being started: the marker must send the guard to Node,
+  // whose bootstrap refuses for a runtime it cannot load (shown above).
+  await writeFile(path.join(bin, 'node'), `#!/bin/sh\necho started >> '${started}'\necho '{}'\n`, { mode: 0o755 });
+  const shellGuard = spawnSync('/bin/bash', [path.join(pluginRoot, 'hook-launcher.sh'), 'boundary-guard'], {
+    cwd: item.cwd, env: { ...item.env, PATH: `${bin}:/usr/bin:/bin` }, input: '{"sessionId":"native"}', encoding: 'utf8', timeout: 10_000
+  });
+  assert.equal(shellGuard.status, 0, shellGuard.stderr);
+  assert.equal(existsSync(started), true, 'not answered by the shell fast path');
+  assert.deepEqual(JSON.parse(item.invoke('boundary-turn', [cli], '{"sessionId":"native","prompt":"hello"}').stdout), {});
+  assert.deepEqual(readdirSync(boundaries), [], 'a working runtime cleared the marker');
 });

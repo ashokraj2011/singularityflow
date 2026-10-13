@@ -1,13 +1,29 @@
-import { existsSync, realpathSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const [action, ...candidates] = process.argv.slice(2);
 const actions = new Set(['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start']);
-const unavailable = () => console.log(JSON.stringify(action === 'boundary-guard' ? {
-  permissionDecision: 'deny', permissionDecisionReason:
-    'SFLOW_HOOK_RUNTIME_UNAVAILABLE: Copilot cannot load the installed SFlow runtime. From a human terminal repair the installation, run singularity-flow plugin install, then reload VS Code. Preserve the Story; do not disable hooks or change its ID.'
-} : {}));
+// The shell launcher skips Node while no SFlow turn is recorded. A runtime that cannot load could
+// not record one either, so leave a marker (RUNTIME_UNAVAILABLE_MARKER in
+// copilot-repository-boundary.mjs) that sends later hooks back here, where the guard refuses.
+function markRuntimeUnavailable() {
+  try {
+    const modeFile = path.resolve(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE
+      || path.join(os.homedir(), '.singularity-flow', 'copilot-mode.json'));
+    const directory = path.join(path.dirname(modeFile), 'copilot-boundaries');
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    writeFileSync(path.join(directory, 'runtime-unavailable'), '', { mode: 0o600 });
+  } catch { /* the refusal below still answers this hook */ }
+}
+const unavailable = () => {
+  markRuntimeUnavailable();
+  console.log(JSON.stringify(action === 'boundary-guard' ? {
+    permissionDecision: 'deny', permissionDecisionReason:
+      'SFLOW_HOOK_RUNTIME_UNAVAILABLE: Copilot cannot load the installed SFlow runtime. From a human terminal repair the installation, run singularity-flow plugin install, then reload VS Code. Preserve the Story; do not disable hooks or change its ID.'
+  } : {}));
+};
 
 // No repository fallback, package download, shell profile, eval, or arbitrary supplied executable.
 function packageFor(candidate) {

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { commandDefinition, operationById, resolveOperation } from './command-registry.mjs';
 import {
@@ -20,7 +20,7 @@ import { installFileLeaseSignalHandlers } from './file-lease.mjs';
 import { configurationReviewRetryDue, firstRunPassDue } from './product-alignment-gate.mjs';
 import { productRequirementDue } from './product-requirement-gate.mjs';
 import { withCliJsonOutput } from './cli-json-output.mjs';
-import { copilotModePresentation, readCopilotMode } from './copilot-mode.mjs';
+import { copilotModeFile, copilotModePresentation, readCopilotMode } from './copilot-mode.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
@@ -128,6 +128,17 @@ function askPublicationTipEarly(root) {
       const current = branch(root);
       if (url && current) prefetchRemoteBranchObservation(root, url, current, exactRemoteBranchObservationAsync);
     }).catch(() => { /* the command asks at publication */ });
+}
+
+/**
+ * Whether any Copilot turn holds a mutation contract on this machine. Only then can a command's
+ * result change one, so only then is the guard (and, when stale, the whole Story) loaded after it.
+ */
+function hasMutationContracts() {
+  try {
+    return readdirSync(path.join(path.dirname(copilotModeFile()), 'copilot-boundaries'))
+      .some(name => name.endsWith('.mutation.json'));
+  } catch { return false; }
 }
 
 function rootIfAvailable(cwd = process.cwd()) {
@@ -842,13 +853,18 @@ async function runMain(argv) {
     // A command that did not publish leaves its early remote ask unanswered; never wait for it.
     const result = await withCommandTiming(timer, guardedExecute).finally(abandonRemoteBranchObservations);
     timer.stage('execute');
+    // The handler has printed its result; what follows is bookkeeping the person does not wait on
+    // to read it, though the host still waits for the process. Each part is its own timed stage.
+    timer.feedback();
     // A private refresh cannot turn a successful publication into a replayable failure.
-    if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && definition.name !== 'hook' && root) {
+    if (!LOCAL_STATE_RESET_COMMANDS.has(definition.name) && definition.name !== 'hook' && root
+        && hasMutationContracts()) {
       await import('./copilot-mutation-guard.mjs').then(module => module.refreshMutationContracts(root, null, {
         decisionEnded: ['approve', 'reject'].includes(definition.name)
           || definition.name === 'review-source' && positionals[1] === 'decide',
         advanceBaseline: operation.classification === 'mutation'
       })).catch(() => {});
+      timer.stage('contract-refresh');
     }
     /**
      * Private return memory is downstream of authority, never inside its transaction.
@@ -871,6 +887,7 @@ async function runMain(argv) {
           console.warn(`Local journal capture was skipped: ${error.message}`);
         }
       });
+      timer.stage('journal');
     }
     // Even legacy handlers that print directly instead of using the narration boundary have now
     // produced their terminal result. Record that as feedback before sealing the timing event so

@@ -394,6 +394,19 @@ function recoveryRoutes(contract) {
 }
 
 /** Cache refresh is a best-effort tail, never a reason to retry a successful mutation. */
+/** Whether a record was derived from the Story file and the checkout's HEAD/ref files as they are now. */
+async function bindingCurrent(value) {
+  try {
+    if (!value?.contract || !value.binding?.workflowFile) return false;
+    if (digest(await readFile(value.binding.workflowFile)) !== value.binding.workflowSha256) return false;
+    for (const stamp of value.binding.stamps ?? []) {
+      const bytes = await readFile(stamp.file).catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
+      if (digest(bytes) !== stamp.sha256) return false;
+    }
+    return true;
+  } catch { return false; }
+}
+
 export async function refreshMutationContracts(root, accepted = null, { decisionEnded = false, advanceBaseline = false } = {}) {
   if (readCopilotMode().paused || !root) return;
   root = await realpath(root);
@@ -405,11 +418,21 @@ export async function refreshMutationContracts(root, accepted = null, { decision
     if ((value?.contract?.repositoryRoot ?? value?.repositoryRoot) === path.resolve(root)) entries.push({ file, value });
   }
   if (!entries.length) return;
+  // Only live turns are rebuilt; a record left by an ended chat is not. When every live record was
+  // derived from the Story file and HEAD/ref files as they are now, rebuilding gives the same records:
+  // after a read-only command this reloaded the whole Story for nothing, about five seconds on a
+  // Windows machine. A decision ending or a shell baseline advancing still rebuilds.
+  const live = [];
+  for (const entry of entries) {
+    const record = await turn({ sessionId: entry.value.sessionId });
+    if (record && record.turnId === entry.value.turnId) live.push({ ...entry, record });
+  }
+  if (!live.length) return;
+  if (!decisionEnded && !advanceBaseline
+      && (await Promise.all(live.map(({ value }) => bindingCurrent(value)))).every(Boolean)) return;
   accepted ??= await loadStory(root);
-  for (const { file, value } of entries) {
+  for (const { file, value, record } of live) {
     const payload = { sessionId: value.sessionId };
-    const record = await turn(payload);
-    if (!record || record.turnId !== value.turnId) continue;
     const next = await createRecord(payload, record, root, accepted, value);
     if (decisionEnded && ['approval-only', 'review-decision-only'].includes(next.contract.turnMode)) next.decisionEnded = true;
     if (value.baseline && advanceBaseline) next.baseline = await shellSnapshot(root);

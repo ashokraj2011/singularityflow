@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -601,4 +601,26 @@ test('literal answer punctuation and PowerShell argv do not become shell operato
     assert.match(refused.permissionDecisionReason, /PHASE_MUTATION_SHELL_COMMAND_UNVERIFIED/);
     assert.doesNotMatch(refused.permissionDecisionReason, /PHASE_MUTATION_TURN_READ_ONLY/);
   }
+});
+
+test('after a command that changed nothing, current contracts are not rebuilt and the Story is not reloaded', async t => {
+  // This refresh runs after every command. It reloaded the whole Story to rebuild identical records,
+  // about five seconds per read-only command on a Windows machine. The fixture is not a loadable
+  // Story, so any reload here would reject.
+  const f = await fixture(t);
+  const payload = await f.enter('/sf-phase');
+  const contracts = path.join(path.dirname(process.env.SINGULARITY_FLOW_COPILOT_MODE_FILE), 'copilot-boundaries');
+  const recordPath = path.join(contracts, (await readdir(contracts)).find(name => name.endsWith('.mutation.json')));
+  const before = await readFile(recordPath, 'utf8');
+  await refreshMutationContracts(f.root, null);
+  assert.equal(await readFile(recordPath, 'utf8'), before, 'nothing rebuilt or rewritten');
+
+  // A changed Story file is rebuilt (with the accepted Story supplied, as the CLI would load it).
+  f.workflow.phases[f.phase.id].generation = 1;
+  await writeFile(f.workflowFile, JSON.stringify(f.workflow));
+  await assert.rejects(refreshMutationContracts(f.root, null), 'a stale binding reloads the Story');
+  await refreshMutationContracts(f.root, f.accepted);
+  assert.notEqual(await readFile(recordPath, 'utf8'), before, 'rebuilt against the new Story file');
+  assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'view', toolArgs: { path: 'src/App.jsx' } }), {});
+
 });

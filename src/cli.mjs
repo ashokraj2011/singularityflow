@@ -14893,9 +14893,11 @@ async function editorCommand(positionals, options, namespace = 'configuration') 
     explainSmartInitialization(root, { pointer: optionString(options, 'pointer') })
   ));
   else if (subcommand === 'snapshot') result = await repositorySnapshot(root, positionals[2], optionString(options, 'initiative'));
-  else if (subcommand === 'validate') result = await withApprovedConfigurationRead(
-    root, () => validateEditorConfiguration(root)
-  );
+  else if (subcommand === 'validate') {
+    result = await withApprovedConfigurationRead(root, () => validateEditorConfiguration(root));
+    // A failure is a refusal listing every problem with its line; success needs one plain sentence.
+    if (!optionBoolean(options, 'json')) return void console.log(`Configuration is valid: ${result.workTypes} work type(s), ${result.phases} phase(s), ${result.agents} agent(s).`);
+  }
   else if (subcommand === 'save') {
     const requestedPath = requirePositional(positionals, 2, 'configuration path');
     const content = await stdinText();

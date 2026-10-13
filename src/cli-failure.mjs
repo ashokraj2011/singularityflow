@@ -51,6 +51,12 @@ export async function reportCliFailure(error, argv = []) {
     if (json) console.log(JSON.stringify(envelope, null, 2));
     else {
       console.error(`\nSingularity Flow error: ${redactDiagnosticText(error?.message ?? String(error), { multiline: true })}`);
+      // A broken workflow.yml names every problem, located and with its fix, not just the first.
+      const problems = Array.isArray(error?.details?.configurationProblems) ? error.details.configurationProblems : [];
+      if (problems.length) {
+        const { formatConfigurationProblems } = await import('./configuration-diagnostics.mjs');
+        console.error(`\n${redactDiagnosticText(formatConfigurationProblems(problems).join('\n'), { multiline: true })}`);
+      }
       console.error(`\n${renderRefusalPlan(envelope.remediationPlan)}`);
       if (structuredBeside) console.error(`\n${REFUSAL_ENVELOPE_MARKER}\n${JSON.stringify(envelope)}`);
     }

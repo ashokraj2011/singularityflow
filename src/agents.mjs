@@ -7,7 +7,7 @@ import { copyFile, mkdir, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { parseYamlText } from './yaml-parse-cache.mjs';
-import { exists, nowIso, posix, secureRepositoryPath, snapshot, writeBytes, writeJson, writeText, SingularityFlowError } from './util.mjs';
+import { exists, nearestNames, nowIso, posix, secureRepositoryPath, snapshot, writeBytes, writeJson, writeText, SingularityFlowError } from './util.mjs';
 import {
   DEFAULT_REMOTE_MAX_BYTES, HARD_REMOTE_MAX_BYTES, fetchRemoteMarkdown, validatePublicHttpsUrl
 } from './remote-fetch.mjs';
@@ -309,12 +309,15 @@ export function validateAgentCatalog(agents, definition) {
     // them made an otherwise valid older v2 workflow unload when the extension was upgraded.
     if (agent.scope === 'repository' && !EXACT_PACKAGED_REPOSITORY_AGENTS.has(agent)) {
       for (const phase of [...agent.phases, ...agent.defaultFor]) {
-        if (!phaseIds.has(phase)) throw new SingularityFlowError(
-          `Agent '${agent.id}' references unknown phase '${phase}'.`, {
-            code: 'AGENT_PHASE_UNKNOWN',
-            details: { agentId: agent.id, phaseId: phase, source: agent.source ?? null }
-          }
-        );
+        if (!phaseIds.has(phase)) {
+          const [suggestion] = nearestNames(phase, [...phaseIds], { limit: 1 });
+          throw new SingularityFlowError(
+            `Agent '${agent.id}' references unknown phase '${phase}'.${suggestion ? ` Did you mean '${suggestion}'?` : ''}`, {
+              code: 'AGENT_PHASE_UNKNOWN',
+              details: { agentId: agent.id, phaseId: phase, source: agent.source ?? null, ...(suggestion ? { suggestion } : {}) }
+            }
+          );
+        }
       }
       for (const attachment of agent.librarySkills ?? []) {
         for (const phase of attachment.phases) {

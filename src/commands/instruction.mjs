@@ -26,7 +26,7 @@ export function validateInstructionRequest({ positionals, options }) {
   return action;
 }
 
-export async function run(argv, { positionals, options, applyChangeSet }) {
+export async function run(argv, { positionals, options, applyChangeSet, printResult = null }) {
   const action = validateInstructionRequest({ positionals, options });
   if (INSTRUCTION_CHANGES.includes(action) && !applyChangeSet) return (await import('./legacy.mjs')).run(argv);
   const [{ repoRoot }, { withApprovedConfigurationRead }, { buildStudioModel, STUDIO_CHANGE_SET_SCHEMA }] = await Promise.all([
@@ -56,10 +56,13 @@ export async function run(argv, { positionals, options, applyChangeSet }) {
     subject: change.id, message: `[configuration] instruction ${action}: ${change.id}`
   });
   const preview = options['dry-run'] === true;
+  // People read the same lines skill changes print: what changed, any problem, and the next step.
+  if (!options.json && printResult) return printResult(result, { dryRun: preview });
   return emitCommandResult(commandResult({ operation: { id: `instruction.${action}${preview ? '.preview' : ''}`, classification: preview ? 'read' : 'mutation' },
     outcome: (result.valid === false ? noop : succeeded)('instruction.changed', { action, status: result.reviewRequired ? 'proposal awaiting human review' : result.valid === false ? 'correction required' : preview ? 'preview only' : 'applied' }),
     effects: effects({ filesChanged: !preview && result.valid !== false && !result.reviewRequired && Boolean(result.files?.length), externalSystemsChanged: Boolean(result.reviewRequired) }),
-    next: result.nextAction?.command ? [nextAction({ id: 'configuration-review', label: 'Review the exact configuration proposal.', command: result.nextAction.command })] : [],
+    next: (result.nextAction?.command ?? (typeof result.nextAction === 'string' ? result.nextAction : null))
+      ? [nextAction({ id: 'configuration-review', label: 'Review the exact configuration proposal.', command: result.nextAction?.command ?? result.nextAction })] : [],
     restState: 'informational', data: { result }
   }), { json: Boolean(options.json), restStateWhenIdle: 'informational' });
 }

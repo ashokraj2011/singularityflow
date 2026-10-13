@@ -11,14 +11,26 @@
  */
 import * as vscode from 'vscode';
 import { realpathSync } from 'node:fs';
+import path from 'node:path';
 import { isGovernedConfiguration } from './governed.ts';
 import type { SingularityFlowClient } from './cli/client.ts';
+import { CliError } from './cli/runner.ts';
 import { LatestSingleFlight } from './single-flight.ts';
+
+/** One located workflow.yml problem from a refusal's `error.details.configurationProblems`. */
+interface ConfigurationProblem {
+  file?: string;
+  line?: number;
+  column?: number;
+  message?: string;
+  fix?: string;
+}
 
 interface ValidationReport {
   valid?: boolean;
   errors?: string[];
   error?: string;
+  problems?: ConfigurationProblem[];
   /** Internal cancellation receipt; never emitted by the CLI. */
   repositoryMoved?: true;
 }
@@ -26,10 +38,10 @@ interface ValidationReport {
 /**
  * Ask the engine, and turn the answer into diagnostics on the file that was saved.
  *
- * `configuration validate` reports on the configuration as a whole rather than per line, so the diagnostic
- * sits at the top of the file. That is honest about what was checked: the problem may well be a
- * reference between two files, and pointing at a line would invent a precision the check does not
- * have.
+ * A refusal that locates its problems (every workflow.yml problem, with file, line and fix) puts each
+ * diagnostic on that line of that file. Anything the engine did not locate sits at the top of the
+ * saved file: the problem may be a reference between two files, and pointing at a line would invent
+ * a precision the check does not have.
  */
 export class ConfigurationValidator implements vscode.Disposable {
   private readonly diagnostics = vscode.languages.createDiagnosticCollection('singularityFlow');
@@ -83,7 +95,7 @@ export class ConfigurationValidator implements vscode.Disposable {
         } catch (error) {
           // A non-zero exit is itself the finding: the CLI refuses to report on a configuration it
           // cannot load, and its message is the useful part.
-          return { valid: false, error: (error as Error).message };
+          return { valid: false, error: (error as Error).message, problems: configurationProblems(error) };
         }
       });
       this.flights.set(repository, flight);
@@ -96,21 +108,38 @@ export class ConfigurationValidator implements vscode.Disposable {
     // A later save after switching back will request a fresh run through the same coordinator.
     if (this.disposed || report.repositoryMoved || repository !== this.client.repository) return;
 
-    if (report.valid) {
-      this.diagnostics.delete(document.uri);
-      return;
-    }
+    // Located problems may sit in a file other than the one saved, so the whole set is replaced.
+    this.diagnostics.clear();
+    if (report.valid) return;
 
-    const messages = report.errors?.length ? report.errors : [report.error ?? 'The configuration is not valid.'];
-    this.diagnostics.set(document.uri, messages.map((message) => {
-      const diagnostic = new vscode.Diagnostic(
-        new vscode.Range(0, 0, 0, 0),
-        message,
-        vscode.DiagnosticSeverity.Error
-      );
+    const located = new Map<string, vscode.Diagnostic[]>();
+    const add = (uri: vscode.Uri, range: vscode.Range, message: string) => {
+      const diagnostic = new vscode.Diagnostic(range, message, vscode.DiagnosticSeverity.Error);
       diagnostic.source = 'Singularity Flow';
-      return diagnostic;
-    }));
+      located.set(uri.fsPath, [...(located.get(uri.fsPath) ?? []), diagnostic]);
+    };
+    const uris = new Map<string, vscode.Uri>();
+    // The repository path is canonical while the editor keeps the path a file was opened by
+    // (/var vs /private/var on macOS), so a problem in the saved file uses the saved file's own URI.
+    const real = (file: string) => { try { return realpathSync(file); } catch { return file; } };
+    const saved = real(document.uri.fsPath);
+    for (const problem of report.problems ?? []) {
+      const relative = typeof problem.file === 'string' ? problem.file : '';
+      const inside = relative && !path.isAbsolute(relative) && !relative.split(/[\\/]/u).includes('..');
+      const line = Number.isSafeInteger(problem.line) && (problem.line as number) > 0 ? (problem.line as number) - 1 : null;
+      if (!inside || line == null || !problem.message) continue;
+      const target = path.join(repository, relative);
+      const uri = real(target) === saved ? document.uri : vscode.Uri.file(target);
+      const column = Number.isSafeInteger(problem.column) && (problem.column as number) > 0 ? (problem.column as number) - 1 : 0;
+      uris.set(uri.fsPath, uri);
+      add(uri, new vscode.Range(line, column, line, Number.MAX_SAFE_INTEGER), problem.fix ? `${problem.message} Fix: ${problem.fix}` : problem.message);
+    }
+    if (!located.size) {
+      const messages = report.errors?.length ? report.errors : [report.error ?? 'The configuration is not valid.'];
+      uris.set(document.uri.fsPath, document.uri);
+      for (const message of messages) add(document.uri, new vscode.Range(0, 0, 0, 0), message);
+    }
+    for (const [key, entries] of located) this.diagnostics.set(uris.get(key) as vscode.Uri, entries);
   }
 
   dispose(): void {
@@ -119,4 +148,11 @@ export class ConfigurationValidator implements vscode.Disposable {
     this.subscription.dispose();
     this.diagnostics.dispose();
   }
+}
+
+/** The located problems a structured refusal carries, or none. */
+function configurationProblems(error: unknown): ConfigurationProblem[] {
+  if (!(error instanceof CliError) || !error.result || typeof error.result !== 'object') return [];
+  const problems = (error.result as { error?: { details?: { configurationProblems?: unknown } } }).error?.details?.configurationProblems;
+  return Array.isArray(problems) ? problems.filter((problem): problem is ConfigurationProblem => Boolean(problem) && typeof problem === 'object').slice(0, 50) : [];
 }

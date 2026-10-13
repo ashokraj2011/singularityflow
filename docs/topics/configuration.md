@@ -10,7 +10,7 @@ related:
   - pins
   - quick-fix
   - escalation
-version: 4
+version: 5
 commands:
   - configuration
   - workflow
@@ -72,6 +72,7 @@ These commands can mutate governed or machine-local state: `configuration`, `wor
 
 ## Troubleshooting
 
+- If `singularity/workflow.yml` has a mistake, every command that reads it refuses and lists every problem in the file, not just the first. Each problem names its line, quotes it, suggests the likely intended name ("Did you mean 'requirements'?") and gives one fix. YAML mistakes such as a misaligned line are explained in plain words, with the indentation the line belongs at. Run `singularity-flow configuration validate` to check again; it prints one line when the configuration is valid, and `--json` returns the problems under `error.details.configurationProblems`. In VS Code, saving the file shows each problem on its line.
 - If the selected Story or branch is wrong, stop and use `sflow home`, `sflow session`, or `sflow workspace list` before retrying.
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.

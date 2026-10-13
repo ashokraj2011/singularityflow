@@ -511,7 +511,7 @@ test('workflow proposals publish from approved configuration without changing th
     ]).stdout);
     assert.deepEqual(proposed.workTypes['customer-onboarding'].phases, ['requirements', 'implementation']);
     assert.equal(proposed.workTypes['customer-onboarding'].plannedClaims.mode, 'required');
-    assert.match(result.nextAction, /Review .*workflow review.*activate the exact reviewed revision/);
+    assert.equal(result.nextAction, `singularity-flow workflow proposal ${result.branch} --json`);
 
     const retried = spawnSync(process.execPath, [
       cli, 'workflow', 'create', 'customer-onboarding',

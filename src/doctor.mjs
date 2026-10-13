@@ -190,8 +190,14 @@ export async function doctorSnapshot(root, {
     initialization.complete ? 'pass' : initialization.configurationError ? 'fail' : 'warn',
     initialization.complete
       ? `All ${initialization.expectedFiles.length} packaged initialization assets are present and valid.`
-      : `${initialization.missingFiles.length} packaged initialization asset(s) are missing.${initialization.configurationError ? ` ${initialization.configurationError}` : ''}`,
-    initialization.complete ? null : 'Run singularity-flow init --repair on the current branch, then rerun singularity-flow doctor.'
+      // Every file present but the configuration not loading is an edit to fix, not a missing asset.
+      : !initialization.missingFiles.length && initialization.configurationError
+        ? `All packaged initialization assets are present, but the workflow configuration does not load: ${initialization.configurationError}`
+        : `${initialization.missingFiles.length} packaged initialization asset(s) are missing.${initialization.configurationError ? ` ${initialization.configurationError}` : ''}`,
+    initialization.complete ? null
+      : !initialization.missingFiles.length && initialization.configurationError
+        ? 'Run singularity-flow configuration validate to see every problem with its line and fix, correct them, then rerun singularity-flow doctor.'
+        : 'Run singularity-flow init --repair on the current branch, then rerun singularity-flow doctor.'
   ));
   const workflowConfig = path.join(root, WORKFLOW_PATH);
   if (!existsSync(workflowConfig)) {

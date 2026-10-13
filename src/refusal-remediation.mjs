@@ -359,6 +359,33 @@ const UPGRADE_KNOWN = Object.freeze({
 
 export const UPGRADE_GUIDED_CODES = Object.freeze(Object.keys(UPGRADE_KNOWN));
 
+/** A broken workflow.yml: fix the first located problem, then check the whole file again. */
+function configurationProblemSteps(error) {
+  const problems = error.details.configurationProblems;
+  const [first] = problems;
+  const where = [first.file, first.line != null ? `line ${first.line}` : null].filter(Boolean).join(', ');
+  const others = problems.length - 1;
+  return [
+    step('fix-configuration-problem',
+      `Fix ${where || 'the configuration'}: ${first.fix ?? first.message}${others === 1 ? ' Then fix the other problem listed above.' : others ? ` Then fix the other ${others} problems listed above.` : ''}`,
+      null, 'remediation'),
+    step('check-configuration', 'Check the configuration again; every remaining problem is listed with its line.',
+      'singularity-flow configuration validate', 'diagnostic')
+  ];
+}
+
+/** No sflow/config yet: refresh in case it exists remotely, otherwise set it up once. */
+function missingAuthoritySteps() {
+  return [
+    step('preview-configuration-refresh',
+      'If this repository already has an approved configuration branch (sflow/config) on its remote, preview refreshing the workspace configuration so this checkout can see it.',
+      'singularity-flow workspace refresh-configuration --dry-run', 'configuration'),
+    step('set-up-configuration-authority',
+      'If it has none yet, set it up once: in VS Code use Map a capability → Check repository → Set up, or run singularity-flow bootstrap <REPOSITORY-URL> --capability <ID>. It creates sflow/config and the state branch without touching your default branch; then retry.',
+      null, 'remediation')
+  ];
+}
+
 function missingConfigurationSteps() {
   return [
     step('diagnose-story-configuration',
@@ -615,7 +642,15 @@ const KNOWN = Object.freeze({
     step('inspect-story-worktrees', 'Keep the recovery checkpoint and inspect the available workspace and Story worktrees.',
       'singularity-flow workspace list --json')
   ],
-  AGENT_PHASE_UNKNOWN: () => [
+  CONFIGURATION_PROPOSAL_AUTHORITY_MISSING: () => missingAuthoritySteps(),
+  WORKFLOW_PROPOSAL_AUTHORITY_MISSING: () => missingAuthoritySteps(),
+  // A near-miss phase ID in a repository agent is a typo in that file, not outdated configuration.
+  AGENT_PHASE_UNKNOWN: (argv, error) => typeof error?.details?.suggestion === 'string' ? [
+    step('fix-agent-phase',
+      `Edit ${typeof error.details.source === 'string' ? redactDiagnosticText(error.details.source).slice(0, 300) : 'the agent file'}: change '${redactDiagnosticText(String(error.details.phaseId ?? '')).slice(0, 120)}' to '${redactDiagnosticText(error.details.suggestion).slice(0, 120)}', or add that phase to singularity/workflow.yml.`,
+      null, 'remediation'),
+    step('check-configuration', 'Check the configuration again.', 'singularity-flow configuration validate', 'diagnostic')
+  ] : [
     step('preview-configuration-refresh',
       'Open VS Code → Workspaces → Fast onboarding & Git → Safely reinitialize capabilities & workspaces, preview the selected workspace, then use Repair missing or outdated agents when offered.',
       'singularity-flow workspace refresh-configuration --dry-run', 'configuration'),
@@ -881,7 +916,9 @@ export function refusalRemediationPlan(error, argv = []) {
       || (entry?.argv?.[0] === 'phase' && entry?.argv?.[1] === 'approve')
     ));
   }
-  const known = (KNOWN[code]?.(argv, error) ?? []).filter(Boolean);
+  const configurationProblemsBlocked = Array.isArray(error?.details?.configurationProblems)
+    && error.details.configurationProblems.length > 0;
+  const known = (configurationProblemsBlocked ? configurationProblemSteps(error) : KNOWN[code]?.(argv, error) ?? []).filter(Boolean);
   const authoringIncomplete = code === 'ARTIFACT_AUTHORING_INCOMPLETE' && known.length > 0;
   // A producer action that repeats a known step's exact command adds a second label, not a route.
   const nonDuplicateExplicit = explicit.filter((entry) => !entry?.command
@@ -890,7 +927,8 @@ export function refusalRemediationPlan(error, argv = []) {
   // broad command help/doctor/recommend fallbacks are reserved for errors that carry no safe phase
   // identity. This makes future uncoded phase refusals recoverable without adding another code-keyed
   // entry here, and keeps approval repair outside the approval-only turn.
-  const ordered = repositoryRunnerBlocked || pinnedTestPolicyBlocked || softGateBlocked || unknownRecoveryPhase ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
+  const ordered = configurationProblemsBlocked ? [...known, ...nonDuplicateExplicit]
+    : repositoryRunnerBlocked || pinnedTestPolicyBlocked || softGateBlocked || unknownRecoveryPhase ? known : skillHostBlocked ? skillHostPrerequisiteSteps(error, phaseContext) : phaseContext
     ? phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
@@ -930,6 +968,8 @@ export function refusalRemediationPlan(error, argv = []) {
     ? 'Do not retry clarification recording while the pinned mode is off; continue the phase instead.'
     : softGateBlocked
     ? 'Run it again with the override added, or take the Story\'s next step; repeating it unchanged is refused the same way.'
+    : configurationProblemsBlocked
+      ? 'Retry the original command once the configuration check reports no problems.'
     : authoringIncomplete
       ? 'Retry the original command only after the author has corrected every finding and the same read-only prepublish check reports ready.'
       : 'Retry the original command only after the blocking condition is resolved.';
@@ -996,6 +1036,15 @@ export function refusalDetails(details) {
   if (obligations.length) projected.obligations = obligations;
   const gate = projectGateRefusal(details.gate);
   if (gate) projected.gate = gate;
+  // Located workflow.yml problems, so every surface can point at the exact line and its fix.
+  const position = (value) => (Number.isSafeInteger(value) && value > 0 ? value : null);
+  const configurationProblems = list(details.configurationProblems, (problem) => (problem && typeof problem === 'object' ? compact({
+    code: text(problem.code), file: text(problem.file), line: position(problem.line), column: position(problem.column),
+    path: Array.isArray(problem.path) ? problem.path.slice(0, 32).map((part) => (typeof part === 'number' ? part : text(String(part)))) : null,
+    message: text(problem.message), fix: text(problem.fix), source: text(problem.source), suggestion: text(problem.suggestion),
+    choices: Array.isArray(problem.choices) ? list(problem.choices, text).slice(0, 20) : null
+  }) : null));
+  if (configurationProblems.length) projected.configurationProblems = configurationProblems;
   if (details.modelBudget && typeof details.modelBudget === 'object') {
     const budget = {};
     if (text(details.modelBudget.viewId)) budget.viewId = text(details.modelBudget.viewId);

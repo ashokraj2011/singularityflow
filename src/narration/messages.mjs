@@ -28,7 +28,7 @@ function finalCheckSentence(s) {
 
 export const MESSAGES = Object.freeze({
   'instruction.inspected': { headline: s => slot(s.text), preserves: true },
-  'instruction.changed': { headline: s => `Instruction ${slot(s.action)}: ${slot(s.status)}. See the exact result for files and findings; configuration proposal creation is not approval.` },
+  'instruction.changed': { headline: s => `Instruction ${slot(s.action)}: ${slot(s.status)}.` },
   'appeal.inspected': {
     headline: (s) => `Phase appeal ${slot(s.action)}: ${slot(s.status)}. Read-only inspection; no tests, changes, risk acceptance or phase advance.`,
     preserves: true

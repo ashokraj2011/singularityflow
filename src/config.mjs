@@ -1418,9 +1418,13 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     type: 'file'
   });
   if (workflow.exists) {
-    const definition = applyWorkflowCompatibility(
-      parseYamlText(await readFile(workflow.absolute, 'utf8'))
-    );
+    const workflowText = await readFile(workflow.absolute, 'utf8');
+    // A broken workflow.yml is refused exactly as before; the refusal also carries every problem in
+    // the file, located and with its fix. Only this failure path pays for the diagnosis.
+    const diagnosed = error => withWorkflowDiagnostics(definitionRoot, workflowText, error, { storyBootstrap });
+    let parsed;
+    try { parsed = parseYamlText(workflowText); } catch (error) { throw await diagnosed(error); }
+    const definition = applyWorkflowCompatibility(parsed);
     // An accepted Story owns exact governed-agent bytes in its WFA closure. Parsing today's live
     // files before that closure is even located would let a deleted or malformed replacement deny
     // offline resume. Bootstrap therefore loads only the declarative workflow shape; the shared
@@ -1446,15 +1450,13 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     try {
       validateDefinition(definition, { storyBootstrap });
     } catch (error) {
-      if (error instanceof SingularityFlowError && /contains unknown field/.test(error.message)) {
-        throw new SingularityFlowError(
-          `${error.message} This build is ${VERSION}. A governed configuration written by a newer release carries policy `
-          + 'this version cannot enforce, so it is refused rather than partly applied. Upgrade Singularity Flow, or check '
-          + 'out the configuration revision that matches this build.',
-          { code: error.code ?? 'CONFIGURATION_UNKNOWN_FIELD', cause: error }
-        );
-      }
-      throw error;
+      if (!(error instanceof SingularityFlowError && /contains unknown field/.test(error.message))) throw await diagnosed(error);
+      throw await diagnosed(new SingularityFlowError(
+        `${error.message} If you typed this field, check its spelling. This build is ${VERSION}. A governed configuration written by a newer release carries policy `
+        + 'this version cannot enforce, so it is refused rather than partly applied. Upgrade Singularity Flow, or check '
+        + 'out the configuration revision that matches this build.',
+        { code: error.code ?? 'CONFIGURATION_UNKNOWN_FIELD', cause: error }
+      ));
     }
     if (!storyBootstrap) {
       validateAgentCatalog(agents, definition);
@@ -1493,7 +1495,7 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
           label: `Template for work type '${workTypeId}' phase '${phase.id}'`,
           type: 'file'
         });
-        if (!template.exists) throw new SingularityFlowError(`Template missing for work type '${workTypeId}' phase '${phase.id}': ${path.posix.join(definition.templatesRoot, phase.template)}`);
+        if (!template.exists) throw await diagnosed(new SingularityFlowError(`Template missing for work type '${workTypeId}' phase '${phase.id}': ${path.posix.join(definition.templatesRoot, phase.template)}`));
       }
       await validateAgentBriefHeadingContracts(root, definition);
     }
@@ -1508,6 +1510,34 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
   throw new SingularityFlowError(`Missing ${WORKFLOW_PATH}. Run: singularity-flow init`, {
     code: 'WORKFLOW_CONFIGURATION_MISSING'
   });
+}
+
+/**
+ * The same refusal, carrying every located problem in workflow.yml under
+ * `details.configurationProblems`. A YAML syntax error becomes a SingularityFlowError in plain words
+ * (code WORKFLOW_YAML_INVALID) instead of the parser's own message. If the diagnosis itself fails,
+ * the original refusal stands untouched.
+ */
+async function withWorkflowDiagnostics(definitionRoot, text, error, { storyBootstrap = false } = {}) {
+  try {
+    const { diagnoseWorkflowText } = await import('./configuration-diagnostics.mjs');
+    const problems = await diagnoseWorkflowText(text, {
+      root: definitionRoot, validate: (candidate) => validateDefinition(candidate, { storyBootstrap }),
+      prepare: applyWorkflowCompatibility, resolveWorkType: storyBootstrap ? null : resolveWorkType, isAgentTemplateReference
+    });
+    if (!problems.length) return error;
+    if (!(error instanceof SingularityFlowError)) {
+      const [first] = problems;
+      return new SingularityFlowError(
+        `${WORKFLOW_PATH} is not valid YAML at line ${first.line ?? '?'}: ${first.message}${first.fix ? ` ${first.fix}` : ''}`,
+        { code: 'WORKFLOW_YAML_INVALID', details: { configurationProblems: problems }, cause: error }
+      );
+    }
+    error.details = { ...(error.details ?? {}), configurationProblems: problems };
+    return error;
+  } catch {
+    return error;
+  }
 }
 
 // Copy every file from `source` that is absent at `destination`, recursively, without touching

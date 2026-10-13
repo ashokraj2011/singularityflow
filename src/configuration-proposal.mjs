@@ -1055,7 +1055,8 @@ export async function proposeConfigurationChange(root, {
     const reviewBranch = `${REVIEW_PREFIX}${label}-${baseCommit.slice(0, 8)}-${tree.slice(0, 12)}`;
     const stateService = await openConfigurationStateService(root, remoteUrl);
     const proposalId = stateService.identity(reviewBranch);
-    const nextAction = `Review ${reviewBranch} with singularity-flow workflow review, then activate the exact reviewed revision.`;
+    // A real command: it shows the proposal and the exact activation command for that revision.
+    const nextAction = workflowProposalCommand('proposal', reviewBranch);
     const existingCommit = await existingProposalCommit(remoteUrl, reviewBranch, remoteSession);
     if (existingCommit) {
       const remoteProposalRef = `refs/heads/${reviewBranch}`;

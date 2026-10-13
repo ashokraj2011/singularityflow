@@ -345,6 +345,10 @@ function stubVscode() {
           registered.diagnostics.delete(target);
           registered.diagnosticEvents.push({ kind: 'delete', target });
         },
+        clear: () => {
+          registered.diagnostics.clear();
+          registered.diagnosticEvents.push({ kind: 'clear' });
+        },
         dispose() {}
       })
     },
@@ -4127,9 +4131,28 @@ test('saving governed configuration asks the engine, and a broken file is report
   const validSaveEvent = registered.diagnosticEvents.length;
   registered.saveListeners[0](document);
   await until(() => registered.diagnosticEvents.slice(validSaveEvent)
-    .some((event) => event.kind === 'delete' && event.target === workflow) ? true : null,
+    .some((event) => event.kind === 'clear') ? true : null,
   { what: 'the valid configuration save diagnostic completion' });
   assert.equal(registered.diagnostics.get(workflow), undefined);
+  const valid = await readFile(workflow, 'utf8');
+
+  // A misspelled phase is reported on its own line, with the suggested fix, not at the top.
+  const lines = valid.split('\n');
+  const feature = lines.findIndex((line) => /^ {2}feature:$/u.test(line));
+  const typoLine = lines.findIndex((line, index) => index > feature && /^\s*- requirements$/u.test(line));
+  assert.ok(feature >= 0 && typoLine > feature, 'fixture anchor');
+  lines[typoLine] = lines[typoLine].replace('requirements', 'requirments');
+  const broken = lines.join('\n');
+  await writeFile(workflow, broken);
+  const typoSaveEvent = registered.diagnosticEvents.length;
+  registered.saveListeners[0](document);
+  await until(() => registered.diagnosticEvents.slice(typoSaveEvent).some((event) => event.kind === 'set') ? true : null,
+    { what: 'the misspelled phase diagnostic' });
+  const typo = registered.diagnostics.get(workflow);
+  assert.equal(typo?.length, 1, `keys=${JSON.stringify([...registered.diagnostics.keys()])}`);
+  assert.equal(typo[0].range.start.line, typoLine);
+  assert.match(typo[0].message, /Did you mean 'requirements'\?.*Fix: Change 'requirments' to 'requirements'\./);
+  await writeFile(workflow, valid);
 
   // Break it, and the engine's own complaint appears against the file. The save listener is
   // fire-and-forget, as VS Code listeners are, so the result is waited for rather than assumed.

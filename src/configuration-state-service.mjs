@@ -1,7 +1,6 @@
 /** Database-like configuration boundary: indexed projections plus SGOS-journalled recovery. */
 import path from 'node:path';
 import { lstat, mkdir, readFile, readdir } from 'node:fs/promises';
-import initSql from 'sql.js/dist/sql-asm.js';
 import { gitCommonDir } from './git.mjs';
 import { remoteFingerprint } from './git-remote-diagnostics.mjs';
 import { createConfigurationOperationalStore } from './sgos/operational-store.mjs';
@@ -9,6 +8,10 @@ import { configurationDigest, configurationProposalId, configurationProposalKey,
   CONFIGURATION_OID, validateConfigurationTransaction } from './configuration-state-contract.mjs';
 import { writeAtomic, SingularityFlowError } from './util.mjs';
 import { runningBuildIdentity } from './build-identity.mjs';
+
+// The 1.3 MB asm.js build loads with the first proposal-cache read, not with every command that
+// imports this module: Node scans and compiles it on import, about 40 ms per command.
+const initSql = () => import('sql.js/dist/sql-asm.js').then(({ default: init }) => init());
 
 let sql;
 const MAX_BYTES = 8 * 1024 * 1024;

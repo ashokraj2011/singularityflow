@@ -1,4 +1,3 @@
-import * as acp from '@agentclientprotocol/sdk';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, open, readFile, realpath } from 'node:fs/promises';
@@ -622,6 +621,8 @@ async function openCopilotAcp(request, runtimeOverrides = {}) {
   if (request.promptTransport !== 'acp-stdio') {
     throw new SingularityFlowError('Copilot ACP adapter received the wrong prompt transport.', { code: 'MODEL_REQUEST_INVALID' });
   }
+  // Loaded with the first model session, not with every command that can reach this module.
+  const acp = await import('@agentclientprotocol/sdk');
   if (request.signal?.aborted) {
     throw new SingularityFlowError('Model invocation was cancelled.', { code: 'MODEL_CANCELLED' });
   }

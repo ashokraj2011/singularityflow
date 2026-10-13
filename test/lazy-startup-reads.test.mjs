@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
@@ -135,4 +135,26 @@ test('the Copilot edit guard, run on every tool call, stays clear of the configu
     assert.ok(!names.includes(heavy), `the edit guard statically reaches ${heavy}`);
   }
   assert.ok(closure.size <= 60, `the edit guard loads ${closure.size} static modules; ceiling is 60`);
+});
+
+test('commands that load the legacy CLI leave the SQLite build and the ACP SDK to first use', () => {
+  // Every command routed through cli.mjs loads its whole static graph. Static imports of the 1.3 MB
+  // asm.js SQLite build and of the ACP SDK cost about 45 ms a command; both load where they are used.
+  // A loader hook records what Node actually loads, so imports written inside strings do not count.
+  const hook = 'let port; export function initialize(data) { port = data.port; }'
+    + ' export async function load(url, context, next) { port.postMessage(url); return next(url, context); }';
+  const script = [
+    "import { register } from 'node:module';",
+    "const { port1, port2 } = new MessageChannel(); const loaded = [];",
+    "port1.on('message', (url) => loaded.push(url));",
+    `register('data:text/javascript,' + encodeURIComponent(${JSON.stringify(hook)}), { data: { port: port2 }, transferList: [port2] });`,
+    `await import(${JSON.stringify(pathToFileURL(path.join(packageRoot, 'src/cli.mjs')).href)});`,
+    "await new Promise((resolve) => setTimeout(resolve, 100)); port1.close();",
+    "console.log(JSON.stringify({ count: loaded.length, heavy: loaded.filter((url) => /node_modules\\/(?:sql\\.js|@agentclientprotocol)\\//u.test(url)) }));"
+  ].join('\n');
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 60_000 });
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout.trim().split('\n').at(-1));
+  assert.ok(report.count > 100, 'the hook saw the CLI graph load');
+  assert.deepEqual(report.heavy, []);
 });

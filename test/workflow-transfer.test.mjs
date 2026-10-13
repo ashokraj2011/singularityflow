@@ -534,6 +534,13 @@ test('historical v1 and v2 bundles retain their one-pass MCP scope and original 
   delete historical.objects.story.mcpServers['unrelated-server'];
   historical.assets = historical.assets.filter((asset) => asset.kind !== 'template'
     || asset.reference !== 'template:unrelated-note-template');
+  // Exporters before v9 copied each agent whole; v9 scopes the copy to the exported steps.
+  for (const asset of historical.assets.filter((candidate) => candidate.kind === 'agent')) {
+    asset.content = await readFile(path.join(f.source, asset.path), 'utf8');
+    asset.size = Buffer.byteLength(asset.content, 'utf8');
+    asset.sha256 = `sha256:${createHash('sha256').update(asset.content).digest('hex')}`;
+    if (historical.agentLocks[asset.id]) historical.agentLocks[asset.id].sourceSha256 = asset.sha256.replace(/^sha256:/, '');
+  }
   assert.ok(historical.assets.some((asset) => asset.kind === 'agent' && asset.id === 'unrelated-owner'));
   assert.deepEqual(historical.objects.story.mcpServers['portable-agent-server'],
     f.configuration.mcpServers['portable-agent-server'], 'historic server scope must not be narrowed');
@@ -1270,6 +1277,147 @@ test('identical seeded agents with central skill attachments reuse without rewri
   await writeFile(file, `${await readFile(file, 'utf8')}\nA target-only instruction changes this agent.\n`);
   const collision = await planWorkflowImport(target, bundle);
   assert.equal(collision.status, 'blocked', 'portable attachment equivalence hid a real instruction collision');
+});
+
+test('a skill attached to a seeded agent travels as an attachment, never as a copy of the seeded agent', async (t) => {
+  const skillText = '---\nname: review-x\ndescription: Reviews a change.\n---\n\nReview each file.\n';
+  const withAttachment = async (root, use) => {
+    await mkdir(path.join(root, 'singularity/skill-library/review-x'), { recursive: true });
+    await writeFile(path.join(root, 'singularity/skill-library/review-x/SKILL.md'), skillText);
+    const file = path.join(root, 'singularity/skill-library/attachments.yml');
+    const value = YAML.parse(await readFile(file, 'utf8')) ?? {};
+    value.attachments = [...(value.attachments ?? []), { skill: 'review-x', agent: 'product-owner', steps: ['requirements'], use }];
+    await writeFile(file, YAML.stringify(value));
+  };
+  const source = await initializedRepository(t, 'sflow-seeded-attach-source-');
+  const target = await initializedRepository(t, 'sflow-seeded-attach-target-');
+  await withAttachment(source, 'When writing requirements');
+  const bundle = await exportWorkflowBundle(source, ['feature']);
+  const owner = bundle.assets.find((asset) => asset.kind === 'agent' && asset.id === 'product-owner');
+  assert.match(owner.content, /\| review-x \| requirements \| When writing requirements \|/, 'export carries the attachment with the agent');
+  const ownerFile = path.join(target, '.github/agents/product-owner.agent.md');
+  const before = await readFile(ownerFile);
+  const plan = await planWorkflowImport(target, bundle);
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
+  assert.ok(plan.reused.some((entry) => entry.kind === 'agent' && entry.id.endsWith('product-owner.agent.md')));
+  assert.deepEqual(plan.added.find((entry) => entry.kind === 'agent-skill-attachments')?.attachments,
+    [{ id: 'review-x', agent: 'product-owner', phases: ['requirements'], use: 'When writing requirements' }]);
+  await applyWorkflowImport(target, bundle, { expectedPlanSha256: plan.planSha256 });
+  assert.deepEqual(await readFile(ownerFile), before, 'the seeded agent is never rewritten');
+  const written = YAML.parse(await readFile(path.join(target, 'singularity/skill-library/attachments.yml'), 'utf8')).attachments;
+  assert.ok(written.some((entry) => entry.skill === 'review-x' && entry.agent === 'product-owner' && entry.use === 'When writing requirements'));
+  await loadDefinition(target);
+  // The same skill attached differently here is a real difference, not an attachment to add.
+  const other = await initializedRepository(t, 'sflow-seeded-attach-other-');
+  await withAttachment(other, 'Something else');
+  assert.equal((await planWorkflowImport(other, bundle)).status, 'blocked');
+});
+
+test('a workflow that holds Stories to a constitution exports the constitution with it', async (t) => {
+  const constitution = (id, rule) => `---\narticles:\n  - id: ${id}\n    type: judged\n    level: must\n    evidenceRequired: true\n---\n\n# Constitution\n\n## [${id}] ${rule}\n${rule}.\n`;
+  const source = await initializedRepository(t, 'sflow-constitution-source-');
+  await writeFile(path.join(source, 'singularity/constitution.md'), constitution('TEAM-001', 'Cite the line'));
+  const file = path.join(source, 'singularity/workflow.yml');
+  const value = YAML.parse(await readFile(file, 'utf8'));
+  value.workTypes['team-feature'] = { ...structuredClone(value.workTypes.feature), label: 'Team feature', constitution: { mode: 'warn', path: 'singularity/constitution.md' } };
+  await writeFile(file, YAML.stringify(value));
+  const bundle = await exportWorkflowBundle(source, ['team-feature']);
+  assert.equal(bundle.schemaVersion, WORKFLOW_BUNDLE_SCHEMA_VERSION);
+  const carried = bundle.assets.filter((asset) => asset.kind === 'constitution');
+  assert.deepEqual(carried.map((asset) => asset.path), ['singularity/constitution.md']);
+  // A fresh repository receives it.
+  const target = await initializedRepository(t, 'sflow-constitution-target-');
+  const plan = await planWorkflowImport(target, bundle);
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
+  assert.ok(plan.added.some((entry) => entry.kind === 'constitution'));
+  assert.match(plan.addsText, /constitution singularity\/constitution\.md/);
+  await applyWorkflowImport(target, bundle, { expectedPlanSha256: plan.planSha256 });
+  assert.match(await readFile(path.join(target, 'singularity/constitution.md'), 'utf8'), /TEAM-001/);
+  // A repository with its own constitution chooses: keep it (suggested) or replace it; never a new name.
+  const own = await initializedRepository(t, 'sflow-constitution-own-');
+  await writeFile(path.join(own, 'singularity/constitution.md'), constitution('OWN-001', 'Always write tests'));
+  const blocked = await planWorkflowImport(own, bundle);
+  const conflict = blocked.unresolved.find((item) => item.kind === 'constitution');
+  assert.equal(conflict?.suggested, 'keep');
+  assert.ok(!conflict.choices.includes('rename'));
+  const kept = await planWorkflowImport(own, bundle, { resolutions: { 'constitution:singularity/constitution.md': { action: 'keep' } } });
+  await applyWorkflowImport(own, bundle, { expectedPlanSha256: kept.planSha256, resolutions: { 'constitution:singularity/constitution.md': { action: 'keep' } } });
+  assert.match(await readFile(path.join(own, 'singularity/constitution.md'), 'utf8'), /OWN-001/);
+  // A carried constitution no workflow names is refused, so nothing unrelated rides along.
+  const off = structuredClone(bundle);
+  delete off.objects.story.workTypes['team-feature'].constitution;
+  off.bundleSha256 = bundleDigest(off);
+  await assert.rejects(() => planWorkflowImport(target, off), /no carried workflow holds its Stories to/);
+});
+
+test('export carries event action targets, loop decision groups and agents scoped to the exported steps', async (t) => {
+  const { planStudioChangeSet, STUDIO_CHANGE_SET_SCHEMA } = await import('../src/workflow-studio.mjs');
+  const source = await initializedRepository(t, 'sflow-closure-source-');
+  const apply = async (changes) => {
+    const plan = await planStudioChangeSet(source, { schema: STUDIO_CHANGE_SET_SCHEMA, changes }, { write: true });
+    assert.equal(plan.valid, true, JSON.stringify(plan.problems));
+  };
+  await apply([{ op: 'agent.create', id: 'qa-x', label: 'QA X', description: 'Reviews evidence.', role: 'reviewer' }]);
+  await apply([
+    { op: 'phase.create', id: 'team-review', label: 'Team review', output: 'document', agent: 'qa-x' },
+    { op: 'phase.create', id: 'extra-check', label: 'Extra check', output: 'document', agent: 'qa-x' },
+    { op: 'workflow.create', id: 'team-flow', label: 'Team flow', description: 'Review.', phases: ['requirements', 'team-review'] },
+    { op: 'workflow.create', id: 'other-flow', label: 'Other flow', description: 'Check.', phases: ['requirements', 'extra-check'] }
+  ]);
+  const file = path.join(source, 'singularity/workflow.yml');
+  const value = YAML.parse(await readFile(file, 'utf8'));
+  value.approvalAuthorities['team-leads'] = { label: 'Team leads', allowAnyGitIdentity: false, members: [] };
+  value.integrations = { targets: { 'team-hook': { kind: 'webhook', url: 'http://127.0.0.1:8787/hook' } } };
+  value.phases['team-review'].afterStep = [{ id: 'announce', on: ['approved'], target: 'team-hook' }];
+  value.workTypes['team-flow'].decisions = [{ id: 'review-loop', after: 'team-review', kind: 'loop', label: 'Complete?', by: ['team-leads'],
+    inputs: [{ name: 'complete', label: 'Complete', values: ['yes', 'no'] }], goal: { complete: 'yes' }, back: 'requirements', maxRounds: 2 }];
+  value.contextPolicy = { ...(value.contextPolicy ?? {}), phaseOverrides: { ...(value.contextPolicy?.phaseOverrides ?? {}), 'team-review': 'new' } };
+  await writeFile(file, YAML.stringify(value));
+  await loadDefinition(source);
+  const out = path.join(source, '..', `${path.basename(source)}-bundle.json`);
+  t.after(() => rm(out, { force: true }));
+  const exported = await exportWorkflowBundle(source, ['team-flow'], out);
+  const bundle = await readWorkflowBundle(out);
+  assert.deepEqual(Object.keys(bundle.objects.story.integrations.targets), ['team-hook'], 'an event action keeps its target');
+  assert.ok(Object.hasOwn(bundle.objects.story.approvalAuthorities, 'team-leads'), 'a loop decision keeps the group that answers it');
+  const agent = bundle.assets.find((asset) => asset.kind === 'agent' && asset.id === 'qa-x');
+  assert.match(agent.content, /sflow-default-for: "team-review"/);
+  assert.doesNotMatch(agent.content, /extra-check/, 'steps of workflows that were not exported stay behind');
+  assert.ok(exported.notes.some((note) => /Context handling for team-review/.test(note)), exported.notes.join('\n'));
+  assert.ok(exported.contents.some((line) => /integration target \(team-hook\)/.test(line)), exported.contents.join('\n'));
+  const target = await initializedRepository(t, 'sflow-closure-target-');
+  const plan = await planWorkflowImport(target, bundle);
+  assert.equal(plan.status, 'ready', JSON.stringify(plan.conflicts));
+  await applyWorkflowImport(target, bundle, { expectedPlanSha256: plan.planSha256 });
+  await loadDefinition(target);
+  // Importing again under new names rewrites the event action's target and the loop's group too.
+  const renames = {
+    'workflow:team-flow': { action: 'rename', to: 'team-flow-copy' },
+    'phase:team-review': { action: 'rename', to: 'team-review-copy' },
+    'integration-target:team-hook': { action: 'rename', to: 'team-hook-copy' },
+    'approval-group:team-leads': { action: 'rename', to: 'team-leads-copy' },
+    'agent:qa-x': { action: 'rename', to: 'qa-x-copy' }
+  };
+  const renamed = await planWorkflowImport(target, bundle, { resolutions: renames });
+  assert.equal(renamed.status, 'ready', JSON.stringify(renamed.unresolved ?? renamed.conflicts));
+  await applyWorkflowImport(target, bundle, { expectedPlanSha256: renamed.planSha256, resolutions: renames });
+  const imported = YAML.parse(await readFile(path.join(target, 'singularity/workflow.yml'), 'utf8'));
+  const copy = imported.workTypes['team-flow-copy'];
+  assert.ok(copy, 'the renamed workflow arrived');
+  const [loop] = copy.decisions;
+  assert.ok(Object.hasOwn(imported.approvalAuthorities, loop.by[0]) && loop.by[0] !== 'team-leads', JSON.stringify(loop.by));
+  const step = imported.phases[copy.phases[1]];
+  assert.ok(Object.hasOwn(imported.integrations.targets, step.afterStep[0].target) && step.afterStep[0].target !== 'team-hook');
+  await loadDefinition(target);
+  // The same agent already here, with its other step, is reused rather than a conflict.
+  const both = await initializedRepository(t, 'sflow-closure-both-');
+  await cp(path.join(source, '.github/agents/qa-x.agent.md'), path.join(both, '.github/agents/qa-x.agent.md'));
+  const bothValue = YAML.parse(await readFile(path.join(both, 'singularity/workflow.yml'), 'utf8'));
+  bothValue.phases['extra-check'] = value.phases['extra-check'];
+  await writeFile(path.join(both, 'singularity/workflow.yml'), YAML.stringify(bothValue));
+  await cp(path.join(source, 'singularity/templates/common/extra-check.md'), path.join(both, 'singularity/templates/common/extra-check.md')).catch(() => {});
+  const reuse = await planWorkflowImport(both, bundle);
+  assert.ok(reuse.reused.some((entry) => entry.kind === 'agent' && entry.id.endsWith('qa-x.agent.md')), JSON.stringify(reuse.conflicts));
 });
 
 test('workflow import and copy add only their own lines to a configuration folded at 80 columns', async (t) => {

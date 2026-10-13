@@ -28,7 +28,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 55
+version: 56
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1025,15 +1025,31 @@ A skill or template an agent's lock names as imported (vendored) travels as its 
 the record of where it came from, and so does an imported MCP server's descriptor: the destination
 never fetches them again, and the reader checks each copy against its lock's hash. Other locked
 remote dependencies are hash-verified when the destination fetches them. Every skill from the skill
-master that a carried agent attaches travels as its exact `SKILL.md`; a skill no carried agent
-attaches stays behind (`sflow explain skill-master`). The bundle never embeds a
+master that a carried agent attaches travels as its exact `SKILL.md`, with every reusable
+instruction those skills use (listed or written as an inline `<instruction>` tag); a skill no
+carried agent attaches stays behind (`sflow explain skill-master`). A skill attached to a seeded
+agent arrives as an `attachments.yml` entry for the destination's own seeded agent, which is never
+rewritten. The constitution a selected workflow holds its Stories to travels too, and so does the
+integration target of every after-step action and the approval group of every decision, loop
+decisions included. A carried agent is scoped to the exported steps: steps it drafts in workflows
+you did not export are left out of its copy, so the destination does not refuse it, and the
+destination's identical agent is reused unchanged.
+
+Export lists what the bundle carries, by name (workflows, steps, agents, skills, instructions,
+templates, approval groups, integration targets, constitution), and adds a note for each repository
+setting the workflow uses but the bundle leaves behind: per-step context handling, environments its
+checks use, steps that name no approval group, and Copilot agent mappings. The import preview lists
+what it adds and what the destination already has. The bundle never embeds a
 token or credential. Repository-wide policy is a prerequisite:
 import validates it on the destination but never overwrites it. It does not include local caches,
 runtime ledgers, work-item artifacts, or application source.
 
-New exports use bundle v5: v4's closure plus the skill master skills the carried agents attach. v4
-added the imported copies and their records; the reader refuses a v5 bundle whose agents attach a
-skill it does not carry, or that carries one no agent attaches. Export refuses
+New exports use bundle v9: the constitution file, after-step targets whatever they send, and agents
+scoped to the exported steps, on top of v8's reusable instructions, v7's workflow skill attachments
+and v5's skill master skills. v4 added the imported copies and their records; the reader refuses a
+bundle whose agents attach a skill it does not carry, or that carries one no agent attaches, and a
+constitution no carried workflow names. When the destination already has a different constitution,
+the import offers keep (suggested) or replace. Export refuses
 an imported copy that no longer matches its lock; check it with `singularity-flow imports check`
 and import it again first. MCP assignments reachable from selected phases or agents are included,
 including agent-only assignments with an unrestricted phase list. The entire assignment remains

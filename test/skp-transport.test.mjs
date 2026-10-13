@@ -139,8 +139,8 @@ test('export import / equivalent retained package and compiled binding with exac
   const value = await fixture(t);
   await rm(value.directory, { recursive: true, force: true });
   const bundle = await value.exportBundle();
-  assert.equal(bundle.schemaVersion, 8);
-  assert.equal(currentSchemaVersion('workflow-bundle'), 8);
+  assert.equal(bundle.schemaVersion, 9);
+  assert.equal(currentSchemaVersion('workflow-bundle'), 9);
   assert.deepEqual(bundle.skillPackages[0].manifest, value.capture.manifest);
   assert.equal(bundle.skillPackages[0].source.commit, value.approved.sourceCommit);
   assert.deepEqual(bundle.skillPackages[0].phaseBindings.map((entry) => entry.phaseId), ['threat-model']);
@@ -347,6 +347,13 @@ test('live matching bytes cannot replace an approved snapshot, and v1 keeps its 
   await saveConfig(value.target, exportOnly);
   const ordinary = await exportWorkflowBundle(value.target, ['story:feature']);
   await saveConfig(value.target, historical);
+  // Exporters before v9 copied each agent whole; v9 scopes the copy to the exported steps.
+  for (const asset of ordinary.assets.filter((candidate) => candidate.kind === 'agent')) {
+    asset.content = await readFile(path.join(value.target, asset.path), 'utf8');
+    asset.size = Buffer.byteLength(asset.content, 'utf8');
+    asset.sha256 = `sha256:${createHash('sha256').update(asset.content).digest('hex')}`;
+    if (ordinary.agentLocks?.[asset.id]) ordinary.agentLocks[asset.id].sourceSha256 = asset.sha256.replace(/^sha256:/, '');
+  }
   ordinary.schemaVersion = 1;
   delete ordinary.skillPackages;
   delete ordinary.semantics;

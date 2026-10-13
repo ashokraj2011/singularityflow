@@ -2335,14 +2335,17 @@ const families = [
   // Portable workflow bundles are immutable, digest-bound configuration transfer records. They
   // deliberately have no repository path because contributors choose an external export path.
   family({
-    id: 'workflow-bundle', currentVersion: 8, immutable: true,
+    id: 'workflow-bundle', currentVersion: 9, immutable: true,
     // Historical v1/v2 bundle bytes and bundleSha256 keep their stored identity. Read-side
     // projections cannot manufacture retained packages, approval provenance, or v3's strict
     // dependency closure; the bundle reader applies the contract of the stored version. v4 adds
     // the vendored copies of imported dependencies and their import records; an older bundle
     // carries none, so its dependencies are fetched again as before. v5 lets a bundle carry the
     // skill master's skills its agents attach; an older bundle carries none. v7 retains the
-    // workflow-local attachment set separately, including a reviewed empty set.
+    // workflow-local attachment set separately, including a reviewed empty set. v9 carries the
+    // constitution file a selected workflow holds its Stories to, keeps an after-step action's
+    // target whatever it sends, and scopes carried agents to the exported steps; an older bundle
+    // carries no constitution and keeps the closure rule it was written with.
     steps: [
       migration(1, 2, (source) => ({
         ...clone(source), schemaVersion: 2, skillPackages: []
@@ -2352,7 +2355,8 @@ const families = [
       migration(4, 5, (source) => ({ ...clone(source), schemaVersion: 5 })),
       migration(5, 6, (source) => ({ ...clone(source), schemaVersion: 6 })),
       migration(6, 7, (source) => ({ ...clone(source), schemaVersion: 7, workflowSkillAttachments: [] })),
-      migration(7, 8, (source) => ({ ...clone(source), schemaVersion: 8 }))
+      migration(7, 8, (source) => ({ ...clone(source), schemaVersion: 8 })),
+      migration(8, 9, (source) => ({ ...clone(source), schemaVersion: 9 }))
     ]
   }),
   family({

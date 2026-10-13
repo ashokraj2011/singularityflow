@@ -4,10 +4,10 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "5f368a057d56a54408d045ced6d51c6bf8bd6346",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-12-BROADER-RETURN-ROUTES.md",
+    "reviewedAtCommit": "089197d6f191597e1f4a40fb6f114645dd707d19",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-13-WORKFLOW-BUNDLE-V9.md",
     "companionIds": [
-      "workflow-configuration"
+      "migration-registry"
     ]
   },
   "companions": [
@@ -94,7 +94,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:418bf1c7a738d6edb7d7f22db76b0b220b30c49f21122f88b29b25b99422b42f"
+      "sha256": "sha256:2831e1cec66227b350858e6efb3269f1fd7e18b3c4f4fe94390bc26059fe47cf"
     },
     {
       "id": "smart-initialization-v1",

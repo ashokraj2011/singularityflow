@@ -169,7 +169,7 @@ test('workflow skill import, export and duplication preserve scope and follow id
   ]), { write: true, imports: stagedSkill.imports });
   assert.equal(attached.valid, true, JSON.stringify(attached.problems));
   const bundle = await exportWorkflowBundle(source, ['mobile-release']);
-  assert.equal(bundle.schemaVersion, 8);
+  assert.equal(bundle.schemaVersion, 9);
   assert.deepEqual(bundle.workflowSkillAttachments, [{ workflow: 'mobile-release', id: 'security-review', phases: ['store-submission'], use: 'Before release' }]);
   assert.equal(bundle.assets.find((asset) => asset.kind === 'skill').content, librarySkillText(optionalSkill));
   const target = await repository(t, 'sflow-workflow-skills-import-');
@@ -250,7 +250,7 @@ test('a reviewed v7 replacement removes obsolete workflow skills and preserves u
   // to a historical format that cannot express removing old target-local attachments.
   await planStudioChangeSet(source, changeSet([{ op: 'skill.detach', skill: 'security-review', workflow: 'second-release' }]), { write: true });
   const empty = await exportWorkflowBundle(source, ['second-release']);
-  assert.equal(empty.schemaVersion, 8);
+  assert.equal(empty.schemaVersion, 9);
   assert.deepEqual(empty.workflowSkillAttachments, []);
   const cleared = await planWorkflowImport(target, empty, { resolutions: { 'workflow:second-release': { action: 'replace' } } });
   assert.equal(cleared.status, 'ready', JSON.stringify(cleared.unresolved));
@@ -844,7 +844,7 @@ test('a workflow bundle carries the skills its agents attach, and nothing else f
   await addReleaseWorkflow(source, 'source', { librarySkill: true });
   await writeSkill(source);
   const bundle = await exportWorkflowBundle(source, ['mobile-release']);
-  assert.equal(bundle.schemaVersion, 8);
+  assert.equal(bundle.schemaVersion, 9);
   const skills = bundle.assets.filter((asset) => asset.kind === 'skill');
   assert.deepEqual(skills.map((asset) => [asset.id, asset.path]), [['store-review', LIBRARY_SKILL_PATH]],
     'security-review is in the skill master but no carried agent attaches it');
@@ -1042,7 +1042,7 @@ test('workflow bundles carry referenced instructions and independent copies rewr
   await writeFile(file, librarySkillText({ ...skill, instructionRefs: ['web-guide'] }));
   await writeInstruction(source);
   const bundle = await exportWorkflowBundle(source, ['mobile-release']);
-  assert.equal(bundle.schemaVersion, 8);
+  assert.equal(bundle.schemaVersion, 9);
   assert.equal(bundle.assets.filter(item => item.kind === 'instruction').length, 1);
   const missing = resealed({ ...structuredClone(bundle), assets: bundle.assets.filter(item => item.kind !== 'instruction') });
   await assert.rejects(planWorkflowImport(await repository(t, 'sflow-instruction-missing-'), missing), error => error.code === 'WORKFLOW_BUNDLE_DEPENDENCY_MISSING');

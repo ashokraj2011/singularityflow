@@ -7526,11 +7526,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         location: vscode.ProgressLocation.Notification,
         title: `Exporting ${workflowIds.length} workflow${workflowIds.length === 1 ? '' : 's'}`,
         cancellable: false
-      }, () => client.run<{ notes?: unknown }>(command));
-      // Skills attached in the attachments file stay behind; the export says which.
+      }, () => client.run<{ notes?: unknown; contents?: unknown }>(command));
+      // Notes name the repository settings the workflow uses but the bundle leaves behind.
       const notes = Array.isArray(result?.notes) ? result.notes.filter((note): note is string => typeof note === 'string') : [];
+      // Name what travels (agents, skills, instructions, …) so nobody has to open the bundle to check.
+      const contents = Array.isArray(result?.contents) ? result.contents.filter((line): line is string => typeof line === 'string') : [];
+      for (const line of contents) output.appendLine(`  ${line}`);
       void showCompactInformationMessage(
-        `Exported ${workflowIds.length} workflow${workflowIds.length === 1 ? '' : 's'} and their dependencies to ${target.fsPath}.${notes.length ? ` ${notes.join(' ')}` : ''}`
+        // Counts in the message; the names are in the output channel above.
+        `Exported ${workflowIds.length} workflow${workflowIds.length === 1 ? '' : 's'} to ${target.fsPath} with everything ${workflowIds.length === 1 ? 'it needs' : 'they need'}${contents.length ? `: ${contents.slice(1).map((line) => line.replace(/ \(.*\)$/u, '')).join(', ')}` : ''}.${notes.length ? ` ${notes.join(' ')}` : ''}`
       );
       return null;
     } catch (error) {

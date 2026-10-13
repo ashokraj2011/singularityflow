@@ -36,7 +36,7 @@ export const CATALOG_SUBJECTS = Object.freeze({
 });
 const NOUNS = Object.freeze({
   ...Object.fromEntries(Object.entries(CATALOG_SUBJECTS).map(([kind, [, , noun]]) => [kind, noun])),
-  agent: 'agent', 'template-file': 'template file', skill: 'skill', instruction: 'instruction'
+  agent: 'agent', 'template-file': 'template file', skill: 'skill', instruction: 'instruction', constitution: 'constitution'
 });
 export const RESOLUTION_ACTIONS = Object.freeze(['keep', 'replace', 'rename']);
 export const RESOLVE_ALL_CHOICES = Object.freeze(['suggested', 'keep', 'replace', 'rename']);
@@ -71,8 +71,9 @@ export function parseSubject(subject) {
   if (!Object.hasOwn(NOUNS, kind)) {
     fail(`'${text}' is not something an import can resolve. Use one of: ${Object.keys(NOUNS).join(', ')}, followed by ':' and its ID.`);
   }
-  if (kind === 'template-file' ? !/^[^\s:]+$/.test(id) || id.split('/').includes('..') : !ID.test(id)) {
-    fail(`'${text}' does not name a ${subjectNoun(kind)} by its ${kind === 'template-file' ? 'path' : 'lower-case kebab-case ID'}.`);
+  const byPath = ['template-file', 'constitution'].includes(kind);
+  if (byPath ? !/^[^\s:]+$/.test(id) || id.split('/').includes('..') : !ID.test(id)) {
+    fail(`'${text}' does not name a ${subjectNoun(kind)} by its ${byPath ? 'path' : 'lower-case kebab-case ID'}.`);
   }
   return { kind, id };
 }
@@ -98,6 +99,7 @@ export function renameRefusal(kind, id, bundle) {
   if (kind === 'phase' && skillStep(bundle.objects.story.phases?.[id])) {
     return `Skill step '${id}' is compiled against its own step ID, so it cannot arrive under a new name. Keep or replace it.`;
   }
+  if (kind === 'constitution') return `Constitution '${id}' is named by the workflow's constitution policy, so it cannot arrive under a new name. Keep or replace it.`;
   if (kind === 'initiative-phase' && Object.values(EPIC_PHASES).includes(id)) {
     return `Epic step '${id}' must keep its canonical ID. Keep or replace it.`;
   }
@@ -195,6 +197,62 @@ function explain(item, action) {
   return `import theirs as ${item.renameTo}; yours stays as it is`;
 }
 
+const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+const named = (count, one, ids, many) => `${plural(count, one, many)}${ids.length ? ` (${ids.join(', ')})` : ''}`;
+const bare = (id) => String(id).replace(/^(?:story|initiative):/u, '');
+
+/**
+ * What a bundle carries, by kind and name, so a person can see that the agents, skills and
+ * instructions a workflow needs are in it. `dependencies` is the export's dependency inventory.
+ */
+export function bundleContentsLines(dependencies = {}) {
+  const list = (key) => (dependencies[key] ?? []).map(bare);
+  const lines = [
+    named(list('workflows').length, 'workflow', list('workflows')),
+    named(list('phases').length, 'step', list('phases')),
+    named(list('agents').length, 'agent', list('agents')),
+    named(list('skills').length, 'skill', list('skills')),
+    named(list('instructions').length, 'instruction', list('instructions')),
+    named(list('templateAssets').length, 'template', list('templateAssets')),
+    named(list('approvalAuthorities').length, 'approval group', list('approvalAuthorities')),
+    ...(list('artifactSets').length ? [named(list('artifactSets').length, 'artifact set', list('artifactSets'))] : []),
+    ...(list('mcpServers').length ? [named(list('mcpServers').length, 'MCP server', list('mcpServers'))] : []),
+    ...(list('integrationTargets').length ? [named(list('integrationTargets').length, 'integration target', list('integrationTargets'))] : []),
+    ...(list('constitutions').length ? [named(list('constitutions').length, 'constitution', list('constitutions'))] : []),
+    ...(list('vendoredCopies').length ? [plural(list('vendoredCopies').length, 'imported copy', 'imported copies')] : [])
+  ];
+  return lines.map((line) => `  ${line}`);
+}
+
+/** A plan entry as the name people use: an agent file is its agent ID, a skill folder its skill ID. */
+function planEntryName(entry) {
+  const id = String(entry.id ?? '');
+  if (entry.kind === 'agent') return id.replace(/^.*\//u, '').replace(/\.agent\.md$/u, '');
+  if (entry.kind === 'skill' || entry.kind === 'instruction') return id.split('/').at(-2) ?? id;
+  if (entry.kind === 'constitution') return id;
+  if (entry.kind === 'template') return id.replace(/^singularity\/(?:templates|initiative-templates)\//u, '');
+  return id;
+}
+const PLAN_KIND_NOUNS = Object.freeze({
+  agent: 'agent', skill: 'skill', instruction: 'instruction', template: 'template', vendored: 'imported copy',
+  'workflow-skill-attachments': 'skill attachments of workflow', 'agent-skill-attachments': 'skill attachments of agent',
+  constitution: 'constitution', 'import-record': 'import record'
+});
+function planKindNoun(kind) {
+  const catalog = catalogSubjectKind(kind);
+  return catalog ? subjectNoun(catalog) : PLAN_KIND_NOUNS[kind] ?? kind;
+}
+
+/** Plan entries grouped as "agent qa-x · skills review-x, check-y · …". */
+export function planEntriesText(entries = []) {
+  const groups = new Map();
+  for (const entry of entries) {
+    const noun = planKindNoun(entry.kind);
+    groups.set(noun, [...(groups.get(noun) ?? []), planEntryName(entry)]);
+  }
+  return [...groups].map(([noun, ids]) => `${ids.length === 1 ? noun : noun.endsWith('y') && !noun.endsWith('ey') ? `${noun.slice(0, -1)}ies` : noun.endsWith('s') ? noun : `${noun}s`} ${ids.join(', ')}`).join(' · ');
+}
+
 /** Plain-text preview of an import plan, with the exact flags that resolve each open conflict. */
 export function importPlanText(plan, file) {
   const counts = plan.counts ?? {};
@@ -208,6 +266,8 @@ export function importPlanText(plan, file) {
   lines.push(`  Add: ${counts.add ?? 0} · Reuse exact: ${counts.reuse ?? 0}`
     + `${counts.replace ? ` · Replace yours: ${counts.replace}` : ''}${counts.keep ? ` · Keep yours: ${counts.keep}` : ''}`
     + ` · Conflicts: ${counts.conflicts ?? 0}`);
+  if (plan.added?.length) lines.push(`  Adds: ${planEntriesText(plan.added)}`);
+  if (plan.reused?.length) lines.push(`  Already here: ${planEntriesText(plan.reused)}`);
   for (const item of plan.renamed ?? []) {
     const { kind, id } = parseSubject(item.subject);
     lines.push(`  New name: ${subjectNoun(kind)} ${id} → ${item.to}`);
@@ -414,7 +474,8 @@ function renameGroupFields(root, map) {
     swapList(object, 'requiredAuthorities', map);
     swapField(object, 'exceptionAuthority', map);
     if (key === 'omits' || key === 'chain') swapField(object, 'authority', map);
-    if (Array.isArray(object.routes)) {
+    // Every decision names the groups that answer it; a loop decision has no routes of its own.
+    if (Array.isArray(object.routes) || (typeof object.kind === 'string' && object.by != null)) {
       swapField(object, 'by', map);
       swapList(object, 'by', map);
     }
@@ -554,7 +615,8 @@ export function renameBundleSubjects(bundle, renames, { targetPhases, targetAgen
   if (maps['initiative-approval-group']) renameGroupFields(initiative, maps['initiative-approval-group']);
   if (maps['artifact-set']) eachObject(story, (object) => swapField(object, 'artifactSet', maps['artifact-set']));
   if (maps['integration-target']) eachObject(story, (object) => {
-    if (object.on && object.send) swapField(object, 'target', maps['integration-target']);
+    // An after-step action names its target whether or not it spells out `send` (event is the default).
+    if (Array.isArray(object.on) && (object.send || typeof object.id === 'string')) swapField(object, 'target', maps['integration-target']);
   });
   if (serverMap.size) {
     eachObject(story, (object) => {

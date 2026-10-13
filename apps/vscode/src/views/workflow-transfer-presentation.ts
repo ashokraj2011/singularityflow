@@ -30,6 +30,9 @@ export type WorkflowMutationPreview = {
     remoteFingerprint: string | null;
   };
   changedPaths?: string[];
+  /** The plan in words, from the CLI: what is added, and what is already here. */
+  addsText?: string;
+  alreadyHereText?: string;
   added?: unknown[];
   reused?: unknown[];
   conflicts?: unknown[];
@@ -175,6 +178,8 @@ export function workflowMutationPlanSummary(plan: WorkflowMutationPreview): stri
   const counts = (['add', 'reuse', 'replace', 'keep'] as const)
     .map(kind => `${{ add: 'Add', reuse: 'Reuse', replace: 'Replace', keep: 'Keep' }[kind]} ${operations(plan, kind).length}`);
   return [counts.join(' · '),
+    ...(plan.addsText ? [`Adds: ${plan.addsText}`] : []),
+    ...(plan.alreadyHereText ? [`Already here: ${plan.alreadyHereText}`] : []),
     `${plan.renamed?.length ?? 0} renamed · ${plan.changedPaths?.length ?? 0} changed files`,
     `Destination: ${plan.destinationAuthority?.branch ?? 'local working tree'}`,
     'Creates a configuration proposal or local edit; it does not approve the workflow.',
@@ -188,7 +193,9 @@ export function workflowMutationPlanMarkdown(plan: WorkflowMutationPreview, titl
     `- Status: **${markdownEscape(plan.status ?? 'preview')}**`,
     `- Exact plan: \`${markdownEscape(plan.planSha256 ?? 'unavailable')}\``,
     `- Bound destination: ${markdownEscape(destinationText(plan))}`,
-    `- Shared dependencies: ${markdownEscape(dependencyText(plan))}`, '',
+    `- Shared dependencies: ${markdownEscape(dependencyText(plan))}`,
+    ...(plan.addsText ? [`- Adds: ${markdownEscape(plan.addsText)}`] : []),
+    ...(plan.alreadyHereText ? [`- Already here: ${markdownEscape(plan.alreadyHereText)}`] : []), '',
     ...markdownSection('Predicted changed paths', plan.changedPaths ?? []),
     AUTHORITY_DISPOSITION, '',
     ...markdownSection('Add', operations(plan, 'add')),

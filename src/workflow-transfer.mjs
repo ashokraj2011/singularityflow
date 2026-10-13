@@ -31,7 +31,7 @@ import {
   portableConfigurationPath, portableFilesystemPathIdentity
 } from './configuration-assets.mjs';
 import {
-  AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies, parseAgentTemplateReference, parseAttachedSkills,
+  AGENT_LOCK_PATH, AGENT_MAPPING_PATH, discoverAgents, parseAgentDependencies, parseAgentTemplateReference, parseAttachedSkills,
   portableVendoredPath, validateAgentCatalog
 } from './agents.mjs';
 import {
@@ -47,7 +47,9 @@ import {
   pickResolution, renameBundleSubjects, renameRefusal, subjectChoices, subjectNoun, suggestedAction,
   transferCatalog, setTransferCatalog
 } from './workflow-transfer-resolution.mjs';
+import { bundleContentsLines, planEntriesText } from './workflow-transfer-resolution.mjs';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { constitutionPolicy, parseConstitution } from './constitution.mjs';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { recordSha256 } from './records.mjs';
@@ -461,7 +463,7 @@ function ownCatalogEntry(catalog, id) {
   return plainObject(catalog) && Object.hasOwn(catalog, id) ? catalog[id] : undefined;
 }
 
-function collectNamedDependencies(value, result, { governs = 'story' } = {}) {
+function collectNamedDependencies(value, result, { governs = 'story', eventTargets = true } = {}) {
   walk(value, (key, entry, parent) => {
     if (key === 'artifactSet' && typeof entry === 'string') result.artifactSets.add(entry);
     if (key === 'authorities' || key === 'requiredAuthorities') {
@@ -487,12 +489,15 @@ function collectNamedDependencies(value, result, { governs = 'story' } = {}) {
     }
     // A decision a person answers names the approval groups whose members choose. A candidate like
     // `authority`: an older bundle without the group still reads, and a target without it refuses.
-    if (key === 'by' && Array.isArray(parent?.routes)) {
+    if (key === 'by' && (Array.isArray(parent?.routes) || typeof parent?.kind === 'string')) {
       for (const id of typeof entry === 'string' ? [entry] : strings(entry)) result.authorityCandidates[governs].add(id);
     }
     // Source review names the governed agent that reviews; the closure decides whether it travels.
     if (key === 'reviewerAgent' && typeof entry === 'string') result.reviewerAgents.add(entry);
-    if (key === 'target' && typeof entry === 'string' && Array.isArray(parent.on) && parent.send) result.integrationTargets.add(entry);
+    // An after-step action names its target whatever it sends. `send` defaults to event, and Workflow
+    // Studio leaves the default out, so a v9 closure no longer requires it; older bundles keep their rule.
+    if (key === 'target' && typeof entry === 'string' && Array.isArray(parent.on)
+        && (parent.send || (eventTargets && typeof parent.id === 'string'))) result.integrationTargets.add(entry);
   });
 }
 
@@ -540,7 +545,7 @@ function templateReferences(governs, workflow, phases) {
 // Export and the closed bundle reader traverse the same graph. MCP declarations can lead back
 // to phases, default agents and agent-backed templates, so a single pass cannot close it. Keep
 // complete server scopes rather than silently narrowing a shared server to the chosen workflow.
-function workflowDependencyClosure(configs, workflows, agents, missingCode, { legacy = false } = {}) {
+function workflowDependencyClosure(configs, workflows, agents, missingCode, { legacy = false, eventTargets = true } = {}) {
   const dependencies = {
     artifactSets: new Set(), authorities: { story: new Set(), initiative: new Set() },
     mcpServers: new Set(), agents: new Set(), reviewerAgents: new Set(),
@@ -572,7 +577,7 @@ function workflowDependencyClosure(configs, workflows, agents, missingCode, { le
   for (const { governs, id } of workflows) {
     const definition = ownCatalogEntry(configs[governs]?.[STORE[governs].workflows], id);
     if (!definition) fail(`Workflow dependency '${governs}:${id}' is not defined.`, missingCode);
-    collectNamedDependencies(definition, dependencies, { governs });
+    collectNamedDependencies(definition, dependencies, { governs, eventTargets });
     for (const phaseId of definition.phases ?? []) selectedPhases[governs].add(phaseId);
   }
   const size = () => selectedPhases.story.size + selectedPhases.initiative.size
@@ -593,7 +598,7 @@ function workflowDependencyClosure(configs, workflows, agents, missingCode, { le
           fail(`Workflow bundle cannot transfer unsupported Initiative skill phase '${phaseId}'.`,
             'SKP_WORKFLOW_TRANSFER_UNSUPPORTED');
         }
-        collectNamedDependencies(phase, dependencies, { governs });
+        collectNamedDependencies(phase, dependencies, { governs, eventTargets });
         for (const id of phaseReferences(phase)) selectedPhases[governs].add(id);
         if (governs === 'story' || legacy) {
           for (const id of defaultAgents.get(phaseId) ?? []) dependencies.agents.add(id);
@@ -608,7 +613,7 @@ function workflowDependencyClosure(configs, workflows, agents, missingCode, { le
       processedArtifactSets.add(id);
       const value = ownCatalogEntry(configs.story?.artifactSets, id);
       if (!value) fail(`Referenced artifact set '${id}' is not defined.`, missingCode);
-      collectNamedDependencies(value, dependencies, { governs: 'story' });
+      collectNamedDependencies(value, dependencies, { governs: 'story', eventTargets });
     }
 
     const referenced = new Map();
@@ -728,6 +733,7 @@ function summarizeBundle(bundle) {
     vendoredCopies: bundle.assets.filter((asset) => asset.kind === 'vendored').length,
     skills: bundle.assets.filter((asset) => asset.kind === 'skill').length,
     instructions: bundle.assets.filter((asset) => asset.kind === 'instruction').length,
+    constitutions: bundle.assets.filter((asset) => asset.kind === 'constitution').length,
     importRecords: Object.keys(bundle.imports ?? {}).length,
     assets: bundle.assets.length,
     skillPackages: bundle.skillPackages?.length ?? 0,
@@ -752,6 +758,7 @@ function dependencyInventory(bundle) {
     vendoredCopies: bundle.assets.filter((asset) => asset.kind === 'vendored').map((asset) => asset.path).sort(),
     skills: bundle.assets.filter((asset) => asset.kind === 'skill').map((asset) => asset.id).sort(),
     instructions: bundle.assets.filter((asset) => asset.kind === 'instruction').map((asset) => asset.id).sort(),
+    constitutions: bundle.assets.filter((asset) => asset.kind === 'constitution').map((asset) => asset.path).sort(),
     importRecords: Object.keys(bundle.imports ?? {}).sort(),
     approvalAuthorities: [
       ...objectIds('story', 'approvalAuthorities').map((id) => `story:${id}`),
@@ -776,7 +783,7 @@ function dependencyInventory(bundle) {
 function validateBundleClosure(bundle, agents, storedVersion, importedHere = null) {
   const { dependencies, selectedPhases, references } = workflowDependencyClosure(
     bundle.objects, bundle.workflows, agents, 'WORKFLOW_BUNDLE_DEPENDENCY_MISSING',
-    { legacy: storedVersion < 3 });
+    { legacy: storedVersion < 3, eventTargets: storedVersion >= 9 });
   for (const id of dependencies.integrationTargets) {
     if (!Object.hasOwn(bundle.objects.story.integrations?.targets ?? {}, id)) fail(
       `Workflow bundle is missing integration target '${id}'. Export it again from the source repository.`,
@@ -1078,6 +1085,32 @@ function validateCarriedSkills(bundle, agents, storedVersion) {
   for (const id of instructionIds) if (!requiredInstructions.has(id)) fail(`Workflow bundle carries unreferenced instruction '${id}'.`, 'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
 }
 
+/** Where each carried Story workflow's constitution lives, when it holds Stories to one. */
+function carriedConstitutionPaths(objects) {
+  return [...new Set(Object.values(objects?.story?.workTypes ?? {})
+    .filter((workType) => workType?.constitution != null)
+    .map((workType) => constitutionPolicy(workType.constitution))
+    .filter((policy) => policy.mode !== 'off').map((policy) => policy.path))].sort();
+}
+
+/**
+ * The constitution file a selected workflow holds its Stories to, once per file. Without it the
+ * destination enforces (or warns about) a constitution it does not have. A source that runs
+ * without the file exports without it too; its mode already decides what that means.
+ */
+async function constitutionAssets(root, objects) {
+  const result = [];
+  for (const relative of carriedConstitutionPaths(objects)) {
+    const secured = await secureRepositoryPath(root, relative, { label: 'Constitution', type: 'file' });
+    if (!secured.exists) continue;
+    const content = await readFile(secured.absolute, 'utf8');
+    parseConstitution(content, { allowExample: false });
+    result.push({ kind: 'constitution', id: relative, path: relative, mediaType: 'text/markdown; charset=utf-8',
+      size: Buffer.byteLength(content, 'utf8'), sha256: digest(content), content });
+  }
+  return result;
+}
+
 async function referencedInstructionAssets(root, assets) {
   const ids = new Set(assets.filter(asset => asset.kind === 'skill').flatMap(asset => parseLibrarySkill(asset.content, { id: asset.id }).instructionRefs));
   const carried = new Set(assets.filter(asset => asset.kind === 'instruction').map(asset => asset.id));
@@ -1339,10 +1372,13 @@ async function buildBundle(root, workflowIds) {
     assetIdentity.set(identity, asset); assets.push(asset);
   };
 
+  const carriedSteps = new Set([...selectedPhases.story, ...selectedPhases.initiative]);
+  const exportedAgentText = new Map();
   for (const agentId of [...dependencies.agents].sort()) {
     const agent = discovered.find((candidate) => candidate.id === agentId);
     if (!agent) fail(`Referenced governed agent '${agentId}' is not installed.`, 'WORKFLOW_DEPENDENCY_MISSING');
-    const content = portableAgentText(agent);
+    const content = phaseScopedAgentText(portableAgentText(agent), carriedSteps);
+    exportedAgentText.set(agentId, content);
     if (agent.scope === 'repository') {
       await secureRepositoryPath(sourceRoot, agent.source, {
         label: `Governed agent '${agentId}'`, mustExist: true, type: 'file'
@@ -1398,8 +1434,8 @@ async function buildBundle(root, workflowIds) {
     }
   }
   // Skills from the skill master travel with the agents that attach them, once each.
-  const attachedSkillIds = new Set(discovered.filter((agent) => dependencies.agents.has(agent.id))
-    .flatMap((agent) => effectiveLibrarySkills(agent).map((entry) => entry.id)));
+  const attachedSkillIds = new Set([...exportedAgentText].flatMap(([agentId, content]) =>
+    parseAttachedSkills(content, `.github/agents/${agentId}.agent.md`).map((entry) => entry.id)));
   for (const entry of workflowSkillAttachments) attachedSkillIds.add(entry.id);
   for (const skillId of [...attachedSkillIds].sort()) {
     const relative = librarySkillPath(skillId);
@@ -1413,6 +1449,7 @@ async function buildBundle(root, workflowIds) {
     });
   }
   for (const asset of await referencedInstructionAssets(sourceRoot, assets)) pushAsset(asset);
+  for (const asset of await constitutionAssets(sourceRoot, objects)) pushAsset(asset);
   for (const serverId of Object.keys(objects.story.mcpServers)) {
     const relative = mcpDescriptorPath(serverId);
     const secured = await secureRepositoryPath(sourceRoot, relative, {
@@ -1438,7 +1475,8 @@ async function buildBundle(root, workflowIds) {
         if (original && exported && exported.content !== original.text
             && (record.fileSha256 ?? record.sha256) === original.sha256) {
           record.fileSha256 = exported.sha256.replace(/^sha256:/, '');
-          record.transforms = [...new Set([...(record.transforms ?? []), 'materialized-skill-attachments'])];
+          record.transforms = [...new Set([...(record.transforms ?? []), 'materialized-skill-attachments',
+            ...(phaseScopedAgentText(portableAgentText(original), carriedSteps) !== portableAgentText(original) ? ['phase-scoped'] : [])])];
         }
       }
       return [key, record];
@@ -1567,7 +1605,8 @@ async function validateBundle(raw, { importedHere = null } = {}) {
   let total = 0;
   const identities = new Set();
   const agents = new Map();
-  const assetKinds = storedVersion >= 8 ? ['template', 'agent', 'vendored', 'skill', 'instruction'] : storedVersion > 4 ? ['template', 'agent', 'vendored', 'skill']
+  const assetKinds = storedVersion >= 9 ? ['template', 'agent', 'vendored', 'skill', 'instruction', 'constitution']
+    : storedVersion >= 8 ? ['template', 'agent', 'vendored', 'skill', 'instruction'] : storedVersion > 4 ? ['template', 'agent', 'vendored', 'skill']
     : storedVersion > 3 ? ['template', 'agent', 'vendored'] : ['template', 'agent'];
   for (const asset of raw.assets) {
     if (!plainObject(asset) || !assetKinds.includes(asset.kind)
@@ -1591,6 +1630,13 @@ async function validateBundle(raw, { importedHere = null } = {}) {
       }
       try { parseLibrarySkill(asset.content, { id: asset.id }); }
       catch (error) { fail(`Workflow bundle skill '${asset.id}' is not a valid skill: ${error.message}`); }
+    }
+    if (asset.kind === 'constitution') {
+      if (asset.id !== asset.path || !carriedConstitutionPaths(raw.objects).includes(asset.path)) {
+        fail(`Workflow bundle carries constitution '${asset.path}', which no carried workflow holds its Stories to.`, 'WORKFLOW_BUNDLE_DEPENDENCY_EXTRA');
+      }
+      try { parseConstitution(asset.content, { allowExample: false }); }
+      catch (error) { fail(`Workflow bundle constitution '${asset.path}' is invalid: ${error.message}`); }
     }
     if (asset.kind === 'instruction') {
       if (!ID.test(asset.id ?? '') || asset.path !== instructionPath(asset.id)) fail(`Workflow bundle instruction path is not canonical: ${asset.path}`);
@@ -1675,10 +1721,52 @@ async function validateBundle(raw, { importedHere = null } = {}) {
   return clone(raw);
 }
 
+/**
+ * What the bundle deliberately leaves behind that these workflows still lean on, in words a person
+ * can act on in the destination. Repository-wide runtime settings stay with each repository; this
+ * names the ones the selected steps and agents actually use, rather than leaving them to be found
+ * after an import. Advisory only: it never changes the bundle.
+ */
+async function exportNotes(root, bundle) {
+  const configRoot = configurationReadRoot(root);
+  const read = async (relative) => {
+    try { return YAML.parse(await readFile(path.join(configRoot, relative), 'utf8')) ?? {}; } catch { return {}; }
+  };
+  const source = await read(WORKFLOW_PATH);
+  const phases = bundle.objects.story.phases ?? {};
+  const workTypes = Object.values(bundle.objects.story.workTypes ?? {});
+  const list = (items) => items.length <= 1 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
+  const notes = [];
+  const context = Object.keys(phases).filter((id) => Object.hasOwn(source.contextPolicy?.phaseOverrides ?? {}, id));
+  if (context.length) notes.push(`Context handling for ${list(context)} (contextPolicy.phaseOverrides) is a repository setting and stays here; the destination uses its own.`);
+  const environments = new Map();
+  for (const [id, phase] of Object.entries(phases)) {
+    for (const command of [phase.qualityCommands ?? [], ...workTypes.map((workType) => workType.phaseOverrides?.[id]?.qualityCommands ?? [])].flat()) {
+      if (typeof command?.environment === 'string') environments.set(command.environment, [...new Set([...(environments.get(command.environment) ?? []), id])]);
+    }
+  }
+  for (const [environment, steps] of environments) {
+    notes.push(`Checks in ${list(steps)} use environment '${environment}' from singularity/environments.yml; declare it in the destination too.`);
+  }
+  const firstGroup = Object.keys(source.approvalAuthorities ?? {})[0];
+  const implicit = Object.entries(phases).filter(([id, phase]) => {
+    const approvals = [phase.approval, ...workTypes.map((workType) => workType.phaseOverrides?.[id]?.approval)].filter(Boolean);
+    return approvals.length && approvals.every((approval) => approval.mode !== 'none' && !(approval.authorities ?? []).length);
+  }).map(([id]) => id);
+  if (implicit.length && firstGroup) {
+    notes.push(`${list(implicit)} ${implicit.length === 1 ? 'names' : 'name'} no approval group, so ${implicit.length === 1 ? 'it uses' : 'they use'} this repository's first group (${firstGroup}); in the destination ${implicit.length === 1 ? 'it uses' : 'they use'} that repository's first group.`);
+  }
+  const agents = new Set(bundle.assets.filter((asset) => asset.kind === 'agent').map((asset) => asset.id));
+  const mapped = Object.entries((await read(AGENT_MAPPING_PATH)).mappings ?? {}).filter(([, agentId]) => agents.has(agentId)).map(([name]) => name);
+  if (mapped.length) notes.push(`Copilot agent mappings for ${list(mapped)} (${AGENT_MAPPING_PATH}) stay here; add them in the destination if people pick those agents by name.`);
+  return notes;
+}
+
 export async function exportWorkflowBundle(root, workflowIds, outPath = null) {
   const bundle = await buildBundle(root, workflowIds);
   await validateBundle(bundle);
   if (!outPath) return bundle;
+  const notes = await exportNotes(root, bundle);
   const target = path.resolve(outPath);
   await mkdir(path.dirname(target), { recursive: true });
   let handle;
@@ -1694,7 +1782,9 @@ export async function exportWorkflowBundle(root, workflowIds, outPath = null) {
     schemaVersion: 1, resultType: 'workflow-export', status: 'exported', outputPath: target,
     bundleSha256: bundle.bundleSha256, workflows: bundle.workflows,
     summary: summarizeBundle(bundle), dependencies: dependencyInventory(bundle),
-    notes: []
+    // What the bundle carries, named, for any surface to show as is.
+    contents: bundleContentsLines(dependencyInventory(bundle)).map((line) => line.trim()),
+    notes
   };
 }
 
@@ -1742,7 +1832,7 @@ function linkedDependencyKind(governs, section) {
 }
 
 function targetTemplatePath(asset, storyValue, initiativeValue) {
-  if (['agent', 'vendored', 'skill', 'instruction', 'skill-package-file'].includes(asset.kind)) return asset.path;
+  if (['agent', 'vendored', 'skill', 'instruction', 'constitution', 'skill-package-file'].includes(asset.kind)) return asset.path;
   const governs = asset.governs;
   const targetRoot = configuredTemplateRoot(
     governs === 'story' ? storyValue : initiativeValue, governs, storyValue
@@ -2004,7 +2094,7 @@ export async function planWorkflowImport(root, bundleOrPath, { resolutions = {},
 
 /** A subject reference a person can resolve, or null when the ID cannot name one. */
 function subjectRef(kind, id) {
-  if (!kind || (kind === 'template-file' ? !/^[^\s:]+$/.test(id ?? '') : !ID.test(id ?? ''))) return null;
+  if (!kind || (['template-file', 'constitution'].includes(kind) ? !/^[^\s:]+$/.test(id ?? '') : !ID.test(id ?? ''))) return null;
   return `${kind}:${id}`;
 }
 
@@ -2014,6 +2104,7 @@ function assetSubject(asset, relative) {
   if (asset.kind === 'vendored') return subjectRef(asset.owner.kind, asset.owner.id);
   if (asset.kind === 'skill') return subjectRef('skill', asset.id);
   if (asset.kind === 'instruction') return subjectRef('instruction', asset.id);
+  if (asset.kind === 'constitution') return subjectRef('constitution', asset.path);
   return null;
 }
 
@@ -2210,6 +2301,8 @@ async function importPlan(root, destination, original, chosen) {
     phases: targetPhases,
     agents: new Set([...renames].filter(([subject]) => subject.startsWith('agent:')).map(([, to]) => to))
   }) : original;
+  const bundleSteps = new Set([...Object.keys(bundle.objects.story.phases ?? {}), ...Object.keys(bundle.objects.initiative?.initiativePhases ?? {})]);
+  const scopedAgents = readRecord(WORKFLOW_BUNDLE_FAMILY, original).storedVersion >= 9;
   const add = []; const reuse = []; const conflicts = [];
   const subjects = new Map();
   const noted = (item, subject) => { if (subject) subjects.set(item, subject); return item; };
@@ -2300,10 +2393,20 @@ async function importPlan(root, destination, original, chosen) {
       // Export materializes central agent attachments into portable agent tables. Compare the
       // target's same attachments in that representation, without rewriting a seeded agent.
       const targetAgent = asset.kind === 'agent' ? targetAgents.find((agent) => agent.id === asset.id) : null;
-      const portableContent = targetAgent ? Buffer.from(portableAgentText(targetAgent, content.toString('utf8'))) : content;
+      // The target's agent as it applies to the bundle's steps, exactly as export scoped the carried one.
+      // Bundles before v9 carried agents unscoped, so only a v9 comparison scopes the target's agent.
+      const targetPortable = targetAgent ? portableAgentText(targetAgent, content.toString('utf8')) : null;
+      const portableContent = targetAgent ? Buffer.from(scopedAgents ? phaseScopedAgentText(targetPortable, bundleSteps) : targetPortable) : content;
       const comparison = importedAssetReuse(asset, portableContent);
+      const attachmentsOnly = !comparison.reusable && targetAgent
+        ? attachmentOnlyAdditions(asset, portableContent.toString('utf8')) : null;
       if (comparison.reusable) reuse.push(noted(entry(asset.kind, relative, { sha256: asset.sha256 }), subject));
-      else conflicts.push(noted(entry(asset.kind, relative, { reason: comparison.reason }), subject));
+      else if (attachmentsOnly) {
+        // The same agent with skills attached to it in the source: keep this repository's agent
+        // (a packaged one is read-only) and attach the skills here, in the attachments file.
+        reuse.push(noted(entry(asset.kind, relative, { sha256: asset.sha256 }), subject));
+        add.push(entry('agent-skill-attachments', asset.id, { attachments: attachmentsOnly }));
+      } else conflicts.push(noted(entry(asset.kind, relative, { reason: comparison.reason }), subject));
     }
     assetTargets.push({ asset, relative });
   }
@@ -2428,9 +2531,9 @@ async function importPlan(root, destination, original, chosen) {
   if (writes.some((item) => item.kind.startsWith('initiative.'))) changedPaths.add(PORTFOLIO_PATH);
   if (writes.some((item) => item.kind === 'agent-lock')) changedPaths.add(AGENT_LOCK_PATH);
   if (writes.some((item) => item.kind === 'import-record')) changedPaths.add(IMPORTS_LOCK_PATH);
-  if (writes.some((item) => item.kind === 'workflow-skill-attachments')) changedPaths.add(SKILL_ATTACHMENTS_PATH);
+  if (writes.some((item) => ['workflow-skill-attachments', 'agent-skill-attachments'].includes(item.kind))) changedPaths.add(SKILL_ATTACHMENTS_PATH);
   for (const item of writes) {
-    if (['agent', 'template', 'vendored', 'skill', 'instruction', 'asset', 'skill-package-file', 'skill-package-attributes'].includes(item.kind)) changedPaths.add(item.id);
+    if (['agent', 'template', 'vendored', 'skill', 'instruction', 'constitution', 'asset', 'skill-package-file', 'skill-package-attributes'].includes(item.kind)) changedPaths.add(item.id);
   }
   // What is still open, one entry per subject: why, which of the repository's workflows use it,
   // and the choices, with a free new name ready for rename.
@@ -2539,6 +2642,8 @@ async function importPlan(root, destination, original, chosen) {
     added: planCore.operations.add, reused: planCore.operations.reuse,
     replaced: planCore.operations.replace ?? [], kept: planCore.operations.keep ?? [],
     conflicts: planCore.operations.conflicts, unresolved, identities,
+    // The same plan in words: what is added, and what this repository already has.
+    addsText: planEntriesText(planCore.operations.add), alreadyHereText: planEntriesText(planCore.operations.reuse),
     counts: {
       add: additions.length, reuse: reuse.length, replace: replaced.length, keep: kept.length, conflicts: open.length
     }
@@ -2625,10 +2730,13 @@ export async function applyWorkflowImport(root, bundleOrPath, {
   const outputs = [];
   const attachedWorkflows = new Set([...plan.operations.add, ...(plan.operations.replace ?? [])]
     .filter((entry) => entry.kind === 'workflow-skill-attachments').map((entry) => entry.id));
-  if (attachedWorkflows.size) {
+  const agentAttachments = plan.operations.add.filter((entry) => entry.kind === 'agent-skill-attachments')
+    .flatMap((entry) => entry.attachments);
+  if (attachedWorkflows.size || agentAttachments.length) {
     const current = await readSkillAttachments(target.root);
     const entries = [...current.filter((entry) => !attachedWorkflows.has(entry.workflow)),
-      ...(bundle.workflowSkillAttachments ?? []).filter((entry) => attachedWorkflows.has(entry.workflow))];
+      ...(bundle.workflowSkillAttachments ?? []).filter((entry) => attachedWorkflows.has(entry.workflow)),
+      ...agentAttachments];
     outputs.push({ file: await assertSafeTarget(target.root, SKILL_ATTACHMENTS_PATH), content: skillAttachmentsText(entries) ?? 'attachments: []\n' });
   }
   const candidateDocuments = {};
@@ -2867,6 +2975,69 @@ async function carryFileAttachments(root, closure) {
     }
   }
   closure.assets.push(...await referencedInstructionAssets(configurationReadRoot(root), closure.assets));
+}
+
+/**
+ * The skills a carried agent attaches beyond the target's same agent, when that is the only
+ * difference: the target's agent with those rows added is byte-identical to the carried one,
+ * exactly as export materialized them. Null otherwise, so any other edit is still a conflict.
+ */
+function attachmentOnlyAdditions(asset, targetText) {
+  let carried; let present;
+  try {
+    carried = parseAttachedSkills(asset.content, asset.path);
+    present = parseAttachedSkills(targetText, asset.path);
+  } catch { return null; }
+  const same = (left, right) => left.id === right.id && left.use === right.use && left.phases.join('\0') === right.phases.join('\0');
+  if (!present.every((row) => carried.some((other) => same(row, other)))) return null;
+  const extra = carried.filter((row) => !present.some((other) => other.id === row.id));
+  if (!extra.length) return null;
+  const expected = withAttachedSkillRows(targetText, extra.map((row) => [row.id, row.phases.join(', ') || '*', row.use || '-']));
+  if (digest(expected) !== asset.sha256) return null;
+  return extra.map((row) => ({ id: row.id, agent: asset.id, phases: [...row.phases], use: row.use }));
+}
+
+/**
+ * The agent as it applies to these steps. An agent may also draft or serve steps of workflows that
+ * are not exported, and a destination without those steps would refuse it (`AGENT_PHASE_UNKNOWN`).
+ * Its `sflow-phases` and `sflow-default-for` lists, and the steps column of its attached skills,
+ * keep only these steps; a skill row limited to steps outside them is dropped. An agent that
+ * already fits is returned byte for byte, so nothing else about it can change.
+ */
+function phaseScopedAgentText(text, steps) {
+  const match = /^(---\r?\n)([\s\S]*?)(\r?\n---(?:\r?\n|$))([\s\S]*)$/u.exec(text);
+  if (!match) return text;
+  const [, open, front, close, body] = match;
+  let changed = false;
+  const scopedFront = front.split('\n').map((line) => {
+    const declared = /^(\s+sflow-(?:phases|default-for):[ \t]*)(["']?)([^"'\r\n]*)\2([ \t]*\r?)$/u.exec(line);
+    if (!declared) return line;
+    const ids = declared[3].split(',').map((id) => id.trim()).filter(Boolean);
+    const kept = ids.filter((id) => steps.has(id));
+    if (kept.length === ids.length) return line;
+    changed = true;
+    return `${declared[1]}"${kept.join(', ')}"${declared[4]}`;
+  }).join('\n');
+  const lines = body.split('\n');
+  const heading = lines.findIndex((line) => line.trim().toLowerCase() === `## ${LIBRARY_SKILL_TABLE.heading}`.toLowerCase());
+  if (heading >= 0) {
+    let row = 0;
+    for (let index = heading + 1; index < lines.length && !/^#{1,2}\s/u.test(lines[index]); index += 1) {
+      if (!lines[index].trim().startsWith('|')) continue;
+      row += 1;
+      if (row <= 2) continue; // the header and its separator
+      const cells = lines[index].trim().replace(/^\||\|$/gu, '').split('|').map((cell) => cell.trim());
+      if (cells.length < 2 || cells[1] === '*' || !cells[1]) continue;
+      const ids = cells[1].split(',').map((id) => id.trim()).filter(Boolean);
+      const kept = ids.filter((id) => steps.has(id));
+      if (kept.length === ids.length) continue;
+      changed = true;
+      if (!kept.length) { lines.splice(index, 1); index -= 1; continue; }
+      cells[1] = kept.join(', ');
+      lines[index] = `| ${cells.join(' | ')} |`;
+    }
+  }
+  return changed ? `${open}${scopedFront}${close}${lines.join('\n')}` : text;
 }
 
 /** Exact portable representation shared by export and collision comparison. */

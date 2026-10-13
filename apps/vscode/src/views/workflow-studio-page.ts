@@ -5415,7 +5415,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       .forEach(function (id) { published.push({ key: 'initiative:' + id, selector: 'initiative:' + id, workflow: state.draft.epics.workflows[id], governs: 'Epic' }); });
     var card = el('section', { class: 'studio-card', 'aria-label': 'Export workflows' });
     card.appendChild(el('h2', { text: 'Export workflows' }));
-    card.appendChild(el('p', { class: 'muted', text: 'A bundle carries the workflows and everything they need (steps, templates, artifact sets and agents), so another repository can import them as one reviewed proposal. Only published workflows are exported.' }));
+    card.appendChild(el('p', { class: 'muted', text: 'A bundle carries the workflows and everything they need: steps, agents, skills, reusable instructions, templates, artifact sets, approval groups, integration targets and the constitution, so another repository can import them as one reviewed proposal. Only published workflows are exported.' }));
     card.appendChild(el('div', { class: 'checks' }, published.map(function (entry) {
       var workflow = entry.workflow, id = entry.key;
       return el('label', null, el('input', { type: 'checkbox', 'data-key': 'export-' + id, checked: Boolean(chosen[id]), onchange: function (event) { if (event.target.checked) chosen[id] = true; else delete chosen[id]; render(); } }),

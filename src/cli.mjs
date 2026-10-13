@@ -10749,9 +10749,10 @@ async function workflowCommand(positionals, options) {
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Exported ${workflowIds.length} workflow${workflowIds.length === 1 ? '' : 's'} to ${absolute}.`);
     console.log(`  Bundle: ${result.bundleSha256 ?? result.sha256}`);
-    if (result.summary) {
-      console.log(`  Dependencies: ${result.summary.phases ?? 0} phases, ${result.summary.artifactSets ?? 0} artifact sets, `
-        + `${result.summary.templates ?? 0} templates, ${result.summary.agents ?? 0} governed agents.`);
+    if (result.dependencies) {
+      const { bundleContentsLines } = await import('./workflow-transfer-resolution.mjs');
+      console.log('  It carries everything the workflow needs:');
+      for (const line of bundleContentsLines(result.dependencies)) console.log(line);
     }
     for (const note of result.notes ?? []) console.log(`  Note: ${note}`);
     return;

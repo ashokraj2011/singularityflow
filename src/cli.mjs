@@ -11546,7 +11546,7 @@ function definitionAtRef(root, ref) {
  * proof that the checkout is governed; requiring a working-tree copy made every fresh clone look
  * uninitialised until somebody manually checked out the Story branch.
  */
-async function sessionRepositoryAuthority(root) {
+async function sessionRepositoryAuthority(root, { remoteProbe = true } = {}) {
   if (!root) return null;
   const workingTreeDefinition = existsSync(path.join(root, WORKFLOW_PATH));
   // An active Story carries its own immutable configuration source. Application branches can
@@ -11569,7 +11569,8 @@ async function sessionRepositoryAuthority(root) {
   }
   // A --single-branch clone may not have fetched the configuration namespace yet. The session
   // operation is remote-backed anyway, so prove the authority without changing the checkout.
-  for (const remote of sessionRepositoryRemotes(root)) {
+  // `session context` reads only the local Story, so it does not pay for a network round trip.
+  for (const remote of remoteProbe ? sessionRepositoryRemotes(root) : []) {
     const identity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
     if (!identity.configured || identity.ambiguous) continue;
     const transport = frozenRemoteTransport(identity.url);
@@ -11643,13 +11644,13 @@ async function sessionDiscoveryConfiguration(root, authority = null, { storyBoot
 }
 
 async function resolveSessionRepository({
-  workspaceReference = null, repositoryId = null, localStoryOnly = false
+  workspaceReference = null, repositoryId = null, localStoryOnly = false, remoteProbe = true
 } = {}) {
   // An existing managed checkout proves its governance through its accepted Story aggregate.
   // Resolving that local candidate must not probe a remote for configuration authority.
   const governed = (candidate) => localStoryOnly
     ? candidate ? { source: 'local-story-candidate', remote: null } : null
-    : sessionRepositoryAuthority(candidate);
+    : sessionRepositoryAuthority(candidate, { remoteProbe });
 
   if (repositoryId != null && workspaceReference == null) throw new SingularityFlowError(
     '--repository requires --workspace for session candidates or attach.',
@@ -12232,7 +12233,7 @@ async function sessionCommand(positionals, options) {
     console.log(`Opened local Story ${workId} at ${checkout}. Remote synchronization was not attempted.`);
     return result;
   }
-  let resolved = await resolveSessionRepository({ workspaceReference, repositoryId: selectedRepositoryId });
+  let resolved = await resolveSessionRepository({ workspaceReference, repositoryId: selectedRepositoryId, remoteProbe: subcommand !== 'context' });
   let root = resolved.root;
   let preflightStory = null;
   let prefetchedRemote = null;

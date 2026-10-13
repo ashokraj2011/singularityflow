@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -56,6 +56,17 @@ test('session open lists the Stories without an ID and opens one with its status
   const text = must(process.execPath, [cli, 'session', 'open', 'OPEN-1']).stdout;
   assert.match(text, /^OPEN-1 is ready at /);
   assert.match(text, /Work there with: cd /);
+
+  // The brief reads only the local Story: no network round trip to look for sflow/config.
+  const traced = spawnSync(process.execPath, [cli, 'session', 'context', '--work-id', 'OPEN-1', '--slice', 'brief', '--json'], {
+    cwd: opened.repositoryPath, env: { ...env, SINGULARITY_FLOW_DISABLE_TIMING_LOG: '0' }, encoding: 'utf8', timeout: 180_000 });
+  assert.equal(traced.status, 0, traced.stderr);
+  assert.equal(JSON.parse(traced.stdout).work.id, 'OPEN-1');
+  const gitDir = must('git', ['rev-parse', '--absolute-git-dir'], opened.repositoryPath).stdout.trim();
+  const timing = (await readFile(path.join(gitDir, 'singularity-flow', 'dx', 'timings.jsonl'), 'utf8')).split('\n').filter(Boolean)
+    .map((line) => JSON.parse(line)).filter((entry) => entry.operationId === 'session.context').at(-1);
+  assert.ok(timing, 'session context recorded its timing');
+  assert.equal(timing.counters['git.remote.total'] ?? 0, 0, JSON.stringify(timing.counters));
 
   // A Story that does not exist is refused by the step that looked for it, with its own code.
   const missing = run(process.execPath, [cli, 'session', 'open', 'NOPE-1', '--json']);

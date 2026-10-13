@@ -909,6 +909,19 @@
       },
       "digest": "265a9a7c5e1c6e020b9e9a2601fc162c100999f668043b861c535069f5d228a9"
     },
+    "src/history-index-worker.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "91f5ce551ca59a3542bf1032d57c408a3aa5d32d1ca2abef2ed8a3fbb18f96d2"
+    },
+    "src/history-index.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "a15d2d344ba185467eb17daea6256b2f0bfc95e7fde88cbbda937b12d30b41b0"
+    },
     "src/host-session-launcher.mjs": {
       "counts": {
         "process-import": 1

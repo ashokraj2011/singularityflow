@@ -35,7 +35,7 @@ function asked(root, args, options = {}) {
   return run('git', args, { cwd: root, allowFailure: true, ...options });
 }
 
-test('only repository location, HEAD, configuration and ref-name checks are cacheable', () => {
+test('only repository location, HEAD, history from HEAD, configuration and ref-name checks are cacheable', () => {
   const sha = 'a'.repeat(40);
   const cases = [
     [['branch', '--show-current'], 'head'],
@@ -71,7 +71,21 @@ test('only repository location, HEAD, configuration and ref-name checks are cach
     [['-C', '/tmp', 'rev-parse', 'HEAD'], null],
     [['remote', 'set-url', 'origin', 'x'], null],
     [['commit', '-m', 'x'], null],
-    [['log', '--format=%H', sha], null]
+    [['log', '--format=%H', sha], null],
+    // History from HEAD limited to paths, with output the commits alone decide.
+    [['log', '--format=%H', '--diff-filter=A', '--reverse', '--', 'singularity/work-items/A-1/workflow.json'], 'history'],
+    [['log', '--full-history', '--format=%H', '--', 'a.txt'], 'history'],
+    [['log', '--format=%H', 'HEAD', '--', 'a.txt'], 'history'],
+    [['log', '--first-parent', '--max-count=3', '--format=%x1f%s', '--', 'a.txt'], 'history'],
+    // Another starting point, a time window, an abbreviation, a relative date, renames, or no path.
+    [['log', '--format=%H', 'main', '--', 'a.txt'], null],
+    [['log', '--format=%H', `${sha}..HEAD`, '--', 'a.txt'], null],
+    [['log', '--since=12 months ago', '--format=%H', '--', 'a.txt'], null],
+    [['log', '--format=%h', '--', 'a.txt'], null],
+    [['log', '--format=%cr', '--', 'a.txt'], null],
+    [['log', '--follow', '--format=%H', '--', 'a.txt'], null],
+    [['log', '--format=%H', '--'], null],
+    [['log', '--format=%H'], null]
   ];
   for (const [args, kind] of cases) assert.equal(gitFactKind(args), kind, args.join(' '));
 });
@@ -123,6 +137,38 @@ test('an answer is not reused after anything changes the files it came from', as
   outside(root, ['checkout', '-q', '--detach', firstHead]);
   assert.equal(asked(root, ['rev-parse', 'HEAD']).stdout.trim(), firstHead);
   assert.equal(asked(root, ['branch', '--show-current']).stdout.trim(), '');
+});
+
+test('history from HEAD is reused until HEAD, a replacement or the shallow boundary changes what Git sees', async (t) => {
+  const root = await repository(t);
+  const history = ['log', '--format=%H', '--', 'a.txt'];
+  const added = ['log', '--format=%H', '--diff-filter=A', '--reverse', '--', 'a.txt'];
+  const first = outside(root, ['rev-parse', 'HEAD']);
+  assert.equal(asked(root, added).stdout.trim(), first);
+  let before = gitFactCacheHits();
+  assert.equal(asked(root, added).stdout.trim(), first);
+  assert.equal(gitFactCacheHits(), before + 1, 'the same history question from the same HEAD is not walked again');
+
+  // Every change below is made outside run().
+  await writeFile(path.join(root, 'a.txt'), 'two\n');
+  outside(root, ['commit', '-q', '-am', 'two']);
+  const second = outside(root, ['rev-parse', 'HEAD']);
+  assert.equal(asked(root, history).stdout.trim(), [second, first].join('\n'), 'a commit by another program moved HEAD');
+  before = gitFactCacheHits();
+  assert.equal(asked(root, history).stdout.trim(), [second, first].join('\n'));
+  assert.equal(gitFactCacheHits(), before + 1);
+
+  // A replacement commit with no parent hides the first commit.
+  const tree = outside(root, ['rev-parse', 'HEAD^{tree}']);
+  const orphan = outside(root, ['commit-tree', tree, '-m', 'replacement']);
+  outside(root, ['replace', second, orphan]);
+  assert.equal(asked(root, history).stdout.trim(), second, 'Git shows the replacement in place of the original');
+  outside(root, ['replace', '-d', second]);
+  assert.equal(asked(root, history).stdout.trim(), [second, first].join('\n'));
+
+  // A shallow boundary at HEAD hides everything older.
+  await writeFile(path.join(root, '.git', 'shallow'), `${second}\n`);
+  assert.equal(asked(root, history).stdout.trim(), second, 'the shallow boundary changed which commits Git can see');
 });
 
 test('a missing configuration value is an answer; a failure and any object read are not kept', async (t) => {

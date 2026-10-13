@@ -889,6 +889,12 @@ async function runMain(argv) {
       });
       timer.stage('journal');
     }
+    // A long history gets Git's changed-path index once, in the background; see history-index.mjs.
+    if (operation.classification === 'mutation' && root && !smartInitDryRun
+        && !LOCAL_STATE_RESET_COMMANDS.has(definition.name)) {
+      await import('./history-index.mjs').then(({ refreshHistoryIndex }) => refreshHistoryIndex(root)).catch(() => {});
+      timer.stage('history-index');
+    }
     // Even legacy handlers that print directly instead of using the narration boundary have now
     // produced their terminal result. Record that as feedback before sealing the timing event so
     // success/refusal/error records never leave first-feedback unknowable merely because they used

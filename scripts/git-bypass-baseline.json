@@ -533,10 +533,10 @@
     },
     "src/cli.mjs": {
       "counts": {
-        "command-run": 26,
+        "command-run": 25,
         "command-runCommand": 1
       },
-      "digest": "d6c4da9e383bb84f11b21e1bcb615942348d3a6d10620f4f5ce0dee190657348"
+      "digest": "1b132ab15e34cfb5172967a92a031c1ecbb23df2b157ddbd023f6cb767448b4e"
     },
     "src/clipboard.mjs": {
       "counts": {

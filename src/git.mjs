@@ -2825,6 +2825,37 @@ export function assertNoSecrets(root, paths = null, { label = 'This commit' } = 
   return scan;
 }
 
+/**
+ * Bring the real index up to a governed commit the branch already points at, for the paths that
+ * commit changed whose index entry still describes its parent.
+ *
+ * A publication refreshes those entries after its branch advances. When another program held
+ * `index.lock` past the wait, that refresh failed: the commit was published, and every published
+ * file looked changed ("Working tree is not clean"). Recovery calls this before it publishes the
+ * retained commit. An entry someone staged since is left exactly as it is. Returns the paths it
+ * refreshed.
+ */
+export function refreshStalePublishedIndex(root, commit) {
+  if (!commit || head(root) !== commit) return [];
+  const env = { ...process.env, GIT_LITERAL_PATHSPECS: '1' };
+  const parent = git(['rev-parse', '--verify', '--quiet', `${commit}^1`], { cwd: root, env, allowFailure: true }).stdout.trim();
+  if (!parent) return [];
+  const changed = nullList(git(['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', '--no-renames', parent, commit],
+    { cwd: root, env }).stdout);
+  if (!changed.length) return [];
+  // `ls-files --stage` prints "<mode> <oid> <stage>\t<path>"; `ls-tree` prints "<mode> <type> <oid>\t<path>".
+  const entries = (listing, oidField) => new Map(nullList(listing).map((line) => {
+    const tab = line.indexOf('\t');
+    const fields = line.slice(0, tab).split(' ');
+    return [line.slice(tab + 1), `${fields[0]} ${fields[oidField]}`];
+  }));
+  const indexed = entries(git(['ls-files', '--stage', '-z', '--', ...changed], { cwd: root, env }).stdout, 1);
+  const before = entries(git(['ls-tree', '-r', '-z', parent, '--', ...changed], { cwd: root, env }).stdout, 2);
+  const stale = changed.filter((file) => (indexed.get(file) ?? null) === (before.get(file) ?? null));
+  if (stale.length) git(['reset', '-q', commit, '--', ...stale], { cwd: root, env });
+  return stale;
+}
+
 export function commit(root, message, paths = null) {
   assertNoSecrets(root, paths);
   const scope = paths?.length ? ['--only', '--', ...paths] : [];

@@ -34,7 +34,7 @@ import { trpCaseInventoryDeclaration, trpExecutionEnvironment, trpNativeReportCa
 import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
 import {
   branch, changedFiles, commitIsAncestor, headTreeEntries, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
-  publicationPushOutcome, pushCommitToBranchAsync, remoteContains, shallowBoundaryCommit, untrackedFiles
+  publicationPushOutcome, pushCommitToBranchAsync, refreshStalePublishedIndex, remoteContains, shallowBoundaryCommit, untrackedFiles
 } from './git.mjs';
 import {
   WORKFLOW_PATH, assertWorkTypeStartable, loadDefinition, normalizeArtifactTemplateCompatibility, normalizeSequenceGates,
@@ -9961,6 +9961,9 @@ export async function syncPublication(root, config, workflow, { fault = null } =
         }
       );
     }
+    // The index refresh after the branch advanced may be what failed (another program held
+    // index.lock); until it is done, every published file looks changed.
+    refreshStalePublishedIndex(root, record.commit);
     const candidateAuthority = await verifyPendingPublicationCandidateAuthority(root, record);
     if (!candidateAuthority.valid) {
       throw new SingularityFlowError(

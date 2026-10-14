@@ -1397,7 +1397,8 @@ export function localBranches(root, { env = process.env } = {}) {
 }
 
 export function fileAtRef(root, ref, file) {
-  const result = git(['show', `${ref}:${file}`], { cwd: root, allowFailure: true });
+  const target = ref === 'HEAD' ? (refHead(root, 'HEAD') ?? ref) : ref;
+  const result = git(['show', `${target}:${file}`], { cwd: root, allowFailure: true });
   return result.status === 0 ? result.stdout : null;
 }
 
@@ -2005,13 +2006,15 @@ export function trackedPaths(root, paths) {
 }
 
 export function changedFiles(root) {
-  // Porcelain diff can refresh clean entries' stat data. A path inspection must not rewrite the
-  // index that a recovery checkpoint is preserving, even when diff.autoRefreshIndex is enabled.
-  const scanFlags = worktreeScanConfigFlags();
-  const unstaged = nullList(git(['--no-optional-locks', ...scanFlags, '-c', 'diff.autoRefreshIndex=false', 'diff', '--name-only', '-z', 'HEAD'], { cwd: root }).stdout);
-  const staged = nullList(git(['--no-optional-locks', '-c', 'diff.autoRefreshIndex=false', 'diff', '--name-only', '-z', '--cached', 'HEAD'], { cwd: root }).stdout);
-  const untracked = nullList(git(['--no-optional-locks', ...scanFlags, 'ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout);
-  return [...new Set([...contentChanged(root, unstaged), ...staged, ...untracked])].sort();
+  return scopedReadSync(`git.changedFiles:${root}`, () => {
+    // Porcelain diff can refresh clean entries' stat data. A path inspection must not rewrite the
+    // index that a recovery checkpoint is preserving, even when diff.autoRefreshIndex is enabled.
+    const scanFlags = worktreeScanConfigFlags();
+    const unstaged = nullList(git(['--no-optional-locks', ...scanFlags, '-c', 'diff.autoRefreshIndex=false', 'diff', '--name-only', '-z', 'HEAD'], { cwd: root }).stdout);
+    const staged = nullList(git(['--no-optional-locks', '-c', 'diff.autoRefreshIndex=false', 'diff', '--name-only', '-z', '--cached', 'HEAD'], { cwd: root }).stdout);
+    const untracked = nullList(git(['--no-optional-locks', ...scanFlags, 'ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout);
+    return [...new Set([...contentChanged(root, unstaged), ...staged, ...untracked])].sort();
+  });
 }
 
 // Without the refresh, a file rewritten with the same bytes still reads as modified because its

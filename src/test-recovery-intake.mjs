@@ -1,8 +1,7 @@
 /** TRP intake planning is read-only. Display defaults are never execution consent. */
 import { trpDigest, sealTrpRecord, TRP_RISK_CATEGORIES } from './test-recovery-policy.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import { isTestQualityCommand } from './delivery-evidence.mjs';
+import { isTestQualityCommand, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { normalizeTestSelectionPath } from './test-selection-policy.mjs';
 import path from 'node:path';
 import { normalizeDocumentObligations } from './trp-document-policy.mjs';

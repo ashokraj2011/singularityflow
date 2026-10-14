@@ -2,11 +2,11 @@ import path from 'node:path';
 import { readdir } from 'node:fs/promises';
 import YAML from 'yaml';
 import { refHead } from './git-execution.mjs';
-import { withFreshGitFacts } from './git-fact-cache.mjs';
+import { cachedGitFact, gitFactRequest, gitFactSnapshot, rememberGitFact, withFreshGitFacts } from './git-fact-cache.mjs';
 import { readObjectsBatch, readRefTreeResult, treeEntries } from './git-ref-tree.mjs';
 import { SingularityFlowError, exists, readJson, run } from './util.mjs';
 import { readRecord } from './schema-migrations.mjs';
-
+import { scopedRead } from './read-scope.mjs';
 function unique(values) {
   return [...new Set(values.map((value) => String(value ?? '').trim()).filter(Boolean))];
 }
@@ -173,10 +173,10 @@ async function scanDirectory(index, root, base, suffix, parser, family) {
 }
 
 export async function buildRepositorySubjectIndex(root, { definition = {}, portfolio = null } = {}) {
-  const index = new RepositorySubjectIndex();
-  await scanDirectory(index, root, path.join(root, definition.workItemRoot ?? 'singularity/work-items'), 'workflow.json', storyEntry, 'story-workflow');
-  await scanDirectory(index, root, path.join(root, portfolio?.initiativeRoot ?? 'singularity/initiatives'), 'state.json', initiativeEntry, 'initiative-state');
-  return index;
+  const work = definition.workItemRoot ?? 'singularity/work-items', epic = portfolio?.initiativeRoot ?? 'singularity/initiatives';
+  return scopedRead(`subjectIndex:${path.resolve(root)}\0${work}\0${epic}`, async () => { const index = new RepositorySubjectIndex();
+    await scanDirectory(index, root, path.join(root, work), 'workflow.json', storyEntry, 'story-workflow');
+    await scanDirectory(index, root, path.join(root, epic), 'state.json', initiativeEntry, 'initiative-state'); return index; });
 }
 
 function isSubjectRecord(file, roots) {
@@ -250,6 +250,67 @@ function localConfigurationAtRef(root, ref, relative, env = process.env) {
   };
 }
 
+function refSubjectCacheKey(root, commit, workRoot, initiativeRoot, env = process.env) {
+  return JSON.stringify([
+    path.resolve(root), commit, workRoot, initiativeRoot,
+    env === process.env ? 'ambient' : 'explicit-environment'
+  ]);
+}
+
+function refSubjectFactRequest(root, commit, workRoot, initiativeRoot, env = process.env) {
+  if (env !== process.env) return null;
+  return gitFactRequest([
+    'show',
+    `${commit}:.sflow-ref-subjects-v1/${encodeURIComponent(workRoot)}/${encodeURIComponent(initiativeRoot)}`
+  ], { cwd: root, env });
+}
+
+function lookupRefSubjects(root, commit, workRoot, initiativeRoot, env = process.env) {
+  const key = refSubjectCacheKey(root, commit, workRoot, initiativeRoot, env);
+  if (refSubjectCache.has(key)) {
+    const value = refSubjectCache.get(key);
+    refSubjectCache.delete(key);
+    refSubjectCache.set(key, value);
+    return value;
+  }
+  const request = refSubjectFactRequest(root, commit, workRoot, initiativeRoot, env);
+  const fact = cachedGitFact(request);
+  if (fact?.status === 0 && fact.stdout) {
+    try {
+      const parsed = JSON.parse(fact.stdout);
+      const value = {
+        roots: parsed.roots,
+        observed: {
+          status: 'ok',
+          contents: new Map(parsed.contents ?? []),
+          errors: []
+        },
+        workflowYml: parsed.workflowYml ?? null
+      };
+      cachedRefSubjects(key, () => value);
+      return value;
+    } catch { /* Damaged cache payload: ask Git again. */ }
+  }
+  return null;
+}
+
+function storeRefSubjects(root, commit, workRoot, initiativeRoot, env, value, before = null) {
+  const key = refSubjectCacheKey(root, commit, workRoot, initiativeRoot, env);
+  cachedRefSubjects(key, () => value);
+  if (env === process.env && value?.roots?.status === 'ok' && value?.observed?.status === 'ok') {
+    const request = refSubjectFactRequest(root, commit, workRoot, initiativeRoot, env);
+    if (request) {
+      const stdout = JSON.stringify({
+        roots: value.roots,
+        contents: [...value.observed.contents.entries()],
+        workflowYml: value.workflowYml ?? null
+      });
+      rememberGitFact(request, { status: 0, stdout, stderr: '' }, { before });
+    }
+  }
+  return value;
+}
+
 function rootsForRef(root, ref, { workRoot, initiativeRoot, env = process.env }) {
   const definitionSource = localConfigurationAtRef(
     root, ref, 'singularity/workflow.yml', env
@@ -265,7 +326,8 @@ function rootsForRef(root, ref, { workRoot, initiativeRoot, env = process.env })
     return {
       status: 'ok',
       workRoot: safeRefRoot(definition?.workItemRoot, workRoot),
-      initiativeRoot: safeRefRoot(portfolio?.initiativeRoot, initiativeRoot)
+      initiativeRoot: safeRefRoot(portfolio?.initiativeRoot, initiativeRoot),
+      workflowYml: definitionSource.content ?? null
     };
   } catch (error) {
     return { status: 'unavailable', reason: `configuration root could not be parsed: ${error.message}` };
@@ -295,142 +357,174 @@ function prefetchRefSubjects(root, refs, { workRoot, initiativeRoot, env }) {
     commits.set(name, commit.oid); rootTrees.set(commit.oid, tree.oid);
   }
   const distinct = [...new Set(commits.values())];
-  const oidLength = distinct[0]?.length ?? 40;
-  /*
-   * Paths are resolved by walking tree objects, never as `<rev>:<path>`. In a blobless clone Git
-   * answers a blob it does not have exactly as it answers a path that does not exist, and that
-   * difference decides between "this ref has no Stories" and "this ref's Stories are unreadable
-   * here". Trees are always local in such a clone; a blob read by its own ID that is missing is
-   * plainly unavailable. Every level is one batch for every ref, and shared trees are read once.
-   */
-  const trees = new Map();
-  const listTrees = (oids) => {
-    const wanted = [...new Set(oids)].filter((oid) => !trees.has(oid));
-    if (!wanted.length) return true;
-    const answers = read(wanted);
-    if (!answers) return false;
-    for (const oid of wanted) {
-      const answer = answers.get(oid);
-      trees.set(oid, answer.status === 'ok' && answer.type === 'tree' ? treeEntries(answer.bytes, oidLength) ?? 'malformed' : 'unavailable');
-    }
-    return true;
-  };
-  const resolve = (requests) => {
-    const out = new Map();
-    let pending = requests.map((request) => ({ ...request, current: request.tree, index: 0 }));
-    while (pending.length) {
-      if (!listTrees(pending.map((entry) => entry.current))) return null;
-      const next = [];
-      for (const entry of pending) {
-        const listed = trees.get(entry.current);
-        if (listed === 'malformed') return null;
-        if (listed === 'unavailable') { out.set(entry.key, { status: 'unavailable' }); continue; }
-        const found = listed.find((child) => child.name === entry.parts[entry.index]);
-        if (!found) { out.set(entry.key, { status: 'missing' }); continue; }
-        if (entry.index === entry.parts.length - 1) { out.set(entry.key, { status: 'found', oid: found.oid, mode: found.mode }); continue; }
-        if (found.mode !== '40000') { out.set(entry.key, { status: 'missing' }); continue; }
-        next.push({ ...entry, current: found.oid, index: entry.index + 1 });
-      }
-      pending = next;
-    }
-    return out;
-  };
-  const blobs = (oids) => read([...new Set(oids)]);
-  const configurationPaths = ['singularity/workflow.yml', 'singularity/portfolio.yml'];
-  const initialPaths = [...new Set([...configurationPaths, workRoot, initiativeRoot])];
-  const located = resolve(distinct.flatMap((commit) => initialPaths.map((relative) => (
-    { key: `${commit}:${relative}`, tree: rootTrees.get(commit), parts: relative.split('/') }))));
-  if (!located) return null;
-  const specTreeOids = [...new Set([...located.values()]
-    .filter((entry) => entry.status === 'found' && entry.mode === '40000' && !trees.has(entry.oid))
-    .map((entry) => entry.oid))];
-  const configBlobOids = [...new Set(distinct.flatMap((commit) => configurationPaths
-    .map((relative) => located.get(`${commit}:${relative}`))
-    .filter((entry) => entry?.status === 'found' && entry.mode !== '40000')
-    .map((entry) => entry.oid)))];
-  const configurationBlobs = blobs([...configBlobOids, ...specTreeOids]);
-  if (!configurationBlobs) return null;
-  for (const oid of specTreeOids) {
-    const answer = configurationBlobs.get(oid);
-    trees.set(oid, answer?.status === 'ok' && answer.type === 'tree' ? treeEntries(answer.bytes, oidLength) ?? 'malformed' : 'unavailable');
-  }
-  const parsed = new Map();
   const files = new Map();
-  const roots = new Map();
+  const cachedByCommit = new Map();
   for (const commit of distinct) {
-    const sources = configurationPaths.map((relative) => {
-      const entry = located.get(`${commit}:${relative}`);
-      if (entry.status !== 'found') return entry;
-      const blob = configurationBlobs.get(entry.oid);
-      return blob?.status === 'ok' && blob.type === 'blob' ? { status: 'ok', oid: entry.oid, bytes: blob.bytes } : { status: 'unavailable' };
-    });
-    if (sources.some((source) => source.status === 'unavailable')) {
-      roots.set(commit, { status: 'unavailable', reason: 'required configuration object is unavailable locally' });
-      continue;
+    const cached = lookupRefSubjects(root, commit, workRoot, initiativeRoot, env);
+    if (!cached) continue;
+    cachedByCommit.set(commit, cached);
+    if (cached.workflowYml != null) files.set(`${commit}:singularity/workflow.yml`, cached.workflowYml);
+    if (cached.observed?.status === 'ok') {
+      for (const [file, text] of cached.observed.contents) files.set(`${commit}:${file}`, text);
     }
-    if (sources[0].status === 'ok') files.set(`${commit}:singularity/workflow.yml`, sources[0].bytes.toString('utf8'));
-    try {
-      const [definition, portfolio] = sources.map((source) => {
-        if (source.status !== 'ok') return null;
-        if (!parsed.has(source.oid)) parsed.set(source.oid, YAML.parse(source.bytes.toString('utf8')));
-        return parsed.get(source.oid);
+  }
+  const uncached = distinct.filter((commit) => !cachedByCommit.has(commit));
+  if (uncached.length) {
+    const snapshots = new Map(uncached.map((commit) => [
+      commit,
+      gitFactSnapshot(refSubjectFactRequest(root, commit, workRoot, initiativeRoot, env))
+    ]));
+    const oidLength = uncached[0]?.length ?? 40;
+    /*
+     * Paths are resolved by walking tree objects, never as `<rev>:<path>`. In a blobless clone Git
+     * answers a blob it does not have exactly as it answers a path that does not exist, and that
+     * difference decides between "this ref has no Stories" and "this ref's Stories are unreadable
+     * here". Trees are always local in such a clone; a blob read by its own ID that is missing is
+     * plainly unavailable. Every level is one batch for every ref, and shared trees are read once.
+     */
+    const trees = new Map();
+    const listTrees = (oids) => {
+      const wanted = [...new Set(oids)].filter((oid) => !trees.has(oid));
+      if (!wanted.length) return true;
+      const answers = read(wanted);
+      if (!answers) return false;
+      for (const oid of wanted) {
+        const answer = answers.get(oid);
+        trees.set(oid, answer.status === 'ok' && answer.type === 'tree' ? treeEntries(answer.bytes, oidLength) ?? 'malformed' : 'unavailable');
+      }
+      return true;
+    };
+    const resolve = (requests) => {
+      const out = new Map();
+      let pending = requests.map((request) => ({ ...request, current: request.tree, index: 0 }));
+      while (pending.length) {
+        if (!listTrees(pending.map((entry) => entry.current))) return null;
+        const next = [];
+        for (const entry of pending) {
+          const listed = trees.get(entry.current);
+          if (listed === 'malformed') return null;
+          if (listed === 'unavailable') { out.set(entry.key, { status: 'unavailable' }); continue; }
+          const found = listed.find((child) => child.name === entry.parts[entry.index]);
+          if (!found) { out.set(entry.key, { status: 'missing' }); continue; }
+          if (entry.index === entry.parts.length - 1) { out.set(entry.key, { status: 'found', oid: found.oid, mode: found.mode }); continue; }
+          if (found.mode !== '40000') { out.set(entry.key, { status: 'missing' }); continue; }
+          next.push({ ...entry, current: found.oid, index: entry.index + 1 });
+        }
+        pending = next;
+      }
+      return out;
+    };
+    const blobs = (oids) => read([...new Set(oids)]);
+    const configurationPaths = ['singularity/workflow.yml', 'singularity/portfolio.yml'];
+    const initialPaths = [...new Set([...configurationPaths, workRoot, initiativeRoot])];
+    const located = resolve(uncached.flatMap((commit) => initialPaths.map((relative) => (
+      { key: `${commit}:${relative}`, tree: rootTrees.get(commit), parts: relative.split('/') }))));
+    if (!located) return null;
+    const specTreeOids = [...new Set([...located.values()]
+      .filter((entry) => entry.status === 'found' && entry.mode === '40000' && !trees.has(entry.oid))
+      .map((entry) => entry.oid))];
+    const configBlobOids = [...new Set(uncached.flatMap((commit) => configurationPaths
+      .map((relative) => located.get(`${commit}:${relative}`))
+      .filter((entry) => entry?.status === 'found' && entry.mode !== '40000')
+      .map((entry) => entry.oid)))];
+    const configurationBlobs = blobs([...configBlobOids, ...specTreeOids]);
+    if (!configurationBlobs) return null;
+    for (const oid of specTreeOids) {
+      const answer = configurationBlobs.get(oid);
+      trees.set(oid, answer?.status === 'ok' && answer.type === 'tree' ? treeEntries(answer.bytes, oidLength) ?? 'malformed' : 'unavailable');
+    }
+    const parsed = new Map();
+    const roots = new Map();
+    const workflowYmlByCommit = new Map();
+    for (const commit of uncached) {
+      const sources = configurationPaths.map((relative) => {
+        const entry = located.get(`${commit}:${relative}`);
+        if (entry.status !== 'found') return entry;
+        const blob = configurationBlobs.get(entry.oid);
+        return blob?.status === 'ok' && blob.type === 'blob' ? { status: 'ok', oid: entry.oid, bytes: blob.bytes } : { status: 'unavailable' };
       });
-      roots.set(commit, { status: 'ok', workRoot: safeRefRoot(definition?.workItemRoot, workRoot), initiativeRoot: safeRefRoot(portfolio?.initiativeRoot, initiativeRoot) });
-    } catch (error) {
-      roots.set(commit, { status: 'unavailable', reason: `configuration root could not be parsed: ${error.message}` });
+      if (sources.some((source) => source.status === 'unavailable')) {
+        roots.set(commit, { status: 'unavailable', reason: 'required configuration object is unavailable locally' });
+        continue;
+      }
+      if (sources[0].status === 'ok') {
+        const text = sources[0].bytes.toString('utf8');
+        files.set(`${commit}:singularity/workflow.yml`, text);
+        workflowYmlByCommit.set(commit, text);
+      }
+      try {
+        const [definition, portfolio] = sources.map((source) => {
+          if (source.status !== 'ok') return null;
+          if (!parsed.has(source.oid)) parsed.set(source.oid, YAML.parse(source.bytes.toString('utf8')));
+          return parsed.get(source.oid);
+        });
+        roots.set(commit, { status: 'ok', workRoot: safeRefRoot(definition?.workItemRoot, workRoot), initiativeRoot: safeRefRoot(portfolio?.initiativeRoot, initiativeRoot) });
+      } catch (error) {
+        roots.set(commit, { status: 'unavailable', reason: `configuration root could not be parsed: ${error.message}` });
+      }
+    }
+    const stateRoots = (value) => [[value.workRoot, 'workflow.json'], [value.initiativeRoot, 'state.json']];
+    const ready = uncached.filter((commit) => roots.get(commit).status === 'ok');
+    const directories = resolve(ready.flatMap((commit) => stateRoots(roots.get(commit)).map(([directory]) => (
+      { key: `${commit}:${directory}`, tree: rootTrees.get(commit), parts: directory.split('/') }))));
+    if (!directories) return null;
+    // Each subject directory's own tree says whether it holds a record, without reading the record.
+    const subjectDirectories = [];
+    const failures = new Map();
+    if (!listTrees([...directories.values()].filter((entry) => entry.status === 'found' && entry.mode === '40000').map((entry) => entry.oid))) return null;
+    for (const commit of ready) {
+      for (const [directory, leaf] of stateRoots(roots.get(commit))) {
+        const entry = directories.get(`${commit}:${directory}`);
+        if (entry.status === 'missing' || (entry.status === 'found' && entry.mode !== '40000')) continue;
+        if (entry.status !== 'found') { failures.set(commit, true); continue; }
+        const listed = trees.get(entry.oid);
+        if (!Array.isArray(listed)) { failures.set(commit, true); continue; }
+        for (const child of listed) if (child.mode === '40000') subjectDirectories.push({ commit, tree: child.oid, leaf, file: `${directory}/${child.name}/${leaf}` });
+      }
+    }
+    const leaves = resolve(subjectDirectories.map((entry) => ({ key: `${entry.commit}:${entry.file}`, tree: entry.tree, parts: [entry.leaf] })));
+    if (!leaves) return null;
+    const recordBlobs = blobs([...leaves.values()].filter((entry) => entry.status === 'found').map((entry) => entry.oid));
+    if (!recordBlobs) return null;
+    for (const commit of uncached) {
+      const value = roots.get(commit);
+      if (value.status !== 'ok') {
+        cachedByCommit.set(commit, storeRefSubjects(root, commit, workRoot, initiativeRoot, env, { roots: value, observed: null, workflowYml: null }));
+        continue;
+      }
+      const errors = [];
+      const contents = new Map();
+      const firstRef = names.find((candidate) => commits.get(candidate) === commit) ?? commit;
+      if (failures.has(commit)) errors.push({ code: 'REF_TREE_LIST_FAILED', message: `Git could not list governed state at '${firstRef}'.`, ref: firstRef });
+      for (const { file } of failures.has(commit) ? [] : subjectDirectories.filter((entry) => entry.commit === commit)) {
+        const entry = leaves.get(`${commit}:${file}`);
+        if (entry.status === 'missing') continue;
+        const blob = entry.status === 'found' ? recordBlobs.get(entry.oid) : null;
+        if (blob?.status === 'too-large') {
+          errors.push({ code: 'REF_TREE_OBJECT_TOO_LARGE', message: `${file} exceeds the governed-state object limit.`, path: file, bytes: blob.size });
+        } else if (blob?.status !== 'ok' || blob.type !== 'blob') {
+          errors.push({ code: 'REF_TREE_SIZE_INVALID', message: `Git returned an invalid governed-state object size at '${firstRef}'.`, ref: firstRef, path: file });
+        } else {
+          const text = blob.bytes.toString('utf8');
+          contents.set(file, text);
+          files.set(`${commit}:${file}`, text);
+        }
+      }
+      const entry = {
+        roots: value,
+        observed: errors.length ? { status: 'unavailable', contents: new Map(), errors } : { status: 'ok', contents, errors: [] },
+        workflowYml: workflowYmlByCommit.get(commit) ?? null
+      };
+      cachedByCommit.set(commit, storeRefSubjects(root, commit, workRoot, initiativeRoot, env, entry, snapshots.get(commit)));
     }
   }
-  const stateRoots = (value) => [[value.workRoot, 'workflow.json'], [value.initiativeRoot, 'state.json']];
-  const ready = distinct.filter((commit) => roots.get(commit).status === 'ok');
-  const directories = resolve(ready.flatMap((commit) => stateRoots(roots.get(commit)).map(([directory]) => (
-    { key: `${commit}:${directory}`, tree: rootTrees.get(commit), parts: directory.split('/') }))));
-  if (!directories) return null;
-  // Each subject directory's own tree says whether it holds a record, without reading the record.
-  const subjectDirectories = [];
-  const failures = new Map();
-  if (!listTrees([...directories.values()].filter((entry) => entry.status === 'found' && entry.mode === '40000').map((entry) => entry.oid))) return null;
-  for (const commit of ready) {
-    for (const [directory, leaf] of stateRoots(roots.get(commit))) {
-      const entry = directories.get(`${commit}:${directory}`);
-      if (entry.status === 'missing' || (entry.status === 'found' && entry.mode !== '40000')) continue;
-      if (entry.status !== 'found') { failures.set(commit, true); continue; }
-      const listed = trees.get(entry.oid);
-      if (!Array.isArray(listed)) { failures.set(commit, true); continue; }
-      for (const child of listed) if (child.mode === '40000') subjectDirectories.push({ commit, tree: child.oid, leaf, file: `${directory}/${child.name}/${leaf}` });
-    }
-  }
-  const leaves = resolve(subjectDirectories.map((entry) => ({ key: `${entry.commit}:${entry.file}`, tree: entry.tree, parts: [entry.leaf] })));
-  if (!leaves) return null;
-  const recordBlobs = blobs([...leaves.values()].filter((entry) => entry.status === 'found').map((entry) => entry.oid));
-  if (!recordBlobs) return null;
   const result = new Map();
   Object.defineProperty(result, 'files', { value: files, enumerable: false });
   for (const name of names) {
     const commit = commits.get(name);
     if (!commit) continue;
-    const value = roots.get(commit);
-    if (value.status !== 'ok') { result.set(name, { commit, roots: value, observed: null }); continue; }
-    const errors = [];
-    const contents = new Map();
-    if (failures.has(commit)) errors.push({ code: 'REF_TREE_LIST_FAILED', message: `Git could not list governed state at '${name}'.`, ref: name });
-    for (const { file } of failures.has(commit) ? [] : subjectDirectories.filter((entry) => entry.commit === commit)) {
-      const entry = leaves.get(`${commit}:${file}`);
-      if (entry.status === 'missing') continue;
-      const blob = entry.status === 'found' ? recordBlobs.get(entry.oid) : null;
-      if (blob?.status === 'too-large') {
-        errors.push({ code: 'REF_TREE_OBJECT_TOO_LARGE', message: `${file} exceeds the governed-state object limit.`, path: file, bytes: blob.size });
-      } else if (blob?.status !== 'ok' || blob.type !== 'blob') {
-        errors.push({ code: 'REF_TREE_SIZE_INVALID', message: `Git returned an invalid governed-state object size at '${name}'.`, ref: name, path: file });
-      } else {
-        const text = blob.bytes.toString('utf8');
-        contents.set(file, text);
-        files.set(`${commit}:${file}`, text);
-      }
-    }
-    result.set(name, {
-      commit, roots: value,
-      observed: errors.length ? { status: 'unavailable', contents: new Map(), errors } : { status: 'ok', contents, errors: [] }
-    });
+    const entry = cachedByCommit.get(commit);
+    if (entry) result.set(name, { commit, roots: entry.roots, observed: entry.observed });
   }
   return result;
 }
@@ -448,7 +542,8 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
   // The batch answers the same questions; any Git failure keeps the exact per-ref reads below.
   const prefetched = refs.length > 1 && !fresh && env === process.env
     ? prefetchRefSubjects(root, refs, { workRoot, initiativeRoot, env }) : null;
-  Object.defineProperty(index, 'refFiles', { value: prefetched?.files ?? new Map(), enumerable: false });
+  const refFiles = prefetched?.files ?? new Map();
+  Object.defineProperty(index, 'refFiles', { value: refFiles, enumerable: false });
   // Where this index declines its own summary cache, it declines the Git answer cache too: a fresh
   // scan is an independent proof, and an explicit environment is caller-owned authority.
   const independent = fresh || env !== process.env;
@@ -463,15 +558,16 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
         location: { ref, branch, commit: null }, reason: 'required ref commit is unavailable locally' }));
       continue;
     }
-    const cacheKey = JSON.stringify([
-      path.resolve(root), commit, workRoot, initiativeRoot,
-      env === process.env ? 'ambient' : 'explicit-environment'
-    ]);
     const load = () => {
       if (early) return { roots: early.roots, observed: early.observed };
+      const snapshot = independent ? null : gitFactSnapshot(refSubjectFactRequest(root, commit, workRoot, initiativeRoot, env));
       // The cache key and every policy/blob read describe one immutable object, even if a fetch
       // advances the branch after refHead returned. Keep the original name only as location data.
-      const roots = rootsForRef(root, commit, { workRoot, initiativeRoot, env });
+      const resolvedRoots = rootsForRef(root, commit, { workRoot, initiativeRoot, env });
+      const workflowYml = resolvedRoots.workflowYml ?? null;
+      const roots = resolvedRoots.status === 'ok'
+        ? { status: 'ok', workRoot: resolvedRoots.workRoot, initiativeRoot: resolvedRoots.initiativeRoot }
+        : resolvedRoots;
       const observed = roots.status === 'ok'
         ? readRefTreeResult(root, commit, [roots.workRoot, roots.initiativeRoot], {
           // Filter by tree path before asking Git for blob sizes. A blobless workspace can have
@@ -479,11 +575,22 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
           pathFilter: (file) => isSubjectRecord(file, roots), env
         })
         : null;
-      return { roots, observed };
+      const value = { roots, observed, workflowYml };
+      return independent ? value : storeRefSubjects(root, commit, workRoot, initiativeRoot, env, value, snapshot);
     };
     // Destructive-readiness checks explicitly request a fresh scan so neither stale branch bytes
     // nor an earlier caller's environment-specific cache entry can authorize local deletion.
-    const cached = independent ? ask(load) : cachedRefSubjects(cacheKey, load);
+    const cached = independent
+      ? ask(load)
+      : (early ?? lookupRefSubjects(root, commit, workRoot, initiativeRoot, env) ?? load());
+    if (cached.workflowYml != null && !refFiles.has(`${commit}:singularity/workflow.yml`)) {
+      refFiles.set(`${commit}:singularity/workflow.yml`, cached.workflowYml);
+    }
+    if (cached.observed?.status === 'ok') {
+      for (const [file, text] of cached.observed.contents) {
+        if (!refFiles.has(`${commit}:${file}`)) refFiles.set(`${commit}:${file}`, text);
+      }
+    }
     const { roots, observed } = cached;
     if (roots.status !== 'ok') {
       index.unreadable.push(stateDiagnostic({

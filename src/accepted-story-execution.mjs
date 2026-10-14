@@ -1,5 +1,5 @@
 import path from 'node:path';
-
+import { withReadScope } from './read-scope.mjs';
 import { loadDefinition } from './config.mjs';
 import { loadStoryAggregate } from './state-stores.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
@@ -98,21 +98,25 @@ async function locateAcceptedStory(root, definition, reference = null) {
  * remain sourced from the current definition because the resolver overlays only captured policy.
  */
 export async function loadAcceptedStoryExecution(root, workId = null) {
-  const bootstrap = await loadDefinition(root, { storyBootstrap: true });
-  const located = await locateAcceptedStory(root, bootstrap, workId);
-  if (located.workflow.workflowSnapshot) {
-    const executionCatalog = await resolveStoryExecutionCatalog(
-      root, located.definition, located.workflow
-    );
-    const definition = executionCatalog.effectiveDefinition;
+  return withReadScope(async () => {
+    const bootstrap = await loadDefinition(root, { storyBootstrap: true });
+    const located = await locateAcceptedStory(root, bootstrap, workId);
+    if (located.workflow.workflowSnapshot) {
+      const executionCatalog = await resolveStoryExecutionCatalog(
+        root, located.definition, located.workflow
+      );
+      const definition = executionCatalog.effectiveDefinition;
+      return Object.freeze({
+        definition, config: definition, workflow: located.workflow, executionCatalog
+      });
+    }
+    const current = await loadDefinition(root);
+    const legacy = current.workItemRoot === located.definition.workItemRoot
+      ? { definition: current, workflow: located.workflow }
+      : await locateAcceptedStory(root, current, workId);
     return Object.freeze({
-      definition, config: definition, workflow: located.workflow, executionCatalog
+      definition: legacy.definition, config: legacy.definition, workflow: legacy.workflow,
+      executionCatalog: null
     });
-  }
-  const current = await loadDefinition(root);
-  const legacy = await locateAcceptedStory(root, current, workId);
-  return Object.freeze({
-    definition: legacy.definition, config: legacy.definition, workflow: legacy.workflow,
-    executionCatalog: null
   });
 }

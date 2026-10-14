@@ -1,5 +1,3 @@
-import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
-
 /**
  * Generated initiative outputs.
  *
@@ -27,6 +25,7 @@ function bytes(value) {
 // The evidence register, rendered from the pinned source manifest. Every column here is recorded
 // when a source is pinned, so this is a projection rather than a claim.
 async function sourceCatalog(root, { initiative }) {
+  const { jiraSnapshotSource, listEpicSources } = await import('./epic-sources.mjs');
   const { manifest } = await listEpicSources(root, initiative.initiative.id).catch(() => ({ manifest: { sources: [] } }));
   const sources = manifest?.sources ?? [];
   const jiraSnapshot = jiraSnapshotSource(initiative);

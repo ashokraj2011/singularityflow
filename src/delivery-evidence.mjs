@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { isTestQualityCommand, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import {
   inferModuleTestCommand, isAllowedTestAutomationPath, isExecutableTestSourcePath,
@@ -1449,51 +1449,7 @@ function commandText(command) {
   return String(command?.command ?? '');
 }
 
-function commandTokens(command) {
-  if (Array.isArray(command)) return command.map(String);
-  if (Array.isArray(command?.argv)) return command.argv.map(String);
-  return commandText(command).trim().split(/\s+/).filter(Boolean);
-}
-
-function executableName(value) {
-  return path.basename(String(value ?? '')).toLowerCase().replace(/\.(?:cmd|exe)$/i, '');
-}
-
-/** A code receipt must execute tests; lint/compile/diff commands alone are not sufficient. */
-export function isTestQualityCommand(command) {
-  if (command && typeof command === 'object' && !Array.isArray(command) && command.kind != null) {
-    return command.kind === 'test';
-  }
-  const [rawExecutable, ...rawArguments] = commandTokens(command);
-  const executable = executableName(rawExecutable);
-  const args = rawArguments.map((argument) => argument.toLowerCase());
-  const hasTask = (names) => args.some((argument) => names.has(argument.replace(/^.*:/, '')));
-
-  if (['mvn', 'mvnw'].includes(executable)) return hasTask(new Set(['test', 'verify', 'integration-test']));
-  if (['gradle', 'gradlew'].includes(executable)) return hasTask(new Set(['test', 'check']));
-  if (['go', 'cargo', 'dotnet', 'swift'].includes(executable)) return args[0] === 'test';
-  if (['pytest', 'jest', 'vitest', 'mocha'].includes(executable)) return true;
-  if (['python', 'python3', 'py'].includes(executable)) {
-    return args.some((argument, index) => argument === '-m' && ['pytest', 'unittest'].includes(args[index + 1]));
-  }
-  if (executable === 'node') return args.some((argument) => argument === '--test' || argument.startsWith('--test='));
-  if (['npm', 'pnpm', 'yarn', 'bun'].includes(executable)) {
-    if (args[0] === 'test') return true;
-    const script = args[0] === 'run' ? args[1] : args[0];
-    return /(^|[:_-])(test|tests|acceptance|e2e|integration|unit)(?:$|[:_.-])/.test(script ?? '');
-  }
-  if (['npx', 'pnpx', 'yarnx', 'bunx'].includes(executable)) {
-    const packageIndex = args.findIndex((argument) => !argument.startsWith('-'));
-    const runner = executableName(args[packageIndex]);
-    const runnerArgs = args.slice(packageIndex + 1);
-    if (['jest', 'vitest', 'mocha'].includes(runner)) return true;
-    if (runner === 'playwright') return runnerArgs.includes('test');
-  }
-  if (['bash', 'sh', 'zsh'].includes(executable)) {
-    return /(^|[._-])(test|tests|acceptance|e2e)(?:[._-]|$)/.test(executableName(args[0]));
-  }
-  return /(^|[._-])(test|tests|acceptance|e2e)(?:[._-]|$)/.test(executable);
-}
+export { isTestQualityCommand };
 
 export async function resolveDeliveryQualityCommands(root, phase, { executionMode = 'changed-and-affected' } = {}) {
   const configured = [...(phase.qualityCommands ?? [])];

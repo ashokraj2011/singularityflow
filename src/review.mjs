@@ -100,7 +100,7 @@ function constitutionSection(workflow, phase, artifact) {
 }
 
 
-export async function createReviewBundle(root, config, workflow, requestedPhase = null) {
+export async function createReviewBundle(root, config, workflow, requestedPhase = null, { changedPaths = null } = {}) {
   // The account belongs here, in the rendering, and deliberately NOT in the review packet.
   // `readStoryReviewPacket` hashes every field of the packet it reads back, so a recap stored there
   // would put derived narrative text inside the evidence hash — and improving the wording would
@@ -120,7 +120,7 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
     inputs.push({ phase: declaration.phase, status: producer?.status ?? 'missing', optional: declaration.optional === true, path: producerPath ? path.relative(root, producerPath).replaceAll(path.sep, '/') : null, sha256: producerPath && await exists(producerPath) ? (await snapshot(producerPath)).sha256 : null });
   }
   const reviewBase = workflow.workItem.baseCommit ?? workflow.workItem.baseBranch;
-  const diff = run('git', [
+  const diff = !reviewBase ? { status: 1, stdout: '' } : run('git', [
     'diff', '--stat', reviewBase, 'HEAD', '--', '.',
     ...GOVERNED_ROOTS.flatMap((root) => [`:(exclude)${root}`, `:(exclude)${root}/**`]),
     ':(exclude).sflow/results/**'
@@ -213,7 +213,7 @@ export async function createReviewBundle(root, config, workflow, requestedPhase 
       authorship: [...(phase.authorship ?? [])].reverse().find((record) => record.generation === phase.generation) ?? { producer: 'legacy-unspecified', channel: 'legacy' }
     },
     artifact, inputs, agentBriefs, documents, approvals, narrative, selfApprovalWarning: approvals.some((item) => item.selfApproval), checks: phase.checks ?? [], usage: phase.usage ?? [], changeSummary: diff.status === 0 ? diff.stdout.trim() : 'Unavailable',
-    continuation: await reviewContinuation(root, config, workflow, phase)
+    continuation: await reviewContinuation(root, config, workflow, phase, { changedPaths })
   };
 }
 

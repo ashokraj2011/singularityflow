@@ -225,9 +225,13 @@ function importedAssetReuse(asset, targetBytes) {
   };
 }
 
-/** Asset content is UTF-8 text: the bytes the digest and size describe (ASSET_FIELDS has no encoding). */
+/**
+ * The bytes an asset writes. A bundle asset is UTF-8 text: ASSET_FIELDS refuses an encoding field,
+ * so its digest and size always describe what is written. Only the compiled skill-package files
+ * this module builds from verified packages (skillFileAssets) carry base64.
+ */
 function assetBytes(asset) {
-  return Buffer.from(asset.content, 'utf8');
+  return Buffer.from(asset.content, asset.kind === 'skill-package-file' && asset.encoding === 'base64' ? 'base64' : 'utf8');
 }
 
 /**

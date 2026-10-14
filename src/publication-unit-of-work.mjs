@@ -20,6 +20,7 @@ import {
 import { withSubjectLock } from './subject-lock.mjs';
 import { SingularityFlowError, nowIso, stateFingerprint } from './util.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
+import { measureCommandSpan } from './dx-timing-context.mjs';
 import {
   capturePublicationPreimage, publicationReworkRefNamespace, restorePublicationPreimage
 } from './publication-recovery.mjs';
@@ -440,7 +441,7 @@ export class GitPublicationUnitOfWork {
     // attested to.
     let sourceCommit;
     try {
-      sourceCommit = await commitIsolated(root, commitSpec.message, staged, {
+      sourceCommit = await measureCommandSpan('publication.commit', () => commitIsolated(root, commitSpec.message, staged, {
         expectedHead: publicationHead,
         expectedRef: `refs/heads/${publication.branch}`,
         expectedTree: candidateBinding?.candidateTree ?? null,
@@ -504,7 +505,7 @@ export class GitPublicationUnitOfWork {
             }
           }
         }
-      });
+      }));
     } catch (error) {
       if (error.publicationRefOutcomeUnknown === true) {
         // The Git child may have advanced the exact ref before failing or timing out. The
@@ -642,13 +643,13 @@ export class GitPublicationUnitOfWork {
       // remote. Anything short of a verified landing publishes the branch alone as before; an unclear
       // outcome is the same transport-indeterminate state a lost branch-push response leaves.
       combinedPublication = publicationAuthority?.url && ledger?.config?.enabled && ledger.intent
-        ? await publishBranchWithLedgerEntry(root, ledger.config, ledger.intent, {
+        ? await measureCommandSpan('publication.push', () => publishBranchWithLedgerEntry(root, ledger.config, ledger.intent, {
           commit: sourceCommit,
           branch: publication.branch,
           expectedBranchSha: publication.expectedRemoteSha,
           pushRemote: publicationAuthority.url,
           upstreamRemote: publicationAuthority.remote
-        })
+        }))
         : null;
       let result;
       if (combinedPublication?.landed) {
@@ -656,7 +657,7 @@ export class GitPublicationUnitOfWork {
       } else if (combinedPublication?.uncertain || combinedPublication?.hookRejected) {
         result = combinedPublication.result;
       } else if (publicationAuthority?.url) {
-        result = await pushCommitToBranchAsync(
+        result = await measureCommandSpan('publication.push', () => pushCommitToBranchAsync(
           root,
           publicationRemote,
           sourceCommit,
@@ -666,7 +667,7 @@ export class GitPublicationUnitOfWork {
             transportRemote: publicationAuthority.url,
             upstreamRemote: publicationAuthority.remote
           }
-        );
+        ));
       } else {
         result = {
           status: 1, stdout: '', signal: null,

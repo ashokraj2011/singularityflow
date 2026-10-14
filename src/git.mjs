@@ -817,6 +817,24 @@ export function worktreeStatusDetail(root) {
   return parsePorcelainV2Status(bytes, { objectFormat });
 }
 
+/** One lossless status observation replaces separate tracked, staged and untracked scans. */
+export function artifactChangeInventory(root) {
+  const detail = worktreeStatusDetail(root);
+  const paths = new Set();
+  const untracked = new Set();
+  for (const entry of detail.entries) {
+    if (entry.type === 'ignored') continue;
+    for (const candidate of [entry.path, entry.sourcePath].filter(Boolean)) {
+      if (candidate.kind !== 'utf8') throw new SingularityFlowError(
+        'Artifact discovery cannot represent a non-UTF-8 repository path.', { code: 'ARTIFACT_PATH_UNREPRESENTABLE' }
+      );
+      paths.add(candidate.value);
+    }
+    if (entry.type === 'untracked') untracked.add(entry.path.value);
+  }
+  return { paths: [...paths].sort(), untracked };
+}
+
 export function assertClean(root) {
   if (changes(root).trim()) throw new SingularityFlowError('Working tree is not clean. Commit or stash changes, or pass --allow-dirty deliberately.');
 }

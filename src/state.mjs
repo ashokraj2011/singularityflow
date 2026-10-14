@@ -33,7 +33,7 @@ import { assertStoryTestRiskGate, beginStoryTestRiskRun, captureStoryTestRiskObs
 import { trpCaseInventoryDeclaration, trpExecutionEnvironment, trpNativeReportCapture } from './test-recovery-adapters.mjs';
 import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
 import {
-  branch, changedFiles, commitIsAncestor, headTreeEntries, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
+  artifactChangeInventory, branch, changedFiles, commitIsAncestor, headTreeEntries, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
   publicationPushOutcome, pushCommitToBranchAsync, refreshStalePublishedIndex, remoteContains, shallowBoundaryCommit, untrackedFiles
 } from './git.mjs';
 import {
@@ -2925,7 +2925,8 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
     posix(path.posix.join(workDirRelative(config, workflow.workItem.id), output.path)), output.kind
   ]));
   pruneTransientArtifactRegistrations(phase);
-  const untracked = new Set(untrackedFiles(root));
+  const inventory = artifactChangeInventory(root);
+  const untracked = inventory.untracked;
   // `prepare` creates the required phase artifact on purpose. Calling that expected output an
   // "adopted" file makes the ordinary authoring path look like accidental scope expansion and, on
   // a failed publication retry, repeats the same alarming warning indefinitely. Still register it
@@ -2933,7 +2934,7 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   // explicitly declare.
   const requiredArtifact = requiredRepoPath(config, workflow, phase);
   const adopted = [];
-  const discovered = changedFiles(root).filter((item) => !ignored(config, workflow, item, { untracked: untracked.has(item) }));
+  const discovered = inventory.paths.filter((item) => !ignored(config, workflow, item, { untracked: untracked.has(item) }));
   const discoveredPaths = new Set(discovered);
   // A code step adopts only what its plan names [E2G-027]; every other changed application file is
   // excluded: left where it is, never registered and never committed.

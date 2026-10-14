@@ -14,6 +14,7 @@ import { printPhaseReview } from './shared/print-phase-review.mjs';
 import { phaseContinuationLines } from '../phase-continuation.mjs';
 import { loadSession } from '../session.mjs';
 import { phasePrepublish, prepublishTestExecutionLines } from '../phase-prepublish.mjs';
+import { publishedGenerationCommit } from '../generation-publication-store.mjs';
 import { phaseDraftCheck } from '../phase-draft-check.mjs';
 import { operationContext } from '../operation-context.mjs';
 import { phaseRequiresCodeDelivery, generationSkillForPhase } from '../code-delivery-policy.mjs';
@@ -34,6 +35,7 @@ import { pendingTelemetryNote } from '../telemetry.mjs';
 import { postPublicationStep } from './shared/post-publication-step.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
+import { measureCommandSpan } from '../dx-timing-context.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
@@ -234,6 +236,16 @@ export async function phaseCommand(positionals, options) {
         { code: 'GENERATION_INTENT_ALREADY_CONSUMED' }
       );
     }
+    if (optionBoolean(options, 'json')) {
+      console.log(JSON.stringify({
+        schemaVersion: 1, resultType: 'sflow-phase-publication', status: 'retained',
+        workId: workflow.workItem.id, phase: requestedPhase.id, generation: requestedPhase.generation,
+        commit: publishedGenerationCommit(root, workflow, requestedPhase),
+        pushed: false, effects: { committed: false, pushed: false },
+        remoteSynchronization: 'not-checked', artifact: requestedPhase.requiredArtifact.path
+      }));
+      return;
+    }
     console.log(`Published ${requestedPhase.id} generation ${requestedPhase.generation} already exists; the idempotent retry created no commit.`);
     printPhaseReview(await phaseReview(root, config, workflow, requestedPhase), { showArtifact: optionBoolean(options, 'show-artifact') });
     return;
@@ -295,7 +307,7 @@ export async function phaseCommand(positionals, options) {
   // aggregate. The transaction repeats this inspection to close the change-between-check-and-use
   // window; this first read gives CLI and Copilot hosts the complete deterministic remediation
   // without beginning publication work.
-  if (!sourcePath) await inspectPublicationArtifact(targetPath);
+  if (!sourcePath) await measureCommandSpan('publication.preflight', () => inspectPublicationArtifact(targetPath));
   if (deterministicConvergence) {
     await assertConvergencePublicationReady(root, config, workflow, requestedPhase);
   }
@@ -304,7 +316,7 @@ export async function phaseCommand(positionals, options) {
   // this preflight, implementation source/tests first discovered inside `publishGeneration` were
   // absent from the transaction's immutable path allowlist and therefore absent from the exact
   // generation commit later used by governed references and review packets.
-  await scanArtifacts(root, config, workflow, phaseId);
+  await measureCommandSpan('publication.discovery', () => scanArtifacts(root, config, workflow, phaseId));
   // Attribute only invocations explicitly bound to this generation intent. Story-wide unclaimed
   // audits may come from exploration, another phase, or an abandoned attempt and can never prove
   // the model assurance of the generation being published.
@@ -362,8 +374,9 @@ export async function phaseCommand(positionals, options) {
           kernelInvocations,
           generation
         });
-        await scanArtifacts(root, config, workflow, phaseId);
-        phase = await publishGeneration(root, config, workflow, {
+        // The initial discovery owns the transaction allowlist. publishGeneration refreshes
+        // registrations after its managed writes; repeating discovery here observes no new scope.
+        phase = await measureCommandSpan('publication.validation', () => publishGeneration(root, config, workflow, {
           phaseId,
           usage,
           authorship,
@@ -373,7 +386,7 @@ export async function phaseCommand(positionals, options) {
             transactionId: transactionContext.transactionId,
             expectedHead: transactionContext.expectedHead
           }
-        });
+        }));
         // Deterministic phases may legitimately replace their prepared scaffold during
         // `publishGeneration`; all phases also receive engine-owned metadata. The stability
         // boundary therefore begins from the validated post-transition artifact, not from the
@@ -460,6 +473,18 @@ export async function phaseCommand(positionals, options) {
       revisionPublication
     }
   );
+  if (optionBoolean(options, 'json')) {
+    // Publication is complete here. A GUI needs the exact receipt, not a second expensive review
+    // projection before it can acknowledge success. Documents remain available on explicit request.
+    console.log(JSON.stringify({
+      schemaVersion: 1, resultType: 'sflow-phase-publication', status: 'published',
+      workId: workflow.workItem.id, phase: phase.id, generation: phase.generation,
+      commit: result.sha, pushed: result.pushed === true,
+      effects: { committed: true, pushed: result.pushed === true },
+      artifact: phase.requiredArtifact.path
+    }));
+    return;
+  }
   console.log(`Published ${phase.id} generation ${phase.generation} at ${result.sha.slice(0, 8)}${result.pushed ? ' and pushed' : ''}${result.revisionSelection ? ` from REV Candidate ${result.revisionSelection.candidateId}` : ''}.`);
   const telemetry = (phase.telemetry ?? []).find((item) => item.generation === phase.generation);
   const generationUsage = (phase.usage ?? []).filter((item) => item.generation === phase.generation);

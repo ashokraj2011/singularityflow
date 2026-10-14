@@ -4,13 +4,13 @@ import path from 'node:path';
 import { WORKFLOW_PATH } from '../../config.mjs';
 import { CONFIGURATION_SOURCE_PATH, CONFIGURATION_BRANCH } from '../../configuration-branch.mjs';
 import { sessionRepositoryRemotes } from './session-repository-remotes.mjs';
-import { refExists, remoteBranches, fileAtRef } from '../../git.mjs';
+import { refExists } from '../../git.mjs';
 import { configuredRemoteIdentity, frozenRemoteTransport } from '../../git-remote-diagnostics.mjs';
 import { runRemoteGitAsync } from '../../git-execution.mjs';
 
 /**
  * A production bootstrap keeps approved configuration on `sflow/config`, not application `main`.
- * Treat the remote authority (or an already-published lifecycle branch carrying its snapshot) as
+ * Treat the exact remote authority (or the current Story carrying its pinned snapshot) as
  * proof that the checkout is governed; requiring a working-tree copy made every fresh clone look
  * uninitialised until somebody manually checked out the Story branch.
  */
@@ -22,17 +22,10 @@ export async function sessionRepositoryAuthority(root, { remoteProbe = true } = 
   if (workingTreeDefinition && existsSync(path.join(root, CONFIGURATION_SOURCE_PATH))) {
     return { source: 'working-tree', remote: null };
   }
-  let localLifecycle = null;
   for (const remote of sessionRepositoryRemotes(root)) {
     const configurationRef = `refs/remotes/${remote}/${CONFIGURATION_BRANCH}`;
     if (refExists(root, configurationRef)) {
       return { source: 'configuration-branch', remote, ref: `${remote}/${CONFIGURATION_BRANCH}` };
-    }
-    const storyRef = remoteBranches(root, remote)
-      .map((branchName) => `${remote}/${branchName}`)
-      .find((ref) => fileAtRef(root, ref, WORKFLOW_PATH) !== null);
-    if (storyRef && !localLifecycle) {
-      localLifecycle = { source: 'lifecycle-branch', remote, ref: storyRef };
     }
   }
   // A --single-branch clone may not have fetched the configuration namespace yet. The session
@@ -51,5 +44,5 @@ export async function sessionRepositoryAuthority(root, { remoteProbe = true } = 
       return { source: 'configuration-remote', remote, ref: `${remote}/${CONFIGURATION_BRANCH}` };
     }
   }
-  return localLifecycle ?? (workingTreeDefinition ? { source: 'working-tree', remote: null } : null);
+  return workingTreeDefinition ? { source: 'working-tree', remote: null } : null;
 }

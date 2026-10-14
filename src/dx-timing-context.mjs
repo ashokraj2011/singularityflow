@@ -5,14 +5,14 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 const commandTimingContext = new AsyncLocalStorage();
 
 /**
- * Story start reports each stage it enters, one stderr line each, when its caller asks with
- * `SINGULARITY_FLOW_PROGRESS=stderr-v1`. `[perf]` Only the fixed `start.*` span names are ever
+ * Story start and publication report stages on stderr when the caller asks with
+ * `SINGULARITY_FLOW_PROGRESS=stderr-v1`. `[perf]` Only known start/publication stage names are ever
  * written. The request is read once and removed, so no child process inherits it and writes
  * progress into output that something else parses.
  */
 const PROGRESS_MODE = process.env.SINGULARITY_FLOW_PROGRESS === 'stderr-v1' ? 'stderr-v1' : null;
 delete process.env.SINGULARITY_FLOW_PROGRESS;
-const PROGRESS_STEP = /^start\.[a-z][a-z-]*$/u;
+const PROGRESS_STEP = /^(?:start\.[a-z][a-z-]*|publication\.(?:preflight|discovery|validation|commit|push))$/u;
 
 function reportProgress(name) {
   if (!PROGRESS_MODE || !PROGRESS_STEP.test(name)) return;

@@ -54,6 +54,7 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   const configPath = path.join(first, 'singularity/workflow.yml');
   const config = YAML.parse(await readFile(configPath, 'utf8'));
   config.worldModel.grounding = 'off';
+  config.ledger.enabled = true;
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities ?? {})) authority.allowAnyGitIdentity = true;
   for (const phase of Object.values(config.phases ?? {})) if (phase.approval && phase.approval !== 'none') phase.approval.allowSelfApproval = true;
@@ -82,7 +83,7 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   flow(first, ['approve', '--yes']);
   assert.equal(JSON.parse(flow(first, ['inbox', '--json']).stdout).count, 0);
 
-  // An unreadable published branch must be reported without hiding the valid Story.
+  // Unregistered application branches are not Stories and must not be scanned.
   run('git', ['switch', '-c', 'invalid-story'], first);
   const invalidPath = path.join(first, 'singularity', 'work-items', 'BROKEN', 'workflow.json');
   await mkdir(path.dirname(invalidPath), { recursive: true });
@@ -115,10 +116,11 @@ test('another clone discovers a remote work ID, attaches safely, and fast-forwar
   const roster = flow(second, ['session', 'candidates', '--table']).stdout;
   assert.match(roster, /HAND-101/);
   assert.ok(roster.includes(`1/${progress.total}`), 'the chooser must display recorded approved-phase progress');
-  assert.match(roster, /BROKEN/);
+  assert.doesNotMatch(roster, /BROKEN/);
   assert.match(roster, /\/sf-session/);
   assert.match(roster, /singularity-flow session attach/);
-  assert.ok(discovered.unavailable.some((entry) => entry.claimedId === 'BROKEN'));
+  assert.equal(discovered.unavailable.some((entry) => entry.claimedId === 'BROKEN'), false);
+  assert.equal(discovered.source, 'state-ledger');
   assert.equal(discovered.fetched, true);
   assert.equal(run('git', ['branch', '--show-current'], second).stdout.trim(), 'main');
   assert.equal(run('git', ['config', '--get', 'remote.origin.fetch'], second).stdout.trim(),
@@ -236,7 +238,7 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   run('git', ['symbolic-ref', 'HEAD', 'refs/heads/main'], remote);
 
   const boot = await bootstrapRepository(remote, {
-    capabilityId: 'handoff', capabilityName: 'Handoff', base: path.join(base, 'work'), stateBranch: null
+    capabilityId: 'handoff', capabilityName: 'Handoff', base: path.join(base, 'work')
   });
   assert.equal(spawnSync('git', ['cat-file', '-e', 'main:singularity/workflow.yml'], {
     cwd: boot.root, encoding: 'utf8'
@@ -272,7 +274,7 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   assert.equal(remoteDiscovery.source, 'remote-url');
   assert.equal(remoteDiscovery.repositoryPath, null);
   assert.ok(remoteDiscovery.items.some((item) => item.id === 'BOOT-101'));
-  assert.ok(remoteDiscovery.unavailable.some((entry) => entry.claimedId === 'BROKEN'));
+  assert.equal(remoteDiscovery.unavailable.some((entry) => entry.claimedId === 'BROKEN'), false);
 
   // A mapped delivery repository may publish Stories while the lead repository alone owns
   // approved configuration. Both URL authorities must be explicit before a local clone exists.
@@ -281,7 +283,8 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   run('git', [
     'push', delivery,
     `refs/heads/${bootBranch}:refs/heads/${bootBranch}`,
-    'refs/heads/malformed-url-discovery:refs/heads/malformed-url-discovery'
+    'refs/heads/malformed-url-discovery:refs/heads/malformed-url-discovery',
+    'refs/heads/state:refs/heads/state'
   ], remote);
   run('git', ['config', 'uploadpack.allowFilter', 'true'], delivery);
   const withoutLead = spawnSync(process.execPath, [
@@ -299,7 +302,7 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   assert.equal(separateDiscovery.source, 'remote-url');
   assert.equal(separateDiscovery.repositoryPath, null);
   assert.ok(separateDiscovery.items.some((item) => item.id === 'BOOT-101'));
-  assert.ok(separateDiscovery.unavailable.some((entry) => entry.claimedId === 'BROKEN'));
+  assert.equal(separateDiscovery.unavailable.some((entry) => entry.claimedId === 'BROKEN'), false);
   run('git', ['config', 'uploadpack.allowFilter', 'false'], delivery);
   const unsupportedDelivery = spawnSync(process.execPath, [
     bin, 'session', 'candidates', '--repository-url', pathToFileURL(delivery).href,
@@ -473,7 +476,7 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
     [bin, 'session', 'candidates', '--json', '--diagnostics'],
     { cwd: second, encoding: 'utf8', env: isolated });
   assert.equal(unavailable.status, 1);
-  assert.match(unavailable.stdout, /REMOTE_REMOTE_NOT_FOUND/);
+  assert.match(unavailable.stdout, /SESSION_STATE_REFRESH_UNAVAILABLE/);
   assert.equal(JSON.parse(unavailable.stdout).status, 'failed');
   assert.match(run(process.execPath, [bin, 'start', 'BOOT-101'], second, isolated).stdout, /BOOT-101/);
   run('git', ['remote', 'set-url', 'origin', remote], second);
@@ -496,6 +499,10 @@ test('remote Story discovery uses each branch pinned ID policy and state root', 
   identity(first, 'First Pinned Contributor');
   await writeFile(path.join(first, 'README.md'), '# Pinned handoff\n');
   flow(first, ['init']);
+  const initialDefinitionPath = path.join(first, 'singularity/workflow.yml');
+  const initialDefinition = YAML.parse(await readFile(initialDefinitionPath, 'utf8'));
+  initialDefinition.ledger.enabled = true;
+  await writeFile(initialDefinitionPath, YAML.stringify(initialDefinition));
   run('git', ['add', '.'], first);
   run('git', ['commit', '-m', 'initial governance'], first);
   run('git', ['remote', 'add', 'origin', remote], first);

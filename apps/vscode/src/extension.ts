@@ -4839,10 +4839,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let autoPrivateWatcher: vscode.FileSystemWatcher | null = null;
   let repositoryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   const repositoryWatcherFence = new RevisionSliceWatcherFence(() => repository);
+  let mutationRefreshDeferred = false;
   const armRepositoryRefresh = (): void => {
     if (repositoryRefreshTimer) clearTimeout(repositoryRefreshTimer);
+    if (client.mutating) {
+      repositoryRefreshTimer = null;
+      if (!mutationRefreshDeferred) {
+        mutationRefreshDeferred = true;
+        void client.waitForMutations().finally(() => {
+          mutationRefreshDeferred = false;
+          if (repositoryWatcherFence.hasPending) armRepositoryRefresh();
+        });
+      }
+      return;
+    }
     repositoryRefreshTimer = setTimeout(() => {
       repositoryRefreshTimer = null;
+      if (client.mutating) { armRepositoryRefresh(); return; }
       const batch = repositoryWatcherFence.capture();
       const scope = repositoryEpoch.capture();
       void (async () => {
@@ -5561,6 +5574,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const publishScope = repositoryEpoch.capture();
     const argv = await resolvePlaceholders(node.command, repository);
     if (!argv) return;
+    let publication: { workId: string; phaseId: string } | undefined;
     if (argv[0] === 'phase' && argv[1] === 'publish') {
       const workflow = store.current.snapshot?.workflow;
       const checkoutIssue = storyCheckoutIssue(repository, store.current.snapshot, workflow);
@@ -5651,6 +5665,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
           return;
         }
+        argv.splice(0, argv.length, ...gate.publishArgv!);
+        publication = { workId: workflow.workItem.id, phaseId };
         // Advisories never block: publish, and say what the documentation check found.
         if (gate.advisories.length) {
           output.appendLine(`\nDocumentation advisories for ${phaseId} (never block publication):`);
@@ -5771,9 +5787,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const ran = await runGovernedAction(client, {
       command: argv,
       title: node.confirmation?.summary ?? `singularity-flow ${formatCliArgsForDisplay(argv)}`,
+      ...(publication ? { publication } : {}),
       ...(node.confirmation ? { confirmation: node.confirmation } : {})
     }, output);
-    if (ran) await refreshAfterKnownMutation();
+    if (ran) {
+      if (argv[0] === 'phase' && argv[1] === 'publish') {
+        void refreshAfterKnownMutation().catch(error => {
+          output.appendLine(`Publication completed; the background view refresh failed: ${(error as Error).message}. Refresh the view before another action.`);
+        });
+      }
+      else await refreshAfterKnownMutation();
+    }
   };
 
   /** Named Story commands work both from a phase row and directly from the command palette. */

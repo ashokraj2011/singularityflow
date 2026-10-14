@@ -31,6 +31,16 @@ test('progress lines are taken out of stderr wherever the chunks split them', ()
   assert.equal(startProgressLabel('constructor'), null);
 });
 
+test('publication stages are streamed across chunks while unrecognized publication lines remain diagnostic text', () => {
+  const steps = [];
+  const splitter = new ProgressLineSplitter(step => steps.push(step));
+  const kept = splitter.push('@@sflow-progress/v1 publication.val')
+    + splitter.push('idation\n@@sflow-progress/v1 publication.push\n@@sflow-progress/v1 publication.unknown\n')
+    + splitter.end();
+  assert.deepEqual(steps, ['publication.validation', 'publication.push']);
+  assert.equal(kept, '@@sflow-progress/v1 publication.unknown\n');
+});
+
 function chunkedSpawn(chunks, { code = 0, stdout = '' } = {}) {
   const seen = {};
   const spawnImpl = (_executable, _args, options) => {

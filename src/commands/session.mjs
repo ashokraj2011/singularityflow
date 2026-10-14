@@ -1,6 +1,6 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { optionBoolean, SingularityFlowError, optionString, requirePositional, secureRepositoryPath, optionNumber, posix, table } from '../util.mjs';
-import { discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch } from '../session-remote-url-discovery.mjs';
+import { discoverRemoteStoryCandidatesByUrl } from '../session-remote-url-discovery.mjs';
 import { workspaceRegistryFile, activeWorkspaceFile, activateWorkspaceContext, workspacePromptLabel, resolveWorkspaceExecutionContext, readActiveWorkspaceContext, activateWorkspaceStoryContext, buildWorkspaceContext } from '../workspace-context.mjs';
 import path from 'node:path';
 import { sessionRepositoryAuthority } from './shared/session-repository-authority.mjs';
@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs';
 import { WORKFLOW_PATH, validateDefinition } from '../config.mjs';
 import { loadStoryAggregate, loadConfig, validateId } from '../state-stores.mjs';
 import { requireCopilotWorkItemSelection, agentSessionStatus, loadSession, activateWorkItemSession, loadCopilotSession } from '../session.mjs';
-import { branch, head, gitDir, gitCommonDir, repoRoot, fetchRemote, remoteBranches, refHead, isAncestor, assertClean, changes, checkout, fastForwardTo, removeCleanAttachStagingWorktree } from '../git.mjs';
+import { branch, head, gitDir, gitCommonDir, repoRoot, fetchRemote, refHead, isAncestor, assertClean, changes, checkout, fastForwardTo, removeCleanAttachStagingWorktree } from '../git.mjs';
 import { printCommandRoutes } from './shared/print-command-routes.mjs';
 import { samePlatformPath } from '../story-worktree.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
@@ -18,7 +18,6 @@ import { compileObservation } from '../observation-compiler.mjs';
 import { readFile } from 'node:fs/promises';
 import { composeContextBrief } from '../context-broker.mjs';
 import { discoverRemoteStoryCandidates, validatedRemoteStoryDefinition } from '../session-story-discovery.mjs';
-import { buildRepositorySubjectIndexFromRefs, resolveContext } from '../repository-subject-index.mjs';
 import { configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 import { renderChangeDirectoryCommand } from '../safe-command-guidance.mjs';
 import { acceptedStoryExecutionIfPresent } from './shared/accepted-story-execution-if-present.mjs';
@@ -138,7 +137,7 @@ export async function selectedSessionRemote(context) {
 }
 
 export function exactDiscoveredStory(discovery, reference) {
-  const matches = discovery.items.filter((item) => item.id === reference || item.branch === reference);
+  const matches = discovery.items.filter((item) => item.id === reference || item.branch === reference || item.aliases?.includes(reference));
   if (matches.length !== 1) throw new SingularityFlowError(
     matches.length ? `Story reference '${reference}' is ambiguous on the selected remote.`
       : `No governed Story matches '${reference}' on the selected remote. Refresh Story candidates and choose an exact ID or branch.`,
@@ -231,7 +230,7 @@ export async function printSessionCandidateResult(discovered, options, scope = {
     const { renderStoryRoster } = await import('../session-roster.mjs');
     return console.log(renderStoryRoster(discovered, { scope }));
   }
-  if (!discovered.items.length) return console.log(`No remote Singularity Flow work-item branches were found on ${discovered.remote}.`);
+  if (!discovered.items.length) return console.log(`No Stories are indexed in the verified state ledger on ${discovered.remote}.`);
   return console.log(table(discovered.items, [
     { key: 'id', label: 'WORK/JIRA ID' }, { key: 'title', label: 'TITLE' },
     { key: 'phase', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
@@ -626,7 +625,6 @@ export async function sessionCommand(positionals, options) {
   let resolved = await resolveSessionRepository({ workspaceReference, repositoryId: selectedRepositoryId, remoteProbe: subcommand !== 'context' });
   let root = resolved.root;
   let preflightStory = null;
-  let prefetchedRemote = null;
   if (!root && resolved.workspaceContext && ['candidates', 'attach'].includes(subcommand)) {
     const context = resolved.workspaceContext;
     const authority = await selectedSessionRemote(context);
@@ -664,8 +662,7 @@ export async function sessionCommand(positionals, options) {
     // A deferred clone may initially track only its default branch. Fetch the reviewed delivery
     // remote before resolving its Story-carried configuration; do not mistake that for an
     // ungoverned repository merely because the Story ref is not yet locally advertised.
-    await fetchRemote(root, 'origin', { respectPartialClone: true });
-    prefetchedRemote = 'origin';
+    await fetchRemote(root, 'origin', { respectPartialClone: true, branches: [preflightStory.branch] });
     resolved = {
       root, workspaceId: refreshed.workspaceId, workspaceContext: refreshed,
       resolvedFrom: workspaceReference ? 'explicit-workspace' : 'active-workspace',
@@ -762,24 +759,11 @@ export async function sessionCommand(positionals, options) {
     // branch impossible to select. We still require a clean tree before changing branches or
     // advancing HEAD; the sole exception below only binds local session metadata in place.
     const remote = discovery.remote;
-    if (prefetchedRemote !== remote) await fetchRemote(root, remote, { respectPartialClone: true });
-    const refs = remoteBranches(root, remote)
-      .filter(isStoryDiscoveryBranch)
-      .map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }));
-    const subjectIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: config, refs });
-    let subject = resolveContext(subjectIndex, { reference, kind: 'story', required: false });
-    if (!subject) {
-      const identity = configuredRemoteIdentity(root, remote, { direction: 'fetch' });
-      if (!identity.configured || identity.ambiguous) throw new SingularityFlowError(
-        `Story remote '${remote}' has no single configured fetch authority.`,
-        { code: 'GIT_REMOTE_CONFIG_INVALID' }
-      );
-      const recovered = preflightStory
-        ? { items: [preflightStory] }
-        : await discoverRemoteStoryCandidatesByUrl(identity.url, { approvedDefinition: config });
-      const item = exactDiscoveredStory(recovered, reference);
-      subject = await exactStoryMetadataAtRef(root, remote, item, item.commitOid);
-    }
+    const discovered = preflightStory ? { items: [preflightStory] }
+      : await discoverRemoteStoryCandidates(root, config, { remote });
+    const item = exactDiscoveredStory(discovered, reference);
+    await fetchRemote(root, remote, { respectPartialClone: true, branches: [item.branch] });
+    const subject = await exactStoryMetadataAtRef(root, remote, item);
     if (preflightStory && (subject.id !== preflightStory.id
         || subject.selectedBranch !== preflightStory.branch)) throw new SingularityFlowError(
       'The selected Story changed between remote preflight and local checkout. Refresh candidates and retry.',
@@ -797,7 +781,7 @@ export async function sessionCommand(positionals, options) {
     const remoteRef = `refs/remotes/${remote}/${targetBranch}`;
     const remoteSha = refHead(root, remoteRef);
     if (!remoteSha) throw new SingularityFlowError(`No committed lifecycle branch '${targetBranch}' exists on ${remote}. Start it with /sf-start or verify the Story reference.`);
-    if (preflightStory?.commitOid && remoteSha !== preflightStory.commitOid) throw new SingularityFlowError(
+    if (item.commitOid && !isAncestor(root, item.commitOid, remoteSha)) throw new SingularityFlowError(
       `Story branch '${targetBranch}' changed after remote preflight. Refresh candidates and retry.`,
       { code: 'SESSION_REMOTE_CHANGED' }
     );

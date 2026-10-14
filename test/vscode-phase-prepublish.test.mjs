@@ -73,6 +73,16 @@ test('VS Code Publish accepts only an exact fresh read-only ready projection', (
   }
 });
 
+test('a ready publication forwards only the exact closed producer/channel route and asks for a compact receipt', () => {
+  assert.deepEqual(phasePrepublishDecision(ready, expected).publishArgv,
+    ['phase', 'publish', 'implementation', '--authored', 'governed-agent', '--channel', 'copilot-host', '--json']);
+  for (const suffix of ['--from /unreviewed/file', '; arbitrary-command', '--authored unknown', '--channel unknown']) {
+    assert.equal(phasePrepublishDecision({ ...ready,
+      commands: { publish: `singularity-flow phase publish implementation ${suffix}` }
+    }, expected).ready, false);
+  }
+});
+
 test('a correction names the current phase, bounded findings, and the owner skill', () => {
   const decision = phasePrepublishDecision({
     ...ready,

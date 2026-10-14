@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import YAML from 'yaml';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -29,6 +30,10 @@ test('session open lists the Stories without an ID and opens one with its status
   must('git', ['init', '-q', '-b', 'main', root], base);
   await writeFile(path.join(root, 'README.md'), '# Session open\n');
   must(process.execPath, [cli, '--no-model', 'init']);
+  const definitionPath = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(definitionPath, 'utf8'));
+  definition.ledger.enabled = true;
+  await writeFile(definitionPath, YAML.stringify(definition));
   must('git', ['add', '.']);
   must('git', ['commit', '-q', '-m', 'Session open fixture']);
   must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, 'remote.git')], base);

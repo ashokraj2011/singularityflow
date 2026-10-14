@@ -1993,3 +1993,88 @@ test('a new agent started from an existing one carries "from", and the engine co
   delete draft.agents['payments-qa'].from;
   assert.equal(logic.changeSetFrom(model, draft).changes.find((change) => change.op === 'agent.create').from, undefined);
 });
+
+test('imported and proposed workflows appear in Workflows and Epic workflows with Review and activate, and Changes keeps revision choices across re-renders', async () => {
+  const { buildStudioModel } = await import('../src/workflow-studio.mjs');
+  const { proposalSummaries } = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts'));
+  const element = (tag) => ({ tag, attributes: {}, children: [], style: {}, textContent: '', setAttribute(name, value) { this.attributes[name] = value; }, appendChild(child) { this.children.push(child); return child; }, addEventListener(event, fn) { this.listeners = this.listeners ?? {}; this.listeners[event] = fn; } });
+  const text = (node) => [node.textContent ?? node.text ?? '', ...(node.children ?? []).map(text)].join(' ');
+  const all = (node) => [node, ...(node.children ?? []).flatMap(all)];
+  const model = await buildStudioModel(await repository());
+  const page = loadedStudio(model, { getElementById: () => null, createElement: element, createTextNode: (value) => ({ text: value }) });
+  const state = page.state();
+  const summaries = proposalSummaries([
+    {
+      branch: 'sflow/config-change/workflow/import-workflow-imported-flow-11111111',
+      proposalCommit: '1'.repeat(40),
+      proposalId: 'cfp-' + '1'.repeat(64),
+      proposalCreatedAt: '2026-10-12T00:00:00.000Z',
+      valid: true,
+      merged: false,
+      workflows: [
+        { id: 'imported-flow', governs: 'story', change: 'added', label: 'Imported Flow', phases: ['intake', 'design'] },
+        { id: 'repo-feature', governs: 'story', change: 'changed', label: 'Feature', phases: ['intake', 'design'] },
+        { id: 'imported-epic', governs: 'initiative', change: 'added', label: 'Imported Epic', phases: ['define'] }
+      ],
+      changedFiles: [{ status: 'M', paths: ['singularity/workflow.yml'] }]
+    },
+    {
+      branch: 'sflow/config-change/workflow/import-workflow-imported-flow-00000000',
+      proposalCommit: '0'.repeat(40),
+      proposalId: 'cfp-' + '1'.repeat(64),
+      proposalCreatedAt: '2026-10-11T00:00:00.000Z',
+      valid: true,
+      merged: false,
+      workflows: [{ id: 'imported-flow', governs: 'story', change: 'added', label: 'Imported Flow', phases: ['intake'] }],
+      changedFiles: [{ status: 'M', paths: ['singularity/workflow.yml'] }]
+    }
+  ]);
+  assert.deepEqual(summaries[0].workflows[0].phases, ['intake', 'design'], 'proposalSummaries keeps workflow phases');
+  state.proposals = {
+    list: summaries,
+    uploads: [{ branch: 'sflow/config-change/workflow/import-workflow-uploading-22222222', status: 'running', summary: 'Import workflow bundle', error: null }],
+    chosen: {},
+    loading: false
+  };
+
+  const home = element('div');
+  page.renderHome(home);
+  const homeNodes = all(home);
+  assert.equal(homeNodes.filter((node) => node.attributes?.['data-workflow-card']).length, model.workflows.length, 'active workflow card count stays exact');
+  const proposedCards = homeNodes.filter((node) => node.attributes?.['data-proposed-workflow-card']);
+  assert.equal(proposedCards.length, 1, 'proposed story workflow is listed under Your workflows');
+  assert.equal(proposedCards[0].attributes['data-proposed-workflow-card'], 'imported-flow');
+  assert.match(text(proposedCards[0]), /Imported Flow.*Pending review.*Review and activate.*Intake.*Architecture and design/su);
+  const uploadingCards = homeNodes.filter((node) => node.attributes?.['data-uploading-proposal-card']);
+  assert.equal(uploadingCards.length, 1, 'uploading proposal is visible under Your workflows');
+  const activeCard = homeNodes.find((node) => node.attributes?.['data-workflow-card'] === 'repo-feature');
+  assert.match(text(activeCard), /Pending review.*Review and activate/su, 'existing workflow with a pending proposal shows Pending review');
+
+  const epics = element('div');
+  page.renderEpicList(epics);
+  const proposedEpics = all(epics).filter((node) => node.attributes?.['data-proposed-epic-card']);
+  assert.equal(proposedEpics.length, 1, 'proposed epic workflow is listed under Epic workflows');
+  assert.equal(proposedEpics[0].attributes['data-proposed-epic-card'], 'imported-epic');
+
+  // In Changes, a single current valid revision with earlier superseded revisions still defaults to the current branch and preserves selection across re-renders.
+  const groups = page.proposalGroups(summaries);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].current.length, 1);
+  assert.equal(groups[0].earlier.length, 1);
+  const card1 = page.proposalEntityCard(groups[0]);
+  const activateBtn1 = all(card1).find((node) => node.tag === 'button' && /Review exact revision/.test(text(node)));
+  assert.equal(activateBtn1.disabled, undefined, 'Review exact revision is enabled by default for the latest revision');
+  const select = all(card1).find((node) => node.tag === 'select');
+  select.listeners.change({ target: { value: summaries[1].branch } });
+  assert.equal(state.proposals.chosen[summaries[0].proposalId], summaries[1].branch, 'chosen revision persists in proposals state');
+  const card2 = page.proposalEntityCard(groups[0]);
+  const select2 = all(card2).find((node) => node.tag === 'select');
+  const selectedOpt = all(select2).find((node) => node.tag === 'option' && node.selected === true);
+  assert.equal(selectedOpt.value, summaries[1].branch, 're-rendering preserves the selected revision');
+
+  const studioHost = await readFile(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio.ts'), 'utf8');
+  assert.match(studioHost, /await this\.offerSavedDraft\(\);\s*await this\.proposals\(\);/, 'WorkflowStudioPanel.load immediately fetches proposals');
+  const extensionSource = await readFile(path.join(packageRoot, 'apps/vscode/src/extension.ts'), 'utf8');
+  assert.match(extensionSource, /proposeWorkflowChange\(\['workflow', 'import'[\s\S]*?'Importing workflows',\s*\{\s*propose:\s*Boolean\(plan\.destinationAuthority\)\s*\}\)/);
+});
+

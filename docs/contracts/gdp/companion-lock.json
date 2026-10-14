@@ -4,8 +4,8 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "089197d6f191597e1f4a40fb6f114645dd707d19",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-13-WORKFLOW-BUNDLE-V9.md",
+    "reviewedAtCommit": "fa62ca486832e84b5b12279d87af105af55edc4d",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-14-TEAM-IMPORT-SESSIONS.md",
     "companionIds": [
       "migration-registry"
     ]
@@ -94,7 +94,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:2831e1cec66227b350858e6efb3269f1fd7e18b3c4f4fe94390bc26059fe47cf"
+      "sha256": "sha256:00321fc2cd686da3e36dc7b2fb4902dda6d64e10929aa2245e116d7a950b0dfc"
     },
     {
       "id": "smart-initialization-v1",

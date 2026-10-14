@@ -9,6 +9,11 @@ import {
   cachedGitFact, clearGitFactCache, gitFactCacheHits, gitFactKind, gitFactRequest,
   gitFactSnapshot, rememberGitFact, withFreshGitFacts
 } from '../src/git-fact-cache.mjs';
+import {
+  governedCommitIdentity, head, localBranches, refExists, refHead, remoteBranches,
+  remoteDefaultBranchName, shallowBoundaryCommit, stagedEntriesForPaths
+} from '../src/git.mjs';
+import { withReadScope } from '../src/read-scope.mjs';
 import { run } from '../src/util.mjs';
 
 /** Git outside `run()`: another program, a child process or a test changing the repository. */
@@ -486,3 +491,96 @@ test('a ref-name check is answered once, valid or not, without a repository behi
   }
   assert.equal(gitFactCacheHits(), hitsBefore);
 });
+
+test('Stage 1: read-scope memoization coalesces repeated ref/branch reads and expires outside the scope', async (t) => {
+  const root = await repository(t);
+  outside(root, ['branch', 'feature-one']);
+  outside(root, ['update-ref', 'refs/remotes/origin/main', outside(root, ['rev-parse', 'HEAD'])]);
+  outside(root, ['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
+  outside(root, ['config', 'remote.origin.url', root]);
+
+  await withReadScope(async () => {
+    const firstHead = head(root);
+    const firstRefHead = refHead(root, 'refs/heads/feature-one');
+    const firstExists = refExists(root, 'refs/heads/feature-one');
+    const firstLocal = localBranches(root);
+    const firstRemote = remoteBranches(root, 'origin');
+    const firstDefault = remoteDefaultBranchName(root, {}, 'origin');
+
+    // Mutate outside run() while still inside the read-only scope: the scoped read memo returns
+    // the consistent in-scope snapshot without spawning additional Git processes.
+    outside(root, ['branch', 'feature-two']);
+    assert.equal(head(root), firstHead);
+    assert.equal(refHead(root, 'refs/heads/feature-one'), firstRefHead);
+    assert.equal(refExists(root, 'refs/heads/feature-one'), firstExists);
+    assert.deepEqual(localBranches(root), firstLocal);
+    assert.deepEqual(remoteBranches(root, 'origin'), firstRemote);
+    assert.equal(remoteDefaultBranchName(root, {}, 'origin'), firstDefault);
+  });
+
+  // Outside the read scope, the new branch is immediately observed.
+  assert.ok(localBranches(root).includes('feature-two'));
+  assert.equal(refExists(root, 'refs/heads/feature-two'), true);
+});
+
+test('Stage 1: governedCommitIdentity, shallowBoundaryCommit, and stagedEntriesForPaths batch and coalesce object reads', async (t) => {
+  const root = await repository(t);
+  const baseCommit = outside(root, ['rev-parse', 'HEAD']);
+  outside(root, ['checkout', '-q', '-b', 'side']);
+  await writeFile(path.join(root, 'side.txt'), 'side\n');
+  outside(root, ['add', 'side.txt']);
+  outside(root, ['commit', '-q', '-m', 'side commit']);
+  const sideCommit = outside(root, ['rev-parse', 'HEAD']);
+  outside(root, ['checkout', '-q', 'main']);
+
+  const tree = outside(root, ['rev-parse', `${sideCommit}^{tree}`]);
+  const msg = [
+    'Governed merge commit',
+    '',
+    'Singularity-Flow-Transaction: tx-123',
+    `Singularity-Flow-Event-SHA256: ${'a'.repeat(64)}`,
+    `Singularity-Flow-State-SHA256: ${'b'.repeat(64)}`,
+    'Singularity-Flow-Publication-Mode: required'
+  ].join('\n');
+  const mergeCommit = outside(root, ['commit-tree', tree, '-p', baseCommit, '-p', sideCommit, '-m', msg]);
+
+  clearGitFactCache();
+  const identity1 = governedCommitIdentity(root, mergeCommit);
+  assert.equal(identity1.commit, mergeCommit);
+  assert.equal(identity1.tree, tree);
+  assert.deepEqual(identity1.parents, [baseCommit, sideCommit]);
+  assert.equal(identity1.transactionId, 'tx-123');
+  assert.equal(identity1.eventSha256, 'a'.repeat(64));
+  assert.equal(identity1.stateSha256, 'b'.repeat(64));
+
+  // Second call hits git-fact-cache for both `rev-parse --verify` and `cat-file -p`.
+  const hitsBefore = gitFactCacheHits();
+  const identity2 = governedCommitIdentity(root, mergeCommit);
+  assert.deepEqual(identity2, identity1);
+  assert.equal(gitFactCacheHits(), hitsBefore + 2, 'both rev-parse and cat-file -p hit the object fact cache');
+
+  // shallowBoundaryCommit with multiple parents uses batched cat-file --batch-check.
+  await writeFile(path.join(root, '.git', 'shallow'), `${baseCommit}\n`);
+  assert.equal(shallowBoundaryCommit(root, mergeCommit), false, 'both parents exist locally');
+  const rawMerge = outside(root, ['cat-file', '-p', mergeCommit]);
+  const missingParentCommit = spawnSync('git', ['hash-object', '-t', 'commit', '-w', '--stdin'], {
+    cwd: root,
+    encoding: 'utf8',
+    input: `${rawMerge.replace(`parent ${sideCommit}`, `parent ${'f'.repeat(40)}`)}\n`
+  }).stdout.trim();
+  assert.equal(shallowBoundaryCommit(root, missingParentCommit), true, 'missing parent in multi-parent commit is detected as shallow boundary');
+  await rm(path.join(root, '.git', 'shallow'), { force: true });
+
+  // stagedEntriesForPaths batches multi-file index reads via ls-files --stage + readLocalGitBlobs.
+  await writeFile(path.join(root, 'one.txt'), 'alpha\n');
+  await writeFile(path.join(root, 'two.txt'), 'beta\n');
+  await writeFile(path.join(root, 'three.txt'), 'gamma\n');
+  outside(root, ['add', 'one.txt', 'two.txt', 'three.txt']);
+  const staged = stagedEntriesForPaths(root, ['one.txt', 'two.txt', 'three.txt']);
+  assert.deepEqual(staged, [
+    { path: 'one.txt', content: 'alpha\n' },
+    { path: 'two.txt', content: 'beta\n' },
+    { path: 'three.txt', content: 'gamma\n' }
+  ]);
+});
+

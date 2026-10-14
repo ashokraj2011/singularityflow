@@ -113,7 +113,8 @@ export function branch(root) {
 }
 
 export function head(root) {
-  return run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
+  return scopedReadSync(`git.head:${root}`, () =>
+    run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim());
 }
 
 /**
@@ -135,8 +136,11 @@ export function gitCommonDir(root) {
 
 /** The commit a ref resolves to, or null when it resolves to none. */
 export function refHead(root, ref, { env = process.env } = {}) {
-  const result = run('git', ['rev-parse', '--verify', ref], { cwd: root, env, allowFailure: true });
-  return result.status === 0 ? result.stdout.trim() : null;
+  const query = () => {
+    const result = run('git', ['rev-parse', '--verify', ref], { cwd: root, env, allowFailure: true });
+    return result.status === 0 ? result.stdout.trim() : null;
+  };
+  return env === process.env ? scopedReadSync(`git.refHead:${root}\0${ref}`, query) : query();
 }
 
 /** The repository's own Git directory (`--absolute-git-dir`, worktree-private). */

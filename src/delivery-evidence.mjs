@@ -35,9 +35,11 @@ import { normalizeQualifiedClauseId, scanSourceClauseTags } from './traceability
 import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
 import { contractRequiresTestTag, effectiveContract, mergedVerificationContracts } from './verification/contracts.mjs';
+import { cornerCaseMatrixDigest, evaluateDeliveryCornerCaseGate } from './verification/corner-case-obligations.mjs';
 import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
 import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
+import { runBoundedTaskPool } from './quality-command-runner.mjs';
 import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
 import { committedChangedPaths, trackedPaths, worktreePatchMatching } from './git.mjs';
 import {
@@ -669,6 +671,7 @@ export async function discoverAcceptanceWitnesses(root, phase, {
           identity: witnessIdentity(declaration), logicalTestId: declaration.logicalTestId,
           declarationSha256: declaration.declarationSha256, supportSha256: declaration.supportSha256 ?? null,
           line: declaration.line, parameters: declaration.parameters ?? null, skipped: declaration.skipped === true,
+          ...(declaration.assertions ? { assertions: declaration.assertions } : {}),
           exact: declaration.gaps.length === 0, gaps: declaration.gaps.map((entry) => entry.code)
         });
       }
@@ -1298,6 +1301,25 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     errors.push(`planned product source does not contain required clause comments: ${sourceBindings.missing
       .map(({ clauseId, expectedPaths, otherStoryTags }) => `@clause:${clauseId} in ${expectedPaths.join(' or ')}${otherStoryTagsNote(otherStoryTags)}`).join('; ')}`);
   }
+  const enforceCornerCases = Boolean(
+    config.governance?.requireCornerCaseCoverage
+    || workflow.resolution?.codeDelivery?.cornerCaseObligations === 'enforce'
+  );
+  const enforceAssertionAdequacy = Boolean(
+    enforceCornerCases
+    || config.governance?.requireAssertionAdequacy
+    || workflow.resolution?.codeDelivery?.assertionAdequacy === 'enforce'
+  );
+  const cornerCaseGate = await evaluateDeliveryCornerCaseGate(root, {
+    changeSet,
+    sourcePaths,
+    testPaths,
+    enforceCornerCases,
+    enforceAssertionAdequacy
+  });
+  if (cornerCaseGate.problems.length) {
+    errors.push(...cornerCaseGate.problems);
+  }
   if (errors.length) {
     const unknown = unknownCriteria.length > 0;
     // Without an index, a criterion the step owes is named only by an earlier artifact's text, so no
@@ -1321,6 +1343,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
             recoveryCommands: [`singularity-flow phase prepublish ${phase.id} --json`]
           } : {}),
           sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? [],
+          ...(cornerCaseGate.findings.length ? { cornerCaseFindings: cornerCaseGate.findings } : {}),
           // Each planned evidence file this step owes but has not produced, so recovery can name
           // the file and its route instead of a prose-only shortfall.
           retainedEvidenceMissing: fulfillment.obligations.filter((entry) => entry.fulfillment === 'evidence')
@@ -1402,7 +1425,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     sourceBindings,
     excludedChanges,
     fulfillment: fulfillment.obligations,
-    implementationBindings: bound ? { bindings: bound.bindings, bindingsSha256: bound.bindingsSha256 } : null
+    implementationBindings: bound ? { bindings: bound.bindings, bindingsSha256: bound.bindingsSha256 } : null,
+    cornerCaseMatrix: cornerCaseGate.matrix
   };
   // The preview loads bound Story records; defer that dependency until the kernel is initialized.
   const { assertCandidateSpecificationCoverage, assertStrictCandidateSpecificationCoverage } = await import('./spec-coverage-preview.mjs');
@@ -1491,29 +1515,38 @@ export async function resolveDeliveryQualityCommands(root, phase, { executionMod
     ...(phase.deliveryEvidence?.testPaths ?? [])
   ])];
   const modules = new Map();
-  for (const candidate of deliveryPaths) {
-    const module = await resolveAffectedModule(root, candidate).catch((error) => {
+  const { results: resolvedModules } = await runBoundedTaskPool(
+    deliveryPaths,
+    (candidate) => resolveAffectedModule(root, candidate).catch((error) => {
       if (error?.code === 'TEST_MODULE_UNCOVERED') return null;
       throw error;
-    });
+    })
+  );
+  for (const module of resolvedModules) {
     if (module) modules.set(`${module.root}:${module.system}`, module);
   }
-  for (const module of modules.values()) {
-    if (moduleCoveredByConfiguredTest(module.root)) continue;
-    const command = await inferModuleTestCommand(root, module);
-    if (command) inferred.push(command);
-    if (module.system === 'node' && command?.result?.adapter !== 'playwright-json') {
-      // A Node unit script is not evidence that newly authored browser tests ran. Add one
-      // unambiguous direct Playwright script when the module declares it separately.
-      for (const nodeScript of ['test:e2e', 'test:playwright', 'e2e']) {
-        const browserCommand = await inferModuleTestCommand(root, module, { nodeScript });
-        if (browserCommand?.result?.adapter === 'playwright-json') {
-          inferred.push(browserCommand);
-          break;
+  const uncoveredModules = [...modules.values()].filter((module) => !moduleCoveredByConfiguredTest(module.root));
+  const { results: moduleCommandLists } = await runBoundedTaskPool(
+    uncoveredModules,
+    async (module) => {
+      const list = [];
+      const command = await inferModuleTestCommand(root, module);
+      if (command) list.push(command);
+      if (module.system === 'node' && command?.result?.adapter !== 'playwright-json') {
+        // A Node unit script is not evidence that newly authored browser tests ran. Add one
+        // unambiguous direct Playwright script when the module declares it separately.
+        for (const nodeScript of ['test:e2e', 'test:playwright', 'e2e']) {
+          const browserCommand = await inferModuleTestCommand(root, module, { nodeScript });
+          if (browserCommand?.result?.adapter === 'playwright-json') {
+            list.push(browserCommand);
+            break;
+          }
         }
       }
+      return list;
     }
-  }
+  );
+  inferred.push(...moduleCommandLists.flat());
   // A recognized changed module with no supported runner must not borrow an unrelated root
   // manifest's passing tests as its own execution evidence.
   if (!inferred.length && !configuredTests.length && !modules.size) {
@@ -1577,6 +1610,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   requireAffectedModuleCoverage = true,
   minimumModelAssurance = 'unavailable',
   sourceBindingPolicy = 'off',
+  cornerCasePolicy = 'off',
   evidenceCommit = null,
   pathContext = null,
   testRecovery = null
@@ -1675,6 +1709,15 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
         fail(`the explanation of ${binding.clauseId} is not on its tag line in the generation`);
       }
     }
+  }
+  if (receipt.cornerCaseMatrix) {
+    if (cornerCaseMatrixDigest(receipt.cornerCaseMatrix) !== receipt.cornerCaseMatrix.matrixSha256) {
+      fail('corner-case obligation matrix does not match its digest');
+    } else if (cornerCasePolicy === 'enforce' && !['satisfied', 'not-applicable'].includes(receipt.cornerCaseMatrix.status)) {
+      fail('corner-case obligation matrix is incomplete for the committed generation');
+    }
+  } else if (cornerCasePolicy === 'enforce') {
+    fail('corner-case obligation matrix is absent from the code-delivery receipt');
   }
   // Each fulfillment the delivery recorded is replayed against the committed generation [E2G-010].
   for (const obligation of receipt.fulfillment?.obligations ?? []) {

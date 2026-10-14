@@ -41,7 +41,7 @@ import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile }
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { SingularityFlowError, commandExists, didYouMean, exists, gitHeadIsUnborn, nearestNames, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
-import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, remoteNames, repoRoot, validBranch } from './git.mjs';
+import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, remoteNames, repoRoot, stagedEntriesForPaths, validBranch } from './git.mjs';
 import { buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { worldModelStateAuthority } from './state-authority.mjs';
 import { mintStoryIntakeReceipt, storyIntakeReceiptsDisabled } from './story-intake-receipt.mjs';
@@ -12430,14 +12430,13 @@ async function secretsCommand(positionals, options) {
     : run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean);
 
   const entries = [];
-  for (const item of listed) {
-    if (staged) {
-      const show = run('git', ['show', `:${item}`], { cwd: root, allowFailure: true });
-      if (show.status === 0) entries.push({ path: item, content: show.stdout });
-      continue;
+  if (staged) {
+    entries.push(...stagedEntriesForPaths(root, listed, { label: 'secrets.scan staged blobs' }));
+  } else {
+    for (const item of listed) {
+      try { entries.push({ path: item, content: await readFile(path.resolve(root, item), 'utf8') }); }
+      catch (error) { if (error?.code !== 'ENOENT') entries.push({ path: item }); }
     }
-    try { entries.push({ path: item, content: await readFile(path.resolve(root, item), 'utf8') }); }
-    catch (error) { if (error?.code !== 'ENOENT') entries.push({ path: item }); }
   }
 
   const scan = scanEntries(entries);

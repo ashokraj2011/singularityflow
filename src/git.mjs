@@ -68,6 +68,12 @@ function immutableLocalGitEnvironment(source = process.env, { indexFile = null }
   return env;
 }
 
+function worktreeScanConfigFlags(platform = process.platform) {
+  return platform === 'win32'
+    ? ['-c', 'core.preloadindex=true', '-c', 'core.fscache=true']
+    : [];
+}
+
 // The basic local reads (root, Git directories, branch, HEAD, display name) live in
 // git-execution.mjs so light surfaces need not load this module; they are re-exported here.
 export { branch, gitCommonDir, head, repoRoot };
@@ -85,11 +91,13 @@ export function remoteDefaultBranchName(root, config = {}, remote = null) {
     ?? config?.git?.remote
     ?? config?.definition?.git?.remote
     ?? 'origin';
-  const symbolic = gitAnswer(['symbolic-ref', '--quiet', '--short', `refs/remotes/${remoteName}/HEAD`], {
-    cwd: root
-  }, `The '${remoteName}' default branch`, { absentStatus: 1 }).trim();
-  const prefix = `${remoteName}/`;
-  return (symbolic.startsWith(prefix) ? symbolic.slice(prefix.length) : symbolic) || null;
+  return scopedReadSync(`git.remoteDefaultBranch:${root}\0${remoteName}`, () => {
+    const symbolic = gitAnswer(['symbolic-ref', '--quiet', '--short', `refs/remotes/${remoteName}/HEAD`], {
+      cwd: root
+    }, `The '${remoteName}' default branch`, { absentStatus: 1 }).trim();
+    const prefix = `${remoteName}/`;
+    return (symbolic.startsWith(prefix) ? symbolic.slice(prefix.length) : symbolic) || null;
+  });
 }
 
 /** Resolve the branch work is cut from, without contacting the remote. */
@@ -771,13 +779,25 @@ export function shallowBoundaryCommit(root, commit) {
   const object = git(['cat-file', '-p', commit], { cwd: root, allowFailure: true });
   if (object.status !== 0) return true;
   const parents = [...object.stdout.matchAll(/^parent ([0-9a-f]{40,64})$/gmu)].map((match) => match[1]);
-  return parents.some((parent) => git(['cat-file', '-e', `${parent}^{commit}`], {
-    cwd: root, allowFailure: true, env: { ...process.env, GIT_NO_LAZY_FETCH: '1' }
-  }).status !== 0);
+  if (!parents.length) return false;
+  const noLazyEnv = { ...process.env, GIT_NO_LAZY_FETCH: '1' };
+  if (parents.length === 1) {
+    return git(['cat-file', '-e', `${parents[0]}^{commit}`], {
+      cwd: root, allowFailure: true, env: noLazyEnv
+    }).status !== 0;
+  }
+  const checked = git(['cat-file', '--batch-check=%(objecttype)'], {
+    cwd: root, allowFailure: true, env: noLazyEnv,
+    input: `${parents.map((parent) => `${parent}^{commit}`).join('\n')}\n`
+  });
+  if (checked.status !== 0) return true;
+  const rows = String(checked.stdout ?? '').trim().split(/\r?\n/u);
+  return rows.length !== parents.length || rows.some((row) => row.trim() !== 'commit');
 }
 
 export function refExists(root, ref) {
-  return git(['show-ref', '--verify', '--quiet', ref], { cwd: root, allowFailure: true }).status === 0;
+  return scopedReadSync(`git.refExists:${root}\0${ref}`, () =>
+    git(['show-ref', '--verify', '--quiet', ref], { cwd: root, allowFailure: true }).status === 0);
 }
 
 export function hasRemote(root, remote = 'origin', { env = process.env } = {}) {
@@ -799,7 +819,7 @@ export function remoteUrl(root, remote = 'origin', { env = process.env } = {}) {
 }
 
 export function changes(root) {
-  return git(['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root }).stdout;
+  return git([...worktreeScanConfigFlags(), 'status', '--porcelain=v1', '--untracked-files=all'], { cwd: root }).stdout;
 }
 
 /** Exact local status roster for lifecycle decisions; paths are never quote/line parsed. */
@@ -811,7 +831,7 @@ export function worktreeStatusDetail(root) {
       code: 'GIT_OBJECT_FORMAT_UNAVAILABLE'
     });
   }
-  const bytes = git(['status', '--porcelain=v2', '-z', '--untracked-files=all'], {
+  const bytes = git([...worktreeScanConfigFlags(), 'status', '--porcelain=v2', '-z', '--untracked-files=all'], {
     cwd: root, env, encoding: 'buffer'
   }).stdout;
   return parsePorcelainV2Status(bytes, { objectFormat });
@@ -1129,7 +1149,7 @@ export function checkedOutBranch(root, { env = process.env } = {}) {
 
 /** Changed and untracked paths under `paths` in the working tree, sorted. */
 export function changedPaths(root, paths, { env = process.env } = {}) {
-  const output = git(['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...paths], { cwd: root, env }).stdout;
+  const output = git([...worktreeScanConfigFlags(), 'status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...paths], { cwd: root, env }).stdout;
   return String(output).split('\0').filter(Boolean).map((entry) => entry.slice(3)).filter(Boolean).sort();
 }
 
@@ -1342,11 +1362,14 @@ export function removeCleanAttachStagingWorktree(root, target, stagingBranch) {
 }
 
 export function remoteBranches(root, remote = 'origin', { env = process.env } = {}) {
-  if (!hasRemote(root, remote, { env })) return [];
-  const prefix = `refs/remotes/${remote}/`;
-  return git(['for-each-ref', '--format=%(refname)', prefix], { cwd: root, env }).stdout
-    .split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
-    .map((ref) => ref.slice(prefix.length)).filter((name) => name && name !== 'HEAD');
+  const query = () => {
+    if (!hasRemote(root, remote, { env })) return [];
+    const prefix = `refs/remotes/${remote}/`;
+    return git(['for-each-ref', '--format=%(refname)', prefix], { cwd: root, env }).stdout
+      .split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
+      .map((ref) => ref.slice(prefix.length)).filter((name) => name && name !== 'HEAD');
+  };
+  return env === process.env ? scopedReadSync(`git.remoteBranches:${root}\0${remote}`, query) : query();
 }
 
 /**
@@ -1357,13 +1380,16 @@ export function remoteBranches(root, remote = 'origin', { env = process.env } = 
  * remote, and so absent from the Epic list while `initiative start` still refuses to create it.
  */
 export function localBranches(root, { env = process.env } = {}) {
-  const prefix = 'refs/heads/';
-  const current = env === process.env
-    ? branch(root)
-    : git(['branch', '--show-current'], { cwd: root, env, allowFailure: true }).stdout.trim();
-  return git(['for-each-ref', '--format=%(refname)', prefix], { cwd: root, env }).stdout
-    .split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
-    .map((ref) => ref.slice(prefix.length)).filter((name) => name && name !== current);
+  const query = () => {
+    const prefix = 'refs/heads/';
+    const current = env === process.env
+      ? branch(root)
+      : git(['branch', '--show-current'], { cwd: root, env, allowFailure: true }).stdout.trim();
+    return git(['for-each-ref', '--format=%(refname)', prefix], { cwd: root, env }).stdout
+      .split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
+      .map((ref) => ref.slice(prefix.length)).filter((name) => name && name !== current);
+  };
+  return env === process.env ? scopedReadSync(`git.localBranches:${root}`, query) : query();
 }
 
 export function fileAtRef(root, ref, file) {
@@ -1977,9 +2003,10 @@ export function trackedPaths(root, paths) {
 export function changedFiles(root) {
   // Porcelain diff can refresh clean entries' stat data. A path inspection must not rewrite the
   // index that a recovery checkpoint is preserving, even when diff.autoRefreshIndex is enabled.
-  const unstaged = nullList(git(['--no-optional-locks', '-c', 'diff.autoRefreshIndex=false', 'diff', '--name-only', '-z', 'HEAD'], { cwd: root }).stdout);
+  const scanFlags = worktreeScanConfigFlags();
+  const unstaged = nullList(git(['--no-optional-locks', ...scanFlags, '-c', 'diff.autoRefreshIndex=false', 'diff', '--name-only', '-z', 'HEAD'], { cwd: root }).stdout);
   const staged = nullList(git(['--no-optional-locks', '-c', 'diff.autoRefreshIndex=false', 'diff', '--name-only', '-z', '--cached', 'HEAD'], { cwd: root }).stdout);
-  const untracked = nullList(git(['--no-optional-locks', 'ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout);
+  const untracked = nullList(git(['--no-optional-locks', ...scanFlags, 'ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout);
   return [...new Set([...contentChanged(root, unstaged), ...staged, ...untracked])].sort();
 }
 
@@ -1989,7 +2016,7 @@ export function changedFiles(root) {
 function contentChanged(root, candidates) {
   if (!candidates.length) return candidates;
   const reported = new Set(nullList(git([
-    '--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=no', '--no-renames'
+    '--no-optional-locks', ...worktreeScanConfigFlags(), 'status', '--porcelain=v1', '-z', '--untracked-files=no', '--no-renames'
   ], { cwd: root }).stdout).map((record) => record.slice(3)));
   return candidates.filter((file) => reported.has(file));
 }
@@ -2773,6 +2800,52 @@ function assertCommitEnvironmentPolicy(root, paths, { label }) {
  * Deleted paths are skipped, not failed. A commit that removes a file containing a credential is
  * the commit you want to succeed.
  */
+/**
+ * Read staged blob contents for `paths` from the index, batching multi-file reads through
+ * `ls-files --stage` and `cat-file --batch` instead of spawning one `git show :<path>` per file.
+ */
+export function stagedEntriesForPaths(root, paths, { env = process.env, label = 'Staged blobs' } = {}) {
+  const entries = [];
+  if (!paths?.length) return entries;
+  if (paths.length === 1) {
+    const show = git(['show', `:${paths[0]}`], { cwd: root, env, allowFailure: true });
+    if (show.status === 0) entries.push({ path: paths[0], content: show.stdout });
+    return entries;
+  }
+  const stagedOids = new Map();
+  const stagedList = git(['ls-files', '--stage', '-z', '--', ...paths], {
+    cwd: root, env, allowFailure: true
+  });
+  if (stagedList.status === 0) {
+    for (const record of String(stagedList.stdout ?? '').split('\0').filter(Boolean)) {
+      const tab = record.indexOf('\t');
+      const match = tab < 0 ? null : record.slice(0, tab).match(
+        /^(100644|100755|120000) ([a-f0-9]{40,64}) 0$/u
+      );
+      if (match) stagedOids.set(record.slice(tab + 1), match[2]);
+    }
+  }
+  let blobs = null;
+  if (stagedOids.size > 0) {
+    try {
+      blobs = readLocalGitBlobs(root, [...stagedOids.values()], { env, label });
+    } catch {
+      blobs = null;
+    }
+  }
+  for (const item of paths) {
+    const oid = stagedOids.get(item);
+    const buffer = oid && blobs ? blobs.get(oid) : null;
+    if (buffer) {
+      entries.push({ path: item, content: buffer.toString('utf8') });
+      continue;
+    }
+    const show = git(['show', `:${item}`], { cwd: root, env, allowFailure: true });
+    if (show.status === 0) entries.push({ path: item, content: show.stdout });
+  }
+  return entries;
+}
+
 export function assertNoSecrets(root, paths = null, { label = 'This commit' } = {}) {
   const env = immutableLocalGitEnvironment();
   assertCommitEnvironmentPolicy(root, paths, { label });
@@ -2784,10 +2857,10 @@ export function assertNoSecrets(root, paths = null, { label = 'This commit' } = 
   if (!listed.length) return null;
 
   const entries = [];
-  for (const item of listed) {
-    // A scoped commit takes the working tree; an index commit takes the staged blob. Read whichever
-    // one this commit will actually use.
-    if (paths?.length) {
+  if (paths?.length) {
+    for (const item of listed) {
+      // A scoped commit takes the working tree; an index commit takes the staged blob. Read whichever
+      // one this commit will actually use.
       const absolute = path.resolve(root, item);
       let content;
       try {
@@ -2810,11 +2883,9 @@ export function assertNoSecrets(root, paths = null, { label = 'This commit' } = 
         continue;
       }
       entries.push({ path: item, content });
-    } else {
-      const show = git(['show', `:${item}`], { cwd: root, env, allowFailure: true });
-      if (show.status !== 0) continue;
-      entries.push({ path: item, content: show.stdout });
     }
+  } else {
+    entries.push(...stagedEntriesForPaths(root, listed, { env, label: `${label} staged blobs` }));
   }
 
   const scan = scanEntries(entries);
@@ -3509,10 +3580,16 @@ export function governedCommitIdentity(root, sha) {
   });
   if (verified.status !== 0) return null;
   const commit = verified.stdout.trim();
-  const tree = git(['rev-parse', `${commit}^{tree}`], { cwd: root, env }).stdout.trim();
-  const parents = git(['show', '-s', '--format=%P', commit], { cwd: root, env })
-    .stdout.trim().split(/\s+/).filter(Boolean);
-  const message = git(['show', '-s', '--format=%B', commit], { cwd: root, env }).stdout;
+  const rawCommit = git(['cat-file', '-p', commit], { cwd: root, env }).stdout;
+  const separator = rawCommit.indexOf('\n\n');
+  const headerBlock = separator < 0 ? rawCommit : rawCommit.slice(0, separator);
+  const message = separator < 0 ? '' : rawCommit.slice(separator + 2);
+  let tree = '';
+  const parents = [];
+  for (const line of headerBlock.split('\n')) {
+    if (line.startsWith('tree ')) tree = line.slice(5).trim();
+    else if (line.startsWith('parent ')) parents.push(line.slice(7).trim());
+  }
   const trailer = (name) => {
     const matches = [...message.matchAll(new RegExp(`^${name}:\\s*(.+?)\\s*$`, 'gmi'))];
     return matches.length === 1 ? matches[0][1] : null;

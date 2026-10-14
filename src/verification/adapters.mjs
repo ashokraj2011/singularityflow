@@ -11,9 +11,11 @@
 import { constants as fsConstants } from 'node:fs';
 import { lstat, open } from 'node:fs/promises';
 
+import { runBoundedTaskPool } from '../quality-command-runner.mjs';
 import { posix, secureRepositoryPath } from '../util.mjs';
 import { classifyJavascriptTestCommandScope } from '../wel-javascript.mjs';
 import { classifyJunit5SurefireCommandScope, parseJunitTestSources } from '../wel-junit5.mjs';
+import { loadPersistentVerificationCache, savePersistentVerificationCache } from './incremental-verification-graph.mjs';
 import { scanJavaScriptDeclarations } from './javascript-declarations.mjs';
 import { joinDeclaration } from './join.mjs';
 import { profileIsExact, testAdapterProfile } from './profiles.mjs';
@@ -75,7 +77,7 @@ async function readTestSource(root, relative) {
  * The exact declarations in some test files of one module. Returns declarations (each with its
  * own gaps), tags that sit on nothing, and file gaps. Never throws for a file's content.
  */
-export async function discoverDeclarations(root, id, files, { signal = null, runParser } = {}) {
+export async function discoverDeclarations(root, id, files, { signal = null, runParser, maxConcurrency } = {}) {
   const profile = testAdapterProfile(id);
   const unique = [...new Set(files.map((file) => posix(file)))].sort();
   if (!profileIsExact(id)) return { profile: id, declarations: [], unattachedTags: [], fileGaps: {} };
@@ -89,13 +91,25 @@ export async function discoverDeclarations(root, id, files, { signal = null, run
     const parsed = await parseJunitTestSources(root, unique, { signal, runParser });
     return { profile: id, declarations: parsed.declarations, unattachedTags: parsed.unattachedTags, fileGaps: parsed.fileGaps };
   }
+  loadPersistentVerificationCache(root);
+  const { results } = await runBoundedTaskPool(
+    unique,
+    async (file) => {
+      const source = await readTestSource(root, file);
+      if (source.error) return { file, error: source.error, scanned: null };
+      const scanned = scanJavaScriptDeclarations(source.text, { sourcePath: file, framework: profile.framework, root });
+      return { file, error: null, scanned };
+    },
+    { maxConcurrency, signal }
+  );
+  savePersistentVerificationCache(root);
   const declarations = [];
   const unattachedTags = [];
   const fileGaps = {};
-  for (const file of unique) {
-    const source = await readTestSource(root, file);
-    if (source.error) { fileGaps[file] = [source.error]; continue; }
-    const scanned = scanJavaScriptDeclarations(source.text, { sourcePath: file, framework: profile.framework });
+  for (const item of results) {
+    if (!item) continue;
+    const { file, error, scanned } = item;
+    if (error) { fileGaps[file] = [error]; continue; }
     declarations.push(...scanned.declarations);
     unattachedTags.push(...scanned.unattachedTags.map((entry) => ({ sourcePath: file, ...entry })));
     if (scanned.fileGaps.length) fileGaps[file] = scanned.fileGaps;

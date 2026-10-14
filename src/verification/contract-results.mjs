@@ -33,6 +33,12 @@ export function witnessFindingOf(id, entry) {
   if (entry.shortfall) {
     return { code: 'EVIDENCE_ASSURANCE_SHORTFALL', message: `${id}'s test ${entry.label} reached ${entry.assurance}; its module's runner can reach ${entry.requiredAssurance}, so that is required.` };
   }
+  if ((entry.reasons ?? []).includes('TEST_ASSERTION_MISSING')) {
+    return { code: 'EVIDENCE_TEST_ASSERTION_MISSING', message: `${id}'s test ${entry.label} contains no executable assertions, so it verified nothing.` };
+  }
+  if ((entry.reasons ?? []).includes('TEST_ASSERTION_TAUTOLOGICAL')) {
+    return { code: 'EVIDENCE_TEST_ASSERTION_TAUTOLOGICAL', message: `${id}'s test ${entry.label} contains only tautological literal assertions, so it verified nothing.` };
+  }
   const [code, message] = WITNESS_FINDINGS[entry.outcome] ?? WITNESS_FINDINGS.inconclusive;
   return { code, message: message(id, entry) };
 }
@@ -54,7 +60,7 @@ export function executionWord(results) {
   return outcomes.length ? 'passed' : 'not-run';
 }
 
-function testSlotResult(id, slot, contract, entries, { submitted, rowSubmitted, requiredAssurance, decisionFor, unattached, at }) {
+function testSlotResult(id, slot, contract, entries, { submitted, rowSubmitted, requiredAssurance, decisionFor, unattached, enforceAssertionAdequacy = false, at }) {
   const findings = [];
   const serving = entries.filter((entry) => testSlotFor(contract, entry.witness)?.slot === slot.slot);
   // A reviewer decided some of these tests do not verify the criterion: they no longer count. An
@@ -69,7 +75,7 @@ function testSlotResult(id, slot, contract, entries, { submitted, rowSubmitted, 
     && !(decision?.decision === 'exception' && !(Date.parse(decision.expiresAt ?? '') > Date.parse(at))));
   const excepted = counted.some(({ decision }) => decision?.decision === 'exception');
   const judged = counted.filter(({ entry }) => entry.ready === submitted);
-  const results = judged.map(({ entry }) => witnessResult(entry.witness, entry.attempt, { submitted }));
+  const results = judged.map(({ entry }) => witnessResult(entry.witness, entry.attempt, { submitted, enforceAssertionAdequacy }));
   const required = strongest(ASSURANCE, [requiredAssurance, slot.requiredAssurance ?? 'none',
     ...results.map((entry) => entry.requiredAssurance)]);
   if (!results.length) {
@@ -121,12 +127,12 @@ function recordSlotResult(id, slot, { rowSubmitted, records }) {
  */
 export function contractResult(id, contract, entries, {
   submitted, rowSubmitted, requiredAssurance, decisionFor = () => null, unattached = [], records = [], acceptedRisk = false,
-  at = new Date().toISOString()
+  enforceAssertionAdequacy = false, at = new Date().toISOString()
 }) {
   const slots = contract.slots.map((slot) => ({
     slot: slot.slot, method: slot.method, role: slot.role,
     ...(slot.method === 'test'
-      ? testSlotResult(id, slot, contract, entries, { submitted, rowSubmitted, requiredAssurance, decisionFor, unattached, at })
+      ? testSlotResult(id, slot, contract, entries, { submitted, rowSubmitted, requiredAssurance, decisionFor, unattached, enforceAssertionAdequacy, at })
       : recordSlotResult(id, slot, { rowSubmitted, records }))
   }));
   const primary = slots.filter((entry) => entry.role === 'primary');

@@ -1,11 +1,13 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
 import { unlink } from 'node:fs/promises';
+import os from 'node:os';
 import { StringDecoder } from 'node:string_decoder';
 import { createHash } from 'node:crypto';
 import { resolvePlatformProcess, tryWindowsTaskkill } from './platform-process.mjs';
 
 const DEFAULT_CAPTURE_BYTES = 128 * 1024;
+export const MAX_DEFAULT_SUBPROCESS_CONCURRENCY = 4;
 const unavailableLaunches = new WeakMap();
 const completedLaunches = new WeakMap();
 
@@ -250,3 +252,167 @@ export async function runQualityCommand(command, args = [], {
     });
   });
 }
+
+/**
+ * Compute bounded subprocess/task concurrency (`Math.min(4, os.availableParallelism())` by default).
+ */
+export function defaultSubprocessConcurrency(requested = null) {
+  if (Number.isInteger(requested) && requested >= 1) {
+    return Math.min(16, requested);
+  }
+  const available = typeof os.availableParallelism === 'function'
+    ? os.availableParallelism()
+    : (os.cpus()?.length || 2);
+  return Math.max(1, Math.min(MAX_DEFAULT_SUBPROCESS_CONCURRENCY, available));
+}
+
+/**
+ * Execute an array of items through a concurrency-bounded async worker pool with deterministic
+ * result ordering and optional fail-fast cancellation.
+ */
+export async function runBoundedTaskPool(items, worker, {
+  maxConcurrency = defaultSubprocessConcurrency(),
+  failFast = false,
+  shouldAbort = null,
+  onAbortedItem = null,
+  signal = null
+} = {}) {
+  const list = Array.from(items ?? []);
+  const limit = defaultSubprocessConcurrency(maxConcurrency);
+  if (!list.length) {
+    return {
+      results: [],
+      maxConcurrency: limit,
+      peakConcurrency: 0,
+      completedCount: 0,
+      abortedCount: 0,
+      aborted: Boolean(signal?.aborted)
+    };
+  }
+
+  const controller = new AbortController();
+  const onParentAbort = () => controller.abort(signal?.reason);
+  if (signal) {
+    if (signal.aborted) controller.abort(signal.reason);
+    else signal.addEventListener('abort', onParentAbort, { once: true });
+  }
+
+  const results = new Array(list.length);
+  let nextIndex = 0;
+  let active = 0;
+  let peakConcurrency = 0;
+  let completedCount = 0;
+  let abortedCount = 0;
+  let firstError = null;
+
+  const runWorker = async () => {
+    while (nextIndex < list.length) {
+      if (controller.signal.aborted && failFast) {
+        const skippedIndex = nextIndex;
+        nextIndex += 1;
+        abortedCount += 1;
+        if (typeof onAbortedItem === 'function') {
+          results[skippedIndex] = onAbortedItem(list[skippedIndex], skippedIndex);
+        }
+        continue;
+      }
+      const index = nextIndex;
+      nextIndex += 1;
+      active += 1;
+      if (active > peakConcurrency) peakConcurrency = active;
+      try {
+        const value = await worker(list[index], { index, signal: controller.signal });
+        results[index] = value;
+        completedCount += 1;
+        if (failFast && typeof shouldAbort === 'function' && shouldAbort(value, list[index], index)) {
+          controller.abort();
+        }
+      } catch (error) {
+        firstError ??= error;
+        if (failFast) {
+          controller.abort(error);
+        } else {
+          throw error;
+        }
+      } finally {
+        active -= 1;
+      }
+    }
+  };
+
+  try {
+    const workerCount = Math.min(limit, list.length);
+    await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  } finally {
+    signal?.removeEventListener?.('abort', onParentAbort);
+  }
+
+  if (firstError) throw firstError;
+
+  return {
+    results,
+    maxConcurrency: limit,
+    peakConcurrency,
+    completedCount,
+    abortedCount,
+    aborted: controller.signal.aborted
+  };
+}
+
+/**
+ * Run multiple quality/test commands through a concurrency-bounded subprocess pool with
+ * deterministic output ordering and optional fail-fast cancellation of in-flight child trees.
+ */
+export async function runQualityCommandPool(commands, {
+  maxConcurrency = defaultSubprocessConcurrency(),
+  failFast = false,
+  signal = null,
+  runner = runQualityCommand
+} = {}) {
+  const specs = Array.from(commands ?? []);
+  const abortedResult = (spec, index) => ({
+    id: spec.id ?? `command-${index}`,
+    index,
+    status: 1,
+    signal: null,
+    error: null,
+    timedOut: false,
+    aborted: true,
+    stdout: '',
+    stderr: '',
+    stdoutBytes: 0,
+    stderrBytes: 0,
+    stdoutTruncated: false,
+    stderrTruncated: false
+  });
+  return runBoundedTaskPool(
+    specs,
+    async (spec, { index, signal: poolSignal }) => {
+      if (poolSignal.aborted && failFast) {
+        return abortedResult(spec, index);
+      }
+      const command = spec.command ?? spec.argv?.[0];
+      const args = spec.args ?? (spec.argv ? spec.argv.slice(1) : []);
+      const result = await runner(command, args, {
+        ...(spec.options ?? {}),
+        signal: poolSignal
+      });
+      return {
+        id: spec.id ?? `command-${index}`,
+        index,
+        ...result
+      };
+    },
+    {
+      maxConcurrency,
+      failFast,
+      signal,
+      onAbortedItem: abortedResult,
+      shouldAbort: (result, spec) => {
+        if (spec?.requirement === 'optional' || spec?.optional === true) return false;
+        return Boolean(result.error || result.timedOut || result.status !== 0);
+      }
+    }
+  );
+}
+

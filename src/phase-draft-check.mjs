@@ -25,6 +25,7 @@ import { phaseGovernanceHold } from './phase-governance-routing.mjs';
 import { phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
 import { evaluateSpecificationGate, specificationGateDiagnostics } from './specification-gate.mjs';
+import { inspectCornerCaseObligations } from './verification/corner-case-obligations.mjs';
 
 function correctionClass(producer) {
   if (producer === 'deterministic') return 'kernel-regenerate';
@@ -263,6 +264,13 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   const { coverage, advisories: coverageAdvisories } = phase.generationIntent?.status === 'open'
     ? await inspectUnclaimedChangedPaths(root, config, workflow, phase)
     : { coverage: { status: 'not-applicable', unclaimed: 0, blocking: false }, advisories: [] };
+  const { cornerCases, findings: cornerCaseFindings } = await inspectCornerCaseObligations(root, config, workflow, phase);
+  if (inspectOwnedDraft() && cornerCases.blocking && cornerCaseFindings.length) {
+    findings.push(...cornerCaseFindings.map((finding) => ({
+      ...finding,
+      fingerprint: finding.fingerprint ?? null
+    })));
+  }
 
   const route = draftCorrectionRoute(codeEvidenceRepair, convergenceReview);
   const clarificationRoute = prospective && findings.some(finding => finding.category === 'clarification') ? {
@@ -318,6 +326,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     advisories: Object.freeze([...advisories, ...coverageAdvisories, ...specificationAdvisories]),
     documentation,
     coverage,
+    cornerCaseObligations: cornerCases,
     traceabilityRepair,
     correction: Object.freeze({
       class: repairClass,

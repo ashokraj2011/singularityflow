@@ -98,7 +98,7 @@ import {
 } from './generation-boundary.mjs';
 import { blockingConformanceVerdicts } from './conformance-verdicts.mjs';
 import { inspectPhaseQualifiedConformance, withSelfApprovalDisclosures } from './conformance-readiness.mjs';
-import { runQualityCommand } from './quality-command-runner.mjs';
+import { defaultSubprocessConcurrency, runBoundedTaskPool, runQualityCommand } from './quality-command-runner.mjs';
 import { classifyRequiredTestFailure } from './test-execution-diagnostics.mjs';
 import {
   ENVIRONMENT_IDENTIFIER, loadEnvironmentDeclaration, validateEnvironmentQualityCommandCatalog
@@ -4628,6 +4628,40 @@ function isolatedRunHint(error, check) {
   return error;
 }
 
+function canExecuteQualityCommandsConcurrently(commands, { config, workflow } = {}) {
+  if (!Array.isArray(commands) || commands.length <= 1) return false;
+  if (config?.execution?.parallelQualityCommands === false || workflow?.resolution?.parallelQualityCommands === false) {
+    return false;
+  }
+  const explicitParallel = config?.execution?.parallelQualityCommands === true
+    || workflow?.resolution?.parallelQualityCommands === true;
+  const workDirs = [];
+  const resultPaths = new Set();
+  for (const cmd of commands) {
+    if (!cmd || typeof cmd !== 'object' || Array.isArray(cmd)) return false;
+    const wd = posix(cmd.workingDirectory ?? '.').replace(/^\.\//u, '').replace(/\/$/u, '') || '.';
+    workDirs.push(wd);
+    if (cmd.result?.path) {
+      const rp = posix(path.posix.join(wd, cmd.result.path));
+      if (resultPaths.has(rp)) return false;
+      resultPaths.add(rp);
+    }
+  }
+  if (explicitParallel) return true;
+  // Auto-parallelize when every command targets a distinct, non-overlapping module subdirectory
+  if (workDirs.includes('.')) return false;
+  for (let i = 0; i < workDirs.length; i += 1) {
+    for (let j = i + 1; j < workDirs.length; j += 1) {
+      if (workDirs[i] === workDirs[j]
+          || workDirs[i].startsWith(`${workDirs[j]}/`)
+          || workDirs[j].startsWith(`${workDirs[i]}/`)) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 async function qualityChecks(root, phase, config, workflow, commands = phase.qualityCommands ?? [], {
   commandProvenance = new Map()
 } = {}) {
@@ -4640,8 +4674,8 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
   const testInputSha256 = await testInputTreeHash(root, config, workflow);
   const modelEnabled = operationContext()?.modelMode?.enabled !== false;
   const unknownStrictness = config.noModel?.unknownExternalCommands ?? 'warn';
-  let activeTransientRestore = null;
-  let isolatedResultRestore = null;
+  const activeTransientRestorers = new Set();
+  const activeIsolatedRestorers = new Set();
   // Changed files no plan names stay in the worktree, and verification runs on exactly the
   // candidate in a worktree materialized beside it [E2G-027, D9].
   const isolationNeed = commands.length ? await candidateIsolationNeed(root, config, workflow) : null;
@@ -4660,191 +4694,209 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       );
     }
   }
+  const runConcurrently = canExecuteQualityCommandsConcurrently(commands, { config, workflow });
+  const maxConcurrency = runConcurrently
+    ? defaultSubprocessConcurrency(config?.execution?.maxConcurrency ?? workflow?.resolution?.maxConcurrency)
+    : 1;
+  const failFast = Boolean(config?.execution?.failFast ?? workflow?.resolution?.failFast);
   try {
-  for (const [index, value] of commands.entries()) {
-    const policy = evaluateExternalCommandForModelMode(value, { modelEnabled, unknownStrictness, index });
-    const command = policy.command ?? policy.argv.join(' ');
-    const startedAt = nowIso();
-    const environmentBlock = await environmentQualityCommandBlock(root, policy, {
-      sourceCommit, sourceTreeSha256, startedAt
-    });
-    if (environmentBlock) {
-      checks.push(environmentBlock);
-      continue;
-    }
-    if (policy.action === 'block') throw new SingularityFlowError(policy.reason, { code: 'EXTERNAL_MODEL_POLICY_BLOCKED' });
-    if (policy.action === 'skip') {
-      checks.push({
-        id: policy.id, command, requirement: policy.requirement,
-        externalModelPolicy: policy.modelPolicy, sourceCommit, sourceTreeSha256,
-        ...(testInputSha256 ? { testInputSha256 } : {}),
-        startedAt, completedAt: nowIso(), status: 'skipped-warning', exitCode: null,
-        stdout: '', stderr: policy.reason
-      });
-      continue;
-    }
-    const commandTarget = await secureRepositoryPath(
-      root,
-      policy.workingDirectory && policy.workingDirectory !== '.' ? policy.workingDirectory : '.',
-      { label: `Quality command '${policy.id}' working directory`, mustExist: true, type: 'directory' }
-    );
-    const commandRoot = commandTarget.absolute;
-    // Reports are staged and read in the worktree; the command itself runs on the candidate.
-    const executionRoot = isolation
-      ? (await secureRepositoryPath(isolation.root, policy.workingDirectory || '.', {
-        label: 'Isolated command working directory', mustExist: true, type: 'directory'
-      })).absolute
-      : commandRoot;
-    let restoreTransientResult = null;
-    let structuredResultTarget = null;
-    if (policy.kind === 'test' && policy.result?.path) {
-      const resultTarget = path.resolve(commandRoot, policy.result.path);
-      // `secureRepositoryPath` resolves macOS' /var -> /private/var alias. Compare the result to the
-      // same canonical root; mixing the caller's lexical root with the secured real path falsely
-      // classified repository-contained reports as external.
-      const repositoryTarget = await secureRepositoryPath(root, '.', {
-        label: 'Repository root', mustExist: true, type: 'directory'
-      });
-      if (resultTarget !== repositoryTarget.absolute
-          && !resultTarget.startsWith(`${repositoryTarget.absolute}${path.sep}`)) {
-        throw new SingularityFlowError(`Test result path resolves outside the repository: ${policy.result.path}`, { code: 'CODE_TEST_RESULT_REQUIRED' });
-      }
-      await secureRepositoryPath(root, path.relative(repositoryTarget.absolute, resultTarget), {
-        label: `Test result '${policy.result.path}'`, mustExist: false
-      });
-      await mkdir(path.dirname(resultTarget), { recursive: true });
-      await secureRepositoryPath(root, path.relative(repositoryTarget.absolute, path.dirname(resultTarget)), {
-        label: `Test result parent '${policy.result.path}'`, mustExist: true, type: 'directory'
-      });
-      const stagedResult = await stageTransientQualityResult(
-        repositoryTarget.absolute, commandRoot, policy.result.path, policy.result.adapter
-      );
-      restoreTransientResult = stagedResult.restore;
-      activeTransientRestore = restoreTransientResult;
-      // A timestamp is not execution evidence: remove prior report files before execution so
-      // anything parsed afterwards must have been created by this invocation. Directory paths
-      // may contain unrelated files, so the staging helper clears only parser-visible reports.
-      await stagedResult.clear();
-      structuredResultTarget = resultTarget;
-      if (isolation) {
-        const isolatedTarget = await secureRepositoryPath(isolation.root,
-          path.relative(isolation.root, path.resolve(executionRoot, policy.result.path)),
-          { label: 'Isolated test result', mustExist: false });
-        await mkdir(path.dirname(isolatedTarget.absolute), { recursive: true });
-        const stagedCandidateResult = await stageTransientQualityResult(
-          isolation.root, executionRoot, policy.result.path, policy.result.adapter
-        );
-        isolatedResultRestore = stagedCandidateResult.restore;
-        await stagedCandidateResult.clear();
-        structuredResultTarget = isolatedTarget.absolute;
-      }
-    }
-    await prepareInferredSwiftTestReports(isolation?.root ?? root, policy);
-    // A CLI invoked from Node's own test runner inherits NODE_TEST_CONTEXT. Passing that private
-    // harness marker to a nested `node --test` process makes Node treat the required repository
-    // test as an internal child and emit no reporter events. External quality commands are a new
-    // execution boundary, so they receive the ordinary process environment without the parent's
-    // test-runner control marker.
-    const failedRiskCommand = workflow?.resolution?.testRecovery?.enabledRiskCategories?.some(category => ['new-test-failure', 'known-test-failure', 'reduced-coverage'].includes(category))
-      && workflow.resolution.testRecovery.caseInventory?.some(entry => entry.phaseId === phase.id && entry.commandId === policy.id);
-    const riskDeclaration = failedRiskCommand ? trpCaseInventoryDeclaration(workflow, phase, policy) : null;
-    let commandEnvironment = failedRiskCommand ? trpExecutionEnvironment(riskDeclaration, process.env, { cwd: commandRoot }) : { ...process.env };
-    if (policy.kind === 'test') commandEnvironment = testRuntimeEnvironment(workflow?.resolution?.testRuntime, commandEnvironment);
-    if (policy.kind === 'test' && policy.result?.adapter === 'node-tap') {
-      commandEnvironment = nodeTestReporterEnvironment(commandEnvironment, isolation?.root ?? root, { argv: policy.argv, cwd: executionRoot });
-    }
-    delete commandEnvironment.NODE_TEST_CONTEXT;
-    if (policy.kind === 'test' && policy.result?.adapter === 'playwright-json'
-        && structuredResultTarget) {
-      // The JSON reporter otherwise writes to stdout. Bind its report to the exact secured,
-      // freshly cleared path that the delivery parser will inspect, on every host platform.
-      for (const key of Object.keys(commandEnvironment)) {
-        if (key.toLocaleUpperCase('en-US') === 'PLAYWRIGHT_JSON_OUTPUT_FILE') {
-          delete commandEnvironment[key];
+    const { results } = await runBoundedTaskPool(
+      commands,
+      async (value, { index, signal: poolSignal }) => {
+        const policy = evaluateExternalCommandForModelMode(value, { modelEnabled, unknownStrictness, index });
+        const command = policy.command ?? policy.argv.join(' ');
+        const startedAt = nowIso();
+        const environmentBlock = await environmentQualityCommandBlock(root, policy, {
+          sourceCommit, sourceTreeSha256, startedAt
+        });
+        if (environmentBlock) return environmentBlock;
+        if (policy.action === 'block') throw new SingularityFlowError(policy.reason, { code: 'EXTERNAL_MODEL_POLICY_BLOCKED' });
+        if (policy.action === 'skip') {
+          return {
+            id: policy.id, command, requirement: policy.requirement,
+            externalModelPolicy: policy.modelPolicy, sourceCommit, sourceTreeSha256,
+            ...(testInputSha256 ? { testInputSha256 } : {}),
+            startedAt, completedAt: nowIso(), status: 'skipped-warning', exitCode: null,
+            stdout: '', stderr: policy.reason
+          };
         }
+        const commandTarget = await secureRepositoryPath(
+          root,
+          policy.workingDirectory && policy.workingDirectory !== '.' ? policy.workingDirectory : '.',
+          { label: `Quality command '${policy.id}' working directory`, mustExist: true, type: 'directory' }
+        );
+        const commandRoot = commandTarget.absolute;
+        // Reports are staged and read in the worktree; the command itself runs on the candidate.
+        const executionRoot = isolation
+          ? (await secureRepositoryPath(isolation.root, policy.workingDirectory || '.', {
+            label: 'Isolated command working directory', mustExist: true, type: 'directory'
+          })).absolute
+          : commandRoot;
+        let restoreTransientResult = null;
+        let isolatedResultRestore = null;
+        let structuredResultTarget = null;
+        try {
+          if (policy.kind === 'test' && policy.result?.path) {
+            const resultTarget = path.resolve(commandRoot, policy.result.path);
+            const repositoryTarget = await secureRepositoryPath(root, '.', {
+              label: 'Repository root', mustExist: true, type: 'directory'
+            });
+            if (resultTarget !== repositoryTarget.absolute
+                && !resultTarget.startsWith(`${repositoryTarget.absolute}${path.sep}`)) {
+              throw new SingularityFlowError(`Test result path resolves outside the repository: ${policy.result.path}`, { code: 'CODE_TEST_RESULT_REQUIRED' });
+            }
+            await secureRepositoryPath(root, path.relative(repositoryTarget.absolute, resultTarget), {
+              label: `Test result '${policy.result.path}'`, mustExist: false
+            });
+            await mkdir(path.dirname(resultTarget), { recursive: true });
+            await secureRepositoryPath(root, path.relative(repositoryTarget.absolute, path.dirname(resultTarget)), {
+              label: `Test result parent '${policy.result.path}'`, mustExist: true, type: 'directory'
+            });
+            const stagedResult = await stageTransientQualityResult(
+              repositoryTarget.absolute, commandRoot, policy.result.path, policy.result.adapter
+            );
+            restoreTransientResult = stagedResult.restore;
+            activeTransientRestorers.add(restoreTransientResult);
+            await stagedResult.clear();
+            structuredResultTarget = resultTarget;
+            if (isolation) {
+              const isolatedTarget = await secureRepositoryPath(isolation.root,
+                path.relative(isolation.root, path.resolve(executionRoot, policy.result.path)),
+                { label: 'Isolated test result', mustExist: false });
+              await mkdir(path.dirname(isolatedTarget.absolute), { recursive: true });
+              const stagedCandidateResult = await stageTransientQualityResult(
+                isolation.root, executionRoot, policy.result.path, policy.result.adapter
+              );
+              isolatedResultRestore = stagedCandidateResult.restore;
+              activeIsolatedRestorers.add(isolatedResultRestore);
+              await stagedCandidateResult.clear();
+              structuredResultTarget = isolatedTarget.absolute;
+            }
+          }
+          await prepareInferredSwiftTestReports(isolation?.root ?? root, policy);
+          const failedRiskCommand = workflow?.resolution?.testRecovery?.enabledRiskCategories?.some(category => ['new-test-failure', 'known-test-failure', 'reduced-coverage'].includes(category))
+            && workflow.resolution.testRecovery.caseInventory?.some(entry => entry.phaseId === phase.id && entry.commandId === policy.id);
+          const riskDeclaration = failedRiskCommand ? trpCaseInventoryDeclaration(workflow, phase, policy) : null;
+          let commandEnvironment = failedRiskCommand ? trpExecutionEnvironment(riskDeclaration, process.env, { cwd: commandRoot }) : { ...process.env };
+          if (policy.kind === 'test') commandEnvironment = testRuntimeEnvironment(workflow?.resolution?.testRuntime, commandEnvironment);
+          if (policy.kind === 'test' && policy.result?.adapter === 'node-tap') {
+            commandEnvironment = nodeTestReporterEnvironment(commandEnvironment, isolation?.root ?? root, { argv: policy.argv, cwd: executionRoot });
+          }
+          delete commandEnvironment.NODE_TEST_CONTEXT;
+          if (policy.kind === 'test' && policy.result?.adapter === 'playwright-json'
+              && structuredResultTarget) {
+            for (const key of Object.keys(commandEnvironment)) {
+              if (key.toLocaleUpperCase('en-US') === 'PLAYWRIGHT_JSON_OUTPUT_FILE') {
+                delete commandEnvironment[key];
+              }
+            }
+            commandEnvironment.PLAYWRIGHT_JSON_OUTPUT_FILE = structuredResultTarget;
+          }
+          const result = policy.argv
+            ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
+              cwd: executionRoot,
+              env: commandEnvironment,
+              timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
+              killTree: true,
+              signal: failFast ? poolSignal : null,
+              reportCapture: trpNativeReportCapture(root, policy, riskDeclaration),
+              stdoutFile: policy.kind === 'test' && (policy.result?.adapter === 'go-test-json'
+                || policy.result?.adapter === 'node-tap'
+                || policy.result?.adapter === 'karma-text'
+                || (policy.result?.adapter === 'junit-xml'
+                  && policy.argv.some((argument) => argument === '--test-reporter=junit')))
+                ? structuredResultTarget
+                : null
+            })
+            : await runQualityCommand(policy.command, [], {
+              cwd: executionRoot, env: commandEnvironment, shell: true,
+              timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
+              killTree: true,
+              signal: failFast ? poolSignal : null
+            });
+          if (isolation && policy.kind === 'test') await importIsolatedReport(executionRoot, commandRoot, policy.result?.path, {
+            isolatedRoot: isolation.root, repositoryRoot: root, adapter: policy.result?.adapter
+          });
+          if (isolatedResultRestore) {
+            activeIsolatedRestorers.delete(isolatedResultRestore);
+            await isolatedResultRestore();
+            isolatedResultRestore = null;
+          }
+          const completedTreeSha256 = await sourceTreeHash(isolation ? isolation.root : root, config, workflow);
+          const completedTestInputSha256 = await testInputTreeHash(isolation ? isolation.root : root, config, workflow);
+          const infrastructureError = result.error
+            ? `Unable to run quality command: ${result.error.message}`
+            : null;
+          const check = {
+            id: policy.id, command, kind: policy.kind, requirement: policy.requirement,
+            workingDirectory: policy.workingDirectory,
+            resultIsolated: Boolean(structuredResultTarget),
+            ...(isolation ? { executionIsolation: 'candidate-worktree', excludedFromRun: [...isolationNeed.excluded] } : {}),
+            externalModelPolicy: policy.modelPolicy,
+            timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
+            sourceCommit, sourceTreeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),
+            ...(policy.kind === 'test' ? { testRuntime: testRuntimeIdentity(workflow?.resolution?.testRuntime, commandEnvironment) } : {}),
+            startedAt, completedAt: nowIso(),
+            status: result.timedOut || infrastructureError ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
+            ...(result.error?.code === 'ENOENT' ? { infrastructureUnavailable: true } : {}),
+            ...(result.timedOut ? { timedOut: true } : {}),
+            exitCode: result.status, signal: result.signal ?? null, stdout: boundedQualityDiagnostic(result.stdout),
+            stderr: boundedQualityDiagnostic(result.timedOut
+              ? `Command exceeded its ${policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS}ms timeout.`
+              : infrastructureError ?? result.stderr),
+            stdoutBytes: result.stdoutBytes,
+            stderrBytes: result.stderrBytes,
+            stdoutTruncated: result.stdoutTruncated || String(result.stdout ?? '').length > 2000,
+            stderrTruncated: result.stderrTruncated || String(result.stderr ?? '').length > 2000
+          };
+          if (completedTreeSha256 !== sourceTreeSha256 || completedTestInputSha256 !== testInputSha256) {
+            const error = new SingularityFlowError(
+              `Quality command '${policy.id}' changed application source or separately hashed test inputs. Validation commands must be observational; review the resulting files, publish a fresh generation, and run submission again.`,
+              { code: 'QUALITY_COMMAND_SOURCE_MUTATION', details: {
+                phase: phase.id, workId: workflow.workItem.id, commandId: policy.id,
+                beforeSha256: sourceTreeSha256, afterSha256: completedTreeSha256,
+                testInputBeforeSha256: testInputSha256, testInputAfterSha256: completedTestInputSha256
+              } }
+            );
+            throw policy.kind === 'test'
+              ? await attachRequiredTestExecution(error, root, {
+                ...policy, provenance: commandProvenance.get(value) ?? 'configured'
+              }, check) : error;
+          }
+          if (restoreTransientResult) {
+            activeTransientRestorers.delete(restoreTransientResult);
+            transientQualityResultRestorers.set(check, restoreTransientResult);
+          }
+          qualityCommandResults.set(check, result);
+          checks.push(check);
+          return check;
+        } finally {
+          if (isolatedResultRestore) {
+            activeIsolatedRestorers.delete(isolatedResultRestore);
+            await isolatedResultRestore();
+          }
+        }
+      },
+      {
+        maxConcurrency,
+        failFast,
+        shouldAbort: (check) => check?.requirement !== 'optional' && ['blocked', 'failed'].includes(check?.status)
       }
-      commandEnvironment.PLAYWRIGHT_JSON_OUTPUT_FILE = structuredResultTarget;
+    );
+    checks.length = 0;
+    for (const item of results) {
+      if (item) checks.push(item);
     }
-    const result = policy.argv
-      ? await runQualityCommand(policy.argv[0], policy.argv.slice(1), {
-        cwd: executionRoot,
-        env: commandEnvironment,
-        timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
-        killTree: true,
-        reportCapture: trpNativeReportCapture(root, policy, riskDeclaration),
-        stdoutFile: policy.kind === 'test' && (policy.result?.adapter === 'go-test-json'
-          || policy.result?.adapter === 'node-tap'
-          || policy.result?.adapter === 'karma-text'
-          || (policy.result?.adapter === 'junit-xml'
-            && policy.argv.some((argument) => argument === '--test-reporter=junit')))
-          ? structuredResultTarget
-          : null
-      })
-      : await runQualityCommand(policy.command, [], {
-        cwd: executionRoot, env: commandEnvironment, shell: true,
-        timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
-        killTree: true
-      });
-    if (isolation && policy.kind === 'test') await importIsolatedReport(executionRoot, commandRoot, policy.result?.path, {
-      isolatedRoot: isolation.root, repositoryRoot: root, adapter: policy.result?.adapter
-    });
-    if (isolatedResultRestore) {
-      await isolatedResultRestore();
-      isolatedResultRestore = null;
-    }
-    const completedTreeSha256 = await sourceTreeHash(isolation ? isolation.root : root, config, workflow);
-    const completedTestInputSha256 = await testInputTreeHash(isolation ? isolation.root : root, config, workflow);
-    const infrastructureError = result.error
-      ? `Unable to run quality command: ${result.error.message}`
-      : null;
-    const check = {
-      id: policy.id, command, kind: policy.kind, requirement: policy.requirement,
-      workingDirectory: policy.workingDirectory,
-      resultIsolated: Boolean(structuredResultTarget),
-      ...(isolation ? { executionIsolation: 'candidate-worktree', excludedFromRun: [...isolationNeed.excluded] } : {}),
-      externalModelPolicy: policy.modelPolicy,
-      timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
-      sourceCommit, sourceTreeSha256, ...(testInputSha256 ? { testInputSha256 } : {}),
-      ...(policy.kind === 'test' ? { testRuntime: testRuntimeIdentity(workflow?.resolution?.testRuntime, commandEnvironment) } : {}),
-      startedAt, completedAt: nowIso(),
-      status: result.timedOut || infrastructureError ? 'blocked' : result.status === 0 ? 'passed' : 'failed',
-      ...(result.error?.code === 'ENOENT' ? { infrastructureUnavailable: true } : {}),
-      ...(result.timedOut ? { timedOut: true } : {}),
-      exitCode: result.status, signal: result.signal ?? null, stdout: boundedQualityDiagnostic(result.stdout),
-      stderr: boundedQualityDiagnostic(result.timedOut
-        ? `Command exceeded its ${policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS}ms timeout.`
-        : infrastructureError ?? result.stderr),
-      stdoutBytes: result.stdoutBytes,
-      stderrBytes: result.stderrBytes,
-      stdoutTruncated: result.stdoutTruncated || String(result.stdout ?? '').length > 2000,
-      stderrTruncated: result.stderrTruncated || String(result.stderr ?? '').length > 2000
-    };
-    if (completedTreeSha256 !== sourceTreeSha256 || completedTestInputSha256 !== testInputSha256) {
-      const error = new SingularityFlowError(
-        `Quality command '${policy.id}' changed application source or separately hashed test inputs. Validation commands must be observational; review the resulting files, publish a fresh generation, and run submission again.`,
-        { code: 'QUALITY_COMMAND_SOURCE_MUTATION', details: {
-          phase: phase.id, workId: workflow.workItem.id, commandId: policy.id,
-          beforeSha256: sourceTreeSha256, afterSha256: completedTreeSha256,
-          testInputBeforeSha256: testInputSha256, testInputAfterSha256: completedTestInputSha256
-        } }
-      );
-      throw policy.kind === 'test'
-        ? await attachRequiredTestExecution(error, root, {
-          ...policy, provenance: commandProvenance.get(value) ?? 'configured'
-        }, check) : error;
-    }
-    if (restoreTransientResult) transientQualityResultRestorers.set(check, restoreTransientResult);
-    qualityCommandResults.set(check, result);
-    checks.push(check);
-    activeTransientRestore = null;
-  }
   } catch (error) {
-    if (activeTransientRestore) await activeTransientRestore();
+    for (const restore of activeTransientRestorers) await restore();
     for (const check of checks) await restoreTransientQualityResult(check);
     throw error;
   } finally {
-    try { if (isolatedResultRestore) await isolatedResultRestore(); }
-    finally { await isolation?.dispose?.(); }
+    try {
+      for (const restore of activeIsolatedRestorers) await restore();
+    } finally {
+      await isolation?.dispose?.();
+    }
   }
   return checks;
 }

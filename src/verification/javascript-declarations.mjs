@@ -15,6 +15,7 @@
  */
 import { createHash } from 'node:crypto';
 
+import { getCachedVerificationFact } from './incremental-verification-graph.mjs';
 import { acceptanceTagsInComment, adjacentWhitespace } from './tags.mjs';
 
 export const JAVASCRIPT_DECLARATION_SCHEMA = 'javascript-test-v2';
@@ -344,11 +345,189 @@ function gap(code, message) {
   return { code, message };
 }
 
+const EXPECT_MATCHERS = new Set([
+  'toBe', 'toEqual', 'toStrictEqual', 'toMatch', 'toMatchObject', 'toMatchSnapshot', 'toMatchInlineSnapshot',
+  'toContain', 'toContainEqual', 'toHaveLength', 'toHaveProperty', 'toBeTruthy', 'toBeFalsy', 'toBeNull',
+  'toBeUndefined', 'toBeDefined', 'toBeNaN', 'toBeInstanceOf', 'toBeGreaterThan', 'toBeGreaterThanOrEqual',
+  'toBeLessThan', 'toBeLessThanOrEqual', 'toBeCloseTo', 'toThrow', 'toThrowError', 'toThrowErrorMatchingSnapshot',
+  'toHaveBeenCalled', 'toHaveBeenCalledTimes', 'toHaveBeenCalledWith', 'toHaveReturned', 'toSatisfy'
+]);
+const ASSERT_METHODS = new Set([
+  'equal', 'strictEqual', 'deepEqual', 'deepStrictEqual', 'notEqual', 'notStrictEqual',
+  'notDeepEqual', 'notDeepStrictEqual', 'ok', 'match', 'doesNotMatch', 'throws', 'rejects',
+  'doesNotThrow', 'doesNotReject', 'fail', 'ifError'
+]);
+const LITERAL_IDENTIFIERS = new Set(['true', 'false', 'null', 'undefined']);
+
+function literalTokenValue(token, source) {
+  if (!token) return null;
+  if (token.type === 'string') return `s:${token.value}`;
+  if (token.type === 'template' && token.substitutions === false) return `s:${token.value}`;
+  if (token.type === 'number') return `n:${source.slice(token.start, token.end)}`;
+  if (token.type === 'identifier' && LITERAL_IDENTIFIERS.has(token.value)) return `i:${token.value}`;
+  return null;
+}
+
+function topLevelArgs(tokens, openParen, closeParen) {
+  const args = [];
+  let current = [];
+  let depth = 0;
+  for (let i = openParen + 1; i < closeParen; i += 1) {
+    const token = tokens[i];
+    if (token.type === 'comment') continue;
+    if (token.type === 'punct' && ['(', '[', '{'].includes(token.value)) depth += 1;
+    else if (token.type === 'punct' && [')', ']', '}'].includes(token.value)) depth -= 1;
+    if (depth === 0 && token.type === 'punct' && token.value === ',') {
+      args.push(current);
+      current = [];
+      continue;
+    }
+    current.push(token);
+  }
+  if (current.length) args.push(current);
+  return args;
+}
+
+/**
+ * Inspect the token stream of one test declaration (`callOpen` to `callClose`) to determine
+ * assertion count, tautological literal assertions, and corner-case signals (negative/error,
+ * boundary, nullability/empty). Pure and bounded over the existing token stream.
+ */
+export function analyzeTestDeclarationAssertions(tokens, callOpen, callClose, source = '') {
+  let bodyStart = callOpen + 1;
+  let depth = 0;
+  while (bodyStart < callClose) {
+    const token = tokens[bodyStart];
+    if (token.type === 'punct' && ['(', '[', '{'].includes(token.value)) depth += 1;
+    else if (token.type === 'punct' && [')', ']', '}'].includes(token.value)) depth -= 1;
+    else if (depth === 0 && token.type === 'punct' && token.value === ',') { bodyStart += 1; break; }
+    bodyStart += 1;
+  }
+  let count = 0;
+  let tautological = 0;
+  let negative = false;
+  let boundary = false;
+  let nullability = false;
+  for (let i = bodyStart; i < callClose; i += 1) {
+    const token = tokens[i];
+    if (!token || token.type === 'comment') continue;
+    if (token.type === 'identifier') {
+      if (['throws', 'rejects', 'toThrow', 'toThrowError', 'catch', 'allowFailure'].includes(token.value)) negative = true;
+      if (['null', 'undefined', 'toBeNull', 'toBeUndefined'].includes(token.value)) nullability = true;
+      if (['NaN', 'Infinity', 'MAX_SAFE_INTEGER', 'MIN_SAFE_INTEGER', 'toBeGreaterThan', 'toBeGreaterThanOrEqual',
+        'toBeLessThan', 'toBeLessThanOrEqual', 'toBeNaN'].includes(token.value)) boundary = true;
+    } else if (token.type === 'number') {
+      const raw = source.slice(token.start, token.end);
+      if (raw === '0' || raw === '1' || (tokens[i - 1]?.type === 'punct' && tokens[i - 1].value === '-')) boundary = true;
+    } else if (token.type === 'string' && token.value === '') {
+      nullability = true;
+      boundary = true;
+    } else if (token.type === 'punct' && token.value === '[' && tokens[i + 1]?.type === 'punct' && tokens[i + 1].value === ']') {
+      nullability = true;
+      boundary = true;
+    }
+    if (token.type === 'identifier' && token.value === 'expect' && tokens[i + 1]?.type === 'punct' && tokens[i + 1].value === '(') {
+      const subjectClose = matchingClose(tokens, i + 1);
+      if (subjectClose < 0 || subjectClose >= callClose) continue;
+      const subjectArgs = topLevelArgs(tokens, i + 1, subjectClose);
+      let cursor = subjectClose + 1;
+      const modifiers = [];
+      let matcher = null;
+      let matcherOpen = -1;
+      while (cursor < callClose && tokens[cursor]?.type === 'punct' && tokens[cursor].value === '.'
+          && tokens[cursor + 1]?.type === 'identifier') {
+        const name = tokens[cursor + 1].value;
+        if (['not', 'resolves', 'rejects'].includes(name)) {
+          modifiers.push(name);
+          if (name === 'rejects') negative = true;
+          cursor += 2;
+          continue;
+        }
+        if (EXPECT_MATCHERS.has(name) && tokens[cursor + 2]?.type === 'punct' && tokens[cursor + 2].value === '(') {
+          matcher = name;
+          matcherOpen = cursor + 2;
+        }
+        break;
+      }
+      if (matcher && matcherOpen > 0) {
+        count += 1;
+        const matcherClose = matchingClose(tokens, matcherOpen);
+        const matcherArgs = matcherClose > matcherOpen ? topLevelArgs(tokens, matcherOpen, matcherClose) : [];
+        if (['toThrow', 'toThrowError', 'toThrowErrorMatchingSnapshot'].includes(matcher)) negative = true;
+        if (['toBeNull', 'toBeUndefined', 'toBeFalsy'].includes(matcher)) nullability = true;
+        if (['toBeGreaterThan', 'toBeGreaterThanOrEqual', 'toBeLessThan', 'toBeLessThanOrEqual', 'toBeNaN'].includes(matcher)) boundary = true;
+        if (!modifiers.length && ['toBe', 'toEqual', 'toStrictEqual'].includes(matcher)
+            && subjectArgs[0]?.length === 1 && matcherArgs[0]?.length === 1) {
+          const left = literalTokenValue(subjectArgs[0][0], source);
+          const right = literalTokenValue(matcherArgs[0][0], source);
+          if (left && left === right) tautological += 1;
+        } else if (!modifiers.length && subjectArgs[0]?.length === 1) {
+          const left = literalTokenValue(subjectArgs[0][0], source);
+          if ((matcher === 'toBeTruthy' && left === 'i:true')
+              || (matcher === 'toBeFalsy' && left === 'i:false')
+              || (matcher === 'toBeNull' && left === 'i:null')
+              || (matcher === 'toBeUndefined' && left === 'i:undefined')) {
+            tautological += 1;
+          }
+        }
+      }
+      continue;
+    }
+    if (token.type === 'identifier' && token.value === 'assert') {
+      if (tokens[i + 1]?.type === 'punct' && tokens[i + 1].value === '.' && tokens[i + 2]?.type === 'identifier'
+          && ASSERT_METHODS.has(tokens[i + 2].value) && tokens[i + 3]?.type === 'punct' && tokens[i + 3].value === '(') {
+        const method = tokens[i + 2].value;
+        const open = i + 3;
+        const close = matchingClose(tokens, open);
+        count += 1;
+        if (['throws', 'rejects', 'fail'].includes(method)) negative = true;
+        if (close > open) {
+          const args = topLevelArgs(tokens, open, close);
+          if (['equal', 'strictEqual', 'deepEqual', 'deepStrictEqual'].includes(method)
+              && args[0]?.length === 1 && args[1]?.length === 1) {
+            const left = literalTokenValue(args[0][0], source);
+            const right = literalTokenValue(args[1][0], source);
+            if (left && left === right) tautological += 1;
+          } else if (method === 'ok' && args[0]?.length === 1) {
+            const left = literalTokenValue(args[0][0], source);
+            if (left === 'i:true' || (left?.startsWith('n:') && left !== 'n:0') || (left?.startsWith('s:') && left !== 's:')) {
+              tautological += 1;
+            }
+          }
+        }
+      } else if (tokens[i + 1]?.type === 'punct' && tokens[i + 1].value === '(') {
+        const open = i + 1;
+        const close = matchingClose(tokens, open);
+        count += 1;
+        if (close > open) {
+          const args = topLevelArgs(tokens, open, close);
+          if (args[0]?.length === 1) {
+            const left = literalTokenValue(args[0][0], source);
+            if (left === 'i:true' || (left?.startsWith('n:') && left !== 'n:0')) tautological += 1;
+          }
+        }
+      }
+    }
+  }
+  const adequacy = count === 0 ? 'missing' : count === tautological ? 'tautological' : 'adequate';
+  return { count, tautological, negative, boundary, nullability, adequacy };
+}
+
 /**
  * Read one test file's declarations. Never throws for the file's content: an unreadable file is a
  * file gap, and every tag in it is then reported as unattached with that reason.
  */
-export function scanJavaScriptDeclarations(source, { sourcePath, framework }) {
+export function scanJavaScriptDeclarations(source, { sourcePath, framework, root = null, persist = false } = {}) {
+  return getCachedVerificationFact(
+    'javascript-declarations',
+    source,
+    { sourcePath: sourcePath ?? null, framework: framework ?? null },
+    () => scanJavaScriptDeclarationsUncached(source, { sourcePath, framework }),
+    { root, persist }
+  );
+}
+
+function scanJavaScriptDeclarationsUncached(source, { sourcePath, framework }) {
   const text = String(source ?? '');
   const empty = { schema: JAVASCRIPT_DECLARATION_SCHEMA, sourcePath, framework, declarations: [], unattachedTags: [], fileGaps: [] };
   if (text.length > MAX_SOURCE_CHARACTERS) {
@@ -533,6 +712,7 @@ export function scanJavaScriptDeclarations(source, { sourcePath, framework }) {
       focused: token.value === 'fit' || modifiers.includes('only') || enclosingSuites.some((suite) => suite.focused),
       parameters,
       clauseIds,
+      assertions: analyzeTestDeclarationAssertions(tokens, callOpen, callClose, text),
       gaps
     });
   }

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { readdir } from 'node:fs/promises';
 import YAML from 'yaml';
 import { refHead } from './git-execution.mjs';
+import { withFreshGitFacts } from './git-fact-cache.mjs';
 import { readObjectsBatch, readRefTreeResult, treeEntries } from './git-ref-tree.mjs';
 import { SingularityFlowError, exists, readJson, run } from './util.mjs';
 import { readRecord } from './schema-migrations.mjs';
@@ -436,11 +437,15 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
   const prefetched = refs.length > 1 && !fresh && env === process.env
     ? prefetchRefSubjects(root, refs, { workRoot, initiativeRoot, env }) : null;
   Object.defineProperty(index, 'refFiles', { value: prefetched?.files ?? new Map(), enumerable: false });
+  // Where this index declines its own summary cache, it declines the Git answer cache too: a fresh
+  // scan is an independent proof, and an explicit environment is caller-owned authority.
+  const independent = fresh || env !== process.env;
+  const ask = independent ? withFreshGitFacts : (read) => read();
   for (const item of refs) {
     const ref = typeof item === 'string' ? item : item.ref;
     const branch = typeof item === 'string' ? item.split('/').slice(1).join('/') : item.branch;
     const early = prefetched?.get(ref) ?? null;
-    const commit = early?.commit ?? refHead(root, ref, { env });
+    const commit = early?.commit ?? ask(() => refHead(root, ref, { env }));
     if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(commit ?? '')) {
       index.unreadable.push(stateDiagnostic({ code: 'SUBJECT_STATE_UNAVAILABLE', path: null,
         location: { ref, branch, commit: null }, reason: 'required ref commit is unavailable locally' }));
@@ -466,7 +471,7 @@ export async function buildRepositorySubjectIndexFromRefs(root, {
     };
     // Destructive-readiness checks explicitly request a fresh scan so neither stale branch bytes
     // nor an earlier caller's environment-specific cache entry can authorize local deletion.
-    const cached = fresh || env !== process.env ? load() : cachedRefSubjects(cacheKey, load);
+    const cached = independent ? ask(load) : cachedRefSubjects(cacheKey, load);
     const { roots, observed } = cached;
     if (roots.status !== 'ok') {
       index.unreadable.push(stateDiagnostic({

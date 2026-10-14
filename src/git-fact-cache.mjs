@@ -110,6 +110,8 @@ let hits = 0;
 let storeHits = 0;
 // The session store (git-fact-store.mjs), when the CLI installed one.
 let persistence = null;
+// Above zero while a caller needs every answer from Git itself (withFreshGitFacts).
+let freshDepth = 0;
 // Fingerprint modes: every stat field, the identity alone (the .git marker), or the object store.
 const FULL = 0;
 const IDENTITY = 1;
@@ -422,7 +424,7 @@ export function gitFactRequest(args, { cwd, env = process.env, stdio = 'pipe', i
  * store kept is adopted on first use and checked exactly like one this process recorded.
  */
 export function cachedGitFact(request) {
-  if (!request) return null;
+  if (!request || freshDepth > 0) return null;
   let entry = entries.get(request.key);
   let fromStore = false;
   if (!entry && persistence) {
@@ -503,6 +505,29 @@ export function gitFactStoreHits() {
 /** How many answers came from this cache in this process, for timing counters and tests. */
 export function gitFactCacheHits() {
   return hits;
+}
+
+/**
+ * Run `read` with every Git question answered by Git, not by this cache or the session store.
+ *
+ * For proofs that must stand on their own, such as the fresh subject scan that clears a local
+ * deletion. Answers Git gives meanwhile are still remembered for later readers. A promise keeps
+ * the scope open until it settles, so concurrent reads only lose cache hits, never correctness.
+ */
+export function withFreshGitFacts(read) {
+  freshDepth += 1;
+  let result;
+  try {
+    result = read();
+  } catch (error) {
+    freshDepth -= 1;
+    throw error;
+  }
+  if (typeof result?.then !== 'function') {
+    freshDepth -= 1;
+    return result;
+  }
+  return Promise.resolve(result).finally(() => { freshDepth -= 1; });
 }
 
 /** Forget every answer. Tests use it; nothing in the product needs to. */

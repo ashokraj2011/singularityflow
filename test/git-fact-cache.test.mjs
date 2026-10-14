@@ -7,7 +7,7 @@ import test from 'node:test';
 
 import {
   cachedGitFact, clearGitFactCache, gitFactCacheHits, gitFactKind, gitFactRequest,
-  gitFactSnapshot, rememberGitFact
+  gitFactSnapshot, rememberGitFact, withFreshGitFacts
 } from '../src/git-fact-cache.mjs';
 import { run } from '../src/util.mjs';
 
@@ -116,6 +116,19 @@ test('a repeated HEAD, branch, location or configuration question is answered wi
     assert.equal(gitFactCacheHits(), before + 1, `${args.join(' ')} was asked of Git again`);
     assert.deepEqual({ status: second.status, stdout: second.stdout }, { status: first.status, stdout: first.stdout });
   }
+});
+
+test('a fresh scope asks Git every question, including after it awaits, and leaves its answers for later readers', async (t) => {
+  const root = await repository(t);
+  const args = ['rev-parse', 'HEAD'];
+  asked(root, args);
+  const before = gitFactCacheHits();
+  withFreshGitFacts(() => asked(root, args));
+  await withFreshGitFacts(async () => { await null; asked(root, args); });
+  assert.equal(gitFactCacheHits(), before, 'a fresh proof was answered from the cache');
+  assert.throws(() => withFreshGitFacts(() => { throw new Error('read failed'); }), /read failed/u);
+  asked(root, args);
+  assert.equal(gitFactCacheHits(), before + 1, 'the scope ended, even after a failure');
 });
 
 test('an answer is not reused after anything changes the files it came from', async (t) => {

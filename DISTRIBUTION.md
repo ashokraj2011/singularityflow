@@ -316,6 +316,23 @@ product artifacts, while its receipt, checksums, wrappers, bootstrap, and README
 operator/trust assets. A VSIX is platform-neutral and requires no DMG, NSIS installer,
 code-signing certificate, notarization, or custom auto-updater.
 
+## The bundled CLI
+
+An installed CLI runs from `bundle/cli.mjs`, one file built by `scripts/build-cli-bundle.mjs`,
+instead of the ~150–530 module files a command loads from `src/`. On Windows every file open can
+pay for antivirus or OneDrive checks, so this is where most of a command's start-up time went.
+
+- `install.sh` and `reinstall` build it after stamping `src/build-info.mjs` and before `npm pack`;
+  `bundle/` is gitignored and shipped in the tarball. `src/` still ships beside it for workers, AST
+  adapters, templates and hashed sources.
+- It runs only in the stamped build it was made for: `bundle/manifest.json` names the exact
+  `src/build-info.mjs` bytes. A checkout, or a package whose stamp changed, runs `src/`.
+- `SINGULARITY_FLOW_BUNDLE=off` forces the sources; `SINGULARITY_FLOW_BUNDLE_DIR=<dir>` runs a given
+  bundle (tests and measurements). If the bundle cannot be built, the install continues and the CLI
+  runs from `src/`.
+- Compare on a machine: `sflow status --timings` with and without `SINGULARITY_FLOW_BUNDLE=off`;
+  `root-dispatch` and `module-load` are the stages the bundle shortens.
+
 ## Build a developer CLI tarball
 
 ```bash

@@ -890,6 +890,14 @@ elif [[ -f "$PROJECT_DIR/src/build-info.mjs" ]]; then
 fi
 
 if [[ "$VSCODE_ONLY" != "on" ]]; then
+  # The bundled CLI: one file per command where the sources are hundreds, which is what makes
+  # Windows slow. It belongs to this exact stamp; without it the installed CLI runs from src/.
+  rm -rf "$PROJECT_DIR/bundle"
+  if [[ -f "$PROJECT_DIR/scripts/build-cli-bundle.mjs" ]]; then
+    printf '%s\n' 'Building the bundled CLI...'
+    node "$PROJECT_DIR/scripts/build-cli-bundle.mjs" \
+      || printf '%s\n' 'Warning: the bundled CLI could not be built; the installed CLI will run from its sources.' >&2
+  fi
   printf '%s\n' 'Creating the distribution tarball...'
   # npm includes every packed path in its JSON response. Large production closures can make that
   # response several megabytes, so never copy it into argv or the environment: both are bounded by

@@ -11,7 +11,7 @@ import {
   sign as signBytes, timingSafeEqual, verify as verifyBytes
 } from 'node:crypto';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { PACKAGE_ROOT } from '../package-root.mjs';
 import { readFile } from 'node:fs/promises';
 
 import { normalizeExternalCommand } from '../external-command-policy.mjs';
@@ -413,7 +413,7 @@ export async function executeLocalRunnerWorker(root, definition, value) {
 
 export async function runLocalRunnerProcess(root, definition, value) {
   const { plan, command, signer } = await assertLocalRunnerPlanCurrent(root, definition, value);
-  const worker = fileURLToPath(new URL('../../bin/sflow-local-runner.mjs', import.meta.url));
+  const worker = path.join(PACKAGE_ROOT, 'bin', 'sflow-local-runner.mjs');
   const child = await runQualityCommand(process.execPath, [worker], {
     cwd: root, input: canonicalJson({ root, plan }), shell: false, killTree: true,
     timeoutMs: command.timeoutMs + CHILD_GRACE_MS, captureBytes: 1024 * 1024

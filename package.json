@@ -27,6 +27,7 @@
   },
   "files": [
     "bin/",
+    "bundle/",
     "src/",
     "plugin/",
     "templates/",
@@ -174,5 +175,8 @@
     "typescript",
     "yaml",
     "zod"
-  ]
+  ],
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
 }

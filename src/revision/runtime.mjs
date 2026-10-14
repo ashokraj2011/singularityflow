@@ -2,13 +2,13 @@
 import { constants } from 'node:fs';
 import { lstat, open, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { PACKAGE_ROOT } from '../package-root.mjs';
 import { run, SingularityFlowError } from '../util.mjs';
 import { verifyRevisionPacket } from './packet.mjs';
 
 export const REV_PILOT_OPT_IN_PATH = '.sflow/revision-pilot.json';
 const MAX_OPT_IN_BYTES = 4096;
-const DEFAULT_RELEASE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const DEFAULT_RELEASE_ROOT = PACKAGE_ROOT;
 const PILOT_BRIDGES = Object.freeze([
   'publicRoutePreviewAvailable', 'publicPacketPlanningAvailable', 'manualCaptureAvailable',
   'candidateHeadCasAvailable', 'codeResultAvailable', 'publicationBridgeAvailable',

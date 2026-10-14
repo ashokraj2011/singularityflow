@@ -2,7 +2,8 @@
 const modules = new Map();
 export function load({ positionals }) {
   const name = positionals[1] === 'open' ? './session-open.mjs' : './session.mjs';
-  if (!modules.has(name)) modules.set(name, import(name));
+  // Literal imports, so the bundled CLI carries both.
+  if (!modules.has(name)) modules.set(name, name === './session-open.mjs' ? import('./session-open.mjs') : import('./session.mjs'));
   return modules.get(name);
 }
 

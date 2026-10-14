@@ -1,6 +1,7 @@
 /** `singularity-flow auto` — bounded, exact-hash-ratified Story automation. */
 import { repoRoot } from '../git.mjs';
-import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import { PACKAGE_ROOT } from '../package-root.mjs';
 import { loadDefinition } from '../config.mjs';
 import {
   createAutoPlan, readAutoPlan, synthesizeAutoPlanProposal
@@ -40,7 +41,8 @@ const SUBCOMMANDS = new Set([
   'pause', 'resume', 'stop', 'halt', 'takeover', 'discard', 'flight-step',
   'continue', 'adopt', 'recover', 'repair', 'needs-you', 'respond', 'switch-unit'
 ]);
-const BIN = fileURLToPath(new URL('../../bin/singularity-flow.mjs', import.meta.url));
+// Through the package root, so the bundled CLI (bundle/, one level deep) finds the same file.
+const BIN = path.join(PACKAGE_ROOT, 'bin', 'singularity-flow.mjs');
 
 function autoActionLines(command, label = 'Continue') {
   if (typeof command !== 'string' || !command.trim()) return [];

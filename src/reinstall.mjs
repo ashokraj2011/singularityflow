@@ -134,9 +134,16 @@ export async function validateReinstallCheckout(requestedCheckout) {
   return { checkout, version: product.version, product, plugin, vscode };
 }
 
+/** The bundled CLI and its build/test leftovers are generated at packaging time, never source. */
+function generatedBundle(relative) {
+  const [first] = relative.split(path.sep);
+  return first === 'bundle' || first.startsWith('bundle.building-') || first.startsWith('.bundle-test-');
+}
+
 function excludedSource(relative, entry) {
   const segments = relative.split(path.sep);
   if (segments.includes('.git') || segments.includes('node_modules')) return true;
+  if (generatedBundle(relative)) return true;
   if (segments.includes('release') && segments.includes('apps') && segments.includes('vscode')) return true;
   if (entry.isFile() && (/\.tgz$/i.test(entry.name) || /\.vsix$/i.test(entry.name))) return true;
   return false;
@@ -412,6 +419,7 @@ async function copyCheckout(checkout, target) {
       if (!relative) return true;
       const segments = relative.split(path.sep);
       if (segments.includes('.git') || segments.includes('node_modules')) return false;
+      if (generatedBundle(relative)) return false;
       if (segments.includes('release') && segments.includes('apps') && segments.includes('vscode')) return false;
       return !(/\.tgz$/i.test(path.basename(source)) || /\.vsix$/i.test(path.basename(source)));
     }
@@ -475,6 +483,13 @@ export async function buildReinstallBundle({
       dirty: null,
       builtAt: new Date().toISOString()
     });
+  }
+  // The bundled CLI belongs to this exact stamp (scripts/build-cli-bundle.mjs). Without it the
+  // installed CLI still works, from src/, so a failed build only costs speed.
+  const bundleBuilder = path.join(source, 'scripts', 'build-cli-bundle.mjs');
+  if (await lstat(bundleBuilder).catch(() => null)) {
+    const built = execute(process.execPath, [bundleBuilder], { cwd: source, env, stdio: 'inherit', allowFailure: true });
+    if (built?.status !== 0) log('Warning: the bundled CLI could not be built; the installed CLI will run from its sources.');
   }
   executeOrThrow(execute, 'npm', ['pack', '--pack-destination', artifacts, `--registry=${registry}`], { cwd: source, env, stdio: 'inherit' });
   const tarball = await findPackedFile(artifacts, '.tgz');

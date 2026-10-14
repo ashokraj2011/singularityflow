@@ -53,7 +53,11 @@ try {
     const root = candidates.map(packageFor).find(Boolean);
     if (!root) unavailable();
     else {
-      const { main } = await import(pathToFileURL(path.join(root, 'src/cli-entry.mjs')).href);
+      // The installed bundle when it belongs to this build (src/bundled-cli.mjs), else the sources.
+      // An older installed package has no selector: it simply runs its sources.
+      const bundled = await import(pathToFileURL(path.join(root, 'src/bundled-cli.mjs')).href)
+        .then(({ bundledCliUrl }) => bundledCliUrl(root), () => null);
+      const { main } = await import(bundled ?? pathToFileURL(path.join(root, 'src/cli-entry.mjs')).href);
       await main(['hook', action]);
     }
   }

@@ -73,8 +73,9 @@ import { tokenReductionShadowFailure } from './token-reduction/shadow-record.mjs
 
 // Repository knowledge is loaded on use, through non-literal specifiers, so editor bundles that import
 // this module do not carry the analysis engine.
-const KNOWLEDGE_COMMAND_MODULE = './knowledge/command.mjs';
-const KNOWLEDGE_PROMPT_MODULE = './knowledge/prompt.mjs';
+// Resolved from the package root, so the bundled CLI loads them from src/ too.
+const KNOWLEDGE_COMMAND_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'knowledge', 'command.mjs')).href;
+const KNOWLEDGE_PROMPT_MODULE = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'knowledge', 'prompt.mjs')).href;
 
 let tokenReductionShadowRuntimePromise = null;
 

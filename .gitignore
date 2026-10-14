@@ -7,6 +7,10 @@ coverage/
 apps/desktop/dist/
 apps/desktop/release/
 dist/
+# The bundled CLI is built at install time (scripts/build-cli-bundle.mjs) and never committed.
+/bundle/
+/bundle.building-*/
+/.bundle-test-*/
 # Reserved same-parent scratch/recovery names for crash-safe dist/ promotion. They are intentionally
 # ignored so the next release invocation can reach its narrowly scoped recovery before clean-tree
 # admission; unjournaled candidates are never trusted or promoted.

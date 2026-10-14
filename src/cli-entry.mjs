@@ -796,7 +796,11 @@ async function runMain(argv) {
   }
   timer.stage('root-dispatch');
   try {
-    const module = await withCommandTiming(timer, () => import(definition.modulePath));
+    // A literal loader when there is one, so the bundled CLI carries the module (command-loaders.mjs).
+    const module = await withCommandTiming(timer, async () => {
+      const { COMMAND_LOADERS } = await import('./command-loaders.mjs');
+      return COMMAND_LOADERS[definition.modulePath]?.() ?? import(definition.modulePath);
+    });
     /**
      * A module that defers the rest of its own graph reports that cost here, not inside `execute`.
      *

@@ -1,0 +1,61 @@
+/**
+ * Every command module as a literal import, so a bundler can see it. `[perf]`
+ *
+ * `command-registry.mjs` names each command's module by path, and the CLI entry used to import
+ * that string. A computed import is invisible to esbuild, so the bundled CLI (`bundle/`, see
+ * scripts/build-cli-bundle.mjs) could not have loaded any command. The registry keeps its paths;
+ * the entry looks a path up here first. `test/cli-bundle.test.mjs` keeps the two in step.
+ */
+export const COMMAND_LOADERS = Object.freeze({
+  './commands/about.mjs': () => import('./commands/about.mjs'),
+  './commands/adhoc.mjs': () => import('./commands/adhoc.mjs'),
+  './commands/appeal.mjs': () => import('./commands/appeal.mjs'),
+  './commands/approvals.mjs': () => import('./commands/approvals.mjs'),
+  './commands/approve.mjs': () => import('./commands/approve.mjs'),
+  './commands/auto.mjs': () => import('./commands/auto.mjs'),
+  './commands/capability.mjs': () => import('./commands/capability.mjs'),
+  './commands/change.mjs': () => import('./commands/change.mjs'),
+  './commands/choices-entry.mjs': () => import('./commands/choices-entry.mjs'),
+  './commands/comprehension.mjs': () => import('./commands/comprehension.mjs'),
+  './commands/delivery.mjs': () => import('./commands/delivery.mjs'),
+  './commands/environment.mjs': () => import('./commands/environment.mjs'),
+  './commands/explain.mjs': () => import('./commands/explain.mjs'),
+  './commands/fast-path.mjs': () => import('./commands/fast-path.mjs'),
+  './commands/fos.mjs': () => import('./commands/fos.mjs'),
+  './commands/goal.mjs': () => import('./commands/goal.mjs'),
+  './commands/governance.mjs': () => import('./commands/governance.mjs'),
+  './commands/home.mjs': () => import('./commands/home.mjs'),
+  './commands/init.mjs': () => import('./commands/init.mjs'),
+  './commands/inputs.mjs': () => import('./commands/inputs.mjs'),
+  './commands/instruction.mjs': () => import('./commands/instruction.mjs'),
+  './commands/integrations.mjs': () => import('./commands/integrations.mjs'),
+  './commands/journal.mjs': () => import('./commands/journal.mjs'),
+  './commands/legacy.mjs': () => import('./commands/legacy.mjs'),
+  './commands/local.mjs': () => import('./commands/local.mjs'),
+  './commands/nextsteps.mjs': () => import('./commands/nextsteps.mjs'),
+  './commands/pause.mjs': () => import('./commands/pause.mjs'),
+  './commands/phase.mjs': () => import('./commands/phase.mjs'),
+  './commands/precheck.mjs': () => import('./commands/precheck.mjs'),
+  './commands/prepare.mjs': () => import('./commands/prepare.mjs'),
+  './commands/product.mjs': () => import('./commands/product.mjs'),
+  './commands/proof.mjs': () => import('./commands/proof.mjs'),
+  './commands/push.mjs': () => import('./commands/push.mjs'),
+  './commands/recommend.mjs': () => import('./commands/recommend.mjs'),
+  './commands/repositories.mjs': () => import('./commands/repositories.mjs'),
+  './commands/review-source.mjs': () => import('./commands/review-source.mjs'),
+  './commands/revise.mjs': () => import('./commands/revise.mjs'),
+  './commands/revision.mjs': () => import('./commands/revision.mjs'),
+  './commands/session-entry.mjs': () => import('./commands/session-entry.mjs'),
+  './commands/sgos-evidence.mjs': () => import('./commands/sgos-evidence.mjs'),
+  './commands/sgos-extensions.mjs': () => import('./commands/sgos-extensions.mjs'),
+  './commands/sgos-policy.mjs': () => import('./commands/sgos-policy.mjs'),
+  './commands/sgos.mjs': () => import('./commands/sgos.mjs'),
+  './commands/skill.mjs': () => import('./commands/skill.mjs'),
+  './commands/snapshot.mjs': () => import('./commands/snapshot.mjs'),
+  './commands/status.mjs': () => import('./commands/status.mjs'),
+  './commands/submit.mjs': () => import('./commands/submit.mjs'),
+  './commands/upstream-issue.mjs': () => import('./commands/upstream-issue.mjs'),
+  './commands/why.mjs': () => import('./commands/why.mjs'),
+  './commands/workflow.mjs': () => import('./commands/workflow.mjs'),
+  './commands/workspace.mjs': () => import('./commands/workspace.mjs')
+});

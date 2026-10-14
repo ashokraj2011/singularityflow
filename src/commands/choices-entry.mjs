@@ -5,7 +5,8 @@ function packet(positionals, options) {
 }
 export function load({ positionals, options }) {
   const name = packet(positionals, options) ? './approval-packet.mjs' : './choices.mjs';
-  if (!modules.has(name)) modules.set(name, import(name));
+  // Literal imports, so the bundled CLI carries both.
+  if (!modules.has(name)) modules.set(name, name === './approval-packet.mjs' ? import('./approval-packet.mjs') : import('./choices.mjs'));
   return modules.get(name);
 }
 

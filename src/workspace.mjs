@@ -5,7 +5,9 @@ import { copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, r
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { pathToFileURL } from 'node:url';
 import { withRegistryFileLease } from './file-lease.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 import { prepareHeldLockRemoval } from './subject-lock.mjs';
 import YAML from 'yaml';
 import { localBranches, prepareRemoteBranchTracking, remoteBranches, safePruneRefspecs } from './git.mjs';
@@ -3792,7 +3794,8 @@ async function cloneIntoWorkspace(root, operation, {
 
 // A specifier the editor bundler does not follow: VS Code creates, adopts and repairs workspaces
 // through the CLI, so the bundled runtimes never need the indexer and must not carry its modules.
-const REPOSITORY_INDEXER = './comprehension/repository-explanation.mjs';
+// Resolved from the package root, so the bundled CLI loads it from src/ too.
+const REPOSITORY_INDEXER = pathToFileURL(path.join(PACKAGE_ROOT, 'src', 'comprehension', 'repository-explanation.mjs')).href;
 
 /**
  * Code explanation is available from the moment a repository is in place: each cloned, adopted or

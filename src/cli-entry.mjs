@@ -89,6 +89,9 @@ export function excludesActiveWorkspaceRouting(
     // Shared authoring writes must stay with the explicitly opened repository. A neutral cwd
     // cannot silently choose a different configuration authority from a machine-local selection.
     || (command === 'workflow' && subcommand === 'author')
+    // Team import reads an explicit directory and writes only machine-local sessions and an
+    // explicit --out file; relative paths must resolve where the person ran it.
+    || (command === 'workflow' && subcommand === 'import-team')
     // Documentation topics remain machine-local and repository-independent. Code explanation is
     // deliberately repository-bound and may use the repository selected by `workspace use` when
     // Copilot starts from a neutral directory.

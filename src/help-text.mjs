@@ -374,6 +374,16 @@ Usage:
     [--resolve KIND:ID=keep|replace|rename[:NAME]]... [--resolve-all suggested|keep|replace|rename]
                                                         preview, then import an exact workflow bundle through configuration review;
                                                         each same-name conflict needs a choice
+  singularity-flow workflow import-team inspect <DIRECTORY> [--entry AGENT]... [--root DIRECTORY]...
+    [--max-files N] [--max-total-bytes N] [--json]
+                                                        capture a team's agents, skills and instructions (screened, never executed)
+                                                        and open a conversion session once the entry agent is known
+  singularity-flow workflow import-team compile --session ID [--dry-run] [--answer ID=CHOICE]...
+    [--destination REPOSITORY] [--out FILE] [--allow-not-ready] [--json]
+                                                        check the candidate, simulate its routes, preview its import and write
+                                                        one workflow bundle only when it is ready
+  singularity-flow workflow import-team status [--session ID] [--json]
+                                                        list conversion sessions (machine-local, kept seven days)
   singularity-flow workflow copy <[story|initiative:]SOURCE> <TARGET> --label TEXT
     [--dry-run] [--confirm PLAN-SHA256] [--propose] [--json]
                                                         linked copy: preserve the complete workflow record and reuse dependencies

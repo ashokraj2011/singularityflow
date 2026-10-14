@@ -8,6 +8,8 @@ aliases:
   - workflow-export
   - workflow-import
   - workflow-copy
+  - workflow-import-team
+  - team-import
   - skill-inspect
   - skill-where-used
   - authoring-skill
@@ -20,6 +22,7 @@ questions:
   - Where is an approved skill used in this repository's workflows?
   - How do I choose which skill drafts a workflow step?
   - How do I design an artifact template and choose it for a step?
+  - How do I turn my team's agents, skills and instructions into a workflow?
 commands:
   - workflow
   - configuration
@@ -28,7 +31,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 56
+version: 57
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -271,6 +274,8 @@ The same holds for every role:
   inspect a skill retained by the repository or workspace's verified approved configuration.
 - **Copilot:** `/sf-workflows`. Ask it to export, import, or copy the selected workflows; it must show
   the exact deterministic preview and stop for confirmation before an import or copy mutation.
+  `/sf-import-team <DIRECTORY>` converts a team's agent directory into one workflow bundle; see
+  *Convert a team's agents into a workflow* below.
 - **VS Code, visually:** open **Workflow Studio** (Command Palette **Singularity Flow: Workflow
   Studio**, or **Configuration Center → Workflow Studio**). See *Workflow Studio* below.
 - **VS Code:** in **Workflow Studio**, **Your workflows** offers **Export…**, **Import…** and
@@ -1177,6 +1182,44 @@ New Story workflows infer a required planned-claims contract when a qualifying c
 To make review-led correction part of a Story workflow, add a bounded backward **rework loop** with a step's send-back rules in Workflow Studio or with `workflow edit <ID> --loop <REVIEW-PHASE>:<EARLIER-PHASE>:<MAX-ATTEMPTS>[:<RESET-PHASE>] --propose`. The optional reset phase must be strictly earlier than the return target. The loop becomes a reviewer rejection route and a repair-attempt budget; it does not execute phases, approve artifacts, or amend a specification automatically. Existing Stories retain their pinned workflow. See [Bounded rework loops](../WORKFLOW-REWORK-LOOPS.md) for the full sequence and safety boundaries.
 
 `workflow phase add` defaults to a Story phase. An unknown phase named by `workflow create` is not silently created: a new Story phase also needs a reviewed template, approval authority, and exactly one default governed Agent Markdown mapping. Add that contract through a configuration change before using the phase. The CLI names eligible clause phases when a selection cannot carry planned claims.
+
+## Convert a team's agents into a workflow
+
+`/sf-import-team <DIRECTORY>` (or the three `workflow import-team` commands) turns a directory of
+team automation into one validated workflow bundle that you import like any other, through
+**Workflow Studio → Import…** or `workflow import`. The conversion changes nothing: not the team
+directory, not a repository, not configuration.
+
+It reads Copilot agents, chat modes, scoped and repository instructions, prompt files and directory
+skills (`<id>/SKILL.md`), `AGENTS.md`, and the hidden-tool layout other coding agents use
+(`.<tool>/agents/<name>.md` with a root `<TOOL>.md` beside `.<tool>/`). Everything else is listed
+by name, never interpreted. Files are captured whole and twice, screened for secrets (a file with a
+finding is withheld, never read back), and never executed.
+
+```bash
+singularity-flow workflow import-team inspect ./team-automation --entry delivery-lead --json
+singularity-flow workflow import-team compile --session tis_0123456789abcdef --dry-run --json
+singularity-flow workflow import-team compile --session tis_0123456789abcdef \
+  --out delivery-flow.sflow-workflows.json --destination . --json
+```
+
+1. **inspect** captures the directory, resolves links and names between files, and lists entry
+   agents. With the entry agent known it opens a machine-local session (seven days) and issues the
+   one candidate file the conversion may write.
+2. The model writes a `team-import-candidate` record following the returned `candidate.guide`:
+   namespaced phases, agents, skills, instructions and templates, decisions, and one mapping per
+   source item, with evidence spans. What SFlow needs but the source never said is labelled
+   *destination policy*; open questions go to a person.
+3. **compile** checks it deterministically: the closed record and its evidence, references between
+   sections, coverage, the engine's own loader and validators, the responsibilities every route
+   owes, a route simulation (pass, repair, repeated failure, unavailable evidence, rejection), the
+   bundle compiler, and a preview of the import into a fresh configuration and into
+   `--destination`. Answers to open questions are recorded with `--answer <id>=<choice>`.
+
+States: `invalid`, `unsupported` (required behaviour SFlow cannot express), `needs-decision`,
+`portable-ready`, and `ready-for-destination`. A bundle is written only when ready, unless
+`--allow-not-ready` keeps a file that is labelled not ready. Ready never means approved,
+activated, tested or reviewed.
 
 ## Validate code-phase planning contracts
 

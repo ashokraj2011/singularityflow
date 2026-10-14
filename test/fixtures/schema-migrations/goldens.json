@@ -462,6 +462,8 @@
   "transport-intent": [{ "schemaVersion": 1 }],
   "workspace-bootstrap": [{ "schemaVersion": 1 }],
   "workspace-bootstrap-index": [{ "schemaVersion": 1 }],
+  "team-import-session": [{ "schemaVersion": 1, "kind": "team-import-session" }],
+  "team-import-candidate": [{ "schemaVersion": 1, "kind": "team-import-candidate" }],
   "prompt-audit-settings": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "retentionDays": 30, "lastPrunedAt": null, "headMac": null, "tailMac": null, "logBytes": null, "logMtimeMs": null, "maximumBytes": 67108864 }],
   "prompt-audit-record": [{ "schemaVersion": 1 }, { "schemaVersion": 2, "integrity": null, "handoffSha256": null, "handoffBytes": null }, { "schemaVersion": 3, "integrity": null, "handoffSha256": null, "handoffBytes": null, "executionContext": { "mode": "historical-unproven" } }],
   "help-metrics-settings": [{ "schemaVersion": 1 }],

@@ -785,6 +785,10 @@ Every public operation is classified before its implementation module is importe
 | workflow.edit | mutation | never | — | — |
 | workflow.export | mutation | never | — | — |
 | workflow.import | mutation | never | — | — |
+| workflow.import-team.compile | mutation | never | — | — |
+| workflow.import-team.compile.preview | read | never | — | — |
+| workflow.import-team.inspect | read | never | — | — |
+| workflow.import-team.status | read | never | — | — |
 | workflow.import.preview | read | never | — | — |
 | workflow.install | mutation | never | — | — |
 | workflow.install.preview | read | never | — | — |

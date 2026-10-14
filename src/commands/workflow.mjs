@@ -5,6 +5,7 @@ import { configurationReadFromWorker } from '../configuration-read-worker-client
 
 export async function run(argv, { positionals, options }) {
   const method = positionals[1];
+  if (method === 'import-team') return (await import('./workflow-import-team.mjs')).run(argv, { positionals, options });
   if (!['proposals', 'proposal'].includes(method)) return (await import('./legacy.mjs')).run(argv);
   const root = repoRoot();
   const parameters = method === 'proposal'

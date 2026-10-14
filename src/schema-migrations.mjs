@@ -3289,6 +3289,10 @@ const families = [
   family({ id: 'transport-intent', currentVersion: 1, paths: [/^\$local\/transport-outbox\/intents\/[^/]+\.json$/] }),
   family({ id: 'workspace-bootstrap', currentVersion: 1, paths: [/^\$local\/workspace-bootstrap\/sessions\/[^/]+\.json$/] }),
   family({ id: 'workspace-bootstrap-index', currentVersion: 1, paths: [/^\$local\/workspace-bootstrap\/index\.json$/] }),
+  // workflow import-team: the machine-local conversion session, and the one candidate file the
+  // model writes into it (src/team-import/). Neither ever enters a repository or a bundle.
+  family({ id: 'team-import-session', currentVersion: 1, paths: [/^\$local\/team-imports\/tis_[a-f0-9]{16}\/session\.json$/] }),
+  family({ id: 'team-import-candidate', currentVersion: 1, paths: [/^\$local\/team-imports\/tis_[a-f0-9]{16}\/candidate\.json$/] }),
   family({
     id: 'prompt-audit-settings', currentVersion: 2,
     steps: [migration(1, 2, promptAuditSettingsV1ToV2)],

@@ -293,6 +293,19 @@ test('mixed deterministic commands classify their actual operation rather than t
     assert.equal(operation.classification, classification);
     assert.equal(operation.modelPolicy, 'never');
   }
+  // Team import keeps machine-local session state; only compile --out (not --dry-run) writes a file.
+  for (const [action, options, id, classification] of [
+    ['inspect', {}, 'workflow.import-team.inspect', 'read'],
+    ['status', {}, 'workflow.import-team.status', 'read'],
+    ['compile', {}, 'workflow.import-team.compile.preview', 'read'],
+    ['compile', { out: 'team.sflow-workflows.json', 'dry-run': true }, 'workflow.import-team.compile.preview', 'read'],
+    ['compile', { out: 'team.sflow-workflows.json' }, 'workflow.import-team.compile', 'mutation']
+  ]) {
+    const operation = resolveOperation({ requestedCommand: 'workflow', positionals: ['workflow', 'import-team', action], options });
+    assert.deepEqual([operation.id, operation.classification, operation.modelPolicy], [id, classification, 'never'], action);
+  }
+  assert.throws(() => resolveOperation({ requestedCommand: 'workflow', positionals: ['workflow', 'import-team', 'apply'], options: {} }),
+    { code: 'UNKNOWN_SUBCOMMAND' });
   // The registered (v4) and legacy-v3 World Models were removed: every one of their subcommands, and
   // the format override on any remaining one, is refused by name during resolution, before a handler loads.
   for (const removed of REMOVED_WORLD_MODEL_SUBCOMMANDS) {

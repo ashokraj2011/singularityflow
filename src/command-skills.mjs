@@ -93,7 +93,7 @@ const entries = {
   doctor: ['sf-doctor'],
   review: ['sf-review'],
   'review-source': ['sf-review-source', 'sf-review-decide'],
-  workflow: ['sf-workflows'],
+  workflow: ['sf-workflows', 'sf-import-team'],
   skill: ['sf-skill'],
   instruction: ['sf-instructions'],
   assign: ['sf-assign'],
@@ -219,6 +219,9 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
     rollover: 'sf-recover'
   }),
   prepare: route('sf-phase'),
+  workflow: route('sf-workflows', {
+    'import-team': 'sf-import-team'
+  }),
   documents: route('sf-documents', {
     upload: 'sf-upload',
     add: 'sf-upload'

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { lstat, mkdir, readFile, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { deriveMutationContract, mutationContractPresentation, mutationDenial, mutationPathDecision, mutationTurnMode } from './phase-mutation-contract.mjs';
 import { copilotModeFile, readCopilotMode } from './copilot-mode.mjs';
 import { parseArgs } from './util.mjs';
@@ -16,6 +17,7 @@ const DECIDE_SKILL_MUTATIONS = Object.freeze(['choose', 'applicability', 'scope'
 // An agent may raise an issue or propose an amendment; only an approver decides or revalidates.
 const UPSTREAM_ISSUE_DECISIONS = Object.freeze(['decide', 'decide-amendment', 'revalidate']);
 const DELEGATION = new Set(['task', 'spawn_agent', 'write_agent', 'delegate', 'run_subagent']);
+const IMPORT_TEAM_COMMANDS = Object.freeze(['inspect', 'compile', 'status']);
 const digest = value => createHash('sha256').update(value).digest('hex');
 const directory = () => path.join(path.dirname(copilotModeFile()), 'copilot-boundaries');
 function key(payload) {
@@ -82,7 +84,7 @@ async function createRecord(payload, record, root, accepted, previous = null) {
   const definition = accepted.definition ?? accepted.config;
   const requestedMode = mutationTurnMode(record.skill);
   const mode = previous?.originPhase && previous.originPhase !== workflow.currentPhase
-    && !['approval-only', 'session-only'].includes(requestedMode) ? 'read' : requestedMode;
+    && !['approval-only', 'session-only', 'import-team'].includes(requestedMode) ? 'read' : requestedMode;
   const phase = workflow.phases?.[workflow.currentPhase];
   const evidence = mode === 'authoring' && phase?.generationIntent?.status === 'open'
     ? await (await import('./delivery-evidence.mjs')).plannedEvidencePaths(root, definition, workflow, phase).catch(() => [])
@@ -102,7 +104,8 @@ async function createRecord(payload, record, root, accepted, previous = null) {
     originPhase: previous?.originPhase ?? contract.phaseId,
     decisionEnded: previous?.decisionEnded ?? false,
     binding: { workflowFile, workflowSha256: digest(await readFile(workflowFile)), ...gitIdentity },
-    baseline: previous?.baseline ?? null, findings: previous?.findings ?? [] };
+    baseline: previous?.baseline ?? null, findings: previous?.findings ?? [],
+    ...(previous?.importTeamStaging ? { importTeamStaging: previous.importTeamStaging } : {}) };
   return value;
 }
 
@@ -242,6 +245,9 @@ function shellAllowed(call, mode, value) {
   if (mode === 'publish-only') return positionals[0] === 'phase'
     && (positionals[1] === 'publish' || positionals[1] === 'prepublish' && options['publish-if-ready'] === true)
     && positionals[2] === value.contract.phaseId && (!options['work-id'] || options['work-id'] === value.contract.workId);
+  // The /sf-import-team turn: its own three commands; every other mutation stays refused.
+  if (mode === 'import-team') return positionals[0] === 'workflow' && positionals[1] === 'import-team'
+    && IMPORT_TEAM_COMMANDS.includes(positionals[2]) && positionals.length === 3;
   if (mode === 'read') return false;
   // Deciding an upstream issue is the earlier step's approvers' call, like approve and reject; an
   // agent may raise one and keep working, never decide it.
@@ -293,11 +299,57 @@ async function currentContract(payload, record) {
   return value;
 }
 
+/** The turn record of a live /sf-import-team turn, or null when it ended, expired or is corrupt. */
+async function importTeamTurn(payload, record) {
+  const value = await boundedRecord(recordFile(payload)).catch(() => null);
+  if (!value || record.corrupt || value.turnId !== record.turnId || value.sessionId !== record.sessionId
+      || !Number.isFinite(record.recordedAt) || Date.now() < record.recordedAt
+      || Date.now() - record.recordedAt > MAX_AGE) return null;
+  return value;
+}
+
+function editTarget(target, cwd) {
+  try { return path.resolve(cwd, target.startsWith('file:') ? fileURLToPath(target) : target); }
+  catch { return null; }
+}
+
+/**
+ * /sf-import-team: reads, its own `workflow import-team` commands, and edits to exactly the
+ * candidate files `workflow import-team inspect` issued to this turn. It needs no Story and grants
+ * nothing a bound Story's contract would: no repository edits, no other kernel mutations, no
+ * delegation.
+ */
+async function importTeamGuard(payload, record, toolCalls) {
+  const value = await importTeamTurn(payload, record);
+  const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot };
+  const issued = (value?.importTeamStaging ?? []).map(file => path.resolve(file));
+  const deny = reason => ({ permissionDecision: 'deny', next: [], permissionDecisionReason: reason });
+  for (const call of toolCalls) {
+    if (DELEGATION.has(call.name)) {
+      return deny('IMPORT_TEAM_DELEGATION_NOT_ALLOWED: convert the team directory in this turn; /sf-import-team does not delegate');
+    }
+    if (TERMINALS.has(call.name)) {
+      if (shellAllowed(call, 'import-team', scope)) continue;
+      return deny('IMPORT_TEAM_OPERATION_NOT_ALLOWED: run one standalone read command or singularity-flow workflow import-team inspect|compile|status; no other mutations, chains or wrappers');
+    }
+    if (!isEdit(call.name)) continue;
+    const paths = targets(call.args);
+    const cwd = call.args.cwd ?? payload.cwd ?? scope.repositoryRoot ?? process.cwd();
+    const outside = paths.filter(target => !issued.includes(editTarget(target, cwd)));
+    if (paths.length && !outside.length) continue;
+    return deny(issued.length
+      ? `IMPORT_TEAM_PATH_DENIED (${outside.join(', ') || 'no target'}): write only the issued candidate file at exactly ${issued.join(', ')}; never the source directory, a repository or the bundle`
+      : 'IMPORT_TEAM_PATH_DENIED: no candidate file is issued to this turn. Run singularity-flow workflow import-team inspect first and write only the path it returns');
+  }
+  return {};
+}
+
 export async function mutationToolGuard(payload = {}) {
   const record = await turn(payload);
   if (!record) return {};
   const toolCalls = calls(payload);
   if (!toolCalls.some(call => TERMINALS.has(call.name) || DELEGATION.has(call.name) || isEdit(call.name))) return {};
+  if (mutationTurnMode(record.skill) === 'import-team') return importTeamGuard(payload, record, toolCalls);
   let value;
   try { value = await currentContract(payload, record); }
   catch {
@@ -477,6 +529,32 @@ export async function issueMutationStaging(root, target, purpose) {
     await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
     await atomicRecord(file, value);
   }
+}
+
+/**
+ * Let live /sf-import-team turns edit `target`, the candidate file `workflow import-team inspect`
+ * just issued. The CLI cannot tell which chat ran it, so every live import-team turn for the same
+ * repository (or with none) receives the exact path; each is a fresh session's unguessable file
+ * and admits that one file only. Returns how many turns received it.
+ */
+export async function issueImportTeamStaging(target, { root = null } = {}) {
+  if (readCopilotMode().paused) return 0;
+  const resolvedRoot = root ? await realpath(root).catch(() => path.resolve(root)) : null;
+  let issued = 0;
+  for (const name of (await readdir(directory()).catch(() => [])).filter(name => /^[a-f0-9]{64}\.mutation\.json$/u.test(name))) {
+    const file = path.join(directory(), name);
+    const value = await boundedRecord(file).catch(() => null);
+    if (!value || mutationTurnMode(value.skill) !== 'import-team') continue;
+    const record = await turn({ sessionId: value.sessionId });
+    if (!record || !await importTeamTurn({ sessionId: value.sessionId }, record)) continue;
+    const owner = value.contract?.repositoryRoot ?? value.repositoryRoot ?? null;
+    if (owner && resolvedRoot && owner !== resolvedRoot) continue;
+    // Bounded: a long conversation keeps its latest candidates, never an unbounded grant list.
+    value.importTeamStaging = [...new Set([...(value.importTeamStaging ?? []), path.resolve(target)])].slice(-16);
+    await atomicRecord(file, value);
+    issued += 1;
+  }
+  return issued;
 }
 
 export async function mutationGuardDiagnostics(root) {

@@ -175,6 +175,15 @@ test('workflow help distinguishes linked copy from independent duplication', () 
   assert.doesNotMatch(page, /alias of workflow copy/);
 });
 
+test('workflow help shows the three team import commands and their Copilot route', () => {
+  const page = renderCommandHelp('workflow');
+  assert.match(page, /workflow import-team inspect <DIRECTORY> \[--entry AGENT\]\.\.\. \[--root DIRECTORY\]\.\.\./);
+  assert.match(page, /workflow import-team compile --session ID \[--dry-run\] \[--answer ID=CHOICE\]\.\.\./);
+  assert.match(page, /workflow import-team status \[--session ID\]/);
+  assert.match(page, /write\s+one workflow bundle only when it is ready/);
+  assert.match(page, /\/sf-import-team/);
+});
+
 test('policy help exposes read-only planning and exact confirmation-bound apply', () => {
   const page = renderCommandHelp('policy');
   assert.match(page, /policy plan --invalidate-process/);

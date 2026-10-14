@@ -4,6 +4,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { classifyPartialCloneResult } from './clone-strategy.mjs';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { readObjectsBatch } from './git-ref-tree.mjs';
 import { refHead } from './git.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { assertCredentialFreeRemote, frozenRemoteTransport, isPortableAbsoluteGitPath } from './git-remote-diagnostics.mjs';
@@ -157,7 +158,8 @@ async function negotiateBloblessFetch(transport, branch) {
 }
 
 async function cloneBloblessBranch(transport, branch, expectedCommit, {
-  negotiateFilterFirst = false
+  negotiateFilterFirst = false,
+  filter = 'blob:none'
 } = {}) {
   if (negotiateFilterFirst) await negotiateBloblessFetch(transport, branch);
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-discovery-'));
@@ -166,7 +168,7 @@ async function cloneBloblessBranch(transport, branch, expectedCommit, {
     // checkout is created, and a remote that ignores blob filtering never gets an all-heads fetch.
     const cloned = await runRemoteGitAsync([
       '-c', 'maintenance.auto=false', '-c', 'gc.auto=0',
-      'clone', '--quiet', '--no-local', '--no-tags', '--depth', '1', '--filter=blob:none',
+      'clone', '--quiet', '--no-local', '--no-tags', '--depth', '1', `--filter=${filter}`,
       '--no-checkout', '--single-branch', `--branch=${branch}`,
       transport.remote, scratch
     ], { cwd: path.dirname(scratch), operation: 'remote-configuration', env: transport.env });
@@ -177,12 +179,12 @@ async function cloneBloblessBranch(transport, branch, expectedCommit, {
     const promisor = await runRemoteGitAsync(['config', '--local', '--get', 'remote.origin.promisor'], {
       cwd: scratch, operation: 'local-read', env: transport.env
     });
-    const filter = await runRemoteGitAsync(['config', '--local', '--get', 'remote.origin.partialclonefilter'], {
+    const configuredFilter = await runRemoteGitAsync(['config', '--local', '--get', 'remote.origin.partialclonefilter'], {
       cwd: scratch, operation: 'local-read', env: transport.env
     });
     const partial = classifyPartialCloneResult(cloned, {
       configured: promisor.status === 0 && promisor.stdout.trim() === 'true'
-        && filter.status === 0 && filter.stdout.trim() === 'blob:none'
+        && configuredFilter.status === 0 && configuredFilter.stdout.trim() === filter
     });
     if (partial.kind !== 'partial-established') throw new SingularityFlowError(
       'The Story remote did not establish a verified blobless fetch, so URL-only discovery stopped before fetching source branches.',
@@ -235,14 +237,34 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
   let scratch = null;
   try {
     if (configurationTransport) configurationScratch = await cloneBloblessBranch(
-      configurationTransport, CONFIGURATION_BRANCH, configurationHeads.get(CONFIGURATION_BRANCH)
+      configurationTransport, CONFIGURATION_BRANCH, configurationHeads.get(CONFIGURATION_BRANCH),
+      { filter: `blob:limit=${MAX_METADATA_BLOB_BYTES}` }
     );
 
     let metadataBytes = 0;
     const blobs = new Map();
+    const recordBlobText = (store, oid, text) => {
+      const cacheKey = `${store}:${oid}`;
+      if (blobs.has(cacheKey)) return blobs.get(cacheKey);
+      metadataBytes += Buffer.byteLength(text, 'utf8');
+      if (metadataBytes > MAX_METADATA_TOTAL_BYTES) throw new SingularityFlowError(
+        'Story metadata exceeds the discovery request limit.',
+        { code: 'SESSION_REMOTE_DISCOVERY_LIMIT' }
+      );
+      blobs.set(cacheKey, text);
+      return text;
+    };
     const readBlob = async (store, storeTransport, oid) => {
       const cacheKey = `${store}:${oid}`;
       if (blobs.has(cacheKey)) return blobs.get(cacheKey);
+      const local = readObjectsBatch(store, [oid], {
+        env: storeTransport.env,
+        maxObjectBytes: MAX_METADATA_BLOB_BYTES,
+        maxBatchBytes: MAX_METADATA_TOTAL_BYTES
+      })?.get(oid);
+      if (local?.status === 'ok' && local.bytes) {
+        return recordBlobText(store, oid, local.bytes.toString('utf8'));
+      }
       const observed = await runRemoteGitAsync(['cat-file', 'blob', oid], {
         cwd: store, operation: 'remote-configuration', env: storeTransport.env,
         maxBuffer: MAX_METADATA_BLOB_BYTES + 1
@@ -251,13 +273,7 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
         'A Story metadata blob could not be read within its size and Git access limits.',
         { code: 'SESSION_REMOTE_METADATA_UNAVAILABLE' }
       );
-      metadataBytes += Buffer.byteLength(observed.stdout, 'utf8');
-      if (metadataBytes > MAX_METADATA_TOTAL_BYTES) throw new SingularityFlowError(
-        'Story metadata exceeds the discovery request limit.',
-        { code: 'SESSION_REMOTE_DISCOVERY_LIMIT' }
-      );
-      blobs.set(cacheKey, observed.stdout);
-      return observed.stdout;
+      return recordBlobText(store, oid, observed.stdout);
     };
     let effectiveApprovedDefinition = approvedDefinition;
     if (configurationTransport) {
@@ -285,7 +301,9 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
       `The Story remote has no '${authority.branch}' state index. Initialize or reconcile its ledger; application branches were not scanned.`,
       { code: 'SESSION_STATE_INDEX_UNAVAILABLE' }
     );
-    scratch = await cloneBloblessBranch(transport, authority.branch, heads.get(authority.branch));
+    scratch = await cloneBloblessBranch(transport, authority.branch, heads.get(authority.branch), {
+      filter: `blob:limit=${MAX_METADATA_BLOB_BYTES}`
+    });
     const stateRef = `refs/remotes/origin/${authority.branch}`;
     const headOid = refBlobOid(scratch, stateRef, 'ledger/head.json', transport.env);
     if (!headOid) throw new SingularityFlowError('The Story state index has no ledger head.', { code: 'SESSION_STATE_INDEX_INVALID' });
@@ -293,16 +311,61 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
       cwd: scratch, operation: 'local-read', env: { ...transport.env, GIT_NO_LAZY_FETCH: '1' }, maxBuffer: MAX_TREE_OUTPUT_BYTES
     });
     if (listed.status !== 0) throw new SingularityFlowError('The Story state index is unreadable.', { code: 'SESSION_STATE_INDEX_INVALID' });
-    const entries = new Map();
+    const entryRows = [];
     for (const row of listed.stdout.split('\0').filter(Boolean)) {
       const match = /^100(?:644|755) blob ([a-f0-9]{40}|[a-f0-9]{64})\t(ledger\/entries\/.+\.json)$/u.exec(row);
       if (!match) throw new SingularityFlowError('The Story state index contains unsafe ledger metadata.', { code: 'SESSION_STATE_INDEX_INVALID' });
-      entries.set(match[2], await readBlob(scratch, transport, match[1]));
+      entryRows.push({ oid: match[1], file: match[2] });
+    }
+    const batched = readObjectsBatch(scratch, [headOid, ...entryRows.map((entry) => entry.oid)], {
+      env: transport.env,
+      maxObjectBytes: MAX_METADATA_BLOB_BYTES,
+      maxBatchBytes: MAX_METADATA_TOTAL_BYTES
+    });
+    if (batched) {
+      for (const [oid, item] of batched) {
+        if (item.status === 'ok' && item.bytes) {
+          recordBlobText(scratch, oid, item.bytes.toString('utf8'));
+        }
+      }
+    }
+    const entries = new Map();
+    for (const { oid, file } of entryRows) {
+      entries.set(file, await readBlob(scratch, transport, oid));
     }
     const pointers = storyPointersFromLedger(readRecord('ledger-entry', await readBlob(scratch, transport, headOid)).record, entries);
     if (pointers.length > MAX_HEADS) throw new SingularityFlowError('The state Story roster exceeds its request bound.', { code: 'SESSION_REMOTE_DISCOVERY_LIMIT' });
-    // Fetch only immutable commits named by this verified state chain, never a wildcard head set.
-    const commits = [...new Set(pointers.map(item => item.commitOid))];
+
+    const items = new Map();
+    const diagnostics = [];
+    const legacyPointers = [];
+    for (const pointer of pointers) {
+      if (!isStoryDiscoveryBranch(pointer.branch)) continue;
+      if (pointer.story) {
+        if (items.has(pointer.id)) {
+          diagnostics.push(unavailable(
+            'SESSION_STORY_INVALID', pointer.branch, null, 'Story ID is claimed by more than one canonical branch', pointer.id
+          ));
+          continue;
+        }
+        items.set(pointer.id, {
+          id: pointer.story.id,
+          branch: pointer.story.branch,
+          title: pointer.story.title,
+          status: pointer.story.status,
+          phase: pointer.story.phase,
+          commit: pointer.story.commit,
+          commitOid: pointer.story.commitOid,
+          progress: pointer.story.progress,
+          aliases: pointer.story.aliases
+        });
+      } else {
+        legacyPointers.push(pointer);
+      }
+    }
+
+    // Fetch only immutable commits named by legacy state entries that lack embedded Story details.
+    const commits = [...new Set(legacyPointers.map(item => item.commitOid))];
     for (let offset = 0; offset < commits.length; offset += 128) {
       const fetched = await runRemoteGitAsync([
         'fetch', '--no-tags', '--depth=1', '--filter=blob:none', '--refmap=',
@@ -312,12 +375,11 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
         throw new SingularityFlowError('The exact state-indexed Story metadata could not be fetched.', { code: 'SESSION_REMOTE_METADATA_UNAVAILABLE' });
       }
     }
-    if (await objectStoreBytes(scratch) > MAX_OBJECT_STORE_BYTES) throw new SingularityFlowError('State-indexed Story metadata exceeds its object-store bound.', { code: 'SESSION_REMOTE_DISCOVERY_LIMIT' });
+    if (commits.length && await objectStoreBytes(scratch) > MAX_OBJECT_STORE_BYTES) {
+      throw new SingularityFlowError('State-indexed Story metadata exceeds its object-store bound.', { code: 'SESSION_REMOTE_DISCOVERY_LIMIT' });
+    }
 
-    const items = new Map();
-    const diagnostics = [];
-    for (const { id: indexedId, branch, commitOid: commit } of pointers) {
-      if (!isStoryDiscoveryBranch(branch)) continue;
+    for (const { id: indexedId, branch, commitOid: commit } of legacyPointers) {
       const ref = commit;
       let definition = effectiveApprovedDefinition;
       try {

@@ -70,13 +70,33 @@ export async function discoverRemoteStoryCandidates(root, definition, {
   const pointers = roster.items.filter(item => isStoryDiscoveryBranch(item.branch));
   const unavailable = [];
   const items = [];
+  const legacyPointers = [];
+  for (const pointer of pointers) {
+    if (pointer.story) {
+      items.push({
+        id: pointer.story.id,
+        branch: pointer.story.branch,
+        title: pointer.story.title,
+        status: pointer.story.status,
+        phase: pointer.story.phase,
+        progress: pointer.story.progress,
+        commit: pointer.story.commit,
+        commitOid: pointer.story.commitOid,
+        aliases: pointer.story.aliases
+      });
+    } else {
+      legacyPointers.push(pointer);
+    }
+  }
   const definitions = new Map();
   const files = new Map();
-  const configurationBytes = committedFilesAtRevisions(root, pointers.map(item => ({
-    key: `${item.commitOid}:${WORKFLOW_PATH}`, ref: item.commitOid, path: WORKFLOW_PATH
-  })), { maximumObjectBytes: 1024 * 1024, maximumBytes: 64 * 1024 * 1024, requireCompleteRead: true });
+  const configurationBytes = legacyPointers.length
+    ? committedFilesAtRevisions(root, legacyPointers.map(item => ({
+      key: `${item.commitOid}:${WORKFLOW_PATH}`, ref: item.commitOid, path: WORKFLOW_PATH
+    })), { maximumObjectBytes: 1024 * 1024, maximumBytes: 64 * 1024 * 1024, requireCompleteRead: true })
+    : new Map();
   const requested = [];
-  for (const pointer of pointers) {
+  for (const pointer of legacyPointers) {
     const source = configurationBytes.get(`${pointer.commitOid}:${WORKFLOW_PATH}`)?.toString('utf8');
     if (!source) {
       unavailable.push({ code: 'SUBJECT_STATE_UNAVAILABLE', claimedId: pointer.id, branch: pointer.branch,
@@ -95,9 +115,11 @@ export async function discoverRemoteStoryCandidates(root, definition, {
         ref: pointer.commitOid, path: WORKFLOW_PATH, reason: error.message });
     }
   }
-  const stateBytes = committedFilesAtRevisions(root, requested, {
-    maximumObjectBytes: 1024 * 1024, maximumBytes: 64 * 1024 * 1024, requireCompleteRead: true
-  });
+  const stateBytes = requested.length
+    ? committedFilesAtRevisions(root, requested, {
+      maximumObjectBytes: 1024 * 1024, maximumBytes: 64 * 1024 * 1024, requireCompleteRead: true
+    })
+    : new Map();
   for (const { pointer, path: relative, key } of requested) {
     const bytes = stateBytes.get(key);
     if (!bytes) {
@@ -136,6 +158,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
       });
     }
   }
+  items.sort((left, right) => left.id.localeCompare(right.id));
   // A fresh blobless checkout has commits and trees but may not yet hold even workflow.json.
   // Local reads deliberately suppress implicit promisor fetches; recover through the bounded
   // metadata-only remote operation instead of downloading application source or calling an

@@ -106,6 +106,7 @@ import {
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { createLedgerIntent, ledgerLog, ledgerStatus, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { storyLifecycleProgress } from './session-roster.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { compareRepositoryIdentity } from './repository-change-set.mjs';
 import {
@@ -9470,6 +9471,35 @@ export async function decideStorySkillVersion(root, config, workflow, options = 
   }
 }
 
+function storyLedgerSubject(root, workflow, event = null) {
+  const branch = workflowPublicationBranch(root, workflow);
+  const canonicalBranch = workflow.lineage?.canonicalBranch ?? workflow.workItem?.branch ?? branch;
+  const aliases = [
+    workflow.lineage?.planId,
+    workflow.lineage?.jiraIssueId,
+    workflow.lineage?.sourceStableId,
+    workflow.workItem?.source?.stableId,
+    workflow.lineage?.initialJiraKey,
+    workflow.lineage?.currentJiraKey,
+    ...(workflow.lineage?.aliases ?? []).map((entry) => typeof entry === 'string' ? entry : entry?.value ?? entry?.key)
+  ].filter(Boolean);
+  return {
+    aliases,
+    branch,
+    canonicalBranch,
+    currentPhase: workflow.currentPhase ?? null,
+    generation: event?.generation ?? null,
+    kind: 'story',
+    phase: event?.phaseId ?? workflow.currentPhase ?? null,
+    progress: storyLifecycleProgress(workflow),
+    status: workflow.status ?? 'in_progress',
+    title: workflow.workItem.title ?? workflow.workItem.id,
+    updatedAt: workflow.history?.at(-1)?.at ?? workflow.workItem?.createdAt ?? event?.createdAt ?? null,
+    workId: workflow.workItem.id,
+    workType: workflow.workItem.workType
+  };
+}
+
 export async function commitAndPublish(root, config, workflow, event, message, extraPaths = [], {
   beforeStateWrite = null,
   afterOwnedWrites = null,
@@ -9543,13 +9573,7 @@ export async function commitAndPublish(root, config, workflow, event, message, e
       eventId: envelope.eventId,
       eventType: envelope.type,
       capabilityId: workflow.resolution?.capability?.id ?? `story-${workflow.workItem.id}`,
-      subject: {
-        workId: workflow.workItem.id,
-        workType: workflow.workItem.workType,
-        phase: envelope.phaseId,
-        generation: envelope.generation,
-        branch: workflowPublicationBranch(root, workflow)
-      },
+      subject: storyLedgerSubject(root, workflow, envelope),
       actor: envelope.actor,
       agent: envelope.agent,
       authorityGroup: envelope.authorityGroup,
@@ -9801,6 +9825,9 @@ export async function commitAndPublish(root, config, workflow, event, message, e
         }
         if (unacceptedWorkflowSnapshot) {
           await finalizeDraftWorkflowSnapshot(root, config, workflow);
+        }
+        if (ledgerIntent) {
+          ledgerIntent.subject = storyLedgerSubject(root, workflow, publicationEvent);
         }
         recordPublicationProjection(workflow, publicationEvent, ledgerIntent);
         await saveWorkflow(root, config, workflow);

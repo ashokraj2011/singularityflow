@@ -51,6 +51,7 @@ export interface WorkspaceStoryCatalogRow {
   status: string;
   currentPhase: string | null;
   branch: string | null;
+  progress?: string;
 }
 
 /** Host-proven mapping from the snapshot checkout to its canonical workspace member. */
@@ -75,7 +76,7 @@ export interface InboxStory {
   materialized: boolean;
   attachable: boolean;
   branch: string | null;
-  /** Only populated when the exact Story's workflow phases are present in this snapshot. */
+  /** Populated when Story phase progress is reported by the state ledger, work item summary, or active snapshot. */
   progress?: string;
 }
 
@@ -191,6 +192,17 @@ function phaseGroups(
 
 const TERMINAL_STORY_STATUSES = new Set(['closed', 'complete', 'completed', 'merged', 'cancelled', 'invalid']);
 
+function formatStoryProgress(
+  progress: { available?: boolean; approved?: number | null; total?: number | null } | string | null | undefined
+): string | undefined {
+  if (typeof progress === 'string' && progress.trim()) return progress.trim();
+  if (progress && typeof progress === 'object' && progress.available === true
+    && Number.isInteger(progress.approved) && Number.isInteger(progress.total)) {
+    return `${progress.approved} / ${progress.total} phases completed`;
+  }
+  return undefined;
+}
+
 function storiesOf(
   snapshot: RepositorySnapshot | null,
   catalog: readonly WorkspaceStoryCatalogRow[],
@@ -216,6 +228,7 @@ function storiesOf(
     `${repositoryPath ? `path:${repositoryPath}` : `remote:${repositoryUrl || ''}`}\u0000${repositoryId || ''}\u0000${workId}`;
   for (const item of snapshot?.workItems ?? []) {
     const catalogRow = currentCatalog.find((row) => row.id === item.id);
+    const progress = formatStoryProgress(item.progress) ?? catalogRow?.progress;
     byRepositoryAndId.set(key(catalogRow?.repositoryPath ?? identityPath, item.id,
       catalogRow?.repositoryUrl, binding?.repositoryId ?? catalogRow?.repositoryId), {
       workId: item.id,
@@ -229,7 +242,8 @@ function storiesOf(
       repositoryUrl: catalogRow?.repositoryUrl ?? null,
       materialized: true,
       attachable: true,
-      branch: catalogRow?.branch ?? item.branch ?? null
+      branch: catalogRow?.branch ?? item.branch ?? null,
+      ...(progress ? { progress } : {})
     });
   }
   for (const row of catalog) {
@@ -248,7 +262,8 @@ function storiesOf(
       repositoryUrl: row.repositoryUrl ?? null,
       materialized: Boolean(row.repositoryPath),
       attachable: Boolean(row.repositoryPath || row.repositoryUrl),
-      branch: row.branch
+      branch: row.branch,
+      ...(row.progress ? { progress: row.progress } : {})
     });
   }
   const currentStory = [...byRepositoryAndId.values()].find(story => story.current);

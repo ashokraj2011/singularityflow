@@ -48,6 +48,7 @@ interface CandidateResponse {
     status?: string;
     phase?: string | null;
     branch?: string | null;
+    progress?: { available?: boolean; approved?: number | null; total?: number | null } | string | null;
   }>;
   unavailableCount?: number;
   unavailable?: Array<{
@@ -56,6 +57,17 @@ interface CandidateResponse {
     ref?: string | null;
     reason?: string;
   }>;
+}
+
+function formatCandidateProgress(
+  progress: { available?: boolean; approved?: number | null; total?: number | null } | string | null | undefined
+): string | undefined {
+  if (typeof progress === 'string' && progress.trim()) return progress.trim();
+  if (progress && typeof progress === 'object' && progress.available === true
+    && Number.isInteger(progress.approved) && Number.isInteger(progress.total)) {
+    return `${progress.approved} / ${progress.total} phases completed`;
+  }
+  return undefined;
 }
 
 function unreadableStoryMessage(repository: StoryRepository, response: CandidateResponse): string {
@@ -113,6 +125,7 @@ export async function discoverWorkspaceStoryRows(
         if (!Array.isArray(response?.items)) throw new Error('Story discovery returned no candidate list.');
         for (const candidate of response.items) {
           if (!candidate || typeof candidate.id !== 'string' || !candidate.id.trim()) continue;
+          const progress = formatCandidateProgress(candidate.progress);
           stories.push({
             repositoryId: repository.id,
             repositoryPath: repository.state === 'ready' ? repository.absolutePath : '',
@@ -121,7 +134,8 @@ export async function discoverWorkspaceStoryRows(
             title: candidate.title || candidate.id,
             status: candidate.status || 'unknown',
             currentPhase: candidate.phase ?? null,
-            branch: candidate.branch ?? null
+            branch: candidate.branch ?? null,
+            ...(progress ? { progress } : {})
           });
         }
         if ((response.unavailableCount ?? 0) > 0) issues.push({

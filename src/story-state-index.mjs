@@ -7,6 +7,46 @@ import { SingularityFlowError } from './util.mjs';
 
 export const STORY_STATE_INDEX_LIMIT = 100_000;
 
+function indexedStoryFromSubject(entry, id, branch, commit) {
+  const subject = entry?.subject;
+  if (!subject || typeof subject !== 'object' || Array.isArray(subject)) return null;
+  if (typeof subject.title !== 'string' || !subject.title
+      || typeof subject.status !== 'string' || !subject.status
+      || !subject.progress || typeof subject.progress !== 'object' || Array.isArray(subject.progress)) {
+    return null;
+  }
+  const canonicalBranch = typeof subject.canonicalBranch === 'string' && subject.canonicalBranch
+    ? subject.canonicalBranch
+    : branch;
+  if (canonicalBranch !== branch) {
+    throw new SingularityFlowError('The state-indexed Story canonical branch does not match its ledger location.', {
+      code: 'SESSION_STATE_INDEX_INVALID'
+    });
+  }
+  const phase = typeof subject.currentPhase === 'string' && subject.currentPhase
+    ? subject.currentPhase
+    : null;
+  const aliases = Array.isArray(subject.aliases)
+    ? subject.aliases.filter((alias) => typeof alias === 'string' && alias)
+    : [];
+  return {
+    id,
+    branch: canonicalBranch,
+    title: subject.title,
+    workType: typeof subject.workType === 'string' && subject.workType ? subject.workType : 'legacy',
+    status: subject.status,
+    phase,
+    currentPhase: phase,
+    updatedAt: typeof subject.updatedAt === 'string' && subject.updatedAt
+      ? subject.updatedAt
+      : typeof entry.createdAt === 'string' && entry.createdAt ? entry.createdAt : null,
+    progress: subject.progress,
+    commit: commit.slice(0, 8),
+    commitOid: commit,
+    aliases
+  };
+}
+
 export function storyPointersFromLedger(head, files) {
   const fail = (message) => { throw new SingularityFlowError(message, { code: 'SESSION_STATE_INDEX_INVALID' }); };
   if (!Number.isSafeInteger(head?.sequence) || head.sequence < 0 || head.sequence > STORY_STATE_INDEX_LIMIT) {
@@ -45,7 +85,8 @@ export function storyPointersFromLedger(head, files) {
     // by discovery before they can become Story rows; unrelated subjects remain diagnostics.
     if ((!kind || kind === 'story') && typeof id === 'string' && typeof branch === 'string'
         && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(commit ?? '') && !latest.has(id)) {
-      latest.set(id, { id, branch, commitOid: commit, entryHash: cursor });
+      const story = indexedStoryFromSubject(entry, id, branch, commit);
+      latest.set(id, { id, branch, commitOid: commit, entryHash: cursor, ...(story ? { story } : {}) });
     }
     cursor = entry.parentEntryHash;
   }

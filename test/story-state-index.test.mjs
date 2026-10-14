@@ -47,3 +47,31 @@ test('non-Story subjects do not become session candidates', () => {
   const other = entry('INIT', null, 'a'.repeat(40), { subject: { kind: 'initiative', workId: 'INIT', branch: 'initiative' } });
   assert.deepEqual(storyPointersFromLedger({ sequence: 1, entryHash: other.hash }, new Map([[other.file, other.text]])), []);
 });
+
+test('state Story discovery extracts Story summary details recorded on the ledger subject', () => {
+  const rich = entry('STORY-42', null, 'c'.repeat(40), {
+    createdAt: '2026-04-01T12:00:00.000Z',
+    subject: {
+      kind: 'story',
+      workId: 'STORY-42',
+      title: 'State-indexed Story',
+      workType: 'feature',
+      status: 'active',
+      phase: 'design',
+      currentPhase: 'design',
+      progress: { available: true, approved: 1, total: 4 },
+      branch: 'feature/STORY-42',
+      canonicalBranch: 'feature/STORY-42',
+      aliases: ['STORY-42', 'feature/STORY-42'],
+      updatedAt: '2026-04-01T12:00:00.000Z'
+    }
+  });
+  const result = storyPointersFromLedger({ sequence: 1, entryHash: rich.hash }, new Map([[rich.file, rich.text]]));
+  assert.equal(result.length, 1);
+  assert.equal(result[0].id, 'STORY-42');
+  assert.equal(result[0].story?.title, 'State-indexed Story');
+  assert.equal(result[0].story?.status, 'active');
+  assert.equal(result[0].story?.phase, 'design');
+  assert.deepEqual(result[0].story?.progress, { available: true, approved: 1, total: 4 });
+  assert.equal(result[0].story?.commitOid, 'c'.repeat(40));
+});

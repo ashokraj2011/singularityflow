@@ -291,6 +291,7 @@ export interface WorkItemSummary {
   title?: string;
   status?: string;
   currentPhase?: string | null;
+  progress?: { available?: boolean; approved?: number | null; total?: number | null } | string | null;
   updatedAt?: string | null;
   source?: string | null;
   [key: string]: unknown;

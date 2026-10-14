@@ -370,12 +370,15 @@ export async function readActiveWorkspaceContext(selectionFile, registryFile, {
 } = {}) {
   const selected = await storedActiveWorkspaceContext(selectionFile);
   if (!selected || !refresh) return selected;
+  const selectedStoryId = portableStoryId(selected.storyId);
+  const candidate = selected.checkoutPath ?? selected.repositoryPath;
   let context;
   try {
     context = await buildWorkspaceContext(registryFile, selected.workspaceId, {
       repositoryId: selected.repositoryId,
       // The selected checkout, not the canonical clone's current branch, proves the Story below.
       storyId: null,
+      detectStory: !(selectedStoryId && candidate),
       gitReadMode,
       onGitShadowComparison
     });
@@ -408,8 +411,6 @@ export async function readActiveWorkspaceContext(selectionFile, registryFile, {
     });
   }
   const canonicalRepositoryPath = context.repositoryPath;
-  const selectedStoryId = portableStoryId(selected.storyId);
-  const candidate = selected.checkoutPath ?? selected.repositoryPath;
   if (!selectedStoryId || !candidate) {
     return { ...context, selectedAt: selected.selectedAt ?? context.selectedAt };
   }
@@ -473,7 +474,8 @@ export async function activateWorkspaceStoryContext(
     if (!selected) return null;
     const base = await buildWorkspaceContext(registryFile, selected.workspaceId, {
       repositoryId: selected.repositoryId,
-      storyId: null
+      storyId: null,
+      detectStory: false
     });
     const checkoutPath = await canonical(checkout);
     const canonicalRepositoryPath = await canonical(base.repositoryPath);

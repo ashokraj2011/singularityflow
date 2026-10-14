@@ -339,7 +339,7 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   });
   assert.equal(partialCandidates.status, 0, partialCandidates.stderr);
   const partialDiscovery = JSON.parse(partialCandidates.stdout);
-  assert.equal(partialDiscovery.source, 'materialized-metadata-recovery');
+  assert.equal(partialDiscovery.source, 'state-ledger');
   assert.ok(partialDiscovery.items.some((item) => item.id === 'BOOT-101'));
   assert.equal(partialDiscovery.unavailable.some((item) => item.branch?.startsWith('sflow/')), false);
   assert.equal(run('git', ['rev-parse', 'HEAD'], partial).stdout.trim(), partialHead);

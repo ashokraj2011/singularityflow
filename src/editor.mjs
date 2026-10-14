@@ -73,7 +73,8 @@ import { initiativeBreakdownReview, loadInitiativeBreakdown } from './initiative
 import { planningTargetCatalog } from './planning.mjs';
 import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
 import { epicDeliveryReadiness } from './epic-completion.mjs';
-import { ledgerStatus } from './ledger.mjs';
+import { ledgerStatus, ledgerStoryPointers } from './ledger.mjs';
+import { storyLifecycleProgress } from './session-roster.mjs';
 import {
   buildRepositorySubjectIndex, buildRepositorySubjectIndexFromRefs, resolveContext
 } from './repository-subject-index.mjs';
@@ -362,16 +363,41 @@ async function planningPrompt(root, definition) {
 async function workItems(root, definition) {
   const base = path.join(root, definition.workItemRoot ?? 'singularity/work-items');
   const results = new Map();
+  const stateCommitById = new Map();
   const summarize = (state, fallbackId, source) => ({
     id: state.workItem?.id ?? fallbackId,
     title: state.workItem?.title ?? fallbackId,
     workType: state.workItem?.workType ?? 'legacy',
     status: state.status ?? 'unknown',
     currentPhase: state.currentPhase ?? null,
+    progress: storyLifecycleProgress(state),
     branch: state.lineage?.canonicalBranch ?? state.workItem?.branch ?? fallbackId,
     updatedAt: state.history?.at(-1)?.at ?? state.workItem?.createdAt ?? null,
     source
   });
+
+  try {
+    const stateRoster = await ledgerStoryPointers(root, definition.ledger ?? {}, { offline: true });
+    if (stateRoster.available) {
+      for (const pointer of stateRoster.stories) {
+        if (!pointer?.story?.id) continue;
+        stateCommitById.set(pointer.story.id, pointer.commitOid ?? null);
+        results.set(pointer.story.id, {
+          id: pointer.story.id,
+          title: pointer.story.title ?? pointer.story.id,
+          workType: pointer.story.workType ?? 'legacy',
+          status: pointer.story.status ?? 'unknown',
+          currentPhase: pointer.story.currentPhase ?? pointer.story.phase ?? null,
+          progress: pointer.story.progress ?? { available: false, approved: null, total: null },
+          branch: pointer.story.branch ?? pointer.branch ?? pointer.story.id,
+          updatedAt: pointer.story.updatedAt ?? null,
+          source: stateRoster.ref ?? 'state-ledger'
+        });
+      }
+    }
+  } catch {
+    // Repositories without an initialized state branch still enumerate local refs and the worktree.
+  }
 
   // Completed Stories normally live on sibling branches, not in the currently checked-out tree.
   // Enumerate the refs already present locally; a read-model refresh must never perform network I/O.
@@ -382,11 +408,20 @@ async function workItems(root, definition) {
   ];
   const refIndex = await buildRepositorySubjectIndexFromRefs(root, { definition, refs });
   for (const subject of refIndex.list('story')) {
-    results.set(subject.id, summarize(
+    const candidate = summarize(
       subject.state,
       subject.id,
       subject.location.ref ?? subject.location.branch ?? 'git-ref'
-    ));
+    );
+    const existing = results.get(subject.id);
+    const stateCommit = stateCommitById.get(subject.id);
+    if (
+      !existing
+      || (stateCommit && subject.location.commit === stateCommit)
+      || String(candidate.updatedAt ?? '') >= String(existing.updatedAt ?? '')
+    ) {
+      results.set(subject.id, candidate);
+    }
   }
   for (const diagnostic of [...refIndex.unreadable, ...(refIndex.conflicts ?? [])]) {
     if (!diagnostic.claimedId) continue;

@@ -617,3 +617,18 @@ Copilot guards.
   of the candidate.
 - Answers to open questions are recorded by `compile --answer <id>=<choice>` in the session; the
   candidate can never claim one.
+
+### 19.1 Live Copilot run (2026-10-14)
+
+A real Copilot CLI session ran `/sf-import-team` under the packaged guards, against the fixture team
+in the tests. It ended `ready-for-destination`; the bundle it wrote imported, validated as protected,
+and a Story started on it. No tool call was refused on the documented path. The run found three
+defects, all fixed with regression tests:
+
+- The after-tool hook told any turn without a Story contract to stop and refresh a binding it never
+  had (import-team, and setup or session turns before a Story is bound). It now mirrors the
+  pre-tool guard's admission.
+- The candidate check left decisions and omissions to the loader, which reports one error per
+  compile, so the repair budget ran out. They are now checked together, and `candidate.guide`
+  carries exact examples. A source reviewer is staged review-only and must author no phase.
+- A person's answers now start a fresh repair budget.

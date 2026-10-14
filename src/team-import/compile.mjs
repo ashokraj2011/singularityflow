@@ -77,6 +77,17 @@ function crossReferences(candidate, baseline) {
   }
   const review = candidate.workflow.sourceReview;
   if (review && !agents.has(review.reviewerAgent)) add('$.workflow.sourceReview.reviewerAgent', 'TEAM_IMPORT_REFERENCE', `sourceReview names agent '${review.reviewerAgent}', which the candidate does not carry.`);
+  if (review) {
+    const authored = candidate.phases.filter((phase) => phase.agent === review.reviewerAgent).map((phase) => phase.id);
+    if (authored.length) {
+      add('$.workflow.sourceReview.reviewerAgent', 'TEAM_IMPORT_REVIEWER_AUTHORS', `'${review.reviewerAgent}' authors ${authored.join(', ')}, but a source reviewer is review-only. Use a separate reviewer agent for sourceReview, or drop sourceReview and keep the review as its own phase.`);
+    }
+    const reviewable = new Set(['requirements', 'implementation-spec', 'implementation-plan', 'delivery-plan']);
+    for (const step of review.phases) {
+      const kind = candidate.phases.find((phase) => phase.id === step)?.artifact?.kind;
+      if (kind && !reviewable.has(kind)) add('$.workflow.sourceReview.phases', 'TEAM_IMPORT_SOURCE_REVIEW_SCOPE', `sourceReview covers only steps that define requirements or plan claims (artifact kinds ${[...reviewable].join(', ')}); '${step}' produces '${kind}'.`);
+    }
+  }
   for (const [index, agent] of candidate.agents.entries()) {
     if (!candidate.phases.some((phase) => phase.agent === agent.id) && review?.reviewerAgent !== agent.id) {
       add(`$.agents[${index}]`, 'TEAM_IMPORT_UNUSED', `Agent '${agent.id}' is the default for no phase and reviews nothing, so the bundle would drop it. Remove it, or map its source as excluded.`);
@@ -291,7 +302,9 @@ export async function compileTeamImport(sessionId, {
   const fingerprint = digest(JSON.stringify(findings.map((finding) => [finding.code, finding.at])));
   const previous = session.compiles.at(-1) ?? null;
   const notReady = !['portable-ready', 'ready-for-destination'].includes(state);
-  const attempt = notReady ? (previous && !['portable-ready', 'ready-for-destination'].includes(previous.state) ? (previous.repairAttempt ?? 0) + 1 : 1) : 0;
+  // A person's answers are new information, so they start a fresh repair budget.
+  const continuing = previous && !['portable-ready', 'ready-for-destination'].includes(previous.state) && !given.length;
+  const attempt = notReady ? (continuing ? (previous.repairAttempt ?? 0) + 1 : 1) : 0;
   const unchanged = notReady && previous?.findingsSha256 === fingerprint;
   let written = null;
   if (out && !dryRun) {

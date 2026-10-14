@@ -86,7 +86,9 @@ export async function stageCandidate(root, candidate) {
       name: agent.id,
       description: agent.description,
       ...(agent.tools?.length ? { tools: [...agent.tools] } : {}),
-      metadata: { 'sflow-label': agent.label, 'sflow-phases': csv([...defaultFor, ...reviews]), 'sflow-default-for': csv(defaultFor) }
+      metadata: { 'sflow-label': agent.label, 'sflow-phases': csv([...defaultFor, ...reviews]), 'sflow-default-for': csv(defaultFor),
+        // A source reviewer reads and reports; the engine admits only a review-only agent there.
+        ...(reviews.length ? { 'sflow-mode': 'read-only-review' } : {}) }
     };
     await put(`.github/agents/${agent.id}.agent.md`, `${frontMatter(fields)}${agent.body.trim()}\n`);
   }

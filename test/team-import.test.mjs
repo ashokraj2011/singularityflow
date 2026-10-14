@@ -301,3 +301,43 @@ test('the CLI runs inspect, compile and status with closed options and machine-l
   assert.match(unknown.stderr, /does not take --force/u);
   assert.match(run('apply').stderr, /no subcommand 'apply'/u);
 });
+
+test('the mistakes a live conversion made are all reported in one compile, with the shapes that fix them', async (t) => {
+  // From a real Copilot run: a loop with phase/goal-text/by-string, omits as plain text, and a
+  // source reviewer that also authors a phase and reviews the code step. Each used to cost one
+  // repair round; the budget ran out before the candidate loaded.
+  const { result, inspection } = await compiled(t, (candidate) => {
+    candidate.workflow.decisions = [{ id: 'delivery-tests', kind: 'loop', phase: 'delivery-build', goal: 'npm test passes',
+      back: 'delivery-build', maxRounds: 3, by: 'delivery-leads' }];
+    candidate.workflow.omits = ['The team rules have no procedure.'];
+    candidate.workflow.sourceReview = { phases: ['delivery-plan', 'delivery-build'], reviewerAgent: 'delivery-reviewer' };
+  });
+  const codes = result.findings.map((finding) => `${finding.code}@${finding.at}`);
+  for (const expected of ['TEAM_IMPORT_DECISION_SHAPE@$.workflow.decisions[0].phase', 'TEAM_IMPORT_DECISION_SHAPE@$.workflow.decisions[0].after',
+    'TEAM_IMPORT_DECISION_SHAPE@$.workflow.decisions[0].goal', 'TEAM_IMPORT_DECISION_SHAPE@$.workflow.decisions[0].by',
+    'TEAM_IMPORT_DECISION_SHAPE@$.workflow.decisions[0].inputs', 'TEAM_IMPORT_DECISION_SHAPE@$.workflow.decisions[0].label',
+    'TEAM_IMPORT_OMIT_SHAPE@$.workflow.omits[0]']) {
+    assert.ok(codes.includes(expected), `${expected} in ${codes.join(', ')}`);
+  }
+  assert.equal(result.state, 'invalid');
+  assert.ok(inspection.candidate.guide.examples.decisions.some((decision) => decision.kind === 'loop' && decision.goal && decision.inputs));
+  const reviewer = await compiled(t, (candidate) => {
+    candidate.workflow.sourceReview = { phases: ['delivery-plan', 'delivery-build'], reviewerAgent: 'delivery-reviewer' };
+  });
+  const reviewCodes = reviewer.result.findings.map((finding) => finding.code);
+  assert.ok(reviewCodes.includes('TEAM_IMPORT_REVIEWER_AUTHORS'));
+  assert.ok(reviewCodes.includes('TEAM_IMPORT_SOURCE_REVIEW_SCOPE'));
+});
+
+test('a separate review-only agent can review the planning step, staged as review-only', async (t) => {
+  const { result, inspection } = await compiled(t, (candidate) => {
+    candidate.agents.push({ id: 'delivery-plan-reviewer', label: 'Plan reviewer', description: 'Reviews the plan independently.', tools: ['read'],
+      body: '# Plan reviewer\n\nReview the plan against the request. Report findings; do not edit.' });
+    candidate.workflow.sourceReview = { phases: ['delivery-plan'], reviewerAgent: 'delivery-plan-reviewer' };
+    candidate.mappings.push({ sourceItem: 'independent-plan-review', evidence: [], target: 'agent:delivery-plan-reviewer', disposition: 'mapped',
+      kind: 'destination-policy', reason: 'A separate review-only agent keeps the plan review independent of its author.' });
+  });
+  assert.equal(result.state, 'portable-ready', JSON.stringify(result.findings, null, 2));
+  const staged = await readFile(path.join(path.dirname(inspection.candidate.path), 'stage', '.github', 'agents', 'delivery-plan-reviewer.agent.md'), 'utf8');
+  assert.match(staged, /sflow-mode: read-only-review/u);
+});

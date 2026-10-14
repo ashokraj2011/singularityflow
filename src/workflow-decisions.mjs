@@ -36,6 +36,8 @@ const NUMBER_TESTS = Object.freeze(['atLeast', 'atMost', 'above', 'below']);
 const ENTRY_KEYS = Object.freeze(['id', 'after', 'kind', 'label', 'inputs', 'routes', 'goal', 'back', 'maxRounds', 'by', 'anyStep', 'enforceConditions']);
 const INPUT_KEYS = Object.freeze(['name', 'label', 'type', 'values', 'minimum', 'maximum']);
 const ROUTE_KEYS = Object.freeze(['id', 'label', 'when', 'to', 'omits']);
+/** The closed field sets of a decision, its inputs and its routes, for callers that check drafts. */
+export const DECISION_FIELDS = Object.freeze({ entry: ENTRY_KEYS, input: INPUT_KEYS, route: ROUTE_KEYS });
 
 function invalid(message) {
   return new SingularityFlowError(message, { code: 'WORKFLOW_DECISION_INVALID' });

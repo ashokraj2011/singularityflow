@@ -434,6 +434,8 @@ test('an import-team turn runs its own commands and edits only the issued candid
       'singularity-flow workflow import-team compile --session tis-1 --out team.sflow-workflows.json --json',
       'singularity-flow workflow import-team status --json', 'singularity-flow nextsteps --json']) {
       assert.deepEqual(await shell(command), {}, `${label}: ${command}`);
+      // The after-tool hook must not tell an import-team turn to stop: it has no contract to go stale.
+      assert.deepEqual(await mutationPostToolGuard({ ...payload, toolName: 'bash', toolArgs: { command } }), {}, `${label} after: ${command}`);
     }
     for (const command of ['singularity-flow workflow import team.json --confirm abc --json', 'singularity-flow workflow create custom --json',
       'singularity-flow approve custom-step --yes', 'ls ../team', 'singularity-flow workflow import-team compile --session tis-1 --out a.json && rm -rf src']) {
@@ -507,8 +509,13 @@ test('missing Story setup and session attach retain kernel routes but never file
   assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow session attach PMC-1 --json' } }), {});
   assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: `cd '${f.root}' && singularity-flow session attach PMC-1 --json` } }), {});
   assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: 'src/App.jsx' } })).permissionDecision, 'deny');
+  // Before a Story is bound there is no contract to go stale: admitted kernel commands get no
+  // after-tool "refresh the binding" finding; anything the pre-tool guard would refuse still does.
+  assert.deepEqual(await mutationPostToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow session attach PMC-1 --json' } }), {});
+  assert.match((await mutationPostToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'ls -la' } })).additionalContext ?? '', /PHASE_MUTATION_CONTRACT_STALE/u);
   payload = await enter('/sf-workflows');
   assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow workflow create custom --json' } }), {});
+  assert.deepEqual(await mutationPostToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow workflow create custom --json' } }), {});
   assert.equal((await mutationToolGuard({ ...payload, toolName: 'edit', toolArgs: { path: 'singularity/workflow.yml' } })).permissionDecision, 'deny');
   // Before a Story is bound /sf-decide has nothing to decide: reads pass, a decision is denied, and
   // neither throws.

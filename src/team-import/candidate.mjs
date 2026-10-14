@@ -12,11 +12,13 @@
  * a candidate error, `person` for a missing fact).
  */
 import { readRecord } from '../schema-migrations.mjs';
+import { DECISION_FIELDS } from '../workflow-decisions.mjs';
 
 export const CANDIDATE_KIND = 'team-import-candidate';
 export const DISPOSITIONS = Object.freeze(['mapped', 'approximated', 'unresolved', 'unsupported', 'excluded']);
 export const MAPPING_KINDS = Object.freeze(['explicit', 'inferred', 'destination-policy']);
 export const PREREQUISITE_KINDS = Object.freeze(['authority', 'quality-command', 'environment', 'tool', 'script', 'other']);
+const RESPONSIBILITIES = Object.freeze(['scope', 'plan', 'implement', 'verify', 'review']);
 const ID = /^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$/u;
 const NAMESPACE = /^[a-z][a-z0-9]{1,15}$/u;
 const SHA = /^sha256:[a-f0-9]{64}$/u;
@@ -183,6 +185,58 @@ export function validateCandidate(text, { session }) {
       }
     }
   });
+  // Decisions and omissions are checked here, all at once, instead of one loader error per compile:
+  // a live conversion spent its whole repair budget on one misplaced decision field at a time.
+  const afters = new Set();
+  (plain(workflow) && Object.hasOwn(workflow, 'decisions') ? list(workflow.decisions, '$.workflow.decisions', LIMITS.phases) : []).forEach((decision, index) => {
+    const at = `$.workflow.decisions[${index}]`;
+    const shape = (where, message) => add(where, 'TEAM_IMPORT_DECISION_SHAPE', message);
+    if (!plain(decision)) { shape(at, `${at} is an object; see candidate.guide.examples.decisions.`); return; }
+    for (const field of Object.keys(decision)) if (!DECISION_FIELDS.entry.includes(field)) shape(`${at}.${field}`, `${at} has no field '${field}'; a decision has ${DECISION_FIELDS.entry.join(', ')}.`);
+    for (const field of ['id', 'after', 'kind', 'label']) if (!Object.hasOwn(decision, field)) shape(`${at}.${field}`, `${at} needs '${field}'.`);
+    if (Object.hasOwn(decision, 'after') && !phaseIds.has(decision.after)) shape(`${at}.after`, `${at}.after names the phase the decision follows; '${decision.after}' is not a candidate phase.`);
+    if (afters.has(decision.after)) shape(`${at}.after`, `Phase '${decision.after}' already has a decision; one decision follows a phase.`);
+    afters.add(decision.after);
+    if (!['branch', 'loop', 'ask'].includes(decision.kind)) shape(`${at}.kind`, `${at}.kind is branch, loop or ask.`);
+    if (Object.hasOwn(decision, 'by') && (!Array.isArray(decision.by) || decision.by.some((group) => typeof group !== 'string'))) {
+      shape(`${at}.by`, `${at}.by is a list of approval group IDs, for example ["${namespace}-leads"].`);
+    }
+    if (decision.kind !== 'ask') {
+      const inputs = Array.isArray(decision.inputs) ? decision.inputs : null;
+      if (!inputs?.length) shape(`${at}.inputs`, `${at} records inputs its rules read, for example [{ name: tests, values: [pass, fail] }].`);
+      for (const [inputIndex, input] of (inputs ?? []).entries()) {
+        const where = `${at}.inputs[${inputIndex}]`;
+        if (!plain(input)) { shape(where, `${where} is an object.`); continue; }
+        for (const field of Object.keys(input)) if (!DECISION_FIELDS.input.includes(field)) shape(`${where}.${field}`, `${where} has no field '${field}'; an input has ${DECISION_FIELDS.input.join(', ')}.`);
+        if (typeof input.name !== 'string') shape(`${where}.name`, `${where} needs a name.`);
+        if (input.type !== 'number' && !(Array.isArray(input.values) && input.values.length)) shape(`${where}.values`, `${where} lists its choices in values, or is type number.`);
+      }
+    }
+    if (decision.kind === 'loop') {
+      if (!plain(decision.goal)) shape(`${at}.goal`, `${at}.goal maps input names to the value that ends the loop, for example { tests: pass }.`);
+      if (!phaseIds.has(decision.back)) shape(`${at}.back`, `${at}.back names the phase the loop returns to.`);
+      if (!Number.isInteger(decision.maxRounds) || decision.maxRounds < 1 || decision.maxRounds > 20) shape(`${at}.maxRounds`, `${at}.maxRounds is a whole number from 1 to 20.`);
+      if (Object.hasOwn(decision, 'routes')) shape(`${at}.routes`, `${at} is a loop: it has goal, back and maxRounds instead of routes.`);
+    } else if (['branch', 'ask'].includes(decision.kind)) {
+      const routes = Array.isArray(decision.routes) ? decision.routes : [];
+      if (routes.length < 2 || routes.length > 10) shape(`${at}.routes`, `${at} has 2 to 10 routes.`);
+      for (const [routeIndex, route] of routes.entries()) {
+        const where = `${at}.routes[${routeIndex}]`;
+        if (!plain(route)) { shape(where, `${where} is an object.`); continue; }
+        for (const field of Object.keys(route)) if (!DECISION_FIELDS.route.includes(field)) shape(`${where}.${field}`, `${where} has no field '${field}'; a route has ${DECISION_FIELDS.route.join(', ')}.`);
+        if (!phaseIds.has(route.to) && !['next', 'end'].includes(route.to)) shape(`${where}.to`, `${where}.to is a candidate phase, next or end.`);
+        if (Object.hasOwn(route, 'when') && !plain(route.when)) shape(`${where}.when`, `${where}.when maps input names to values.`);
+      }
+    }
+  });
+  (plain(workflow) && Object.hasOwn(workflow, 'omits') ? list(workflow.omits, '$.workflow.omits', 5) : []).forEach((omit, index) => {
+    const at = `$.workflow.omits[${index}]`;
+    if (!plain(omit) || Object.keys(omit).some((field) => !['responsibility', 'reason', 'authority'].includes(field))
+        || !RESPONSIBILITIES.includes(omit.responsibility) || typeof omit.reason !== 'string' || omit.reason.trim().length < 20
+        || typeof omit.authority !== 'string') {
+      add(at, 'TEAM_IMPORT_OMIT_SHAPE', `${at} is { responsibility: ${RESPONSIBILITIES.join('|')}, reason: a concrete sentence of 20+ characters, authority: the approval group that records why it does not apply }.`);
+    }
+  });
   if (plain(workflow) && Object.hasOwn(workflow, 'sourceReview') && closed(workflow.sourceReview, 'sourceReview', '$.workflow.sourceReview')) {
     const review = workflow.sourceReview;
     if (typeof review.reviewerAgent !== 'string') add('$.workflow.sourceReview.reviewerAgent', 'TEAM_IMPORT_CANDIDATE_SHAPE', 'sourceReview.reviewerAgent names a carried agent.');
@@ -311,6 +365,19 @@ export function candidateGuide() {
     // Responsibilities come from structure (src/evidence/responsibilities.mjs): every route needs
     // scope, plan, implement, verify and review, or a workflow omits entry for what the source lacks.
     responsibilityArtifactKinds: { scope: ['requirements', 'implementation-spec'], plan: ['implementation-spec', 'delivery-plan', 'implementation-plan'], verify: ['test-evidence'] },
+    // Exact shapes compile accepts (namespace "acme" for illustration).
+    examples: {
+      decisions: [
+        { id: 'acme-tests', after: 'acme-build', kind: 'loop', label: 'Tests pass?', inputs: [{ name: 'tests', values: ['pass', 'fail'] }],
+          goal: { tests: 'pass' }, back: 'acme-build', maxRounds: 3, by: ['acme-leads'] },
+        { id: 'acme-size', after: 'acme-intake', kind: 'branch', label: 'How large is the change?', inputs: [{ name: 'size', values: ['small', 'large'] }],
+          routes: [{ id: 'acme-large', label: 'Large', when: { size: ['large'] }, to: 'acme-design' }, { id: 'acme-small', label: 'Small', to: 'acme-build' }] },
+        { id: 'acme-direction', after: 'acme-review', kind: 'ask', label: 'Ship or rework?', by: ['acme-leads'],
+          routes: [{ id: 'acme-ship', label: 'Ship', to: 'next' }, { id: 'acme-rework', label: 'Rework', to: 'acme-build' }] }
+      ],
+      omits: [{ responsibility: 'scope', reason: 'The source process starts from an approved ticket and defines no requirements of its own.', authority: 'acme-leads' }],
+      artifactKinds: 'The step before a code step: implementation-spec (or requirements). A code step: any word such as change-summary. A test report: test-evidence. Others: a plain word such as review.'
+    },
     rules: [
       'Every ID starts with "<namespace>-"; templates are "<namespace>/<name>.md".',
       'workflow.phases lists every phase once, in order; inputs name earlier phases only.',
@@ -318,7 +385,7 @@ export function candidateGuide() {
       'A code phase needs an earlier phase whose artifact kind defines requirement clauses (requirements or implementation-spec).',
       'Decisions use workflow.yml decision fields; a loop has goal, back, maxRounds 1-20 and by; going back needs approval mode required on the deciding phase.',
       'Running out of rounds always pauses for the by group; a source that escalates or skips instead maps as unsupported.',
-      'Independent review is workflow.sourceReview with a reviewer agent distinct from the author; otherwise unresolved.',
+      'workflow.sourceReview reviews only the steps that define requirements or plan claims, by a review-only agent that authors no phase; a review step authored by an agent is just a phase. Independence the source requires and this cannot express stays unresolved.',
       'Place each instruction in a skill body with <instruction>id</instruction>; every skill is attached; every agent defaults for a phase or reviews.',
       'Every interpreted source file has a mapping; evidence spans cite capture paths, their sha256 and line numbers.',
       'What SFlow requires but the source never said is kind destination-policy; a material inference names the decisionsNeeded question a person answers.',

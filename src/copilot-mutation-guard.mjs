@@ -412,10 +412,26 @@ async function shellSnapshot(root) {
 
 export async function mutationPostToolGuard(payload = {}) {
   const record = await turn(payload);
-  if (!record || !calls(payload).some(call => TERMINALS.has(call.name))) return {};
+  const terminals = calls(payload).filter(call => TERMINALS.has(call.name));
+  if (!record || !terminals.length) return {};
+  // A turn with no Story contract has no baseline to compare and nothing to go stale: its pre-tool
+  // guard admitted only verified commands (import-team's own three and reads; setup and session
+  // kernel commands before a Story is bound). Telling it to stop and refresh a binding it never had
+  // ended a live /sf-import-team turn after its first command.
+  if (mutationTurnMode(record.skill) === 'import-team') {
+    const value = await importTeamTurn(payload, record);
+    const scope = { ...record, repositoryRoot: value?.contract?.repositoryRoot ?? value?.repositoryRoot };
+    if (value && terminals.every(call => shellAllowed(call, 'import-team', scope))) return {};
+    return postFinding(mutationDenial(null, 'IMPORT_TEAM_TURN_ENDED: the import-team turn ended or expired; run /sf-import-team again'));
+  }
   let value;
   try { value = await currentContract(payload, record); }
-  catch { return postFinding(mutationDenial(null, 'PHASE_MUTATION_CONTRACT_STALE: preserve changes and refresh the binding')); }
+  catch {
+    const cached = await boundedRecord(recordFile(payload)).catch(() => null);
+    if (cached && cached.contract === null && !record.corrupt
+        && terminals.every(call => bootstrapAllowed(call, { ...record, repositoryRoot: cached.repositoryRoot }))) return {};
+    return postFinding(mutationDenial(null, 'PHASE_MUTATION_CONTRACT_STALE: preserve changes and refresh the binding'));
+  }
   if (!value.baseline) {
     if (calls(payload).every(call => shellAllowed(call, value.contract.turnMode, value))) return {};
     return postFinding(mutationDenial(value.contract, 'PHASE_MUTATION_BASELINE_UNAVAILABLE: detection cannot establish which command changed bytes'));

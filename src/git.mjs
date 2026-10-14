@@ -780,15 +780,13 @@ export function shallowBoundaryCommit(root, commit) {
   if (object.status !== 0) return true;
   const parents = [...object.stdout.matchAll(/^parent ([0-9a-f]{40,64})$/gmu)].map((match) => match[1]);
   if (!parents.length) return false;
-  const noLazyEnv = { ...process.env, GIT_NO_LAZY_FETCH: '1' };
+  const env = { ...process.env, GIT_NO_LAZY_FETCH: '1' };
   if (parents.length === 1) {
-    return git(['cat-file', '-e', `${parents[0]}^{commit}`], {
-      cwd: root, allowFailure: true, env: noLazyEnv
-    }).status !== 0;
+    return git(['cat-file', '-e', `${parents[0]}^{commit}`], { cwd: root, allowFailure: true, env }).status !== 0;
   }
+  // A merge records several parents; one batch check answers for all of them.
   const checked = git(['cat-file', '--batch-check=%(objecttype)'], {
-    cwd: root, allowFailure: true, env: noLazyEnv,
-    input: `${parents.map((parent) => `${parent}^{commit}`).join('\n')}\n`
+    cwd: root, allowFailure: true, env, input: `${parents.map((parent) => `${parent}^{commit}`).join('\n')}\n`
   });
   if (checked.status !== 0) return true;
   const rows = String(checked.stdout ?? '').trim().split(/\r?\n/u);
@@ -818,6 +816,10 @@ export function remoteUrl(root, remote = 'origin', { env = process.env } = {}) {
   return observed.status === 0 ? observed.stdout.trim() : null;
 }
 
+/**
+ * The working tree's status. Inside a read scope it is asked once: a full snapshot asked three
+ * times, and on a large Windows checkout each one is a scan of every file.
+ */
 export function changes(root) {
   return scopedReadSync(`git.changes:${path.resolve(root)}`, () =>
     git([...worktreeScanConfigFlags(), 'status', '--porcelain=v1', '--untracked-files=all'], { cwd: root }).stdout);
@@ -2825,52 +2827,6 @@ function assertCommitEnvironmentPolicy(root, paths, { label }) {
  * Deleted paths are skipped, not failed. A commit that removes a file containing a credential is
  * the commit you want to succeed.
  */
-/**
- * Read staged blob contents for `paths` from the index, batching multi-file reads through
- * `ls-files --stage` and `cat-file --batch` instead of spawning one `git show :<path>` per file.
- */
-export function stagedEntriesForPaths(root, paths, { env = process.env, label = 'Staged blobs' } = {}) {
-  const entries = [];
-  if (!paths?.length) return entries;
-  if (paths.length === 1) {
-    const show = git(['show', `:${paths[0]}`], { cwd: root, env, allowFailure: true });
-    if (show.status === 0) entries.push({ path: paths[0], content: show.stdout });
-    return entries;
-  }
-  const stagedOids = new Map();
-  const stagedList = git(['ls-files', '--stage', '-z', '--', ...paths], {
-    cwd: root, env, allowFailure: true
-  });
-  if (stagedList.status === 0) {
-    for (const record of String(stagedList.stdout ?? '').split('\0').filter(Boolean)) {
-      const tab = record.indexOf('\t');
-      const match = tab < 0 ? null : record.slice(0, tab).match(
-        /^(100644|100755|120000) ([a-f0-9]{40,64}) 0$/u
-      );
-      if (match) stagedOids.set(record.slice(tab + 1), match[2]);
-    }
-  }
-  let blobs = null;
-  if (stagedOids.size > 0) {
-    try {
-      blobs = readLocalGitBlobs(root, [...stagedOids.values()], { env, label });
-    } catch {
-      blobs = null;
-    }
-  }
-  for (const item of paths) {
-    const oid = stagedOids.get(item);
-    const buffer = oid && blobs ? blobs.get(oid) : null;
-    if (buffer) {
-      entries.push({ path: item, content: buffer.toString('utf8') });
-      continue;
-    }
-    const show = git(['show', `:${item}`], { cwd: root, env, allowFailure: true });
-    if (show.status === 0) entries.push({ path: item, content: show.stdout });
-  }
-  return entries;
-}
-
 export function assertNoSecrets(root, paths = null, { label = 'This commit' } = {}) {
   const env = immutableLocalGitEnvironment();
   assertCommitEnvironmentPolicy(root, paths, { label });
@@ -2881,44 +2837,82 @@ export function assertNoSecrets(root, paths = null, { label = 'This commit' } = 
       `${label} staged paths`).split('\0').filter(Boolean);
   if (!listed.length) return null;
 
+  // A scoped commit takes the working tree; an index commit takes the staged blob. Read whichever
+  // one this commit will actually use.
+  if (!paths?.length) return refuseSecrets(stagedEntriesForPaths(root, listed, { env, label: `${label} staged blobs` }), label);
   const entries = [];
-  if (paths?.length) {
-    for (const item of listed) {
-      // A scoped commit takes the working tree; an index commit takes the staged blob. Read whichever
-      // one this commit will actually use.
-      const absolute = path.resolve(root, item);
-      let content;
-      try {
-        const stat = statSync(absolute);
-        // A path may name a directory the caller staged wholesale; expand it to its tracked files.
-        if (stat.isDirectory()) {
-          const tracked = gitAnswer(['ls-files', '-z', '--', item], { cwd: root, env },
-            `${label} tracked files under '${item}'`).split('\0').filter(Boolean);
-          for (const file of tracked) {
-            entries.push({ path: file, content: readFileSync(path.resolve(root, file), 'utf8') });
-          }
-          continue;
+  for (const item of listed) {
+    const absolute = path.resolve(root, item);
+    let content;
+    try {
+      const stat = statSync(absolute);
+      // A path may name a directory the caller staged wholesale; expand it to its tracked files.
+      if (stat.isDirectory()) {
+        const tracked = gitAnswer(['ls-files', '-z', '--', item], { cwd: root, env },
+          `${label} tracked files under '${item}'`).split('\0').filter(Boolean);
+        for (const file of tracked) {
+          entries.push({ path: file, content: readFileSync(path.resolve(root, file), 'utf8') });
         }
-        content = readFileSync(absolute, 'utf8');
-      } catch (error) {
-        // ENOENT is a deletion. Anything else is unreadable, and unreadable fails closed inside
-        // `scanEntries` by arriving with no content.
-        if (error?.code === 'ENOENT') continue;
-        entries.push({ path: item });
         continue;
       }
-      entries.push({ path: item, content });
+      content = readFileSync(absolute, 'utf8');
+    } catch (error) {
+      // ENOENT is a deletion. Anything else is unreadable, and unreadable fails closed inside
+      // `scanEntries` by arriving with no content.
+      if (error?.code === 'ENOENT') continue;
+      entries.push({ path: item });
+      continue;
     }
-  } else {
-    entries.push(...stagedEntriesForPaths(root, listed, { env, label: `${label} staged blobs` }));
+    entries.push({ path: item, content });
   }
+  return refuseSecrets(entries, label);
+}
 
+function refuseSecrets(entries, label) {
   const scan = scanEntries(entries);
   const refusal = secretRefusal(scan);
   if (refusal) {
     throw new SingularityFlowError(`${label} was refused.\n\n${refusal}`, { code: 'SECRET_DETECTED' });
   }
   return scan;
+}
+
+/**
+ * The staged content of `paths`, read as `git show :<path>` would: one `ls-files --stage` and one
+ * `cat-file --batch` instead of a process per file. A path that is not staged as a regular file or
+ * symbolic link is absent. A path the batch did not answer for is read alone, as before.
+ */
+export function stagedEntriesForPaths(root, paths, { env = process.env, label = 'Staged blobs' } = {}) {
+  const entries = [];
+  if (!paths?.length) return entries;
+  const showOne = (item) => {
+    const show = git(['show', `:${item}`], { cwd: root, env, allowFailure: true });
+    if (show.status === 0) entries.push({ path: item, content: show.stdout });
+  };
+  if (paths.length === 1) {
+    showOne(paths[0]);
+    return entries;
+  }
+  const stagedOids = new Map();
+  const staged = git(['ls-files', '--stage', '-z', '--', ...paths], { cwd: root, env, allowFailure: true });
+  if (staged.status === 0) {
+    for (const record of String(staged.stdout ?? '').split('\0').filter(Boolean)) {
+      const tab = record.indexOf('\t');
+      const match = tab < 0 ? null : /^(?:100644|100755|120000) ([a-f0-9]{40,64}) 0$/u.exec(record.slice(0, tab));
+      if (match) stagedOids.set(record.slice(tab + 1), match[1]);
+    }
+  }
+  let blobs = null;
+  if (stagedOids.size) {
+    try { blobs = readLocalGitBlobs(root, [...stagedOids.values()], { env, label }); } catch { blobs = null; }
+  }
+  for (const item of paths) {
+    const oid = stagedOids.get(item);
+    const buffer = oid && blobs ? blobs.get(oid) : null;
+    if (buffer) entries.push({ path: item, content: buffer.toString('utf8') });
+    else showOne(item);
+  }
+  return entries;
 }
 
 /**
@@ -3691,13 +3685,14 @@ export function governedCommitIdentity(root, sha) {
   });
   if (verified.status !== 0) return null;
   const commit = verified.stdout.trim();
-  const rawCommit = git(['cat-file', '-p', commit], { cwd: root, env }).stdout;
-  const separator = rawCommit.indexOf('\n\n');
-  const headerBlock = separator < 0 ? rawCommit : rawCommit.slice(0, separator);
-  const message = separator < 0 ? '' : rawCommit.slice(separator + 2);
+  // Tree, parents and message are all in the commit object, so one read replaces three. Its headers
+  // end at the first blank line; continuation lines (a signature) start with a space.
+  const raw = git(['cat-file', 'commit', commit], { cwd: root, env }).stdout;
+  const separator = raw.indexOf('\n\n');
+  const message = separator < 0 ? '' : raw.slice(separator + 2);
   let tree = '';
   const parents = [];
-  for (const line of headerBlock.split('\n')) {
+  for (const line of (separator < 0 ? raw : raw.slice(0, separator)).split('\n')) {
     if (line.startsWith('tree ')) tree = line.slice(5).trim();
     else if (line.startsWith('parent ')) parents.push(line.slice(7).trim());
   }

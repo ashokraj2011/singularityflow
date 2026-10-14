@@ -115,6 +115,7 @@ export class SnapshotCoordinator {
       // One reload, against the newer revision. A single retry clears the ordinary case — one edit
       // landing mid-read — without turning a repository under continuous write into a spin.
       revision = after;
+      // The first load's scope holds what it saw before the repository moved; the reload starts clean.
       value = await timer.measure('reload', async () => withFreshReadScope(() => read({ revision })));
       after = await timer.measure('revisionAfterReload', async () => this.#revision());
       if (!sameRevision(revision, after)) {

@@ -1,13 +1,13 @@
 import { chmodSync, existsSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { SECRETS_SUBCOMMANDS } from '../command-registry.mjs';
 import { gitDir, repoRoot, stagedEntriesForPaths } from '../git.mjs';
 import { commandResult, effects, noEffects, noop, succeeded } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
+import { PACKAGE_ROOT } from '../package-root.mjs';
 import { SingularityFlowError, optionBoolean, run, writeText } from '../util.mjs';
 
 async function runSecrets(argv, { positionals, options }) {
@@ -56,7 +56,9 @@ export async function secretsCommand(positionals, options) {
      * observed, not hypothesised. A governance control should run the exact thing it was installed
      * from; picking up upgrades is not worth being at the mercy of whatever is first on PATH.
      */
-    const installedFrom = path.resolve(fileURLToPath(import.meta.url), '..', '..', '..', 'bin', 'singularity-flow.mjs');
+    // From the package root, not this file: installed copies run this module inside bundle/cli.mjs,
+    // one directory up from here, so a path counted from this file would leave the package.
+    const installedFrom = path.join(PACKAGE_ROOT, 'bin', 'singularity-flow.mjs');
     const script = [
       '#!/bin/sh',
       '# Installed by `sflow secrets protect`. Refuses a commit containing a credential.',

@@ -403,9 +403,15 @@ async function regularFile(file, label, { optional = false } = {}) {
 }
 
 async function readYamlDocument(root, store, { optional = false } = {}) {
-  const secured = await secureRepositoryPath(root, store.file, {
-    label: store.file, mustExist: !optional, type: 'file'
-  });
+  const secured = await secureRepositoryPath(root, store.file, { label: store.file, type: 'file' });
+  if (!secured.exists && !optional && store === STORE.story) {
+    // Not a missing file but the wrong place: an import run from a repository that is not set up,
+    // such as the Singularity Flow checkout itself, said only "singularity/workflow.yml does not exist".
+    fail('This repository is not set up for Singularity Flow: it has no singularity/workflow.yml and no '
+      + 'approved configuration branch (sflow/config). Run this from your project\'s repository, or select '
+      + 'one with \'singularity-flow workspace use <WORKSPACE>\'.', 'WORKFLOW_DESTINATION_NOT_CONFIGURED');
+  }
+  if (!secured.exists && !optional) throw new SingularityFlowError(`${store.file} does not exist: ${store.file}`);
   if (!secured.exists) return null;
   const file = secured.absolute;
   const text = await readFile(file, 'utf8');

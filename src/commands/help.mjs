@@ -1,9 +1,13 @@
+import { withCommandConfirmation } from '../command-confirmation.mjs';
+import { withCommandObservability } from '../command-observability.mjs';
 import { commandDefinition } from '../command-registry.mjs';
 import { loadHelpDocument } from '../help.mjs';
 import { optionBoolean } from '../util.mjs';
 
-export async function run(_argv, { positionals, options }) {
-  return helpCommand(positionals, options);
+export async function run(argv, { positionals, options }) {
+  // Logged like every other command, as it was when cli.mjs dispatched it.
+  return withCommandObservability(positionals[0], argv, options,
+    () => withCommandConfirmation(options, () => helpCommand(positionals, options)));
 }
 
 export async function helpCommand(positionals, options) {

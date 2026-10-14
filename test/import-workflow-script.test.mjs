@@ -84,4 +84,16 @@ test('one bundle path imports the workflow and activates it; running it again ch
     const usage = spawnSync('bash', [script], { cwd: root, encoding: 'utf8', env });
     assert.equal(usage.status, 2);
     assert.match(usage.stderr, /Usage: .*<workflow-bundle\.json>/u);
+
+    // Run from a repository that is not set up (the Singularity Flow checkout itself, say), it used
+    // to report only "singularity/workflow.yml does not exist".
+    const plain = path.join(base, 'plain');
+    await mkdir(plain);
+    git(plain, 'init', '-q', '-b', 'main');
+    git(plain, '-c', 'user.name=Import Script Test', '-c', 'user.email=import-script@example.test',
+      'commit', '-q', '--allow-empty', '-m', 'empty');
+    const elsewhere = spawnSync('bash', [script, bundle], { cwd: plain, encoding: 'utf8', env });
+    assert.equal(elsewhere.status, 1);
+    assert.match(elsewhere.stderr, /not set up for Singularity Flow/u);
+    assert.match(elsewhere.stderr, /cd into your project's repository/u);
   });

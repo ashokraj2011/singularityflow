@@ -40,7 +40,10 @@ export async function withReadScope(fn) {
   return scopes.run(new Map(), fn);
 }
 
-/** Open a fresh read scope even if an enclosing scope is already active. */
+/**
+ * Open a new read scope even inside an open one, for a read that must not see what the enclosing
+ * scope already observed: a snapshot reloading because the repository moved under its first read.
+ */
 export async function withFreshReadScope(fn) {
   return scopes.run(new Map(), fn);
 }

@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { readRefTree, readRefTreeResult } from '../src/git-ref-tree.mjs';
+import { readObjectsBatch, readRefTree, readRefTreeResult } from '../src/git-ref-tree.mjs';
+import { run } from '../src/util.mjs';
 
 const TREE_OID = 'a'.repeat(40);
 
@@ -316,4 +317,56 @@ test('a missing promisor object is explicit partial state with lazy fetch disabl
   assert.equal(observed.objectsRead, 1);
   assert.ok(observed.errors.some((entry) => entry.code === 'REF_TREE_OBJECT_MISSING'));
   assert.ok(fake.calls.every((call) => call.options.env.GIT_NO_LAZY_FETCH === '1'));
+});
+
+/** Every Git process the batch reader started, with the arguments it started it with. */
+function countingRunner() {
+  const calls = [];
+  const runCommand = (command, args, options) => {
+    calls.push(args.join(' '));
+    return run(command, args, options);
+  };
+  return { calls, runCommand };
+}
+
+test('object IDs that all exist are read in one process, and answer as the sized read does', (t) => {
+  const root = realRepository(t);
+  writeFileSync(path.join(root, 'state', 'two.json'), 'second');
+  git(root, ['add', '--', 'state/two.json']);
+  git(root, ['-c', 'user.name=SFlow Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'two']);
+  const tree = git(root, ['rev-parse', 'HEAD:state']);
+  const one = git(root, ['rev-parse', 'HEAD:state/one.json']);
+  const two = git(root, ['rev-parse', 'HEAD:state/two.json']);
+
+  const fast = countingRunner();
+  const unsized = readObjectsBatch(root, [tree, one, two, one], { runCommand: fast.runCommand });
+  assert.deepEqual(fast.calls, ['cat-file --batch']);
+  // The same request through the sized path: a name that is not an object ID always takes it.
+  const sized = countingRunner();
+  const reference = readObjectsBatch(root, [tree, one, two, 'HEAD:state'], { runCommand: sized.runCommand });
+  assert.equal(sized.calls.length, 2);
+  for (const oid of [tree, one, two]) assert.deepEqual(unsized.get(oid), reference.get(oid));
+  assert.equal(unsized.get(one).bytes.toString('utf8'), 'first');
+  assert.equal(unsized.size, 3);
+
+  const checked = countingRunner();
+  assert.equal(readObjectsBatch(root, [one], { runCommand: checked.runCommand, checkOnly: true }).get(one).bytes, null);
+  assert.equal(checked.calls.length, 1, 'a size-only check never reads bodies');
+});
+
+test('a missing or oversized object falls back to the sized read and its exact answers', (t) => {
+  const root = realRepository(t);
+  const one = git(root, ['rev-parse', 'HEAD:state/one.json']);
+  const absent = 'f'.repeat(40);
+  const missing = countingRunner();
+  const answers = readObjectsBatch(root, [one, absent], { runCommand: missing.runCommand });
+  assert.deepEqual(missing.calls.map((call) => call.split(' ').slice(0, 2).join(' ')),
+    ['cat-file --batch', 'cat-file --batch-check=%(objectname)', 'cat-file --batch']);
+  assert.equal(answers.get(one).bytes.toString('utf8'), 'first');
+  assert.deepEqual(answers.get(absent), { status: 'unavailable', reason: 'object is not available locally' });
+
+  const large = countingRunner();
+  const limited = readObjectsBatch(root, [one], { runCommand: large.runCommand, maxObjectBytes: 2 });
+  assert.deepEqual(limited.get(one), { status: 'too-large', oid: one, size: 5 });
+  assert.equal(large.calls.length, 2, 'the sized check refuses it without reading it');
 });

@@ -83,8 +83,8 @@ test('latency-budgets-on-fixture', { timeout: 30_000 }, () => {
     'the one connected benchmark run still guards the read-only repository contract');
   assert.deepEqual(Object.keys(report.commands), [
     'about', 'status', 'nextsteps', 'snapshot', 'snapshotUi', 'snapshotFull',
-    // Reads served by the legacy dispatcher rather than their own lazy module. Measured last
-    // because they were measured never: the budgeted set was exactly the set already made fast.
+    // Reads a person waits on that were never measured: the budgeted set was exactly the set
+    // already made fast. help, inbox and guide now have their own modules; logs is still legacy.
     'help', 'inbox', 'guide', 'logs'
   ]);
   for (const result of Object.values(report.commands)) {
@@ -126,8 +126,8 @@ test('every command the benchmark runs carries a budget, including the ones nobo
     assert.ok(manifest.budgets[name]?.p95Ms >= manifest.budgets[name]?.p50Ms,
       `${name} is measured with no p95 tail budget`);
   }
-  for (const legacyRead of ['help', 'inbox', 'guide', 'logs']) {
-    assert.ok(measured.includes(legacyRead), `${legacyRead} is a read on the legacy dispatcher and is unmeasured`);
+  for (const read of ['help', 'inbox', 'guide', 'logs']) {
+    assert.ok(measured.includes(read), `${read} is a read a person waits on and is unmeasured`);
   }
 });
 

@@ -18,7 +18,7 @@ function readinessReason(readiness) {
 }
 
 /** Read the same lifecycle/recovery boundaries as submission, never tests or a model. */
-export async function reviewContinuation(root, config, workflow, phase) {
+export async function reviewContinuation(root, config, workflow, phase, { changedPaths = null } = {}) {
   if (phase.id !== workflow.currentPhase) {
     return phaseContinuation(workflow, { reviewedPhaseId: phase.id });
   }
@@ -32,7 +32,7 @@ export async function reviewContinuation(root, config, workflow, phase) {
       const recovery = await recoveryPlan(root, config, workflow, { phaseId: phase.id });
       if (recovery.requiresRecovery) return phaseContinuation(workflow, { recovery });
     }
-    const readiness = await submissionReadiness(root, config, workflow, { phaseId: phase.id });
+    const readiness = await submissionReadiness(root, config, workflow, { phaseId: phase.id, changedPaths });
     if (readiness.nextCommand) return phaseContinuation(workflow, { primary: {
       command: readiness.nextCommand, skill: readiness.nextSkill,
       reason: readinessReason(readiness)

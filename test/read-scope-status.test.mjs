@@ -13,8 +13,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { changes, hasUpstream } from '../src/git.mjs';
+import { changedFiles, changes, hasUpstream } from '../src/git.mjs';
 import { withFreshReadScope, withReadScope } from '../src/read-scope.mjs';
+import { buildRepositorySubjectIndex } from '../src/repository-subject-index.mjs';
 import { SnapshotCoordinator } from '../src/snapshot-coordinator.mjs';
 
 function git(root, args) {
@@ -72,4 +73,22 @@ test('a snapshot that reloads because the tree moved reads the status afresh', a
   assert.equal(seen.length, 2, 'the moved revision caused one reload');
   assert.equal(seen[0], '');
   assert.match(result.value?.status ?? result.status, /landed\.txt/u, 'the reload did not reuse the first load\'s status');
+});
+
+test('changed files and the working-tree Story index are computed once per read scope', async (t) => {
+  const root = await repository(t);
+  const definition = { workItemRoot: 'singularity/work-items' };
+  await withReadScope(async () => {
+    const files = changedFiles(root);
+    const index = await buildRepositorySubjectIndex(root, { definition });
+    await writeFile(path.join(root, 'late.txt'), 'late\n');
+    assert.deepEqual(changedFiles(root), files, 'one answer for the whole read');
+    assert.equal(await buildRepositorySubjectIndex(root, { definition }), index, 'one scan shared by every slice');
+    assert.notEqual(await buildRepositorySubjectIndex(root, { definition: { workItemRoot: 'other/root' } }), index,
+      'another Story root is another scan');
+    await withFreshReadScope(async () => assert.ok(changedFiles(root).includes('late.txt')));
+  });
+  // Outside a scope, where writers live, every call asks again.
+  assert.ok(changedFiles(root).includes('late.txt'));
+  assert.notEqual(await buildRepositorySubjectIndex(root, { definition }), await buildRepositorySubjectIndex(root, { definition }));
 });

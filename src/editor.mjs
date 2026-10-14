@@ -420,6 +420,9 @@ async function workItems(root, definition) {
 }
 
 function configurationChangeScope(root, definition, portfolio, changes) {
+  if (!changes.length) {
+    return { configurationChanges: [], unrelatedChanges: [], publishReady: false };
+  }
   const authority = editorConfigurationPathAuthority(root, definition, portfolio);
   const configurationChanges = changes.filter((file) =>
     allowedConfigurationPath(definition, file, portfolio, root, authority));
@@ -621,7 +624,7 @@ async function fullRepositorySnapshot(root, requestedWorkId = null, requestedIni
     const completeDocumentCatalog = await documentCatalog(root, definition, workflow, { includeDetached: true });
     documents = completeDocumentCatalog.filter(evidenceIsActive);
     detachedDocuments = completeDocumentCatalog.filter((document) => document.status === 'detached');
-    review = await createReviewBundle(root, definition, workflow);
+    review = await createReviewBundle(root, definition, workflow, null, { changedPaths: changes });
     review.markdown = reviewMarkdown(review);
   }
   const referenceRepositories = await storyReferenceRepositoryStatus(root, definition, workflow);
@@ -888,7 +891,7 @@ async function lifecycleSlice(root, requestedWorkId, requestedInitiativeId, revi
     const completeDocumentCatalog = await documentCatalog(root, definition, workflow, { includeDetached: true });
     documents = completeDocumentCatalog.filter(evidenceIsActive);
     detachedDocuments = completeDocumentCatalog.filter((document) => document.status === 'detached');
-    review = await createReviewBundle(root, definition, workflow);
+    review = await createReviewBundle(root, definition, workflow, null, { changedPaths: revision?.changedFiles ?? null });
     review.markdown = reviewMarkdown(review);
   }
   const referenceRepositories = await storyReferenceRepositoryStatus(root, definition, workflow);

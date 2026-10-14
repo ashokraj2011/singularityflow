@@ -6,6 +6,7 @@ import { withFreshGitFacts } from './git-fact-cache.mjs';
 import { readObjectsBatch, readRefTreeResult, treeEntries } from './git-ref-tree.mjs';
 import { SingularityFlowError, exists, readJson, run } from './util.mjs';
 import { readRecord } from './schema-migrations.mjs';
+import { scopedRead } from './read-scope.mjs';
 
 function unique(values) {
   return [...new Set(values.map((value) => String(value ?? '').trim()).filter(Boolean))];
@@ -172,11 +173,19 @@ async function scanDirectory(index, root, base, suffix, parser, family) {
   }
 }
 
+/**
+ * Every Story and Initiative in the working tree. Inside a read scope the scan is done once: a full
+ * snapshot asked for it from several slices, each reading and parsing every workflow.json again.
+ */
 export async function buildRepositorySubjectIndex(root, { definition = {}, portfolio = null } = {}) {
-  const index = new RepositorySubjectIndex();
-  await scanDirectory(index, root, path.join(root, definition.workItemRoot ?? 'singularity/work-items'), 'workflow.json', storyEntry, 'story-workflow');
-  await scanDirectory(index, root, path.join(root, portfolio?.initiativeRoot ?? 'singularity/initiatives'), 'state.json', initiativeEntry, 'initiative-state');
-  return index;
+  const workRoot = definition.workItemRoot ?? 'singularity/work-items';
+  const initiativeRoot = portfolio?.initiativeRoot ?? 'singularity/initiatives';
+  return scopedRead(`subjectIndex:${path.resolve(root)}\0${workRoot}\0${initiativeRoot}`, async () => {
+    const index = new RepositorySubjectIndex();
+    await scanDirectory(index, root, path.join(root, workRoot), 'workflow.json', storyEntry, 'story-workflow');
+    await scanDirectory(index, root, path.join(root, initiativeRoot), 'state.json', initiativeEntry, 'initiative-state');
+    return index;
+  });
 }
 
 function isSubjectRecord(file, roots) {

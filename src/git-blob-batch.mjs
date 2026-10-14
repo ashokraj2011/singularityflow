@@ -46,7 +46,9 @@ function objectFormatKey(root, env, runCommand) {
   if (runCommand !== run || RELOCATING.some((name) => env[name])) return null;
   try {
     const marker = lstatSync(path.join(root, '.git'), { bigint: true });
-    return marker.ino === 0n ? null : `${path.resolve(root)}\0${marker.ino}:${marker.birthtimeNs}`;
+    if (marker.isSymbolicLink()) return null;
+    const identity = marker.ino !== 0n ? String(marker.ino) : (marker.birthtimeNs > 0n ? `b${marker.birthtimeNs}` : null);
+    return identity ? `${path.resolve(root)}\0${identity}:${marker.birthtimeNs}` : null;
   } catch { return null; }
 }
 

@@ -586,6 +586,34 @@ test('the shared synchronous runner preserves explicit shell execution', () => {
   assert.equal(calls[0].options.windowsVerbatimArguments, undefined);
 });
 
+test('Windows direct PATH lookup resolves native executables without spawning where.exe and ignores relative PATH entries', () => {
+  clearWindowsExecutableCache();
+  const probed = [];
+  const environment = {
+    ...windowsEnvironment,
+    PATH: '.;.\\bin;C:relative;"C:\\Program Files\\Git\\cmd";C:\\Fallback\\bin',
+    PATHEXT: '.EXE;.CMD'
+  };
+  const resolved = resolveWindowsPathExecutable('git.exe', {
+    environment,
+    directPathLookup: true,
+    cache: true,
+    spawnSyncCommand() {
+      throw new Error('direct PATH lookup must not spawn where.exe when a trusted PATH entry matches');
+    },
+    lstatSyncCommand(candidate) {
+      probed.push(candidate);
+      if (candidate === 'C:\\Program Files\\Git\\cmd\\git.exe') {
+        return { isFile: () => true, isSymbolicLink: () => false };
+      }
+      throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+    }
+  });
+  assert.equal(resolved, 'C:\\Program Files\\Git\\cmd\\git.exe');
+  assert.deepEqual(probed, ['C:\\Program Files\\Git\\cmd\\git.exe']);
+  clearWindowsExecutableCache();
+});
+
 if (process.platform === 'win32') {
   test('the real Windows npm and npx shims execute shell-free against an installed local fixture', () => {
     const npm = run('npm', ['--version'], { cwd: repositoryRoot });

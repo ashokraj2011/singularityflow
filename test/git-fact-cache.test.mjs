@@ -454,11 +454,16 @@ test('a Windows configuration answer is tied to every file Git for Windows may r
     await writeFile(changed, '[core]\n\tautocrlf = true\n');
     assert.equal(cachedGitFact(request), null, `a change to ${path.relative(machine, changed)} invalidates the answer`);
   }
-  // An include in the machine-wide file cannot be followed: nothing is kept.
+  // An include in the machine-wide file cannot be followed for config reads, while HEAD/object
+  // reads remain cacheable on Windows machines whose global/system gitconfig uses [include].
   await writeFile(path.join(programData, 'Git', 'config'), '[include]\n\tpath = elsewhere\n');
   const included = gitFactRequest(args, { cwd: root, env, platform: 'win32' });
   rememberGitFact(included, spawnSync('git', args, { cwd: root, encoding: 'utf8' }), { before: gitFactSnapshot(included) });
   assert.equal(cachedGitFact(included), null);
+  const headUnderHostInclude = gitFactRequest(['rev-parse', 'HEAD'], { cwd: root, env, platform: 'win32' });
+  const headResult = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
+  rememberGitFact(headUnderHostInclude, headResult, { before: gitFactSnapshot(headUnderHostInclude) });
+  assert.equal(cachedGitFact(headUnderHostInclude)?.stdout, headResult.stdout);
   // Two spellings of ProgramData that disagree are ambiguous: Git is asked.
   assert.equal(gitFactRequest(args, { cwd: root, env: { ...env, PROGRAMDATA: share }, platform: 'win32' }), null);
   assert.ok(gitFactRequest(args, { cwd: root, env: { ...env, PROGRAMDATA: programData }, platform: 'win32' }), 'agreeing spellings are one variable');

@@ -9,6 +9,7 @@ const CMD_META = /([()\][%!^"`<>&|;, *?])/g;
 const CMD_ENV_EXPANSION = /[%!]/;
 const WINDOWS_EXECUTABLE_CACHE = new Map();
 const WINDOWS_EXECUTABLE_CACHE_LIMIT = 128;
+const WINDOWS_EXECUTABLE_VERIFY_TTL_MS = 5_000;
 
 function safeCommand(value) {
   if (typeof value !== 'string' || !value.trim() || /[\r\n\0]/.test(value)) {
@@ -165,7 +166,8 @@ export function resolveWindowsPathExecutable(command, {
   environment = process.env,
   spawnSyncCommand = spawnSync,
   cache = spawnSyncCommand === spawnSync,
-  lstatSyncCommand = lstatSync
+  lstatSyncCommand = lstatSync,
+  directPathLookup = spawnSyncCommand === spawnSync
 } = {}) {
   const requested = safeCommand(command);
   if (isFullyQualifiedWindowsPath(requested)) return requested;
@@ -188,37 +190,67 @@ export function resolveWindowsPathExecutable(command, {
   const pathValue = String(environmentValue(environment, ['PATH']) ?? '');
   const cacheKey = [basename.toLowerCase(), pathValue, extensions.join(';'),
     String(environmentValue(environment, ['SystemRoot', 'WINDIR']) ?? '')].join('\0');
+  const now = Date.now();
   if (cache && WINDOWS_EXECUTABLE_CACHE.has(cacheKey)) {
-    const cached = WINDOWS_EXECUTABLE_CACHE.get(cacheKey);
+    const entry = WINDOWS_EXECUTABLE_CACHE.get(cacheKey);
+    const cached = typeof entry === 'string' ? entry : entry?.executable;
+    const verifiedAt = typeof entry === 'object' && entry !== null ? entry.verifiedAt : 0;
+    if (lstatSyncCommand === lstatSync && now - verifiedAt < WINDOWS_EXECUTABLE_VERIFY_TTL_MS) {
+      return cached;
+    }
     try {
       const info = lstatSyncCommand(cached);
-      if (info?.isFile?.() && !info.isSymbolicLink?.()) return cached;
+      if (info?.isFile?.() && !info.isSymbolicLink?.()) {
+        WINDOWS_EXECUTABLE_CACHE.set(cacheKey, { executable: cached, verifiedAt: now });
+        return cached;
+      }
     } catch { /* moved or uninstalled; resolve again */ }
     WINDOWS_EXECUTABLE_CACHE.delete(cacheKey);
   }
-  const whereExecutable = resolveWindowsSystemTool(environment, 'where.exe');
-  const pathPattern = extension ? basename : `${basename}.*`;
-  const result = spawnSyncCommand(whereExecutable, [`$PATH:${pathPattern}`], {
-    cwd: path.win32.dirname(whereExecutable),
-    env: environment,
-    encoding: 'utf8',
-    windowsHide: true,
-    timeout: 5_000,
-    shell: false
-  });
-  if (result?.error || result?.status !== 0) return null;
-  const allowed = new Set(candidates.map((entry) => entry.toLowerCase()));
-  const resolved = String(result.stdout ?? '').split(/\r?\n/u)
-    .map((entry) => entry.trim())
-    .filter((entry) => isFullyQualifiedWindowsPath(entry)
-      && allowed.has(path.win32.basename(entry).toLowerCase()));
   let selected = null;
-  for (const candidate of candidates) {
-    selected = resolved.find((entry) => path.win32.basename(entry).toLowerCase()
-      === candidate.toLowerCase()) ?? null;
-    if (selected) break;
+  let verifiedDirect = false;
+  if (directPathLookup) {
+    for (const rawDir of pathValue.split(';')) {
+      const directory = rawDir.trim().replace(/^"+|"+$/gu, '');
+      if (!directory || !isFullyQualifiedWindowsPath(directory)) continue;
+      for (const candidate of candidates) {
+        const candidatePath = path.win32.join(directory, candidate);
+        try {
+          const info = lstatSyncCommand(candidatePath);
+          if (info?.isFile?.() && !info.isSymbolicLink?.()) {
+            selected = candidatePath;
+            verifiedDirect = true;
+            break;
+          }
+        } catch { /* missing or unreadable entry */ }
+      }
+      if (selected) break;
+    }
   }
-  if (selected && cache) {
+  if (!selected) {
+    const whereExecutable = resolveWindowsSystemTool(environment, 'where.exe');
+    const pathPattern = extension ? basename : `${basename}.*`;
+    const result = spawnSyncCommand(whereExecutable, [`$PATH:${pathPattern}`], {
+      cwd: path.win32.dirname(whereExecutable),
+      env: environment,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: 5_000,
+      shell: false
+    });
+    if (result?.error || result?.status !== 0) return null;
+    const allowed = new Set(candidates.map((entry) => entry.toLowerCase()));
+    const resolved = String(result.stdout ?? '').split(/\r?\n/u)
+      .map((entry) => entry.trim())
+      .filter((entry) => isFullyQualifiedWindowsPath(entry)
+        && allowed.has(path.win32.basename(entry).toLowerCase()));
+    for (const candidate of candidates) {
+      selected = resolved.find((entry) => path.win32.basename(entry).toLowerCase()
+        === candidate.toLowerCase()) ?? null;
+      if (selected) break;
+    }
+  }
+  if (selected && cache && !verifiedDirect) {
     try {
       const info = lstatSyncCommand(selected);
       if (!info?.isFile?.() || info.isSymbolicLink?.()) selected = null;
@@ -228,7 +260,7 @@ export function resolveWindowsPathExecutable(command, {
     if (WINDOWS_EXECUTABLE_CACHE.size >= WINDOWS_EXECUTABLE_CACHE_LIMIT) {
       WINDOWS_EXECUTABLE_CACHE.delete(WINDOWS_EXECUTABLE_CACHE.keys().next().value);
     }
-    WINDOWS_EXECUTABLE_CACHE.set(cacheKey, selected);
+    WINDOWS_EXECUTABLE_CACHE.set(cacheKey, { executable: selected, verifiedAt: now });
   }
   return selected;
 }
@@ -418,7 +450,7 @@ export function resolvePlatformProcess(command, args = [], {
     }
     const physicalExecutable = isFullyQualifiedWindowsPath(logicalCommand)
       ? logicalCommand
-      : resolveWindowsPathExecutable('git.exe', { environment, spawnSyncCommand });
+      : resolveWindowsPathExecutable('git.exe', { environment, spawnSyncCommand, lstatSyncCommand });
     if (!physicalExecutable) {
       throw new TypeError('Windows could not resolve a native git.exe from PATH.');
     }
@@ -439,7 +471,7 @@ export function resolvePlatformProcess(command, args = [], {
   if (!physicalExecutable) {
     physicalExecutable = isFullyQualifiedWindowsPath(logicalCommand)
       ? logicalCommand
-      : resolveWindowsPathExecutable(logicalCommand, { environment, spawnSyncCommand });
+      : resolveWindowsPathExecutable(logicalCommand, { environment, spawnSyncCommand, lstatSyncCommand });
   }
   if (!physicalExecutable) {
     throw new TypeError(`Windows could not resolve ${logicalCommand} from PATH.`);
@@ -492,22 +524,38 @@ const AUTOMATIC_MAINTENANCE_OFF = [['maintenance.auto', 'false'], ['gc.auto', '0
 const GIT_CONFIG_COUNT = 'GIT_CONFIG_COUNT';
 
 // Git reads its environment case-sensitively on POSIX and case-insensitively on Windows. Node
-// drops variables whose value is undefined, so Git never sees them.
-function gitEnvironmentSpellings(env, name, platform) {
-  return (platform === 'win32' ? Object.keys(env).filter((key) => key.toUpperCase() === name) : [name])
-    .filter((key) => Object.hasOwn(env, key) && env[key] !== undefined);
+// drops variables whose value is undefined, so Git never sees them. Build a single-pass uppercase
+// key index on Windows instead of rescanning `Object.keys(env)` for each variable lookup.
+function windowsUppercaseKeyIndex(env) {
+  const index = new Map();
+  for (const key of Object.keys(env)) {
+    if (!Object.hasOwn(env, key) || env[key] === undefined) continue;
+    const upper = key.toUpperCase();
+    const list = index.get(upper);
+    if (list) list.push(key);
+    else index.set(upper, [key]);
+  }
+  return index;
 }
 
-function gitEnvironmentValue(env, name, platform) {
-  const values = [...new Set(gitEnvironmentSpellings(env, name, platform).map((key) => String(env[key])))];
+function gitEnvironmentSpellings(env, name, platform, winIndex = null) {
+  if (platform === 'win32') {
+    return (winIndex ?? windowsUppercaseKeyIndex(env)).get(name) ?? [];
+  }
+  return Object.hasOwn(env, name) && env[name] !== undefined ? [name] : [];
+}
+
+function gitEnvironmentValue(env, name, platform, winIndex = null) {
+  const values = [...new Set(gitEnvironmentSpellings(env, name, platform, winIndex).map((key) => String(env[key])))];
   return values.length === 1 ? values[0] : values.length ? null : undefined;
 }
 
 /** Preserve transport configuration, but never ask for interactive credentials in a CLI child. */
 export function withoutInteractiveGitPrompts(env = process.env, { platform = process.platform } = {}) {
   const result = { ...env };
+  const winIndex = platform === 'win32' ? windowsUppercaseKeyIndex(result) : null;
   for (const [name, value] of [['GIT_TERMINAL_PROMPT', '0'], ['GCM_INTERACTIVE', 'Never']]) {
-    for (const spelling of gitEnvironmentSpellings(result, name, platform)) delete result[spelling];
+    for (const spelling of gitEnvironmentSpellings(result, name, platform, winIndex)) delete result[spelling];
     result[name] = value;
   }
   return result;
@@ -516,7 +564,8 @@ export function withoutInteractiveGitPrompts(env = process.env, { platform = pro
 /** A copy of `env` whose Git child cannot start automatic maintenance. */
 export function withoutAutomaticGitMaintenance(env = process.env, { platform = process.platform } = {}) {
   const source = env ?? {};
-  const countText = gitEnvironmentValue(source, GIT_CONFIG_COUNT, platform);
+  const winIndex = platform === 'win32' ? windowsUppercaseKeyIndex(source) : null;
+  const countText = gitEnvironmentValue(source, GIT_CONFIG_COUNT, platform, winIndex);
   // Git refuses a malformed or ambiguous count, or one naming more entries than the environment
   // holds, before it runs anything: nothing can be added to it safely and nothing needs to be.
   // Otherwise Git parses the count with strtoul.
@@ -526,16 +575,16 @@ export function withoutAutomaticGitMaintenance(env = process.env, { platform = p
   if (!Number.isSafeInteger(count) || count * 2 > Object.keys(source).length) return source;
   const effective = new Map();
   for (let index = 0; index < count; index += 1) {
-    const key = gitEnvironmentValue(source, `GIT_CONFIG_KEY_${index}`, platform);
-    if (typeof key === 'string') effective.set(key.toLowerCase(), gitEnvironmentValue(source, `GIT_CONFIG_VALUE_${index}`, platform));
+    const key = gitEnvironmentValue(source, `GIT_CONFIG_KEY_${index}`, platform, winIndex);
+    if (typeof key === 'string') effective.set(key.toLowerCase(), gitEnvironmentValue(source, `GIT_CONFIG_VALUE_${index}`, platform, winIndex));
   }
   if (AUTOMATIC_MAINTENANCE_OFF.every(([key, value]) => effective.get(key) === value)) return source;
   const result = { ...source };
-  for (const key of gitEnvironmentSpellings(source, GIT_CONFIG_COUNT, platform)) delete result[key];
+  for (const key of gitEnvironmentSpellings(source, GIT_CONFIG_COUNT, platform, winIndex)) delete result[key];
   let index = count;
   for (const [key, value] of AUTOMATIC_MAINTENANCE_OFF) {
     for (const name of [`GIT_CONFIG_KEY_${index}`, `GIT_CONFIG_VALUE_${index}`]) {
-      for (const spelling of gitEnvironmentSpellings(source, name, platform)) delete result[spelling];
+      for (const spelling of gitEnvironmentSpellings(source, name, platform, winIndex)) delete result[spelling];
     }
     result[`GIT_CONFIG_KEY_${index}`] = key;
     result[`GIT_CONFIG_VALUE_${index}`] = value;

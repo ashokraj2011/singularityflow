@@ -96,7 +96,7 @@
  * static import graph.
  */
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const MAXIMUM_ENTRIES = 4_096;
@@ -106,6 +106,7 @@ const MAXIMUM_ANSWER_BYTES = 1024 * 1024;
 // Git configuration, whose path is compiled into Git.
 export const GIT_FACT_TTL_MS = 15 * 60 * 1000;
 const entries = new Map();
+const includeChecks = new Map();
 let hits = 0;
 let storeHits = 0;
 // The session store (git-fact-store.mjs), when the CLI installed one.
@@ -233,6 +234,12 @@ function objectQuery(command, rest) {
     .every((arg) => LS_TREE_FLAGS.has(arg) || /^-[rzdtl]+$/u.test(arg) || LS_TREE_FORMAT.test(arg));
 }
 
+function statIdentity(info) {
+  if (info.ino !== 0n) return String(info.ino);
+  if (info.birthtimeNs > 0n) return `b${info.birthtimeNs}`;
+  return null;
+}
+
 /** The file's identity and timestamps; with OBJECT_STORE, those of every loose fan-out and the pack directory. */
 function fingerprint(file, mode = FULL) {
   if (mode === OBJECT_STORE) return objectStoreFingerprint(file);
@@ -240,13 +247,15 @@ function fingerprint(file, mode = FULL) {
     const info = lstatSync(file, { bigint: true, throwIfNoEntry: false });
     if (!info) return 'absent';
     // Filesystems without stable file identities, and indirections whose targets are untracked,
-    // cannot prove that a prior answer is still current.
-    if (info.ino === 0n || info.isSymbolicLink()) return null;
+    // cannot prove that a prior answer is still current. On Windows volumes where `lstatSync`
+    // reports `ino === 0n`, fall back to the 100ns creation timestamp (`birthtimeNs`).
+    const identity = info.isSymbolicLink() ? null : statIdentity(info);
+    if (!identity) return null;
     // The .git marker's identity matters, not index lock churn. Replacement-ref directories do
     // need timestamps to invalidate atomic updates to children without changing the directory inode.
-    if (info.isDirectory()) return mode === IDENTITY ? `dir:${info.ino}`
-      : `dir:${info.ino}:${info.mtimeNs}:${info.ctimeNs}`;
-    return `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+    if (info.isDirectory()) return mode === IDENTITY ? `dir:${identity}`
+      : `dir:${identity}:${info.mtimeNs}:${info.ctimeNs}`;
+    return `${identity}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
   } catch (error) {
     return error?.code === 'ENOTDIR' ? 'absent' : null;
   }
@@ -256,15 +265,30 @@ function fingerprint(file, mode = FULL) {
  * One value for the whole object store: deleting a loose object changes its fan-out directory and
  * a repack changes the pack directory, so an answer that proved objects present is read again.
  * The newest timestamp leads, so the session store can tell a racy (too recent) value apart.
+ *
+ * Listing `objects` once with `readdirSync` avoids 256 `lstatSync` calls against absent loose
+ * fan-out directories on every lookup (especially costly on Windows NTFS filter drivers) while
+ * feeding the exact same per-entry lines into the SHA-256 digest.
  */
 function objectStoreFingerprint(objects) {
+  let present;
+  try {
+    present = new Set(readdirSync(objects));
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') present = new Set();
+    else return null;
+  }
   const digest = createHash('sha256');
   let newest = 0n;
   for (const name of [...FANOUT, 'pack']) {
-    const value = fingerprint(path.join(objects, name));
+    const value = present.has(name) ? fingerprint(path.join(objects, name)) : 'absent';
     if (value === null) return null;
     digest.update(`${name}=${value}\n`);
-    for (const stamp of value.split(':').slice(-2)) if (/^\d+$/u.test(stamp) && BigInt(stamp) > newest) newest = BigInt(stamp);
+    if (value !== 'absent') {
+      for (const stamp of value.split(':').slice(-2)) {
+        if (/^\d+$/u.test(stamp) && BigInt(stamp) > newest) newest = BigInt(stamp);
+      }
+    }
   }
   return `objects:${newest}:${digest.digest('hex')}`;
 }
@@ -332,11 +356,19 @@ function systemConfigFiles(env, platform) {
 }
 
 function readsIncludes(file) {
+  const stamp = fingerprint(file, FULL);
+  if (stamp === 'absent') return false;
+  if (stamp === null) return true;
+  const cached = includeChecks.get(file);
+  if (cached?.stamp === stamp) return cached.hasInclude;
   try {
     const info = lstatSync(file);
     if (!info.isFile()) return false;
-    if (info.size > 1024 * 1024) return true;
-    return /^\s*\[\s*include/imu.test(readFileSync(file, 'utf8'));
+    const hasInclude = info.size > 1024 * 1024
+      || /^\s*\[\s*include/imu.test(readFileSync(file, 'utf8'));
+    if (includeChecks.size >= MAXIMUM_ENTRIES) includeChecks.clear();
+    includeChecks.set(file, { stamp, hasInclude });
+    return hasInclude;
   } catch { return false; }
 }
 
@@ -345,10 +377,12 @@ function readsIncludes(file) {
  * tied to files.
  */
 function dependencies(kind, checkout, env, platform, executable = null) {
-  const configuration = [path.join(checkout.commonDir, 'config'),
-    path.join(checkout.gitDir, 'config.worktree'), ...globalConfigFiles(env, platform),
-    ...systemConfigFiles(env, platform)];
-  if (configuration.some(readsIncludes)) return null;
+  const localConfiguration = [path.join(checkout.commonDir, 'config'),
+    path.join(checkout.gitDir, 'config.worktree')];
+  const hostConfiguration = [...globalConfigFiles(env, platform), ...systemConfigFiles(env, platform)];
+  const configuration = [...localConfiguration, ...hostConfiguration];
+  if (localConfiguration.some(readsIncludes)) return null;
+  if ((kind === 'config' || kind === 'location') && hostConfiguration.some(readsIncludes)) return null;
   // A linked worktree's commondir pointer may change without its .git marker or HEAD changing.
   const topology = [checkout.marker, path.join(checkout.gitDir, 'commondir')];
   // Without GIT_NO_REPLACE_OBJECTS, a replace ref created mid-run changes what an object ID peels to.
@@ -401,6 +435,10 @@ function lstatSafe(file) {
 export function gitFactRequest(args, { cwd, env = process.env, stdio = 'pipe', input, encoding = 'utf8', shell = false, injected = false, platform = process.platform, executable = null }) {
   if (injected || shell || stdio !== 'pipe' || input != null || encoding !== 'utf8') return null;
   if (!enabled(env) || !Array.isArray(args)) return null;
+  const kind = gitFactKind(args);
+  if (!kind) return null;
+  // Another index file is somebody's scratch staging area; only the checkout's own index is tracked.
+  if (kind === 'index' && env.GIT_INDEX_FILE) return null;
   // Git for Windows treats environment names case-insensitively. Decline ambiguous aliases
   // instead of normalizing caller-owned authority and accidentally sharing two different reads.
   if (platform === 'win32' && Object.keys(env).some((name) =>
@@ -408,10 +446,6 @@ export function gitFactRequest(args, { cwd, env = process.env, stdio = 'pipe', i
       && name !== name.toUpperCase())) return null;
   if (platform === 'win32' && windowsVariable(env, 'PROGRAMDATA') === undefined) return null;
   if (RELOCATING.some((name) => env[name] != null && env[name] !== '')) return null;
-  const kind = gitFactKind(args);
-  if (!kind) return null;
-  // Another index file is somebody's scratch staging area; only the checkout's own index is tracked.
-  if (kind === 'index' && env.GIT_INDEX_FILE) return null;
   const directory = path.resolve(cwd ?? process.cwd());
   const variables = [...KEYED, ...Object.keys(env).filter((name) => name.startsWith('GIT_')).sort()]
     .map((name) => `${name}=${env[name] ?? ''}`)
@@ -533,6 +567,7 @@ export function withFreshGitFacts(read) {
 /** Forget every answer. Tests use it; nothing in the product needs to. */
 export function clearGitFactCache() {
   entries.clear();
+  includeChecks.clear();
   hits = 0;
   storeHits = 0;
   persistence?.clear?.();

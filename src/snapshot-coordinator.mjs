@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { TimingCollector } from './dx-timings.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { parsePorcelainV2Revision } from './git-status-projection.mjs';
+import { withFreshReadScope } from './read-scope.mjs';
 import { SingularityFlowError, run } from './util.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 
@@ -114,7 +115,8 @@ export class SnapshotCoordinator {
       // One reload, against the newer revision. A single retry clears the ordinary case — one edit
       // landing mid-read — without turning a repository under continuous write into a spin.
       revision = after;
-      value = await timer.measure('reload', async () => read({ revision }));
+      // The first load's scope holds what it saw before the repository moved; the reload starts clean.
+      value = await timer.measure('reload', async () => withFreshReadScope(() => read({ revision })));
       after = await timer.measure('revisionAfterReload', async () => this.#revision());
       if (!sameRevision(revision, after)) {
         // Still moving: something is writing continuously, which during a running phase is normal

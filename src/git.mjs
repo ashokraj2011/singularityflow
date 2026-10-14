@@ -807,8 +807,13 @@ export function remoteUrl(root, remote = 'origin', { env = process.env } = {}) {
   return observed.status === 0 ? observed.stdout.trim() : null;
 }
 
+/**
+ * The working tree's status. Inside a read scope it is asked once: a full snapshot asked three
+ * times, and on a large Windows checkout each one is a scan of every file.
+ */
 export function changes(root) {
-  return git(['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root }).stdout;
+  return scopedReadSync(`git.changes:${path.resolve(root)}`, () =>
+    git(['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root }).stdout);
 }
 
 /** Exact local status roster for lifecycle decisions; paths are never quote/line parsed. */
@@ -956,7 +961,8 @@ export async function fetchRemote(root, remote = 'origin', options = {}) {
 export async function fetchOrigin(root) { return fetchRemote(root, 'origin'); }
 
 export function hasUpstream(root) {
-  return git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], { cwd: root, allowFailure: true }).status === 0;
+  return scopedReadSync(`git.hasUpstream:${path.resolve(root)}`, () =>
+    git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], { cwd: root, allowFailure: true }).status === 0);
 }
 
 export async function pullFastForward(root) {

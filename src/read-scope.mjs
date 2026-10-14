@@ -41,6 +41,14 @@ export async function withReadScope(fn) {
 }
 
 /**
+ * Open a new read scope even inside an open one, for a read that must not see what the enclosing
+ * scope already observed: a snapshot reloading because the repository moved under its first read.
+ */
+export async function withFreshReadScope(fn) {
+  return scopes.run(new Map(), fn);
+}
+
+/**
  * Compute `key` once per scope.
  *
  * The *promise* is stored rather than the result, because concurrent callers must share one

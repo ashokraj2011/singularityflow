@@ -860,9 +860,9 @@
     },
     "src/git-ref-tree.mjs": {
       "counts": {
-        "command-runCommand": 6
+        "command-runCommand": 7
       },
-      "digest": "885aeaad527cd9ebf3dc71989654bbd0f40a948d798b8d5304dc26dffbd79d78"
+      "digest": "e7ac7703dbcea205b8656fbbc3a582c09fe0c3f2209d11aee5c98861d6cf7211"
     },
     "src/git-remote-diagnostics.mjs": {
       "counts": {

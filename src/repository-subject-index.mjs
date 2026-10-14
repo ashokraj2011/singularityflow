@@ -337,11 +337,26 @@ function prefetchRefSubjects(root, refs, { workRoot, initiativeRoot, env }) {
   };
   const blobs = (oids) => read([...new Set(oids)]);
   const configurationPaths = ['singularity/workflow.yml', 'singularity/portfolio.yml'];
-  const located = resolve(distinct.flatMap((commit) => configurationPaths.map((relative) => (
+  // The default subject roots are walked with the configuration paths, and their trees are read in
+  // the configuration batch: when configuration keeps the defaults, which it nearly always does,
+  // the subject directories below are already listed.
+  const initialPaths = [...new Set([...configurationPaths, workRoot, initiativeRoot])];
+  const located = resolve(distinct.flatMap((commit) => initialPaths.map((relative) => (
     { key: `${commit}:${relative}`, tree: rootTrees.get(commit), parts: relative.split('/') }))));
   if (!located) return null;
-  const configurationBlobs = blobs([...located.values()].filter((entry) => entry.status === 'found').map((entry) => entry.oid));
+  const rootTreeOids = [...new Set([...located.values()]
+    .filter((entry) => entry.status === 'found' && entry.mode === '40000' && !trees.has(entry.oid))
+    .map((entry) => entry.oid))];
+  const configurationBlobOids = [...new Set(distinct.flatMap((commit) => configurationPaths
+    .map((relative) => located.get(`${commit}:${relative}`))
+    .filter((entry) => entry?.status === 'found' && entry.mode !== '40000')
+    .map((entry) => entry.oid)))];
+  const configurationBlobs = blobs([...configurationBlobOids, ...rootTreeOids]);
   if (!configurationBlobs) return null;
+  for (const oid of rootTreeOids) {
+    const answer = configurationBlobs.get(oid);
+    trees.set(oid, answer?.status === 'ok' && answer.type === 'tree' ? treeEntries(answer.bytes, oidLength) ?? 'malformed' : 'unavailable');
+  }
   const parsed = new Map();
   const files = new Map();
   const roots = new Map();

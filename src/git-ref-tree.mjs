@@ -287,14 +287,52 @@ export function readRefTree(root, ref, pathspecs = [], options = {}) {
 }
 
 /**
- * Many object reads in two Git processes, for scans that otherwise run several processes per ref.
+ * Up to 256 object IDs in one `cat-file --batch`, without asking their sizes first. `[perf]`
+ *
+ * Most reads are a level of small trees or a handful of configuration blobs that all exist, so
+ * the size check only doubled the processes. Any answer that is not a whole object within the
+ * limits, verified against its ID, returns null and the caller takes the sized path, which
+ * answers that object exactly as it always has.
+ */
+function readObjectsWithoutSizing(root, unique, { runCommand, localEnv, maxObjectBytes, maxBatchBytes }) {
+  if (unique.length > 256 || !unique.every((spec) => /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(spec))) return null;
+  const budget = Math.min(Math.max(1, maxBatchBytes), unique.length * maxObjectBytes);
+  if (!Number.isSafeInteger(budget) || budget < 0) return null;
+  const batch = runCommand('git', ['cat-file', '--batch'], {
+    cwd: root, allowFailure: true, encoding: 'buffer', env: localEnv,
+    maxBuffer: budget + HEADER_ALLOWANCE, input: `${unique.join('\n')}\n`
+  });
+  if (batch.status !== 0 || batch.timedOut || batch.error) return null;
+  const buffer = Buffer.isBuffer(batch.stdout) ? batch.stdout : Buffer.from(batch.stdout ?? '', 'utf8');
+  const answers = new Map();
+  let cursor = 0;
+  for (const spec of unique) {
+    const newline = buffer.indexOf(0x0a, cursor);
+    if (newline < 0) return null;
+    const [oid, type, rawSize, extra] = buffer.toString('utf8', cursor, newline).trim().split(' ');
+    const size = Number(rawSize);
+    if (extra !== undefined || oid !== spec || !Number.isSafeInteger(size) || size < 0 || size > maxObjectBytes) return null;
+    const start = newline + 1; const end = start + size;
+    if (end >= buffer.length || buffer[end] !== 0x0a) return null;
+    const body = buffer.subarray(start, end);
+    const actual = createHash(oid.length === 64 ? 'sha256' : 'sha1').update(`${type} ${size}\0`).update(body).digest('hex');
+    if (actual !== oid) return null;
+    answers.set(spec, { status: 'ok', oid, type, size, bytes: Buffer.from(body) });
+    cursor = end + 1;
+  }
+  return cursor === buffer.length ? answers : null;
+}
+
+/**
+ * Many object reads in one or two Git processes, for scans that otherwise run several per ref.
  *
  * `specs` are `<rev>:<path>` or object IDs. Each answer is `{ status: 'ok', oid, type, size,
  * bytes }`, `{ status: 'missing' }` when the path (or ref) does not exist, `{ status: 'unavailable',
  * reason }` when the object exists but is not readable here (a blobless clone) or Git answered
- * something else, or `{ status: 'too-large', oid, size }`. Sizes are checked first, so an object over
- * the limit is never read, and every body is checked against its object ID before it is returned.
- * Returns null when Git itself fails, so a caller keeps its exact per-ref path for that case.
+ * something else, or `{ status: 'too-large', oid, size }`. A small set of object IDs is read in one
+ * process (above); otherwise sizes are checked first, so an object over the limit is never read.
+ * Every body is checked against its object ID before it is returned. Returns null when Git itself
+ * fails, so a caller keeps its exact per-ref path for that case.
  */
 export function readObjectsBatch(root, specs, {
   runCommand = run, env = process.env, maxObjectBytes = DEFAULT_OBJECT_BYTES, maxBatchBytes = DEFAULT_BATCH_BYTES, checkOnly = false
@@ -304,6 +342,10 @@ export function readObjectsBatch(root, specs, {
   if (!unique.length) return answers;
   if (unique.some((spec) => typeof spec !== 'string' || !spec || /[\r\n]/u.test(spec))) return null;
   const localEnv = gitEnvironment(env);
+  if (!checkOnly) {
+    const unsized = readObjectsWithoutSizing(root, unique, { runCommand, localEnv, maxObjectBytes, maxBatchBytes });
+    if (unsized) return unsized;
+  }
   const checked = runCommand('git', ['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], {
     cwd: root, allowFailure: true, env: localEnv, maxBuffer: unique.length * 256 + 1024, input: `${unique.join('\n')}\n`
   });

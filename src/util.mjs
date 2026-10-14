@@ -16,7 +16,7 @@ import { displayWidth, padDisplay, terminalWidth, truncateDisplay } from './styl
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { assertLocalReadDeadline, localReadDeadlineRemainingMs, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
 import { APPLE_GIT_UNAVAILABLE_MESSAGE, gitDeveloperToolsUnavailable, gitHostChildEnvironment } from './git-host-selection.mjs';
-import { cachedGitFact, gitFactRequest, gitFactSnapshot, rememberGitFact } from './git-fact-cache.mjs';
+import { cachedGitFact, gitFactRequest, gitFactSnapshot, gitFactStoreHits, rememberGitFact } from './git-fact-cache.mjs';
 
 export class SingularityFlowError extends Error {
   constructor(message, { exitCode = 1, code = null, details = null, cause = undefined } = {}) {
@@ -649,13 +649,6 @@ export function run(command, args = [], {
     }
     return { status: 1, stdout: '', stderr: '', error: undefined, timedOut: false, blocked: true };
   }
-  // A repeated local question whose files have not changed is answered without a process; see
-  // git-fact-cache.mjs for what qualifies. The answer still passes through every check below.
-  const factRequest = command === 'git' ? gitFactRequest(args, {
-    cwd, env, stdio, input, encoding, shell, injected: spawnSyncCommand !== spawnSync, platform
-  }) : null;
-  const cachedFact = cachedGitFact(factRequest);
-  const probe = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE && !cachedFact ? performance.now() : 0;
   let launch;
   try {
     launch = shell
@@ -672,6 +665,18 @@ export function run(command, args = [], {
     const empty = encoding === 'buffer' ? Buffer.alloc(0) : '';
     return { status: 1, stdout: empty, stderr: empty, error, signal: null, timedOut: false, blocked: false };
   }
+  // A repeated local question whose files have not changed is answered without a process; see
+  // git-fact-cache.mjs for what qualifies. The answer still passes through every check below. The
+  // resolved executable is part of the question: another Git on PATH is asked afresh.
+  const factRequest = command === 'git' ? gitFactRequest(args, {
+    cwd, env, stdio, input, encoding, shell, injected: spawnSyncCommand !== spawnSync, platform,
+    executable: launch.physicalExecutable ?? launch.executable
+  }) : null;
+  const storeHitsBefore = factRequest ? gitFactStoreHits() : 0;
+  let cachedFact = cachedGitFact(factRequest);
+  // An answer larger than the caller allows would have failed as ENOBUFS; let Git answer.
+  if (cachedFact && maxBuffer !== undefined && Buffer.byteLength(cachedFact.stdout) > maxBuffer) cachedFact = null;
+  const probe = process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE && !cachedFact ? performance.now() : 0;
   if (scopedGitRead) {
     // Node treats null/zero as no timeout. They must not disable an enclosing read deadline;
     // reject other invalid values without coercing a caller-owned object or string.
@@ -693,6 +698,7 @@ export function run(command, args = [], {
   } else if (cachedFact && recordGitTiming) {
     incrementCommandCounter('git.requests');
     incrementCommandCounter('git.fact-cache-hits');
+    if (gitFactStoreHits() > storeHitsBefore) incrementCommandCounter('git.fact-store-hits');
   }
   const factBefore = factRequest && !cachedFact ? gitFactSnapshot(factRequest) : null;
   let result = cachedFact;

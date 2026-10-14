@@ -5,6 +5,7 @@ import { commandDefinition, operationById, resolveOperation } from './command-re
 import {
   commandTimer, recordCommandTiming, withCommandTiming, writeCommandTimings
 } from './dx-command-timing.mjs';
+import { installGitFactStore } from './git-fact-store.mjs';
 import { repoRoot } from './git-execution.mjs';
 import {
   gitReadOutput, optionBoolean, optionString, optionStrings, parseArgs, requirePositional, run, SingularityFlowError
@@ -552,6 +553,8 @@ export async function withExplicitRepositoryMutationLeases(roots, operationId, c
 }
 
 export async function main(argv) {
+  // Git answers earlier commands in this session already proved; see git-fact-store.mjs.
+  installGitFactStore();
   const uninstall = installFileLeaseSignalHandlers();
   try { return await withCliJsonOutput(optionBoolean(parseArgs(argv).options, 'json'), () => runMain(argv)); }
   finally { uninstall(); }

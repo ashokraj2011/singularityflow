@@ -18,12 +18,9 @@
  *
  * Only answers Git completed are kept; an error, a signal or a timeout is never cached.
  *
- * Two things are deliberately not cached. Branch, tag and remote-tracking refs move under a running
+ * Branch, tag and remote-tracking refs are deliberately not cached: they move under a running
  * command when another program fetches, and the callers that read them are deciding what to
- * publish. Object reads (`show <sha>:path`, `ls-tree <sha>`) have content that never changes, but
- * a read is also a proof that the object is present here, under this environment, now: destructive
- * readiness checks depend on that proof, and a pruned object or an alternate object store would make
- * a remembered answer a false one.
+ * publish.
  *
  * ## When it does not apply
  *
@@ -34,8 +31,10 @@
  *
  * One assumption is made: the system-wide Git configuration (for example
  * `/opt/homebrew/etc/gitconfig`, or `etc\gitconfig` under a Git for Windows installation) does not
- * change during one command. Its location is compiled into Git and cannot be found without asking
- * Git, so it is tracked only when `GIT_CONFIG_SYSTEM` names it.
+ * change within 15 minutes of an answer. Its location is compiled into Git and cannot be found
+ * without asking Git, so it is tracked only when `GIT_CONFIG_SYSTEM` names it, and no answer is
+ * used more than 15 minutes after it was recorded. The executable that answered is part of the key
+ * and fingerprinted, so another or an upgraded Git asks again.
  *
  * ## Windows
  *
@@ -75,17 +74,46 @@
  * no date limits, no relative or abbreviated formats (an abbreviated hash grows with the object
  * count), no `--follow`.
  *
+ * ## Objects
+ *
+ * A single object read by its full ID (`show <ID>:<path>`, a peeled `rev-parse`, `cat-file`
+ * without standard input, `ls-tree`) has content that never changes, but each read was also the
+ * proof that the object is present here now, which destructive readiness checks rely on. So it is
+ * tied to the object store, like history: one fingerprint over every loose-object fan-out directory
+ * and the pack directory. A deleted, pruned or repacked object is asked of Git again and refused as
+ * before. `merge-base --is-ancestor` between two IDs is kept the same way, "not an ancestor"
+ * included. A borrowed (alternates) or relocated object store is not fingerprinted, so those answers
+ * go to Git, as does `show <ID>`, whose commit output depends on diff settings and attributes.
+ *
+ * ## Across commands in a session
+ *
+ * Every command is a new process. The CLI installs `git-fact-store.mjs`, which loads a
+ * repository's answers the first time a command asks about it and writes new ones back when the
+ * process exits, so every command in a session starts with what earlier commands proved. A stored
+ * answer is checked exactly like a fresh one before it is used.
+ *
  * This module imports nothing but Node, so `util.mjs` can use it without growing any command's
  * static import graph.
  */
+import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const MAXIMUM_ENTRIES = 4_096;
 // Answers larger than this are rare and cheap to ask for again relative to holding them.
 const MAXIMUM_ANSWER_BYTES = 1024 * 1024;
+// No answer outlives this. It bounds the one input that cannot be fingerprinted: the machine-wide
+// Git configuration, whose path is compiled into Git.
+export const GIT_FACT_TTL_MS = 15 * 60 * 1000;
 const entries = new Map();
 let hits = 0;
+let storeHits = 0;
+// The session store (git-fact-store.mjs), when the CLI installed one.
+let persistence = null;
+// Fingerprint modes: every stat field, the identity alone (the .git marker), or the object store.
+const FULL = 0;
+const IDENTITY = 1;
+const OBJECT_STORE = 2;
 
 const SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
 const LOCATION_FLAGS = new Set([
@@ -106,6 +134,11 @@ const HEAD_QUERIES = new Set([
 const CONFIG_READS = new Set(['--get', '--get-all', '--get-regexp', '-l', '--list']);
 const REF_FORMAT_FLAGS = new Set(['--branch', '--allow-onelevel', '--no-allow-onelevel', '--refspec-pattern']);
 const FANOUT = Array.from({ length: 256 }, (_, index) => index.toString(16).padStart(2, '0'));
+// `<object ID>:<path>` from the tree's root; `./` and `../` would make it depend on the directory.
+const OBJECT_PATH = /^[0-9a-f]{40}(?:[0-9a-f]{24})?:(?!\.{1,2}\/)(?:.+)$/u;
+const PEELED = /^[0-9a-f]{40}(?:[0-9a-f]{24})?\^\{(?:tree|commit|blob)\}$/u;
+const LS_TREE_FLAGS = new Set(['-r', '-z', '-d', '-t', '-l', '--long', '--name-only', '--name-status', '--object-only', '--full-tree', '--full-name']);
+const LS_TREE_FORMAT = /^--format=(?:%\((?:objectmode|objecttype|objectname|objectsize(?::padded)?|path)\)|%x[0-9a-fA-F]{2}|[^%])*$/u;
 // Cached-mode listing flags: the index alone answers them.
 const INDEX_FLAGS = new Set(['--stage', '-s', '-z', '-v', '--unmerged', '-u', '--cached', '-c', '--full-name']);
 const HISTORY_FLAGS = new Set(['--reverse', '--full-history', '--first-parent', '--no-merges', '-z']);
@@ -118,9 +151,12 @@ const CONFIG_MODIFIERS = new Set([
 // Variables that relocate the repository or inject configuration. Present: not cached. Every other
 // `GIT_*` variable (an index file, no replace objects, no lazy fetch, literal pathspecs) is part of
 // the key instead, so callers with different environments never share an answer.
+// Another object directory (a scratch store, a quarantine) is not the one fingerprinted below.
 const RELOCATING = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GIT_NAMESPACE', 'GIT_CONFIG',
-  'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT', 'GIT_REPLACE_REF_BASE', 'GIT_SHALLOW_FILE', 'GIT_GRAFT_FILE'];
-const KEYED = ['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'XDG_CONFIG_HOME', 'LANG', 'LC_ALL', 'LC_MESSAGES'];
+  'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT', 'GIT_REPLACE_REF_BASE', 'GIT_SHALLOW_FILE', 'GIT_GRAFT_FILE',
+  'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_QUARANTINE_PATH'];
+// DEVELOPER_DIR picks which Git Apple's /usr/bin/git shim runs.
+const KEYED = ['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'XDG_CONFIG_HOME', 'LANG', 'LC_ALL', 'LC_MESSAGES', 'DEVELOPER_DIR'];
 
 function enabled(env) {
   return String(env.SINGULARITY_FLOW_GIT_FACT_CACHE ?? '').toLowerCase() !== 'off';
@@ -145,6 +181,10 @@ export function gitFactKind(args) {
       && rest.filter((arg) => arg.startsWith('-')).every((arg) => REF_FORMAT_FLAGS.has(arg)) ? 'ref-format' : null;
   }
   if (command === 'log') return historyQuery(rest) ? 'history' : null;
+  if (command === 'merge-base') {
+    return rest.length === 3 && rest[0] === '--is-ancestor' && SHA.test(rest[1]) && SHA.test(rest[2]) ? 'ancestry' : null;
+  }
+  if (['show', 'rev-parse', 'cat-file', 'ls-tree'].includes(command)) return objectQuery(command, rest) ? 'object' : null;
   if (command === 'ls-files') {
     const separator = rest.indexOf('--');
     return (separator < 0 ? rest : rest.slice(0, separator)).every((arg) => INDEX_FLAGS.has(arg)) ? 'index' : null;
@@ -169,20 +209,62 @@ function historyQuery(rest) {
     || HISTORY_FORMAT.test(arg.replace(/^--format=/u, '--format:')));
 }
 
-function fingerprint(file, identityOnly = false) {
+/**
+ * A single object read by its full ID: `show <ID>:<path>`, a peeled `rev-parse`, `cat-file`
+ * without standard input, or `ls-tree` with fields the objects fix. `show <ID>` is left to Git:
+ * a commit's output depends on diff configuration, attributes and signatures.
+ */
+function objectQuery(command, rest) {
+  if (command === 'show') return rest.length === 1 && OBJECT_PATH.test(rest[0]);
+  if (command === 'rev-parse') {
+    return rest.length >= 1 && rest.slice(0, -1).every((arg) => ['--verify', '--quiet', '-q'].includes(arg))
+      && /^[0-9a-f]{40}(?:[0-9a-f]{24})?\^\{(?:tree|commit)\}$/u.test(rest.at(-1));
+  }
+  if (command === 'cat-file') {
+    return rest.length === 2 && ['-t', '-s', '-e', '-p'].includes(rest[0])
+      && (SHA.test(rest[1]) || PEELED.test(rest[1]) || OBJECT_PATH.test(rest[1]));
+  }
+  const separator = rest.indexOf('--');
+  const before = separator < 0 ? rest : rest.slice(0, separator);
+  const objects = before.filter((arg) => !arg.startsWith('-'));
+  return objects.length === 1 && SHA.test(objects[0]) && before.filter((arg) => arg.startsWith('-'))
+    .every((arg) => LS_TREE_FLAGS.has(arg) || /^-[rzdtl]+$/u.test(arg) || LS_TREE_FORMAT.test(arg));
+}
+
+/** The file's identity and timestamps; with OBJECT_STORE, those of every loose fan-out and the pack directory. */
+function fingerprint(file, mode = FULL) {
+  if (mode === OBJECT_STORE) return objectStoreFingerprint(file);
   try {
-    const info = lstatSync(file, { bigint: true });
+    const info = lstatSync(file, { bigint: true, throwIfNoEntry: false });
+    if (!info) return 'absent';
     // Filesystems without stable file identities, and indirections whose targets are untracked,
     // cannot prove that a prior answer is still current.
     if (info.ino === 0n || info.isSymbolicLink()) return null;
     // The .git marker's identity matters, not index lock churn. Replacement-ref directories do
     // need timestamps to invalidate atomic updates to children without changing the directory inode.
-    if (info.isDirectory()) return identityOnly ? `dir:${info.ino}`
+    if (info.isDirectory()) return mode === IDENTITY ? `dir:${info.ino}`
       : `dir:${info.ino}:${info.mtimeNs}:${info.ctimeNs}`;
     return `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
   } catch (error) {
-    return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? 'absent' : null;
+    return error?.code === 'ENOTDIR' ? 'absent' : null;
   }
+}
+
+/**
+ * One value for the whole object store: deleting a loose object changes its fan-out directory and
+ * a repack changes the pack directory, so an answer that proved objects present is read again.
+ * The newest timestamp leads, so the session store can tell a racy (too recent) value apart.
+ */
+function objectStoreFingerprint(objects) {
+  const digest = createHash('sha256');
+  let newest = 0n;
+  for (const name of [...FANOUT, 'pack']) {
+    const value = fingerprint(path.join(objects, name));
+    if (value === null) return null;
+    digest.update(`${name}=${value}\n`);
+    for (const stamp of value.split(':').slice(-2)) if (/^\d+$/u.test(stamp) && BigInt(stamp) > newest) newest = BigInt(stamp);
+  }
+  return `objects:${newest}:${digest.digest('hex')}`;
 }
 
 /** The checkout `cwd` is in, and its private and shared Git directories, from the filesystem. */
@@ -256,39 +338,51 @@ function readsIncludes(file) {
   } catch { return false; }
 }
 
-/** The files `kind` answers from, or null when the answer cannot be tied to files. */
-function dependencies(kind, checkout, env, platform) {
+/**
+ * The files `kind` answers from, each with its fingerprint mode, or null when the answer cannot be
+ * tied to files.
+ */
+function dependencies(kind, checkout, env, platform, executable = null) {
   const configuration = [path.join(checkout.commonDir, 'config'),
     path.join(checkout.gitDir, 'config.worktree'), ...globalConfigFiles(env, platform),
     ...systemConfigFiles(env, platform)];
   if (configuration.some(readsIncludes)) return null;
   // A linked worktree's commondir pointer may change without its .git marker or HEAD changing.
   const topology = [checkout.marker, path.join(checkout.gitDir, 'commondir')];
-  // Without GIT_NO_REPLACE_OBJECTS, a replace ref created mid-run changes what `HEAD^{tree}` peels to.
+  // Without GIT_NO_REPLACE_OBJECTS, a replace ref created mid-run changes what an object ID peels to.
   const replacements = env.GIT_NO_REPLACE_OBJECTS === '1' ? []
     : [path.join(checkout.commonDir, 'refs', 'replace'), path.join(checkout.commonDir, 'packed-refs')];
+  // The Git that answers: another or an upgraded executable is asked again.
+  const program = typeof executable === 'string' && path.isAbsolute(executable) ? [executable] : [];
+  const files = (list) => [...new Set(list)].map((file) => [file, file === checkout.marker ? IDENTITY : FULL]);
   if (kind === 'location') {
-    return [...topology, path.join(checkout.commonDir, 'shallow'), ...configuration];
+    return files([...topology, path.join(checkout.commonDir, 'shallow'), ...configuration, ...program]);
   }
-  if (kind === 'index') return [...topology, path.join(checkout.gitDir, 'index'), ...configuration];
+  if (kind === 'index') return files([...topology, path.join(checkout.gitDir, 'index'), ...configuration, ...program]);
   if (lstatSafe(path.join(checkout.commonDir, 'reftable'))) return null;
+  // Which commits Git can see (the shallow boundary, grafts) and whether every object read is
+  // still here (the object store). A borrowed object store is not fingerprinted, so its objects
+  // cannot be proven present and those answers go to Git.
+  let visibility = [];
+  if (['history', 'object', 'ancestry'].includes(kind)) {
+    if (lstatSafe(path.join(checkout.commonDir, 'objects', 'info', 'alternates'))) return null;
+    visibility = [...files([path.join(checkout.commonDir, 'shallow'), path.join(checkout.commonDir, 'info', 'grafts')]),
+      [path.join(checkout.commonDir, 'objects'), OBJECT_STORE]];
+  }
+  if (kind === 'object' || kind === 'ancestry') {
+    return [...files([...topology, ...configuration, ...replacements, ...program]), ...visibility];
+  }
   if (kind === 'head' || kind === 'history') {
     const head = path.join(checkout.gitDir, 'HEAD');
-    // Which commits Git can see from HEAD (the shallow boundary, grafts, borrowed object stores),
-    // and whether they are all still here: deleting a loose object changes its fan-out directory
-    // and a repack changes the pack directory, so a lost object is read again and refused.
-    const visibility = kind === 'history' ? ['shallow', path.join('info', 'grafts'), path.join('objects', 'info', 'alternates'),
-      path.join('objects', 'pack'), ...FANOUT.map((name) => path.join('objects', name))]
-      .map((relative) => path.join(checkout.commonDir, relative)) : [];
     let text;
     try { text = readFileSync(head, 'utf8'); } catch { return null; }
     const ref = /^ref:\s*(refs\/\S+)\s*$/u.exec(text)?.[1];
-    if (!ref) return SHA.test(text.trim()) ? [...topology, head, ...configuration, ...replacements, ...visibility] : null;
+    if (!ref) return SHA.test(text.trim()) ? [...files([...topology, head, ...configuration, ...replacements, ...program]), ...visibility] : null;
     if (ref.split('/').some((part) => part === '..' || part === '')) return null;
-    return [...new Set([...topology, head, ...configuration, path.join(checkout.commonDir, ...ref.split('/')),
-      path.join(checkout.commonDir, 'packed-refs'), ...replacements, ...visibility])];
+    return [...files([...topology, head, ...configuration, path.join(checkout.commonDir, ...ref.split('/')),
+      path.join(checkout.commonDir, 'packed-refs'), ...replacements, ...program]), ...visibility];
   }
-  return [...topology, ...configuration];
+  return files([...topology, ...configuration, ...program]);
 }
 
 function lstatSafe(file) {
@@ -302,7 +396,7 @@ function lstatSafe(file) {
  * of the key (the arguments, the directory, and the variables that choose configuration files) or
  * a reason not to cache at all.
  */
-export function gitFactRequest(args, { cwd, env = process.env, stdio = 'pipe', input, encoding = 'utf8', shell = false, injected = false, platform = process.platform }) {
+export function gitFactRequest(args, { cwd, env = process.env, stdio = 'pipe', input, encoding = 'utf8', shell = false, injected = false, platform = process.platform, executable = null }) {
   if (injected || shell || stdio !== 'pipe' || input != null || encoding !== 'utf8') return null;
   if (!enabled(env) || !Array.isArray(args)) return null;
   // Git for Windows treats environment names case-insensitively. Decline ambiguous aliases
@@ -320,22 +414,42 @@ export function gitFactRequest(args, { cwd, env = process.env, stdio = 'pipe', i
   const variables = [...KEYED, ...Object.keys(env).filter((name) => name.startsWith('GIT_')).sort()]
     .map((name) => `${name}=${env[name] ?? ''}`)
     .concat(platform === 'win32' ? [`PROGRAMDATA=${windowsVariable(env, 'PROGRAMDATA') ?? ''}`] : []).join('\0');
-  return { kind, key: `${platform}\0${directory}\0${variables}\0${args.join('\0')}`, directory, env, platform };
+  return { kind, key: `${platform}\0${executable ?? ''}\0${directory}\0${variables}\0${args.join('\0')}`, directory, env, platform, executable };
 }
 
-/** A completed answer for `request` whose files have not changed, or null. */
+/**
+ * A completed answer for `request` whose files have not changed, or null. An answer the session
+ * store kept is adopted on first use and checked exactly like one this process recorded.
+ */
 export function cachedGitFact(request) {
   if (!request) return null;
-  const entry = entries.get(request.key);
+  let entry = entries.get(request.key);
+  let fromStore = false;
+  if (!entry && persistence) {
+    entry = persistence.lookup(request) ?? undefined;
+    if (entry) { fromStore = true; entries.set(request.key, entry); }
+  }
   if (!entry) return null;
-  for (const [file, expected, identityOnly] of entry.files) {
-    if (fingerprint(file, identityOnly) !== expected) {
+  const age = Date.now() - entry.recordedAt;
+  if (!(age <= GIT_FACT_TTL_MS && age >= -60_000)) {
+    entries.delete(request.key);
+    return null;
+  }
+  for (const [file, expected, mode] of entry.files) {
+    if (fingerprint(file, mode) !== expected) {
       entries.delete(request.key);
       return null;
     }
   }
   hits += 1;
+  if (fromStore) storeHits += 1;
   return { status: entry.status, stdout: entry.stdout, stderr: entry.stderr, error: undefined, signal: null };
+}
+
+function keep(request, entry) {
+  if (entries.size >= MAXIMUM_ENTRIES) entries.clear();
+  entries.set(request.key, entry);
+  persistence?.record(request, entry);
 }
 
 /** Keep Git's answer for `request` if it completed and can be tied to files that prove it current. */
@@ -343,42 +457,47 @@ export function rememberGitFact(request, result, { before = null } = {}) {
   if (!request || !result || result.error || result.signal || typeof result.stdout !== 'string') return;
   if (result.stdout.length > MAXIMUM_ANSWER_BYTES) return;
   const status = result.status;
-  // Only answers Git gave: success, or the documented "nothing here" of a configuration or HEAD read.
-  if (!(status === 0 || (status === 1 && ['config', 'head', 'ref-format'].includes(request.kind))
+  // Only answers Git gave: success, or the documented "nothing here" of a configuration, HEAD or
+  // ancestry read.
+  if (!(status === 0 || (status === 1 && ['config', 'head', 'ref-format', 'ancestry'].includes(request.kind))
     || (status === 2 && request.kind === 'config' && request.key.includes('\0get-url\0')))) return;
-  if (request.kind === 'ref-format') {
-    if (entries.size >= MAXIMUM_ENTRIES) entries.clear();
-    entries.set(request.key, { files: [], status, stdout: result.stdout, stderr: typeof result.stderr === 'string' ? result.stderr : '' });
-    return;
-  }
+  const answer = { status, stdout: result.stdout, stderr: typeof result.stderr === 'string' ? result.stderr : '', recordedAt: Date.now() };
+  if (request.kind === 'ref-format') return keep(request, { files: [], ...answer });
   const checkout = checkoutOf(request.directory);
   if (!checkout) return;
-  const files = dependencies(request.kind, checkout, request.env, request.platform);
+  const files = dependencies(request.kind, checkout, request.env, request.platform, request.executable);
   if (!files) return;
   const recorded = [];
-  for (const file of files) {
-    const identityOnly = file === checkout.marker;
-    const value = fingerprint(file, identityOnly);
+  for (const [file, mode] of files) {
+    // The value from just before Git ran: anything changed since then makes the next lookup ask again.
+    const value = before?.has(file) ? before.get(file) : fingerprint(file, mode);
     if (value === null) return;
-    // A file that changed while Git was answering may have been read either way: do not keep it.
-    if (before && before.get(file) !== undefined && before.get(file) !== value) return;
-    recorded.push([file, value, identityOnly]);
+    recorded.push([file, value, mode]);
   }
-  if (entries.size >= MAXIMUM_ENTRIES) entries.clear();
-  entries.set(request.key, { files: recorded, status, stdout: result.stdout, stderr: typeof result.stderr === 'string' ? result.stderr : '' });
+  keep(request, { files: recorded, ...answer });
 }
 
-/**
- * The dependency fingerprints just before Git runs, so an answer is only kept when nothing it
- * depends on changed while Git was reading it.
- */
+/** The dependency fingerprints just before Git runs; the answer is tied to these values. */
 export function gitFactSnapshot(request) {
   if (!request || request.kind === 'ref-format') return null;
   const checkout = checkoutOf(request.directory);
   if (!checkout) return null;
-  const files = dependencies(request.kind, checkout, request.env, request.platform);
+  const files = dependencies(request.kind, checkout, request.env, request.platform, request.executable);
   if (!files) return null;
-  return new Map(files.map((file) => [file, fingerprint(file, file === checkout.marker)]));
+  return new Map(files.map(([file, mode]) => [file, fingerprint(file, mode)]));
+}
+
+/** Install the session store (git-fact-store.mjs), or remove it with null. */
+export function attachGitFactPersistence(hooks) {
+  persistence = hooks ?? null;
+}
+
+/** The checkout a directory is in, and the fingerprint of one dependency, for the session store. */
+export { checkoutOf as gitFactCheckout, fingerprint as gitFactFingerprint };
+
+/** How many answers in this process came from the session store. */
+export function gitFactStoreHits() {
+  return storeHits;
 }
 
 /** How many answers came from this cache in this process, for timing counters and tests. */
@@ -390,4 +509,6 @@ export function gitFactCacheHits() {
 export function clearGitFactCache() {
   entries.clear();
   hits = 0;
+  storeHits = 0;
+  persistence?.clear?.();
 }

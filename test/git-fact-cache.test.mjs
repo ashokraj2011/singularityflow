@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -35,7 +35,7 @@ function asked(root, args, options = {}) {
   return run('git', args, { cwd: root, allowFailure: true, ...options });
 }
 
-test('only repository location, HEAD, the index, history from HEAD, configuration and ref-name checks are cacheable', () => {
+test('only repository location, HEAD, the index, history and single object reads, configuration and ref-name checks are cacheable', () => {
   const sha = 'a'.repeat(40);
   const cases = [
     [['branch', '--show-current'], 'head'],
@@ -53,11 +53,18 @@ test('only repository location, HEAD, the index, history from HEAD, configuratio
     [['check-ref-format', 'refs/remotes/origin/feature'], 'ref-format'],
     [['check-ref-format', '--branch', '@{-1}'], null],
     [['check-ref-format', '--normalize', 'refs/heads/x'], null],
-    // An object read is also a proof the object is present now; destructive checks rely on it.
-    [['show', `${sha}:singularity/workflow.yml`], null],
-    [['ls-tree', '-r', '-z', sha, '--', 'docs'], null],
-    [['rev-parse', '--verify', `${sha}^{tree}`], null],
-    [['cat-file', '-t', sha], null],
+    // A single object read by its full ID is tied to the object store, so it still proves presence.
+    [['show', `${sha}:singularity/workflow.yml`], 'object'],
+    [['ls-tree', '-r', '-z', sha, '--', 'docs'], 'object'],
+    [['ls-tree', '-rz', '--format=%(objectmode)%x09%(objecttype)%x09%(objectname)%x09%(path)', sha, '--'], 'object'],
+    [['rev-parse', '--verify', `${sha}^{tree}`], 'object'],
+    [['cat-file', '-t', sha], 'object'],
+    [['merge-base', '--is-ancestor', sha, sha], 'ancestry'],
+    // A path relative to the directory, an abbreviation, a commit's own output or stdin go to Git.
+    [['show', `${sha}:./a.txt`], null],
+    [['ls-tree', '--abbrev', sha], null],
+    [['cat-file', '--batch'], null],
+    [['merge-base', sha, sha], null],
     // Refs move under a running command when another program fetches: never cached.
     [['rev-parse', '--verify', 'refs/remotes/origin/main'], null],
     [['show-ref', '--verify', '--quiet', 'refs/heads/main'], null],
@@ -232,7 +239,111 @@ test('a missing configuration value is an answer; a failure and any object read 
   assert.equal(asked(root, ['show', `${head}:a.txt`]).stdout, 'one\n');
   const afterSuccess = gitFactCacheHits();
   assert.equal(asked(root, ['show', `${head}:a.txt`]).stdout, 'one\n');
-  assert.equal(gitFactCacheHits(), afterSuccess, 'an object read always asks Git, so it proves presence now');
+  assert.equal(gitFactCacheHits(), afterSuccess + 1, 'a successful object read is kept while every object is still there');
+});
+
+test('an object read is refused again once its object is gone, and asked again after a repack', async (t) => {
+  const root = await repository(t);
+  const head = outside(root, ['rev-parse', 'HEAD']);
+  const blob = outside(root, ['rev-parse', 'HEAD:a.txt']);
+  const reads = [['show', `${head}:a.txt`], ['cat-file', '-p', blob], ['rev-parse', '--verify', `${head}^{tree}`],
+    ['ls-tree', '-z', head, '--', 'a.txt']];
+  const answers = reads.map((args) => asked(root, args).stdout);
+  let before = gitFactCacheHits();
+  reads.forEach((args, index) => assert.equal(asked(root, args).stdout, answers[index]));
+  assert.equal(gitFactCacheHits(), before + reads.length, 'every object read came from the cache');
+
+  // Another program deletes the blob: the reads that proved it present now fail, as without a cache.
+  await rm(path.join(root, '.git', 'objects', blob.slice(0, 2), blob.slice(2)));
+  assert.notEqual(asked(root, reads[0]).status, 0);
+  assert.notEqual(asked(root, reads[1]).status, 0);
+  assert.equal(asked(root, reads[2]).stdout, answers[2], 'the tree is still there');
+
+  const packed = await repository(t);
+  const packedHead = outside(packed, ['rev-parse', 'HEAD']);
+  const read = ['show', `${packedHead}:a.txt`];
+  asked(packed, read);
+  outside(packed, ['repack', '-adq']);
+  before = gitFactCacheHits();
+  assert.equal(asked(packed, read).stdout, 'one\n');
+  assert.equal(gitFactCacheHits(), before, 'a repack moved every object, so Git is asked again');
+});
+
+test('a replacement object changes what an object read answers, unless replacements are switched off', async (t) => {
+  const root = await repository(t);
+  await writeFile(path.join(root, 'a.txt'), 'two\n');
+  outside(root, ['commit', '-q', '-am', 'two']);
+  const second = outside(root, ['rev-parse', 'HEAD']);
+  const read = ['cat-file', '-p', second];
+  const original = asked(root, read).stdout;
+  assert.match(original, /^parent /mu);
+  const orphan = outside(root, ['commit-tree', outside(root, ['rev-parse', 'HEAD^{tree}']), '-m', 'replacement']);
+  outside(root, ['replace', second, orphan]);
+  assert.doesNotMatch(asked(root, read).stdout, /^parent /mu, 'Git shows the replacement');
+  assert.equal(asked(root, read, { env: { ...process.env, GIT_NO_REPLACE_OBJECTS: '1' } }).stdout, original);
+});
+
+test('"not an ancestor" is an answer, kept until the shallow boundary changes which commits Git sees', async (t) => {
+  const root = await repository(t);
+  const first = outside(root, ['rev-parse', 'HEAD']);
+  await writeFile(path.join(root, 'a.txt'), 'two\n');
+  outside(root, ['commit', '-q', '-am', 'two']);
+  const second = outside(root, ['rev-parse', 'HEAD']);
+  const notAncestor = ['merge-base', '--is-ancestor', second, first];
+  const ancestor = ['merge-base', '--is-ancestor', first, second];
+  assert.equal(asked(root, notAncestor).status, 1);
+  assert.equal(asked(root, ancestor).status, 0);
+  const before = gitFactCacheHits();
+  assert.equal(asked(root, notAncestor).status, 1);
+  assert.equal(asked(root, ancestor).status, 0);
+  assert.equal(gitFactCacheHits(), before + 2);
+  await writeFile(path.join(root, '.git', 'shallow'), `${second}\n`);
+  const afterShallow = gitFactCacheHits();
+  asked(root, ancestor);
+  assert.equal(gitFactCacheHits(), afterShallow, 'the shallow boundary changed which commits Git sees');
+});
+
+test('a borrowed or relocated object store is never answered from the cache', async (t) => {
+  const root = await repository(t);
+  const head = outside(root, ['rev-parse', 'HEAD']);
+  const read = ['show', `${head}:a.txt`];
+  let before = gitFactCacheHits();
+  for (const name of ['GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_QUARANTINE_PATH']) {
+    const env = { ...process.env, [name]: path.join(root, '.git', 'objects') };
+    asked(root, read, { env });
+    asked(root, read, { env });
+  }
+  assert.equal(gitFactCacheHits(), before, 'a relocated object directory is not the one fingerprinted');
+  const lender = await repository(t);
+  await writeFile(path.join(root, '.git', 'objects', 'info', 'alternates'), `${path.join(lender, '.git', 'objects')}\n`);
+  before = gitFactCacheHits();
+  asked(root, read);
+  asked(root, read);
+  assert.equal(gitFactCacheHits(), before, 'objects borrowed through alternates are not fingerprinted');
+});
+
+test('no answer outlives fifteen minutes, and another Git on PATH is asked afresh', async (t) => {
+  const root = await repository(t);
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-14T00:00:00.000Z') });
+  t.after(() => t.mock.timers.reset());
+  asked(root, ['rev-parse', 'HEAD']);
+  let before = gitFactCacheHits();
+  asked(root, ['rev-parse', 'HEAD']);
+  assert.equal(gitFactCacheHits(), before + 1);
+  t.mock.timers.tick(16 * 60 * 1000);
+  before = gitFactCacheHits();
+  asked(root, ['rev-parse', 'HEAD']);
+  assert.equal(gitFactCacheHits(), before, 'a sixteen-minute-old answer is asked again');
+  if (process.platform === 'win32') return;
+  const execPath = outside(root, ['--exec-path']);
+  const wrapper = await mkdtemp(path.join(os.tmpdir(), 'sflow-git-wrapper-'));
+  t.after(() => rm(wrapper, { recursive: true, force: true }));
+  await writeFile(path.join(wrapper, 'git'), `#!/bin/sh\nexec "${path.join(execPath, 'git')}" "$@"\n`);
+  await chmod(path.join(wrapper, 'git'), 0o755);
+  before = gitFactCacheHits();
+  const answer = asked(root, ['rev-parse', 'HEAD'], { env: { ...process.env, PATH: `${wrapper}:${process.env.PATH}` } });
+  assert.equal(answer.stdout.trim(), outside(root, ['rev-parse', 'HEAD']));
+  assert.equal(gitFactCacheHits(), before, 'the wrapper is another Git, so it answered itself');
 });
 
 test('a relocating environment, includes, stdin, an injected runner and the switch all bypass the cache', async (t) => {

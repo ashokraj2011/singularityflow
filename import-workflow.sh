@@ -52,7 +52,13 @@ field() {
 # Stop with the command's own explanation.
 fail() {
   message="$(field error.message)"
-  echo "$1: ${message:-$(cat "$errors")}" >&2
+  message="${message:-$(cat "$errors")}"
+  echo "$1: $message" >&2
+  case "$message" in
+    *"singularity/workflow.yml does not exist"*|*"not set up for Singularity Flow"*)
+      echo "It ran in $(pwd), which is not a Singularity Flow repository." >&2
+      echo "cd into your project's repository and run it again, or select it once with: ${cli[*]} workspace use <WORKSPACE>" >&2 ;;
+  esac
   exit 1
 }
 

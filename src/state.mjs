@@ -169,7 +169,7 @@ import {
   predecessorSpecClauses, plannedClaimsForObservedPhase
 } from './specifications.mjs';
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
-import { phasePlansDelivery, plannedDeliveryCodeSteps, scaffoldPlanningRows } from './phase-authoring-contract.mjs';
+import { phasePlansDelivery, plannedDeliveryCodeSteps, scaffoldPlanningRows, scaffoldScenarioCoverage } from './phase-authoring-contract.mjs';
 import { acceptedClauses, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
 import { reviewBindings } from './implementation-bindings.mjs';
 import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
@@ -2593,6 +2593,12 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     if (!artifactExistedBeforePreparation && phasePlansDelivery(workflow, phase)) {
       const { capsule } = await activeClauseCapsule(itemDirectory, workflow, phase, null, { root });
       text = scaffoldPlanningRows(text, (capsule?.clauses ?? []).map(clause => clause.id));
+    }
+    // A repository template older than the scenario-coverage rule has no table to fill; give the
+    // author the same section the packaged template carries instead of a publication refusal.
+    if (!artifactExistedBeforePreparation && workflow.resolution.phases.find((item) => item.id === phase.id)
+      ?.specificationQuality?.scenarioCoverage === 'required') {
+      text = scaffoldScenarioCoverage(text, workflow.workItem.id);
     }
     text = applyInputsBlock(text, rendered.text, inputs.mode);
     // The immutable reference set is already captured by the WFA snapshot and its Story manifest.

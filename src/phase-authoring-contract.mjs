@@ -90,6 +90,56 @@ export function phaseAuthoringContractLines(contract, { deterministicOnly = fals
 }
 
 /** Only for a newly rendered template; never rewrite an existing authored or published draft. */
+/**
+ * The Scenario coverage section exactly as the packaged specification templates carry it.
+ *
+ * A repository keeps its own copy of each template: an install does not replace it, Recreate &
+ * Sync does not, and an upgrade replaces it only while it is byte-identical to a shipped revision.
+ * A specification phase pinned to `scenarioCoverage: required` with a template from before that
+ * section existed (2026-10-12) prepared an artifact with no table to fill, and its author had to
+ * invent the whole section from one prompt rule — so it was sometimes missing at publication.
+ */
+export function scenarioCoverageSection(workId) {
+  return [
+    '## Scenario coverage',
+    '',
+    '<!-- Author S-number situations under User scenarios, each with complete Given/When/Then cases.',
+    'Map every behavior/acceptance clause below. Outcome: success, failure, boundary, empty. Include',
+    'distinct failure cases for approved rejection/error behavior; prose alone is not an acceptance',
+    'case. Use only pinned source/clarification facts, never invented behavior or test results. -->',
+    '',
+    '| Clause | Scenario | Outcome |',
+    '|---|---|---|',
+    `| \`${workId}:REQ-001\` | S1 | TODO |`,
+    `| \`${workId}:AC-001\` | S1 | TODO |`,
+    ''
+  ];
+}
+
+/**
+ * Add the Scenario coverage section to a freshly rendered specification that lacks one, before
+ * Verification intent (or the next section the packaged template places after it).
+ */
+export function scaffoldScenarioCoverage(markdown, workId) {
+  const lines = String(markdown).split(/\r?\n/u);
+  const heading = (pattern) => lines.findIndex((line) => /^##\s/u.test(line) && pattern.test(line.replace(/^##\s+/u, '').trim()));
+  if (heading(/^scenario coverage$/iu) >= 0) return markdown;
+  const newline = String(markdown).includes('\r\n') ? '\r\n' : '\n';
+  const section = scenarioCoverageSection(workId);
+  let at = [/^verification intent$/iu, /^boundary and non-functional requirements$/iu, /^planned implementation evidence$/iu]
+    .map(heading).find((index) => index >= 0) ?? -1;
+  if (at < 0) {
+    const requirements = heading(/^requirements$/iu);
+    if (requirements >= 0) {
+      const next = lines.findIndex((line, index) => index > requirements && /^##\s/u.test(line));
+      at = next >= 0 ? next : lines.length;
+    } else at = lines.length;
+  }
+  if (at === lines.length && lines.length && lines.at(-1) !== '') section.unshift('');
+  lines.splice(at, 0, ...section);
+  return lines.join(newline);
+}
+
 export function scaffoldPlanningRows(markdown, clauseIds) {
   const ids = [...new Set(clauseIds.map(id => String(id).toUpperCase()))].sort();
   if (!ids.length) return markdown;

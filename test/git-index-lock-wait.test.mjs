@@ -9,7 +9,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -191,4 +191,97 @@ test('a Story publish that outlasts the wait is repaired by sync: pushed, and no
   assert.equal(synced.status, 0, synced.stderr);
   assert.equal(git(root, 'status', '--porcelain'), '', 'sync refreshed the published index entries');
   assert.match(git(root, 'ls-remote', 'origin'), new RegExp(commit));
+});
+
+test('a failed publication names sync, not the publish again, as its way out', { timeout: 300_000 }, async (t) => {
+  const { lock, sflow } = await preparedStory(t);
+  const stop = lockHolder(lock);
+  t.after(stop);
+  const published = sflow(['phase', 'publish', 'poc-lite-plan', '--authored', 'deterministic', '--channel', 'kernel-generator', '--json'],
+    { SINGULARITY_FLOW_GIT_INDEX_LOCK_WAIT_MS: '300' });
+  await stop();
+  const refusal = JSON.parse(published.stdout.slice(published.stdout.indexOf('{')));
+  assert.equal(refusal.resultType, 'sflow-refusal-plan');
+  assert.deepEqual(refusal.remediationPlan.steps.map((entry) => entry.command),
+    ['singularity-flow sync', 'singularity-flow recover --phase poc-lite-plan --json'], 'a --no-model run keeps its phase');
+  assert.equal(refusal.remediationPlan.context.strategy, 'roll-forward-exact-commit');
+  assert.match(refusal.remediationPlan.retry.label, /Do not repeat the original command/u);
+});
+
+test('recover refreshes Story index entries left behind by an earlier sync, and nothing else', { timeout: 300_000 }, async (t) => {
+  const { root, sflow, publish } = await preparedStory(t);
+  assert.equal(publish().status, 0);
+  // What an older sync left: published and pushed, the index still describing the parent.
+  git(root, 'reset', '-q', 'HEAD~1', '--', 'singularity/work-items/LOCK-1');
+  await writeFile(path.join(root, 'notes.txt'), 'developer notes\n');
+  git(root, 'add', 'notes.txt');
+  assert.notEqual(git(root, 'status', '--porcelain'), 'A  notes.txt');
+  const inspected = sflow(['recover', 'LOCK-1', '--phase', 'poc-lite-plan', '--json']);
+  assert.equal(inspected.status, 0, inspected.stderr);
+  const plan = JSON.parse(inspected.stdout);
+  const refresh = plan.actions.find((entry) => entry.id === 'refresh-index');
+  assert.ok(refresh?.automatic, JSON.stringify(plan.actions.map((entry) => entry.id)));
+  assert.ok(refresh.paths.every((file) => file.startsWith('singularity/work-items/LOCK-1/')));
+  assert.ok(!plan.actions.some((entry) => entry.id === 'working-tree'), 'no manual review of bookkeeping');
+  const applied = sflow(['recover', 'LOCK-1', '--phase', 'poc-lite-plan', '--apply', '--confirm', plan.planId, '--json']);
+  assert.equal(applied.status, 0, applied.stderr);
+  assert.equal(JSON.parse(applied.stdout).postconditionsMet, true);
+  assert.equal(git(root, 'status', '--porcelain'), 'A  notes.txt', 'only what someone staged remains');
+});
+
+test('recover removes an index lock a crashed command left, and only waits on a fresh one', { timeout: 300_000 }, async (t) => {
+  const { root, lock, sflow } = await preparedStory(t);
+  await writeFile(lock, '');
+  const fresh = JSON.parse(sflow(['recover', 'LOCK-1', '--phase', 'poc-lite-plan', '--json']).stdout);
+  assert.ok(fresh.actions.some((entry) => entry.id === 'wait-index-lock' && !entry.automatic));
+  assert.ok(!fresh.actions.some((entry) => entry.id === 'remove-stale-index-lock'), 'a lock in use is never removed');
+  const old = new Date(Date.now() - 10 * 60 * 1000);
+  await utimes(lock, old, old);
+  const plan = JSON.parse(sflow(['recover', 'LOCK-1', '--phase', 'poc-lite-plan', '--json']).stdout);
+  const remove = plan.actions.find((entry) => entry.id === 'remove-stale-index-lock');
+  assert.ok(remove?.automatic);
+  assert.equal(remove.lockPath, lock);
+  const applied = sflow(['recover', 'LOCK-1', '--phase', 'poc-lite-plan', '--apply', '--confirm', plan.planId, '--json']);
+  assert.equal(applied.status, 0, applied.stderr + applied.stdout);
+  assert.equal(existsSync(lock), false);
+  assert.equal(JSON.parse(applied.stdout).postconditionsMet, true);
+  assert.equal(git(root, 'status', '--porcelain').includes('index.lock'), false);
+});
+
+test('a specification draft not yet published or submitted recovers from a lagging index without losing a word', { timeout: 300_000 }, async (t) => {
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), 'sflow-index-lock-spec-')));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const repo = path.join(base, 'app');
+  const specEnv = { ...env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_DISABLE_TIMING_LOG: '1',
+    HOME: path.join(base, 'home'), USERPROFILE: path.join(base, 'home'), SINGULARITY_FLOW_TEST_IDENTITY: 'Spec Tester',
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'ws.json'), SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active.json'),
+    SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(base, 'mode.json') };
+  const sflow = (...args) => spawnSync(process.execPath, [CLI, '--no-model', ...args], { cwd: repo, env: specEnv, encoding: 'utf8' });
+  git(base, 'init', '-q', '-b', 'main', repo);
+  await writeFile(path.join(repo, 'README.md'), '# App\n');
+  assert.equal(sflow('init').status, 0);
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'init');
+  git(base, 'init', '-q', '--bare', '-b', 'main', path.join(base, 'app.git'));
+  git(repo, 'remote', 'add', 'origin', path.join(base, 'app.git'));
+  git(repo, 'push', '-q', '-u', 'origin', 'main');
+  const started = sflow('start', 'SPEC-1', '--title', 'Add an order note', '--description', 'Orders may carry an optional note.',
+    '--acceptance-criteria', 'A note up to 200 characters is stored with the order.', '--work-type', 'spec-code-test-loop',
+    '--from-branch', 'main', '--readiness-baseline', 'defer');
+  assert.equal(started.status, 0, started.stderr);
+  const spec = path.join(repo, 'singularity/work-items/SPEC-1/artifacts/specification/spec.md');
+  await writeFile(spec, (await readFile(spec, 'utf8')).replace('## Actors', '## Actors\n\nOrder clerks, still being written.'));
+  // The Story files' index entries one commit behind, as an interrupted publication leaves them.
+  git(repo, 'reset', '-q', 'HEAD~1', '--', 'singularity/work-items/SPEC-1');
+  const plan = JSON.parse(sflow('recover', 'SPEC-1', '--phase', 'specification', '--json').stdout);
+  const refresh = plan.actions.find((entry) => entry.id === 'refresh-index');
+  assert.ok(refresh?.automatic, JSON.stringify(plan.actions.map((entry) => entry.id)));
+  assert.ok(refresh.paths.includes('singularity/work-items/SPEC-1/artifacts/specification/spec.md'));
+  const applied = sflow('recover', 'SPEC-1', '--phase', 'specification', '--apply', '--confirm', plan.planId, '--json');
+  assert.equal(applied.status, 0, applied.stderr);
+  assert.equal(git(repo, 'status', '--porcelain'), 'M singularity/work-items/SPEC-1/artifacts/specification/spec.md',
+    'only the unpublished draft remains, as an ordinary edit');
+  assert.match(await readFile(spec, 'utf8'), /Order clerks, still being written\./u);
+  const next = JSON.parse(sflow('recover', 'SPEC-1', '--phase', 'specification', '--json').stdout);
+  assert.ok(next.actions.every((entry) => entry.mode !== 'manual'), JSON.stringify(next.actions.map((entry) => [entry.id, entry.mode])));
 });

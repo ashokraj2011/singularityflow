@@ -1,5 +1,9 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
-import { branch, changedFiles, changes, fetchOrigin, hasUpstream, head, pullFastForward } from './git.mjs';
+import { rm } from 'node:fs/promises';
+import {
+  branch, changedFiles, changes, fetchOrigin, hasUpstream, head, indexLockState, pullFastForward,
+  refreshIndexEntries, storyIndexDrift
+} from './git.mjs';
 import {
   currentPhase, generationResultDigest, generationResultMatches, syncPublication
 } from './state-stores.mjs';
@@ -19,6 +23,9 @@ import { reviewedWorktreeCommitAction } from './recovery-worktree-commit.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
 import { evidenceContractRecoveryActions } from './phase-evidence-amendment.mjs';
 import { inspectDraftEvidenceHold } from './draft-evidence-hold.mjs';
+
+/** A lock older than this is not a Git command still at work; a crashed one left it. */
+export const STALE_INDEX_LOCK_MS = 5 * 60 * 1000;
 
 function actorKey(actor) { return actor?.login ?? actor?.email ?? actor?.name ?? 'unknown'; }
 
@@ -269,10 +276,50 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
         }));
     }
   }
+  // Two states a failed publication can leave that live only in Git's bookkeeping, never in
+  // authored bytes: a lock file nothing holds any more, and index entries that lag the published
+  // commit. Both are safe to repair. Without these actions the check below sees "changes" that it
+  // can only send to manual review, and a Story in its first phase had no way forward.
+  const itemRoot = repositoryRelativePath(`${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`);
+  const lock = indexLockState(root);
+  if (lock) {
+    // The plan is confirmed by its hash, so it names when the lock last changed, never a growing age.
+    const stale = lock.ageMs >= STALE_INDEX_LOCK_MS;
+    blockers.push({
+      code: 'git.index-lock', category: 'transport', blocking: true, phase: workflow.currentPhase ?? null,
+      generation: null, path: lock.path, line: null, value: null,
+      details: { modifiedAt: lock.modifiedAt, stale,
+        message: stale
+          ? `Git's index lock has not changed since ${lock.modifiedAt}; a Git command that crashed or was stopped left it, and every command that changes the index now fails.`
+          : 'Another program (VS Code\'s Git view, an editor or a terminal) holds Git\'s index lock right now.' }
+    });
+    actions.push(stale ? {
+      id: 'remove-stale-index-lock', safe: true, automatic: true, mode: 'automatic', confirmation: 'plan-hash',
+      command: null, lockPath: lock.path, lockModifiedAt: lock.modifiedAt,
+      detail: `Remove ${lock.path}, unchanged since ${lock.modifiedAt}. Close any Git window or terminal still running a command in this checkout first; applying removes only this file, and only while it is unchanged.`
+    } : {
+      id: 'wait-index-lock', safe: true, automatic: false, mode: 'informational', confirmation: 'none', command: null,
+      detail: 'Wait a moment for it to finish, then inspect recovery again. Singularity Flow commands already wait up to 10 seconds for it.'
+    });
+  }
+  const staleIndex = itemRoot && branch(root) === workflow.workItem.branch ? storyIndexDrift(root, itemRoot) : [];
+  if (staleIndex.length) {
+    blockers.push({
+      code: 'git.index.stale', category: 'transport', blocking: true, phase: workflow.currentPhase ?? null,
+      generation: null, path: itemRoot, line: null, value: null,
+      details: { paths: staleIndex, message: `Git's index is one commit behind for ${staleIndex.length} Story file(s): it still describes them as they were before ${head(root).slice(0, 12)}, so they look changed and the next start refuses a dirty tree. An interrupted publication leaves this.` }
+    });
+    actions.push({
+      id: 'refresh-index', safe: true, automatic: true, mode: 'automatic', confirmation: 'plan-hash', command: null,
+      paths: staleIndex,
+      detail: 'Point exactly these index entries at the current commit. Every file on disk stays as it is, including an unpublished draft; content you staged yourself and anything outside the Story are not touched. Inspect recovery again afterwards for anything that remains.'
+    });
+  }
   const worktreeStatus = changes(root);
   // One raw-byte status inspection per plan; the apply-time stability guard always reads fresh.
   const worktreeInspection = inspectLifecycleWorktree(root, config, workflow);
-  if (worktreeStatus.trim()) {
+  // Lagging index entries make the status unreadable as authored changes; classify it once they are refreshed.
+  if (worktreeStatus.trim() && !staleIndex.length) {
     const worktreeAction = await workingTreeAction(root, config, workflow, phase ?? activePhase, worktreeStatus, phaseRecovery, worktreeInspection);
     if (worktreeAction) {
       actions.push(worktreeAction);
@@ -361,7 +408,26 @@ export async function applyRecovery(root, config, workflow, plan, { confirm = nu
     { code: 'RECOVERY_PLAN_STALE', details: { planned: plan.revision, current } }
   );
   const completed = [];
-  for (const action of automatic) {
+  // The lock first (everything else needs the index), then the index, then publication.
+  const order = (item) => item.id === 'remove-stale-index-lock' ? 0 : item.id === 'refresh-index' ? 1 : 2;
+  const itemRoot = repositoryRelativePath(`${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`);
+  for (const action of [...automatic].sort((a, b) => order(a) - order(b))) {
+    if (action.id === 'remove-stale-index-lock') {
+      const lock = indexLockState(root);
+      // Only the lock the reviewed plan showed, unchanged since, and still old enough to be abandoned.
+      if (lock && lock.path === action.lockPath && lock.modifiedAt === action.lockModifiedAt && lock.ageMs >= STALE_INDEX_LOCK_MS) {
+        await rm(lock.path, { force: true });
+      }
+      completed.push({ id: action.id, result: indexLockState(root) ? 'lock still present' : 'lock removed' });
+      continue;
+    }
+    if (action.id === 'refresh-index') {
+      const still = new Set(itemRoot ? storyIndexDrift(root, itemRoot) : []);
+      const paths = (action.paths ?? []).filter((candidate) => still.has(candidate));
+      refreshIndexEntries(root, paths);
+      completed.push({ id: action.id, result: { refreshed: paths } });
+      continue;
+    }
     if (action.id === 'publish' || action.command === 'singularity-flow sync') {
       completed.push({ id: action.id, result: await syncPublication(root, config, workflow) });
       continue;
@@ -376,7 +442,15 @@ export async function applyRecovery(root, config, workflow, plan, { confirm = nu
     kind: 'story', id: workflow.workItem.id, migrate: false,
     roots: { workItemRoot: config.workItemRoot }
   });
+  const remainingStale = new Set(itemRoot ? storyIndexDrift(root, itemRoot) : []);
   const postconditions = [
+    ...(automatic.some((item) => item.id === 'remove-stale-index-lock')
+      ? [{ id: 'index-lock-removed', met: !indexLockState(root), observed: indexLockState(root) ? 'present' : 'absent' }]
+      : []),
+    ...(automatic.some((item) => item.id === 'refresh-index')
+      ? [{ id: 'index-refreshed', met: !(automatic.find((item) => item.id === 'refresh-index').paths ?? []).some((candidate) => remainingStale.has(candidate)),
+        observed: [...remainingStale] }]
+      : []),
     ...(automatic.some((item) => item.id === 'publish' || item.command === 'singularity-flow sync')
       ? [{ id: 'publication-cleared', met: pending.status === 'absent', observed: pending.status }]
       : []),

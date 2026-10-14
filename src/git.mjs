@@ -2826,6 +2826,29 @@ export function assertNoSecrets(root, paths = null, { label = 'This commit' } = 
 }
 
 /**
+ * Paths `commit` changed (under `prefix`, when given) whose index entry still holds the version
+ * in its parent: the index is exactly one commit behind for them. Content someone staged on purpose
+ * matches the file on disk instead, and is never reported.
+ */
+function laggingIndexEntries(root, commit, prefix = null) {
+  const env = { ...process.env, GIT_LITERAL_PATHSPECS: '1' };
+  const parent = git(['rev-parse', '--verify', '--quiet', `${commit}^1`], { cwd: root, env, allowFailure: true }).stdout.trim();
+  if (!parent) return [];
+  const changed = nullList(git(['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', '--no-renames', parent, commit,
+    ...(prefix ? ['--', prefix] : [])], { cwd: root, env }).stdout);
+  if (!changed.length) return [];
+  // `ls-files --stage` prints "<mode> <oid> <stage>\t<path>"; `ls-tree` prints "<mode> <type> <oid>\t<path>".
+  const entries = (listing, oidField) => new Map(nullList(listing).map((line) => {
+    const tab = line.indexOf('\t');
+    const fields = line.slice(0, tab).split(' ');
+    return [line.slice(tab + 1), `${fields[0]} ${fields[oidField]}`];
+  }));
+  const indexed = entries(git(['ls-files', '--stage', '-z', '--', ...changed], { cwd: root, env }).stdout, 1);
+  const before = entries(git(['ls-tree', '-r', '-z', parent, '--', ...changed], { cwd: root, env }).stdout, 2);
+  return changed.filter((file) => (indexed.get(file) ?? null) === (before.get(file) ?? null));
+}
+
+/**
  * Bring the real index up to a governed commit the branch already points at, for the paths that
  * commit changed whose index entry still describes its parent.
  *
@@ -2837,23 +2860,39 @@ export function assertNoSecrets(root, paths = null, { label = 'This commit' } = 
  */
 export function refreshStalePublishedIndex(root, commit) {
   if (!commit || head(root) !== commit) return [];
-  const env = { ...process.env, GIT_LITERAL_PATHSPECS: '1' };
-  const parent = git(['rev-parse', '--verify', '--quiet', `${commit}^1`], { cwd: root, env, allowFailure: true }).stdout.trim();
-  if (!parent) return [];
-  const changed = nullList(git(['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', '--no-renames', parent, commit],
-    { cwd: root, env }).stdout);
-  if (!changed.length) return [];
-  // `ls-files --stage` prints "<mode> <oid> <stage>\t<path>"; `ls-tree` prints "<mode> <type> <oid>\t<path>".
-  const entries = (listing, oidField) => new Map(nullList(listing).map((line) => {
-    const tab = line.indexOf('\t');
-    const fields = line.slice(0, tab).split(' ');
-    return [line.slice(tab + 1), `${fields[0]} ${fields[oidField]}`];
-  }));
-  const indexed = entries(git(['ls-files', '--stage', '-z', '--', ...changed], { cwd: root, env }).stdout, 1);
-  const before = entries(git(['ls-tree', '-r', '-z', parent, '--', ...changed], { cwd: root, env }).stdout, 2);
-  const stale = changed.filter((file) => (indexed.get(file) ?? null) === (before.get(file) ?? null));
-  if (stale.length) git(['reset', '-q', commit, '--', ...stale], { cwd: root, env });
+  const stale = laggingIndexEntries(root, commit);
+  if (stale.length) git(['reset', '-q', commit, '--', ...stale], { cwd: root, env: { ...process.env, GIT_LITERAL_PATHSPECS: '1' } });
   return stale;
+}
+
+/**
+ * Story files (under `prefix`, its work-item directory) whose index entry is one commit behind
+ * HEAD: what a publication whose index refresh did not complete leaves, and what an older sync left
+ * after publishing. To `git status` they look staged, reverted and untracked at once, and the next
+ * start refuses a dirty tree. Nothing is reported while a merge, rebase, cherry-pick or revert owns
+ * the index.
+ */
+export function storyIndexDrift(root, prefix) {
+  for (const marker of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply']) {
+    const relative = git(['rev-parse', '--git-path', marker], { cwd: root, allowFailure: true }).stdout.trim();
+    if (relative && existsSync(path.resolve(root, relative))) return [];
+  }
+  return laggingIndexEntries(root, head(root), prefix);
+}
+
+/** Point exactly these index entries back at HEAD. The files on disk and every other entry stay as they are. */
+export function refreshIndexEntries(root, paths) {
+  if (!paths.length) return;
+  git(['reset', '-q', 'HEAD', '--', ...paths], { cwd: root, env: { ...process.env, GIT_LITERAL_PATHSPECS: '1' } });
+}
+
+/** This checkout's `index.lock`, with its age, or null when there is none. */
+export function indexLockState(root) {
+  const relative = git(['rev-parse', '--git-path', 'index.lock'], { cwd: root, allowFailure: true }).stdout.trim();
+  if (!relative) return null;
+  const absolute = path.resolve(root, relative);
+  const info = statSync(absolute, { throwIfNoEntry: false });
+  return info ? { path: absolute, ageMs: Math.max(0, Date.now() - info.mtimeMs), modifiedAt: info.mtime.toISOString() } : null;
 }
 
 export function commit(root, message, paths = null) {

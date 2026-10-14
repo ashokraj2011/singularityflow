@@ -36,6 +36,9 @@ test('XPL2-AC-060 No N+1 or hover work: counts stay flat and wire bytes are meas
   const large = await changedFiles(t, 30);
   const count = (repository, args) => {
     process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE = '1';
+    // Every command measured cold: the session store would otherwise let a repository that ran an
+    // earlier command reuse its answers, and per-file growth is what this compares.
+    process.env.SINGULARITY_FLOW_GIT_FACT_STORE = 'off';
     try {
       const result = probe(repository, home, args);
       const match = /^subprocesses:\s+(\d+)\s+calls/mu.exec(result.stderr);
@@ -43,6 +46,7 @@ test('XPL2-AC-060 No N+1 or hover work: counts stay flat and wire bytes are meas
       return { calls: Number(match[1]), json: result.json };
     } finally {
       delete process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE;
+      delete process.env.SINGULARITY_FLOW_GIT_FACT_STORE;
     }
   };
   const subjects = [

@@ -272,7 +272,9 @@ test('phase prompts receive one repository brief for the phase reader, focused o
   const compose = await readFile(path.join(root, 'src', 'worldmodel.mjs'), 'utf8');
   assert.match(compose, /\{ id: 'world-model-grounding', text: repositoryBrief\.text, mandatory: false, priority: 40 \}/u);
   assert.doesNotMatch(compose, /id: 'capability-world-model'/u);
-  assert.match(compose, /const KNOWLEDGE_PROMPT_MODULE = '\.\/knowledge\/prompt\.mjs';/u);
+  // A computed specifier, so editor bundles never carry the analysis engine; resolved from the
+  // package root so the bundled CLI loads it from src/ too.
+  assert.match(compose, /const KNOWLEDGE_PROMPT_MODULE = pathToFileURL\(path\.join\(PACKAGE_ROOT, 'src', 'knowledge', 'prompt\.mjs'\)\)\.href;/u);
 });
 
 test('worldModel.knowledge accepts only its two settings, in the validator and the schema', async () => {

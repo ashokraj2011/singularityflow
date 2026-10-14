@@ -15,16 +15,16 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 /** The bundled CLI module URL to import, or null to run from `src/`. */
-export function bundledCliUrl(packageRoot, env = process.env) {
+export function bundledCliUrl(installRoot, env = process.env) {
   if (String(env.SINGULARITY_FLOW_BUNDLE ?? '').toLowerCase() === 'off') return null;
   const forced = String(env.SINGULARITY_FLOW_BUNDLE_DIR ?? '').trim();
-  const directory = forced ? path.resolve(forced) : path.join(packageRoot, 'bundle');
+  const directory = forced ? path.resolve(forced) : path.join(installRoot, 'bundle');
   try {
     const manifest = JSON.parse(readFileSync(path.join(directory, 'manifest.json'), 'utf8'));
     if (manifest?.format !== 1 || !Array.isArray(manifest.entries) || !manifest.entries.includes('cli.mjs')) return null;
     if (!forced) {
       if (manifest.stamped !== true) return null;
-      const buildInfo = readFileSync(path.join(packageRoot, 'src', 'build-info.mjs'));
+      const buildInfo = readFileSync(path.join(installRoot, 'src', 'build-info.mjs'));
       if (manifest.buildInfoSha256 !== `sha256:${createHash('sha256').update(buildInfo).digest('hex')}`) return null;
     }
     return pathToFileURL(path.join(directory, 'cli.mjs')).href;

@@ -595,6 +595,12 @@ function invoke(root, args, { network = false, probe = false } = {}) {
        * benchmark watched the read model fetch six times per snapshot and reported it as fast.
        */
       ...(network ? {} : { SINGULARITY_FLOW_NO_NETWORK: '1' }),
+      /**
+       * The session store (git-fact-store.mjs) keeps Git answers outside the fixture, under the
+       * machine's temporary directory, so the warm-up would answer every later sample and the
+       * fixture would no longer be the cold one it is verified to be. Each count is per command.
+       */
+      SINGULARITY_FLOW_GIT_FACT_STORE: 'off',
       ...(probe ? { SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' } : {})
     }
   });

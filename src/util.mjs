@@ -371,19 +371,30 @@ function recordSubprocessProbe(command, args, ms) {
   traceSubprocess(key);
   const entry = subprocessProbe.get(key) ?? { calls: 0, ms: 0 };
   subprocessProbe.set(key, { calls: entry.calls + 1, ms: entry.ms + ms });
-  if (!subprocessProbe.reported) {
-    subprocessProbe.reported = true;
-    process.on('exit', () => {
-      const rows = [...subprocessProbe.entries()].sort((a, b) => b[1].ms - a[1].ms);
-      const total = rows.reduce((sum, [, value]) => sum + value.ms, 0);
-      const calls = rows.reduce((sum, [, value]) => sum + value.calls, 0);
-      process.stderr.write(`\nsubprocesses: ${calls} calls, ${total.toFixed(0)} ms total\n`);
-      for (const [name, value] of rows) {
-        process.stderr.write(`  ${String(value.calls).padStart(3)}x ${value.ms.toFixed(0).padStart(6)} ms  ${name}\n`);
-      }
-    });
-  }
+  reportSubprocessProbeAtExit();
 }
+
+/**
+ * Print the probe summary when the process exits, even when nothing was spawned.
+ *
+ * Zero is an answer: a command whose Git facts all came from the session store
+ * (git-fact-store.mjs) spawns nothing, and a summary that appeared only after the first spawn
+ * read to the benchmark as a probe that was never honoured.
+ */
+function reportSubprocessProbeAtExit() {
+  if (subprocessProbe.reported) return;
+  subprocessProbe.reported = true;
+  process.on('exit', () => {
+    const rows = [...subprocessProbe.entries()].sort((a, b) => b[1].ms - a[1].ms);
+    const total = rows.reduce((sum, [, value]) => sum + value.ms, 0);
+    const calls = rows.reduce((sum, [, value]) => sum + value.calls, 0);
+    process.stderr.write(`\nsubprocesses: ${calls} calls, ${total.toFixed(0)} ms total\n`);
+    for (const [name, value] of rows) {
+      process.stderr.write(`  ${String(value.calls).padStart(3)}x ${value.ms.toFixed(0).padStart(6)} ms  ${name}\n`);
+    }
+  });
+}
+if (process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE) reportSubprocessProbeAtExit();
 
 /**
  * Let bounded asynchronous process runners participate in the same opt-in diagnostic as `run`.

@@ -473,6 +473,33 @@ function gitSubcommand(args) {
 const TRUE = new Set(['1', 'true', 'yes', 'on']);
 
 /**
+ * The directory the person ran the command from.
+ *
+ * Outside a repository the CLI moves into the selected workspace's checkout before a command runs
+ * (cli-entry.mjs), so `process.cwd()` is that checkout by then, and `workflow import team.json`
+ * run from the folder holding the bundle looked for it in the repository.
+ */
+export function invocationDirectory() {
+  return globalThis.__SINGULARITY_FLOW_INVOCATION_DIRECTORY ?? process.cwd();
+}
+
+/**
+ * A file the person named on the command line.
+ *
+ * A file it reads is found where the person is, and otherwise, as it always was, under the
+ * repository root. A file it writes goes where the person is when they ran it from outside the
+ * repository; from inside, it stays relative to the root as before.
+ */
+export function commandLineFile(root, value, { reads = false } = {}) {
+  const here = path.resolve(invocationDirectory(), value);
+  if (!root) return here;
+  const fromRoot = path.resolve(root, value);
+  if (reads) return existsSync(here) || !existsSync(fromRoot) ? here : fromRoot;
+  const inside = path.relative(path.resolve(root), path.resolve(invocationDirectory()));
+  return inside === '' || (!inside.startsWith('..') && !path.isAbsolute(inside)) ? fromRoot : here;
+}
+
+/**
  * Whether this process is forbidden from reaching the network.
  *
  * `SINGULARITY_FLOW_NO_NETWORK` was set by `scripts/dx-benchmark.mjs` and read by nothing. The

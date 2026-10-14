@@ -31,7 +31,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 59
+version: 60
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1109,6 +1109,12 @@ singularity-flow workflow import ./workflow-bundle.json \
   --propose \
   --json
 ```
+
+A bundle path is read from the folder you run the command in, and otherwise, as before, from the
+repository root, so the bundle can stay in Downloads while a selected workspace is the destination.
+`workflow export --out` run from outside the repository writes there too. Preview with `--propose`
+and the printed "Apply it" line keeps it; without `--propose` the import changes only this
+checkout's files and never reaches review.
 
 ### Same names: keep yours, replace it, or import theirs under a new name
 

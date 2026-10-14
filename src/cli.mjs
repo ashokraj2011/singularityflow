@@ -40,7 +40,7 @@ import { activateWorkflowConfigurationProposal, assertLocalConfigurationAuthorin
 import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
-import { SingularityFlowError, commandExists, didYouMean, exists, gitHeadIsUnborn, nearestNames, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
+import { SingularityFlowError, commandExists, commandLineFile, didYouMean, exists, gitHeadIsUnborn, nearestNames, nowIso, optionBoolean, optionNumber, optionString, optionStrings, parseArgs, posix, readJson, repoRelative, requirePositional, run, secureRepositoryPath, snapshot, table, writeJson, writeText } from './util.mjs';
 import { add, assertClean, branch, changedFiles, changes, checkout, commit, fastForwardTo, fetchOrigin, fetchRemote, fileAtRef, gitCommonDir, gitDir, hasUpstream, head, identity, localBranches, preflightPushBranch, pullFastForward, refExists, refHead, remoteBranches, remoteNames, repoRoot, validBranch } from './git.mjs';
 import { buildRepositorySubjectIndexFromRefs, resolveContext } from './repository-subject-index.mjs';
 import { worldModelStateAuthority } from './state-authority.mjs';
@@ -3743,7 +3743,7 @@ async function reportCommand(positionals, options) {
   }
   const outputFile = optionString(options, 'out');
   if (outputFile) {
-    const absolute = path.resolve(root, outputFile);
+    const absolute = commandLineFile(root, outputFile);
     await writeText(absolute, rendered);
     console.log(`Report written to ${absolute}`);
     if (format !== 'json') writeHumanTimings(timings);
@@ -3989,7 +3989,7 @@ async function impactCommand(positionals, options) {
   if (action === 'export') {
     const outputFile = optionString(options, 'out');
     if (!outputFile) throw new SingularityFlowError('Impact export requires --out FILE.');
-    const result = await exportImpactReceipts(root, await loadConfig(root), path.resolve(root, outputFile), { studyId: optionString(options, 'study') });
+    const result = await exportImpactReceipts(root, await loadConfig(root), commandLineFile(root, outputFile), { studyId: optionString(options, 'study') });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     return console.log(`Exported ${result.receipts} normalized Impact Receipt(s) to ${result.output} · ${result.sha256.slice(0, 12)}.`);
   }
@@ -4049,7 +4049,7 @@ async function impactCommand(positionals, options) {
     const operation = positionals[2];
     if (!['import', 'collect'].includes(operation)) throw new SingularityFlowError(`Unknown impact evidence action '${operation ?? 'missing'}'.`);
     const providerId = operation === 'collect' ? requirePositional(positionals, 3, 'provider ID') : null;
-    const sourceFile = path.resolve(root, requirePositional(positionals, operation === 'collect' ? 4 : 3, operation === 'collect' ? 'provider observation file' : 'evidence file'));
+    const sourceFile = commandLineFile(root, requirePositional(positionals, operation === 'collect' ? 4 : 3, operation === 'collect' ? 'provider observation file' : 'evidence file'), { reads: true });
     const { value, publication } = await transactStory(
       root, config, workflow,
       { type: operation === 'collect' ? LIFECYCLE_EVENT.IMPACT_EVIDENCE_COLLECTED : LIFECYCLE_EVENT.IMPACT_EVIDENCE_IMPORTED, phaseId: workflow.currentPhase, payload: providerId ? { providerId } : undefined },
@@ -8392,7 +8392,7 @@ async function reviewCommand(positionals, options) {
   const rendered = format === 'json' ? `${JSON.stringify(bundle, null, 2)}\n` : format === 'html' ? reviewHtml(bundle) : reviewMarkdown(bundle);
   const outputFile = optionString(options, 'out');
   if (outputFile) {
-    const absolute = path.resolve(root, outputFile); await writeText(absolute, rendered); console.log(`Review bundle written to ${absolute}\n${reviewContinuationLines(bundle.continuation).join('\n')}`); return;
+    const absolute = commandLineFile(root, outputFile); await writeText(absolute, rendered); console.log(`Review bundle written to ${absolute}\n${reviewContinuationLines(bundle.continuation).join('\n')}`); return;
   }
   // Same rule as `report`: stdout is the default because piping it is the common case and the
   // extension depends on it. `--brief` describes the bundle instead of printing it.
@@ -8674,7 +8674,7 @@ async function workflowCommand(positionals, options) {
     }
     const outputPath = optionString(options, 'out');
     if (!outputPath) throw new SingularityFlowError('Workflow export requires --out <FILE>.');
-    const absolute = path.resolve(root, outputPath);
+    const absolute = commandLineFile(root, outputPath);
     const result = await withApprovedConfigurationRead(root, () =>
       exportWorkflowBundle(root, workflowIds, absolute), { preferAuthority: true });
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
@@ -8693,7 +8693,7 @@ async function workflowCommand(positionals, options) {
     const {
       importPlanText, importResolutionOptions, planWorkflowImport, readWorkflowBundle, workflowTransferProposal
     } = await import('./workflow-transfer.mjs');
-    const inputPath = path.resolve(root, requirePositional(positionals, 2, 'workflow bundle file'));
+    const inputPath = commandLineFile(root, requirePositional(positionals, 2, 'workflow bundle file'), { reads: true });
     const bundle = await readWorkflowBundle(inputPath);
     // Each same-name conflict needs a choice: --resolve <kind>:<id>=keep|replace|rename[:<name>].
     const choices = importResolutionOptions(optionStrings(options, 'resolve'), options['resolve-all']);
@@ -8701,7 +8701,7 @@ async function workflowCommand(positionals, options) {
       const plan = await withApprovedConfigurationRead(root, () =>
         planWorkflowImport(root, bundle, choices), { preferAuthority: true });
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(plan, null, 2));
-      for (const line of importPlanText(plan, positionals[2])) console.log(line);
+      for (const line of importPlanText(plan, positionals[2], { propose: proposing })) console.log(line);
       return;
     }
     const expectedPlanSha256 = optionString(options, 'confirm');
@@ -9102,7 +9102,7 @@ async function faultCommand(positionals, options) {
   if (subcommand === 'report') {
     let envelope;
     const sourceFile = optionString(options, 'from');
-    if (sourceFile) envelope = JSON.parse(await readFile(path.resolve(sourceFile), 'utf8'));
+    if (sourceFile) envelope = JSON.parse(await readFile(commandLineFile(root, sourceFile, { reads: true }), 'utf8'));
     else {
       const exitCode = optionNumber(options, 'exit-code');
       const commandArgvOption = optionString(options, 'command-argv');
@@ -11717,8 +11717,8 @@ async function initiativeCommand(positionals, options) {
     const rendered = format === 'json' ? `${JSON.stringify(report, null, 2)}\n` : renderInitiativeReport(report);
     const target = optionString(options, 'out');
     if (target) {
-      await writeText(path.resolve(root, target), rendered);
-      console.log(`Initiative report written to ${path.resolve(root, target)}`);
+      await writeText(commandLineFile(root, target), rendered);
+      console.log(`Initiative report written to ${commandLineFile(root, target)}`);
     } else process.stdout.write(rendered);
     return;
   }

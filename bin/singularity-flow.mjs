@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT = process.hrtime.bigint();
+// Where the person ran the command: the CLI may move into the selected workspace before it runs.
+globalThis.__SINGULARITY_FLOW_INVOCATION_DIRECTORY ??= process.cwd();
 // Reuse V8's compiled code for the engine's modules across runs (Node 22.1+). Node checks every
 // entry against its source and honours NODE_DISABLE_COMPILE_CACHE=1; a failure only skips it.
 try { (await import('node:module')).enableCompileCache?.(); } catch { /* an acceleration only */ }

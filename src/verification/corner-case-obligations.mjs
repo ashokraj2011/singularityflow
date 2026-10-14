@@ -29,6 +29,10 @@ import {
   loadPersistentVerificationCache,
   savePersistentVerificationCache
 } from './incremental-verification-graph.mjs';
+import {
+  extractFunctionSignatures,
+  synthesizeCornerCaseTestHarness
+} from './corner-case-harness.mjs';
 import { scanJavaScriptDeclarations } from './javascript-declarations.mjs';
 
 export const CORNER_CASE_CATEGORIES = Object.freeze([
@@ -358,7 +362,7 @@ export function analyzeTestFileSignals(source, { sourcePath = 'test.js', framewo
 }
 
 export function cornerCaseMatrixDigest(matrix) {
-  const { matrixSha256, ...core } = matrix ?? {};
+  const { matrixSha256, harness, ...core } = matrix ?? {};
   return `sha256:${recordSha256(core)}`;
 }
 
@@ -367,7 +371,9 @@ export function cornerCaseMatrixDigest(matrix) {
  */
 export function evaluateCornerCaseObligationMatrix({
   obligations = [],
-  declarations = []
+  declarations = [],
+  signaturesByPath = {},
+  testPaths = []
 } = {}) {
   const activeDeclarations = declarations.filter((decl) => !decl.skipped);
   const inadequateDeclarations = activeDeclarations
@@ -475,6 +481,13 @@ export function evaluateCornerCaseObligationMatrix({
       ? 'satisfied'
       : 'incomplete';
 
+  const harness = synthesizeCornerCaseTestHarness({
+    obligations: uncoveredObligations,
+    inadequateDeclarations,
+    signaturesByPath,
+    testPaths
+  });
+
   const core = {
     schemaVersion: 1,
     status,
@@ -494,7 +507,8 @@ export function evaluateCornerCaseObligationMatrix({
     inadequateDeclarations
   };
   return {
-    matrix: { ...core, matrixSha256: cornerCaseMatrixDigest(core) },
+    matrix: { ...core, harness, matrixSha256: cornerCaseMatrixDigest(core) },
+    harness,
     findings,
     advisories: advisories.slice(0, CORNER_CASE_LIMITS.advisories)
   };
@@ -545,6 +559,7 @@ export async function evaluateDeliveryCornerCaseGate(root, {
   const changedLines = changedLinesByPath(preview);
 
   loadPersistentVerificationCache(root);
+  const signaturesByPath = {};
   const { results: sourceObligationBatches } = await runBoundedTaskPool(
     candidateSources,
     async (relative) => {
@@ -555,11 +570,18 @@ export async function evaluateDeliveryCornerCaseGate(root, {
       const whole = !entry || entry.untracked || entry.status === 'added';
       const lines = whole ? null : (changedLines.get(relative) ?? new Set());
       if (!whole && lines.size === 0) return [];
-      const extracted = extractCornerCaseObligations(bytes.toString('utf8'), {
+      const text = bytes.toString('utf8');
+      const extracted = extractCornerCaseObligations(text, {
         sourcePath: relative,
         changedLines: lines,
         root
       });
+      if (extracted.obligations.length > 0) {
+        signaturesByPath[relative] = extractFunctionSignatures(text, {
+          sourcePath: relative,
+          root
+        }).signatures;
+      }
       return extracted.obligations;
     }
   );
@@ -579,7 +601,9 @@ export async function evaluateDeliveryCornerCaseGate(root, {
 
   const evaluated = evaluateCornerCaseObligationMatrix({
     obligations: allObligations,
-    declarations: allDeclarations
+    declarations: allDeclarations,
+    signaturesByPath,
+    testPaths
   });
 
   const blockingFindings = evaluated.findings.filter((finding) => {
@@ -592,6 +616,7 @@ export async function evaluateDeliveryCornerCaseGate(root, {
 
   return {
     matrix: evaluated.matrix,
+    harness: evaluated.harness,
     matrixSha256: evaluated.matrix.matrixSha256,
     problems: blockingFindings.map((finding) => finding.message),
     findings: blockingFindings,

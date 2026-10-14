@@ -26,6 +26,7 @@ import { phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
 import { evaluateSpecificationGate, specificationGateDiagnostics } from './specification-gate.mjs';
 import { inspectCornerCaseObligations } from './verification/corner-case-obligations.mjs';
+import { buildGovernanceRemediationPlan } from './verification/governance-remediation.mjs';
 
 function correctionClass(producer) {
   if (producer === 'deterministic') return 'kernel-regenerate';
@@ -301,6 +302,17 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     }) : null,
     next: nextRoute?.command ?? null
   });
+  const normalizedFindings = Object.freeze(findings.map((finding) => Object.freeze({
+    ...finding,
+    message: finding.message ?? artifactFindingMessage(finding)
+  })));
+  const combinedAdvisories = Object.freeze([...advisories, ...coverageAdvisories, ...specificationAdvisories]);
+  const remediationPlan = buildGovernanceRemediationPlan({
+    findings: normalizedFindings,
+    advisories: combinedAdvisories,
+    cornerCases,
+    documentation
+  });
   return Object.freeze({
     schemaVersion: 1, // schema-transient: read-only process projection, never persisted
     resultType: 'sflow-phase-draft-check',
@@ -319,14 +331,12 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     draftFingerprint: traceabilityDraftFingerprint(reviewDraft.fingerprint, traceabilityRepair),
     artifact,
     artifacts: reviewDraft.artifacts,
-    findings: Object.freeze(findings.map((finding) => Object.freeze({
-      ...finding,
-      message: finding.message ?? artifactFindingMessage(finding)
-    }))),
-    advisories: Object.freeze([...advisories, ...coverageAdvisories, ...specificationAdvisories]),
+    findings: normalizedFindings,
+    advisories: combinedAdvisories,
     documentation,
     coverage,
     cornerCaseObligations: cornerCases,
+    remediationPlan,
     traceabilityRepair,
     correction: Object.freeze({
       class: repairClass,

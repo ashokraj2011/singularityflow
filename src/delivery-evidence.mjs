@@ -1343,7 +1343,10 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
             recoveryCommands: [`singularity-flow phase prepublish ${phase.id} --json`]
           } : {}),
           sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? [],
-          ...(cornerCaseGate.findings.length ? { cornerCaseFindings: cornerCaseGate.findings } : {}),
+          ...(cornerCaseGate.findings.length ? {
+            cornerCaseFindings: cornerCaseGate.findings,
+            cornerCaseHarness: cornerCaseGate.harness
+          } : {}),
           // Each planned evidence file this step owes but has not produced, so recovery can name
           // the file and its route instead of a prose-only shortfall.
           retainedEvidenceMissing: fulfillment.obligations.filter((entry) => entry.fulfillment === 'evidence')

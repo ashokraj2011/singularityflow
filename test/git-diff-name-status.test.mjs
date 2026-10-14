@@ -123,3 +123,57 @@ test('one real Git diff reports rename endpoints, deletion, and Unicode paths lo
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('missing content retries once without rename detection; any other failure still refuses', () => {
+  const calls = [];
+  const answers = [
+    { status: 128, stdout: Buffer.alloc(0), stderr: Buffer.from(`fatal: unable to read ${'7'.repeat(40)}\n`) },
+    { status: 0, stdout: Buffer.from('D\0old.txt\0A\0new.txt\0'), stderr: Buffer.alloc(0) }
+  ];
+  const changed = readGitNameStatusDiff('/repository', 'base', 'proposal', {
+    runCommand(command, args, options) { calls.push({ args, options }); return answers.shift(); }
+  });
+  assert.deepEqual(calls.map(({ args }) => args.slice(4, -2)), [['--find-renames', '--find-copies'], ['--no-renames']]);
+  assert.ok(calls.every(({ options }) => options.allowFailure === true));
+  assert.deepEqual(changed.names, ['old.txt', 'new.txt']);
+
+  let attempts = 0;
+  assert.throws(() => readGitNameStatusDiff('/repository', 'base', 'proposal', {
+    runCommand() { attempts += 1; return { status: 128, stdout: Buffer.alloc(0), stderr: Buffer.from("fatal: bad revision 'base..proposal'\n") }; }
+  }), (error) => error.code === 'GIT_DIFF_NAME_STATUS_UNAVAILABLE' && /bad revision/u.test(error.message));
+  assert.equal(attempts, 1, 'only missing content is retried');
+});
+
+test('a blobless clone without lazy fetch still names every changed path', async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-name-status-partial-'));
+  try {
+    const origin = path.join(base, 'origin');
+    run('git', ['init', '-q', '-b', 'main', origin]);
+    run('git', ['config', 'user.name', 'Diff Test'], { cwd: origin });
+    run('git', ['config', 'user.email', 'diff@example.test'], { cwd: origin });
+    run('git', ['config', 'uploadpack.allowFilter', 'true'], { cwd: origin });
+    await writeFile(path.join(origin, 'workflow.yml'), 'workTypes:\n  feature: {}\n'.repeat(20));
+    await writeFile(path.join(origin, 'implement.md'), 'Implement the change.\n'.repeat(20));
+    run('git', ['add', '-A'], { cwd: origin });
+    run('git', ['commit', '-qm', 'base'], { cwd: origin });
+    const before = run('git', ['rev-parse', 'HEAD'], { cwd: origin }).stdout.trim();
+    // An import: the definition changes and a copy of a template arrives under a new name.
+    await writeFile(path.join(origin, 'workflow.yml'), 'workTypes:\n  feature: {}\n'.repeat(20) + '  ios-loop: {}\n');
+    await writeFile(path.join(origin, 'implement-imported.md'), 'Implement the change.\n'.repeat(20) + 'Theirs.\n');
+    run('git', ['add', '-A'], { cwd: origin });
+    run('git', ['commit', '-qm', 'import'], { cwd: origin });
+    const after = run('git', ['rev-parse', 'HEAD'], { cwd: origin }).stdout.trim();
+
+    const clone = path.join(base, 'clone');
+    run('git', ['clone', '-q', '--no-checkout', '--filter=blob:none', `file://${origin}`, clone]);
+    const env = { ...process.env, GIT_NO_LAZY_FETCH: '1' };
+    const direct = run('git', ['diff', '--name-status', '--find-renames', '--find-copies', `${before}..${after}`],
+      { cwd: clone, env, allowFailure: true });
+    assert.notEqual(direct.status, 0, 'the fixture really is missing the blobs detection needs');
+
+    const changed = readGitNameStatusDiff(clone, before, after, { env });
+    assert.deepEqual([...changed.names].sort(), ['implement-imported.md', 'workflow.yml']);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});

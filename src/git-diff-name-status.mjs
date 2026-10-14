@@ -127,9 +127,18 @@ export function changedPathsFromNameStatus(changes) {
   return paths;
 }
 
+/** Git could not read an object's content: a partial clone that holds the trees but not every blob. */
+const MISSING_CONTENT = /unable to read [0-9a-f]{40,64}|missing blob object|lazy fetch(?:ing)? (?:is )?disabled|promisor remote/iu;
+
 /**
  * Run one bounded, non-interactive local diff and derive both the path set and status rows from its
  * NUL-framed answer. Explicit rename/copy flags make the result independent of user Git config.
+ *
+ * Rename and copy detection compares file contents. A partial clone holds the trees and only the
+ * blobs a reader has fetched (configuration-object-reader.mjs fetches them after this diff names
+ * the paths), so there Git cannot detect them and the activation of an imported workflow failed
+ * with "unable to read <object>". The diff is then taken without detection, which reads trees only:
+ * the path set is the same, a rename reporting its deletion and its addition.
  */
 export function readGitNameStatusDiff(root, base, proposal, {
   env = process.env,
@@ -137,18 +146,24 @@ export function readGitNameStatusDiff(root, base, proposal, {
   maximumBytes = DEFAULT_MAX_BYTES,
   maximumRecords = DEFAULT_MAX_RECORDS
 } = {}) {
-  const result = runCommand('git', [
-    'diff', '--no-ext-diff', '--name-status', '-z', '--find-renames', '--find-copies',
+  const diff = (detection) => runCommand('git', [
+    'diff', '--no-ext-diff', '--name-status', '-z',
+    ...(detection ? ['--find-renames', '--find-copies'] : ['--no-renames']),
     `${base}..${proposal}`, '--'
   ], {
     cwd: root,
     env,
     encoding: 'buffer',
-    maxBuffer: maximumBytes
+    maxBuffer: maximumBytes,
+    allowFailure: true
   });
+  let result = diff(true);
+  const said = (answer) => Buffer.isBuffer(answer?.stderr) ? answer.stderr.toString('utf8') : String(answer?.stderr ?? '');
+  if (!processResultSucceeded(result) && MISSING_CONTENT.test(said(result))) result = diff(false);
   if (!processResultSucceeded(result)) {
+    const reason = said(result).trim().split(/\r?\n/u).at(-1);
     throw new SingularityFlowError(
-      'Git did not produce a complete name-status diff; no proposal paths were accepted.', {
+      `Git did not produce a complete name-status diff; no proposal paths were accepted.${reason ? ` Git said: ${reason}` : ''}`, {
         code: 'GIT_DIFF_NAME_STATUS_UNAVAILABLE',
         details: {
           status: Number.isInteger(result?.status) ? result.status : null,

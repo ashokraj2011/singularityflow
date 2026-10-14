@@ -836,7 +836,7 @@
       "counts": {
         "command-runCommand": 1
       },
-      "digest": "783d88a975b69b55b49b24a13b2aaa2827f1f6a78d04d98e5279160e19315159"
+      "digest": "cb66faf30bab26a8c06900fcf75b41f4283a2ef1ee491e57dba26a209f89c218"
     },
     "src/git-enterprise-environment.mjs": {
       "counts": {

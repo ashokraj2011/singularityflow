@@ -3006,10 +3006,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             title: 'Write the workflow bundle', saveLabel: 'Write bundle',
             defaultUri: vscode.Uri.file(suggested), filters: { 'Workflow bundle': ['json'] }
           }))?.fsPath ?? null,
-          // Opening chat with no provider resolves silently, so say when there is none to open.
+          // With AI features turned off, opening chat resolves and shows nothing, so say so. Signed
+          // out is fine: the built-in Copilot only loads after sign-in, but the Chat view opens with
+          // the prompt and sending it offers VS Code's own sign-in.
           openChat: async query => {
             if (vscode.workspace.getConfiguration('singularityFlow').get<string>('modelMode', 'auto') === 'disabled') return 'model-off';
-            if (!vscode.extensions.getExtension('GitHub.copilot-chat')) return 'no-chat';
+            if (vscode.workspace.getConfiguration('chat').get<boolean>('disableAIFeatures', false) === true) return 'no-chat';
             await vscode.commands.executeCommand('workbench.action.chat.open', { query, isPartialQuery: true });
             return 'opened';
           },

@@ -70,6 +70,11 @@ test('Import a team workflow is a contributed, early, repository-independent com
   const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
   const handler = extension.indexOf("'singularityFlow.importTeamWorkflow', async");
   assert.ok(handler > 0 && handler < extension.indexOf("if ('reason' in resolved)"), 'registered before a repository resolves');
+  const registration = extension.slice(handler, extension.indexOf('repository: repositoryLabel', handler));
+  assert.match(registration, /getConfiguration\('chat'\)\.get<boolean>\('disableAIFeatures', false\)/,
+    'only VS Code AI features turned off keep chat from opening');
+  assert.doesNotMatch(registration, /getExtension\(/,
+    'the built-in Copilot extension loads only after sign-in, so its presence says nothing about the Chat view');
   assert.match(extension, /importBundle/);
   const lazy = await readFile(new URL('../apps/vscode/src/lazy-panels-runtime.ts', import.meta.url), 'utf8');
   assert.match(lazy, /export \{ TeamImportPanel \} from '\.\/views\/team-import-panel\.ts';/);
@@ -124,8 +129,8 @@ test('Convert with Copilot types the skill command into chat, quoting the direct
   assert.deepEqual(f.copied, [f.chats[1]]);
 });
 
-test('with no Copilot Chat, or model features off, nothing claims chat opened and the command is offered to copy', async () => {
-  for (const [opened, wording] of [['no-chat', /not available in this VS Code/], ['model-off', /Model features are turned off/]]) {
+test('with VS Code AI features or SFlow model features off, nothing claims chat opened and the command is offered to copy', async () => {
+  for (const [opened, wording] of [['no-chat', /AI features are turned off in this VS Code/], ['model-off', /Model features are turned off/]]) {
     const f = fixture({ openChat: async () => opened });
     await f.journey.pick();
     await f.journey.convert();

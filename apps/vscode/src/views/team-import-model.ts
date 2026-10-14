@@ -14,7 +14,7 @@ export interface TeamImportHost {
   pickBundle(suggested: string): Promise<string | null>;
   /**
    * Open Copilot Chat with `query` typed in but not sent. `model-off` and `no-chat` open nothing:
-   * model features are turned off, or this VS Code has no Copilot Chat.
+   * SFlow's model features are turned off, or VS Code's AI features are (`chat.disableAIFeatures`).
    */
   openChat(query: string): Promise<'opened' | 'model-off' | 'no-chat'>;
   copy(text: string): Thenable<void> | Promise<void>;
@@ -288,7 +288,7 @@ export class TeamImportJourney {
         ? 'Copilot Chat has the command below. Send it there; Copilot asks you any questions. When it has written the candidate, refresh the sessions to check it here.'
         : opened === 'model-off'
           ? 'Model features are turned off (singularityFlow.modelMode is "disabled"), so Copilot Chat was not opened. Copy the command below into an agent with the SFlow skills.'
-          : 'Copilot Chat is not available in this VS Code. Copy the command below into an agent with the SFlow skills.';
+          : 'AI features are turned off in this VS Code (chat.disableAIFeatures), so Copilot Chat was not opened. Copy the command below into an agent with the SFlow skills.';
     } catch (error) {
       this.view.notice = null;
       this.view.error = `Copilot Chat could not be opened: ${message(error)}. Copy the command below instead.`;

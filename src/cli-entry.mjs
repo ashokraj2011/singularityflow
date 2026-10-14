@@ -720,6 +720,10 @@ async function runMain(argv) {
       { code: 'REPOSITORY_CONTEXT_REQUIRED' }
     );
   }
+  // A publication whose index refresh another program blocked finished anyway and left a record;
+  // complete that refresh before this command reads the tree. Without a record this is one file
+  // lookup and no Git process.
+  if (root) await (await import('./deferred-index-refresh.mjs')).completeDeferredIndexRefresh(root);
   if (root && (['submit', 'approve', 'reject'].includes(definition.name) || (definition.name === 'phase' && subcommand === 'publish'))) {
     askPublicationTipEarly(root);
   }

@@ -16,7 +16,9 @@ import { spawn, spawnSync } from 'node:child_process';
 import { lstatSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
-import { resolvePlatformProcess, withoutAutomaticGitMaintenance, withoutInteractiveGitPrompts } from './platform-process.mjs';
+import {
+  resolvePlatformProcess, withoutAutomaticGitMaintenance, withoutInteractiveGitPrompts, withoutOptionalStatusLocks
+} from './platform-process.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { scopedReadSync } from './read-scope.mjs';
@@ -377,7 +379,7 @@ export async function runRemoteGitAsync(args, {
         return;
       }
       incrementCommandCounter('git.spawns');
-      const childEnvironment = withoutAutomaticGitMaintenance(executionEnvironment, { platform });
+      const childEnvironment = withoutOptionalStatusLocks(withoutAutomaticGitMaintenance(executionEnvironment, { platform }), args, { platform });
       child = spawnCommand(launch.executable, launch.arguments, {
         // A custom pinned transport (e.g. GAL) owns its exact executable environment already.
         cwd, env: spawnCommand === spawn ? gitHostChildEnvironment(childEnvironment, launch.executable, platform)

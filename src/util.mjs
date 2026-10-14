@@ -10,7 +10,7 @@ import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 import {
   isFullyQualifiedWindowsPath, resolvePlatformProcess, resolveWindowsPathExecutable,
-  resolveWindowsSystemTool, withoutAutomaticGitMaintenance, withoutInteractiveGitPrompts
+  resolveWindowsSystemTool, withoutAutomaticGitMaintenance, withoutInteractiveGitPrompts, withoutOptionalStatusLocks
 } from './platform-process.mjs';
 import { displayWidth, padDisplay, terminalWidth, truncateDisplay } from './style.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
@@ -776,7 +776,7 @@ export function run(command, args = [], {
     const spawnOnce = () => spawnSyncCommand(launch.executable, launch.arguments, {
       cwd, encoding, stdio, timeout: timeoutMs, killSignal,
       env: command === 'git' ? gitHostChildEnvironment(
-        withoutAutomaticGitMaintenance(withoutInteractiveGitPrompts(env, { platform }), { platform }),
+        withoutOptionalStatusLocks(withoutAutomaticGitMaintenance(withoutInteractiveGitPrompts(env, { platform }), { platform }), args, { platform }),
         launch.executable, platform
       ) : env,
       ...launch.spawnOptions,

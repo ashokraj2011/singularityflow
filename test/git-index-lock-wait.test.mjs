@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mkdtemp, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -16,7 +16,9 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
+import { completeDeferredIndexRefresh } from '../src/deferred-index-refresh.mjs';
 import { commitIsolated, refreshStalePublishedIndex } from '../src/git.mjs';
+import { refusalRemediationPlan } from '../src/refusal-remediation.mjs';
 import { run } from '../src/util.mjs';
 
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'singularity-flow.mjs');
@@ -64,52 +66,76 @@ test('a publication waits out a brief index lock taken after its branch advanced
   assert.equal(git(worktree, 'status', '--porcelain'), '', 'nothing looks changed after publishing');
 });
 
-test('a lock held past the wait still fails, says who to look for, and keeps the published commit', async (t) => {
-  const { worktree, lock } = await storyWorktree(t);
-  const expectedHead = git(worktree, 'rev-parse', 'HEAD');
+/** Run with a shorter index-lock wait for this test only. */
+function shortLockWait(t, ms) {
   const previous = process.env.SINGULARITY_FLOW_GIT_INDEX_LOCK_WAIT_MS;
-  process.env.SINGULARITY_FLOW_GIT_INDEX_LOCK_WAIT_MS = '300';
+  process.env.SINGULARITY_FLOW_GIT_INDEX_LOCK_WAIT_MS = String(ms);
   t.after(() => {
     if (previous === undefined) delete process.env.SINGULARITY_FLOW_GIT_INDEX_LOCK_WAIT_MS;
     else process.env.SINGULARITY_FLOW_GIT_INDEX_LOCK_WAIT_MS = previous;
   });
-  const started = Date.now();
-  const error = await commitIsolated(worktree, '[STORY-1][phase:specification] publish', ['spec.md'], {
-    expectedHead, onRefAdvanced: () => writeFile(lock, '')
-  }).then(() => null, (caught) => caught);
-  assert.ok(error, 'a held lock is not ignored');
-  assert.ok(Date.now() - started >= 300, 'it waited before failing');
-  assert.match(error.message, /index\.lock/u);
-  assert.match(error.message, /Singularity Flow waited [\d.]+ s for .*index\.lock; another program \(VS Code's Git view, an editor or a terminal\) still holds it/u);
-  assert.equal(error.publicationRefAdvanced, true, 'the branch had advanced; recovery must not roll it back');
-  await rm(lock, { force: true });
+}
 
-  // The state the failure left: published, yet the index still describes the parent, so the
-  // published file looks changed and the next start refuses a dirty tree.
-  assert.equal(git(worktree, 'rev-parse', 'HEAD'), error.publicationCommit);
-  assert.match(git(worktree, 'status', '--porcelain'), /spec\.md/u);
+const markerOf = (worktree) => path.resolve(worktree, git(worktree, 'rev-parse', '--git-path', 'singularity-flow/index-refresh-pending'));
+
+test('a lock held past the wait no longer fails a publication: the commit stands and the next command completes the index', async (t) => {
+  const { worktree, lock } = await storyWorktree(t);
+  const expectedHead = git(worktree, 'rev-parse', 'HEAD');
+  shortLockWait(t, 300);
+  const committed = await commitIsolated(worktree, '[STORY-1][phase:specification] publish', ['spec.md'], {
+    expectedHead, onRefAdvanced: () => writeFile(lock, '')
+  });
+  assert.equal(git(worktree, 'rev-parse', 'HEAD'), committed, 'published, not refused');
+  assert.equal(readFileSync(markerOf(worktree), 'utf8').trim(), committed, 'the owed refresh is recorded in this checkout');
+  assert.match(git(worktree, 'status', '--porcelain'), /spec\.md/u, 'until then the file looks changed');
+
+  // Still locked: the next command says so once, keeps the record, and does not wait a mutation's 10 s.
+  let note = '';
+  const started = Date.now();
+  const waiting = await completeDeferredIndexRefresh(worktree, { stderr: { write: (text) => { note += text; } } });
+  assert.equal(waiting.status, 'waiting');
+  assert.ok(Date.now() - started < 8000);
+  assert.match(note, /still needs its files refreshed in Git's index/u);
+  assert.ok(existsSync(markerOf(worktree)));
+
+  await rm(lock, { force: true });
   // Something staged meanwhile is not the publication's to refresh.
   await writeFile(path.join(worktree, 'notes.txt'), 'developer notes\n');
   git(worktree, 'add', 'notes.txt');
-  assert.deepEqual(refreshStalePublishedIndex(worktree, error.publicationCommit), ['spec.md']);
-  assert.equal(git(worktree, 'status', '--porcelain'), 'A  notes.txt', 'recovery leaves only what someone staged');
-  assert.deepEqual(refreshStalePublishedIndex(worktree, error.publicationCommit), [], 'a second run finds nothing stale');
+  const done = await completeDeferredIndexRefresh(worktree);
+  assert.deepEqual([done.status, done.paths], ['refreshed', ['spec.md']]);
+  assert.equal(git(worktree, 'status', '--porcelain'), 'A  notes.txt', 'only what someone staged remains');
+  assert.equal(existsSync(markerOf(worktree)), false);
+  assert.equal(await completeDeferredIndexRefresh(worktree), null, 'nothing more is owed');
 });
 
-test('recovery leaves a published path alone once someone has staged new content for it', async (t) => {
+test('the completing command leaves a published path alone once someone staged new content for it', async (t) => {
   const { worktree, lock } = await storyWorktree(t);
   const expectedHead = git(worktree, 'rev-parse', 'HEAD');
-  process.env.SINGULARITY_FLOW_GIT_INDEX_LOCK_WAIT_MS = '0';
-  t.after(() => { delete process.env.SINGULARITY_FLOW_GIT_INDEX_LOCK_WAIT_MS; });
-  const error = await commitIsolated(worktree, '[STORY-1][phase:specification] publish', ['spec.md'], {
+  shortLockWait(t, 0);
+  const committed = await commitIsolated(worktree, '[STORY-1][phase:specification] publish', ['spec.md'], {
     expectedHead, onRefAdvanced: () => writeFile(lock, '')
-  }).then(() => null, (caught) => caught);
-  assert.ok(error?.publicationRefAdvanced);
+  });
   await rm(lock, { force: true });
   await writeFile(path.join(worktree, 'spec.md'), '# Specification\n\nA later edit.\n');
   git(worktree, 'add', 'spec.md');
-  assert.deepEqual(refreshStalePublishedIndex(worktree, error.publicationCommit), []);
+  assert.deepEqual(refreshStalePublishedIndex(worktree, committed), []);
+  const done = await completeDeferredIndexRefresh(worktree);
+  assert.deepEqual(done.paths, []);
   assert.equal(git(worktree, 'status', '--porcelain'), 'M  spec.md');
+});
+
+test('a record another commit has superseded is dropped, leaving the rest to recover', async (t) => {
+  const { worktree, lock } = await storyWorktree(t);
+  shortLockWait(t, 0);
+  const committed = await commitIsolated(worktree, '[STORY-1][phase:specification] publish', ['spec.md'], {
+    expectedHead: git(worktree, 'rev-parse', 'HEAD'), onRefAdvanced: () => writeFile(lock, '')
+  });
+  await rm(lock, { force: true });
+  git(worktree, 'commit', '-q', '--allow-empty', '-m', 'a later commit');
+  const done = await completeDeferredIndexRefresh(worktree);
+  assert.deepEqual([done.status, done.commit], ['superseded', committed]);
+  assert.equal(existsSync(markerOf(worktree)), false);
 });
 
 test('only commands that take the index lock before changing anything are run again', async (t) => {
@@ -175,37 +201,33 @@ test('a Story publishes while an editor keeps taking the index lock for a moment
   assert.equal(git(root, 'status', '--porcelain'), '', 'nothing looks changed after publishing');
 });
 
-test('a Story publish that outlasts the wait is repaired by sync: pushed, and nothing left looking changed', { timeout: 300_000 }, async (t) => {
+test('a Story publish succeeds even when the lock outlasts the wait; the next command leaves nothing looking changed', { timeout: 300_000 }, async (t) => {
   const { root, lock, sflow, publish } = await preparedStory(t);
   const stop = lockHolder(lock);
   t.after(stop);
   const before = git(root, 'rev-parse', 'HEAD');
   const published = publish({ SINGULARITY_FLOW_GIT_INDEX_LOCK_WAIT_MS: '300' });
   await stop();
-  assert.notEqual(published.status, 0);
-  assert.match(published.stderr + published.stdout, /Singularity Flow waited [\d.]+ s for .*index\.lock/u);
+  assert.equal(published.status, 0, published.stderr + published.stdout);
+  assert.match(published.stderr, /Git's index could not be refreshed yet .*the next Singularity Flow command in this checkout completes it/u);
   const commit = git(root, 'rev-parse', 'HEAD');
-  assert.notEqual(commit, before, 'the branch had advanced');
-  assert.notEqual(git(root, 'status', '--porcelain'), '', 'the published files looked changed');
-  const synced = sflow(['sync']);
-  assert.equal(synced.status, 0, synced.stderr);
-  assert.equal(git(root, 'status', '--porcelain'), '', 'sync refreshed the published index entries');
-  assert.match(git(root, 'ls-remote', 'origin'), new RegExp(commit));
+  assert.notEqual(commit, before);
+  assert.match(git(root, 'ls-remote', 'origin'), new RegExp(commit), 'pushed by the publication itself');
+  assert.notEqual(git(root, 'status', '--porcelain'), '', 'the published files look changed until the next command');
+  const next = sflow(['status']);
+  assert.equal(next.status, 0, next.stderr);
+  assert.equal(git(root, 'status', '--porcelain'), '', 'any command completed the refresh');
 });
 
-test('a failed publication names sync, not the publish again, as its way out', { timeout: 300_000 }, async (t) => {
-  const { lock, sflow } = await preparedStory(t);
-  const stop = lockHolder(lock);
-  t.after(stop);
-  const published = sflow(['phase', 'publish', 'poc-lite-plan', '--authored', 'deterministic', '--channel', 'kernel-generator', '--json'],
-    { SINGULARITY_FLOW_GIT_INDEX_LOCK_WAIT_MS: '300' });
-  await stop();
-  const refusal = JSON.parse(published.stdout.slice(published.stdout.indexOf('{')));
-  assert.equal(refusal.resultType, 'sflow-refusal-plan');
-  assert.deepEqual(refusal.remediationPlan.steps.map((entry) => entry.command),
+test('a publication that failed after committing names sync, not the publish again, as its way out', () => {
+  const error = Object.assign(new Error('Story LOCK-1 retained its commit, but a later step failed.'), {
+    code: 'SINGULARITY_FLOW_ERROR', publicationRefAdvanced: true, publicationCommit: 'a'.repeat(40)
+  });
+  const plan = refusalRemediationPlan(error, ['--no-model', 'phase', 'publish', 'poc-lite-plan', '--json']);
+  assert.deepEqual(plan.steps.map((entry) => entry.command),
     ['singularity-flow sync', 'singularity-flow recover --phase poc-lite-plan --json'], 'a --no-model run keeps its phase');
-  assert.equal(refusal.remediationPlan.context.strategy, 'roll-forward-exact-commit');
-  assert.match(refusal.remediationPlan.retry.label, /Do not repeat the original command/u);
+  assert.equal(plan.context.strategy, 'roll-forward-exact-commit');
+  assert.match(plan.retry.label, /Do not repeat the original command/u);
 });
 
 test('recover refreshes Story index entries left behind by an earlier sync, and nothing else', { timeout: 300_000 }, async (t) => {
@@ -284,4 +306,17 @@ test('a specification draft not yet published or submitted recovers from a laggi
   assert.match(await readFile(spec, 'utf8'), /Order clerks, still being written\./u);
   const next = JSON.parse(sflow('recover', 'SPEC-1', '--phase', 'specification', '--json').stdout);
   assert.ok(next.actions.every((entry) => entry.mode !== 'manual'), JSON.stringify(next.actions.map((entry) => [entry.id, entry.mode])));
+});
+
+test("Singularity Flow's own git status never takes the index lock; everything else is unchanged", () => {
+  const seen = [];
+  const spawnSyncCommand = (_executable, args, options) => {
+    seen.push([args.find((arg) => !arg.startsWith('-') && !arg.includes('=')), options.env.GIT_OPTIONAL_LOCKS]);
+    return { status: 0, stdout: '', stderr: '' };
+  };
+  run('git', ['status', '--porcelain=v1'], { spawnSyncCommand });
+  run('git', ['-c', 'core.quotepath=false', 'status'], { spawnSyncCommand });
+  run('git', ['add', 'spec.md'], { spawnSyncCommand });
+  run('git', ['status'], { spawnSyncCommand, env: { ...process.env, GIT_OPTIONAL_LOCKS: '1' } });
+  assert.deepEqual(seen, [['status', '0'], ['status', '0'], ['add', process.env.GIT_OPTIONAL_LOCKS], ['status', '1']]);
 });

@@ -2858,11 +2858,30 @@ function laggingIndexEntries(root, commit, prefix = null) {
  * retained commit. An entry someone staged since is left exactly as it is. Returns the paths it
  * refreshed.
  */
-export function refreshStalePublishedIndex(root, commit) {
+export function refreshStalePublishedIndex(root, commit, { lockWaitMs = null } = {}) {
   if (!commit || head(root) !== commit) return [];
   const stale = laggingIndexEntries(root, commit);
-  if (stale.length) git(['reset', '-q', commit, '--', ...stale], { cwd: root, env: { ...process.env, GIT_LITERAL_PATHSPECS: '1' } });
+  if (stale.length) git(['reset', '-q', commit, '--', ...stale], { cwd: root, env: {
+    ...process.env, GIT_LITERAL_PATHSPECS: '1',
+    ...(lockWaitMs == null ? {} : { SINGULARITY_FLOW_GIT_INDEX_LOCK_WAIT_MS: String(lockWaitMs) })
+  } });
   return stale;
+}
+
+/**
+ * The index refresh after a commit is durable failed (another program held `index.lock` past the
+ * wait, typically). The commit stands; failing now would report a made commit as an error and leave
+ * its files looking changed. Record it, so the next command in this checkout completes the refresh.
+ */
+function deferIndexRefresh(root, commit, result) {
+  // The record deferred-index-refresh.mjs completes: the commit ID, in this checkout's Git
+  // directory. Written here so this module (and the edit guard that reaches it) loads nothing more.
+  const marker = path.join(gitDir(root), 'singularity-flow', 'index-refresh-pending');
+  mkdirSync(path.dirname(marker), { recursive: true });
+  writeFileSync(marker, `${commit}\n`);
+  const reason = String(result?.stderr || result?.stdout || '').trim().split(/\r?\n/u)[0];
+  process.stderr.write(`Committed ${commit.slice(0, 12)}. Git's index could not be refreshed yet${reason ? ` (${reason})` : ''}; `
+    + 'the next Singularity Flow command in this checkout completes it. Until then its files may look changed.\n');
 }
 
 /**
@@ -2947,17 +2966,11 @@ export async function commitReviewedPaths(root, message, paths, {
       );
     }
     // Refresh only the reviewed files; do not borrow, commit, reset, or discard any other index entry.
-    try {
-      git(['reset', '-q', committed, '--', ...scope], { cwd: root, env: immutableLocalGitEnvironment() });
-    } catch (error) {
-      throw new SingularityFlowError(
-        `Reviewed commit ${committed} completed, but its listed index entries could not be refreshed: ${error.message}. `
-        + 'Do not repeat the commit. Preserve it and inspect recovery/index-lock diagnostics; no lifecycle action was run.',
-        { code: 'RECOVERY_COMMITTED_INDEX_REPAIR_REQUIRED', details: {
-          commit: committed, paths, lifecycleAdvanced: false, recoveryCommand: 'singularity-flow recover --json'
-        } }
-      );
-    }
+    // The commit stands either way: a refresh another program blocks completes on the next command.
+    const refreshed = git(['reset', '-q', committed, '--', ...scope], {
+      cwd: root, env: immutableLocalGitEnvironment(), allowFailure: true
+    });
+    if (refreshed.status !== 0) deferIndexRefresh(root, committed, refreshed);
     return committed;
   } finally {
     try { await removeTemporaryTree(scratch); }
@@ -3295,7 +3308,10 @@ export async function commitIsolated(root, message, paths, {
 
     // The real index still describes the old HEAD. Refresh only governed entries so they do not
     // appear as synthetic staged reversions; unrelated staged entries remain byte-for-byte intact.
-    git(['reset', '-q', sourceCommit, '--', ...scope], { cwd: root, env: localEnv });
+    // The commit is durable from here: an index another program holds past the wait no longer
+    // fails the publication. The refresh is recorded and completes on the next command.
+    const refreshed = git(['reset', '-q', sourceCommit, '--', ...scope], { cwd: root, env: localEnv, allowFailure: true });
+    if (refreshed.status !== 0) deferIndexRefresh(root, sourceCommit, refreshed);
     const refAfterIndexRefresh = checkedOutRef();
     if (expectedRef !== undefined && refAfterIndexRefresh !== expectedRef) {
       // A checkout racing the index refresh may now own this worktree. Restore its index from its

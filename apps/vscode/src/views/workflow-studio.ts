@@ -307,7 +307,9 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       const fresh = await this.client.run<StudioModel>([...STUDIO_MODEL_ARGS]).catch(() => null);
       if (fresh && JSON.stringify(fresh.base ?? null) !== before) await this.configurationChanged(pending, 'workflows were imported');
     }
-    this.post({ type: 'studio.importDone', outcome: result.outcome, branch: result.branch ?? null, error: result.error, uploaded: result.uploaded !== false });
+    this.post({ type: 'studio.importDone', outcome: result.outcome, branch: result.branch ?? null, error: result.error,
+      // Only a proposal still uploading says so; every other outcome keeps its exact shape.
+      ...(result.uploaded === false ? { uploaded: false } : {}) });
     if (result.outcome !== 'cancelled') await this.proposals();
   }
 
@@ -323,7 +325,9 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       if (fresh && JSON.stringify(fresh.base ?? null) !== before) await this.configurationChanged(pending, 'a workflow was duplicated');
       await this.proposals();
     }
-    this.post({ type: 'studio.importDone', outcome: result.outcome, branch: result.branch ?? null, error: result.error, uploaded: result.uploaded !== false });
+    this.post({ type: 'studio.importDone', outcome: result.outcome, branch: result.branch ?? null, error: result.error,
+      // Only a proposal still uploading says so; every other outcome keeps its exact shape.
+      ...(result.uploaded === false ? { uploaded: false } : {}) });
   }
 
   /** Repository files the page may open: the governed workflow and portfolio files, and templates. */

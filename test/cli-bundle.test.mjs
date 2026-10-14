@@ -95,6 +95,6 @@ export async function load(url, context, next) {
     assert.equal(bundled.status, source.status, args.join(' '));
     assert.equal(bundled.stdout, source.stdout, `${args.join(' ')} prints the same`);
     assert.ok(bundled.modules.length <= 8, `${args.join(' ')} opened ${bundled.modules.length} module files: ${bundled.modules.join(', ')}`);
-    if (args[0] !== '--version') assert.ok(source.modules.length > 100, `${args.join(' ')} from the sources opened ${source.modules.length}`);
+    if (args[0] !== '--version') assert.ok(source.modules.length > 35, `${args.join(' ')} from the sources opened ${source.modules.length}`);
   }
 });

@@ -819,22 +819,25 @@ export function remoteUrl(root, remote = 'origin', { env = process.env } = {}) {
 }
 
 export function changes(root) {
-  return git([...worktreeScanConfigFlags(), 'status', '--porcelain=v1', '--untracked-files=all'], { cwd: root }).stdout;
+  return scopedReadSync(`git.changes:${path.resolve(root)}`, () =>
+    git([...worktreeScanConfigFlags(), 'status', '--porcelain=v1', '--untracked-files=all'], { cwd: root }).stdout);
 }
 
 /** Exact local status roster for lifecycle decisions; paths are never quote/line parsed. */
 export function worktreeStatusDetail(root) {
-  const env = immutableLocalGitEnvironment();
-  const objectFormat = repositoryObjectFormat(root, { env });
-  if (!objectFormat) {
-    throw new SingularityFlowError('Git could not establish the repository object format for the worktree status.', {
-      code: 'GIT_OBJECT_FORMAT_UNAVAILABLE'
-    });
-  }
-  const bytes = git([...worktreeScanConfigFlags(), 'status', '--porcelain=v2', '-z', '--untracked-files=all'], {
-    cwd: root, env, encoding: 'buffer'
-  }).stdout;
-  return parsePorcelainV2Status(bytes, { objectFormat });
+  return scopedReadSync(`git.worktreeStatusDetail:${path.resolve(root)}`, () => {
+    const env = immutableLocalGitEnvironment();
+    const objectFormat = repositoryObjectFormat(root, { env });
+    if (!objectFormat) {
+      throw new SingularityFlowError('Git could not establish the repository object format for the worktree status.', {
+        code: 'GIT_OBJECT_FORMAT_UNAVAILABLE'
+      });
+    }
+    const bytes = git([...worktreeScanConfigFlags(), 'status', '--porcelain=v2', '-z', '--untracked-files=all'], {
+      cwd: root, env, encoding: 'buffer'
+    }).stdout;
+    return parsePorcelainV2Status(bytes, { objectFormat });
+  });
 }
 
 export function assertClean(root) {
@@ -949,7 +952,8 @@ export async function fetchRemote(root, remote = 'origin', options = {}) {
 export async function fetchOrigin(root) { return fetchRemote(root, 'origin'); }
 
 export function hasUpstream(root) {
-  return git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], { cwd: root, allowFailure: true }).status === 0;
+  return scopedReadSync(`git.hasUpstream:${path.resolve(root)}`, () =>
+    git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], { cwd: root, allowFailure: true }).status === 0);
 }
 
 export async function pullFastForward(root) {

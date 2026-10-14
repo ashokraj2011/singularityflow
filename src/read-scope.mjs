@@ -40,6 +40,11 @@ export async function withReadScope(fn) {
   return scopes.run(new Map(), fn);
 }
 
+/** Open a fresh read scope even if an enclosing scope is already active. */
+export async function withFreshReadScope(fn) {
+  return scopes.run(new Map(), fn);
+}
+
 /**
  * Compute `key` once per scope.
  *

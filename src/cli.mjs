@@ -1370,25 +1370,6 @@ async function reinstallCommand(options) {
   return result;
 }
 
-async function helpCommand(positionals, options) {
-  // `help <command>` and `<command> --help` answer the same question, so they render the same page —
-  // but only when the name is not already a manual topic. Topics win: several of them share a name
-  // with a command, and an existing topic is the richer answer. Note `commandDefinition` throws on
-  // an unknown name rather than returning nothing, so the lookup has to be guarded.
-  const requested = positionals[1];
-  const isCommand = (name) => { try { return Boolean(commandDefinition(name)); } catch { return false; } };
-  if (requested && !optionBoolean(options, 'json') && isCommand(requested)) {
-    const topic = await loadHelpDocument(requested).catch(() => null);
-    if (!topic) {
-      const { renderCommandHelp } = await import('./help-pages.mjs');
-      return console.log(renderCommandHelp(requested));
-    }
-  }
-  const document = await loadHelpDocument(requested);
-  if (optionBoolean(options, 'json')) console.log(JSON.stringify(document, null, 2));
-  else process.stdout.write(document.content.endsWith('\n') ? document.content : `${document.content}\n`);
-}
-
 /**
  * Refuse to cut a Story branch from an application branch that does not carry the governed
  * definition and has no approved configuration authority to materialize.
@@ -3691,95 +3672,6 @@ export async function statusCommand(positionals, options) {
   }
 }
 
-async function progressCommand(positionals, options) {
-  const root = repoRoot();
-  const { workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
-  const progress = progressSnapshot(workflow);
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(progress, null, 2));
-  if (optionBoolean(options, 'markdown')) return console.log(progressMarkdown(progress));
-  console.log(`\n${progress.workId} — ${progress.workType}`);
-  console.log(`${progressBar(progress.percentage)} ${progress.percentage}%`);
-  console.log(`${progress.approvedPhases} of ${progress.totalPhases} phases approved; current: ${progress.currentPhase ?? 'none'} (${progress.currentPosition}/${progress.totalPhases})`);
-  console.log(`Documents: ${progress.documents}  Tokens: ${progress.tokens.totalTokens || 'unavailable'}`);
-  console.log(`\nWorkflow flow:\n${progressFlow(progress)}`);
-  console.log(`\n${table(progress.phases, [
-    { key: 'index', label: '#' }, { key: 'id', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
-    { key: 'generation', label: 'GEN' }, { key: 'approvals', label: 'APPROVED' }, { key: 'approvalsRequired', label: 'NEEDED' }, { key: 'tokens', label: 'TOKENS' }
-  ])}`);
-}
-
-async function reportCommand(positionals, options) {
-  const timingsEnabled = optionBoolean(options, 'timings');
-  const timer = new TimingCollector({ enabled: timingsEnabled });
-  const root = repoRoot();
-  const accepted = await timer.measure(
-    'accepted-story-execution',
-    () => loadAcceptedStoryExecution(root, positionals[1])
-  );
-  const { config, workflow } = accepted;
-  // `report --recap` is the same account the pull-request body carries, from the same beats. Kept on
-  // `report` rather than given its own verb: it answers "what happened here", which is the question
-  // report already exists to answer, and one surface is one thing to keep true.
-  if (optionBoolean(options, 'recap')) {
-    const { recap } = await import('./narration/recap.mjs');
-    const length = optionString(options, 'length', 'standard');
-    const account = recap(workflow, {
-      length,
-      locale: optionString(options, 'locale', 'en-GB'),
-      timeZone: optionString(options, 'timezone', 'UTC')
-    });
-    return console.log(account || `No recorded beats for ${workflow.workItem.id} yet.`);
-  }
-  const format = optionString(options, 'format', 'md').toLowerCase();
-  if (!['md', 'html', 'json'].includes(format)) throw new SingularityFlowError(`Unknown report format: ${format}. Use md, html, or json.`);
-  const report = await timer.measure('derive', async () => deriveReport(workflow, { pricing: config.tokens?.pricing ?? null, premiumMultipliers: config.tokens?.premiumMultipliers ?? null }));
-  let rendered = await timer.measure('render', async () => format === 'json'
-    ? `${JSON.stringify(report, null, 2)}\n`
-    : format === 'html' ? renderHtml(report) : renderMarkdown(report));
-  const timings = timer.finish();
-  if (format === 'json' && timings) {
-    report.timings = timings;
-    rendered = `${JSON.stringify(report, null, 2)}\n`;
-  }
-  const outputFile = optionString(options, 'out');
-  if (outputFile) {
-    const absolute = path.resolve(root, outputFile);
-    await writeText(absolute, rendered);
-    console.log(`Report written to ${absolute}`);
-    if (format !== 'json') writeHumanTimings(timings);
-    return;
-  }
-  // stdout stays the default. The extension classifies `report` as a read precisely when `--out` is
-  // absent and calls it that way, and `singularity-flow report > notes.md` is how everyone else uses
-  // it — so `--brief` is opt-in rather than the other way round.
-  if (optionBoolean(options, 'brief') && format !== 'json') {
-    console.log(summariseRendered(rendered, `report for ${workflow.workItem.id}`));
-    if (format !== 'json') writeHumanTimings(timings);
-    return;
-  }
-  process.stdout.write(rendered);
-  if (format !== 'json') writeHumanTimings(timings);
-}
-
-/**
- * Describe a rendered document instead of printing it.
- *
- * Enough to know it is the right one and what to do with it: how big it is, how it starts, and the
- * flag that prints the rest. Used by the two commands that otherwise put a whole document on screen.
- */
-function summariseRendered(rendered, label) {
-  const lines = String(rendered).split('\n');
-  const heading = lines.find((line) => line.trim().startsWith('#'))?.replace(/^#+\s*/, '').trim();
-  return [
-    `${style.heading(label)} ${style.detail(style.fields(
-      `${lines.length} lines`,
-      `${Buffer.byteLength(rendered)} bytes`,
-      heading ? `starts: ${heading}` : null
-    ))}`,
-    style.detail('Printed in full without --brief; redirect to a file with --out <path>.')
-  ].join('\n');
-}
-
 function impactFilters(values) {
   const result = {};
   for (const item of values) {
@@ -4096,62 +3988,6 @@ async function impactCommand(positionals, options) {
   throw new SingularityFlowError(`Unknown impact action '${action}'.`);
 }
 
-async function guideCommand(positionals, options) {
-  if (optionBoolean(options, 'first-run')) {
-    const json = optionBoolean(options, 'json');
-    const result = await runFirstRunGuide({
-      keep: optionBoolean(options, 'keep'),
-      onBoundary: json ? undefined : (directory) => console.log(`Guide sandbox: ${directory}`)
-    });
-    if (json) return console.log(JSON.stringify(result, null, 2));
-    console.log(`\n${style.heading('Singularity Flow first run completed.')}`);
-    for (const step of result.steps) console.log(`  ${style.pass()} ${step.command}`);
-    console.log(`\n${style.detail(style.fields(
-      `work item ${result.workId}`,
-      `${result.modelInvocations} model invocation(s)`,
-      `network access: ${result.networkAccess ? 'yes' : 'no'}`,
-      `final state ${result.finalStateSha256.slice(0, 12)}`
-    ))}`);
-    console.log(style.detail(result.retained
-      ? `Guide repository retained at ${result.repository}`
-      : 'Guide sandbox removed after successful completion.'));
-    emitCommandResult(commandResult({
-      operation: { id: 'quickstart', classification: 'read' },
-      subject: { kind: 'repository', id: result.workId },
-      outcome: succeeded('quickstart.completed', { steps: result.steps.length }),
-      // The walkthrough runs entirely inside a sandbox it creates and removes. Nothing in the
-      // reader's own repository is touched, which is what makes this safe as a first command.
-      effects: noEffects(),
-      // The sandbox is finished; the reader is not. Reporting a rest state here would answer the
-      // newcomer's very first command with "there is nothing further to do".
-      next: [
-        narrationAction({
-          id: 'quickstart.init',
-          label: 'Set up a repository you already have',
-          command: 'singularity-flow init'
-        }),
-        narrationAction({
-          id: 'quickstart.bootstrap',
-          label: 'Set up a new capability, with its configuration branch and ledger',
-          command: 'singularity-flow bootstrap <REPOSITORY-URL>'
-        }),
-        narrationAction({
-          id: 'quickstart.help',
-          label: 'See what the other commands do',
-          command: 'singularity-flow --help',
-          rank: 'LATER'
-        })
-      ]
-    }));
-    return;
-  }
-  const root = repoRoot();
-  const { workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
-  const guide = workflowGuide(workflow);
-  if (optionBoolean(options, 'json')) console.log(JSON.stringify(guide, null, 2));
-  else process.stdout.write(guideText(guide));
-}
-
 async function resolveNextStepsSnapshot(positionals, options) {
   const { resolveSnapshot } = await import('./commands/nextsteps.mjs');
   return resolveSnapshot(positionals);
@@ -4307,7 +4143,7 @@ async function nextCommand(options) {
   if (!phase) {
     printCommandRoutes('singularity-flow gate --terminal', { label: 'Run the final governance gate' });
     console.log('Run the governance gate for the completed workflow.');
-    return gateCommand({ ...options, terminal: true });
+    return (await import('./commands/validate.mjs')).gateCommand({ ...options, terminal: true });
   }
   if (phase.status === 'awaiting_approval') {
     printCommandRoutes(`singularity-flow approve ${phase.id} --work-id ${workflow.workItem.id} --fetch`, {
@@ -5832,25 +5668,6 @@ async function visualCommand(positionals, options) {
   throw new SingularityFlowError(`Unknown visual action '${action}'.`);
 }
 
-async function wmCommand(positionals, options) {
-  if (positionals[1] !== 'design-inventory') {
-    const root = repoRoot();
-    const readsApprovedPolicy = new Set([
-      'ast', 'facts', 'build', 'availability', 'status', 'ensure', 'refresh-authority',
-      'context', 'check', 'show-prompt', 'brief', 'read', 'read-views', 'read-contract'
-    ]).has(positionals[1]);
-    return readsApprovedPolicy
-      ? withApprovedConfigurationRead(root, () => worldModelCommand(root, positionals, options))
-      : worldModelCommand(root, positionals, options);
-  }
-  if (!optionBoolean(options, 'from-records')) throw new SingularityFlowError('Design inventory generation is deterministic and requires --from-records.');
-  const root = repoRoot(), config = await loadConfig(root), workflow = await loadStoryAggregate(root, config);
-  const binding = approvedDesignSourceBinding(workflow);
-  const result = await generateDesignInventory(root, workflow, binding, { itemDirectory: workDir(root, config, workflow.workItem.id) });
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-  console.log(`Design inventory: ${result.digest.digestSha256}\nJSON: ${result.json.path}\nMarkdown: ${result.markdown.path}`);
-}
-
 async function artifactCommand(positionals, options) {
   const subcommand = requirePositional(positionals, 1, 'artifact subcommand');
   const root = repoRoot();
@@ -6077,297 +5894,6 @@ async function regressionCommand(positionals, options) {
 export { submitCommand } from './commands/submit.mjs';
 
 export { submitConfirmedConvergenceCommand } from './commands/submit.mjs';
-
-async function telemetryCommand(positionals, options) {
-  const subcommand = positionals[1] ?? 'status';
-  let root = null;
-  try { root = repoRoot(); } catch { /* Machine-local telemetry controls are intentionally rootless. */ }
-  const status = await copilotTelemetryStatus(root);
-  if (subcommand === 'status') {
-    let workflow = null;
-    // Pending phase telemetry enriches repository status, but it is not a prerequisite for the
-    // machine-level capture preference. A plain Git directory or a rootless invocation therefore
-    // never attempts to parse singularity/workflow.yml. In a governed checkout, keep the strict
-    // accepted-closure validation so damaged Story authority is still reported rather than hidden.
-    if (root && existsSync(path.join(root, WORKFLOW_PATH))) {
-      try { workflow = (await loadAcceptedStoryExecution(root)).workflow; }
-      catch (error) {
-        if (error?.code !== 'STORY_NOT_FOUND') throw error;
-      }
-    }
-    const pending = workflow
-      ? workflow.phaseOrder.flatMap((phaseId) => (workflow.phases[phaseId].telemetry ?? []).filter((item) => item.status === 'pending').map((item) => ({ phase: phaseId, generation: item.generation, path: item.path })))
-      : [];
-    const launches = await explainTelemetryStatus({
-      root,
-      story: optionString(options, 'story', workflow?.workItem?.id ?? null)
-    });
-    const result = {
-      schemaVersion: 2,
-      capture: launches,
-      // Preserve the path-free v1 readiness fields for scripts while the qualified launch
-      // partition becomes the authoritative v2 view.
-      exists: status.exists,
-      ready: status.ready,
-      completedChatSpans: status.completedChatSpans,
-      legacyExporter: {
-        enabled: status.enabled,
-        fileConfigured: status.fileConfigured,
-        externalEndpoint: status.externalEndpoint,
-        explicitlyEnabled: status.explicitlyEnabled,
-        exists: status.exists,
-        bytes: status.bytes,
-        completedChatSpans: status.completedChatSpans,
-        ready: status.ready,
-        setup: { installed: status.setup.installed, current: status.setup.current },
-        warnings: status.warnings
-      },
-      pending
-    };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Copilot usage — ${launches.status}`);
-    console.log(`SFlow-owned launches: ${launches.launches.length} | Captured: ${launches.counts.captured} | Partial: ${launches.counts.partial}`);
-    console.log(`Local capture: ${launches.preference.enabled ? 'enabled' : 'disabled'} | Disclosure: ${launches.preference.disclosureAccepted ? 'accepted' : 'required'}`);
-    console.log(`Pending generations: ${pending.length ? pending.map((item) => `${item.phase}@${item.generation}`).join(', ') : 'none'}`);
-    if (!launches.launches.length && status.ready) console.log(`Legacy repository stream: ${status.completedChatSpans} completed chat span(s).`);
-    if (launches.status === 'unavailable') console.log('Usage unavailable for this session. Your work can continue.');
-    if (!launches.preference.enabled) {
-      printCommandRoutes('singularity-flow telemetry enable', { label: 'Enable future SFlow-owned launches' });
-    } else if (!launches.preference.disclosureAccepted) {
-      printCommandRoutes('singularity-flow telemetry enable', { label: 'Review and accept the local collection disclosure' });
-    }
-    return;
-  }
-  if (subcommand === 'probe') {
-    const probes = await Promise.all([
-      ['copilot-cli', 'cli'], ['copilot-cli', 'vscode-terminal'], ['copilot-cli', 'intellij-terminal'],
-      ['copilot-native', 'vscode-native'], ['copilot-native', 'intellij-native']
-    ].map(([runtime, host]) => probeTelemetry({ root, provider: 'github-copilot', runtime, host })));
-    const result = { schemaVersion: 1, probes };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    for (const probe of probes) console.log(`${probe.host}: ${probe.mode} · ${probe.available ? 'available' : 'usage unavailable'}`);
-    return;
-  }
-  if (subcommand === 'disable') {
-    const preference = await setTelemetryCapture(false);
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ schemaVersion: 1, status: 'disabled', preference }, null, 2));
-    console.log('Local usage capture is disabled for future SFlow-owned launches. Governed work is unchanged.');
-    return;
-  }
-  if (subcommand === 'enable') {
-    if (!optionBoolean(options, 'json')) console.log(TELEMETRY_DISCLOSURE);
-    const explicit = optionString(options, 'confirm');
-    const accepted = explicit != null
-      ? explicit === TELEMETRY_DISCLOSURE_CONFIRMATION
-      : await confirmExact('Enable metadata-only local usage capture?', TELEMETRY_DISCLOSURE_CONFIRMATION);
-    if (!accepted) throw new SingularityFlowError(`Telemetry enable requires exact confirmation '${TELEMETRY_DISCLOSURE_CONFIRMATION}'.`, { code: 'TELEMETRY_DISCLOSURE_REQUIRED' });
-    const preference = await setTelemetryCapture(true, { acceptDisclosure: true });
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify({
-      schemaVersion: 1, status: 'enabled', disclosure: TELEMETRY_DISCLOSURE, preference
-    }, null, 2));
-    console.log('Local metadata-only usage capture is enabled for future SFlow-owned launches.');
-    return;
-  }
-  if (subcommand !== 'reconcile') throw new SingularityFlowError(`Unknown telemetry subcommand: ${subcommand}`);
-  if (!root) {
-    throw new SingularityFlowError('Telemetry reconciliation requires an active governed repository.', {
-      code: 'TELEMETRY_ROOT_REQUIRED'
-    });
-  }
-  const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config);
-  let result;
-  await storyDraftTransaction(root, config, workflow, `telemetry-reconcile:${positionals[2] ?? workflow.currentPhase}`, async (recoveryPreimage) => {
-    result = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: positionals[2] });
-    if (result.updated) {
-      const publication = await commitAndPublish(
-        root,
-        config,
-        workflow,
-        { type: LIFECYCLE_EVENT.TELEMETRY_RECORDED, phaseId: result.phase, generation: result.generation },
-        `[${workflow.workItem.id}][phase:${result.phase}][telemetry:${result.generation}] reconcile Copilot usage`,
-        [],
-        { recoveryPreimage }
-      );
-      Object.assign(result, { commit: publication.sha, pushed: publication.pushed });
-    }
-    return result;
-  });
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ exporter: status, reconciliation: result }, null, 2));
-  if (!result.updated) {
-    console.log(`Telemetry was not changed: ${result.reason}`);
-    status.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-    return;
-  }
-  console.log(`Reconciled ${result.phase} generation ${result.generation}: ${result.status}.`);
-  console.log(`Models: ${result.models.join(', ') || 'unavailable'} | Tokens: ${result.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0) || 'unavailable'} | Provider cost: ${result.providerCost == null ? 'unavailable' : `$${result.providerCost.toFixed(6)}`}`);
-  const reconciledActivity = copilotActivityLine(result.activity);
-  if (reconciledActivity) console.log(reconciledActivity);
-  console.log(`Commit: ${result.commit.slice(0, 8)}${result.pushed ? ' and pushed' : ''}`);
-}
-
-async function xrayProjection(positionals, options, { defaultToCurrentPhase = true } = {}) {
-  const root = repoRoot();
-  const workId = optionString(options, 'work-id', positionals[2] ?? null);
-  let workflow;
-  try { workflow = (await loadAcceptedStoryExecution(root, workId)).workflow; }
-  catch (error) {
-    if (error?.code !== 'STORY_NOT_FOUND') throw error;
-    throw new SingularityFlowError(
-      workId
-        ? `Context X-Ray could not resolve governed work '${workId}'.`
-        : 'Context X-Ray requires active governed Story work or --work-id.',
-      { code: 'CXR_NO_ACTIVE_WORK', cause: error }
-    );
-  }
-  return contextXray(root, workflow, {
-    phase: optionString(options, 'phase'),
-    packetId: optionString(options, 'packet'),
-    defaultToCurrentPhase
-  });
-}
-
-async function contextCommand(positionals, options) {
-  const subcommand = positionals[1] ?? 'xray';
-  if (subcommand === 'compile') {
-    const root = repoRoot();
-    const packet = await compileEvidencePacket(root, {
-      workId: optionString(options, 'work-id', positionals[2] ?? null),
-      flightPlanId: optionString(options, 'flight-plan'),
-      phase: optionString(options, 'phase'),
-      requestedSlices: optionStrings(options, 'slice'),
-      maxOutputBytes: optionNumber(options, 'max-output-bytes')
-    });
-    return emitCommandResult(commandResult({
-      operation: { id: 'context.compile', classification: 'mutation' },
-      subject: packet.binding.workId ? { kind: 'story', id: packet.binding.workId } : null,
-      outcome: succeeded('context.compiled', {
-        packetId: packet.packetId, status: packet.status, items: packet.items.length
-      }),
-      effects: effects({ stateChanged: true }),
-      restState: 'informational',
-      data: { packet }
-    }), { json: optionBoolean(options, 'json') });
-  }
-  if (subcommand === 'expand') {
-    const expansion = await expandEvidencePacketHandle(
-      repoRoot(), requirePositional(positionals, 2, 'sealed expansion handle')
-    );
-    return emitCommandResult(commandResult({
-      operation: { id: 'context.expand', classification: 'mutation' },
-      subject: { kind: 'context-packet', id: expansion.packetId },
-      outcome: succeeded('context.expanded', {
-        packetId: expansion.packetId, representation: expansion.representation,
-        bytes: expansion.accounting.includedContentBytes
-      }),
-      effects: effects({ stateChanged: true }),
-      restState: 'informational',
-      data: { expansion }
-    }), { json: optionBoolean(options, 'json') });
-  }
-  if (subcommand === 'doctor') {
-    const config = await loadConfig(repoRoot());
-    const policy = normalizeTokenEconomy(config.tokenEconomy ?? {});
-    const profile = selectedTokenEconomyProfile(policy);
-    const result = {
-      schemaVersion: 1, // schema-transient: read-only diagnostic
-      status: policy.enabled ? 'ready' : 'disabled', policy, profile,
-      configurationDigest: tokenEconomyDigest(policy),
-      modelInvoked: false
-    };
-    return emitCommandResult(commandResult({
-      operation: { id: 'context.doctor', classification: 'read' },
-      subject: null,
-      outcome: succeeded('context.diagnosed', {
-        status: result.status, mode: policy.mode, profile: profile.id
-      }),
-      effects: noEffects(), restState: 'informational', data: { diagnostic: result }
-    }), { json: optionBoolean(options, 'json') });
-  }
-  if (subcommand !== 'xray') {
-    throw new SingularityFlowError(`Unknown context command '${subcommand}'. Available: xray, compile, expand, doctor.`);
-  }
-  const projection = await xrayProjection(positionals, options);
-  return emitCommandResult(commandResult({
-    operation: { id: 'context', classification: 'read' },
-    subject: { kind: 'story', id: projection.work.id },
-    outcome: succeeded('context.reported', {
-      workId: projection.work.id, phase: projection.work.phase ?? 'all phases'
-    }),
-    effects: noEffects(),
-    restState: 'informational',
-    data: { xray: projection }
-  }), { json: optionBoolean(options, 'json') });
-}
-
-async function tokensCommand(positionals, options) {
-  const subcommand = positionals[1] ?? 'status';
-  if (!['status', 'report', 'compare'].includes(subcommand)) {
-    throw new SingularityFlowError(
-      `Unknown tokens command '${subcommand}'. Available: status, report, compare.`
-    );
-  }
-  if (subcommand === 'compare') {
-    const root = repoRoot();
-    const studyId = optionString(options, 'study', positionals[2] ?? null);
-    if (!studyId) throw new SingularityFlowError('tokens compare requires --study STUDY-ID.');
-    const impact = await loadImpactDefinition(root, { required: true });
-    const study = impact.studies.find((item) => item.id === studyId);
-    if (!study) throw new SingularityFlowError(`Unknown impact study '${studyId}'.`);
-    const comparison = compareImpactReceipts(
-      await listImpactReceipts(root, await loadConfig(root), { studyId }), study,
-      { filters: impactFilters(optionStrings(options, 'filter')) }
-    );
-    const classification = classifyTokenOptimization(comparison);
-    const result = { schemaVersion: 1, studyId, classification, comparison };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Token optimization: ${classification.state}`);
-    console.log(classification.reason);
-    console.log(`Release claim: ${classification.releaseClaimAllowed ? 'allowed' : 'blocked'}`);
-    return;
-  }
-  if (optionBoolean(options, 'today')) {
-    const incompatible = [
-      optionString(options, 'work-id'), optionString(options, 'phase'), optionString(options, 'packet'),
-      positionals[2]
-    ].filter((value) => value != null && String(value).trim());
-    if (incompatible.length) {
-      throw new SingularityFlowError(
-        '--today is a repository-wide content-free aggregate and cannot be combined with a Story, phase, or packet selector.',
-        { code: 'CXR_ARGUMENT_CONFLICT' }
-      );
-    }
-    const root = repoRoot();
-    const period = dailyTokenLedgerPeriod();
-    const [models, packets] = await Promise.all([
-      listModelInvocationAudits(root),
-      contextPacketTelemetryRecords(root)
-    ]);
-    const ledger = dailyTokenLedgerProjection(models, packets, { period });
-    return emitCommandResult(commandResult({
-      operation: { id: 'tokens', classification: 'read' },
-      subject: null,
-      outcome: succeeded('tokens.daily-reported', {
-        date: ledger.period.date,
-        modelInvocations: ledger.activity.modelInvocations,
-        contextPackets: ledger.activity.contextPackets
-      }),
-      effects: noEffects(),
-      restState: 'informational',
-      data: { ledger }
-    }), { json: optionBoolean(options, 'json') });
-  }
-  const projection = await xrayProjection(positionals, options, { defaultToCurrentPhase: false });
-  return emitCommandResult(commandResult({
-    operation: { id: 'tokens', classification: 'read' },
-    subject: { kind: 'story', id: projection.work.id },
-    outcome: succeeded('tokens.reported', {
-      workId: projection.work.id, phase: projection.ledger.phase ?? 'all phases'
-    }),
-    effects: noEffects(),
-    restState: 'informational',
-    data: { ledger: projection.ledger }
-  }), { json: optionBoolean(options, 'json') });
-}
 
 async function rejectCommand(positionals, options) {
   const { root, config, workflow, phase: current, session, testingRepairPlan } = await decisionWorkflow(positionals, options, 'reject');
@@ -8344,81 +7870,6 @@ async function logsCommand(positionals, options) {
   console.log(`Log file: ${file}`);
 }
 
-async function doctorCommand(positionals, options) {
-  if (optionBoolean(options, 'git-speed')) {
-    const root = repoRoot();
-    const { applyFosGitSpeed, inspectFosGitSpeed } = await import('./fos-git-speed.mjs');
-    const report = optionBoolean(options, 'apply')
-      ? await applyFosGitSpeed(root, optionStrings(options, 'enable'))
-      : inspectFosGitSpeed(root);
-    if (optionBoolean(options, 'json')) console.log(JSON.stringify(report, null, 2));
-    else {
-      console.log(`Git speed: ${report.status}`);
-      const settings = report.report?.settings ?? report.settings ?? {};
-      for (const [id, value] of Object.entries(settings)) {
-        console.log(`${id}: ${value.value ?? 'unset'} · ${value.compatible ? 'compatible' : 'unsupported'} · ${value.scope}`);
-      }
-      if (report.receipt) console.log(`Receipt: ${report.receipt.receiptId}`);
-    }
-    return report;
-  }
-  if (optionString(options, 'fix') === 'telemetry') {
-    return telemetryCommand(['telemetry', 'enable'], options);
-  }
-  const root = repoRoot();
-  const inspect = () => doctorSnapshot(root, {
-    workId: positionals[1],
-    offline: optionBoolean(options, 'offline'),
-    performance: optionBoolean(options, 'performance')
-  });
-  // Performance doctor is explicitly a measurement of the checkout from which it was invoked,
-  // including a new repository with no workflow. Routing already excludes the active workspace;
-  // configuration overlay resolution must do the same or a missing/stale selection elsewhere on
-  // the laptop can fail before the invoking checkout is measured at all.
-  const report = optionBoolean(options, 'performance')
-    ? await inspect()
-    : await withApprovedConfigurationRead(root, inspect);
-  if (optionBoolean(options, 'json')) console.log(JSON.stringify(report, null, 2));
-  else process.stdout.write(doctorText(report));
-  if (!report.healthy) process.exitCode = 2;
-}
-
-async function reviewCommand(positionals, options) {
-  const root = repoRoot();
-  const { config, workflow } = await loadAcceptedStoryExecution(root);
-  const bundle = await createReviewBundle(root, config, workflow, selectedPhaseArgument(positionals, options, 'review'));
-  const format = optionString(options, 'format', 'md').toLowerCase();
-  if (!['md', 'html', 'json'].includes(format)) throw new SingularityFlowError('Review format must be md, html, or json.');
-  const rendered = format === 'json' ? `${JSON.stringify(bundle, null, 2)}\n` : format === 'html' ? reviewHtml(bundle) : reviewMarkdown(bundle);
-  const outputFile = optionString(options, 'out');
-  if (outputFile) {
-    const absolute = path.resolve(root, outputFile); await writeText(absolute, rendered); console.log(`Review bundle written to ${absolute}\n${reviewContinuationLines(bundle.continuation).join('\n')}`); return;
-  }
-  // Same rule as `report`: stdout is the default because piping it is the common case and the
-  // extension depends on it. `--brief` describes the bundle instead of printing it.
-  if (optionBoolean(options, 'brief') && format !== 'json') {
-    return console.log(`${summariseRendered(rendered, `review bundle for ${workflow.workItem.id}`)}\n${reviewContinuationLines(bundle.continuation).join('\n')}`);
-  }
-  process.stdout.write(rendered);
-}
-
-async function receiptCommand(positionals, options) {
-  const subcommand = positionals[1] ?? 'show';
-  if (subcommand !== 'show') throw new SingularityFlowError("receipt supports only 'show'.");
-  const root = repoRoot();
-  const workId = positionals[2] ?? optionString(options, 'work-id');
-  const { config, workflow } = await loadAcceptedStoryExecution(root, workId);
-  if (!optionString(options, 'packet') && !workflow.lineage?.submissions?.length) {
-    const none = { status: 'unavailable', reason: 'no-submission', workId: workflow.workItem.id };
-    return optionBoolean(options, 'json') ? console.log(JSON.stringify(none, null, 2)) : console.log(`No receipt yet: ${workflow.workItem.id} has not been submitted for review.`);
-  }
-  const packet = await readStoryReviewPacket(root, config, workflow, optionString(options, 'packet'));
-  const receipt = await composeEvidenceReceipt(root, config, workflow, packet);
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(receipt, null, 2));
-  if (optionBoolean(options, 'markdown')) return console.log(renderEvidenceReceiptMarkdown(receipt));
-  console.log(renderEvidenceReceipt(receipt));
-}
-
 async function authorProposedOrLocalConfiguration(root, proposal, {
   requireExpectedRemoteAuthority = false, backgroundSync = false
 } = {}) {
@@ -9282,7 +8733,7 @@ async function runCommand(positionals, options) {
     return result;
   }
   const config = await loadConfig(root); const workflow = await loadStoryAggregate(root, config); const phase = currentPhase(workflow);
-  if (!phase) { console.log('Every step is decided. Running the final governance gate.'); return gateCommand({ terminal: true }); }
+  if (!phase) { console.log('Every step is decided. Running the final governance gate.'); return (await import('./commands/validate.mjs')).gateCommand({ terminal: true }); }
   if (phase.status === 'awaiting_approval') {
     console.log(`Guided run stopped: '${phase.id}' is awaiting human review and approval.`);
     printCommandRoutes(`singularity-flow review ${phase.id}`, { label: 'Review' });
@@ -9440,64 +8891,6 @@ async function hookCommand(positionals) {
     if (event === 'session-start') return console.log(JSON.stringify(await sessionStartAgentHook(root, config, workflow, payload)));
     if (event === 'agent-guard') return console.log(JSON.stringify(await agentGuardHook(root, config, workflow, payload)));
   } catch { console.log('{}'); }
-}
-
-async function inboxCommand(options) {
-  const root = repoRoot();
-  const config = await loadConfig(root);
-  const snapshot = await approvalInbox(root, config, { fetch: !optionBoolean(options, 'offline') });
-  if (optionBoolean(options, 'json')) return console.log(JSON.stringify(snapshot, null, 2));
-  process.stdout.write(approvalInboxText(snapshot));
-}
-
-async function validateCommand(options) {
-  const root = repoRoot();
-  let accepted;
-  try {
-    accepted = await loadAcceptedStoryExecution(root);
-  } catch (error) {
-    // Snapshot integrity is part of workflow validation. Preserve validate's established exit-2
-    // contract even though the saved-policy resolver now runs at the command boundary.
-    if (String(error?.code ?? '').startsWith('WFA_')) {
-      throw new SingularityFlowError(error.message, {
-        code: error.code, exitCode: 2, details: error.details, cause: error
-      });
-    }
-    throw error;
-  }
-  const config = accepted.definition;
-  const workflow = accepted.workflow;
-  const result = await validateWorkflow(root, config, workflow, { strict: optionBoolean(options, 'strict') });
-  result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
-  if (!result.valid) throw new SingularityFlowError(`Validation failed:\n- ${result.errors.join('\n- ')}`, { exitCode: 2, code: 'STORY_STATE_INVALID', details: { workId: workflow.workItem.id, problems: result.errors } });
-  console.log('Singularity Flow workflow is valid.');
-}
-
-async function gateCommand(options) {
-  const root = repoRoot();
-  const accepted = await loadAcceptedStoryExecution(root);
-  const config = accepted.definition;
-  const workflow = accepted.workflow;
-  const result = await runGovernanceGate(root, config, workflow, {
-    terminal: optionBoolean(options, 'terminal') || process.env.SINGULARITY_FLOW_ENFORCE_TERMINAL === '1'
-  });
-  if (optionBoolean(options, 'json')) {
-    console.log(JSON.stringify({ valid: result.errors.length === 0, ...result }, null, 2));
-    if (result.errors.length) process.exitCode = 2;
-    return;
-  }
-  result.passes.forEach((message) => console.log(`  ${style.mark('pass')} ${message}`));
-  result.warnings.forEach((message) => console.warn(`  ${style.mark('warn')} ${message}`));
-  if (result.errors.length) {
-    const commands = [...new Set(result.findings.map((finding) => finding.recovery?.command).filter(Boolean))];
-    commands.forEach((command) => console.error(`  ${style.action('Recover:')} ${command}`));
-    throw new SingularityFlowError(`Governance gate failed:\n- ${result.errors.join('\n- ')}`, {
-      exitCode: 2,
-      code: 'GOVERNANCE_GATE_FAILED',
-      details: { findings: result.findings }
-    });
-  }
-  console.log('Singularity Flow governance gate passed.');
 }
 
 function confirmedJiraIssue(positionals, options) {
@@ -12339,130 +11732,6 @@ function renderWorkspaceMaterialization(result) {
     if (!repository.fallbackUsed) continue;
     console.log(`  ${repository.repository}: the remote did not establish the requested partial clone; used the explicitly configured full-clone fallback.`);
   }
-}
-
-/**
- * `sflow secrets scan` / `sflow secrets protect`.
- *
- * The commit gate refuses without being asked, which is what makes it a control rather than advice.
- * These are the two things a person still needs: to look before they commit, and to extend the same
- * refusal to plain `git commit`, which never enters this CLI at all.
- */
-async function secretsCommand(positionals, options) {
-  const subcommand = positionals[1] ?? 'scan';
-  if (!SECRETS_SUBCOMMANDS.includes(subcommand)) {
-    throw new SingularityFlowError(`Unknown secrets subcommand '${subcommand}'. Use ${SECRETS_SUBCOMMANDS.join(' or ')}.`);
-  }
-  const root = repoRoot();
-  const { scanEntries, secretRefusal } = await import('./secrets.mjs');
-
-  if (subcommand === 'protect') {
-    const hookPath = path.join(gitDir(root), 'hooks', 'pre-commit');
-    /**
-     * A hook, not a wrapper. It runs for `git commit` however it is invoked — terminal, editor,
-     * another tool — which is the whole reason it exists; a check that only fires when someone
-     * remembers to type a command is documentation.
-     *
-     * `--staged` matters: the hook must judge what is staged, not what is on disk. A file cleaned in
-     * the editor after staging would otherwise pass with the credential still in the index.
-     */
-    /**
-     * Resolve the CLI, do not assume it is on PATH.
-     *
-     * The first version of this hook was `exec sflow secrets scan --staged`, which failed closed for
-     * the wrong reason on any machine where `sflow` was not installed globally: every commit broke
-     * with `sflow: not found`, and the developer's only clue pointed at a tool they never installed.
-     * Failing closed is right; failing closed illegibly teaches people to pass --no-verify.
-     *
-     * The CLI that installed the hook wins, and PATH is the fallback. The other order looks more
-     * accommodating and is wrong: a stale global `sflow` shadows the one the person actually chose,
-     * and if it predates this command every commit is refused with `Unknown command 'secrets'` —
-     * observed, not hypothesised. A governance control should run the exact thing it was installed
-     * from; picking up upgrades is not worth being at the mercy of whatever is first on PATH.
-     */
-    const installedFrom = path.resolve(fileURLToPath(import.meta.url), '..', '..', 'bin', 'singularity-flow.mjs');
-    const script = [
-      '#!/bin/sh',
-      '# Installed by `sflow secrets protect`. Refuses a commit containing a credential.',
-      '# Bypass in a genuine emergency with `git commit --no-verify`; the governed commit path',
-      '# checks again and cannot be bypassed that way.',
-      `if [ -f ${JSON.stringify(installedFrom)} ]; then`,
-      `  exec node ${JSON.stringify(installedFrom)} secrets scan --staged`,
-      'elif command -v sflow >/dev/null 2>&1; then',
-      '  exec sflow secrets scan --staged',
-      'else',
-      '  echo "singularity-flow: the secret check cannot run — sflow is not on PATH and" >&2',
-      `  echo "${installedFrom} is missing. Reinstall, or re-run \\\`sflow secrets protect\\\`." >&2`,
-      '  exit 1',
-      'fi',
-      ''
-    ].join('\n');
-    const existing = existsSync(hookPath) ? await readFile(hookPath, 'utf8') : null;
-    if (existing && !existing.includes('sflow secrets scan') && !optionBoolean(options, 'force')) {
-      throw new SingularityFlowError(
-        `${hookPath} already exists and was not written by Singularity Flow. `
-        + 'Add `sflow secrets scan --staged` to it, or re-run with --force to replace it.',
-        { code: 'SECRET_HOOK_EXISTS' }
-      );
-    }
-    await mkdir(path.dirname(hookPath), { recursive: true });
-    await writeText(hookPath, script);
-    chmodSync(hookPath, 0o755);
-    const result = { resultType: 'secret-protection', schemaVersion: 1, hook: hookPath, installed: true, replaced: Boolean(existing) };
-    const narration = commandResult({
-      operation: { id: 'secrets.protect', classification: 'mutation' },
-      outcome: succeeded('secrets.protected', { hook: hookPath }),
-      effects: effects({ filesChanged: true }),
-      restState: 'informational',
-      data: result
-    });
-    if (!optionBoolean(options, 'json')) {
-      console.log(`\`git commit\` now refuses a commit containing a credential.`);
-    }
-    emitCommandResult(narration, { json: optionBoolean(options, 'json') });
-    return result;
-  }
-
-  // `--staged` judges the index, which is what a commit will use. Without it, the working tree.
-  const staged = optionBoolean(options, 'staged');
-  const listed = staged
-    ? run('git', ['diff', '--cached', '--name-only', '-z', '--diff-filter=ACMR'], { cwd: root }).stdout.split('\0').filter(Boolean)
-    : run('git', ['ls-files', '-z'], { cwd: root }).stdout.split('\0').filter(Boolean);
-
-  const entries = [];
-  if (staged) {
-    entries.push(...stagedEntriesForPaths(root, listed, { label: 'secrets.scan staged blobs' }));
-  } else {
-    for (const item of listed) {
-      try { entries.push({ path: item, content: await readFile(path.resolve(root, item), 'utf8') }); }
-      catch (error) { if (error?.code !== 'ENOENT') entries.push({ path: item }); }
-    }
-  }
-
-  const scan = scanEntries(entries);
-  const scope = staged ? 'staged' : 'tracked';
-  const slots = { scanned: scan.scanned, scope, blocking: scan.blocking.length };
-  const narration = commandResult({
-    operation: { id: 'secrets.scan', classification: 'read' },
-    // A scan that finds something has not failed — it did its job. `noop` with the detected message
-    // keeps "the command worked" and "the commit must not proceed" as separate facts; the exit code
-    // below is what stops the commit.
-    outcome: scan.blocking.length ? noop('secrets.detected', slots) : succeeded('secrets.clean', slots),
-    effects: noEffects(),
-    restState: 'informational',
-    data: { ...scan, scope }
-  });
-  if (!optionBoolean(options, 'json')) {
-    // The detail goes to stderr, where the pre-commit hook shows it, and where it cannot be piped
-    // into something that records it by accident.
-    const refusal = secretRefusal(scan);
-    if (refusal) console.error(refusal);
-    else if (scan.waived.length) console.log(`${scan.waived.length} waived finding(s) were allowed.`);
-  }
-  emitCommandResult(narration, { json: optionBoolean(options, 'json') });
-  // Non-zero so the pre-commit hook refuses, and so CI does.
-  if (scan.blocking.length) process.exitCode = 1;
-  return scan;
 }
 
 function renderWorkspaceBootstrap(session) {
@@ -15463,7 +14732,7 @@ export async function main(argv) {
 async function dispatch(command, positionals, options, argv) {
   const handlers = validateCommandHandlers({
     about: () => console.log(ABOUT),
-    help: () => helpCommand(positionals, options),
+    help: async () => (await import('./commands/help.mjs')).helpCommand(positionals, options),
     show: () => showCommand(positionals, options),
     harness: () => harnessCommand(positionals, options),
     init: () => initCommand(options),
@@ -15487,22 +14756,22 @@ async function dispatch(command, positionals, options, argv) {
     return: () => returnCommand(positionals, options),
     agent: () => agentCommand(positionals, options),
     "session": async () => (await import('./commands/session.mjs')).sessionCommand(positionals, options),
-    inbox: () => inboxCommand(options),
+    inbox: async () => (await import('./commands/inbox.mjs')).inboxCommand(options),
     finalize: () => finalizeCommand(options),
     status: () => statusCommand(positionals, options),
     approvals: async () => (await import('./commands/approvals.mjs')).run(argv, { positionals, options }),
-    progress: () => progressCommand(positionals, options),
-    report: () => reportCommand(positionals, options),
+    progress: async () => (await import('./commands/progress.mjs')).progressCommand(positionals, options),
+    report: async () => (await import('./commands/report.mjs')).reportCommand(positionals, options),
     impact: () => impactCommand(positionals, options),
-    telemetry: () => telemetryCommand(positionals, options),
-    context: () => contextCommand(positionals, options),
-    tokens: () => tokensCommand(positionals, options),
+    telemetry: async () => (await import('./commands/telemetry.mjs')).telemetryCommand(positionals, options),
+    context: async () => (await import('./commands/context.mjs')).contextCommand(positionals, options),
+    tokens: async () => (await import('./commands/context.mjs')).tokensCommand(positionals, options),
     'prompt-log': () => promptLogCommand(positionals, options),
     'help-metrics': () => helpMetricsCommand(positionals, options),
-    guide: () => guideCommand(positionals, options),
+    guide: async () => (await import('./commands/guide.mjs')).guideCommand(positionals, options),
     // The front door to the first-run walkthrough. `guide --first-run` still works and does the same
     // thing; this is the name someone can guess.
-    quickstart: () => guideCommand(['guide'], { ...options, 'first-run': true }),
+    quickstart: async () => (await import('./commands/guide.mjs')).guideCommand(['guide'], { ...options, 'first-run': true }),
     'refresh-branch': () => refreshBranchCommand(options),
     next: () => nextCommand(options),
     run: () => runCommand(positionals, options),
@@ -15537,10 +14806,10 @@ async function dispatch(command, positionals, options, argv) {
     home: async () => (await import('./commands/home.mjs')).run(argv, { positionals, options }),
     recommend: async () => (await import('./commands/recommend.mjs')).run(positionals, { positionals, options }),
     logs: () => logsCommand(positionals, options),
-    doctor: () => doctorCommand(positionals, options),
-    review: () => reviewCommand(positionals, options),
+    doctor: async () => (await import('./commands/doctor.mjs')).doctorCommand(positionals, options),
+    review: async () => (await import('./commands/report.mjs')).reviewCommand(positionals, options),
     "review-source": async () => (await import('./commands/review-source.mjs')).reviewSourceCommand(positionals, options),
-    receipt: () => receiptCommand(positionals, options),
+    receipt: async () => (await import('./commands/receipt.mjs')).receiptCommand(positionals, options),
     workflow: () => workflowCommand(positionals, options),
     skill: async () => (await import('./commands/skill.mjs')).run(null, { positionals, options, applyChangeSet: (root, changeSet, meta) => applyAuthoringChange(root, changeSet, options, meta), printResult: printImportResult }),
     instruction: async () => (await import('./commands/instruction.mjs')).run(null, { positionals, options, applyChangeSet: (root, changeSet, meta) => applyAuthoringChange(root, changeSet, options, meta), printResult: printImportResult }),
@@ -15589,9 +14858,9 @@ async function dispatch(command, positionals, options, argv) {
     ledger: () => ledgerCommand(positionals, options),
     capabilities: () => capabilitiesCommand(positionals, options),
     state: () => stateCommand(positionals, options),
-    validate: () => validateCommand(options),
-    gate: () => gateCommand(options),
-    wm: () => wmCommand(positionals, options),
+    validate: async () => (await import('./commands/validate.mjs')).validateCommand(options),
+    gate: async () => (await import('./commands/validate.mjs')).gateCommand(options),
+    wm: async () => (await import('./commands/wm.mjs')).wmCommand(positionals, options),
     jira: () => jiraCommand(positionals, options),
     plugin: () => pluginCommand(positionals, options),
     snapshot: () => snapshotCommand(positionals, options),
@@ -15605,7 +14874,7 @@ async function dispatch(command, positionals, options, argv) {
     revise: async () => (await import('./commands/revise.mjs')).run(argv, { positionals, options }),
     epic: () => epicCommand(positionals, options),
     story: async () => (await import('./commands/story.mjs')).storyCommand(positionals, options),
-    secrets: () => secretsCommand(positionals, options),
+    secrets: async () => (await import('./commands/secrets.mjs')).secretsCommand(positionals, options),
     workspace: () => workspaceCommand(positionals, options),
     copilot: () => workspaceCommand(['workspace', 'copilot', ...positionals.slice(1)], options),
     hook: () => hookCommand(positionals),

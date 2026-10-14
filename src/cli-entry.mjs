@@ -606,6 +606,15 @@ async function runMain(argv) {
       command: 'help',
       startedAt: new Date().toISOString()
     }, async () => {
+      if (effectiveArgv.every((token) => ['--help', '-h', '--all'].includes(token))
+          && effectiveArgv.some((token) => ['--help', '-h'].includes(token))) {
+        if (effectiveArgv.includes('--all')) {
+          const { HELP } = await import('./help-text.mjs');
+          return console.log(HELP);
+        }
+        const { renderOverview } = await import('./help-pages.mjs');
+        return console.log(renderOverview(VERSION));
+      }
       const legacy = await import('./commands/legacy.mjs');
       return legacy.run(effectiveArgv, { positionals, options });
     });

@@ -12,12 +12,6 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
-    "src/phase-continuation-runtime.mjs": {
-      "counts": {
-        "command-run": 1
-      },
-      "digest": "cbcb52cc99ae2121a49793540bd681ad7654c0fa1daccc7ece724a40a9845cfd"
-    },
     "apps/vscode/src/actions.ts": {
       "counts": {
         "command-run": 6
@@ -56,6 +50,12 @@
         "command-git-literal": 1
       },
       "digest": "c69385bf8b01ac3774219b448bec7fdd738a35bf5c4fccf65dffe6a2d4bbda41"
+    },
+    "apps/vscode/src/views/change-explorer-source.ts": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "824ddda0377a1b344f19c17ed9affcec246efe5376f6e8a43e22a96e3f5c9521"
     },
     "apps/vscode/src/views/map-capability-form.ts": {
       "counts": {
@@ -172,21 +172,19 @@
       },
       "digest": "1e0c7c966b4067e08ec7abc080e838e14a81acbd7ff836a33143fc7dfefb952f"
     },
+    "scripts/gal-matrix-cell.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "04fc61b651a12a2c8c2dfdcfff58b71e1c3cfa73c5c7ccb841dc99d69440d6f1"
+    },
     "scripts/golden-journey-smoke.mjs": {
       "counts": {
         "process-import": 1,
         "process-launch": 1
       },
       "digest": "74bfd1d280b654235b1ee0b99dc6397bd5a02f18d3360e2051b2950383a6db68"
-    },
-    "scripts/proposal-performance-benchmark.mjs": {
-      "counts": {
-        "command-git-literal": 2,
-        "command-git": 8,
-        "process-import": 1,
-        "process-launch": 1
-      },
-      "digest": "05abe37f4a308a421a01b7f72c36d3195308f9270ad986d6b26e1f546c273a75"
     },
     "scripts/packaged-cli-smoke.mjs": {
       "counts": {
@@ -208,6 +206,15 @@
         "process-import": 1
       },
       "digest": "102d2822d47e9ad20dea58f279093bb30ddfaa8d2988db694db9774ef020fa06"
+    },
+    "scripts/proposal-performance-benchmark.mjs": {
+      "counts": {
+        "command-git-literal": 2,
+        "command-git": 8,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "05abe37f4a308a421a01b7f72c36d3195308f9270ad986d6b26e1f546c273a75"
     },
     "scripts/release.mjs": {
       "counts": {
@@ -305,13 +312,6 @@
       },
       "digest": "8369909ae9cde6417048f01a9bd02930e76447fd3d95b1b3d4587d7c14dae03b"
     },
-    "scripts/vocabulary-lint.mjs": {
-      "counts": {
-        "process-import": 1,
-        "process-launch": 1
-      },
-      "digest": "67f52bb7ffc08992e07c954646d2379f3b9942680376658ebf9b039fe8fabad1"
-    },
     "scripts/verify-sidebar-installed.mjs": {
       "counts": {
         "command-run": 8,
@@ -319,6 +319,13 @@
         "process-launch": 1
       },
       "digest": "4c5c55560a61b05713ce1d8cd04a6d67fa213f6a6a45e85ab95299df03dc8058"
+    },
+    "scripts/vocabulary-lint.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "67f52bb7ffc08992e07c954646d2379f3b9942680376658ebf9b039fe8fabad1"
     },
     "scripts/vscode-bundle-budget.mjs": {
       "counts": {
@@ -533,10 +540,10 @@
     },
     "src/cli.mjs": {
       "counts": {
-        "command-run": 26,
+        "command-run": 23,
         "command-runCommand": 1
       },
-      "digest": "d6c4da9e383bb84f11b21e1bcb615942348d3a6d10620f4f5ce0dee190657348"
+      "digest": "ef52d35b2f284b2d65cf6038aedbdbfe8a037ca38970fb3d62bbbed295e263ab"
     },
     "src/clipboard.mjs": {
       "counts": {
@@ -556,6 +563,18 @@
         "command-run": 1
       },
       "digest": "d2496c3e771e6d00bdbb08b51add5f941e1f86ebd5f832a18bbfbf8997c88bed"
+    },
+    "src/commands/secrets.mjs": {
+      "counts": {
+        "command-run": 2
+      },
+      "digest": "4c2b1aa39e75ab53d1563e41327d87a1e7575762b5da0460f31ce5836880330e"
+    },
+    "src/commands/shared/git-answer.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "691435376e179ea53cd69f62265e1f5603954af2de40206d39bd219d204a882a"
     },
     "src/commands/story.mjs": {
       "counts": {
@@ -587,11 +606,12 @@
       },
       "digest": "4b9cf8f5606028687391f6109c30635fac6a0d5202bec3271debb4a74f032bc2"
     },
-    "src/configuration-people.mjs": {
+    "src/configuration-history-cleanup.mjs": {
       "counts": {
-        "command-run": 9
+        "command-git": 2,
+        "command-run": 1
       },
-      "digest": "7f9df2a82d55b5efa50754df22a07390919b9700c9ccde4e6cb27f141116f7d1"
+      "digest": "230eb050e213692ac47656f843e6ca9d8b13c92f3ed4e6023d20b53895b62b78"
     },
     "src/configuration-object-reader.mjs": {
       "counts": {
@@ -607,12 +627,24 @@
       },
       "digest": "889f9f914526c19b8db8b00c2f6016f6e726539704a0abdada68fe76178589af"
     },
+    "src/configuration-people.mjs": {
+      "counts": {
+        "command-run": 9
+      },
+      "digest": "7f9df2a82d55b5efa50754df22a07390919b9700c9ccde4e6cb27f141116f7d1"
+    },
     "src/configuration-proposal-sync.mjs": {
       "counts": {
         "process-import": 1,
         "process-launch": 1
       },
       "digest": "82bbe8bebe78403faf41674f781b8cecb5d240acf26981044003a5f8c3ee4f44"
+    },
+    "src/configuration-proposal.mjs": {
+      "counts": {
+        "command-run": 14
+      },
+      "digest": "65db42425ed5da6e0acb0644f085dd4660237104519c168e95e2ba21f5190af2"
     },
     "src/configuration-read-worker-client.mjs": {
       "counts": {
@@ -621,32 +653,12 @@
       },
       "digest": "8eb406f77ecf6f2c4b2f59f6bc84af96964993b53e22f6d5d31d92b6d51694f6"
     },
-    "src/configuration-proposal.mjs": {
-      "counts": {
-        "command-run": 14
-      },
-      "digest": "65db42425ed5da6e0acb0644f085dd4660237104519c168e95e2ba21f5190af2"
-    },
-    "src/configuration-state-git.mjs": {
-      "counts": {
-        "command-git": 10,
-        "command-run": 1
-      },
-      "digest": "9c8b504cb81a3b6ad13df7344ee1b7b735faf2de4560fc877c7f9fb0ad136d06"
-    },
     "src/configuration-recreate-sync.mjs": {
       "counts": {
         "command-git": 13,
         "command-run": 1
       },
       "digest": "0df12f32366fb36b70ad797f2dc223d7080362283547aa20921272f45f4805d3"
-    },
-    "src/configuration-history-cleanup.mjs": {
-      "counts": {
-        "command-git": 2,
-        "command-run": 1
-      },
-      "digest": "230eb050e213692ac47656f843e6ca9d8b13c92f3ed4e6023d20b53895b62b78"
     },
     "src/configuration-reference-sync.mjs": {
       "counts": {
@@ -660,6 +672,13 @@
         "process-launch": 1
       },
       "digest": "031abecbc768db8eb250e9c4a7089dee1bb2c1a4da0bc3de44029dceb6ed03e5"
+    },
+    "src/configuration-state-git.mjs": {
+      "counts": {
+        "command-git": 10,
+        "command-run": 1
+      },
+      "digest": "9c8b504cb81a3b6ad13df7344ee1b7b735faf2de4560fc877c7f9fb0ad136d06"
     },
     "src/context-history.mjs": {
       "counts": {
@@ -762,10 +781,9 @@
     "src/fos-object-service.mjs": {
       "counts": {
         "command-git-literal": 1,
-        "command-run": 1,
         "process-import": 1
       },
-      "digest": "5ed56dd253a9301f94d3045474c560b8a984680711a86729a34afe4c94c586f5"
+      "digest": "bae1185bcfbd88d26b922e83e2e1a76a4a3cf9e855683617ae26b7a43370e156"
     },
     "src/fos-publication.mjs": {
       "counts": {
@@ -814,11 +832,10 @@
     },
     "src/git-access.mjs": {
       "counts": {
-        "command-run": 1,
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "9bf65d181c7ddb320bd82a634bc0c6bcca8c031a0b77d820577da26a0a60f5ff"
+      "digest": "be22917d27c86de077797490147b6a408da0b040b989b4e52bb5f343aa5096f4"
     },
     "src/git-ancestry.mjs": {
       "counts": {
@@ -830,7 +847,7 @@
       "counts": {
         "command-runCommand": 3
       },
-      "digest": "9da92ee0655cee1bf633f1b588ced38a2131e83fd4ac305baa2028b98ad41437"
+      "digest": "240f86fd9cfd26ada80fc67fb41b9f7d0396adbd78cd9e95674bf74b8ef22b4b"
     },
     "src/git-diff-name-status.mjs": {
       "counts": {
@@ -847,10 +864,11 @@
     "src/git-execution.mjs": {
       "counts": {
         "command-git-literal": 2,
+        "command-run": 8,
         "command-runCommand": 1,
         "process-import": 1
       },
-      "digest": "836d0c8121ec87c0ed8cf27dfc120349eee82461fbb9d33c506ed90faa42b5c3"
+      "digest": "cc987e0f12e45bb2b6f624380e761907ec4906dfefe282d369e146c16bad7745"
     },
     "src/git-hook-effects.mjs": {
       "counts": {
@@ -858,11 +876,20 @@
       },
       "digest": "65a107769c762670b2534a34ce46ca3f4d3058944a82f0f3dde03c8b1fb42abc"
     },
+    "src/git-local-blob-async.mjs": {
+      "counts": {
+        "command-git-literal": 1,
+        "command-runCommand": 2,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "224df8afd0884d7b35b0918f4d437b8ee7d0431752e1d76ff151085dcdfadea3"
+    },
     "src/git-ref-tree.mjs": {
       "counts": {
-        "command-runCommand": 6
+        "command-runCommand": 7
       },
-      "digest": "885aeaad527cd9ebf3dc71989654bbd0f40a948d798b8d5304dc26dffbd79d78"
+      "digest": "e7ac7703dbcea205b8656fbbc3a582c09fe0c3f2209d11aee5c98861d6cf7211"
     },
     "src/git-remote-diagnostics.mjs": {
       "counts": {
@@ -873,10 +900,10 @@
     },
     "src/git.mjs": {
       "counts": {
-        "command-git": 74,
+        "command-git": 167,
         "command-run": 3
       },
-      "digest": "428fe3c708205e60ce00c41e38a89f5824d40f5757a97fb70f34dceb5aed0dc0"
+      "digest": "e6c6aa45dbf88a6c21b6d6a7ddd34ada4cda2354294977ed7961e5cbbd03594a"
     },
     "src/github-evidence.mjs": {
       "counts": {
@@ -949,12 +976,6 @@
         "command-run": 4
       },
       "digest": "cd924c570fa6c4b58cab3023ca8b69a818c4c4d63468695b5b6b7168021c9808"
-    },
-    "src/readiness-base.mjs": {
-      "counts": {
-        "command-run": 1
-      },
-      "digest": "3485ce2edf6a230c80492b3796bd6af98fb72676c12539e3f3d1ba0e4d98ea15"
     },
     "src/initiative-context.mjs": {
       "counts": {
@@ -1062,6 +1083,12 @@
       },
       "digest": "c4a7d0866ecad551126dc28ab9d870993c614e0ed301ab0e068f972efcb49096"
     },
+    "src/phase-continuation-runtime.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "cbcb52cc99ae2121a49793540bd681ad7654c0fa1daccc7ece724a40a9845cfd"
+    },
     "src/planning.mjs": {
       "counts": {
         "command-run": 1
@@ -1073,7 +1100,7 @@
         "command-git-literal": 1,
         "process-import": 1
       },
-      "digest": "4e6541deaa4615de1d4d8ef10ddc57bd0f4988910d617d750eb0471fa6b4c2fb"
+      "digest": "6f3bde8b9006a10dbb737e0bb10e85ee6e7ed555de9c0dd1fe9c667169bdb134"
     },
     "src/plugin.mjs": {
       "counts": {
@@ -1098,6 +1125,12 @@
         "process-import": 1
       },
       "digest": "af587d9925b29fa16c978525fe0e76edd1b91d21df48f4fddc5961de46ec7e9f"
+    },
+    "src/readiness-base.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "3485ce2edf6a230c80492b3796bd6af98fb72676c12539e3f3d1ba0e4d98ea15"
     },
     "src/reference-prefetch.mjs": {
       "counts": {
@@ -1350,9 +1383,10 @@
     },
     "src/util.mjs": {
       "counts": {
+        "command-run": 2,
         "process-import": 1
       },
-      "digest": "af587d9925b29fa16c978525fe0e76edd1b91d21df48f4fddc5961de46ec7e9f"
+      "digest": "3a5c77b033d828b8ac2134ea28a0d3044aa3ab3e86825bac8f8dbf23a40abd1d"
     },
     "src/verification-receipt.mjs": {
       "counts": {
@@ -1439,18 +1473,6 @@
         "package-script": 3
       },
       "digest": "fe2e35302cb3259f1e0ba8b3bf1fb434694a5a4c1a9b527e5de89ebeb82d5cd0"
-    },
-    "apps/vscode/src/views/change-explorer-source.ts": {
-      "counts": {
-        "command-run": 1
-      },
-      "digest": "824ddda0377a1b344f19c17ed9affcec246efe5376f6e8a43e22a96e3f5c9521"
-    },
-    "src/commands/shared/git-answer.mjs": {
-      "counts": {
-        "command-run": 1
-      },
-      "digest": "691435376e179ea53cd69f62265e1f5603954af2de40206d39bd219d204a882a"
     }
   }
 }

@@ -337,11 +337,23 @@ function prefetchRefSubjects(root, refs, { workRoot, initiativeRoot, env }) {
   };
   const blobs = (oids) => read([...new Set(oids)]);
   const configurationPaths = ['singularity/workflow.yml', 'singularity/portfolio.yml'];
-  const located = resolve(distinct.flatMap((commit) => configurationPaths.map((relative) => (
+  const initialPaths = [...new Set([...configurationPaths, workRoot, initiativeRoot])];
+  const located = resolve(distinct.flatMap((commit) => initialPaths.map((relative) => (
     { key: `${commit}:${relative}`, tree: rootTrees.get(commit), parts: relative.split('/') }))));
   if (!located) return null;
-  const configurationBlobs = blobs([...located.values()].filter((entry) => entry.status === 'found').map((entry) => entry.oid));
+  const specTreeOids = [...new Set([...located.values()]
+    .filter((entry) => entry.status === 'found' && entry.mode === '40000' && !trees.has(entry.oid))
+    .map((entry) => entry.oid))];
+  const configBlobOids = [...new Set(distinct.flatMap((commit) => configurationPaths
+    .map((relative) => located.get(`${commit}:${relative}`))
+    .filter((entry) => entry?.status === 'found' && entry.mode !== '40000')
+    .map((entry) => entry.oid)))];
+  const configurationBlobs = blobs([...configBlobOids, ...specTreeOids]);
   if (!configurationBlobs) return null;
+  for (const oid of specTreeOids) {
+    const answer = configurationBlobs.get(oid);
+    trees.set(oid, answer?.status === 'ok' && answer.type === 'tree' ? treeEntries(answer.bytes, oidLength) ?? 'malformed' : 'unavailable');
+  }
   const parsed = new Map();
   const files = new Map();
   const roots = new Map();

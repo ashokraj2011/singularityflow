@@ -54,7 +54,7 @@ export function loadPersistentVerificationCache(root) {
   try {
     if (!existsSync(file)) return false;
     const raw = JSON.parse(readFileSync(file, 'utf8'));
-    if (raw?.schemaVersion !== VERIFICATION_GRAPH_CACHE_VERSION || typeof raw.entries !== 'object' || !raw.entries) {
+    if (raw?.cacheVersion !== VERIFICATION_GRAPH_CACHE_VERSION || typeof raw.entries !== 'object' || !raw.entries) {
       return false;
     }
     for (const [key, value] of Object.entries(raw.entries)) {
@@ -82,7 +82,7 @@ export function savePersistentVerificationCache(root) {
       entries[key] = value;
     }
     const payload = JSON.stringify({
-      schemaVersion: VERIFICATION_GRAPH_CACHE_VERSION,
+      cacheVersion: VERIFICATION_GRAPH_CACHE_VERSION,
       entries
     });
     const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;

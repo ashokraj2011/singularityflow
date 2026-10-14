@@ -22,6 +22,8 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 import { observePublicationHookEffects } from './git-hook-effects.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
+import { storyPointersFromLedger } from './story-state-index.mjs';
+import { compactCanonicalJson } from './records.mjs';
 import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport,
   safeGitDiagnosticReference
@@ -74,7 +76,7 @@ function canonicalValue(value) {
 }
 
 export function canonicalJson(value) {
-  return `${JSON.stringify(canonicalValue(value))}\n`;
+  return compactCanonicalJson(value);
 }
 
 export function sha256(value) {
@@ -3076,8 +3078,13 @@ function readRefFile(root, ref, file) {
  *
  * Writers keep `temporaryWorktree`, which they genuinely need — they commit. Readers never did.
  */
-async function ledgerRefSnapshot(root, config, callback, { offline = false } = {}) {
-  await ensureRemoteBranchFetchedAsync(root, config, { offline });
+async function ledgerRefSnapshot(root, config, callback, { offline = false, requireFresh = false } = {}) {
+  const remoteView = await ensureRemoteBranchFetchedAsync(root, config, { offline });
+  if (requireFresh && !offline && remoteView !== LEDGER_REMOTE_VIEW.REFRESHED) {
+    throw new SingularityFlowError('The remote Story state index could not be refreshed. Cached state was not presented as a fresh Story roster.', {
+      code: 'SESSION_STATE_REFRESH_UNAVAILABLE'
+    });
+  }
   const ref = ledgerHead(root, config);
   if (!ref) throw new SingularityFlowError(`Ledger branch '${config.branch}' does not exist. Run singularity-flow ledger init.`);
   const head = readRefFile(root, ref, HEAD_PATH);
@@ -3547,6 +3554,15 @@ export async function ledgerLog(root, rawConfig, { limit = 20, offline = false }
     }
     return output;
   }, { offline });
+}
+
+/** Read the complete reachable Story roster from one exact state authority, not all code refs. */
+export async function ledgerStoryPointers(root, rawConfig, { offline = false } = {}) {
+  const config = normalizeLedgerConfig(rawConfig);
+  return ledgerRefSnapshot(root, config, (snapshot) => ({
+    ref: snapshot.ref,
+    items: storyPointersFromLedger(snapshot.head, snapshot.tree('ledger/entries'))
+  }), { offline, requireFresh: true });
 }
 
 export async function ledgerShow(root, rawConfig, hashOrEventId) {

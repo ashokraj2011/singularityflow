@@ -1,9 +1,10 @@
 import path from 'node:path';
 import YAML from 'yaml';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { fetchRemote, fileAtRef, hasRemote, remoteBranches } from './git.mjs';
+import { committedFilesAtRevisions, fileAtRef, hasRemote } from './git.mjs';
+import { ledgerStoryPointers } from './ledger.mjs';
+import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
-import { buildRepositorySubjectIndexFromRefs } from './repository-subject-index.mjs';
 import { discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch } from './session-remote-url-discovery.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { storyLifecycleProgress } from './session-roster.mjs';
@@ -55,26 +56,74 @@ export async function discoverRemoteStoryCandidates(root, definition, {
       { code: 'SESSION_REMOTE_NOT_CONFIGURED' }
     );
   }
-  if (fetch) await fetchRemote(root, remote, { respectPartialClone: true });
-  const refs = remoteBranches(root, remote)
-    .filter(isStoryDiscoveryBranch)
-    .map((branch) => ({ branch, ref: `${remote}/${branch}` }));
-  const index = await buildRepositorySubjectIndexFromRefs(root, { definition, refs });
-  const unavailable = [...index.unreadable, ...(index.conflicts ?? [])];
+  // Story lifecycle entries are owned by the ledger, even if World Model uses a different ref.
+  const authority = normalizeLedgerConfig(definition.ledger ?? {});
+  let roster;
+  try {
+    roster = await ledgerStoryPointers(root, authority, { offline: !fetch });
+  } catch (error) {
+    throw new SingularityFlowError(
+      `Story discovery requires the governed '${authority.branch}' state index. Refresh or reconcile the ledger; no application branches were scanned. ${error.message}`,
+      { code: error.code ?? 'SESSION_STATE_INDEX_UNAVAILABLE' }
+    );
+  }
+  const pointers = roster.items.filter(item => isStoryDiscoveryBranch(item.branch));
+  const unavailable = [];
   const items = [];
   const definitions = new Map();
-  for (const subject of index.list('story')) {
+  const files = new Map();
+  const configurationBytes = committedFilesAtRevisions(root, pointers.map(item => ({
+    key: `${item.commitOid}:${WORKFLOW_PATH}`, ref: item.commitOid, path: WORKFLOW_PATH
+  })), { maximumObjectBytes: 1024 * 1024, maximumBytes: 64 * 1024 * 1024, requireCompleteRead: true });
+  const requested = [];
+  for (const pointer of pointers) {
+    const source = configurationBytes.get(`${pointer.commitOid}:${WORKFLOW_PATH}`)?.toString('utf8');
+    if (!source) {
+      unavailable.push({ code: 'SUBJECT_STATE_UNAVAILABLE', claimedId: pointer.id, branch: pointer.branch,
+        ref: pointer.commitOid, path: WORKFLOW_PATH, reason: 'The state-indexed configuration object is unavailable locally.' });
+      continue;
+    }
+    try {
+      let pinned = definitions.get(source);
+      if (!pinned) { pinned = YAML.parse(source); validateDefinition(pinned); definitions.set(source, pinned); }
+      validateId(pinned, pointer.id);
+      const relative = posix(path.join(pinned.workItemRoot ?? 'singularity/work-items', pointer.id, 'workflow.json'));
+      files.set(`${pointer.commitOid}:${WORKFLOW_PATH}`, source);
+      requested.push({ key: `${pointer.commitOid}:${relative}`, ref: pointer.commitOid, path: relative, pointer });
+    } catch (error) {
+      unavailable.push({ code: 'SESSION_STORY_INVALID', claimedId: pointer.id, branch: pointer.branch,
+        ref: pointer.commitOid, path: WORKFLOW_PATH, reason: error.message });
+    }
+  }
+  const stateBytes = committedFilesAtRevisions(root, requested, {
+    maximumObjectBytes: 1024 * 1024, maximumBytes: 64 * 1024 * 1024, requireCompleteRead: true
+  });
+  for (const { pointer, path: relative, key } of requested) {
+    const bytes = stateBytes.get(key);
+    if (!bytes) {
+      unavailable.push({ code: 'SUBJECT_STATE_UNAVAILABLE', claimedId: pointer.id, branch: pointer.branch,
+        ref: pointer.commitOid, path: relative, reason: 'The state-indexed Story object is unavailable locally.' });
+      continue;
+    }
+    files.set(key, bytes.toString('utf8'));
+    const subject = { id: pointer.id, location: { commit: pointer.commitOid, ref: pointer.commitOid, path: relative } };
     try {
       const { workflow, retainedWorkflow } = validatedRemoteStoryDefinition(root, subject.location.ref, subject,
-        { files: index.refFiles, definitions });
+        { files, definitions });
+      const canonicalBranch = workflow.lineage?.canonicalBranch ?? workflow.workItem.branch ?? workflow.workItem.id;
+      if (canonicalBranch !== pointer.branch || !workflow.phases || !Array.isArray(workflow.phaseOrder)) throw new Error('Story ownership does not match its state-ledger location.');
       items.push({
         id: subject.id,
-        branch: subject.canonicalBranch,
+        branch: canonicalBranch,
         title: workflow.workItem.title,
         status: workflow.status,
         phase: workflow.currentPhase,
         progress: storyLifecycleProgress(retainedWorkflow),
-        commit: subject.location.commit?.slice(0, 8) ?? ''
+        commit: subject.location.commit?.slice(0, 8) ?? '',
+        commitOid: subject.location.commit,
+        aliases: [workflow.lineage?.planId, workflow.lineage?.jiraIssueId, workflow.lineage?.sourceStableId,
+          workflow.workItem?.source?.stableId, workflow.lineage?.initialJiraKey, workflow.lineage?.currentJiraKey,
+          ...(workflow.lineage?.aliases ?? []).map(entry => typeof entry === 'string' ? entry : entry?.value ?? entry?.key)].filter(Boolean)
       });
     } catch (error) {
       unavailable.push({
@@ -127,6 +176,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
     }
   }
   return {
+    source: 'state-ledger', stateRef: roster.ref,
     repositoryPath: path.resolve(root), remote, fetched: fetch,
     count: items.length, items,
     unavailableCount: unavailable.length, unavailable

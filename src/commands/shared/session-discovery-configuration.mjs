@@ -4,7 +4,7 @@ import { configurationReadAuthority } from '../../configuration-read-scope.mjs';
 import { loadConfig } from '../../state-stores.mjs';
 import { SingularityFlowError } from '../../util.mjs';
 import { CONFIGURATION_BRANCH } from '../../configuration-branch.mjs';
-import { refExists, fetchRemote, localBranches, branch } from '../../git.mjs';
+import { refExists, fetchRemote, branch } from '../../git.mjs';
 import { definitionAtRef } from './definition-at-ref.mjs';
 import { WORKFLOW_PATH } from '../../config.mjs';
 
@@ -40,7 +40,7 @@ export async function sessionDiscoveryConfiguration(root, authority = null, { st
     return { definition, remote: definition.git?.remote ?? authority.remote, source: approvedRef };
   }
   if (authority.source === 'configuration-remote') {
-    await fetchRemote(root, authority.remote, { respectPartialClone: true });
+    await fetchRemote(root, authority.remote, { respectPartialClone: true, branches: [CONFIGURATION_BRANCH] });
     const definition = definitionAtRef(root, approvedRef);
     if (!definition) {
       throw new SingularityFlowError(
@@ -52,7 +52,7 @@ export async function sessionDiscoveryConfiguration(root, authority = null, { st
   }
   // Legacy branch-local workflows remain readable only when no approved configuration was found.
   // They must not replace a known, malformed sflow/config with an unrelated lifecycle definition.
-  const legacyCandidates = [authority.ref, ...localBranches(root), branch(root)].filter(Boolean);
+  const legacyCandidates = [authority.ref, branch(root)].filter(Boolean);
   for (const ref of [...new Set(legacyCandidates)]) {
     try {
       const definition = definitionAtRef(root, ref);

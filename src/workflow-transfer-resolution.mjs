@@ -253,10 +253,15 @@ export function planEntriesText(entries = []) {
   return [...groups].map(([noun, ids]) => `${ids.length === 1 ? noun : noun.endsWith('y') && !noun.endsWith('ey') ? `${noun.slice(0, -1)}ies` : noun.endsWith('s') ? noun : `${noun}s`} ${ids.join(', ')}`).join(' · ');
 }
 
-/** Plain-text preview of an import plan, with the exact flags that resolve each open conflict. */
-export function importPlanText(plan, file) {
+/**
+ * Plain-text preview of an import plan, with the exact flags that resolve each open conflict.
+ * A preview asked with `--propose` prints commands that keep it: without it the import changes
+ * only this checkout's files and never reaches review.
+ */
+export function importPlanText(plan, file, { propose = false } = {}) {
   const counts = plan.counts ?? {};
   const fileArgument = shellWord(file);
+  const proposeText = propose ? ' --propose' : '';
   const chosen = resolveArguments(plan.resolutions);
   const chosenText = chosen.length ? ` ${chosen.map(shellWord).join(' ')}` : '';
   const open = plan.unresolved ?? [];
@@ -275,7 +280,7 @@ export function importPlanText(plan, file) {
   if (plan.changedPaths?.length) lines.push(`  Changed paths: ${plan.changedPaths.join(', ')}`);
   if (plan.status === 'ready') {
     lines.push(`  Confirm plan: ${plan.planSha256}`);
-    lines.push(`  Apply it: singularity-flow workflow import ${fileArgument} --confirm ${plan.planSha256}${chosenText}`);
+    lines.push(`  Apply it: singularity-flow workflow import ${fileArgument} --confirm ${plan.planSha256}${chosenText}${proposeText}`);
     return lines;
   }
   for (const item of open) {
@@ -295,9 +300,9 @@ export function importPlanText(plan, file) {
   }
   if (open.some((item) => item.choices.length)) {
     lines.push('', '  Choose one --resolve for each, then preview again:',
-      `    singularity-flow workflow import ${fileArgument} --dry-run${chosenText} --resolve …`,
+      `    singularity-flow workflow import ${fileArgument} --dry-run${proposeText}${chosenText} --resolve …`,
       '  Or take every suggestion, including conflicts the new names cause:',
-      `    singularity-flow workflow import ${fileArgument} --dry-run${chosenText} --resolve-all suggested`);
+      `    singularity-flow workflow import ${fileArgument} --dry-run${proposeText}${chosenText} --resolve-all suggested`);
   }
   return lines;
 }

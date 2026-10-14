@@ -4,12 +4,15 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import YAML from 'yaml';
 
 import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/config.mjs';
 import { readRecord } from '../src/schema-migrations.mjs';
 import { renderStoryRoster, storyLifecycleProgress } from '../src/session-roster.mjs';
 import { discoverRemoteStoryCandidates, validatedRemoteStoryDefinition } from '../src/session-story-discovery.mjs';
 import { removeTemporaryTree } from '../src/util.mjs';
+import { appendLedgerIntent, createLedgerIntent, initializeLedger } from '../src/ledger.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 
 function workflow(statuses = ['approved', 'in_progress', 'not_started'], extra = {}) {
   const phaseOrder = statuses.map((_, index) => `phase-${index}`);
@@ -242,6 +245,10 @@ test('fresh-clone discovery projects exact mixed-profile and historical progress
   git(seed, ['config', 'user.email', 'roster@example.invalid']);
   await initializeDefinition(seed);
   const definition = await loadDefinition(seed);
+  definition.ledger.enabled = true;
+  definition.ledger.branch = 'story-state';
+  definition.worldModel.stateBranch = 'world-model-state';
+  await writeFile(path.join(seed, 'singularity/workflow.yml'), YAML.stringify(definition));
   const feature = resolveWorkType(definition, 'feature').phases;
   const short = resolveWorkType(definition, 'quick-fix').phases;
   assert.notEqual(feature.length, short.length, 'fixture must exercise genuinely different configured phase sets');
@@ -250,6 +257,8 @@ test('fresh-clone discovery projects exact mixed-profile and historical progress
   git(seed, ['remote', 'add', 'origin', remote]);
   git(seed, ['push', '-u', 'origin', 'main']);
   git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
+  const ledger = { ...definition.ledger, enabled: true, pinTransport: 'none' };
+  await initializeLedger(seed, ledger);
   const modern = (id, phases, approved, currentIndex) => ({
     schemaVersion: 11, workItem: { id, title: `Retained ${id}`, branch: id },
     lineage: { canonicalBranch: id }, status: 'in_progress',
@@ -281,6 +290,10 @@ test('fresh-clone discovery projects exact mixed-profile and historical progress
     git(seed, ['add', definition.workItemRoot]);
     git(seed, ['commit', '-m', `retain ${state.workItem.id}`]);
     git(seed, ['push', 'origin', state.workItem.id]);
+    await appendLedgerIntent(seed, ledger, createLedgerIntent({ eventType: 'binding', capabilityId: 'roster',
+      subject: { kind: 'story', workId: state.workItem.id, branch: state.workItem.id },
+      actor: { name: 'Roster Fixture', email: 'roster@example.invalid' }
+    }), git(seed, ['rev-parse', 'HEAD']));
   }
   git(seed, ['switch', '-c', 'ROST-BROKEN', 'main']);
   const broken = path.join(seed, definition.workItemRoot, 'ROST-BROKEN', 'workflow.json');
@@ -289,6 +302,10 @@ test('fresh-clone discovery projects exact mixed-profile and historical progress
   git(seed, ['add', definition.workItemRoot]);
   git(seed, ['commit', '-m', 'retain unreadable claim']);
   git(seed, ['push', 'origin', 'ROST-BROKEN']);
+  await appendLedgerIntent(seed, ledger, createLedgerIntent({ eventType: 'binding', capabilityId: 'roster',
+    subject: { kind: 'story', workId: 'ROST-BROKEN', branch: 'ROST-BROKEN' },
+    actor: { name: 'Roster Fixture', email: 'roster@example.invalid' }
+  }), git(seed, ['rev-parse', 'HEAD']));
   git(base, ['clone', '--no-hardlinks', remote, client]);
   await writeFile(path.join(client, 'staged-local.txt'), 'keep staged bytes\n');
   git(client, ['add', 'staged-local.txt']);
@@ -312,7 +329,7 @@ test('fresh-clone discovery projects exact mixed-profile and historical progress
   assert.ok(discovered.unavailable.some((entry) => entry.claimedId === 'ROST-BROKEN'));
   const output = renderStoryRoster(discovered);
   assert.equal(output.split('\n').filter((line) => /^\| \d+ \| ROST-10\d \|/u.test(line)).length, 5);
-  assert.ok(output.includes('ROST-BROKEN') && output.includes('SUBJECT\\_STATE\\_UNREADABLE'));
+  assert.ok(output.includes('ROST-BROKEN') && output.includes('SESSION\\_STORY\\_INVALID'));
   assert.deepEqual({
     head: git(client, ['rev-parse', 'HEAD']), branch: git(client, ['branch', '--show-current']),
     index: git(client, ['ls-files', '--stage']), status: git(client, ['status', '--porcelain=v1']),
@@ -324,4 +341,20 @@ test('fresh-clone discovery projects exact mixed-profile and historical progress
   });
   assert.equal(selected.workflow.phases.requirements.generation, 1);
   assert.equal(selected.retainedWorkflow.phases.requirements.generation, undefined);
+  const measure = async () => {
+    const timer = commandTimer('session', { commandClass: 'read' });
+    const result = await withCommandTiming(timer, () => discoverRemoteStoryCandidates(client, definition));
+    return { result, spawns: timer.finish().counters['git.spawns'] };
+  };
+  const small = await measure();
+  const sourceCommit = git(seed, ['rev-parse', 'HEAD']);
+  const refs = Array.from({ length: 200 }, (_, i) => `refs/heads/unrelated-${i}`);
+  const added = spawnSync('git', ['update-ref', '--stdin'], { cwd: remote, encoding: 'utf8',
+    input: refs.map(ref => `create ${ref} ${sourceCommit}\n`).join('') });
+  assert.equal(added.status, 0, added.stderr);
+  const large = await measure();
+  assert.deepEqual(large.result.items, small.result.items);
+  assert.ok(large.spawns <= small.spawns, 'Git process count must not grow with unrelated branches');
+  assert.notEqual(spawnSync('git', ['show-ref', '--verify', 'refs/remotes/origin/unrelated-199'],
+    { cwd: client, encoding: 'utf8' }).status, 0, 'session refresh fetches only state, not all heads');
 });

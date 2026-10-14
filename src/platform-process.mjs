@@ -561,6 +561,32 @@ export function withoutInteractiveGitPrompts(env = process.env, { platform = pro
   return result;
 }
 
+const GIT_OPTIONS_WITH_VALUE = new Set(['-c', '-C', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--config-env']);
+
+/**
+ * A copy of `env` in which `git status` does not take the index lock.
+ *
+ * Status takes `index.lock`, optionally, only to write refreshed file timestamps back. Its output
+ * is the same without that (content-accurate, verified on Git 2.54), and nothing here reads the
+ * write-back through plumbing such as diff-index. Holding the lock even briefly made a Singularity
+ * Flow publication in the same checkout wait, or fail, behind Singularity Flow's own status reads
+ * (VS Code refreshing a view while Copilot publishes). Other commands, and a caller's explicit
+ * GIT_OPTIONAL_LOCKS, are left as they are.
+ */
+export function withoutOptionalStatusLocks(env = process.env, args = [], { platform = process.platform } = {}) {
+  let subcommand = null;
+  for (let index = 0; index < args.length && subcommand === null; index += 1) {
+    const arg = String(args[index]);
+    if (GIT_OPTIONS_WITH_VALUE.has(arg)) index += 1;
+    else if (!arg.startsWith('-')) subcommand = arg;
+  }
+  const source = env ?? {};
+  if (subcommand !== 'status') return source;
+  const winIndex = platform === 'win32' ? windowsUppercaseKeyIndex(source) : null;
+  if (gitEnvironmentValue(source, 'GIT_OPTIONAL_LOCKS', platform, winIndex) !== undefined) return source;
+  return { ...source, GIT_OPTIONAL_LOCKS: '0' };
+}
+
 /** A copy of `env` whose Git child cannot start automatic maintenance. */
 export function withoutAutomaticGitMaintenance(env = process.env, { platform = process.platform } = {}) {
   const source = env ?? {};

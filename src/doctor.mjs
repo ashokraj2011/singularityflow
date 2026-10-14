@@ -212,6 +212,14 @@ export async function doctorSnapshot(root, {
     // nested diagnostic. Standalone doctor remains a live-configuration diagnostic by default.
     definition = execution?.definition ?? await loadDefinition(root);
     checks.push(check('configuration', 'pass', `${WORKFLOW_PATH} is valid (${Object.keys(definition.workTypes).length} workflows, ${Object.keys(definition.agents).length} agents).`));
+    // A repository template can predate a section its phase is now checked for. Stories prepare the
+    // section anyway; this names the template so it can be brought up to date.
+    const sectionGaps = await (await import('./artifact-required-sections.mjs')).templateSectionGaps(root, definition).catch(() => []);
+    checks.push(check('artifact-template-sections', sectionGaps.length ? 'warn' : 'pass', sectionGaps.length
+      ? `${sectionGaps.length} template(s) lack sections their steps are checked for: ${sectionGaps.map((gap) => `${gap.path} (${gap.missing.join(', ')})`).join('; ')}. New Stories add them when preparing.`
+      : 'Every artifact template carries the sections its steps are checked for.',
+    sectionGaps.length ? 'Run Upgrade / migrate SFlow (singularity-flow workspace reinitialize) to add the missing sections; your wording is kept.' : null,
+    sectionGaps.length ? { gaps: sectionGaps } : {}));
     const removed = removedSettings(definition);
     if (removed.length) checks.push(check('removed-settings', 'warn',
       `${removed.length} setting(s) of removed features are ignored: ${removed.slice(0, 12).join(', ')}${removed.length > 12 ? ', …' : ''}.`,

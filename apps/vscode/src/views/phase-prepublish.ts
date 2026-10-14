@@ -6,6 +6,21 @@ export interface PhasePrepublishDecision {
   skill: string | null;
   /** Documentation advisories (and why the check could not run). Never part of readiness. */
   advisories: string[];
+  publishArgv?: string[];
+}
+
+/** Parse only the kernel's closed publication form, never shell text or arbitrary extra options. */
+function publicationArgv(command: string | null, phaseId: string): string[] | null {
+  const tokens = command?.split(' ') ?? [];
+  if (tokens.slice(0, 4).join(' ') !== `singularity-flow phase publish ${phaseId}`) return null;
+  for (let index = 4; index < tokens.length; index += 1) {
+    if (tokens[index] === '--no-model') continue;
+    const allowed = tokens[index] === '--authored' ? ['human', 'governed-agent', 'deterministic', 'external-tool']
+      : tokens[index] === '--channel' ? ['manual-in-place', 'copilot-host', 'kernel-model', 'kernel-generator', 'external-tool'] : null;
+    if (!allowed?.includes(tokens[index + 1] ?? '')) return null;
+    index += 1;
+  }
+  return [...tokens.slice(1), '--json'];
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -62,19 +77,19 @@ export function phasePrepublishDecision(
   const commands = record(projection.commands);
   const readiness = record(projection.readiness);
   const publishCommand = line(commands?.publish, 500);
-  const expectedPublish = `singularity-flow phase publish ${expected.phaseId}`;
+  const publishArgv = publicationArgv(publishCommand, expected.phaseId);
   if (projection.status === 'ready' && findings?.length === 0
       && readiness?.lifecycle === true && readiness.authoring === true
       && readiness.knownRecoveryBlockers === true
       && readiness.publicationTransaction === 'not-run'
-      && (publishCommand === expectedPublish || publishCommand?.startsWith(`${expectedPublish} `))) {
+      && publishArgv) {
     const testsPending = record(projection.testExecution)?.status === 'not-run';
     return {
       ready: true,
       headline: testsPending
         ? `${expected.phaseId} is ready for a publication attempt; required tests run during publication.`
         : `${expected.phaseId} is ready to publish.`,
-      details: [], skill: null, advisories
+      details: [], skill: null, advisories, publishArgv
     };
   }
   const details = (findings ?? []).slice(0, 256)

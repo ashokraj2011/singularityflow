@@ -12,6 +12,8 @@ import {
 } from './repository-onboarding-cleanup.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { storyLifecycleProgress } from './session-roster.mjs';
+import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { storyPointersFromLedger } from './story-state-index.mjs';
 import { validateId } from './state-stores.mjs';
 import { posix, removeTemporaryTree, SingularityFlowError } from './util.mjs';
 
@@ -100,9 +102,9 @@ function unavailable(code, branch, relative, reason, claimedId = null) {
   };
 }
 
-async function probeHeads(transport, label) {
+async function probeHeads(transport, label, branches = [CONFIGURATION_BRANCH]) {
   const advertised = await runRemoteGitAsync([
-    'ls-remote', '--heads', '--', transport.remote
+    'ls-remote', '--heads', '--', transport.remote, ...branches.map(branch => `refs/heads/${branch}`)
   ], { operation: 'remote-probe', env: transport.env, maxBuffer: MAX_TREE_OUTPUT_BYTES });
   if (advertised.status !== 0) throw new SingularityFlowError(
     `Could not inspect the ${label} remote. ${advertised.failure?.advice ?? 'Git access failed.'}`,
@@ -222,9 +224,8 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
   const configurationTransport = approvedDefinition != null ? null
     : selectedConfigurationUrl === selectedUrl ? transport
       : frozenRemoteTransport(selectedConfigurationUrl, { env });
-  const heads = await probeHeads(transport, 'Story');
   const configurationHeads = configurationTransport == null ? null
-    : configurationTransport === transport ? heads : await probeHeads(configurationTransport, 'configuration');
+    : await probeHeads(configurationTransport, 'configuration');
   if (configurationHeads && !configurationHeads.has(CONFIGURATION_BRANCH)) throw new SingularityFlowError(
     `The configuration remote has no approved ${CONFIGURATION_BRANCH} branch for metadata-only discovery.`,
     { code: 'SESSION_REMOTE_CONFIGURATION_REQUIRED' }
@@ -278,67 +279,58 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
       }
     }
 
-    // The delivery repository need not own sflow/config. Select only a ref it actually
-    // advertised; no default/application branch is guessed or checked out.
-    const preflightBranch = heads.has(CONFIGURATION_BRANCH)
-      ? CONFIGURATION_BRANCH : [...heads.keys()].sort()[0];
-    if (!preflightBranch) return {
-      source: 'remote-url', repositoryPath: null, remote: 'origin', fetched: true,
-      count: 0, items: [], unavailableCount: 0, unavailable: []
-    };
-    if (configurationTransport === transport) {
-      scratch = configurationScratch;
-      configurationScratch = null;
-    } else {
-      await cleanupScratch(configurationScratch);
-      configurationScratch = null;
-      scratch = await cloneBloblessBranch(transport, preflightBranch, heads.get(preflightBranch), {
-        negotiateFilterFirst: true
-      });
-    }
-
-    const fetched = await runRemoteGitAsync([
-      'fetch', '--no-tags', '--depth=1', '--filter=blob:none',
-      transport.remote, '+refs/heads/*:refs/remotes/origin/*'
-    ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
-    if (fetched.status !== 0) throw new SingularityFlowError(
-      `Could not fetch Story branch metadata. ${fetched.failure?.advice ?? 'Git access failed.'}`,
-      { code: fetched.failure?.code ?? 'SESSION_REMOTE_UNAVAILABLE' }
+    const authority = normalizeLedgerConfig(effectiveApprovedDefinition.ledger ?? {});
+    const heads = await probeHeads(transport, 'Story state', [authority.branch]);
+    if (!heads.has(authority.branch)) throw new SingularityFlowError(
+      `The Story remote has no '${authority.branch}' state index. Initialize or reconcile its ledger; application branches were not scanned.`,
+      { code: 'SESSION_STATE_INDEX_UNAVAILABLE' }
     );
-    if (classifyPartialCloneResult(fetched, { configured: true }).kind !== 'partial-established'
-        || await objectStoreBytes(scratch) > MAX_OBJECT_STORE_BYTES) {
-      throw new SingularityFlowError(
-        'The Story remote did not provide a bounded blobless branch inventory.',
-        { code: 'SESSION_REMOTE_DISCOVERY_LIMIT' }
-      );
+    scratch = await cloneBloblessBranch(transport, authority.branch, heads.get(authority.branch));
+    const stateRef = `refs/remotes/origin/${authority.branch}`;
+    const headOid = refBlobOid(scratch, stateRef, 'ledger/head.json', transport.env);
+    if (!headOid) throw new SingularityFlowError('The Story state index has no ledger head.', { code: 'SESSION_STATE_INDEX_INVALID' });
+    const listed = await runRemoteGitAsync(['ls-tree', '-r', '-z', stateRef, '--', 'ledger/entries'], {
+      cwd: scratch, operation: 'local-read', env: { ...transport.env, GIT_NO_LAZY_FETCH: '1' }, maxBuffer: MAX_TREE_OUTPUT_BYTES
+    });
+    if (listed.status !== 0) throw new SingularityFlowError('The Story state index is unreadable.', { code: 'SESSION_STATE_INDEX_INVALID' });
+    const entries = new Map();
+    for (const row of listed.stdout.split('\0').filter(Boolean)) {
+      const match = /^100(?:644|755) blob ([a-f0-9]{40}|[a-f0-9]{64})\t(ledger\/entries\/.+\.json)$/u.exec(row);
+      if (!match) throw new SingularityFlowError('The Story state index contains unsafe ledger metadata.', { code: 'SESSION_STATE_INDEX_INVALID' });
+      entries.set(match[2], await readBlob(scratch, transport, match[1]));
     }
-    for (const [branch, expected] of heads) {
-      const ref = `refs/remotes/origin/${branch}`;
-      const observed = refHead(scratch, ref, {
-        env: { ...transport.env, GIT_NO_LAZY_FETCH: '1' }
-      });
-      if (observed !== expected) throw new SingularityFlowError(
-        `Story branch '${branch}' changed while its remote metadata was being read. Refresh and retry.`,
-        { code: 'SESSION_REMOTE_CHANGED' }
-      );
+    const pointers = storyPointersFromLedger(readRecord('ledger-entry', await readBlob(scratch, transport, headOid)).record, entries);
+    if (pointers.length > MAX_HEADS) throw new SingularityFlowError('The state Story roster exceeds its request bound.', { code: 'SESSION_REMOTE_DISCOVERY_LIMIT' });
+    // Fetch only immutable commits named by this verified state chain, never a wildcard head set.
+    const commits = [...new Set(pointers.map(item => item.commitOid))];
+    for (let offset = 0; offset < commits.length; offset += 128) {
+      const fetched = await runRemoteGitAsync([
+        'fetch', '--no-tags', '--depth=1', '--filter=blob:none', '--refmap=',
+        transport.remote, ...commits.slice(offset, offset + 128)
+      ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
+      if (fetched.status !== 0 || classifyPartialCloneResult(fetched, { configured: true }).kind !== 'partial-established') {
+        throw new SingularityFlowError('The exact state-indexed Story metadata could not be fetched.', { code: 'SESSION_REMOTE_METADATA_UNAVAILABLE' });
+      }
     }
+    if (await objectStoreBytes(scratch) > MAX_OBJECT_STORE_BYTES) throw new SingularityFlowError('State-indexed Story metadata exceeds its object-store bound.', { code: 'SESSION_REMOTE_DISCOVERY_LIMIT' });
 
     const items = new Map();
     const diagnostics = [];
-    for (const [branch, commit] of heads) {
+    for (const { id: indexedId, branch, commitOid: commit } of pointers) {
       if (!isStoryDiscoveryBranch(branch)) continue;
-      const ref = `refs/remotes/origin/${branch}`;
+      const ref = commit;
       let definition = effectiveApprovedDefinition;
       try {
         const ownOid = refBlobOid(scratch, ref, WORKFLOW_PATH, transport.env);
-        if (ownOid) {
-          definition = YAML.parse(await readBlob(scratch, transport, ownOid));
-          validateDefinition(definition);
-        }
+        if (!ownOid) throw new Error('The state-indexed Story has no pinned workflow definition.');
+        definition = YAML.parse(await readBlob(scratch, transport, ownOid));
+        validateDefinition(definition);
         const workRoot = definition.workItemRoot ?? 'singularity/work-items';
-        const entries = await storyPathsAtRef(scratch, ref, workRoot, transport.env);
+        const entries = await storyPathsAtRef(scratch, ref, `${workRoot}/${indexedId}/workflow.json`, transport.env);
+        if (!entries.length) throw new Error('The state-indexed Story metadata is missing at its pinned path.');
         for (const entry of entries) {
           const claimedId = path.posix.basename(path.posix.dirname(entry.file));
+          if (claimedId !== indexedId) continue;
           try {
             if (!/^100(?:644|755)$/u.test(entry.mode) || entry.type !== 'blob' || !OID.test(entry.oid)) {
               throw new Error('Story state is not a regular Git blob');
@@ -353,13 +345,16 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
               throw new Error('Story state identity or workflow structure is invalid');
             }
             const canonical = workflow.lineage?.canonicalBranch ?? workflow.workItem.branch ?? claimedId;
-            if (canonical !== branch) continue;
+            if (canonical !== branch) throw new Error('The state-indexed Story canonical branch does not match its ledger location.');
             if (items.has(claimedId)) throw new Error('Story ID is claimed by more than one canonical branch');
             items.set(claimedId, {
               id: claimedId, branch: canonical, title: workflow.workItem.title,
               status: workflow.status, phase: workflow.currentPhase,
               commit: commit.slice(0, 8), commitOid: commit,
-              progress: storyLifecycleProgress(rawWorkflow)
+              progress: storyLifecycleProgress(rawWorkflow),
+              aliases: [workflow.lineage?.planId, workflow.lineage?.jiraIssueId, workflow.lineage?.sourceStableId,
+                workflow.workItem?.source?.stableId, workflow.lineage?.initialJiraKey, workflow.lineage?.currentJiraKey,
+                ...(workflow.lineage?.aliases ?? []).map(item => typeof item === 'string' ? item : item?.value ?? item?.key)].filter(Boolean)
             });
           } catch (error) {
             diagnostics.push(unavailable(
@@ -375,7 +370,7 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
       }
     }
     return {
-      source: 'remote-url', repositoryPath: null, remote: 'origin', fetched: true,
+      source: 'remote-url', discovery: 'state-ledger', stateRef, repositoryPath: null, remote: 'origin', fetched: true,
       count: items.size, items: [...items.values()].sort((a, b) => a.id.localeCompare(b.id)),
       unavailableCount: diagnostics.length, unavailable: diagnostics
     };

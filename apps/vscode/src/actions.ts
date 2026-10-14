@@ -21,6 +21,7 @@ import type {
   ApprovalChecklistDecision, WitnessMappingDecision
 } from './views/approval-review.ts';
 import { commandGuidance } from './copilot-command.ts';
+import { phasePublicationSummary, phasePublicationProgressLabel } from './phase-publication.ts';
 
 /** Arguments that must be answered by a human before the command is allowed to run. */
 export interface Confirmation {
@@ -132,6 +133,7 @@ export interface ActionRequest {
   command: string[];
   title: string;
   confirmation?: Confirmation;
+  publication?: { workId: string; phaseId: string };
 }
 
 /**
@@ -212,7 +214,17 @@ export async function runGovernedAction(
     output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
     await vscode.window.withProgress(
       { location: vscode.ProgressLocation.Notification, title: request.title, cancellable: false },
-      () => client.runText(argv)
+      async (progress) => {
+        if (request.publication) {
+          const receipt = await client.run<unknown>(argv, undefined, { onProgress: step => {
+            const message = phasePublicationProgressLabel(step);
+            if (message) progress.report({ message });
+          } });
+          const summary = phasePublicationSummary(receipt, request.publication);
+          output.appendLine(summary);
+          void vscode.window.setStatusBarMessage(`$(check) ${summary}`, 5_000);
+        } else await client.runText(argv);
+      }
     );
     return true;
   };

@@ -24,6 +24,11 @@ export function canonicalJson(value) {
   return `${JSON.stringify(canonicalize(value), null, 2)}\n`;
 }
 
+/** The ledger's historical compact identity uses the same key ordering, without display spaces. */
+export function compactCanonicalJson(value) {
+  return `${JSON.stringify(canonicalize(value))}\n`;
+}
+
 export function recordSha256(value) {
   return createHash('sha256').update(canonicalJson(value)).digest('hex');
 }

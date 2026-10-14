@@ -2972,6 +2972,59 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   ));
 
+  /**
+   * Turn a team's agent directory into a workflow bundle: machine-local like `workflow import-team`,
+   * so it opens with no repository. Copilot writes the candidate; Workflow Studio imports the bundle.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.importTeamWorkflow', async () => {
+      try {
+        const location = resolveCli({ extensionPath: context.extensionPath });
+        const repositoryRoot = (): string | null => activeRepositoryContext()?.root ?? null;
+        // A workspace's repository can resolve to a Story worktree; people know it by name.
+        const repositoryLabel = (): { root: string; label: string } | null => {
+          const active = activeRepositoryContext();
+          if (!active?.root) return null;
+          const name = active.repositoryId ?? path.basename(active.leadRepositoryPath ?? active.root);
+          return { root: active.root, label: active.workspaceName ? `${active.workspaceName} · ${name}` : name };
+        };
+        const { TeamImportPanel } = lazyPanels();
+        TeamImportPanel.show(context, {
+          run: <T>(argv: string[]): Promise<T> => {
+            output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
+            // Every path is absolute; the working directory is the open repository, as in its terminal.
+            return new SingularityFlowClient({
+              location, repository: repositoryRoot() ?? os.tmpdir(), environment: cliEnvironment,
+              onOutput: text => output.append(text)
+            }).run<T>(argv);
+          },
+          pickFolder: async () => (await vscode.window.showOpenDialog({
+            title: 'Choose the team directory', openLabel: 'Inspect this directory',
+            canSelectFiles: false, canSelectFolders: true, canSelectMany: false
+          }))?.[0]?.fsPath ?? null,
+          pickBundle: async suggested => (await vscode.window.showSaveDialog({
+            title: 'Write the workflow bundle', saveLabel: 'Write bundle',
+            defaultUri: vscode.Uri.file(suggested), filters: { 'Workflow bundle': ['json'] }
+          }))?.fsPath ?? null,
+          // With AI features turned off, opening chat resolves and shows nothing, so say so. Signed
+          // out is fine: the built-in Copilot only loads after sign-in, but the Chat view opens with
+          // the prompt and sending it offers VS Code's own sign-in.
+          openChat: async query => {
+            if (vscode.workspace.getConfiguration('singularityFlow').get<string>('modelMode', 'auto') === 'disabled') return 'model-off';
+            if (vscode.workspace.getConfiguration('chat').get<boolean>('disableAIFeatures', false) === true) return 'no-chat';
+            await vscode.commands.executeCommand('workbench.action.chat.open', { query, isPartialQuery: true });
+            return 'opened';
+          },
+          copy: text => vscode.env.clipboard.writeText(text),
+          openInStudio: async file => {
+            await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { importBundle: file });
+          },
+          repository: repositoryLabel
+        });
+      } catch (error) { showRefusal(error, { headline: 'Team workflow import is unavailable' }); }
+    }
+  ));
+
   /** Compatibility commands continue to open the existing reviewed workspace upgrade UI. */
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.upgradeWorkspaces',
@@ -4786,10 +4839,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let autoPrivateWatcher: vscode.FileSystemWatcher | null = null;
   let repositoryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   const repositoryWatcherFence = new RevisionSliceWatcherFence(() => repository);
+  let mutationRefreshDeferred = false;
   const armRepositoryRefresh = (): void => {
     if (repositoryRefreshTimer) clearTimeout(repositoryRefreshTimer);
+    if (client.mutating) {
+      repositoryRefreshTimer = null;
+      if (!mutationRefreshDeferred) {
+        mutationRefreshDeferred = true;
+        void client.waitForMutations().finally(() => {
+          mutationRefreshDeferred = false;
+          if (repositoryWatcherFence.hasPending) armRepositoryRefresh();
+        });
+      }
+      return;
+    }
     repositoryRefreshTimer = setTimeout(() => {
       repositoryRefreshTimer = null;
+      if (client.mutating) { armRepositoryRefresh(); return; }
       const batch = repositoryWatcherFence.capture();
       const scope = repositoryEpoch.capture();
       void (async () => {
@@ -5508,6 +5574,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const publishScope = repositoryEpoch.capture();
     const argv = await resolvePlaceholders(node.command, repository);
     if (!argv) return;
+    let publication: { workId: string; phaseId: string } | undefined;
     if (argv[0] === 'phase' && argv[1] === 'publish') {
       const workflow = store.current.snapshot?.workflow;
       const checkoutIssue = storyCheckoutIssue(repository, store.current.snapshot, workflow);
@@ -5598,6 +5665,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           }
           return;
         }
+        argv.splice(0, argv.length, ...gate.publishArgv!);
+        publication = { workId: workflow.workItem.id, phaseId };
         // Advisories never block: publish, and say what the documentation check found.
         if (gate.advisories.length) {
           output.appendLine(`\nDocumentation advisories for ${phaseId} (never block publication):`);
@@ -5718,9 +5787,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const ran = await runGovernedAction(client, {
       command: argv,
       title: node.confirmation?.summary ?? `singularity-flow ${formatCliArgsForDisplay(argv)}`,
+      ...(publication ? { publication } : {}),
       ...(node.confirmation ? { confirmation: node.confirmation } : {})
     }, output);
-    if (ran) await refreshAfterKnownMutation();
+    if (ran) {
+      if (argv[0] === 'phase' && argv[1] === 'publish') {
+        void refreshAfterKnownMutation().catch(error => {
+          output.appendLine(`Publication completed; the background view refresh failed: ${(error as Error).message}. Refresh the view before another action.`);
+        });
+      }
+      else await refreshAfterKnownMutation();
+    }
   };
 
   /** Named Story commands work both from a phase row and directly from the command palette. */
@@ -7127,7 +7204,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }>(args);
         if (result.changed && !result.pushed) {
           const next = commandGuidanceText(result.nextAction);
-          return `Configuration commit ${result.commit.slice(0, 8)} is retained, but publication is ${result.transportStatus ?? 'pending'}. ${next ? `Continue with:\n${next}` : 'Open Push recovery to continue.'}`;
+          return `Configuration commit ${result.commit.slice(0, 8)} is retained, but publication is ${result.transportStatus ?? 'pending'}. ${next ? `Continue with:\n${next}` : `Retry it from Workflow Studio → Changes, or run: singularity-flow push retry ${result.transportIntent ?? '<ID>'}`}`;
         }
         await refreshAfterKnownMutation();
         if (!result.changed) {
@@ -7177,6 +7254,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'workflow-proposals') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' });
     else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio');
     else if (message.action === 'workflow-studio') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio');
+    else if (message.action === 'import-team') await vscode.commands.executeCommand('singularityFlow.importTeamWorkflow');
     else if (message.action === 'shared-workflow-drafts') await vscode.commands.executeCommand(
       'singularityFlow.openSharedWorkflowDrafts', { repositoryPath: client.repository }
     );
@@ -7451,6 +7529,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * every mutation receives the same validation, lead-authority proposal, exact-diff review, and
    * local-authority draft treatment as the existing authoring controls.
   */
+  /**
+   * Follow a proposal's background upload for a while, so the person learns its outcome instead of
+   * finding nothing to review. The upload makes one attempt and never answers a sign-in prompt, so on
+   * a machine whose Git needs a sign-in, proxy or hook it stops; say so, with the way to retry.
+   */
+  const watchProposalUpload = (intentId: string, branch: string): void => {
+    if (!/^psh_[a-f0-9-]{20,64}$/.test(intentId)) return;
+    void (async () => {
+      for (let round = 0; round < 40; round += 1) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        let intent: { status?: string; fault?: { advice?: string; classification?: string } | null;
+          attempts?: Array<{ completedAt?: string | null }> } | undefined;
+        try {
+          const result = await client.run<{ data?: { intent?: typeof intent }; intent?: typeof intent }>(['push', 'status', intentId, '--json']);
+          intent = result?.data?.intent ?? result?.intent;
+        } catch { return; }
+        if (!intent?.status) return;
+        if (intent.status === 'succeeded') {
+          const { WorkflowStudioPanel } = lazyPanels();
+          await WorkflowStudioPanel.refreshProposals();
+          void showCompactInformationMessage(`Workflow proposal ${branch} was uploaded and is waiting for review in Workflow Studio → Changes.`);
+          return;
+        }
+        const stopped = ['needs-user', 'attempt-budget-exhausted', 'remote-diverged'].includes(intent.status)
+          || (intent.status === 'pending' && Boolean(intent.fault) && Boolean(intent.attempts?.at(-1)?.completedAt));
+        if (stopped) {
+          const { WorkflowStudioPanel } = lazyPanels();
+          await WorkflowStudioPanel.refreshProposals();
+          const choice = await showCompactWarningMessage(
+            `Workflow proposal ${branch} is saved on this computer but was not uploaded, so nobody can review it yet. ${intent.fault?.advice ?? 'Check Git access to the remote.'}`,
+            'Open Changes'
+          );
+          if (choice === 'Open Changes') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' });
+          return;
+        }
+      }
+    })();
+  };
   const proposeWorkflowChange = async (baseCommand: string[], title: string): Promise<WorkflowChangeOutcome> => {
     const command = [...baseCommand];
     if (!command.includes('--propose')) command.push('--propose');
@@ -7471,10 +7587,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const files = proposal.files?.length ?? 0;
         if (proposal.pushed === false) {
           void showCompactInformationMessage(
-            `Workflow proposal saved locally with ${files} configuration file${files === 1 ? '' : 's'}. Upload is pending in Push recovery; review and activation become available after the exact commit reaches the remote. The active Story was not changed.`
+            `Workflow proposal saved on this computer with ${files} configuration file${files === 1 ? '' : 's'} and is uploading now. It appears for review once the upload finishes; if it cannot, Workflow Studio → Changes shows it with the reason and a Retry upload button. The active Story was not changed.`
           );
           if (proposal.nextAction) output.appendLine(`  Sync status: ${proposal.nextAction}`);
-          return { outcome: 'proposed', branch: proposal.branch, error: null };
+          if (proposal.transportIntent) watchProposalUpload(proposal.transportIntent, proposal.branch);
+          return { outcome: 'proposed', branch: proposal.branch, error: null, uploaded: false };
         }
         const review = 'Review and activate';
         const selected = await showCompactInformationMessage(
@@ -7543,8 +7660,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return (error as Error).message;
     }
   };
-  const importWorkflowBundle = async (): Promise<WorkflowChangeOutcome> => {
-    const selected = await vscode.window.showOpenDialog({
+  // `preselected` is a bundle the team-import panel just wrote; otherwise the person chooses one.
+  const importWorkflowBundle = async (preselected?: string): Promise<WorkflowChangeOutcome> => {
+    const source = preselected ? vscode.Uri.file(preselected) : (await vscode.window.showOpenDialog({
       title: 'Import portable workflow bundle',
       openLabel: 'Import bundle',
       defaultUri: vscode.Uri.file(repository),
@@ -7552,8 +7670,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       canSelectFolders: false,
       canSelectMany: false,
       filters: { 'Workflow bundle': ['json'] }
-    });
-    const source = selected?.[0];
+    }))?.[0];
     if (!source) return { outcome: 'cancelled', error: null };
     const { WorkflowTransferPanel } = await import('./views/workflow-transfer-panel.ts');
     return WorkflowTransferPanel.show(`Import ${path.basename(source.fsPath)}`,
@@ -8425,12 +8542,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { WorkflowStudioPanel, STUDIO_FOCUS_VIEWS } = lazyPanels();
       const requested = typeof target === 'string' ? target : (target as { view?: unknown } | undefined)?.view;
       const workflowId = (target as { workflowId?: unknown } | undefined)?.workflowId;
+      // `{ importBundle }`: start Import… with a bundle file the team-import panel wrote.
+      const importBundle = (target as { importBundle?: unknown } | undefined)?.importBundle;
       const focus = (STUDIO_FOCUS_VIEWS as readonly unknown[]).includes(requested) ? requested as typeof STUDIO_FOCUS_VIEWS[number] : null;
       WorkflowStudioPanel.show(client, output, {
         refresh: refreshAfterKnownMutation,
         reviewProposal: (branch) => reviewAndActivateWorkflowProposal(branch),
         exportWorkflows: (selectors) => exportWorkflowBundle(selectors),
-        importWorkflows: () => importWorkflowBundle(),
+        importWorkflows: (source) => importWorkflowBundle(source),
+        importTeam: () => vscode.commands.executeCommand('singularityFlow.importTeamWorkflow'),
         duplicateWorkflow: (selector) => duplicateWorkflow(selector),
         openFile: async (relative) => {
           await openArtifact(repository, { kind: 'artifact', id: relative, label: relative, path: relative });
@@ -8448,7 +8568,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           jiraStatus: async () => ((await secureCredentials.jiraStatus()).connected ? 'stored'
             : String(process.env.JIRA_BASE_URL ?? '').trim() && String(process.env.JIRA_PAT ?? process.env.JIRA_API_TOKEN ?? '').trim() ? 'environment' : 'missing')
         }
-      }, focus, typeof workflowId === 'string' ? workflowId : null);
+      }, focus, typeof workflowId === 'string' ? workflowId : null,
+      typeof importBundle === 'string' && path.isAbsolute(importBundle) && importBundle.endsWith('.json') ? importBundle : null);
     },
     // The Workflow Designer is gone: Workflow Studio does what it did. The command stays for one
     // release, so links and habits land in Studio.
@@ -8787,6 +8908,8 @@ export interface WorkflowChangeOutcome {
   outcome: 'cancelled' | 'proposed' | 'written' | 'unchanged' | 'failed';
   branch?: string;
   error: string | null;
+  /** False while a proposed change is saved on this computer and its upload has not finished. */
+  uploaded?: boolean;
 }
 
 async function openArtifact(

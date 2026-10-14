@@ -31,7 +31,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 57
+version: 60
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -132,6 +132,13 @@ approved configuration after you confirm; where Git cannot prove the configurati
 protected, it asks for a separate acknowledgement first. A working-tree authority has no proposals:
 its changes are reviewed as commits. If the approved configuration changes while you have
 unpublished edits, Studio keeps them and says so; **Check** refuses them until you reload.
+
+A proposal is committed on this computer first and uploaded in the background. That upload makes one
+attempt and never answers a sign-in prompt, so where Git needs a sign-in, a proxy or a pre-push check it
+can stop; the proposal is then in no review list. Studio says so as soon as it happens, and **Changes**
+lists it under **Saved on this computer — not uploaded yet** with the reason, **Retry upload**, and
+**Sign in to Git** when the reason is a sign-in. `singularity-flow workflow proposals` names it too,
+with the `singularity-flow push retry <ID>` command. A retry you ask for always gets one more attempt.
 
 On **Your workflows**, **Export…** saves the chosen published workflows and everything they depend on
 (steps, templates, artifact sets, agents) as one bundle, and **Import…** previews a bundle's plan
@@ -1103,6 +1110,12 @@ singularity-flow workflow import ./workflow-bundle.json \
   --json
 ```
 
+A bundle path is read from the folder you run the command in, and otherwise, as before, from the
+repository root, so the bundle can stay in Downloads while a selected workspace is the destination.
+`workflow export --out` run from outside the repository writes there too. Preview with `--propose`
+and the printed "Apply it" line keeps it; without `--propose` the import changes only this
+checkout's files and never reaches review.
+
 ### Same names: keep yours, replace it, or import theirs under a new name
 
 An object in the bundle that exists here with different content is a conflict. Each conflict
@@ -1220,6 +1233,15 @@ States: `invalid`, `unsupported` (required behaviour SFlow cannot express), `nee
 `portable-ready`, and `ready-for-destination`. A bundle is written only when ready, unless
 `--allow-not-ready` keeps a file that is labelled not ready. Ready never means approved,
 activated, tested or reviewed.
+
+In VS Code, **Import a Team Workflow…** (the command palette, Workflow Studio's **Import a team…**,
+or the Configuration Center) runs the same steps without a terminal. Choose the folder to inspect
+it and pick the entry agent. **Convert with Copilot…** types the `/sf-import-team` command into
+Copilot Chat, and shows it to copy when Copilot Chat is unavailable. The panel lists every session,
+whichever surface started it. **Check** runs compile with `--dry-run` and offers each open question's
+choices as buttons. **Write bundle…** saves the ready bundle beside the team directory.
+**Import in Workflow Studio…** opens Studio's Import preview with that file. The panel needs no
+open repository until the import itself; with one open, it can preview the import into it.
 
 ## Validate code-phase planning contracts
 

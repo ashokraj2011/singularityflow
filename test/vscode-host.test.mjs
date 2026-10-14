@@ -524,7 +524,7 @@ function loadExtension(api) {
 }
 
 /** A real repository with an enterprise-delivery Epic, generated artifacts, and Stories. */
-async function demoRepository({ approvedConfigurationAuthority = false } = {}) {
+async function demoRepository({ approvedConfigurationAuthority = false, sessionIndex = false } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-host-'));
   const child = async (name) => {
     const dir = path.join(base, name);
@@ -566,6 +566,7 @@ async function demoRepository({ approvedConfigurationAuthority = false } = {}) {
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   // Round-trip as before, so the committed workflow stays the normalized YAML the tests expect.
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+  if (sessionIndex) workflow.ledger.enabled = true;
   await writeFile(workflowFile, YAML.stringify(workflow));
 
   run('git', ['add', '.'], { cwd: root });
@@ -1691,7 +1692,7 @@ test('@sflow /revision-checks keeps BRL reads local and only hands off exact run
 
 test('@sflow previews only a verified local file in the exact selected Story checkout', async (t) => {
   if (!requireBundle(t)) return;
-  const root = await demoRepository();
+  const root = await demoRepository({ sessionIndex: true });
   const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-chat-attachment-host-'));
   const previousRegistry = process.env.SINGULARITY_FLOW_WORKSPACE_REGISTRY;
   const previousSelection = process.env.SINGULARITY_FLOW_ACTIVE_WORKSPACE;
@@ -1719,7 +1720,7 @@ test('@sflow previews only a verified local file in the exact selected Story che
   assert.equal(started.status, 0, started.stderr);
   const attached = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
     'session', 'attach', 'STORY-CHAT', '--json'], { cwd: root, encoding: 'utf8', env: process.env });
-  assert.equal(attached.status, 0, attached.stderr);
+  assert.equal(attached.status, 0, `${attached.stdout}\n${attached.stderr}`);
   const file = path.join(machine, 'feedback.md');
   await writeFile(file, '# Feedback\n\nPlease keep the boundary check.\n');
   const { api, registered } = stubVscode();
@@ -2582,6 +2583,7 @@ for (const approvalSurface of ['native', 'chat']) test(`${approvalSurface} start
   run('git', ['switch', 'main'], { cwd: root });
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(workflowFile, 'utf8'));
+  definition.ledger.enabled = true;
   definition.approvalSecurity = { profile: 'poc' };
   // This test isolates the approval form. The starter now requires an independent source-grounded
   // review before Submit; that gate has its own lifecycle tests and is not the legacy checklist.
@@ -2619,9 +2621,20 @@ for (const approvalSurface of ['native', 'chat']) test(`${approvalSurface} start
     'Specify a deterministic finance calculation for an approved-account analyst. The amount must be reproducible and negative principal must be rejected.', '',
     '## Actors', '', 'A finance analyst with access to an approved account.', '',
     '## User scenarios', '',
+    '### S1 — Calculate the amount', '',
     '- **Given** a principal and annual rate',
     '  **When** the analyst requests the finance calculation',
     '  **Then** the result contains the deterministic calculated amount.', '',
+    '### S2 — Reject a negative principal', '',
+    '- **Given** a negative principal and an annual rate',
+    '  **When** the analyst requests the finance calculation',
+    '  **Then** the request is rejected with a validation error and no amount is calculated.', '',
+    // CFA:NFR-001 is not a governed clause type, so the coverage table cannot name it; S3 still
+    // states its observable behavior.
+    '### S3 — Repeat a calculation', '',
+    '- **Given** an amount already calculated from a principal and annual rate',
+    '  **When** the analyst requests the calculation again with the same principal and rate',
+    '  **Then** the result contains the same rounded amount.', '',
     '## Failure and empty states', '',
     'A missing principal or rate produces a validation result without calculating an amount. A calculation failure produces an error without a partial amount.', '',
     '## Permissions', '',
@@ -2633,6 +2646,10 @@ for (const approvalSurface of ['native', 'chat']) test(`${approvalSurface} start
     '- The system rejects a negative principal with a validation result. [CFA:REQ-002]', '',
     '## Non-functional requirements', '',
     '- The same inputs must always produce the same rounded result. [CFA:NFR-001]', '',
+    '## Scenario coverage', '',
+    '| Clause | Scenario | Outcome |', '|---|---|---|',
+    '| `CFA:REQ-001` | S1 | success |',
+    '| `CFA:REQ-002` | S2 | failure |', '',
     '## Assumptions', '',
     'The account-access decision has already been made before a calculation request reaches this feature.', '',
     '## Out of scope', '',
@@ -3174,6 +3191,64 @@ test('a manual Story is submitted end to end from the editor', async (t) => {
   );
 });
 
+test('the Publish button uses the exact ready route, acknowledges its receipt and does not render the artifact', async t => {
+  if (!requireBundle(t)) return;
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-publish-button-'));
+  const root = path.join(base, 'app');
+  const remote = path.join(base, 'origin.git');
+  await mkdir(root);
+  run('git', ['init', '--bare', '--initial-branch=main', remote], { cwd: base });
+  run('git', ['init', '-b', 'main'], { cwd: root });
+  run('git', ['config', 'user.name', 'Initiative Owner'], { cwd: root });
+  run('git', ['config', 'user.email', EMAIL], { cwd: root });
+  await initializeDefinition(root);
+  const file = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(file, 'utf8'));
+  definition.ledger.enabled = true;
+  definition.worldModel.grounding = 'off';
+  definition.repositoryReadiness.requiredBeforeStory = false;
+  for (const phase of Object.values(definition.phases)) phase.clarification = { mode: 'off' };
+  await writeFile(file, YAML.stringify(definition));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-m', 'Configure publication host fixture'], { cwd: root });
+  run('git', ['remote', 'add', 'origin', remote], { cwd: root });
+  run('git', ['push', '-u', 'origin', 'main'], { cwd: root });
+  const started = spawnSync(process.execPath, [path.join(packageRoot, 'bin', 'singularity-flow.mjs'),
+    'start', 'HOST-PUBLISH', '--from-branch', 'main', '--work-type', 'feature',
+    '--agent', 'product-owner', '--title', 'Publication host regression'], {
+    cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' }
+  });
+  assert.equal(started.status, 0, `${started.stdout}\n${started.stderr}`);
+  const artifact = path.join(root, 'singularity/work-items/HOST-PUBLISH/artifacts/intake/intake.md');
+  await writeFile(artifact, (await readFile(artifact, 'utf8')).replace(/TODO:[^\n]*/g,
+    'Preserve existing application behavior and record the requested intake with exact publication evidence.')
+    + '\n## Agent brief\n\nThis fixture checks publication acknowledgement only; no application change or approval is claimed.\n');
+  const { api, registered } = stubVscode();
+  api.workspace.workspaceFolders = [{ uri: { fsPath: root } }];
+  const host = context();
+  t.after(async () => {
+    for (const subscription of host.subscriptions) subscription.dispose?.();
+    await rm(base, { recursive: true, force: true });
+  });
+  const stages = [];
+  api.window.withProgress = async (_options, task) => task({ report: value => stages.push(value.message) }, {
+    isCancellationRequested: false, onCancellationRequested: () => ({ dispose() {} })
+  });
+  const extension = loadExtension(api);
+  await extension.activate(host);
+  await registered.commands.get('singularityFlow.runAction')({ kind: 'action', label: 'Publish intake',
+    command: ['phase', 'publish', 'intake'] });
+  assert.deepEqual(registered.errors, []);
+  const state = JSON.parse(await readFile(path.join(root, 'singularity/work-items/HOST-PUBLISH/workflow.json'), 'utf8'));
+  assert.equal(state.phases.intake.generation, 1, registered.output.join('\n')
+    + '\n' + registered.panels.map(panel => panel.webview.html.replace(/<style[\s\S]*?<\/style>/g, '')
+      .replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 3000)).join('\n'));
+  assert.ok(registered.output.some(line => /Published intake generation 1 for HOST-PUBLISH.*and pushed/.test(line)));
+  assert.ok(registered.output.some(line => /phase publish intake --authored governed-agent --channel copilot-host --json/.test(line)));
+  assert.ok(stages.includes('Publishing the exact commit'));
+  assert.equal(registered.output.some(line => line.includes('## Agent brief')), false);
+});
+
 test('Story readiness is checked once typing the identifier pauses, and the blur that follows does not repeat it', async (t) => {
   if (!requireBundle(t)) return;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-typing-'));
@@ -3612,6 +3687,7 @@ test('the packaged POC release candidate journey survives publication, review, C
   await writeFile(portfolioFile, YAML.stringify(portfolio));
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const definition = YAML.parse(await readFile(workflowFile, 'utf8'));
+  definition.ledger.enabled = true;
   for (const authority of Object.values(definition.approvalAuthorities ?? {})) authority.members = members;
   // The product default is attainable by one automatically enrolled developer. This hardened
   // fixture opts into two independent functions and proves that stricter organization policy
@@ -3840,21 +3916,18 @@ test('the packaged POC release candidate journey survives publication, review, C
       before = JSON.parse(await readFile(workflowStateFile, 'utf8'));
     }
     let phaseText = await readFile(phaseFile, 'utf8');
+    if (phaseId === 'poc-ui-exploration') {
+      // The prepared artifact carries the planned-evidence row; fill it with the exact test path
+      // before the prose TODO fill below, which would otherwise put prose in a path cell.
+      const plannedRow = /^\| (?:`POC:AC-001`|\[POC:AC-001\]) \| - \|[^\n]*\|$/m;
+      assert.match(phaseText, plannedRow, 'the packaged POC exploration template carries the AC-001 planned-evidence row');
+      phaseText = phaseText.replace(plannedRow,
+        '| `POC:AC-001` | - | `tests/poc-generated.test.mjs` | test-only | The existing checkout scenario has executable regression coverage. |');
+    }
     phaseText = phaseText
       .replace(/TODO:[^\n]*/g, 'Verified evidence is bound to the authorized checkout target, exact Story branch, and reviewed POC acceptance criterion.')
       .replace(/\bTODO\b/g, 'verified evidence');
-    if (phaseId === 'poc-ui-exploration') {
-      phaseText += [
-        '',
-        '## Reviewed exact planned evidence',
-        '',
-        '| Clause | Expected paths | Planned tests | Fulfillment | Steps | Observable result |',
-        '|---|---|---|---|---|---|',
-        '| `POC:AC-001` | - | `tests/poc-generated.test.mjs` | test-only | poc-test-generation | The existing checkout scenario has executable regression coverage. |',
-        ''
-      ].join('\n');
-    }
-    phaseText += `\n\nPackaged lifecycle evidence for ${phaseId}: the observed boundary, commands, results, risks, rollback, and human decision are explicit and reproducible. `.repeat(8);
+    phaseText +=`\n\nPackaged lifecycle evidence for ${phaseId}: the observed boundary, commands, results, risks, rollback, and human decision are explicit and reproducible. `.repeat(8);
     await writeFile(phaseFile, phaseText);
     if (phaseId === 'poc-test-generation') {
       const generatedTest = path.join(storyRoot, 'tests', 'poc-generated.test.mjs');

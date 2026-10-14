@@ -15,6 +15,7 @@
  * A dependency pointing at a clause that does not exist. A cycle. An unresolved marker. A required
  * section that is absent. Each is a fact about the document, not an opinion about the writing.
  */
+import { SPECIFICATION_REQUIRED_SECTIONS } from './artifact-required-sections.mjs';
 import { createHash } from 'node:crypto';
 
 import { analysisLimits, assertWithinLimit, capWithDisclosure } from './analysis-limits.mjs';
@@ -145,7 +146,8 @@ export const STARTER_CHECKLIST = Object.freeze({
 export const CHECKLIST_DECISIONS = Object.freeze(['satisfied', 'exception', 'not-applicable']);
 
 /** Sections the starter template leads with, and whose absence is checkable. */
-const REQUIRED_SECTIONS = Object.freeze(['Actors', 'User scenarios', 'Requirements']);
+// One list, shared with preparation so a prepared specification always carries these sections.
+const REQUIRED_SECTIONS = SPECIFICATION_REQUIRED_SECTIONS;
 
 /** Normalize and validate a `specificationQuality` policy `[SPK:REQ-050]`. */
 export function specificationQualityPolicy(value = {}) {

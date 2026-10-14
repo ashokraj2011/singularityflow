@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "fa62ca486832e84b5b12279d87af105af55edc4d",
+  "sourceCommit": "c38ae9a30e5c37cf7c943d9fe3fbb8ec21c0f82b",
   "topicCount": 81,
-  "contentSha256": "f32bb11071d2cd9251f1a23f9d24ff959bd70e25b5e7bc66d1828c4addd19d97",
+  "contentSha256": "f91df04d09ec36f93906ebf93853d68f9c16fdcf616db326da080ffbd3188446",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -432,8 +432,8 @@
     {
       "id": "recovery",
       "title": "Recovery — nothing is ever lost",
-      "version": 15,
-      "sha256": "c8baae6b80610bc657b4ad2d761b7bf5a45d4d545f5aa42dd3ec84185ad4d916",
+      "version": 18,
+      "sha256": "5266b0856256ff079feae99c2ac177e7afe90e52f35c5e060f5aceaa9f941ce8",
       "routingSha256": "36c528b9d6d19e6cb6fbff5168bb2c203071e18874e1a230c7300b67342c40cd",
       "file": "recovery.md"
     },
@@ -624,8 +624,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 57,
-      "sha256": "b8da6b4aabf0247d510baa03653e742185bf1802feea13fec4d7ecd5a970dfce",
+      "version": 60,
+      "sha256": "cdab0b474e7d8b9fd62279fb722dc052fc466e05a0193ee8cc5ba648d7c87bbb",
       "routingSha256": "35c1448a7404566210cbc7b0c9f8ee3d251141f1a1c0799db76e145700104c2e",
       "file": "workflow-authoring.md"
     },

@@ -23,6 +23,29 @@ export const CORE_SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
 const READ_RESULT_CACHE_TTL_MS = 250;
 /** Bounds supervised invocations across clients, not attested living native processes. */
 export const CLI_READ_CONCURRENCY = 4;
+// Shared by clients for the same checkout. Watcher snapshots must not compete with a publication
+// half-way through its writes; unrelated repositories and already running reads remain independent.
+const repositoryMutations = new Map<string, Set<Promise<unknown>>>();
+// A write made through another client also invalidates this checkout's reusable read results.
+const repositoryMutationEpochs = new Map<string, number>();
+const mutationKey = (repository: string): string => process.platform === 'win32'
+  ? path.resolve(repository).toLowerCase() : path.resolve(repository);
+
+async function awaitRepositoryMutations(repository: string, signal?: AbortSignal): Promise<void> {
+  const key = mutationKey(repository);
+  while (repositoryMutations.get(key)?.size) {
+    if (signal?.aborted) throw signal.reason ?? new Error('The Singularity Flow read was cancelled.');
+    const pending = Promise.allSettled([...repositoryMutations.get(key)!]);
+    let abort: (() => void) | undefined;
+    try {
+      await Promise.race([pending, new Promise<never>((_, reject) => {
+        abort = () => reject(signal?.reason ?? new Error('The Singularity Flow read was cancelled.'));
+        signal?.addEventListener('abort', abort, { once: true });
+        if (signal?.aborted) abort();
+      })]);
+    } finally { if (abort) signal?.removeEventListener('abort', abort); }
+  }
+}
 
 /**
  * Who is waiting on a read. `[perf]`
@@ -132,6 +155,7 @@ interface ClientRead {
   ticket: { cancel(): void; raise(priority: ReadPriority): void } | null;
   started: boolean;
   finished: boolean;
+  priority: ReadPriority;
 }
 
 interface SnapshotEnvelope {
@@ -258,6 +282,11 @@ function cacheableRead(args: string[]): boolean {
     && !(args[0] === 'workflow' && args[1] === 'author')
     // Recovery must freshly observe an exact proposal ref, including peer activation/deletion.
     && !(args[0] === 'workflow' && args[1] === 'proposal-status')
+    // A team import session changes with every check (answers, repair attempts) and in other
+    // hosts (Copilot writes the candidate); each click must see it now.
+    && !(args[0] === 'workflow' && args[1] === 'import-team')
+    // An upload changes in a background process and on every retry; each look must see it now.
+    && args[0] !== 'push'
     // A destructive apply is guarded by a second byte-current preview. Reusing the first preview
     // here would turn that freshness check into a comparison with its own cached answer.
     && args[0] !== 'factory-reset'
@@ -276,6 +305,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   }
   if (args[0] === 'adhoc') return args[1] === 'status' ? 'read' : 'mutation';
   if (args[0] === 'jira') return args[1] === 'status' ? 'read' : 'mutation';
+  // Inspect pending uploads; retry spends a transport attempt.
+  if (args[0] === 'push') return (args[1] && !args[1].startsWith('-') ? args[1] : 'status') === 'status' ? 'read' : 'mutation';
   if (args[0] === 'integrations') return ['list', 'status', 'test'].includes(args[1] ?? 'status') ? 'read' : 'mutation';
   if (args[0] === 'prompt-log') return ['status', 'list', 'view'].includes(args[1] ?? 'status') ? 'read' : 'mutation';
   if (args[0] === 'impact') {
@@ -352,6 +383,13 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     // `workflow studio --json` is the default show action; a flag is not an action.
     const action = args[2] && !args[2].startsWith('-') ? args[2] : 'show';
     return action === 'show' || enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
+  }
+  if (args[0] === 'workflow' && args[1] === 'import-team') {
+    // Inspect and status keep only machine-local session state; compile writes a file only with
+    // --out and without --dry-run.
+    const action = args[2] && !args[2].startsWith('-') ? args[2] : 'status';
+    if (action !== 'compile') return 'read';
+    return enabledBooleanOption(args, 'dry-run') || !hasOption(args, 'out') ? 'read' : 'mutation';
   }
   if (args[0] === 'workflow') return ['list', 'proposals', 'proposal', 'proposal-status'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'phase') return ['show', 'draft-check', 'prepublish'].includes(args[1] ?? '')
@@ -564,6 +602,8 @@ export class SingularityFlowClient {
 
   get repository(): string { return this.options.repository; }
   get location(): CliLocation { return this.options.location; }
+  get mutating(): boolean { return Boolean(repositoryMutations.get(mutationKey(this.repository))?.size); }
+  waitForMutations(signal?: AbortSignal): Promise<void> { return awaitRepositoryMutations(this.repository, signal); }
 
   /**
    * Point every later command at a different repository.
@@ -599,7 +639,8 @@ export class SingularityFlowClient {
   }
 
   private readResultKey(args: string[]): string {
-    return JSON.stringify([this.readEpoch, this.options.repository, args]);
+    return JSON.stringify([this.readEpoch, this.options.repository,
+      repositoryMutationEpochs.get(mutationKey(this.repository)) ?? 0, args]);
   }
 
   private leaveRead(job: ClientRead, subscriber: ReadSubscriber, error: Error): void {
@@ -695,13 +736,29 @@ export class SingularityFlowClient {
       signal
     };
     // Writes keep the original runner deadline/rollback contract and never wait in the read pool.
-    if (classification !== 'read') return invokeCli<T>({ ...invocation, ...(onProgress ? { onProgress } : {}) });
+    if (classification !== 'read') {
+      const key = mutationKey(repository);
+      repositoryMutationEpochs.set(key, (repositoryMutationEpochs.get(key) ?? 0) + 1);
+      const active = repositoryMutations.get(key) ?? new Set<Promise<unknown>>();
+      repositoryMutations.set(key, active);
+      const operation = invokeCli<T>({ ...invocation, ...(onProgress ? { onProgress } : {}) });
+      active.add(operation);
+      return operation.finally(() => {
+        active.delete(operation);
+        if (!active.size) repositoryMutations.delete(key);
+        repositoryMutationEpochs.set(key, (repositoryMutationEpochs.get(key) ?? 0) + 1);
+        this.invalidateReadResults();
+      });
+    }
     let job = cacheKey ? this.readInFlight.get(cacheKey) : undefined;
     const fresh = !job;
-    if (job && !job.started) job.ticket?.raise(priority);
+    if (job && !job.started && READ_PRIORITY_RANK[priority] < READ_PRIORITY_RANK[job.priority]) {
+      job.priority = priority;
+      job.ticket?.raise(priority);
+    }
     if (!job) {
       job = { key: cacheKey, epoch: this.readEpoch, controller: new AbortController(),
-        subscribers: new Set(), ticket: null, started: false, finished: false };
+        subscribers: new Set(), ticket: null, started: false, finished: false, priority };
       this.readJobs.add(job);
       if (cacheKey) this.readInFlight.set(cacheKey, job);
     }
@@ -718,20 +775,36 @@ export class SingularityFlowClient {
       }, timeoutMs);
       if (signal?.aborted) subscriber.onAbort();
     });
-    if (fresh && current.subscribers.size) current.ticket = queueRead(async (queuedMs, queuedPriority) => {
+    const requestedAt = Date.now();
+    const deferForMutation = (): void => {
+      void awaitRepositoryMutations(repository, current.controller.signal).then(enqueue,
+        error => this.finishRead(current, undefined, error instanceof Error ? error : new Error(String(error))));
+    };
+    const enqueue = (): void => {
       if (!current.subscribers.size || current.finished) return;
-      current.started = true;
-      try {
-        // Subscribers retain the existing command-specific deadlines, including explicit null
-        // contracts, across queue+execution. A runner timer owned by the first subscriber would
-        // wrongly kill later subscribers; their last departure still supervises native cleanup.
-        const value = await invokeCli({ ...invocation,
-          timeoutMs: null, signal: current.controller.signal, queuedMs, priority: queuedPriority });
-        this.finishRead(current, value, null);
-      } catch (error) {
-        this.finishRead(current, undefined, error instanceof Error ? error : new Error(String(error)));
-      }
-    }, priority);
+      current.ticket = queueRead(async (queuedMs, queuedPriority) => {
+        if (!current.subscribers.size || current.finished) return;
+        // A mutation can begin after this read queued. Release the pool slot and wait outside it.
+        if (repositoryMutations.get(mutationKey(repository))?.size) { deferForMutation(); return; }
+        current.started = true;
+        try {
+          // Subscribers own deadlines across waiting+execution; the last departure supervises
+          // native cleanup. Include mutation waiting in the observable queue duration.
+          const value = await invokeCli({ ...invocation,
+            timeoutMs: null, signal: current.controller.signal,
+            queuedMs: Math.max(queuedMs, Date.now() - requestedAt), priority: queuedPriority });
+          this.finishRead(current, value, null);
+        } catch (error) {
+          this.finishRead(current, undefined, error instanceof Error ? error : new Error(String(error)));
+        }
+      }, current.priority);
+    };
+    if (fresh && current.subscribers.size) {
+      if (repositoryMutations.get(mutationKey(repository))?.size) {
+        // Do not occupy a global read slot while waiting: another checkout must stay responsive.
+        deferForMutation();
+      } else enqueue();
+    }
     return result;
   }
 

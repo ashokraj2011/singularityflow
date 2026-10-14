@@ -1,5 +1,5 @@
 /**
- * Story start progress, as the engine reports it. `[perf]`
+ * Story start and generation publication progress, as the engine reports it. `[perf]`
  *
  * A start takes seconds, and the notification used to say only "Starting story…" for all of them.
  * With `SINGULARITY_FLOW_PROGRESS=stderr-v1` the engine writes one line per start stage to stderr,
@@ -7,7 +7,7 @@
  * as they arrive, before stderr is shown or parsed as a refusal, and reports each step. Nothing but
  * a known stage name is ever read from them.
  */
-const PROGRESS_LINE = /^@@sflow-progress\/v1 (start\.[a-z][a-z-]*)\r?$/u;
+const PROGRESS_LINE = /^@@sflow-progress\/v1 (start\.[a-z][a-z-]*|publication\.(?:preflight|discovery|validation|commit|push))\r?$/u;
 
 /** What each stage is doing, in words for the person waiting. Unknown stages are not shown. */
 const START_PROGRESS_LABELS: Readonly<Record<string, string>> = Object.freeze({

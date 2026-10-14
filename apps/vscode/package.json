@@ -456,6 +456,11 @@
         "icon": "$(type-hierarchy)"
       },
       {
+        "command": "singularityFlow.importTeamWorkflow",
+        "title": "Singularity Flow: Import a Team Workflow…",
+        "icon": "$(cloud-download)"
+      },
+      {
         "command": "singularityFlow.decideStory",
         "title": "Singularity Flow: Choose What Happens Next",
         "icon": "$(git-compare)"

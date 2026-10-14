@@ -47,6 +47,58 @@ async function fixture(t) {
   return { directory, client, events };
 }
 
+test('watcher reads wait for a same-checkout publication, share across clients, and leave other repositories responsive', async (t) => {
+  const f = await fixture(t);
+  const other = await fixture(t);
+  const writer = f.client();
+  const reader = f.client();
+  const publication = writer.run(['phase', 'publish', 'intake', '--json', '--case', 'publish', '--delay', '350']);
+  await until(async () => (await f.events()).some(row => row.kind === 'start' && row.id === 'publish'));
+  assert.equal(reader.mutating, true);
+  const snapshots = Array.from({ length: CLI_READ_CONCURRENCY + 1 }, (_, index) => reader.run([
+    'snapshot', '--json', '--case', `snapshot-${index}`, '--delay', '20'
+  ]));
+  const independent = other.client().run(['snapshot', '--json', '--case', 'other', '--delay', '20']);
+  await independent;
+  assert.equal((await f.events()).some(row => row.id?.startsWith('snapshot-')), false);
+  await Promise.all([publication, ...snapshots]);
+  const rows = await f.events();
+  const ended = rows.find(row => row.kind === 'end' && row.id === 'publish');
+  assert.ok(rows.filter(row => row.kind === 'start' && row.id?.startsWith('snapshot-')).every(row =>
+    rows.indexOf(row) > rows.indexOf(ended)));
+  assert.equal(reader.mutating, false);
+});
+
+test('a cancelled read behind a mutation never spawns, and mutation failure releases later reads', async (t) => {
+  const f = await fixture(t);
+  const c = f.client();
+  const controller = new AbortController();
+  const mutation = c.run(['phase', 'publish', 'intake', '--json', '--case', 'write', '--delay', '250']);
+  const read = c.run(['snapshot', '--json', '--case', 'cancelled'], controller.signal);
+  const refused = assert.rejects(read);
+  controller.abort();
+  await Promise.all([mutation, refused]);
+  assert.equal((await f.events()).some(row => row.id === 'cancelled'), false);
+  const failed = f.client({ location: { executable: process.execPath,
+    cli: path.join(f.directory, 'missing.mjs'), source: 'setting' } });
+  await assert.rejects(failed.run(['phase', 'publish', 'intake', '--json']));
+  await c.run(['snapshot', '--json', '--case', 'after-failure']);
+  assert.equal(c.mutating, false);
+});
+
+test('a publication through another client invalidates a previously cached snapshot', async t => {
+  const f = await fixture(t);
+  const reader = f.client();
+  const writer = f.client();
+  const args = ['snapshot', '--json', '--case', 'cached', '--delay', '1'];
+  const before = await reader.run(args);
+  const mutation = writer.run(['phase', 'publish', 'intake', '--json', '--delay', '1']);
+  const during = reader.run(args);
+  await mutation;
+  assert.notEqual((await during).pid, before.pid);
+  assert.notEqual((await reader.run(args)).pid, before.pid);
+});
+
 test('workflow proposal inventory is read-only while proposal status and owner reads remain fresh', async (t) => {
   for (const action of ['list', 'proposals', 'proposal', 'proposal-status']) {
     assert.equal(commandClass(['workflow', action]), 'read');

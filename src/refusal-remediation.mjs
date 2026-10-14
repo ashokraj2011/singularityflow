@@ -8,6 +8,7 @@
  */
 
 import { localGitHookFailure, redactDiagnosticText } from './git-remote-diagnostics.mjs';
+import { stripGlobalModelOptions } from './model-mode.mjs';
 import { requiredTestExecutionForRefusal } from './test-execution-diagnostics.mjs';
 import {
   commandRouteLines, safeCommandGuidance, validateSafeSflowCommand
@@ -857,6 +858,9 @@ function deduplicate(steps) {
 }
 
 export function refusalRemediationPlan(error, argv = []) {
+  // The CLI drops the global --no-model before dispatching; the phase this refusal belongs to is
+  // read from the same command words, or a no-model run loses its phase scope.
+  argv = stripGlobalModelOptions(argv);
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
   const hookFailure = error?.details?.remoteFailure?.hook ?? localGitHookFailure({ stderr: error?.message });
   if (hookFailure) return Object.freeze({
@@ -875,6 +879,28 @@ export function refusalRemediationPlan(error, argv = []) {
     ]),
     retry: Object.freeze({ label: 'Retry only after the hook, command or runtime has changed; preserve the existing Story and exact publication checkpoint.', automatic: false })
   });
+  // The branch already holds the publication's exact commit; only finishing it remains (push, and
+  // the index refresh that may be what failed). Repeating the phase command would author again on
+  // top of a published generation, and generic diagnostics never named the way out.
+  if (error?.publicationRefAdvanced === true && error?.publicationRefOutcomeUnknown !== true) {
+    const context = phaseRemediationContext(argv, error);
+    const workId = context?.workId ?? safeWorkId(error?.details?.workId);
+    const commit = /^[0-9a-f]{40,64}$/u.test(String(error.publicationCommit ?? '')) ? error.publicationCommit.slice(0, 12) : null;
+    return Object.freeze({
+      schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
+      status: 'blocked', code,
+      ...(context ? { context: Object.freeze({ ...context, strategy: 'roll-forward-exact-commit', retryCommand: null, retrySkill: null }) } : {}),
+      steps: Object.freeze([
+        step('finish-publication',
+          `The publication was committed${commit ? ` (${commit})` : ''} and is retained. Finish it: sync publishes that exact commit and refreshes its files in Git's index. Nothing is authored again.`,
+          'singularity-flow sync', 'remediation'),
+        step('inspect-recovery',
+          'If sync is refused, inspect recovery and apply its safe actions (a stale index lock, index entries that lag the commit).',
+          context?.recoveryCommand ?? `singularity-flow recover${workId ? ` ${workId}` : ''} --json`, 'remediation', '/sf-recover')
+      ].filter(Boolean)),
+      retry: Object.freeze({ label: 'Do not repeat the original command; its commit already exists. Run sync instead.', automatic: false })
+    });
+  }
   const skillHostBlocked = ['SKP_HOST_ENFORCEMENT_UNAVAILABLE', 'SKP_HOST_DELIVERY_UNCONFIRMED'].includes(code);
   const repositoryRunnerBlocked = code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
   const riskReviewBlocked = ['TRP_PHASE_GATE_BLOCKED', 'TRP_RISK_REVIEW_STALE',

@@ -10,7 +10,7 @@ import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { configurationReadRootForPath } from './configuration-read-scope.mjs';
 import {
   isFullyQualifiedWindowsPath, resolvePlatformProcess, resolveWindowsPathExecutable,
-  resolveWindowsSystemTool, withoutAutomaticGitMaintenance, withoutInteractiveGitPrompts
+  resolveWindowsSystemTool, withoutAutomaticGitMaintenance, withoutInteractiveGitPrompts, withoutOptionalStatusLocks
 } from './platform-process.mjs';
 import { displayWidth, padDisplay, terminalWidth, truncateDisplay } from './style.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
@@ -473,6 +473,33 @@ function gitSubcommand(args) {
 const TRUE = new Set(['1', 'true', 'yes', 'on']);
 
 /**
+ * The directory the person ran the command from.
+ *
+ * Outside a repository the CLI moves into the selected workspace's checkout before a command runs
+ * (cli-entry.mjs), so `process.cwd()` is that checkout by then, and `workflow import team.json`
+ * run from the folder holding the bundle looked for it in the repository.
+ */
+export function invocationDirectory() {
+  return globalThis.__SINGULARITY_FLOW_INVOCATION_DIRECTORY ?? process.cwd();
+}
+
+/**
+ * A file the person named on the command line.
+ *
+ * A file it reads is found where the person is, and otherwise, as it always was, under the
+ * repository root. A file it writes goes where the person is when they ran it from outside the
+ * repository; from inside, it stays relative to the root as before.
+ */
+export function commandLineFile(root, value, { reads = false } = {}) {
+  const here = path.resolve(invocationDirectory(), value);
+  if (!root) return here;
+  const fromRoot = path.resolve(root, value);
+  if (reads) return existsSync(here) || !existsSync(fromRoot) ? here : fromRoot;
+  const inside = path.relative(path.resolve(root), path.resolve(invocationDirectory()));
+  return inside === '' || (!inside.startsWith('..') && !path.isAbsolute(inside)) ? fromRoot : here;
+}
+
+/**
  * Whether this process is forbidden from reaching the network.
  *
  * `SINGULARITY_FLOW_NO_NETWORK` was set by `scripts/dx-benchmark.mjs` and read by nothing. The
@@ -588,6 +615,65 @@ export async function signalProcessTree(child, terminationSignal = 'SIGTERM', {
     const directAccepted = signalDirectChild();
     return requireTree ? false : directAccepted;
   }
+}
+
+/**
+ * Git subcommands that take the index lock before they change anything, so a refusal to create
+ * `index.lock` means nothing happened and the same command can run again. Compound commands
+ * (stash, merge, rebase, cherry-pick, am, pull) release the lock between steps; they are never
+ * repeated.
+ */
+const INDEX_LOCK_FIRST_SUBCOMMANDS = new Set([
+  'add', 'apply', 'checkout', 'commit', 'mv', 'read-tree', 'reset', 'restore', 'rm', 'switch', 'update-index'
+]);
+/** How long a command waits for another program's hold on the index, unless overridden. */
+export const GIT_INDEX_LOCK_WAIT_MS = 10_000;
+const INDEX_LOCK_SLEEP = new Int32Array(new SharedArrayBuffer(4));
+
+/** The index lock Git could not create, when that is why it failed (Git quotes its path). */
+function refusedIndexLock(result, cwd) {
+  if (!result || result.status === 0 || result.error || result.signal) return null;
+  const text = Buffer.isBuffer(result.stderr) ? result.stderr.toString('utf8') : String(result.stderr ?? '');
+  const named = /'([^'\r\n]*index\.lock)'/u.exec(text)?.[1];
+  return named ? { lock: path.resolve(cwd, named), exists: /File exists/u.test(text) } : null;
+}
+
+/**
+ * Wait out another program's brief hold on the index, then run the command again.
+ *
+ * VS Code's Git view, editors and terminals run `git status`, which takes `index.lock` while it
+ * refreshes the index — often right after Singularity Flow writes files, because that is what
+ * their file watchers react to. A governed publication refreshes its published index entries
+ * after the branch has advanced; failing there left the commit published and every published
+ * file looking changed ("Working tree is not clean"). A lock never seen to exist (a permission
+ * problem, say) is retried twice at most; a command whose stderr is inherited is not retried.
+ */
+function waitOutIndexLock(result, args, { cwd, env, spawnAgain }) {
+  let refused = refusedIndexLock(result, cwd);
+  if (!refused || !INDEX_LOCK_FIRST_SUBCOMMANDS.has(gitSubcommand(args))) return result;
+  const configured = Number(env?.SINGULARITY_FLOW_GIT_INDEX_LOCK_WAIT_MS ?? process.env.SINGULARITY_FLOW_GIT_INDEX_LOCK_WAIT_MS);
+  const budget = Number.isFinite(configured) && configured >= 0 ? configured : GIT_INDEX_LOCK_WAIT_MS;
+  const started = Date.now();
+  let pause = 25;
+  let attempts = 0;
+  let seen = false;
+  while (refused) {
+    seen ||= refused.exists || existsSync(refused.lock);
+    const waited = Date.now() - started;
+    if (waited >= budget || (!seen && attempts >= 2)) break;
+    Atomics.wait(INDEX_LOCK_SLEEP, 0, 0, Math.min(pause, budget - waited));
+    pause = Math.min(pause * 2, 1000);
+    attempts += 1;
+    incrementCommandCounter('git.spawns');
+    incrementCommandCounter('git.index-lock-retries');
+    result = spawnAgain();
+    refused = refusedIndexLock(result, cwd);
+  }
+  if (!refused || !seen) return result;
+  const hint = `\nSingularity Flow waited ${Math.round((Date.now() - started) / 100) / 10} s for ${refused.lock}; another program `
+    + '(VS Code\'s Git view, an editor or a terminal) still holds it. Let it finish and retry; if no Git process is running, remove that file.';
+  const stderr = Buffer.isBuffer(result.stderr) ? Buffer.concat([result.stderr, Buffer.from(hint)]) : `${result.stderr ?? ''}${hint}`;
+  return { ...result, stderr };
 }
 
 export function run(command, args = [], {
@@ -714,10 +800,10 @@ export function run(command, args = [], {
   const factBefore = factRequest && !cachedFact ? gitFactSnapshot(factRequest) : null;
   let result = cachedFact;
   if (!cachedFact) try {
-    result = spawnSyncCommand(launch.executable, launch.arguments, {
+    const spawnOnce = () => spawnSyncCommand(launch.executable, launch.arguments, {
       cwd, encoding, stdio, timeout: timeoutMs, killSignal,
       env: command === 'git' ? gitHostChildEnvironment(
-        withoutAutomaticGitMaintenance(withoutInteractiveGitPrompts(env, { platform }), { platform }),
+        withoutOptionalStatusLocks(withoutAutomaticGitMaintenance(withoutInteractiveGitPrompts(env, { platform }), { platform }), args, { platform }),
         launch.executable, platform
       ) : env,
       ...launch.spawnOptions,
@@ -736,6 +822,9 @@ export function run(command, args = [], {
       // explicitly supplied non-null value opens and writes the child stdin pipe.
       ...(input == null ? {} : { input: Buffer.isBuffer(input) ? input : Buffer.from(String(input), 'utf8') })
     });
+    result = spawnOnce();
+    // Reads never fail on the index lock; a scoped read's deadline is never stretched by waiting.
+    if (command === 'git' && !scopedGitRead) result = waitOutIndexLock(result, args, { cwd, env, spawnAgain: spawnOnce });
   } finally {
     if (ownsGitTiming) {
       incrementCommandCounter('git.service-ms', Math.max(0, Math.round(performance.now() - serviceStarted)));

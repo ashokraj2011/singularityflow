@@ -27,6 +27,7 @@ const CONFIGURATION_NAVIGATION: Array<{ label: string; items: ConfigurationNavig
     { label: 'Capabilities', glyph: 'capability', action: 'capabilities' },
     { label: 'Test setup', glyph: 'phase', tab: 'tests' },
     { label: 'Workflow Studio', glyph: 'workflow', action: 'workflow-studio' },
+    { label: 'Import a team workflow', glyph: 'workflow', action: 'import-team' },
     { label: 'Shared workflow drafts', glyph: 'workflow', action: 'shared-workflow-drafts' },
     { label: 'World Model', glyph: 'worldModel', tab: 'world-model' },
     { label: 'AST intelligence', glyph: 'worldModel', action: 'ast-intelligence' }

@@ -6,7 +6,7 @@ import { readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import {
   admitExactProspectiveTree, branch, changes, commitIsAncestor,
   exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head,
-  publicationPushOutcome, pushCommitToBranchAsync, refExists, refHead, remoteContains
+  publicationPushOutcome, pushCommitToBranchAsync, refExists, refHead, refreshStalePublishedIndex, remoteContains
 } from './git.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
 import {
@@ -884,6 +884,9 @@ export async function syncPendingLifecyclePublication(root, options = {}) {
       candidateTree: record.tree,
       label: `Pending ${subject.kind} publication`
     });
+    // The index refresh after the branch advanced may be what failed (another program held
+    // index.lock); until it is done, every published file looks changed.
+    refreshStalePublishedIndex(root, record.commit);
     // Ad hoc and Goal recovery were introduced with the Candidate boundary and therefore have no
     // legitimate unsealed marker format. Their local tail metadata controls terminal session/Goal
     // cleanup, so authenticating only the commit while accepting edited progress metadata would

@@ -33,8 +33,8 @@ import { assertStoryTestRiskGate, beginStoryTestRiskRun, captureStoryTestRiskObs
 import { trpCaseInventoryDeclaration, trpExecutionEnvironment, trpNativeReportCapture } from './test-recovery-adapters.mjs';
 import { inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline } from './initialization/runtime-readiness.mjs';
 import {
-  branch, changedFiles, commitIsAncestor, headTreeEntries, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
-  publicationPushOutcome, pushCommitToBranchAsync, remoteContains, shallowBoundaryCommit, untrackedFiles
+  artifactChangeInventory, branch, changedFiles, commitIsAncestor, headTreeEntries, exactChangedPathsBetweenObjects, exactFileAtObject, exactRemoteBranchObservationAsync, gitCommonDir, governedCommitIdentity, head, identity,
+  publicationPushOutcome, pushCommitToBranchAsync, refreshStalePublishedIndex, remoteContains, shallowBoundaryCommit, untrackedFiles
 } from './git.mjs';
 import {
   WORKFLOW_PATH, assertWorkTypeStartable, loadDefinition, normalizeArtifactTemplateCompatibility, normalizeSequenceGates,
@@ -170,6 +170,7 @@ import {
 } from './specifications.mjs';
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
 import { phasePlansDelivery, plannedDeliveryCodeSteps, scaffoldPlanningRows } from './phase-authoring-contract.mjs';
+import { addMissingSections, artifactTokens, requiredArtifactSections } from './artifact-required-sections.mjs';
 import { acceptedClauses, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
 import { reviewBindings } from './implementation-bindings.mjs';
 import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
@@ -2594,6 +2595,17 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       const { capsule } = await activeClauseCapsule(itemDirectory, workflow, phase, null, { root });
       text = scaffoldPlanningRows(text, (capsule?.clauses ?? []).map(clause => clause.id));
     }
+    // A repository template can predate (or have edited away) a section this phase is checked for;
+    // copy it from the packaged template so the author fills a section instead of inventing one.
+    // An existing draft gains it too: preparation always opens a new, unpublished generation, and
+    // only missing sections are inserted, so no authored or published byte is changed. A Story
+    // prepared before this rule (stuck at "Add ## Scenario coverage") recovers on its next prepare.
+    if (phase.generationPolicy?.producer !== 'deterministic') {
+      const resolvedPhase = workflow.resolution.phases.find((item) => item.id === phase.id);
+      text = addMissingSections(text, requiredArtifactSections(resolvedPhase), {
+        ownRef: resolvedPhase?.template, tokens: artifactTokens({ workItem: workflow.workItem, phase: resolvedPhase })
+      }).text;
+    }
     text = applyInputsBlock(text, rendered.text, inputs.mode);
     // The immutable reference set is already captured by the WFA snapshot and its Story manifest.
     // Put only its bounded identifiers and local detached paths into a newly created phase artifact
@@ -2913,7 +2925,8 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
     posix(path.posix.join(workDirRelative(config, workflow.workItem.id), output.path)), output.kind
   ]));
   pruneTransientArtifactRegistrations(phase);
-  const untracked = new Set(untrackedFiles(root));
+  const inventory = artifactChangeInventory(root);
+  const untracked = inventory.untracked;
   // `prepare` creates the required phase artifact on purpose. Calling that expected output an
   // "adopted" file makes the ordinary authoring path look like accidental scope expansion and, on
   // a failed publication retry, repeats the same alarming warning indefinitely. Still register it
@@ -2921,7 +2934,7 @@ export async function scanArtifacts(root, config, workflow, phaseId = undefined)
   // explicitly declare.
   const requiredArtifact = requiredRepoPath(config, workflow, phase);
   const adopted = [];
-  const discovered = changedFiles(root).filter((item) => !ignored(config, workflow, item, { untracked: untracked.has(item) }));
+  const discovered = inventory.paths.filter((item) => !ignored(config, workflow, item, { untracked: untracked.has(item) }));
   const discoveredPaths = new Set(discovered);
   // A code step adopts only what its plan names [E2G-027]; every other changed application file is
   // excluded: left where it is, never registered and never committed.
@@ -10001,6 +10014,9 @@ export async function syncPublication(root, config, workflow, { fault = null } =
         }
       );
     }
+    // The index refresh after the branch advanced may be what failed (another program held
+    // index.lock); until it is done, every published file looks changed.
+    refreshStalePublishedIndex(root, record.commit);
     const candidateAuthority = await verifyPendingPublicationCandidateAuthority(root, record);
     if (!candidateAuthority.valid) {
       throw new SingularityFlowError(

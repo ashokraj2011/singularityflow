@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
@@ -7,7 +6,7 @@ import { repoRoot } from '../git.mjs';
 import { deriveReport, renderHtml, renderMarkdown } from '../report.mjs';
 import { createReviewBundle, reviewContinuationLines, reviewHtml, reviewMarkdown } from '../review.mjs';
 import * as style from '../style.mjs';
-import { SingularityFlowError, optionBoolean, optionString, writeText } from '../util.mjs';
+import { SingularityFlowError, commandLineFile, optionBoolean, optionString, writeText } from '../util.mjs';
 import { selectedPhaseArgument } from './shared/selected-phase-argument.mjs';
 
 export async function run(argv, { positionals, options }) {
@@ -72,7 +71,7 @@ export async function reportCommand(positionals, options) {
   }
   const outputFile = optionString(options, 'out');
   if (outputFile) {
-    const absolute = path.resolve(root, outputFile);
+    const absolute = commandLineFile(root, outputFile);
     await writeText(absolute, rendered);
     console.log(`Report written to ${absolute}`);
     if (format !== 'json') writeHumanTimings(timings);
@@ -99,7 +98,7 @@ export async function reviewCommand(positionals, options) {
   const rendered = format === 'json' ? `${JSON.stringify(bundle, null, 2)}\n` : format === 'html' ? reviewHtml(bundle) : reviewMarkdown(bundle);
   const outputFile = optionString(options, 'out');
   if (outputFile) {
-    const absolute = path.resolve(root, outputFile); await writeText(absolute, rendered); console.log(`Review bundle written to ${absolute}\n${reviewContinuationLines(bundle.continuation).join('\n')}`); return;
+    const absolute = commandLineFile(root, outputFile); await writeText(absolute, rendered); console.log(`Review bundle written to ${absolute}\n${reviewContinuationLines(bundle.continuation).join('\n')}`); return;
   }
   // Same rule as `report`: stdout is the default because piping it is the common case and the
   // extension depends on it. `--brief` describes the bundle instead of printing it.

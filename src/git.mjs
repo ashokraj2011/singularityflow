@@ -840,6 +840,24 @@ export function worktreeStatusDetail(root) {
   });
 }
 
+/** One lossless status observation replaces separate tracked, staged and untracked scans. */
+export function artifactChangeInventory(root) {
+  const detail = worktreeStatusDetail(root);
+  const paths = new Set();
+  const untracked = new Set();
+  for (const entry of detail.entries) {
+    if (entry.type === 'ignored') continue;
+    for (const candidate of [entry.path, entry.sourcePath].filter(Boolean)) {
+      if (candidate.kind !== 'utf8') throw new SingularityFlowError(
+        'Artifact discovery cannot represent a non-UTF-8 repository path.', { code: 'ARTIFACT_PATH_UNREPRESENTABLE' }
+      );
+      paths.add(candidate.value);
+    }
+    if (entry.type === 'untracked') untracked.add(entry.path.value);
+  }
+  return { paths: [...paths].sort(), untracked };
+}
+
 export function assertClean(root) {
   if (changes(root).trim()) throw new SingularityFlowError('Working tree is not clean. Commit or stash changes, or pass --allow-dirty deliberately.');
 }
@@ -2903,6 +2921,95 @@ export function assertNoSecrets(root, paths = null, { label = 'This commit' } = 
   return scan;
 }
 
+/**
+ * Paths `commit` changed (under `prefix`, when given) whose index entry still holds the version
+ * in its parent: the index is exactly one commit behind for them. Content someone staged on purpose
+ * matches the file on disk instead, and is never reported.
+ */
+function laggingIndexEntries(root, commit, prefix = null) {
+  const env = { ...process.env, GIT_LITERAL_PATHSPECS: '1' };
+  const parent = git(['rev-parse', '--verify', '--quiet', `${commit}^1`], { cwd: root, env, allowFailure: true }).stdout.trim();
+  if (!parent) return [];
+  const changed = nullList(git(['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', '--no-renames', parent, commit,
+    ...(prefix ? ['--', prefix] : [])], { cwd: root, env }).stdout);
+  if (!changed.length) return [];
+  // `ls-files --stage` prints "<mode> <oid> <stage>\t<path>"; `ls-tree` prints "<mode> <type> <oid>\t<path>".
+  const entries = (listing, oidField) => new Map(nullList(listing).map((line) => {
+    const tab = line.indexOf('\t');
+    const fields = line.slice(0, tab).split(' ');
+    return [line.slice(tab + 1), `${fields[0]} ${fields[oidField]}`];
+  }));
+  const indexed = entries(git(['ls-files', '--stage', '-z', '--', ...changed], { cwd: root, env }).stdout, 1);
+  const before = entries(git(['ls-tree', '-r', '-z', parent, '--', ...changed], { cwd: root, env }).stdout, 2);
+  return changed.filter((file) => (indexed.get(file) ?? null) === (before.get(file) ?? null));
+}
+
+/**
+ * Bring the real index up to a governed commit the branch already points at, for the paths that
+ * commit changed whose index entry still describes its parent.
+ *
+ * A publication refreshes those entries after its branch advances. When another program held
+ * `index.lock` past the wait, that refresh failed: the commit was published, and every published
+ * file looked changed ("Working tree is not clean"). Recovery calls this before it publishes the
+ * retained commit. An entry someone staged since is left exactly as it is. Returns the paths it
+ * refreshed.
+ */
+export function refreshStalePublishedIndex(root, commit, { lockWaitMs = null } = {}) {
+  if (!commit || head(root) !== commit) return [];
+  const stale = laggingIndexEntries(root, commit);
+  if (stale.length) git(['reset', '-q', commit, '--', ...stale], { cwd: root, env: {
+    ...process.env, GIT_LITERAL_PATHSPECS: '1',
+    ...(lockWaitMs == null ? {} : { SINGULARITY_FLOW_GIT_INDEX_LOCK_WAIT_MS: String(lockWaitMs) })
+  } });
+  return stale;
+}
+
+/**
+ * The index refresh after a commit is durable failed (another program held `index.lock` past the
+ * wait, typically). The commit stands; failing now would report a made commit as an error and leave
+ * its files looking changed. Record it, so the next command in this checkout completes the refresh.
+ */
+function deferIndexRefresh(root, commit, result) {
+  // The record deferred-index-refresh.mjs completes: the commit ID, in this checkout's Git
+  // directory. Written here so this module (and the edit guard that reaches it) loads nothing more.
+  const marker = path.join(gitDir(root), 'singularity-flow', 'index-refresh-pending');
+  mkdirSync(path.dirname(marker), { recursive: true });
+  writeFileSync(marker, `${commit}\n`);
+  const reason = String(result?.stderr || result?.stdout || '').trim().split(/\r?\n/u)[0];
+  process.stderr.write(`Committed ${commit.slice(0, 12)}. Git's index could not be refreshed yet${reason ? ` (${reason})` : ''}; `
+    + 'the next Singularity Flow command in this checkout completes it. Until then its files may look changed.\n');
+}
+
+/**
+ * Story files (under `prefix`, its work-item directory) whose index entry is one commit behind
+ * HEAD: what a publication whose index refresh did not complete leaves, and what an older sync left
+ * after publishing. To `git status` they look staged, reverted and untracked at once, and the next
+ * start refuses a dirty tree. Nothing is reported while a merge, rebase, cherry-pick or revert owns
+ * the index.
+ */
+export function storyIndexDrift(root, prefix) {
+  for (const marker of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply']) {
+    const relative = git(['rev-parse', '--git-path', marker], { cwd: root, allowFailure: true }).stdout.trim();
+    if (relative && existsSync(path.resolve(root, relative))) return [];
+  }
+  return laggingIndexEntries(root, head(root), prefix);
+}
+
+/** Point exactly these index entries back at HEAD. The files on disk and every other entry stay as they are. */
+export function refreshIndexEntries(root, paths) {
+  if (!paths.length) return;
+  git(['reset', '-q', 'HEAD', '--', ...paths], { cwd: root, env: { ...process.env, GIT_LITERAL_PATHSPECS: '1' } });
+}
+
+/** This checkout's `index.lock`, with its age, or null when there is none. */
+export function indexLockState(root) {
+  const relative = git(['rev-parse', '--git-path', 'index.lock'], { cwd: root, allowFailure: true }).stdout.trim();
+  if (!relative) return null;
+  const absolute = path.resolve(root, relative);
+  const info = statSync(absolute, { throwIfNoEntry: false });
+  return info ? { path: absolute, ageMs: Math.max(0, Date.now() - info.mtimeMs), modifiedAt: info.mtime.toISOString() } : null;
+}
+
 export function commit(root, message, paths = null) {
   assertNoSecrets(root, paths);
   const scope = paths?.length ? ['--only', '--', ...paths] : [];
@@ -2955,17 +3062,11 @@ export async function commitReviewedPaths(root, message, paths, {
       );
     }
     // Refresh only the reviewed files; do not borrow, commit, reset, or discard any other index entry.
-    try {
-      git(['reset', '-q', committed, '--', ...scope], { cwd: root, env: immutableLocalGitEnvironment() });
-    } catch (error) {
-      throw new SingularityFlowError(
-        `Reviewed commit ${committed} completed, but its listed index entries could not be refreshed: ${error.message}. `
-        + 'Do not repeat the commit. Preserve it and inspect recovery/index-lock diagnostics; no lifecycle action was run.',
-        { code: 'RECOVERY_COMMITTED_INDEX_REPAIR_REQUIRED', details: {
-          commit: committed, paths, lifecycleAdvanced: false, recoveryCommand: 'singularity-flow recover --json'
-        } }
-      );
-    }
+    // The commit stands either way: a refresh another program blocks completes on the next command.
+    const refreshed = git(['reset', '-q', committed, '--', ...scope], {
+      cwd: root, env: immutableLocalGitEnvironment(), allowFailure: true
+    });
+    if (refreshed.status !== 0) deferIndexRefresh(root, committed, refreshed);
     return committed;
   } finally {
     try { await removeTemporaryTree(scratch); }
@@ -3303,7 +3404,10 @@ export async function commitIsolated(root, message, paths, {
 
     // The real index still describes the old HEAD. Refresh only governed entries so they do not
     // appear as synthetic staged reversions; unrelated staged entries remain byte-for-byte intact.
-    git(['reset', '-q', sourceCommit, '--', ...scope], { cwd: root, env: localEnv });
+    // The commit is durable from here: an index another program holds past the wait no longer
+    // fails the publication. The refresh is recorded and completes on the next command.
+    const refreshed = git(['reset', '-q', sourceCommit, '--', ...scope], { cwd: root, env: localEnv, allowFailure: true });
+    if (refreshed.status !== 0) deferIndexRefresh(root, sourceCommit, refreshed);
     const refAfterIndexRefresh = checkedOutRef();
     if (expectedRef !== undefined && refAfterIndexRefresh !== expectedRef) {
       // A checkout racing the index refresh may now own this worktree. Restore its index from its

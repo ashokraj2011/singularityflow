@@ -285,6 +285,8 @@ function cacheableRead(args: string[]): boolean {
     // A team import session changes with every check (answers, repair attempts) and in other
     // hosts (Copilot writes the candidate); each click must see it now.
     && !(args[0] === 'workflow' && args[1] === 'import-team')
+    // An upload changes in a background process and on every retry; each look must see it now.
+    && args[0] !== 'push'
     // A destructive apply is guarded by a second byte-current preview. Reusing the first preview
     // here would turn that freshness check into a comparison with its own cached answer.
     && args[0] !== 'factory-reset'
@@ -303,6 +305,8 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
   }
   if (args[0] === 'adhoc') return args[1] === 'status' ? 'read' : 'mutation';
   if (args[0] === 'jira') return args[1] === 'status' ? 'read' : 'mutation';
+  // Inspect pending uploads; retry spends a transport attempt.
+  if (args[0] === 'push') return (args[1] && !args[1].startsWith('-') ? args[1] : 'status') === 'status' ? 'read' : 'mutation';
   if (args[0] === 'integrations') return ['list', 'status', 'test'].includes(args[1] ?? 'status') ? 'read' : 'mutation';
   if (args[0] === 'prompt-log') return ['status', 'list', 'view'].includes(args[1] ?? 'status') ? 'read' : 'mutation';
   if (args[0] === 'impact') {

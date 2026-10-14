@@ -1,12 +1,12 @@
 /** Inspect and retry exact pre-Story transport intents. */
 import {
-  listTransportIntents, readTransportIntent, retryTransportIntent
+  listTransportIntents, readTransportIntent, retryTransportIntent, transportIntentsForRepository
 } from '../transport-intents.mjs';
 import {
   action, commandResult, effects, noEffects, succeeded
 } from '../narration/command-result.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
-import { optionBoolean, SingularityFlowError } from '../util.mjs';
+import { optionBoolean, optionString, SingularityFlowError } from '../util.mjs';
 
 function nextActions(intent) {
   if (!intent?.nextAction?.command) return [];
@@ -35,9 +35,13 @@ export async function run(_argv, { positionals, options, operation }) {
   const intentId = positionals[2] ?? null;
   const json = optionBoolean(options, 'json');
   if (action === 'status') {
+    // --repository <PATH>: only this repository's uploads, from any of its checkouts on this computer.
+    const repository = optionString(options, 'repository');
     const result = intentId
       ? await readTransportIntent(intentId)
-      : await listTransportIntents({ includeSucceeded: optionBoolean(options, 'all') });
+      : repository
+        ? await transportIntentsForRepository(repository, { includeSucceeded: optionBoolean(options, 'all') })
+        : await listTransportIntents({ includeSucceeded: optionBoolean(options, 'all') });
     const intent = Array.isArray(result) ? null : result;
     return emitCommandResult(commandResult({
       operation: { id: operation.id, classification: operation.classification },

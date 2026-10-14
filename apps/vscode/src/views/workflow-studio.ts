@@ -19,9 +19,10 @@ import { collectReviewConfirmation } from './review-confirmation.ts';
 import { integerField, registerMessageRouter, stringField } from './messages.ts';
 import { INTEGRATION_SECRET_NAME, type IntegrationSecretSource } from '../credentials.ts';
 import {
-  PROPOSAL_BRANCH, STUDIO_FOCUS_VIEWS, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, proposalSummaries, studioPublishArgs,
-  workflowStudioBody, type StudioAuthority, type StudioFocusView
+  PROPOSAL_BRANCH, STUDIO_FOCUS_VIEWS, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, localProposalUploads, proposalSummaries,
+  studioPublishArgs, workflowStudioBody, type LocalProposalUpload, type StudioAuthority, type StudioFocusView
 } from './workflow-studio-page.ts';
+import * as path from 'node:path';
 
 export { STUDIO_FOCUS_VIEWS, proposalSummaries, type StudioFocusView };
 
@@ -85,6 +86,8 @@ export interface StudioChangeOutcome {
   outcome: 'cancelled' | 'proposed' | 'written' | 'unchanged' | 'failed';
   branch?: string;
   error: string | null;
+  /** False while a proposed change is saved on this computer and its upload has not finished. */
+  uploaded?: boolean;
 }
 
 /** Unpublished Studio changes kept across closing the panel. */
@@ -97,6 +100,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   private model: StudioModel | null = null;
   /** MCP servers the person allowed this Studio session to start or contact for imports. */
   private readonly mcpConsent = new Set<string>();
+  /** The not-yet-uploaded proposals last shown; Retry and sign-in act only on one of these. */
+  private uploads: LocalProposalUpload[] = [];
 
   /** The section to show once the model has loaded, when a screen opened Studio at one. */
   private focus: StudioFocusView | null = null;
@@ -152,6 +157,13 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     if (this.model) this.post({ type: 'studio.importRequested', name: bundle.split(/[\\/]/).pop() });
   }
 
+  /** Re-read the proposal lists (waiting for review, and saved but not uploaded) of an open panel. */
+  static async refreshProposals(): Promise<void> {
+    const current = WorkflowStudioPanel.current;
+    if (!current || current.disposed) return;
+    await current.proposals();
+  }
+
   /** Refresh an open panel after sync without discarding its unpublished private draft. */
   static async refreshAfterConfigurationSync(): Promise<void> {
     const current = WorkflowStudioPanel.current;
@@ -186,6 +198,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.reviewProposal': (message) => this.reviewProposal(stringField(message, 'branch'), integerField(message, 'pending') ?? 0),
     'studio.exportWorkflows': (message) => this.exportWorkflows((message as { workflowIds?: unknown }).workflowIds),
     'studio.importWorkflows': (message) => this.importWorkflows(integerField(message, 'pending') ?? 0),
+    'studio.retryUpload': (message) => this.retryUpload(stringField(message, 'intentId')),
+    'studio.checkSignIn': (message) => this.checkSignIn(stringField(message, 'intentId')),
     'studio.importTeam': () => this.actions.importTeam?.(),
     'studio.duplicateWorkflow': (message) => this.duplicateWorkflow(stringField(message, 'selector'), integerField(message, 'pending') ?? 0),
     'studio.openFile': (message) => this.openFile(stringField(message, 'path')),
@@ -193,15 +207,59 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       stringField(message, 'send'), (message as { sendTest?: unknown }).sendTest === true)
   });
 
-  /** The workflow configuration proposals waiting for review. A working-tree authority has none. */
+  /**
+   * The workflow configuration proposals waiting for review, and those saved on this computer whose
+   * upload did not succeed. The second kind is in no remote review list, so without this it could
+   * not be found at all. A working-tree authority has neither.
+   */
   private async proposals(): Promise<void> {
     if (this.model?.authority?.kind === 'working-tree') { this.post({ type: 'studio.proposals', proposals: [], local: true }); return; }
+    // Read first and independently: the remote list fails for the same network or sign-in reason
+    // an upload does, and that is exactly when these must still show.
+    this.uploads = await this.client.run<unknown>(['push', 'status', '--repository', this.client.repository, '--json'])
+      .then(localProposalUploads, () => []);
     try {
       const listed = await this.client.run<unknown>(['workflow', 'proposals', '--json']);
-      this.post({ type: 'studio.proposals', proposals: proposalSummaries(listed) });
+      this.post({ type: 'studio.proposals', proposals: proposalSummaries(listed), uploads: this.uploads });
     } catch (error) {
-      this.post({ type: 'studio.proposals', proposals: [], error: (error as Error).message });
+      this.post({ type: 'studio.proposals', proposals: [], uploads: this.uploads, error: (error as Error).message });
     }
+  }
+
+  /** Try a not-yet-uploaded proposal's upload again, as the person asked (one attempt, never automatic). */
+  private async retryUpload(intentId: string | null): Promise<void> {
+    const upload = this.uploads.find(entry => entry.intentId === intentId);
+    if (!upload) { this.post({ type: 'studio.failed', message: 'That upload is no longer waiting. Refresh the list.' }); return; }
+    const command = ['push', 'retry', upload.intentId, '--json'];
+    this.output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
+    let text: string;
+    try {
+      const result = await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification, title: `Uploading ${upload.branch}`, cancellable: false
+      }, () => this.client.run<unknown>(command));
+      const intent = localProposalUploads({ data: { intents: [(result as { data?: { intent?: unknown } })?.data?.intent] } })[0];
+      text = !intent
+        ? `${upload.branch} was uploaded and is waiting for review below.`
+        : `${upload.branch} is still not uploaded (${intent.status}). ${intent.advice ?? ''}`.trim();
+    } catch (error) {
+      text = `${upload.branch} could not be uploaded: ${(error as Error).message}`;
+    }
+    this.post({ type: 'studio.uploadRetried', intentId: upload.intentId, message: text });
+    await this.proposals();
+  }
+
+  /**
+   * Open a terminal in the proposal's checkout that asks the remote one read-only question, so Git's
+   * credential manager can show its sign-in. Background uploads are never allowed to prompt.
+   */
+  private checkSignIn(intentId: string | null): void {
+    const upload = this.uploads.find(entry => entry.intentId === intentId);
+    if (!upload || !/^[A-Za-z0-9._-]+$/.test(upload.remote) || !path.isAbsolute(upload.repositoryRoot)) return;
+    const terminal = vscode.window.createTerminal({ name: 'Git sign-in', cwd: upload.repositoryRoot });
+    terminal.show();
+    terminal.sendText(`git ls-remote --exit-code ${upload.remote} HEAD`);
+    this.post({ type: 'studio.uploadRetried', intentId: upload.intentId,
+      message: 'Sign in if Git asks, in the terminal that opened. When it prints a commit line, choose Retry upload.' });
   }
 
   /**
@@ -249,7 +307,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       const fresh = await this.client.run<StudioModel>([...STUDIO_MODEL_ARGS]).catch(() => null);
       if (fresh && JSON.stringify(fresh.base ?? null) !== before) await this.configurationChanged(pending, 'workflows were imported');
     }
-    this.post({ type: 'studio.importDone', outcome: result.outcome, branch: result.branch ?? null, error: result.error });
+    this.post({ type: 'studio.importDone', outcome: result.outcome, branch: result.branch ?? null, error: result.error, uploaded: result.uploaded !== false });
     if (result.outcome !== 'cancelled') await this.proposals();
   }
 
@@ -265,7 +323,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       if (fresh && JSON.stringify(fresh.base ?? null) !== before) await this.configurationChanged(pending, 'a workflow was duplicated');
       await this.proposals();
     }
-    this.post({ type: 'studio.importDone', outcome: result.outcome, branch: result.branch ?? null, error: result.error });
+    this.post({ type: 'studio.importDone', outcome: result.outcome, branch: result.branch ?? null, error: result.error, uploaded: result.uploaded !== false });
   }
 
   /** Repository files the page may open: the governed workflow and portfolio files, and templates. */

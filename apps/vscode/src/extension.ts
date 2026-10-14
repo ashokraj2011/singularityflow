@@ -7204,7 +7204,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }>(args);
         if (result.changed && !result.pushed) {
           const next = commandGuidanceText(result.nextAction);
-          return `Configuration commit ${result.commit.slice(0, 8)} is retained, but publication is ${result.transportStatus ?? 'pending'}. ${next ? `Continue with:\n${next}` : 'Open Push recovery to continue.'}`;
+          return `Configuration commit ${result.commit.slice(0, 8)} is retained, but publication is ${result.transportStatus ?? 'pending'}. ${next ? `Continue with:\n${next}` : `Retry it from Workflow Studio → Changes, or run: singularity-flow push retry ${result.transportIntent ?? '<ID>'}`}`;
         }
         await refreshAfterKnownMutation();
         if (!result.changed) {
@@ -7529,6 +7529,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * every mutation receives the same validation, lead-authority proposal, exact-diff review, and
    * local-authority draft treatment as the existing authoring controls.
   */
+  /**
+   * Follow a proposal's background upload for a while, so the person learns its outcome instead of
+   * finding nothing to review. The upload makes one attempt and never answers a sign-in prompt, so on
+   * a machine whose Git needs a sign-in, proxy or hook it stops; say so, with the way to retry.
+   */
+  const watchProposalUpload = (intentId: string, branch: string): void => {
+    if (!/^psh_[a-f0-9-]{20,64}$/.test(intentId)) return;
+    void (async () => {
+      for (let round = 0; round < 40; round += 1) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        let intent: { status?: string; fault?: { advice?: string; classification?: string } | null;
+          attempts?: Array<{ completedAt?: string | null }> } | undefined;
+        try {
+          const result = await client.run<{ data?: { intent?: typeof intent }; intent?: typeof intent }>(['push', 'status', intentId, '--json']);
+          intent = result?.data?.intent ?? result?.intent;
+        } catch { return; }
+        if (!intent?.status) return;
+        if (intent.status === 'succeeded') {
+          const { WorkflowStudioPanel } = lazyPanels();
+          await WorkflowStudioPanel.refreshProposals();
+          void showCompactInformationMessage(`Workflow proposal ${branch} was uploaded and is waiting for review in Workflow Studio → Changes.`);
+          return;
+        }
+        const stopped = ['needs-user', 'attempt-budget-exhausted', 'remote-diverged'].includes(intent.status)
+          || (intent.status === 'pending' && Boolean(intent.fault) && Boolean(intent.attempts?.at(-1)?.completedAt));
+        if (stopped) {
+          const { WorkflowStudioPanel } = lazyPanels();
+          await WorkflowStudioPanel.refreshProposals();
+          const choice = await showCompactWarningMessage(
+            `Workflow proposal ${branch} is saved on this computer but was not uploaded, so nobody can review it yet. ${intent.fault?.advice ?? 'Check Git access to the remote.'}`,
+            'Open Changes'
+          );
+          if (choice === 'Open Changes') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' });
+          return;
+        }
+      }
+    })();
+  };
   const proposeWorkflowChange = async (baseCommand: string[], title: string): Promise<WorkflowChangeOutcome> => {
     const command = [...baseCommand];
     if (!command.includes('--propose')) command.push('--propose');
@@ -7549,10 +7587,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const files = proposal.files?.length ?? 0;
         if (proposal.pushed === false) {
           void showCompactInformationMessage(
-            `Workflow proposal saved locally with ${files} configuration file${files === 1 ? '' : 's'}. Upload is pending in Push recovery; review and activation become available after the exact commit reaches the remote. The active Story was not changed.`
+            `Workflow proposal saved on this computer with ${files} configuration file${files === 1 ? '' : 's'} and is uploading now. It appears for review once the upload finishes; if it cannot, Workflow Studio → Changes shows it with the reason and a Retry upload button. The active Story was not changed.`
           );
           if (proposal.nextAction) output.appendLine(`  Sync status: ${proposal.nextAction}`);
-          return { outcome: 'proposed', branch: proposal.branch, error: null };
+          if (proposal.transportIntent) watchProposalUpload(proposal.transportIntent, proposal.branch);
+          return { outcome: 'proposed', branch: proposal.branch, error: null, uploaded: false };
         }
         const review = 'Review and activate';
         const selected = await showCompactInformationMessage(
@@ -8869,6 +8908,8 @@ export interface WorkflowChangeOutcome {
   outcome: 'cancelled' | 'proposed' | 'written' | 'unchanged' | 'failed';
   branch?: string;
   error: string | null;
+  /** False while a proposed change is saved on this computer and its upload has not finished. */
+  uploaded?: boolean;
 }
 
 async function openArtifact(

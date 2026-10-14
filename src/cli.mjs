@@ -2864,7 +2864,7 @@ export async function startCommand(positionals, options) {
       throw new SingularityFlowError(
         `Automatic approval enrollment is pending publication. ${enrollment.nextAction?.command
           ? `Run: ${enrollment.nextAction.command}`
-          : 'Open Push recovery, publish the retained configuration commit, and start again.'}`,
+          : 'Run singularity-flow push status, retry the retained configuration commit with singularity-flow push retry <ID>, and start again.'}`,
         { code: 'CONFIGURATION_ENROLLMENT_PENDING' }
       );
     }

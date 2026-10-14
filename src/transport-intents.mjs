@@ -120,6 +120,25 @@ export async function listTransportIntents({
   return records.sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)));
 }
 
+/**
+ * Intents for this repository: pushed from this checkout, or to the same push remote from another
+ * checkout of it (a Story worktree, the lead clone). A configuration proposal whose upload has not
+ * succeeded exists only on this computer and is in no remote review list; this is how a person finds it.
+ */
+export async function transportIntentsForRepository(repositoryRoot, {
+  env = process.env, home = os.homedir(), includeSucceeded = false, runCommand = run, remote = 'origin'
+} = {}) {
+  const root = await realpath(path.resolve(repositoryRoot));
+  const fingerprint = await repositoryFingerprint(root);
+  let pushRemote = null;
+  try {
+    const configured = configuredRemoteIdentity(root, remote, { direction: 'push', env: withoutGitProcessOverrides(env), runCommand });
+    if (configured.configured && !configured.ambiguous && configured.url) pushRemote = `sha256:${remoteFingerprint(configured.url)}`;
+  } catch { /* No usable push remote: this checkout's own intents still match. */ }
+  return (await listTransportIntents({ env, home, includeSucceeded })).filter((intent) =>
+    intent.repositoryRootFingerprint === fingerprint || (pushRemote && intent.remoteFingerprint === pushRemote));
+}
+
 async function repositoryFingerprint(root) {
   return `sha256:${digest(await realpath(root))}`;
 }
@@ -537,6 +556,11 @@ export async function retryTransportIntent(intentId, {
           cooldown: { remainingMs: Math.max(0, cooldownMs - elapsed), openedAt: intent.circuit.openedAt }
         });
       }
+    }
+    if (intent.attemptBudget.used >= intent.attemptBudget.maximum && allowNeedsUser) {
+      // A person asking again (after fixing sign-in, proxy or permissions) always gets one attempt.
+      // Only automatic retries stop at the budget; without this an exhausted upload was stuck for good.
+      intent = { ...intent, attemptBudget: { ...intent.attemptBudget, maximum: intent.attemptBudget.used + 1 } };
     }
     if (intent.attemptBudget.used >= intent.attemptBudget.maximum) {
       return writeIntent(outbox, {

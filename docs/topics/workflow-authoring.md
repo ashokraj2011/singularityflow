@@ -31,7 +31,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 58
+version: 59
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -132,6 +132,13 @@ approved configuration after you confirm; where Git cannot prove the configurati
 protected, it asks for a separate acknowledgement first. A working-tree authority has no proposals:
 its changes are reviewed as commits. If the approved configuration changes while you have
 unpublished edits, Studio keeps them and says so; **Check** refuses them until you reload.
+
+A proposal is committed on this computer first and uploaded in the background. That upload makes one
+attempt and never answers a sign-in prompt, so where Git needs a sign-in, a proxy or a pre-push check it
+can stop; the proposal is then in no review list. Studio says so as soon as it happens, and **Changes**
+lists it under **Saved on this computer — not uploaded yet** with the reason, **Retry upload**, and
+**Sign in to Git** when the reason is a sign-in. `singularity-flow workflow proposals` names it too,
+with the `singularity-flow push retry <ID>` command. A retry you ask for always gets one more attempt.
 
 On **Your workflows**, **Export…** saves the chosen published workflows and everything they depend on
 (steps, templates, artifact sets, agents) as one bundle, and **Import…** previews a bundle's plan

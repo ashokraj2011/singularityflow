@@ -325,6 +325,43 @@ export function proposalSummaries(listed: unknown): StudioProposalSummary[] {
   });
 }
 
+/** A configuration proposal saved on this computer whose upload has not succeeded. */
+export interface LocalProposalUpload {
+  intentId: string; branch: string; status: string; classification: string | null; advice: string | null;
+  savedAt: string | null; attempts: number; remote: string; repositoryRoot: string; signIn: boolean; retryable: boolean;
+}
+
+const SIGN_IN_FAILURES = new Set(['authentication-required', 'sso-authorization-required', 'credential-helper-unavailable']);
+
+/**
+ * `push status --json` (one intent or a list) to the proposal uploads that have not succeeded.
+ * Every field is checked: the host acts only on an intent ID listed here.
+ */
+export function localProposalUploads(result: unknown): LocalProposalUpload[] {
+  const data = ((result ?? {}) as { data?: { intents?: unknown; intent?: unknown } }).data ?? {};
+  const raw = Array.isArray(data.intents) ? data.intents : data.intent ? [data.intent] : [];
+  const text = (value: unknown, limit = 600): string | null => (typeof value === 'string' && value.trim() ? value.slice(0, limit) : null);
+  return raw.slice(0, MAX_LISTED_PROPOSALS).flatMap((item) => {
+    const intent = (item ?? {}) as Record<string, unknown>;
+    const intentId = text(intent.intentId, 80);
+    const targetRef = text(intent.targetRef, 300);
+    const status = text(intent.status, 40);
+    if (!intentId || !/^psh_[a-f0-9-]{20,64}$/.test(intentId) || !status || status === 'succeeded'
+        || !targetRef?.startsWith('refs/heads/')) return [];
+    const branch = targetRef.slice('refs/heads/'.length);
+    if (!PROPOSAL_BRANCH.test(branch)) return [];
+    const fault = (intent.fault ?? {}) as Record<string, unknown>;
+    const classification = text(fault.classification, 60);
+    const budget = (intent.attemptBudget ?? {}) as Record<string, unknown>;
+    return [{
+      intentId, branch, status, classification, advice: text(fault.advice),
+      savedAt: text(intent.createdAt, 40), attempts: Number.isSafeInteger(budget.used) ? Number(budget.used) : 0,
+      remote: text(intent.remote, 100) ?? 'origin', repositoryRoot: text(intent.repositoryRoot, 4096) ?? '',
+      signIn: Boolean(classification && SIGN_IN_FAILURES.has(classification)), retryable: status !== 'remote-diverged'
+    }];
+  });
+}
+
 export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 (function () {
   'use strict';
@@ -874,6 +911,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     chooseTemplate: function () { return chooseTemplate.apply(null, arguments); }, chooseArtifactSet: function () { return chooseArtifactSet.apply(null, arguments); },
     // Proposals waiting for review, workflow bundles, governed files.
     requestProposals: function () { return requestProposals.apply(null, arguments); }, reviewProposal: function () { return reviewProposal.apply(null, arguments); },
+    uploadView: function () { return uploadView.apply(null, arguments); },
     importWorkflows: function () { return importWorkflows.apply(null, arguments); }, openFile: function () { return openFile.apply(null, arguments); },
     // Epic workflows.
     epicsDraftFrom: function () { return epicsDraftFrom.apply(null, arguments); }, withDraftDefaults: function () { return withDraftDefaults.apply(null, arguments); },
@@ -5315,7 +5353,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   // publishes, an imported bundle, a Configuration Center or agent save. Reviewing opens the exact
   // diff; activating merges it into the approved configuration after the person confirms.
 
-  function proposalsState() { return state.proposals || (state.proposals = { list: null, error: null, loading: false, local: false }); }
+  function proposalsState() { return state.proposals || (state.proposals = { list: null, error: null, loading: false, local: false, uploads: [] }); }
   function requestProposals() {
     var view = proposalsState();
     if (view.loading) return;
@@ -5380,8 +5418,46 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       el('div', { class: 'studio-row' }, picker, review),
       el('details', null, el('summary', { text: 'Transport identifiers and revision details' }), revisions.map(function (revision) { return proposalCard(revision, true); })));
   }
+  // A proposal saved on this computer whose upload has not succeeded is in no remote review list.
+  // Show it, with why and the way to retry, or it cannot be found at all.
+  function uploadView(upload) {
+    var status = upload.status === 'needs-user' ? 'Needs you'
+      : upload.status === 'attempt-budget-exhausted' ? 'Stopped trying'
+        : upload.status === 'remote-diverged' ? 'Remote changed'
+          : upload.status === 'pushing' ? 'Uploading' : 'Not uploaded';
+    var reason = upload.advice || (upload.status === 'remote-diverged'
+      ? 'Someone changed this review branch on the remote. Import the bundle again to make a new proposal.'
+      : 'The upload has not succeeded yet. Check that Git can reach the remote, then retry.');
+    var actions = [];
+    if (upload.retryable) actions.push('retry');
+    if (upload.signIn) actions.push('sign-in');
+    return { title: upload.branch, status: status, reason: reason, actions: actions };
+  }
+  function renderUploads(main) {
+    var uploads = proposalsState().uploads || [];
+    if (!uploads.length) return;
+    var card = el('section', { class: 'studio-card', 'aria-label': 'Not uploaded yet' });
+    card.appendChild(el('h2', { text: uploads.length === 1 ? 'Saved on this computer — not uploaded yet' : uploads.length + ' saved on this computer — not uploaded yet' }));
+    card.appendChild(el('p', { class: 'muted', text: 'These proposals exist only on this computer, so nobody can review them yet. Nothing is lost: retry once Git can reach the remote.' }));
+    uploads.forEach(function (upload) {
+      var view = uploadView(upload);
+      card.appendChild(el('article', { class: 'decision-box', 'aria-label': 'Upload ' + upload.branch },
+        el('div', { class: 'studio-row spread' }, el('code', { text: view.title }), el('span', { class: 'pill', text: view.status })),
+        el('div', { class: 'callout', text: view.reason }),
+        el('div', { class: 'studio-row' },
+          view.actions.indexOf('retry') >= 0 ? button(state.busy === 'upload' ? 'Uploading…' : 'Retry upload', function () {
+            state.busy = 'upload'; setStatus('Uploading ' + upload.branch + '…'); render();
+            post({ type: 'studio.retryUpload', intentId: upload.intentId });
+          }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Retry upload of ' + upload.branch }) : null,
+          view.actions.indexOf('sign-in') >= 0 ? button('Sign in to Git…', function () {
+            post({ type: 'studio.checkSignIn', intentId: upload.intentId });
+          }, { class: 'secondary', disabled: Boolean(state.busy) }) : null)));
+    });
+    main.appendChild(card);
+  }
   function renderProposals(main) {
     var view = proposalsState();
+    if (!view.local) renderUploads(main);
     var card = el('section', { class: 'studio-card', 'aria-label': 'Waiting for review' });
     card.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Waiting for review' }),
       view.local ? null : button(view.loading ? 'Looking…' : 'Refresh', requestProposals, { class: 'secondary', disabled: view.loading })));
@@ -5581,6 +5657,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     } else if (message.type === 'studio.proposals') {
       var listed = proposalsState();
       listed.loading = false; listed.list = message.proposals || []; listed.error = message.error || null; listed.local = Boolean(message.local);
+      listed.uploads = Array.isArray(message.uploads) ? message.uploads : [];
       // The list after a review says what became of the proposal: activated (or closed), or still waiting.
       if (state.reviewing) {
         var waiting = listed.list.some(function (proposal) { return proposal.branch === state.reviewing; });
@@ -5602,10 +5679,15 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       // The team-import panel wrote a bundle; the host holds its path and Import… previews it.
       if (state.busy) { setStatus('Import… will offer ' + (message.name || 'the team bundle') + ' once the current action finishes.'); render(); }
       else importWorkflows();
+    } else if (message.type === 'studio.uploadRetried') {
+      if (state.busy === 'upload') state.busy = null;
+      setStatus(message.message || 'Upload attempted.'); render();
     } else if (message.type === 'studio.importDone') {
       state.busy = null;
       setStatus(message.outcome === 'cancelled' ? 'Import cancelled; nothing changed.'
-        : message.outcome === 'proposed' ? 'The import ' + (message.error ? 'was proposed as ' + message.branch + ', but its review stopped: ' + message.error : 'is waiting for review as ' + message.branch + ', under Changes.')
+        : message.outcome === 'proposed' ? 'The import ' + (message.error ? 'was proposed as ' + message.branch + ', but its review stopped: ' + message.error
+          : message.uploaded === false ? 'was saved on this computer as ' + message.branch + ' and is uploading; it appears for review under Changes once uploaded.'
+            : 'is waiting for review as ' + message.branch + ', under Changes.')
           : message.outcome === 'written' ? 'The import was written to this repository; review the diff and commit it.'
             : 'The configuration already has everything in that bundle; nothing changed.');
       render();

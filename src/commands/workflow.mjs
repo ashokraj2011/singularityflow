@@ -3,11 +3,30 @@ import { repoRoot } from '../git.mjs';
 import { optionBoolean, requirePositional } from '../util.mjs';
 import { configurationReadFromWorker } from '../configuration-read-worker-client.mjs';
 
+/**
+ * A proposal whose upload did not succeed exists only on this computer, so it is in no remote
+ * review list. Say so, with the reason and the retry, instead of reporting nothing waiting.
+ */
+async function printUnuploadedProposals(root) {
+  const { transportIntentsForRepository } = await import('../transport-intents.mjs');
+  const pending = (await transportIntentsForRepository(root).catch(() => []))
+    .filter((intent) => intent.targetRef.startsWith('refs/heads/sflow/config-change/'));
+  if (!pending.length) return;
+  console.log('Saved on this computer but not uploaded, so nobody can review them yet:');
+  for (const intent of pending) {
+    console.log(`  ${intent.targetRef.slice('refs/heads/'.length)}  ${intent.status}${intent.fault?.classification ? ` (${intent.fault.classification})` : ''}`);
+    if (intent.fault?.advice) console.log(`    ${intent.fault.advice}`);
+    console.log(`    Retry: singularity-flow push retry ${intent.intentId}`);
+  }
+}
+
 export async function run(argv, { positionals, options }) {
   const method = positionals[1];
   if (method === 'import-team') return (await import('./workflow-import-team.mjs')).run(argv, { positionals, options });
   if (!['proposals', 'proposal'].includes(method)) return (await import('./legacy.mjs')).run(argv);
   const root = repoRoot();
+  // Before the remote is asked: an upload that failed is often the same network or sign-in problem.
+  if (method === 'proposals' && !optionBoolean(options, 'json')) await printUnuploadedProposals(root);
   const parameters = method === 'proposal'
     ? { branch: requirePositional(positionals, 2, 'workflow proposal branch') }
     : { includeMerged: optionBoolean(options, 'all') };

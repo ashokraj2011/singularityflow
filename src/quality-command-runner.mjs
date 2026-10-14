@@ -307,14 +307,17 @@ export async function runBoundedTaskPool(items, worker, {
 
   const runWorker = async () => {
     while (nextIndex < list.length) {
-      if (controller.signal.aborted && failFast) {
-        const skippedIndex = nextIndex;
-        nextIndex += 1;
-        abortedCount += 1;
-        if (typeof onAbortedItem === 'function') {
-          results[skippedIndex] = onAbortedItem(list[skippedIndex], skippedIndex);
+      if (controller.signal.aborted) {
+        if (!firstError) {
+          const skippedIndex = nextIndex;
+          nextIndex += 1;
+          abortedCount += 1;
+          if (typeof onAbortedItem === 'function') {
+            results[skippedIndex] = onAbortedItem(list[skippedIndex], skippedIndex);
+          }
+          continue;
         }
-        continue;
+        break;
       }
       const index = nextIndex;
       nextIndex += 1;
@@ -329,11 +332,7 @@ export async function runBoundedTaskPool(items, worker, {
         }
       } catch (error) {
         firstError ??= error;
-        if (failFast) {
-          controller.abort(error);
-        } else {
-          throw error;
-        }
+        controller.abort(error);
       } finally {
         active -= 1;
       }
@@ -373,7 +372,7 @@ export async function runQualityCommandPool(commands, {
   const abortedResult = (spec, index) => ({
     id: spec.id ?? `command-${index}`,
     index,
-    status: 1,
+    status: null,
     signal: null,
     error: null,
     timedOut: false,
@@ -388,7 +387,7 @@ export async function runQualityCommandPool(commands, {
   return runBoundedTaskPool(
     specs,
     async (spec, { index, signal: poolSignal }) => {
-      if (poolSignal.aborted && failFast) {
+      if (poolSignal.aborted) {
         return abortedResult(spec, index);
       }
       const command = spec.command ?? spec.argv?.[0];
@@ -397,10 +396,12 @@ export async function runQualityCommandPool(commands, {
         ...(spec.options ?? {}),
         signal: poolSignal
       });
+      const aborted = Boolean(result.aborted || (poolSignal.aborted && result.status !== 0));
       return {
         id: spec.id ?? `command-${index}`,
         index,
-        ...result
+        ...result,
+        aborted
       };
     },
     {
@@ -409,7 +410,9 @@ export async function runQualityCommandPool(commands, {
       signal,
       onAbortedItem: abortedResult,
       shouldAbort: (result, spec) => {
-        if (spec?.requirement === 'optional' || spec?.optional === true) return false;
+        if (result?.aborted) return false;
+        const requirement = spec?.requirement ?? (spec?.optional === true ? 'advisory' : 'required');
+        if (requirement === 'advisory' || requirement === 'optional') return false;
         return Boolean(result.error || result.timedOut || result.status !== 0);
       }
     }

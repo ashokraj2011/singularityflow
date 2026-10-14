@@ -15,7 +15,6 @@ import { runBoundedTaskPool } from '../quality-command-runner.mjs';
 import { posix, secureRepositoryPath } from '../util.mjs';
 import { classifyJavascriptTestCommandScope } from '../wel-javascript.mjs';
 import { classifyJunit5SurefireCommandScope, parseJunitTestSources } from '../wel-junit5.mjs';
-import { loadPersistentVerificationCache, savePersistentVerificationCache } from './incremental-verification-graph.mjs';
 import { scanJavaScriptDeclarations } from './javascript-declarations.mjs';
 import { joinDeclaration } from './join.mjs';
 import { profileIsExact, testAdapterProfile } from './profiles.mjs';
@@ -91,7 +90,6 @@ export async function discoverDeclarations(root, id, files, { signal = null, run
     const parsed = await parseJunitTestSources(root, unique, { signal, runParser });
     return { profile: id, declarations: parsed.declarations, unattachedTags: parsed.unattachedTags, fileGaps: parsed.fileGaps };
   }
-  loadPersistentVerificationCache(root);
   const { results } = await runBoundedTaskPool(
     unique,
     async (file) => {
@@ -102,7 +100,6 @@ export async function discoverDeclarations(root, id, files, { signal = null, run
     },
     { maxConcurrency, signal }
   );
-  savePersistentVerificationCache(root);
   const declarations = [];
   const unattachedTags = [];
   const fileGaps = {};

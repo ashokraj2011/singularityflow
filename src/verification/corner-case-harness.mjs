@@ -96,15 +96,15 @@ function extractTsFunctionSignatures(sourceText, sourcePath, ts) {
   }
 
   const signatures = [];
+  const stack = [{ node: sourceFile, enclosingClass: null }];
 
-  function visit(node, enclosingClass = null) {
+  while (stack.length > 0) {
+    const { node, enclosingClass } = stack.pop();
+    let nextClass = enclosingClass;
+
     if (ts.isClassDeclaration(node)) {
-      const className = node.name?.text ?? 'AnonymousClass';
-      ts.forEachChild(node, (child) => visit(child, className));
-      return;
-    }
-
-    if (ts.isFunctionDeclaration(node) && node.name?.text) {
+      nextClass = node.name?.text ?? 'AnonymousClass';
+    } else if (ts.isFunctionDeclaration(node) && node.name?.text) {
       signatures.push({
         name: node.name.text,
         line: lineOf(node.getStart(sourceFile)),
@@ -142,10 +142,15 @@ function extractTsFunctionSignatures(sourceText, sourcePath, ts) {
       });
     }
 
-    ts.forEachChild(node, (child) => visit(child, enclosingClass));
+    const children = [];
+    ts.forEachChild(node, (child) => {
+      children.push(child);
+    });
+    for (let i = children.length - 1; i >= 0; i -= 1) {
+      stack.push({ node: children[i], enclosingClass: nextClass });
+    }
   }
 
-  visit(sourceFile, null);
   return signatures;
 }
 
@@ -210,7 +215,7 @@ function extractPolyglotFunctionSignatures(sourceText, language) {
 export function extractFunctionSignatures(sourceText, {
   sourcePath = 'source.js',
   root = null,
-  persist = true
+  persist = false
 } = {}) {
   const relative = posix(sourcePath);
   const text = String(sourceText ?? '');
@@ -223,11 +228,15 @@ export function extractFunctionSignatures(sourceText, {
       if (language === 'javascript' || language === 'typescript') {
         const ts = resolveTypeScript()?.module ?? null;
         if (ts) {
-          return {
-            sourcePath: relative,
-            language,
-            signatures: extractTsFunctionSignatures(text, relative, ts)
-          };
+          try {
+            return {
+              sourcePath: relative,
+              language,
+              signatures: extractTsFunctionSignatures(text, relative, ts)
+            };
+          } catch {
+            // Fall back to lexical signature extraction on pathological AST depth
+          }
         }
       }
       return {

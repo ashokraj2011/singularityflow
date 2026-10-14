@@ -368,6 +368,27 @@ test('code delivery preflight, phaseDraftCheck, and receipt verification enforce
   assert.equal(preflight.cornerCaseMatrix.status, 'satisfied');
   assert.equal(preflight.cornerCaseMatrix.summary.uncovered, 0);
   assert.equal(preflight.cornerCaseMatrix.summary.inadequateDeclarations, 0);
+  // Persisted cornerCaseMatrix is compact and never includes obligations array or generated harness code
+  assert.equal(preflight.cornerCaseMatrix.obligations, undefined);
+  assert.equal(preflight.cornerCaseMatrix.harness, undefined);
+
+  // phaseDraftCheck is read-only (mutates: false) and must not write .git/sflow-cache/verification-graph-v1.json
+  const cacheFile = path.join(root, '.git', 'sflow-cache', 'verification-graph-v1.json');
+  await rm(cacheFile, { force: true });
+  await phaseDraftCheck(root, config, workflow, phase, {
+    session: { workId: 'WORK-CC-1', phaseId: 'implementation', agent: 'developer' }
+  });
+  const { existsSync } = await import('node:fs');
+  assert.equal(existsSync(cacheFile), false);
+
+  // Repositories that did not opt in do not get cornerCaseMatrix attached to delivery preflight
+  const defaultPreflight = await evaluateCodeDeliveryPreflight(
+    root,
+    { workItemRoot: 'singularity/work-items' },
+    workflow,
+    phase
+  );
+  assert.equal(defaultPreflight.cornerCaseMatrix, undefined);
 
   // 4. verifyCodeDeliveryReceipt validates cornerCaseMatrix digest and policy
   const tamperedReceipt = {
@@ -386,3 +407,13 @@ test('code delivery preflight, phaseDraftCheck, and receipt verification enforce
     true
   );
 });
+
+test('deeply nested generated TypeScript/JavaScript source does not crash obligation extraction or preflight with RangeError', () => {
+  const depth = 2500;
+  const nestedExpr = `${'('.repeat(depth)}x == null ? 0 : 1${')'.repeat(depth)}`;
+  const deepSource = `export function generatedDeep(x) {\n  return ${nestedExpr};\n}\n`;
+  const result = extractCornerCaseObligations(deepSource, { sourcePath: 'src/generated.ts' });
+  assert.equal(Array.isArray(result.obligations), true);
+  assert.equal(result.obligations.length >= 1, true);
+});
+

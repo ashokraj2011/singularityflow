@@ -35,7 +35,7 @@ import { normalizeQualifiedClauseId, scanSourceClauseTags } from './traceability
 import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
 import { contractRequiresTestTag, effectiveContract, mergedVerificationContracts } from './verification/contracts.mjs';
-import { cornerCaseMatrixDigest, evaluateDeliveryCornerCaseGate } from './verification/corner-case-obligations.mjs';
+import { compactCornerCaseMatrix, cornerCaseMatrixDigest, evaluateDeliveryCornerCaseGate } from './verification/corner-case-obligations.mjs';
 import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
 import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
@@ -1310,15 +1310,22 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     || config.governance?.requireAssertionAdequacy
     || workflow.resolution?.codeDelivery?.assertionAdequacy === 'enforce'
   );
-  const cornerCaseGate = await evaluateDeliveryCornerCaseGate(root, {
-    changeSet,
-    sourcePaths,
-    testPaths,
-    enforceCornerCases,
-    enforceAssertionAdequacy
-  });
-  if (cornerCaseGate.problems.length) {
-    errors.push(...cornerCaseGate.problems);
+  let cornerCaseGate = null;
+  if (enforceCornerCases || enforceAssertionAdequacy) {
+    try {
+      cornerCaseGate = await evaluateDeliveryCornerCaseGate(root, {
+        changeSet,
+        sourcePaths,
+        testPaths,
+        enforceCornerCases,
+        enforceAssertionAdequacy
+      });
+    } catch {
+      cornerCaseGate = null;
+    }
+    if (cornerCaseGate?.problems.length) {
+      errors.push(...cornerCaseGate.problems);
+    }
   }
   if (errors.length) {
     const unknown = unknownCriteria.length > 0;
@@ -1343,7 +1350,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
             recoveryCommands: [`singularity-flow phase prepublish ${phase.id} --json`]
           } : {}),
           sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? [],
-          ...(cornerCaseGate.findings.length ? {
+          ...(cornerCaseGate?.findings?.length ? {
             cornerCaseFindings: cornerCaseGate.findings,
             cornerCaseHarness: cornerCaseGate.harness
           } : {}),
@@ -1429,7 +1436,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     excludedChanges,
     fulfillment: fulfillment.obligations,
     implementationBindings: bound ? { bindings: bound.bindings, bindingsSha256: bound.bindingsSha256 } : null,
-    cornerCaseMatrix: cornerCaseGate.matrix
+    ...(cornerCaseGate?.matrix ? { cornerCaseMatrix: compactCornerCaseMatrix(cornerCaseGate.matrix) } : {})
   };
   // The preview loads bound Story records; defer that dependency until the kernel is initialized.
   const { assertCandidateSpecificationCoverage, assertStrictCandidateSpecificationCoverage } = await import('./spec-coverage-preview.mjs');

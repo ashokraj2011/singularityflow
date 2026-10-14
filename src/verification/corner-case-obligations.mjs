@@ -25,9 +25,7 @@ import { buildRepositoryChangeSet } from '../repository-change-set.mjs';
 import { isTestAutomationPath } from '../source-boundary.mjs';
 import { posix } from '../util.mjs';
 import {
-  getCachedVerificationFact,
-  loadPersistentVerificationCache,
-  savePersistentVerificationCache
+  getCachedVerificationFact
 } from './incremental-verification-graph.mjs';
 import {
   extractFunctionSignatures,
@@ -118,7 +116,9 @@ function extractTsCornerCaseObligations(ts, source, relativePath, changedLines) 
     });
   };
   const lineOf = (node) => sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
-  const walk = (node, owner) => {
+  const stack = [{ node: sf, owner: null }];
+  while (stack.length > 0) {
+    const { node, owner } = stack.pop();
     const record = byNode.get(node);
     const current = record && ['function', 'method', 'constructor'].includes(record.kind) ? record : owner;
     const symbol = current?.qualifiedName ?? '<module>';
@@ -190,9 +190,14 @@ function extractTsCornerCaseObligations(ts, source, relativePath, changedLines) 
       add(symbol, 'branch-divergence', line, 'ternary (? :) branch');
     }
 
-    ts.forEachChild(node, (child) => walk(child, current));
-  };
-  walk(sf, null);
+    const children = [];
+    ts.forEachChild(node, (child) => {
+      children.push(child);
+    });
+    for (let i = children.length - 1; i >= 0; i -= 1) {
+      stack.push({ node: children[i], owner: current });
+    }
+  }
   return [...seen.values()];
 }
 
@@ -283,14 +288,24 @@ export function extractCornerCaseObligations(source, { sourcePath = 'source.js',
       const language = documentationLanguage(relative);
       const ts = (language === 'javascript' || language === 'typescript') ? getTypeScript() : null;
       const scope = scopeList ? new Set(scopeList) : null;
-      const obligations = (ts
-        ? extractTsCornerCaseObligations(ts, text, relative, scope)
-        : extractLexicalCornerCaseObligations(text, relative, language ?? 'javascript', scope))
+      let assurance = ts ? 'ast-syntax' : 'lexical';
+      let rawObligations = null;
+      if (ts) {
+        try {
+          rawObligations = extractTsCornerCaseObligations(ts, text, relative, scope);
+        } catch {
+          assurance = 'lexical';
+        }
+      }
+      if (!rawObligations) {
+        rawObligations = extractLexicalCornerCaseObligations(text, relative, language ?? 'javascript', scope);
+      }
+      const obligations = rawObligations
         .sort((left, right) => left.line - right.line || left.category.localeCompare(right.category));
       return {
         sourcePath: relative,
         language: language ?? 'unknown',
-        assurance: ts ? 'ast-syntax' : 'lexical',
+        assurance,
         obligations,
         summary: summarizeObligations(obligations)
       };
@@ -362,8 +377,29 @@ export function analyzeTestFileSignals(source, { sourcePath = 'test.js', framewo
 }
 
 export function cornerCaseMatrixDigest(matrix) {
-  const { matrixSha256, harness, ...core } = matrix ?? {};
+  const {
+    matrixSha256,
+    harness,
+    obligations,
+    uncoveredObligations,
+    inadequateDeclarations,
+    ...core
+  } = matrix ?? {};
   return `sha256:${recordSha256(core)}`;
+}
+
+export function compactCornerCaseMatrix(matrix) {
+  if (!matrix || typeof matrix !== 'object') return null;
+  const compact = {
+    schemaVersion: matrix.schemaVersion ?? 1,
+    status: matrix.status,
+    summary: matrix.summary,
+    signals: matrix.signals
+  };
+  return {
+    ...compact,
+    matrixSha256: cornerCaseMatrixDigest(compact)
+  };
 }
 
 /**
@@ -558,7 +594,6 @@ export async function evaluateDeliveryCornerCaseGate(root, {
     : { files: [] };
   const changedLines = changedLinesByPath(preview);
 
-  loadPersistentVerificationCache(root);
   const signaturesByPath = {};
   const { results: sourceObligationBatches } = await runBoundedTaskPool(
     candidateSources,
@@ -574,12 +609,14 @@ export async function evaluateDeliveryCornerCaseGate(root, {
       const extracted = extractCornerCaseObligations(text, {
         sourcePath: relative,
         changedLines: lines,
-        root
+        root,
+        persist: false
       });
       if (extracted.obligations.length > 0) {
         signaturesByPath[relative] = extractFunctionSignatures(text, {
           sourcePath: relative,
-          root
+          root,
+          persist: false
         }).signatures;
       }
       return extracted.obligations;
@@ -592,12 +629,15 @@ export async function evaluateDeliveryCornerCaseGate(root, {
     async (relative) => {
       const bytes = await readFile(path.join(root, ...relative.split('/'))).catch(() => null);
       if (!bytes || bytes.length > CORNER_CASE_LIMITS.fileBytes || bytes.includes(0)) return [];
-      const analyzed = analyzeTestFileSignals(bytes.toString('utf8'), { sourcePath: relative, root });
+      const analyzed = analyzeTestFileSignals(bytes.toString('utf8'), {
+        sourcePath: relative,
+        root,
+        persist: false
+      });
       return analyzed.declarations;
     }
   );
   const allDeclarations = testDeclarationBatches.flat();
-  savePersistentVerificationCache(root);
 
   const evaluated = evaluateCornerCaseObligationMatrix({
     obligations: allObligations,

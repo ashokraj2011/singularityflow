@@ -75,3 +75,40 @@ test('state Story discovery extracts Story summary details recorded on the ledge
   assert.deepEqual(result[0].story?.progress, { available: true, approved: 1, total: 4 });
   assert.equal(result[0].story?.commitOid, 'c'.repeat(40));
 });
+
+test('a child-branch publication entry omits fast-path story summary without failing the repository index', () => {
+  const valid = entry('STORY-1', null, 'a'.repeat(40), {
+    subject: {
+      kind: 'story',
+      workId: 'STORY-1',
+      title: 'Valid Story',
+      status: 'active',
+      progress: { available: true, approved: 1, total: 2 },
+      branch: 'feature/STORY-1',
+      canonicalBranch: 'feature/STORY-1'
+    }
+  });
+  const childPublished = entry('STORY-2', valid.hash, 'b'.repeat(40), {
+    subject: {
+      kind: 'story',
+      workId: 'STORY-2',
+      title: 'Child Branch Story',
+      status: 'active',
+      progress: { available: true, approved: 0, total: 2 },
+      branch: 'feature/STORY-2/child',
+      canonicalBranch: 'feature/STORY-2'
+    }
+  });
+  const result = storyPointersFromLedger(
+    { sequence: 2, entryHash: childPublished.hash },
+    new Map([
+      [valid.file, valid.text],
+      [childPublished.file, childPublished.text]
+    ])
+  );
+  assert.deepEqual(result.map((item) => item.id), ['STORY-1', 'STORY-2']);
+  assert.equal(result[0].story?.title, 'Valid Story');
+  assert.equal(result[1].story, undefined);
+  assert.equal(result[1].branch, 'feature/STORY-2/child');
+});
+

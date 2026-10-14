@@ -70,7 +70,9 @@ export function declarations(ts, sf, relativePath) {
     byNode.set(node, record);
     return record;
   };
-  const visit = (node, container) => {
+  const stack = [{ node: sf, container: null }];
+  while (stack.length > 0) {
+    const { node, container } = stack.pop();
     let next = container;
     if (ts.isFunctionDeclaration(node) && node.name && node.body) next = add(node, node.name, node.name.text, 'function', container);
     else if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
@@ -94,9 +96,14 @@ export function declarations(ts, sf, relativePath) {
         next = { id: null, qualifiedName: container ? `${container.qualifiedName}.${node.name.text}` : node.name.text };
       }
     }
-    ts.forEachChild(node, (child) => visit(child, next));
-  };
-  visit(sf, null);
+    const children = [];
+    ts.forEachChild(node, (child) => {
+      children.push(child);
+    });
+    for (let i = children.length - 1; i >= 0; i -= 1) {
+      stack.push({ node: children[i], container: next });
+    }
+  }
   return { records, byNode };
 }
 
@@ -227,7 +234,9 @@ export function semanticCalls(ts, root, relativePaths, { projectRoot = '.' } = {
     const byNode = mapFor(sf);
     const facts = [];
     const seen = new Set();
-    const walk = (node, owner) => {
+    const stack = [{ node: sf, owner: null }];
+    while (stack.length > 0) {
+      const { node, owner } = stack.pop();
       const record = byNode.get(node);
       const current = record && ['function', 'method', 'constructor'].includes(record.kind) ? record : owner;
       if (current && (ts.isCallExpression(node) || ts.isNewExpression(node)) && node.expression) {
@@ -242,9 +251,14 @@ export function semanticCalls(ts, root, relativePaths, { projectRoot = '.' } = {
           });
         }
       }
-      ts.forEachChild(node, (child) => walk(child, current));
-    };
-    walk(sf, null);
+      const children = [];
+      ts.forEachChild(node, (child) => {
+        children.push(child);
+      });
+      for (let i = children.length - 1; i >= 0; i -= 1) {
+        stack.push({ node: children[i], owner: current });
+      }
+    }
     files.push({ path: relative, facts });
   }
   return files;

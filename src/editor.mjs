@@ -378,22 +378,20 @@ async function workItems(root, definition) {
 
   try {
     const stateRoster = await ledgerStoryPointers(root, definition.ledger ?? {}, { offline: true });
-    if (stateRoster.available) {
-      for (const pointer of stateRoster.stories) {
-        if (!pointer?.story?.id) continue;
-        stateCommitById.set(pointer.story.id, pointer.commitOid ?? null);
-        results.set(pointer.story.id, {
-          id: pointer.story.id,
-          title: pointer.story.title ?? pointer.story.id,
-          workType: pointer.story.workType ?? 'legacy',
-          status: pointer.story.status ?? 'unknown',
-          currentPhase: pointer.story.currentPhase ?? pointer.story.phase ?? null,
-          progress: pointer.story.progress ?? { available: false, approved: null, total: null },
-          branch: pointer.story.branch ?? pointer.branch ?? pointer.story.id,
-          updatedAt: pointer.story.updatedAt ?? null,
-          source: stateRoster.ref ?? 'state-ledger'
-        });
-      }
+    for (const pointer of stateRoster?.items ?? []) {
+      if (!pointer?.story?.id) continue;
+      stateCommitById.set(pointer.story.id, pointer.commitOid ?? null);
+      results.set(pointer.story.id, {
+        id: pointer.story.id,
+        title: pointer.story.title ?? pointer.story.id,
+        workType: pointer.story.workType ?? 'legacy',
+        status: pointer.story.status ?? 'unknown',
+        currentPhase: pointer.story.currentPhase ?? pointer.story.phase ?? null,
+        progress: pointer.story.progress ?? { available: false, approved: null, total: null },
+        branch: pointer.story.branch ?? pointer.branch ?? pointer.story.id,
+        updatedAt: pointer.story.updatedAt ?? null,
+        source: stateRoster.ref ?? 'state-ledger'
+      });
     }
   } catch {
     // Repositories without an initialized state branch still enumerate local refs and the worktree.

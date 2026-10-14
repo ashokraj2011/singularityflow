@@ -261,4 +261,136 @@ test('Step 3B: runBoundedTaskPool and runQualityCommandPool enforce maxConcurren
   assert.equal(cmdPool.results[1].aborted, true);
   assert.equal(cmdPool.results[2].aborted, true);
   assert.equal(elapsedMs < 3000, true, `Expected fail-fast abort under 3000ms, took ${elapsedMs}ms`);
+
+  // 3. Advisory failure does not abort required commands under failFast: true
+  const advisoryThenRequired = await runQualityCommandPool([
+    {
+      id: 'advisory-fail',
+      argv: [process.execPath, '-e', 'process.exit(1)'],
+      requirement: 'advisory'
+    },
+    {
+      id: 'required-pass',
+      argv: [process.execPath, '-e', 'process.exit(0)'],
+      requirement: 'required'
+    }
+  ], {
+    maxConcurrency: 1,
+    failFast: true
+  });
+  assert.equal(advisoryThenRequired.aborted, false);
+  assert.equal(advisoryThenRequired.results[0].status, 1);
+  assert.equal(advisoryThenRequired.results[1].status, 0);
+  assert.equal(advisoryThenRequired.results[1].aborted, false);
+
+  // 4. Unhandled worker throw aborts in-flight siblings and waits for them to settle before rejecting
+  let siblingSettledAfterAbort = false;
+  await assert.rejects(
+    () => runBoundedTaskPool(
+      ['thrower', 'inflight', 'queued'],
+      async (item, { signal }) => {
+        if (item === 'thrower') {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          throw new Error('worker-boom');
+        }
+        if (item === 'inflight') {
+          await new Promise((resolve) => {
+            if (signal.aborted) resolve();
+            else signal.addEventListener('abort', resolve, { once: true });
+          });
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          siblingSettledAfterAbort = true;
+          return 'aborted-inflight';
+        }
+        throw new Error('queued task should never launch after sibling error');
+      },
+      { maxConcurrency: 2, failFast: false }
+    ),
+    /worker-boom/
+  );
+  assert.equal(siblingSettledAfterAbort, true);
 });
+
+test('forged .git/sflow-cache/verification-graph-v1.json cannot inject fake clauseIds or bypass obligations, and scannerVersion changes cache keys', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-ivg-forge-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  git(root, 'init', '-q', '-b', 'main');
+
+  const testCode = [
+    'import test from "node:test";',
+    'import assert from "node:assert/strict";',
+    '// @ac:REAL-1:AC-001',
+    'test("real witness", () => {',
+    '  assert.equal(1 + 1, 2);',
+    '});'
+  ].join('\n');
+  await mkdir(path.join(root, 'test'), { recursive: true });
+  await writeFile(path.join(root, 'test/real.test.mjs'), testCode, 'utf8');
+
+  const {
+    VERIFICATION_GRAPH_CACHE_VERSION,
+    VERIFICATION_SCANNER_FINGERPRINT,
+    verificationFactCacheKey
+  } = await import('../src/verification/incremental-verification-graph.mjs');
+
+  assert.notEqual(
+    verificationFactCacheKey('javascript-declarations', testCode, { scannerVersion: 'v1' }),
+    verificationFactCacheKey('javascript-declarations', testCode, { scannerVersion: 'v2' })
+  );
+
+  // Forge a cache entry on disk that injects FAKE-999:AC-999 and empties corner-case obligations
+  const declKey = verificationFactCacheKey('javascript-declarations', testCode, {
+    sourcePath: 'test/real.test.mjs',
+    framework: 'node:test'
+  });
+  const sourceCode = 'export function risky(x) { if (x == null) throw new Error("bad"); return x; }\n';
+  const obKey = verificationFactCacheKey('corner-case-obligations', sourceCode, {
+    sourcePath: 'src/risky.mjs',
+    changedLines: null
+  });
+  const cacheDir = path.join(root, '.git', 'sflow-cache');
+  await mkdir(cacheDir, { recursive: true });
+  await writeFile(
+    path.join(cacheDir, 'verification-graph-v1.json'),
+    JSON.stringify({
+      cacheVersion: VERIFICATION_GRAPH_CACHE_VERSION,
+      scannerFingerprint: VERIFICATION_SCANNER_FINGERPRINT,
+      entries: {
+        [declKey]: {
+          schema: 'javascript-declarations-v1',
+          sourcePath: 'test/real.test.mjs',
+          framework: 'node:test',
+          declarations: [{
+            name: 'real witness',
+            suitePath: [],
+            line: 4,
+            skipped: false,
+            focused: false,
+            clauseIds: ['FAKE-999:AC-999'],
+            logicalTestId: 'forged'
+          }],
+          unattachedTags: [],
+          fileGaps: []
+        },
+        [obKey]: {
+          sourcePath: 'src/risky.mjs',
+          language: 'javascript',
+          assurance: 'ast-syntax',
+          obligations: [],
+          summary: { errorPath: 0, nullabilityGuard: 0, boundaryCondition: 0, branchDivergence: 0, total: 0 }
+        }
+      }
+    }),
+    'utf8'
+  );
+
+  clearVerificationGraphCache();
+  loadPersistentVerificationCache(root);
+
+  const discovered = await discoverDeclarations(root, 'node-test-v1', ['test/real.test.mjs']);
+  assert.deepEqual(discovered.declarations[0].clauseIds, ['REAL-1:AC-001']);
+
+  const extracted = extractCornerCaseObligations(sourceCode, { sourcePath: 'src/risky.mjs', root });
+  assert.equal(extracted.obligations.length >= 2, true);
+});
+

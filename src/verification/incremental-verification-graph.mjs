@@ -17,6 +17,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { canonicalJson } from '../records.mjs';
 import { posix } from '../util.mjs';
 
@@ -24,6 +25,7 @@ export const VERIFICATION_GRAPH_CACHE_VERSION = 1;
 export const MAX_VERIFICATION_CACHE_ENTRIES = 1024;
 
 const memoryCache = new Map();
+const diskHydratedKeys = new Set();
 const hydratedRoots = new Set();
 let cacheHits = 0;
 let cacheMisses = 0;
@@ -31,6 +33,31 @@ let cacheMisses = 0;
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
 }
+
+const SCANNER_SOURCE_FILES = [
+  './incremental-verification-graph.mjs',
+  './javascript-declarations.mjs',
+  './corner-case-obligations.mjs',
+  './corner-case-harness.mjs',
+  '../ast-packs/typescript-core.mjs'
+];
+
+export const VERIFICATION_SCANNER_FINGERPRINT = (() => {
+  const hash = createHash('sha256');
+  hash.update(`v${VERIFICATION_GRAPH_CACHE_VERSION}\u0000`);
+  for (const rel of SCANNER_SOURCE_FILES) {
+    try {
+      const abs = fileURLToPath(new URL(rel, import.meta.url));
+      hash.update(rel);
+      hash.update('\u0000');
+      hash.update(readFileSync(abs));
+      hash.update('\u0000');
+    } catch {
+      hash.update(`${rel}:unavailable\u0000`);
+    }
+  }
+  return hash.digest('hex');
+})();
 
 function resolveGitCacheFile(root) {
   if (!root || typeof root !== 'string') return null;
@@ -54,15 +81,25 @@ export function loadPersistentVerificationCache(root) {
   try {
     if (!existsSync(file)) return false;
     const raw = JSON.parse(readFileSync(file, 'utf8'));
-    if (raw?.cacheVersion !== VERIFICATION_GRAPH_CACHE_VERSION || typeof raw.entries !== 'object' || !raw.entries) {
+    if (
+      raw?.cacheVersion !== VERIFICATION_GRAPH_CACHE_VERSION
+      || raw?.scannerFingerprint !== VERIFICATION_SCANNER_FINGERPRINT
+      || typeof raw.entries !== 'object'
+      || !raw.entries
+      || Array.isArray(raw.entries)
+    ) {
       return false;
     }
+    let loaded = 0;
     for (const [key, value] of Object.entries(raw.entries)) {
+      if (!/^[0-9a-f]{64}$/u.test(key) || !value || typeof value !== 'object') continue;
       if (!memoryCache.has(key) && memoryCache.size < MAX_VERIFICATION_CACHE_ENTRIES) {
         memoryCache.set(key, value);
+        diskHydratedKeys.add(key);
+        loaded += 1;
       }
     }
-    return true;
+    return loaded > 0 || Object.keys(raw.entries).length === 0;
   } catch {
     return false;
   }
@@ -83,6 +120,7 @@ export function savePersistentVerificationCache(root) {
     }
     const payload = JSON.stringify({
       cacheVersion: VERIFICATION_GRAPH_CACHE_VERSION,
+      scannerFingerprint: VERIFICATION_SCANNER_FINGERPRINT,
       entries
     });
     const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
@@ -95,26 +133,45 @@ export function savePersistentVerificationCache(root) {
 }
 
 /**
- * Compute a deterministic content-addressed cache key for a verification fact.
+ * Compute a deterministic content-addressed cache key for a verification fact, bound to the
+ * current scanner implementation fingerprint so upgrades invalidate stale results.
  */
 export function verificationFactCacheKey(kind, source, options = {}) {
   const contentSha256 = sha256(String(source ?? ''));
   const optionsJson = canonicalJson(options ?? {});
-  return sha256(`${VERIFICATION_GRAPH_CACHE_VERSION}\u0000${kind}\u0000${optionsJson}\u0000${contentSha256}`);
+  const scannerVersion = options?.scannerVersion ?? VERIFICATION_SCANNER_FINGERPRINT;
+  return sha256(`${VERIFICATION_GRAPH_CACHE_VERSION}\u0000${scannerVersion}\u0000${kind}\u0000${optionsJson}\u0000${contentSha256}`);
 }
 
 /**
  * Retrieve or compute a deterministic AST/witness verification fact keyed by content SHA-256.
+ * Disk-hydrated entries are verified against `compute()` on first access so a forged or corrupted
+ * `.git/sflow-cache/verification-graph-v1.json` can never inject fake clause IDs or bypass gates.
  */
 export function getCachedVerificationFact(kind, source, options, compute, {
   root = null,
   persist = false
 } = {}) {
-  if (root) loadPersistentVerificationCache(root);
   const key = verificationFactCacheKey(kind, source, options);
   if (memoryCache.has(key)) {
-    cacheHits += 1;
     const cached = memoryCache.get(key);
+    if (diskHydratedKeys.has(key)) {
+      diskHydratedKeys.delete(key);
+      const verified = compute();
+      if (canonicalJson(cached) === canonicalJson(verified)) {
+        cacheHits += 1;
+        memoryCache.delete(key);
+        memoryCache.set(key, structuredClone(verified));
+        return verified;
+      }
+      // Forged or stale disk entry: evict and fall through to record miss
+      memoryCache.delete(key);
+      cacheMisses += 1;
+      const stored = structuredClone(verified);
+      memoryCache.set(key, stored);
+      return verified;
+    }
+    cacheHits += 1;
     // Refresh LRU order
     memoryCache.delete(key);
     memoryCache.set(key, cached);
@@ -124,7 +181,10 @@ export function getCachedVerificationFact(kind, source, options, compute, {
   const computed = compute();
   if (memoryCache.size >= MAX_VERIFICATION_CACHE_ENTRIES) {
     const oldestKey = memoryCache.keys().next().value;
-    if (oldestKey !== undefined) memoryCache.delete(oldestKey);
+    if (oldestKey !== undefined) {
+      memoryCache.delete(oldestKey);
+      diskHydratedKeys.delete(oldestKey);
+    }
   }
   const stored = structuredClone(computed);
   memoryCache.set(key, stored);
@@ -151,6 +211,7 @@ export function verificationGraphCacheStats() {
  */
 export function clearVerificationGraphCache(root = null) {
   memoryCache.clear();
+  diskHydratedKeys.clear();
   hydratedRoots.clear();
   cacheHits = 0;
   cacheMisses = 0;

@@ -19,9 +19,7 @@ function indexedStoryFromSubject(entry, id, branch, commit) {
     ? subject.canonicalBranch
     : branch;
   if (canonicalBranch !== branch) {
-    throw new SingularityFlowError('The state-indexed Story canonical branch does not match its ledger location.', {
-      code: 'SESSION_STATE_INDEX_INVALID'
-    });
+    return null;
   }
   const phase = typeof subject.currentPhase === 'string' && subject.currentPhase
     ? subject.currentPhase

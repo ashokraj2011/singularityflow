@@ -3925,6 +3925,7 @@ export async function publishGeneration(root, config, workflow, {
       },
       ...(deliveryPreflight.fulfillment?.length ? { fulfillment: { obligations: structuredClone(deliveryPreflight.fulfillment) } } : {}),
       ...(deliveryPreflight.implementationBindings ? { implementationBindings: structuredClone(deliveryPreflight.implementationBindings) } : {}),
+      ...(deliveryPreflight.cornerCaseMatrix ? { cornerCaseMatrix: structuredClone(deliveryPreflight.cornerCaseMatrix) } : {}),
       ...(deliveryPreflight.excludedChanges?.length ? { excludedChanges: [...deliveryPreflight.excludedChanges] } : {}),
       testExecutions: [],
       ...(deliveryPreflight.testRecovery ? { testRecovery: structuredClone(deliveryPreflight.testRecovery) } : {}),
@@ -4649,6 +4650,7 @@ function canExecuteQualityCommandsConcurrently(commands, { config, workflow } = 
   }
   const explicitParallel = config?.execution?.parallelQualityCommands === true
     || workflow?.resolution?.parallelQualityCommands === true;
+  if (!explicitParallel) return false;
   const workDirs = [];
   const resultPaths = new Set();
   for (const cmd of commands) {
@@ -4661,8 +4663,6 @@ function canExecuteQualityCommandsConcurrently(commands, { config, workflow } = 
       resultPaths.add(rp);
     }
   }
-  if (explicitParallel) return true;
-  // Auto-parallelize when every command targets a distinct, non-overlapping module subdirectory
   if (workDirs.includes('.')) return false;
   for (let i = 0; i < workDirs.length; i += 1) {
     for (let j = i + 1; j < workDirs.length; j += 1) {
@@ -4713,10 +4713,30 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
     ? defaultSubprocessConcurrency(config?.execution?.maxConcurrency ?? workflow?.resolution?.maxConcurrency)
     : 1;
   const failFast = Boolean(config?.execution?.failFast ?? workflow?.resolution?.failFast);
+  const executedPolicies = [];
+  const abortedQualityCheck = (value, index, startedAt = nowIso()) => {
+    const policy = evaluateExternalCommandForModelMode(value, { modelEnabled, unknownStrictness, index });
+    const command = policy.command ?? policy.argv.join(' ');
+    const completedAt = nowIso();
+    const check = {
+      id: policy.id, command, kind: policy.kind, requirement: policy.requirement,
+      workingDirectory: policy.workingDirectory,
+      externalModelPolicy: policy.modelPolicy, sourceCommit, sourceTreeSha256,
+      ...(testInputSha256 ? { testInputSha256 } : {}),
+      startedAt, completedAt, status: 'skipped-warning', aborted: true, exitCode: null,
+      signal: null, stdout: '',
+      stderr: 'Skipped after an earlier required quality command failed (fail-fast).'
+    };
+    checks.push(check);
+    return check;
+  };
   try {
     const { results } = await runBoundedTaskPool(
       commands,
       async (value, { index, signal: poolSignal }) => {
+        if (poolSignal.aborted) {
+          return abortedQualityCheck(value, index);
+        }
         const policy = evaluateExternalCommandForModelMode(value, { modelEnabled, unknownStrictness, index });
         const command = policy.command ?? policy.argv.join(' ');
         const startedAt = nowIso();
@@ -4812,7 +4832,7 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
               env: commandEnvironment,
               timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
               killTree: true,
-              signal: failFast ? poolSignal : null,
+              signal: poolSignal,
               reportCapture: trpNativeReportCapture(root, policy, riskDeclaration),
               stdoutFile: policy.kind === 'test' && (policy.result?.adapter === 'go-test-json'
                 || policy.result?.adapter === 'node-tap'
@@ -4826,9 +4846,10 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
               cwd: executionRoot, env: commandEnvironment, shell: true,
               timeoutMs: policy.timeoutMs ?? DEFAULT_QUALITY_COMMAND_TIMEOUT_MS,
               killTree: true,
-              signal: failFast ? poolSignal : null
+              signal: poolSignal
             });
-          if (isolation && policy.kind === 'test') await importIsolatedReport(executionRoot, commandRoot, policy.result?.path, {
+          const killedByPoolAbort = Boolean(poolSignal.aborted && result.status !== 0 && !result.timedOut);
+          if (!killedByPoolAbort && isolation && policy.kind === 'test') await importIsolatedReport(executionRoot, commandRoot, policy.result?.path, {
             isolatedRoot: isolation.root, repositoryRoot: root, adapter: policy.result?.adapter
           });
           if (isolatedResultRestore) {
@@ -4836,8 +4857,14 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
             await isolatedResultRestore();
             isolatedResultRestore = null;
           }
-          const completedTreeSha256 = await sourceTreeHash(isolation ? isolation.root : root, config, workflow);
-          const completedTestInputSha256 = await testInputTreeHash(isolation ? isolation.root : root, config, workflow);
+          if (killedByPoolAbort) {
+            if (restoreTransientResult) {
+              activeTransientRestorers.delete(restoreTransientResult);
+              await restoreTransientResult();
+              restoreTransientResult = null;
+            }
+            return abortedQualityCheck(value, index, startedAt);
+          }
           const infrastructureError = result.error
             ? `Unable to run quality command: ${result.error.message}`
             : null;
@@ -4863,19 +4890,24 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
             stdoutTruncated: result.stdoutTruncated || String(result.stdout ?? '').length > 2000,
             stderrTruncated: result.stderrTruncated || String(result.stderr ?? '').length > 2000
           };
-          if (completedTreeSha256 !== sourceTreeSha256 || completedTestInputSha256 !== testInputSha256) {
-            const error = new SingularityFlowError(
-              `Quality command '${policy.id}' changed application source or separately hashed test inputs. Validation commands must be observational; review the resulting files, publish a fresh generation, and run submission again.`,
-              { code: 'QUALITY_COMMAND_SOURCE_MUTATION', details: {
-                phase: phase.id, workId: workflow.workItem.id, commandId: policy.id,
-                beforeSha256: sourceTreeSha256, afterSha256: completedTreeSha256,
-                testInputBeforeSha256: testInputSha256, testInputAfterSha256: completedTestInputSha256
-              } }
-            );
-            throw policy.kind === 'test'
-              ? await attachRequiredTestExecution(error, root, {
-                ...policy, provenance: commandProvenance.get(value) ?? 'configured'
-              }, check) : error;
+          executedPolicies.push({ policy, value, check });
+          if (maxConcurrency === 1) {
+            const completedTreeSha256 = await sourceTreeHash(isolation ? isolation.root : root, config, workflow);
+            const completedTestInputSha256 = await testInputTreeHash(isolation ? isolation.root : root, config, workflow);
+            if (completedTreeSha256 !== sourceTreeSha256 || completedTestInputSha256 !== testInputSha256) {
+              const error = new SingularityFlowError(
+                `Quality command '${policy.id}' changed application source or separately hashed test inputs. Validation commands must be observational; review the resulting files, publish a fresh generation, and run submission again.`,
+                { code: 'QUALITY_COMMAND_SOURCE_MUTATION', details: {
+                  phase: phase.id, workId: workflow.workItem.id, commandId: policy.id,
+                  beforeSha256: sourceTreeSha256, afterSha256: completedTreeSha256,
+                  testInputBeforeSha256: testInputSha256, testInputAfterSha256: completedTestInputSha256
+                } }
+              );
+              throw policy.kind === 'test'
+                ? await attachRequiredTestExecution(error, root, {
+                  ...policy, provenance: commandProvenance.get(value) ?? 'configured'
+                }, check) : error;
+            }
           }
           if (restoreTransientResult) {
             activeTransientRestorers.delete(restoreTransientResult);
@@ -4894,9 +4926,34 @@ async function qualityChecks(root, phase, config, workflow, commands = phase.qua
       {
         maxConcurrency,
         failFast,
-        shouldAbort: (check) => check?.requirement !== 'optional' && ['blocked', 'failed'].includes(check?.status)
+        onAbortedItem: (value, index) => abortedQualityCheck(value, index),
+        shouldAbort: (check) => !check?.aborted && check?.requirement === 'required' && ['blocked', 'failed'].includes(check?.status)
       }
     );
+    if (maxConcurrency > 1 && executedPolicies.length > 0) {
+      const completedTreeSha256 = await sourceTreeHash(isolation ? isolation.root : root, config, workflow);
+      const completedTestInputSha256 = await testInputTreeHash(isolation ? isolation.root : root, config, workflow);
+      if (completedTreeSha256 !== sourceTreeSha256 || completedTestInputSha256 !== testInputSha256) {
+        const dirtyPaths = changedFiles(isolation ? isolation.root : root);
+        const offender = executedPolicies.find(({ policy }) => {
+          const wd = posix(policy.workingDirectory ?? '.').replace(/^\.\//u, '').replace(/\/$/u, '') || '.';
+          return wd !== '.' && dirtyPaths.some((file) => file === wd || file.startsWith(`${wd}/`));
+        }) ?? executedPolicies[0];
+        const { policy, value, check } = offender;
+        const error = new SingularityFlowError(
+          `Quality command '${policy.id}' changed application source or separately hashed test inputs. Validation commands must be observational; review the resulting files, publish a fresh generation, and run submission again.`,
+          { code: 'QUALITY_COMMAND_SOURCE_MUTATION', details: {
+            phase: phase.id, workId: workflow.workItem.id, commandId: policy.id,
+            beforeSha256: sourceTreeSha256, afterSha256: completedTreeSha256,
+            testInputBeforeSha256: testInputSha256, testInputAfterSha256: completedTestInputSha256
+          } }
+        );
+        throw policy.kind === 'test'
+          ? await attachRequiredTestExecution(error, root, {
+            ...policy, provenance: commandProvenance.get(value) ?? 'configured'
+          }, check) : error;
+      }
+    }
     checks.length = 0;
     for (const item of results) {
       if (item) checks.push(item);

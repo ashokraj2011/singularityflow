@@ -97,7 +97,24 @@ const LAZY_MODULES = Object.freeze({
   instruction: './commands/instruction.mjs',
   'upstream-issue': './commands/upstream-issue.mjs',
   // Machine-level like `reinstall`: product surfaces, never a repository or workspace.
-  product: './commands/product.mjs'
+  product: './commands/product.mjs',
+  help: './commands/help.mjs',
+  inbox: './commands/inbox.mjs',
+  progress: './commands/progress.mjs',
+  report: './commands/report.mjs',
+  review: './commands/report.mjs',
+  receipt: './commands/receipt.mjs',
+  guide: './commands/guide.mjs',
+  quickstart: './commands/guide.mjs',
+  validate: './commands/validate.mjs',
+  gate: './commands/validate.mjs',
+  doctor: './commands/doctor.mjs',
+  telemetry: './commands/telemetry.mjs',
+  context: './commands/context.mjs',
+  tokens: './commands/context.mjs',
+  wm: './commands/wm.mjs',
+  secrets: './commands/secrets.mjs',
+  story: './commands/story.mjs'
 });
 
 function operation(id, modelPolicy = 'never', overrides = {}) {

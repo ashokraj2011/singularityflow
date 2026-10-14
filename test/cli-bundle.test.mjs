@@ -95,6 +95,17 @@ export async function load(url, context, next) {
     assert.equal(bundled.status, source.status, args.join(' '));
     assert.equal(bundled.stdout, source.stdout, `${args.join(' ')} prints the same`);
     assert.ok(bundled.modules.length <= 8, `${args.join(' ')} opened ${bundled.modules.length} module files: ${bundled.modules.join(', ')}`);
-    if (args[0] !== '--version') assert.ok(source.modules.length > 100, `${args.join(' ')} from the sources opened ${source.modules.length}`);
+    if (args[0] !== '--version') assert.ok(source.modules.length > 35, `${args.join(' ')} from the sources opened ${source.modules.length}`);
   }
+
+  // `secrets protect` writes a hook that runs the CLI it was installed from. Bundled, its module is
+  // not in src/commands/, so that path must come from the package root and never from the file.
+  const hooks = {};
+  for (const bundle of [false, true]) {
+    const protect = await runWith(['secrets', 'protect'], bundle);
+    assert.equal(protect.status, 0, `secrets protect from the ${bundle ? 'bundle' : 'sources'}`);
+    hooks[bundle] = await readFile(path.join(repo, '.git', 'hooks', 'pre-commit'), 'utf8');
+  }
+  assert.equal(hooks.true, hooks.false, 'the bundle installs the same hook as the sources');
+  assert.ok(hooks.true.includes(JSON.stringify(path.join(root, 'bin', 'singularity-flow.mjs'))), hooks.true);
 });

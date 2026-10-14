@@ -107,6 +107,15 @@ import {
 import {
   enhanceStoryDescription, readStoryEnhancementStdin
 } from '../story-description-enhancement.mjs';
+import { withCommandConfirmation } from '../command-confirmation.mjs';
+import { withCommandObservability } from '../command-observability.mjs';
+
+async function runStory(argv, { positionals, options }) {
+  return withCommandObservability(positionals[0], argv, options,
+    () => withCommandConfirmation(options, () => storyCommand(positionals, options)));
+}
+
+export { runStory as run };
 
 function repositoryRemoteName(root, expectedUrl) {
   return remoteNames(root).find((name) => {

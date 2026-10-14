@@ -2597,7 +2597,10 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
     }
     // A repository template can predate (or have edited away) a section this phase is checked for;
     // copy it from the packaged template so the author fills a section instead of inventing one.
-    if (!artifactExistedBeforePreparation) {
+    // An existing draft gains it too: preparation always opens a new, unpublished generation, and
+    // only missing sections are inserted, so no authored or published byte is changed. A Story
+    // prepared before this rule (stuck at "Add ## Scenario coverage") recovers on its next prepare.
+    if (phase.generationPolicy?.producer !== 'deterministic') {
       const resolvedPhase = workflow.resolution.phases.find((item) => item.id === phase.id);
       text = addMissingSections(text, requiredArtifactSections(resolvedPhase), {
         ownRef: resolvedPhase?.template, tokens: artifactTokens({ workItem: workflow.workItem, phase: resolvedPhase })

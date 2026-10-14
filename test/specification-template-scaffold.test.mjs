@@ -55,6 +55,16 @@ test('a Story on a repository with an older specification template still gets th
   assert.match(spec, /^\| `SPEC-1:REQ-001` \| S1 \| TODO \|$/mu);
   assert.ok(spec.indexOf('## Scenario coverage') < spec.indexOf('## Verification intent'));
 
+  // A draft prepared before this rule lacks the section; its next prepare inserts it once and keeps
+  // every authored line.
+  const draftPath = path.join(repo, 'singularity', 'work-items', 'SPEC-1', 'artifacts', 'specification', 'spec.md');
+  const stuck = spec.slice(0, spec.indexOf('## Scenario coverage')) + spec.slice(spec.indexOf('## Verification intent'));
+  await writeFile(draftPath, stuck.replace(/^## Actors$/mu, '## Actors\n\nOrder clerks and customers.'));
+  for (let round = 0; round < 2; round += 1) assert.equal(sflow('prepare', 'specification').status, 0);
+  const recovered = await readFile(draftPath, 'utf8');
+  assert.equal((recovered.match(/^## Scenario coverage$/gmu) ?? []).length, 1);
+  assert.match(recovered, /Order clerks and customers\./u);
+
   const prepublish = sflow('phase', 'prepublish', 'specification', '--json');
   const result = JSON.parse(prepublish.stdout.slice(prepublish.stdout.indexOf('{')));
   const codes = (result.findings ?? []).map((finding) => finding.code);

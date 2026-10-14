@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { addMissingSections, requiredArtifactSections } from './artifact-required-sections.mjs';
 import { removedWorldModelError } from './removed-features.mjs';
 import {
   chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile
@@ -130,6 +131,29 @@ function packagedAssetOwner(baseline, relative, {
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+/**
+ * An edited template keeps its wording but gains the sections its phases are checked for.
+ *
+ * Refresh preserves a repository-owned template byte for byte, which left a template from before a
+ * newly required section (Scenario coverage, 2026-10-12) without it forever: every Story prepared
+ * from it had a section to invent. Only sections a phase using this template is checked for are
+ * added, each copied from the packaged template that carries it; nothing is replaced or removed.
+ */
+function requiredSectionMerge(relative, bytes, definition) {
+  const templatesRoot = String(definition?.templatesRoot ?? 'singularity/templates').replace(/\/+$/u, '');
+  if (!bytes || !relative.startsWith(`${templatesRoot}/`) || !relative.endsWith('.md')) return null;
+  const ref = relative.slice(templatesRoot.length + 1);
+  const overrides = Object.values(definition?.workTypes ?? {}).map((workType) => workType?.templateOverrides ?? {});
+  const users = Object.entries(definition?.phases ?? {}).filter(([id, phase]) => phase?.defaultTemplate === ref
+    || overrides.some((templateOverrides) => templateOverrides[id] === ref));
+  const sections = [...new Set(users.flatMap(([, phase]) => requiredArtifactSections(phase)))];
+  if (!sections.length) return null;
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return null; }
+  const result = addMissingSections(text, sections, { ownRef: ref });
+  return result.added.length ? result : null;
 }
 
 function clone(value) {
@@ -1515,6 +1539,7 @@ export async function refreshPackagedConfiguration(root, {
   const changedFiles = new Set();
   const removedFiles = new Set();
   const assetOwnership = {};
+  const sectionMerges = [];
 
   if (workflowMissing || !equal(current, merged.value)) {
     changedFiles.add(WORKFLOW_PATH);
@@ -1577,6 +1602,12 @@ export async function refreshPackagedConfiguration(root, {
       throw new SingularityFlowError(`Configuration asset conflict '${relative}' cannot be merged; choose local or bundled.`);
     }
     if (!safeToWrite && resolution !== 'bundled') {
+      const withSections = requiredSectionMerge(relative, currentBytes, merged.value);
+      if (withSections) {
+        sectionMerges.push({ path: relative, sections: withSections.added.map((entry) => entry.heading) });
+        changedFiles.add(relative);
+        if (!dryRun) await writeAtomic(target, withSections.text);
+      }
       conflicts.push({
         path: relative,
         localSha256: currentHash,
@@ -1717,6 +1748,7 @@ export async function refreshPackagedConfiguration(root, {
     files: [...changedFiles].sort(),
     removed: [...removedFiles].sort(),
     conflicts,
+    ...(sectionMerges.length ? { sectionMerges } : {}),
     ...(worldModelMigration ? { worldModelMigration } : {}),
     dryRun
   };

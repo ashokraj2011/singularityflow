@@ -38,6 +38,14 @@ test('a Story on a repository with an older specification template still gets th
   git('remote', 'add', 'origin', path.join(base, 'app.git'));
   git('push', '-q', '-u', 'origin', 'main');
 
+  // doctor names the template, and how to bring it up to date.
+  const doctor = sflow('doctor', '--offline', '--json');
+  const report = JSON.parse(doctor.stdout.slice(doctor.stdout.indexOf('{')));
+  const gap = report.checks.find((entry) => entry.id === 'artifact-template-sections');
+  assert.equal(gap?.status, 'warn', JSON.stringify(gap));
+  assert.match(gap.message, /spec-code-test-loop\/specification\.md \(Scenario coverage\)/u);
+  assert.match(gap.fix, /workspace reinitialize/u);
+
   const started = sflow('start', 'SPEC-1', '--title', 'Add an order note', '--description', 'Orders may carry an optional note.',
     '--acceptance-criteria', 'A note up to 200 characters is stored with the order.', '--work-type', 'spec-code-test-loop',
     '--from-branch', 'main', '--readiness-baseline', 'defer');

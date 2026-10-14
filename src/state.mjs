@@ -169,7 +169,8 @@ import {
   predecessorSpecClauses, plannedClaimsForObservedPhase
 } from './specifications.mjs';
 import { activeClauseCapsule } from './active-clause-capsule.mjs';
-import { phasePlansDelivery, plannedDeliveryCodeSteps, scaffoldPlanningRows, scaffoldScenarioCoverage } from './phase-authoring-contract.mjs';
+import { phasePlansDelivery, plannedDeliveryCodeSteps, scaffoldPlanningRows } from './phase-authoring-contract.mjs';
+import { addMissingSections, artifactTokens, requiredArtifactSections } from './artifact-required-sections.mjs';
 import { acceptedClauses, recordScopeRevision, staleClausesOf } from './scope/revisions.mjs';
 import { reviewBindings } from './implementation-bindings.mjs';
 import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
@@ -2594,11 +2595,13 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
       const { capsule } = await activeClauseCapsule(itemDirectory, workflow, phase, null, { root });
       text = scaffoldPlanningRows(text, (capsule?.clauses ?? []).map(clause => clause.id));
     }
-    // A repository template older than the scenario-coverage rule has no table to fill; give the
-    // author the same section the packaged template carries instead of a publication refusal.
-    if (!artifactExistedBeforePreparation && workflow.resolution.phases.find((item) => item.id === phase.id)
-      ?.specificationQuality?.scenarioCoverage === 'required') {
-      text = scaffoldScenarioCoverage(text, workflow.workItem.id);
+    // A repository template can predate (or have edited away) a section this phase is checked for;
+    // copy it from the packaged template so the author fills a section instead of inventing one.
+    if (!artifactExistedBeforePreparation) {
+      const resolvedPhase = workflow.resolution.phases.find((item) => item.id === phase.id);
+      text = addMissingSections(text, requiredArtifactSections(resolvedPhase), {
+        ownRef: resolvedPhase?.template, tokens: artifactTokens({ workItem: workflow.workItem, phase: resolvedPhase })
+      }).text;
     }
     text = applyInputsBlock(text, rendered.text, inputs.mode);
     // The immutable reference set is already captured by the WFA snapshot and its Story manifest.

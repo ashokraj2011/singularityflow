@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { phaseAuthoringContract, phaseAuthoringContractLines, phasePlansDelivery, scaffoldPlanningRows, scaffoldScenarioCoverage } from '../src/phase-authoring-contract.mjs';
+import { phaseAuthoringContract, phaseAuthoringContractLines, phasePlansDelivery, scaffoldPlanningRows } from '../src/phase-authoring-contract.mjs';
 import { inspectPlannedClaimMap, derivePlannedClaimMap } from '../src/specifications.mjs';
 import { phaseFindingPolicy } from '../src/phase-finding-policy.mjs';
 import { phaseContextAdmission } from '../src/phase-entry-admission.mjs';
@@ -80,36 +80,6 @@ test('new template scaffolds contain all exact clauses, including every AC, with
   assert.equal(scaffoldPlanningRows('An authored draft without a table.', ids), 'An authored draft without a table.');
   const authored = `${header}\n| [TEAM-1:REQ-001] | \`src/App.jsx\` | \`test/app.test.js\` | modified | Returns the approved result. |\n`;
   assert.equal(scaffoldPlanningRows(authored, ids), authored, 'literal authored rows are never replaced');
-});
-
-test('a specification template older than the scenario-coverage rule gains the packaged section', async () => {
-  for (const name of ['spec-code-test-loop/specification.md', 'spec-driven/spec.md']) {
-    const current = await readFile(new URL(`../templates/artifacts/${name}`, import.meta.url), 'utf8');
-    const start = current.indexOf('## Scenario coverage');
-    const end = current.indexOf('\n## ', start + 1) + 1;
-    assert.ok(start > 0 && end > start, name);
-    // Before 2026-10-12 the packaged templates had no Scenario coverage section.
-    const older = current.slice(0, start) + current.slice(end);
-    const restored = scaffoldScenarioCoverage(older, '{{work.id}}');
-    const at = restored.indexOf('## Scenario coverage');
-    const added = restored.slice(at, restored.indexOf('\n## ', at + 1) + 1);
-    assert.equal(restored.slice(0, at) + restored.slice(at + added.length), older, `${name}: nothing else changes`);
-    assert.match(added, /^\| Clause \| Scenario \| Outcome \|\n\|---\|---\|---\|\n\| `\{\{work\.id\}\}:REQ-001` \| S1 \| TODO \|/mu, `${name}: the table the publication check reads`);
-    assert.ok(at < restored.indexOf('## Verification intent'), `${name}: before Verification intent`);
-    assert.equal(scaffoldScenarioCoverage(current, '{{work.id}}'), current, `${name}: a template that has the section is unchanged`);
-    const crlf = scaffoldScenarioCoverage(older.replaceAll('\n', '\r\n'), '{{work.id}}');
-    assert.equal(crlf, restored.replaceAll('\n', '\r\n'), `${name}: line endings are kept`);
-  }
-  // The Story-loop template places the section right before Verification intent: byte for byte.
-  const loop = await readFile(new URL('../templates/artifacts/spec-code-test-loop/specification.md', import.meta.url), 'utf8');
-  const loopStart = loop.indexOf('## Scenario coverage');
-  assert.equal(scaffoldScenarioCoverage(loop.slice(0, loopStart) + loop.slice(loop.indexOf('## Verification intent')), '{{work.id}}'), loop);
-  const lean = '# TEAM-1 — Specification\n\n## Requirements\n\n- TODO\n\n## Out of scope\n\n- TODO\n';
-  const scaffolded = scaffoldScenarioCoverage(lean, 'TEAM-1');
-  assert.ok(scaffolded.indexOf('## Scenario coverage') > scaffolded.indexOf('## Requirements'));
-  assert.ok(scaffolded.indexOf('## Scenario coverage') < scaffolded.indexOf('## Out of scope'), 'after Requirements when no later section names its place');
-  assert.match(scaffolded, /\| `TEAM-1:REQ-001` \| S1 \| TODO \|/u);
-  assert.match(scaffoldScenarioCoverage('# Bare\n\nNo sections.', 'TEAM-1'), /No sections\.\n\n## Scenario coverage\n/u, 'appended when nothing else fits');
 });
 
 test('one inspection reports the failed evidence path, every malformed witness cell and all missing clauses', () => {

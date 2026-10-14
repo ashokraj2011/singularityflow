@@ -9,7 +9,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import path from 'node:path';
 import {
-  lstat, mkdir, open, readFile, readdir, realpath, rename, rm, writeFile
+  link, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, unlink, writeFile
 } from 'node:fs/promises';
 import YAML from 'yaml';
 import {
@@ -225,8 +225,34 @@ function importedAssetReuse(asset, targetBytes) {
   };
 }
 
+/** Asset content is UTF-8 text: the bytes the digest and size describe (ASSET_FIELDS has no encoding). */
 function assetBytes(asset) {
-  return Buffer.from(asset.content, asset.encoding === 'base64' ? 'base64' : 'utf8');
+  return Buffer.from(asset.content, 'utf8');
+}
+
+/**
+ * The exact fields each asset kind is written with. Anything else is refused: an unchecked field
+ * is one the reader might honour while the digest ignores it, as an `encoding` once could.
+ */
+const TEXT_ASSET_FIELDS = Object.freeze(['kind', 'id', 'path', 'mediaType', 'size', 'sha256', 'content']);
+const ASSET_FIELDS = Object.freeze({
+  agent: TEXT_ASSET_FIELDS, skill: TEXT_ASSET_FIELDS, instruction: TEXT_ASSET_FIELDS, constitution: TEXT_ASSET_FIELDS,
+  template: Object.freeze(['kind', 'governs', 'reference', 'rootRelative', 'path', 'mediaType', 'size', 'sha256', 'content']),
+  vendored: Object.freeze(['kind', 'owner', 'path', 'mediaType', 'size', 'sha256', 'content'])
+});
+
+function requireAssetFields(asset) {
+  const allowed = ASSET_FIELDS[asset.kind];
+  const unknown = Object.keys(asset).filter((field) => !allowed.includes(field)).sort();
+  const missing = allowed.filter((field) => !Object.hasOwn(asset, field));
+  if (asset.kind === 'vendored' && plainObject(asset.owner)) {
+    unknown.push(...Object.keys(asset.owner).filter((field) => !['kind', 'id'].includes(field)).map((field) => `owner.${field}`));
+  }
+  if (unknown.length || missing.length) {
+    fail(`Workflow bundle asset '${typeof asset.path === 'string' ? asset.path : '(no path)'}' has ${[
+      unknown.length ? `unknown fields: ${unknown.join(', ')}` : '', missing.length ? `missing fields: ${missing.join(', ')}` : ''
+    ].filter(Boolean).join('; ')}.`, 'WORKFLOW_BUNDLE_ASSET_INVALID', { unknown, missing });
+  }
 }
 
 function exactFields(value, fields, label) {
@@ -1614,6 +1640,7 @@ async function validateBundle(raw, { importedHere = null } = {}) {
         || typeof asset.mediaType !== 'string') {
       fail('Workflow bundle contains an invalid asset record.');
     }
+    requireAssetFields(asset);
     safeAssetPath(asset.path);
     if (asset.kind === 'vendored' && (!asset.path.startsWith(`${IMPORTS_VENDOR_ROOT}/`)
         || !plainObject(asset.owner) || !['agent', 'mcp-server'].includes(asset.owner.kind)
@@ -1762,22 +1789,63 @@ async function exportNotes(root, bundle) {
   return notes;
 }
 
-export async function exportWorkflowBundle(root, workflowIds, outPath = null) {
+/**
+ * The one bundle compiler: every workflow bundle, exported or converted, is built, closed, hashed
+ * and validated here, so two producers can never disagree on bytes or digests. [TAWI ENG-1]
+ *
+ * `root` is any configuration root: a repository (export) or a staged configuration tree that a
+ * converter wrote (`workflow import-team`). Nothing here reads Git or invents approval.
+ */
+export async function compileWorkflowBundle(root, workflowIds) {
   const bundle = await buildBundle(root, workflowIds);
   await validateBundle(bundle);
-  if (!outPath) return bundle;
-  const notes = await exportNotes(root, bundle);
+  return bundle;
+}
+
+/** The exact bytes a bundle file holds: sorted keys, two-space indent, trailing newline. */
+export function serializeWorkflowBundle(bundle) {
+  return `${JSON.stringify(canonicalValue(bundle), null, 2)}\n`;
+}
+
+/**
+ * Write a compiled bundle to a new file only (mode 0600): an existing file is refused, never
+ * replaced, and a failed write leaves no partial file behind.
+ */
+export async function writeWorkflowBundle(bundle, outPath) {
   const target = path.resolve(outPath);
   await mkdir(path.dirname(target), { recursive: true });
+  const temporary = `${target}.${process.pid}.${randomBytes(4).toString('hex')}.partial`;
   let handle;
   try {
-    handle = await open(target, 'wx', 0o600);
-    await handle.writeFile(`${JSON.stringify(canonicalValue(bundle), null, 2)}\n`, 'utf8');
-  } catch (error) {
-    if (error?.code === 'EEXIST') fail(`Workflow bundle output already exists: ${target}`,
-      'WORKFLOW_EXPORT_OUTPUT_EXISTS');
-    throw error;
-  } finally { await handle?.close(); }
+    handle = await open(temporary, 'wx', 0o600);
+    await handle.writeFile(serializeWorkflowBundle(bundle), 'utf8');
+    await handle.close();
+    handle = null;
+    // link() refuses an existing target atomically; rename() would replace it. A filesystem
+    // without hard links (exFAT, some network shares) gets the exclusive create it had before.
+    try { await link(temporary, target); }
+    catch (error) {
+      if (error?.code === 'EEXIST') fail(`Workflow bundle output already exists: ${target}`, 'WORKFLOW_EXPORT_OUTPUT_EXISTS');
+      if (!['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV'].includes(error?.code)) throw error;
+      try { handle = await open(target, 'wx', 0o600); }
+      catch (exclusive) {
+        if (exclusive?.code === 'EEXIST') fail(`Workflow bundle output already exists: ${target}`, 'WORKFLOW_EXPORT_OUTPUT_EXISTS');
+        throw exclusive;
+      }
+      await handle.writeFile(serializeWorkflowBundle(bundle), 'utf8');
+    }
+  } finally {
+    await handle?.close();
+    await unlink(temporary).catch(() => {});
+  }
+  return target;
+}
+
+export async function exportWorkflowBundle(root, workflowIds, outPath = null) {
+  const bundle = await compileWorkflowBundle(root, workflowIds);
+  if (!outPath) return bundle;
+  const notes = await exportNotes(root, bundle);
+  const target = await writeWorkflowBundle(bundle, outPath);
   return {
     schemaVersion: 1, resultType: 'workflow-export', status: 'exported', outputPath: target,
     bundleSha256: bundle.bundleSha256, workflows: bundle.workflows,

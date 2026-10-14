@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
@@ -12,13 +12,16 @@ import { withConfigurationReadRoot } from '../src/configuration-read-scope.mjs';
 import { remoteFingerprint } from '../src/git-remote-diagnostics.mjs';
 import {
   applyWorkflowImport,
+  compileWorkflowBundle,
   copyWorkflow,
   exportWorkflowBundle,
   planWorkflowCopy,
   planWorkflowImport,
   readWorkflowBundle,
+  serializeWorkflowBundle,
   WORKFLOW_BUNDLE_SCHEMA_VERSION,
-  workflowTransferProposal
+  workflowTransferProposal,
+  writeWorkflowBundle
 } from '../src/workflow-transfer.mjs';
 import { changedLines, foldYamlFile } from './helpers/folded-yaml.mjs';
 
@@ -52,6 +55,8 @@ function bundleDigest(bundle) {
   delete copy.bundleSha256;
   return `sha256:${createHash('sha256').update(JSON.stringify(canonical(copy))).digest('hex')}`;
 }
+
+const digestText = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
 
 function objectDigest(value) {
   return `sha256:${createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex')}`;
@@ -285,6 +290,24 @@ test('workflow export captures a deduplicated multi-workflow dependency closure'
     () => exportWorkflowBundle(root, ['feature'], output),
     (error) => error.code === 'WORKFLOW_EXPORT_OUTPUT_EXISTS'
   );
+});
+
+test('export and every other producer share one compiler: same bytes, digest, and no-overwrite write', async (t) => {
+  const root = await initializedRepository(t, 'sflow-workflow-compiler-');
+  const compiled = await compileWorkflowBundle(root, ['feature']);
+  assert.deepEqual(compiled, await exportWorkflowBundle(root, ['feature']));
+  const outside = await mkdtemp(path.join(os.tmpdir(), 'sflow-workflow-compiled-'));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  const output = path.join(outside, 'compiled', 'feature.sflow-workflows.json');
+  assert.equal(await writeWorkflowBundle(compiled, output), output);
+  const bytes = await readFile(output, 'utf8');
+  assert.equal(bytes, serializeWorkflowBundle(compiled));
+  assert.deepEqual(await readWorkflowBundle(output), JSON.parse(bytes));
+  if (process.platform !== 'win32') assert.equal((await stat(output)).mode & 0o777, 0o600);
+  await assert.rejects(() => writeWorkflowBundle({ ...compiled, workflows: [] }, output),
+    (error) => error.code === 'WORKFLOW_EXPORT_OUTPUT_EXISTS');
+  assert.equal(await readFile(output, 'utf8'), bytes, 'a refused write leaves the earlier file as it was');
+  assert.deepEqual((await readdir(path.dirname(output))).sort(), ['feature.sflow-workflows.json'], 'no partial file is left behind');
 });
 
 test('workflow export includes an unrestricted MCP server assigned only to a selected agent without widening its scope', async (t) => {
@@ -771,6 +794,29 @@ test('workflow bundle rejects content tampering and non-portable asset paths', a
     () => planWorkflowImport(root, tampered),
     (error) => error.code === 'WORKFLOW_BUNDLE_ASSET_INVALID'
   );
+
+  // An asset is exactly the fields its kind is written with. A base64 `encoding` would make the
+  // importer write bytes the digest never described, so it is refused like any other extra field.
+  const agent = bundle.assets.find((asset) => asset.kind === 'agent');
+  const forged = Buffer.from(`${agent.content}\nforged\n`).toString('base64');
+  for (const [label, mutate, unknown, missing] of [
+    ['base64 encoding', (asset) => Object.assign(asset, { encoding: 'base64', content: forged,
+      size: Buffer.byteLength(forged), sha256: digestText(forged) }), ['encoding'], []],
+    ['unknown field', (asset) => { asset.mode = '0755'; }, ['mode'], []],
+    ['missing size', (asset) => { delete asset.size; }, [], ['size']]
+  ]) {
+    const closed = structuredClone(bundle);
+    mutate(closed.assets.find((asset) => asset.kind === 'agent'));
+    closed.bundleSha256 = bundleDigest(closed);
+    await assert.rejects(() => planWorkflowImport(root, closed), (error) => error.code === 'WORKFLOW_BUNDLE_ASSET_INVALID'
+      && JSON.stringify(error.details) === JSON.stringify({ unknown, missing }), label);
+  }
+  const owned = structuredClone(bundle);
+  owned.assets.push({ kind: 'vendored', owner: { kind: 'agent', id: agent.id, via: 'x' }, path: 'singularity/imports/vendor/x.md',
+    mediaType: 'text/markdown; charset=utf-8', size: 2, sha256: digestText('x\n'), content: 'x\n' });
+  owned.bundleSha256 = bundleDigest(owned);
+  await assert.rejects(() => planWorkflowImport(root, owned), (error) => error.code === 'WORKFLOW_BUNDLE_ASSET_INVALID'
+    && error.details.unknown.includes('owner.via'));
 
   const escaped = structuredClone(bundle);
   escaped.assets.find((asset) => asset.kind === 'template').path = '../outside.md';

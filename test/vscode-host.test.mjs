@@ -2619,9 +2619,20 @@ for (const approvalSurface of ['native', 'chat']) test(`${approvalSurface} start
     'Specify a deterministic finance calculation for an approved-account analyst. The amount must be reproducible and negative principal must be rejected.', '',
     '## Actors', '', 'A finance analyst with access to an approved account.', '',
     '## User scenarios', '',
+    '### S1 — Calculate the amount', '',
     '- **Given** a principal and annual rate',
     '  **When** the analyst requests the finance calculation',
     '  **Then** the result contains the deterministic calculated amount.', '',
+    '### S2 — Reject a negative principal', '',
+    '- **Given** a negative principal and an annual rate',
+    '  **When** the analyst requests the finance calculation',
+    '  **Then** the request is rejected with a validation error and no amount is calculated.', '',
+    // CFA:NFR-001 is not a governed clause type, so the coverage table cannot name it; S3 still
+    // states its observable behavior.
+    '### S3 — Repeat a calculation', '',
+    '- **Given** an amount already calculated from a principal and annual rate',
+    '  **When** the analyst requests the calculation again with the same principal and rate',
+    '  **Then** the result contains the same rounded amount.', '',
     '## Failure and empty states', '',
     'A missing principal or rate produces a validation result without calculating an amount. A calculation failure produces an error without a partial amount.', '',
     '## Permissions', '',
@@ -2633,6 +2644,10 @@ for (const approvalSurface of ['native', 'chat']) test(`${approvalSurface} start
     '- The system rejects a negative principal with a validation result. [CFA:REQ-002]', '',
     '## Non-functional requirements', '',
     '- The same inputs must always produce the same rounded result. [CFA:NFR-001]', '',
+    '## Scenario coverage', '',
+    '| Clause | Scenario | Outcome |', '|---|---|---|',
+    '| `CFA:REQ-001` | S1 | success |',
+    '| `CFA:REQ-002` | S2 | failure |', '',
     '## Assumptions', '',
     'The account-access decision has already been made before a calculation request reaches this feature.', '',
     '## Out of scope', '',
@@ -3840,21 +3855,18 @@ test('the packaged POC release candidate journey survives publication, review, C
       before = JSON.parse(await readFile(workflowStateFile, 'utf8'));
     }
     let phaseText = await readFile(phaseFile, 'utf8');
+    if (phaseId === 'poc-ui-exploration') {
+      // The prepared artifact carries the planned-evidence row; fill it with the exact test path
+      // before the prose TODO fill below, which would otherwise put prose in a path cell.
+      const plannedRow = /^\| (?:`POC:AC-001`|\[POC:AC-001\]) \| - \|[^\n]*\|$/m;
+      assert.match(phaseText, plannedRow, 'the packaged POC exploration template carries the AC-001 planned-evidence row');
+      phaseText = phaseText.replace(plannedRow,
+        '| `POC:AC-001` | - | `tests/poc-generated.test.mjs` | test-only | The existing checkout scenario has executable regression coverage. |');
+    }
     phaseText = phaseText
       .replace(/TODO:[^\n]*/g, 'Verified evidence is bound to the authorized checkout target, exact Story branch, and reviewed POC acceptance criterion.')
       .replace(/\bTODO\b/g, 'verified evidence');
-    if (phaseId === 'poc-ui-exploration') {
-      phaseText += [
-        '',
-        '## Reviewed exact planned evidence',
-        '',
-        '| Clause | Expected paths | Planned tests | Fulfillment | Steps | Observable result |',
-        '|---|---|---|---|---|---|',
-        '| `POC:AC-001` | - | `tests/poc-generated.test.mjs` | test-only | poc-test-generation | The existing checkout scenario has executable regression coverage. |',
-        ''
-      ].join('\n');
-    }
-    phaseText += `\n\nPackaged lifecycle evidence for ${phaseId}: the observed boundary, commands, results, risks, rollback, and human decision are explicit and reproducible. `.repeat(8);
+    phaseText +=`\n\nPackaged lifecycle evidence for ${phaseId}: the observed boundary, commands, results, risks, rollback, and human decision are explicit and reproducible. `.repeat(8);
     await writeFile(phaseFile, phaseText);
     if (phaseId === 'poc-test-generation') {
       const generatedTest = path.join(storyRoot, 'tests', 'poc-generated.test.mjs');

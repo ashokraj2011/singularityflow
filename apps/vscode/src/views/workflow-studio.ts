@@ -61,8 +61,13 @@ export interface WorkflowStudioActions {
   reviewProposal(branch: string): Promise<string | null | void>;
   /** Export the chosen workflows (`story:<id>`, `initiative:<id>`) and their dependencies as one bundle. */
   exportWorkflows?(selectors: readonly string[]): Promise<string | null>;
-  /** Import a workflow bundle: preview the plan, then propose it after the person confirms. */
-  importWorkflows?(): Promise<StudioChangeOutcome>;
+  /**
+   * Import a workflow bundle: preview the plan, then propose it after the person confirms. `source`
+   * is a bundle the team-import panel wrote; without it the person chooses a file.
+   */
+  importWorkflows?(source?: string): Promise<StudioChangeOutcome>;
+  /** Open the team-import panel, which turns a team's agent directory into a bundle to import. */
+  importTeam?(): Thenable<unknown> | Promise<unknown>;
   duplicateWorkflow?(selector: string): Promise<StudioChangeOutcome>;
   /** Open a repository file in an editor: the governed workflow or portfolio file, or a template. */
   openFile?(relative: string): Promise<void>;
@@ -96,6 +101,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   /** The section to show once the model has loaded, when a screen opened Studio at one. */
   private focus: StudioFocusView | null = null;
   private workflowToOpen: string | null = null;
+  /** A bundle to import once the page is ready, from the team-import panel; never a webview path. */
+  private bundleToImport: string | null = null;
 
   private constructor(
     private readonly panel: vscode.WebviewPanel,
@@ -114,7 +121,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       contentSecurityPolicy(panel.webview, token), token, WORKFLOW_STUDIO_SCRIPT);
   }
 
-  static show(client: SingularityFlowClient, output: vscode.OutputChannel, actions: WorkflowStudioActions, focus: StudioFocusView | null = null, workflowId: string | null = null): WorkflowStudioPanel {
+  static show(client: SingularityFlowClient, output: vscode.OutputChannel, actions: WorkflowStudioActions, focus: StudioFocusView | null = null, workflowId: string | null = null, importBundle: string | null = null): WorkflowStudioPanel {
     const canvasWorkflow = workflowId && /^(?:initiative:)?[a-z0-9]+(?:-[a-z0-9]+)*$/.test(workflowId) && workflowId.length <= 139 ? workflowId : null;
     if (WorkflowStudioPanel.current) {
       WorkflowStudioPanel.current.panel.reveal(vscode.ViewColumn.Active);
@@ -122,6 +129,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
         if (WorkflowStudioPanel.current.model) WorkflowStudioPanel.current.post({ type: 'studio.focus', workflowId: canvasWorkflow });
         else WorkflowStudioPanel.current.workflowToOpen = canvasWorkflow;
       } else if (focus) WorkflowStudioPanel.current.post({ type: 'studio.focus', view: focus });
+      if (importBundle) WorkflowStudioPanel.current.requestImport(importBundle);
       return WorkflowStudioPanel.current;
     }
     const panel = vscode.window.createWebviewPanel(
@@ -131,7 +139,17 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     WorkflowStudioPanel.current = new WorkflowStudioPanel(panel, client, output, actions);
     WorkflowStudioPanel.current.focus = focus;
     WorkflowStudioPanel.current.workflowToOpen = canvasWorkflow;
+    WorkflowStudioPanel.current.bundleToImport = importBundle;
     return WorkflowStudioPanel.current;
+  }
+
+  /**
+   * Ask the page to start Import… with this bundle. The page starts it, so the import carries the
+   * page's count of unpublished changes, which decides whether the page may reload afterwards.
+   */
+  private requestImport(bundle: string): void {
+    this.bundleToImport = bundle;
+    if (this.model) this.post({ type: 'studio.importRequested', name: bundle.split(/[\\/]/).pop() });
   }
 
   /** Refresh an open panel after sync without discarding its unpublished private draft. */
@@ -168,6 +186,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.reviewProposal': (message) => this.reviewProposal(stringField(message, 'branch'), integerField(message, 'pending') ?? 0),
     'studio.exportWorkflows': (message) => this.exportWorkflows((message as { workflowIds?: unknown }).workflowIds),
     'studio.importWorkflows': (message) => this.importWorkflows(integerField(message, 'pending') ?? 0),
+    'studio.importTeam': () => this.actions.importTeam?.(),
     'studio.duplicateWorkflow': (message) => this.duplicateWorkflow(stringField(message, 'selector'), integerField(message, 'pending') ?? 0),
     'studio.openFile': (message) => this.openFile(stringField(message, 'path')),
     'studio.integrationTest': (message) => this.integrationTest(stringField(message, 'target'), stringField(message, 'trigger'),
@@ -222,7 +241,9 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   private async importWorkflows(pending: number): Promise<void> {
     if (!this.actions.importWorkflows) { this.post({ type: 'studio.failed', message: 'Importing workflows is not available here.' }); return; }
     const before = this.modelBase();
-    const result = await this.actions.importWorkflows();
+    const source = this.bundleToImport ?? undefined;
+    this.bundleToImport = null;
+    const result = await this.actions.importWorkflows(source);
     if (result.outcome === 'failed') { this.post({ type: 'studio.failed', message: result.error ?? 'The import did not complete.' }); return; }
     if (result.outcome !== 'cancelled') {
       const fresh = await this.client.run<StudioModel>([...STUDIO_MODEL_ARGS]).catch(() => null);
@@ -475,6 +496,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
         this.post({ type: 'studio.focus', workflowId: this.workflowToOpen }); this.workflowToOpen = null;
       } else if (this.focus) this.post({ type: 'studio.focus', view: this.focus });
       this.focus = null;
+      if (this.bundleToImport) this.post({ type: 'studio.importRequested', name: this.bundleToImport.split(/[\\/]/).pop() });
       await this.offerSavedDraft();
     } catch (error) {
       this.post({ type: 'studio.failed', message: (error as Error).message });

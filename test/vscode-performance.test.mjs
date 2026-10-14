@@ -19,7 +19,7 @@ test('VS Code activation keeps heavyweight webview panels behind explicit lazy b
     'workspace-panel', 'journey', 'phase-artifacts', 'reconciliation', 'approvals', 'inbox', 'stories', 'impact',
     'capabilities', 'intake-panel', 'dashboard', 'flow-impact', 'workflow-studio',
     'instruction-designer', 'workspace-logs', 'specification-trace', 'visual-assurance',
-    'configuration-center', 'workspaces-panel', 'bootstrap-panel'
+    'configuration-center', 'workspaces-panel', 'bootstrap-panel', 'team-import-panel'
   ];
 
   for (const panel of panels) {

@@ -31,7 +31,7 @@ related:
   - configuration
   - agents-and-routing
   - artifacts-and-generation
-version: 57
+version: 58
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1220,6 +1220,15 @@ States: `invalid`, `unsupported` (required behaviour SFlow cannot express), `nee
 `portable-ready`, and `ready-for-destination`. A bundle is written only when ready, unless
 `--allow-not-ready` keeps a file that is labelled not ready. Ready never means approved,
 activated, tested or reviewed.
+
+In VS Code, **Import a Team Workflow…** (the command palette, Workflow Studio's **Import a team…**,
+or the Configuration Center) runs the same steps without a terminal. Choose the folder to inspect
+it and pick the entry agent. **Convert with Copilot…** types the `/sf-import-team` command into
+Copilot Chat, and shows it to copy when Copilot Chat is unavailable. The panel lists every session,
+whichever surface started it. **Check** runs compile with `--dry-run` and offers each open question's
+choices as buttons. **Write bundle…** saves the ready bundle beside the team directory.
+**Import in Workflow Studio…** opens Studio's Import preview with that file. The panel needs no
+open repository until the import itself; with one open, it can preview the import into it.
 
 ## Validate code-phase planning contracts
 

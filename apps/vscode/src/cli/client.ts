@@ -258,6 +258,9 @@ function cacheableRead(args: string[]): boolean {
     && !(args[0] === 'workflow' && args[1] === 'author')
     // Recovery must freshly observe an exact proposal ref, including peer activation/deletion.
     && !(args[0] === 'workflow' && args[1] === 'proposal-status')
+    // A team import session changes with every check (answers, repair attempts) and in other
+    // hosts (Copilot writes the candidate); each click must see it now.
+    && !(args[0] === 'workflow' && args[1] === 'import-team')
     // A destructive apply is guarded by a second byte-current preview. Reusing the first preview
     // here would turn that freshness check into a comparison with its own cached answer.
     && args[0] !== 'factory-reset'
@@ -352,6 +355,13 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     // `workflow studio --json` is the default show action; a flag is not an action.
     const action = args[2] && !args[2].startsWith('-') ? args[2] : 'show';
     return action === 'show' || enabledBooleanOption(args, 'dry-run') ? 'read' : 'mutation';
+  }
+  if (args[0] === 'workflow' && args[1] === 'import-team') {
+    // Inspect and status keep only machine-local session state; compile writes a file only with
+    // --out and without --dry-run.
+    const action = args[2] && !args[2].startsWith('-') ? args[2] : 'status';
+    if (action !== 'compile') return 'read';
+    return enabledBooleanOption(args, 'dry-run') || !hasOption(args, 'out') ? 'read' : 'mutation';
   }
   if (args[0] === 'workflow') return ['list', 'proposals', 'proposal', 'proposal-status'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'phase') return ['show', 'draft-check', 'prepublish'].includes(args[1] ?? '')

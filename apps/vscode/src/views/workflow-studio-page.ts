@@ -1288,6 +1288,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       pending ? check('wait', pending + (pending === 1 ? ' change' : ' changes') + ' not published yet', 'Check and publish them together from Changes.', button('Review changes', function () { state.view = 'changes'; render(); }, { class: 'primary' })) : check('dim', 'No unpublished changes', 'Edits you make collect here until you publish them.')));
     main.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Your workflows' }), el('div', { class: 'studio-row' },
       button(state.busy === 'import' ? 'Importing…' : 'Import…', importWorkflows, { class: 'secondary', disabled: Boolean(state.busy), title: 'Add workflows from a bundle file, as one reviewed change' }),
+      button('Import a team…', function () { post({ type: 'studio.importTeam' }); }, { class: 'secondary', title: 'Turn a team\'s agents, skills and instructions into a workflow bundle with Copilot, then import it here' }),
       button('Export…', function () { state.exporting = state.exporting || {}; render(); }, { class: 'secondary' }),
       button('New workflow', function () { state.view = 'new'; state.wizard = { label: '', from: null }; render(); }, { class: 'primary' }))));
     if (state.exporting) main.appendChild(renderExport());
@@ -5597,6 +5598,10 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       state.busy = null; state.configurationChanged = message.reason || 'the approved configuration changed'; render();
     } else if (message.type === 'studio.exported') {
       state.busy = null; state.exporting = null; setStatus('Exported the bundle.'); render();
+    } else if (message.type === 'studio.importRequested') {
+      // The team-import panel wrote a bundle; the host holds its path and Import… previews it.
+      if (state.busy) { setStatus('Import… will offer ' + (message.name || 'the team bundle') + ' once the current action finishes.'); render(); }
+      else importWorkflows();
     } else if (message.type === 'studio.importDone') {
       state.busy = null;
       setStatus(message.outcome === 'cancelled' ? 'Import cancelled; nothing changed.'

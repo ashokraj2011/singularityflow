@@ -2972,6 +2972,57 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   ));
 
+  /**
+   * Turn a team's agent directory into a workflow bundle: machine-local like `workflow import-team`,
+   * so it opens with no repository. Copilot writes the candidate; Workflow Studio imports the bundle.
+   */
+  context.subscriptions.push(vscode.commands.registerCommand(
+    'singularityFlow.importTeamWorkflow', async () => {
+      try {
+        const location = resolveCli({ extensionPath: context.extensionPath });
+        const repositoryRoot = (): string | null => activeRepositoryContext()?.root ?? null;
+        // A workspace's repository can resolve to a Story worktree; people know it by name.
+        const repositoryLabel = (): { root: string; label: string } | null => {
+          const active = activeRepositoryContext();
+          if (!active?.root) return null;
+          const name = active.repositoryId ?? path.basename(active.leadRepositoryPath ?? active.root);
+          return { root: active.root, label: active.workspaceName ? `${active.workspaceName} · ${name}` : name };
+        };
+        const { TeamImportPanel } = lazyPanels();
+        TeamImportPanel.show(context, {
+          run: <T>(argv: string[]): Promise<T> => {
+            output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(argv)}`);
+            // Every path is absolute; the working directory is the open repository, as in its terminal.
+            return new SingularityFlowClient({
+              location, repository: repositoryRoot() ?? os.tmpdir(), environment: cliEnvironment,
+              onOutput: text => output.append(text)
+            }).run<T>(argv);
+          },
+          pickFolder: async () => (await vscode.window.showOpenDialog({
+            title: 'Choose the team directory', openLabel: 'Inspect this directory',
+            canSelectFiles: false, canSelectFolders: true, canSelectMany: false
+          }))?.[0]?.fsPath ?? null,
+          pickBundle: async suggested => (await vscode.window.showSaveDialog({
+            title: 'Write the workflow bundle', saveLabel: 'Write bundle',
+            defaultUri: vscode.Uri.file(suggested), filters: { 'Workflow bundle': ['json'] }
+          }))?.fsPath ?? null,
+          // Opening chat with no provider resolves silently, so say when there is none to open.
+          openChat: async query => {
+            if (vscode.workspace.getConfiguration('singularityFlow').get<string>('modelMode', 'auto') === 'disabled') return 'model-off';
+            if (!vscode.extensions.getExtension('GitHub.copilot-chat')) return 'no-chat';
+            await vscode.commands.executeCommand('workbench.action.chat.open', { query, isPartialQuery: true });
+            return 'opened';
+          },
+          copy: text => vscode.env.clipboard.writeText(text),
+          openInStudio: async file => {
+            await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { importBundle: file });
+          },
+          repository: repositoryLabel
+        });
+      } catch (error) { showRefusal(error, { headline: 'Team workflow import is unavailable' }); }
+    }
+  ));
+
   /** Compatibility commands continue to open the existing reviewed workspace upgrade UI. */
   context.subscriptions.push(vscode.commands.registerCommand(
     'singularityFlow.upgradeWorkspaces',
@@ -7177,6 +7228,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'workflow-proposals') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' });
     else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio');
     else if (message.action === 'workflow-studio') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio');
+    else if (message.action === 'import-team') await vscode.commands.executeCommand('singularityFlow.importTeamWorkflow');
     else if (message.action === 'shared-workflow-drafts') await vscode.commands.executeCommand(
       'singularityFlow.openSharedWorkflowDrafts', { repositoryPath: client.repository }
     );
@@ -7543,8 +7595,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return (error as Error).message;
     }
   };
-  const importWorkflowBundle = async (): Promise<WorkflowChangeOutcome> => {
-    const selected = await vscode.window.showOpenDialog({
+  // `preselected` is a bundle the team-import panel just wrote; otherwise the person chooses one.
+  const importWorkflowBundle = async (preselected?: string): Promise<WorkflowChangeOutcome> => {
+    const source = preselected ? vscode.Uri.file(preselected) : (await vscode.window.showOpenDialog({
       title: 'Import portable workflow bundle',
       openLabel: 'Import bundle',
       defaultUri: vscode.Uri.file(repository),
@@ -7552,8 +7605,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       canSelectFolders: false,
       canSelectMany: false,
       filters: { 'Workflow bundle': ['json'] }
-    });
-    const source = selected?.[0];
+    }))?.[0];
     if (!source) return { outcome: 'cancelled', error: null };
     const { WorkflowTransferPanel } = await import('./views/workflow-transfer-panel.ts');
     return WorkflowTransferPanel.show(`Import ${path.basename(source.fsPath)}`,
@@ -8425,12 +8477,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const { WorkflowStudioPanel, STUDIO_FOCUS_VIEWS } = lazyPanels();
       const requested = typeof target === 'string' ? target : (target as { view?: unknown } | undefined)?.view;
       const workflowId = (target as { workflowId?: unknown } | undefined)?.workflowId;
+      // `{ importBundle }`: start Import… with a bundle file the team-import panel wrote.
+      const importBundle = (target as { importBundle?: unknown } | undefined)?.importBundle;
       const focus = (STUDIO_FOCUS_VIEWS as readonly unknown[]).includes(requested) ? requested as typeof STUDIO_FOCUS_VIEWS[number] : null;
       WorkflowStudioPanel.show(client, output, {
         refresh: refreshAfterKnownMutation,
         reviewProposal: (branch) => reviewAndActivateWorkflowProposal(branch),
         exportWorkflows: (selectors) => exportWorkflowBundle(selectors),
-        importWorkflows: () => importWorkflowBundle(),
+        importWorkflows: (source) => importWorkflowBundle(source),
+        importTeam: () => vscode.commands.executeCommand('singularityFlow.importTeamWorkflow'),
         duplicateWorkflow: (selector) => duplicateWorkflow(selector),
         openFile: async (relative) => {
           await openArtifact(repository, { kind: 'artifact', id: relative, label: relative, path: relative });
@@ -8448,7 +8503,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           jiraStatus: async () => ((await secureCredentials.jiraStatus()).connected ? 'stored'
             : String(process.env.JIRA_BASE_URL ?? '').trim() && String(process.env.JIRA_PAT ?? process.env.JIRA_API_TOKEN ?? '').trim() ? 'environment' : 'missing')
         }
-      }, focus, typeof workflowId === 'string' ? workflowId : null);
+      }, focus, typeof workflowId === 'string' ? workflowId : null,
+      typeof importBundle === 'string' && path.isAbsolute(importBundle) && importBundle.endsWith('.json') ? importBundle : null);
     },
     // The Workflow Designer is gone: Workflow Studio does what it did. The command stays for one
     // release, so links and habits land in Studio.

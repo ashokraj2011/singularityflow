@@ -65,9 +65,9 @@ test('workflow skill governs dependency-complete transfer and linked duplication
 test('session and progress skills ground every follow-up command in the resolved repository', async () => {
   const session = await readFile(path.join(pluginRoot, 'skills', 'sflow-session', 'SKILL.md'), 'utf8');
   const progress = await readFile(path.join(pluginRoot, 'skills', 'sflow-progress', 'SKILL.md'), 'utf8');
-  assert.match(session, /singularity-flow session open --json/);
+  assert.match(session, /singularity-flow session open --for-agent --json/);
   assert.match(session, /--workspace <WORKSPACE> --repository <REPOSITORY-ID>/);
-  assert.match(session, /singularity-flow session open <WORK-ID> --json/);
+  assert.match(session, /singularity-flow session open <WORK-ID> --for-agent --json/);
   assert.match(session, /attaches and synchronizes the remote Story/);
   assert.match(session, /tell shell users to `cd` to `repositoryPath`/);
   assert.match(progress, /session current --json/);
@@ -808,8 +808,9 @@ test('session skill synchronizes work-item state and activates the phase agent a
   assert.match(content, /session candidates --json --diagnostics/);
   assert.match(content, /workspace current --json[\s\S]*carries the active `workspacePath`\/`repositoryId` explicitly/);
   assert.match(content, /old host cwd must not replace that scope/);
-  assert.match(content, /Without an explicit work ID, run `singularity-flow session open --json`[\s\S]*Relay its `table` verbatim/);
-  assert.ok(content.indexOf('session open --json') < content.indexOf('session open <WORK-ID> --json'));
+  // The first packet is reused only within this invocation; a new /sf-session checks pause again.
+  assert.match(content, /Without an explicit work ID, reuse this invocation's initial `singularity-flow session open --for-agent --json` result[\s\S]*Relay its `table` verbatim/);
+  assert.ok(content.indexOf('session open --for-agent --json') < content.indexOf('session open <WORK-ID> --for-agent --json'));
   assert.match(content, /current binding or first row is not selection/);
   assert.match(content, /Stop without attaching if no choice exists/);
   assert.match(content, /`ask_user` or plain chat/);
@@ -835,7 +836,7 @@ test('session setup fences partial selectors, and one command checks the binding
       'a partial explicit scope cannot fall into the active-workspace fallback');
     const openStep = body.split(/\n3\. /)[1]?.split(/\n4\. /)[0];
     assert.ok(openStep, 'opening the chosen Story is its own step');
-    assert.match(openStep, /session open <WORK-ID> --json/);
+    assert.match(openStep, /session open <WORK-ID> --for-agent --json/);
     assert.match(openStep, /requires `ready`, the exact `workId` and the open\/attach result's `agent` as `activeAgent`/);
     assert.match(openStep, /Relay any refusal and stop/);
     assert.doesNotMatch(body, /singularity-flow session status --json|singularity-flow nextsteps <WORK-ID>/,

@@ -29,6 +29,7 @@ import {
   loadBoundActiveSpecRecords,
   specificationSourceTreeHash
 } from './specifications.mjs';
+import { assertNoHiddenWorktreeChanges } from './worktree-fingerprint.mjs';
 import { verifyAstLifecycleReceipt } from './ast-lifecycle.mjs';
 import { inspectConformanceReportContract, inspectQualifiedConformanceReport, traceableConformanceIds } from './conformance-readiness.mjs';
 import { buildRepositoryChangeSet } from './repository-change-set.mjs';
@@ -210,6 +211,20 @@ export function verifiedAbandonedGenerations(root, config, workflow, { errors = 
     }
   }
   return verified;
+}
+
+/**
+ * The source tree a recorded specification acceptance run is compared with, or null when no run is
+ * recorded. Hashing reads the content of every file in the repository, a second or more on every
+ * phase entry, submit and approval of a large checkout, and without a run the hash was compared with
+ * nothing. Hidden worktree changes are refused either way, as hashing refused them.
+ */
+export async function acceptanceSourceTree(root, records, pathContext) {
+  if (!(records?.acceptance ?? []).length) {
+    assertNoHiddenWorktreeChanges(root, 'Specification source hashing');
+    return null;
+  }
+  return specificationSourceTreeHash(root, pathContext);
 }
 
 export async function runGovernanceGate(root, config, workflow, { terminal = false, pendingTransition = false, openStory = null } = {}) {
@@ -671,11 +686,10 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
       if (coverage.complete) passes.push(`clause coverage: ${coverage.totals.observed}/${coverage.totals.clauses} clauses, ${coverage.totals.changedPaths} changed paths`);
     }
     if (specPolicy.acceptance !== 'off') {
+      const sourceTreeSha256 = await acceptanceSourceTree(root, records, applicationPathContext(config, workflow));
       const acceptance = evaluateSpecAcceptance(records, specPolicy, {
         workId: workflow.workItem.id,
-        sourceTreeSha256: await specificationSourceTreeHash(
-          root, applicationPathContext(config, workflow)
-        ),
+        sourceTreeSha256,
         commandSetSha256: configuredAcceptanceCommandSetSha256(specPolicy)
       });
       const entries = [

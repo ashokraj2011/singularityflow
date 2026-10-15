@@ -16,6 +16,7 @@ import {
 
 const SECTION_RULES = Object.freeze([
   ['phase-contract', 'governance', 'policy', 'invariant', []],
+  ['approved-phase-inputs', 'evidence', 'phase-input', 'dynamic', ['phase-contract']],
   ['work-source', 'source', 'source', 'invariant', []],
   ['active-clause-capsule', 'requirements', 'requirement', 'dynamic', ['phase-contract']],
   ['clarification-protocol', 'interaction', 'interaction-policy', 'dynamic', ['phase-contract']],
@@ -31,7 +32,6 @@ const SECTION_RULES = Object.freeze([
   ['active-story-evidence', 'evidence', 'story-evidence', 'dynamic', ['phase-contract']],
   ['approved-reference-previews', 'references', 'approved-reference', 'dynamic', []],
   ['stakeholder-change-requests', 'requirements', 'change-request', 'dynamic', ['phase-contract']],
-  ['approved-phase-inputs', 'evidence', 'phase-input', 'dynamic', ['phase-contract']],
   ['final-clarification-guard', 'interaction', 'interaction-policy', 'dynamic', ['phase-contract']]
 ]);
 

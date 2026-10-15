@@ -16,6 +16,7 @@ import { resolvePersonalization } from './personalization.mjs';
 import { activeWorkspaceFile, workspaceRegistryFile, resolveWorkspaceExecutionContext } from './workspace-context.mjs';
 import { contextBoundaryPresentation, pendingContextBoundary } from './context-policy.mjs';
 import { storyRequestSummary } from './story-request-summary.mjs';
+import { approvedInputPhases } from './inputs.mjs';
 import { SingularityFlowError } from './util.mjs';
 import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
@@ -57,9 +58,11 @@ export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, w
     { code: 'PHASE_DRAFT_NOT_ACTIVE', details: { requestedPhase: phaseId, currentPhase: workflow.currentPhase } });
   const session = await agentSessionStatus(root, definition, workflow);
   const ready = (selected?.selectionStatus ?? 'ready') === 'ready' && (phase ? session.ready : true);
-  // The request near the top, so an agent that reads only the start of the packet still has it.
+  // The request near the top, so an agent that reads only the start of the packet still has it,
+  // marked as refined by the approved outputs this step receives from the steps before it.
+  const refinedBy = approvedInputPhases(workflow, phase);
   const story = await readFile(path.join(root, definition.workItemRoot, actualId, 'source.json'), 'utf8')
-    .then((text) => storyRequestSummary(JSON.parse(text))).catch(() => null);
+    .then((text) => storyRequestSummary(JSON.parse(text), { refinedBy })).catch(() => null);
   const binding = { ready, repositoryPath: root, workItemRoot: definition.workItemRoot,
     workId: actualId, ...(story ? { story } : {}), phase: phase?.id ?? null, phaseStatus: phase?.status ?? null, generation: phase?.generation ?? null,
     inspectionGeneration: phase ? phaseInspectionGeneration(workflow, phase) : null,

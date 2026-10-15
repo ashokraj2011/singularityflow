@@ -17,9 +17,9 @@ related:
   - manual-authorship
   - approvals
   - sequence-gates
-version: 11
+version: 12
 ---
-Phase artifacts are produced against pinned templates and published through the kernel: `sflow phase publish` validates the template contract, hashes the artifact (SHA-256), commits only allowlisted governed paths in one isolated commit, and advances the branch with compare-and-swap semantics — unrelated staged changes never enter lifecycle commits. Each publication is a numbered generation. With the AI: `/sflow-continue` composes the pinned context, asks unresolved questions first, then drafts. Approved upstream inputs are prepared with `sflow inputs [PHASE]`; supporting documents are added with `sflow documents upload <FILE> --name <NAME>` and pinned by hash. Unresolved questions are not left in chat: `sflow clarification record` persists a question and its answer against the phase, and `sflow clarification status` shows what is still outstanding — so the next generation reads the answer as pinned context rather than rediscovering it.
+Phase artifacts are produced against pinned templates and published through the kernel: `sflow phase publish` validates the template contract, hashes the artifact (SHA-256), commits only allowlisted governed paths in one isolated commit, and advances the branch with compare-and-swap semantics — unrelated staged changes never enter lifecycle commits. Each publication is a numbered generation. With the AI: `/sflow-continue` composes the pinned context, asks unresolved questions first, then drafts. Approved upstream inputs are prepared with `sflow inputs [PHASE]`; supporting documents are added with `sflow documents upload <FILE> --name <NAME>` and pinned by hash. Unresolved questions are not left in chat: `sflow clarification record` persists a question and its answer against the phase, and `sflow clarification status` shows what is still outstanding — so the next generation reads the answer as pinned context rather than rediscovering it. A later step receives the approved outputs of the steps before it right after its phase contract, ahead of the Story's original request; what they settle is never asked again.
 
 For code phases, run `sflow phase begin <phase>` before changing source. Begin creates or returns a
 local, hash-bound generation-start receipt; it does not create a lifecycle event, commit, push, or

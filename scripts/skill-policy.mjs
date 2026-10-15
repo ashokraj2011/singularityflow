@@ -26,6 +26,16 @@ export const REFUSAL_HANDLING_CONTRACT = 'On a refusal read `remediationPlan`: r
 export const APPLICABILITY_CONTRACT = 'Run a check only when a returned field or command asks for it; never decide from a step\'s name, kind or route that it applies. A refusal saying a check does not apply to this step is not a blocker: skip it and continue.';
 
 /**
+ * A step works from the approved outputs of the steps before it. `[upstream-inputs]`
+ *
+ * A code step asked the person what its approved plan already settled: it read the Story's one-line
+ * request, not its inputs. Engine-owned like the contracts above: fixed overhead on the skills that
+ * author from governed inputs, not per-skill prose.
+ */
+export const APPROVED_INPUTS_CONTRACT = 'Approved phase inputs are the earlier steps\' outputs and settle what they state: never ask what they answer or search elsewhere for them.';
+export const approvedInputsContractApplies = (contract) => contract === 'clarification-and-artifact';
+
+/**
  * A command's result is complete even when the host saves it to a file. `[large-output]`
  *
  * Copilot keeps a long tool result in a file and shows the model only its start. Agents read that
@@ -390,7 +400,7 @@ function withOutputContract(text, contract, kernelModelPolicy, file, executionBo
   // all maintained boundaries first so repeated generation never appends a second lookup.
   const sourceBody = skill.body.replace(/<!-- sflow-execution-boundary -->\r?\n\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?/gu, '');
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
-  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalHandling ? ` ${REFUSAL_HANDLING_CONTRACT}` : ''}${applicability ? ` ${APPLICABILITY_CONTRACT} ${COMPLETE_OUTPUT_CONTRACT}` : ''}`;
+  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]}${approvedInputsContractApplies(contract) ? ` ${APPROVED_INPUTS_CONTRACT}` : ''} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalHandling ? ` ${REFUSAL_HANDLING_CONTRACT}` : ''}${applicability ? ` ${APPLICABILITY_CONTRACT} ${COMPLETE_OUTPUT_CONTRACT}` : ''}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
   const boundaryText = executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)));
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
@@ -612,9 +622,13 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const refusalHandlingTokens = refusalHandling ? estimatedTokens(` ${REFUSAL_HANDLING_CONTRACT}`) : 0;
     const applicability = applicabilityContractApplies(rule);
     const applicabilityTokens = applicability ? estimatedTokens(` ${APPLICABILITY_CONTRACT} ${COMPLETE_OUTPUT_CONTRACT}`) : 0;
+    const approvedInputs = approvedInputsContractApplies(classPolicy.outputContract);
+    // Measured in this body, so rounding a separate estimate never moves the skill's own prose count.
+    const approvedInputsTokens = approvedInputs && skill.body.includes(` ${APPROVED_INPUTS_CONTRACT}`)
+      ? bodyTokens - estimatedTokens(skill.body.replace(` ${APPROVED_INPUTS_CONTRACT}`, '')) : 0;
     const pauseGuard = copilotPauseGuardForSkill(name, executionBoundaryKind);
     const pauseGuardTokens = pauseGuardRequired ? estimatedTokens(`${COPILOT_PAUSE_MARKER}\n${pauseGuard}\n\n`) : 0;
-    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + refusalHandlingTokens + applicabilityTokens + pauseGuardTokens;
+    const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + refusalHandlingTokens + applicabilityTokens + approvedInputsTokens + pauseGuardTokens;
     const marker = `<!-- sflow-output-contract: ${classPolicy.outputContract} -->`;
     const boundaryMarker = '<!-- sflow-execution-boundary -->';
     const boundaryText = executionBoundary(executionBoundaryKind, name);
@@ -648,6 +662,9 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     }
     if (applicability !== skill.body.includes(COMPLETE_OUTPUT_CONTRACT)) {
       errors.push(`${name}: ${applicability ? 'missing' : 'unexpected'} engine complete-output contract`);
+    }
+    if (approvedInputs !== skill.body.includes(APPROVED_INPUTS_CONTRACT)) {
+      errors.push(`${name}: ${approvedInputs ? 'missing' : 'unexpected'} engine approved-inputs contract`);
     }
     for (const message of artifactPresentationContractErrors(skill.body)) errors.push(`${name}: ${message}`);
     if (!skill.body.includes(boundaryMarker) || !skill.body.includes(boundaryText)) errors.push(`${name}: missing generated execution boundary`);
@@ -693,6 +710,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
       artifactPresentationTokens,
       refusalHandlingTokens,
       applicabilityTokens,
+      approvedInputsTokens,
       pauseGuardTokens,
       warningTokens: classPolicy.warningTokens,
       maximumTokens: maximum,

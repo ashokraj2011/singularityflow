@@ -38,3 +38,15 @@ test('the prompt line names the outcome and where the full request is', () => {
     '- Requested outcome: Only a criterion (full request: Pinned Story source below)');
   assert.equal(requestedOutcomeLine({}), null);
 });
+
+test('a step with approved inputs reads the request as refined by them, never as the whole requirement', () => {
+  // A code step read "Implement hex operator" with criteria "test cases" and asked the person what
+  // its approved plan already settled.
+  const source = { title: 'Implement hex operator', acceptanceCriteria: ['test cases'] };
+  const refined = storyRequestSummary(source, { refinedBy: ['specification', 'planning'] });
+  assert.deepEqual(refined.refinedBy, ['specification', 'planning']);
+  assert.match(refined.authority, /original request\. This step's approved inputs, the outputs of specification, planning right after the phase contract in the composed context, refine it and settle its detail: read them, never ask what they answer\./u);
+  assert.equal(storyRequestSummary(source).refinedBy, undefined, 'the first step has no inputs to name');
+  assert.equal(requestedOutcomeLine(source, { refinedBy: ['planning'] }),
+    "- Requested outcome: Implement hex operator (full request: Pinned Story source below); refined by this step's approved inputs from planning (Approved upstream artifact evidence below), which settle its detail");
+});

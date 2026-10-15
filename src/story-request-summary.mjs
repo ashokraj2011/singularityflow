@@ -6,6 +6,10 @@
  * carried the request only inside `context.text`. In a live Copilot run an agent that truncated its
  * reads asked for the change it had been given. This projection is presentation only: it never
  * replaces, rewrites or authorises anything in the pinned source.
+ *
+ * A step after the first works from the approved outputs of the steps before it, which refine this
+ * request. A code step that read only the summary ("Implement hex operator", criteria "test cases")
+ * asked the person what its approved plan already settled, so a refined request says so.
  */
 const OUTCOME_LIMIT = 600;
 const CRITERION_LIMIT = 200;
@@ -25,7 +29,7 @@ function criterionText(entry) {
 }
 
 /** `null` when the source names no request; otherwise title, outcome and the first criteria. */
-export function storyRequestSummary(source) {
+export function storyRequestSummary(source, { refinedBy = [] } = {}) {
   if (!source || typeof source !== 'object') return null;
   const title = oneLine(source.title, OUTCOME_LIMIT);
   // Sources keep unanswered fields as empty strings, so take the first field that says something.
@@ -39,15 +43,19 @@ export function storyRequestSummary(source) {
   return {
     title, outcome, acceptanceCriteria,
     ...(stated.length > acceptanceCriteria.length ? { moreAcceptanceCriteria: stated.length - acceptanceCriteria.length } : {}),
-    authority: 'Projection of the pinned Story source; the composed prompt carries the full, authoritative request.'
+    authority: refinedBy.length
+      ? `Projection of the pinned Story source: the original request. This step's approved inputs, the outputs of ${refinedBy.join(', ')} right after the phase contract in the composed context, refine it and settle its detail: read them, never ask what they answer.`
+      : 'Projection of the pinned Story source; the composed prompt carries the full, authoritative request.',
+    ...(refinedBy.length ? { refinedBy: [...refinedBy] } : {})
   };
 }
 
 /** The same request as one prompt line, or `null`. */
-export function requestedOutcomeLine(source) {
+export function requestedOutcomeLine(source, { refinedBy = [] } = {}) {
   const summary = storyRequestSummary(source);
   if (!summary) return null;
   const head = [summary.title, summary.outcome].filter(Boolean);
   const text = [...new Set(head)].join(' — ') || summary.acceptanceCriteria[0];
-  return `- Requested outcome: ${text} (full request: Pinned Story source below)`;
+  return `- Requested outcome: ${text} (full request: Pinned Story source below)${refinedBy.length
+    ? `; refined by this step's approved inputs from ${refinedBy.join(', ')} (Approved upstream artifact evidence below), which settle its detail` : ''}`;
 }

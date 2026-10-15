@@ -81,6 +81,13 @@ export function resolvedPhaseInputs(workflow, phase) {
   return workflow.resolution?.phases?.find((candidate) => candidate.id === phase.id)?.inputs ?? phase.inputs ?? [];
 }
 
+/** The steps whose approved outputs this step receives, in declared order; none while inputs are off. */
+export function approvedInputPhases(workflow, phase) {
+  if (!workflow || !phase || workflowInputsMode(workflow) === 'off') return [];
+  return [...new Set(resolvedPhaseInputs(workflow, phase)
+    .map((entry) => typeof entry === 'string' ? entry : entry?.phase).filter(Boolean))];
+}
+
 export async function collectInputs(root, workflow, phase, {
   itemDirectory, itemRelative, generation = nextPhaseGeneration(phase), definition = null
 } = {}) {

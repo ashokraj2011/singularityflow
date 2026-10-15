@@ -130,6 +130,9 @@ export function defaultTokenReductionContractSet() {
       section('phase-contract', {
         slot: 'governance', role: 'policy', stability: 'invariant'
       }),
+      section('approved-phase-inputs', {
+        slot: 'evidence', role: 'phase-input', dependencies: ['phase-contract']
+      }),
       section('work-source', {
         slot: 'source', role: 'source', stability: 'invariant'
       }),
@@ -177,9 +180,6 @@ export function defaultTokenReductionContractSet() {
       }),
       section('stakeholder-change-requests', {
         slot: 'requirements', role: 'change-request', dependencies: ['phase-contract']
-      }),
-      section('approved-phase-inputs', {
-        slot: 'evidence', role: 'phase-input', dependencies: ['phase-contract']
       }),
       section('final-clarification-guard', {
         slot: 'interaction', role: 'interaction-policy',

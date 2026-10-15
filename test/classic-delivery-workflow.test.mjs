@@ -216,6 +216,17 @@ test('Classic delivery commits passing test results before Testing and Code chec
   cli('prepare', 'implementation');
   assert.equal(JSON.parse(cli('nextsteps', '--for-agent', '--json').stdout).contextBoundary, undefined);
   measureEntry();
+  // Code works from what intake approved. Its input comes before the Story's one-line request, and
+  // the request says it is refined, so an agent reading from the top never asks what intake settled.
+  const entered = JSON.parse(cli('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
+  assert.deepEqual(entered.story?.refinedBy, ['intake']);
+  assert.match(entered.story.authority, /outputs of intake .*never ask what they answer/u);
+  const prompt = entered.context.text;
+  const storyAt = prompt.indexOf('# Pinned Story source');
+  assert.ok(storyAt > 0 && prompt.indexOf('# Approved upstream artifact evidence') > 0
+    && prompt.indexOf('# Approved upstream artifact evidence') < storyAt, 'the approved input precedes the Story request');
+  assert.ok(prompt.indexOf('Return the approved new value 2 to every caller') < storyAt, 'the input carries its content');
+  assert.match(prompt, /^- Requested outcome: .*; refined by this step's approved inputs from intake /mu);
   await writeFile(path.join(root, 'src/value.mjs'), approvedSource);
   await writeFile(path.join(root, 'test/value.test.mjs'), [
     "import test from 'node:test';",

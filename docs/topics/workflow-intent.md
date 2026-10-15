@@ -7,7 +7,7 @@ questions:
   - Can different teams describe their own workflow instead of writing markup?
 commands: [workflow]
 related: [workflow-markup, workflow-authoring, reusable-instructions, sgos-governed-execution]
-version: 2
+version: 3
 ---
 
 ## Purpose
@@ -50,6 +50,30 @@ The host rejects a described draft that omits or changes the original intent or 
 Review the phases, routes, structural coverage, reused/derived assets and source mappings before
 saving a bundle and entering normal import review. Summaries are not semantic approval.
 
+### Review the checked design
+
+The checked draft opens a full-width, interactive workflow canvas. Select a phase with its card or
+the keyboard-accessible phase selector to inspect its task, write scope, input phases, artifact,
+approval groups, rejection targets and declared checks. The canvas shows native return routes and
+their limits, rather than inferring runtime behavior from prose. Editing the description, source,
+selected assets or attachments invalidates the preview; no change is applied to shared workflows.
+**Refine this phase with Copilot** appends an explicit change request to the existing description
+and prepares a new reviewable chat handoff with the current draft. It does not silently rewrite
+the intent, send a model request, approve configuration or activate the proposed changes.
+
+**Inspect resolved guidance** reads only the chosen phase, bound to the exact source and bundle
+hashes. Repeated clicks reuse a per-draft cache; late responses from another draft or repository
+are discarded. It uses the native skill/instruction composer to show the static agent guidance,
+skills, scopes, use conditions and instructions at their procedure steps. Optional skill definitions
+are expanded for review, not evidence that runtime will eagerly send them. Story documents, World
+Model context, tool availability, permissions and the final generation prompt do not exist yet and
+are explicitly excluded. The displayed token figure is an approximate characters/4 estimate, not
+measured provider usage. Guidance over 256 KiB is not silently truncated into a purported full prompt.
+
+**Try a route** displays existing engine simulation scenarios: pass, repair, repeated failure,
+unavailable evidence and human rejection where applicable. It does not run tests, choose a real
+decision, start a Story, or record an approval. Long paths show their displayed/total length.
+
 ### Bring guidance from your laptop
 
 Use **Attach files** for Markdown, text, MDC, JSON or YAML, or **Folder…** for an explicitly selected
@@ -57,6 +81,10 @@ guidance directory. SFlow recognizes conventional agent, skill and instruction l
 types for other guidance. Ambiguous or malformed files remain labelled for review; Copilot must
 explain their classification rather than pretending recognition is semantic verification. A type
 selector permits an explicit correction, and each available file can be previewed or removed.
+The review summarizes object types, flags identical captured content, and lists missing, withheld
+or external references. References resolve only against the explicit capture; linked files are never
+opened automatically. A missing reference is advisory, not a fabricated dependency or a pass.
+The checked preview shows each source-to-object mapping before import.
 
 Only the selected roots are captured. Dependency/build/Git directories, symbolic links, credentials
 and oversized or non-text files are excluded or refused. Imported secret-waiver comments do not

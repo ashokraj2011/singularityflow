@@ -7,7 +7,7 @@ questions:
   - How do I turn a tagged description into a workflow bundle?
 commands: [workflow]
 related: [workflow-intent, workflow-authoring, workflow-decisions, reusable-instructions]
-version: 5
+version: 6
 ---
 
 ## What this does
@@ -70,27 +70,31 @@ repository-independent compiler remain supported for explicit manual authoring.
 ## Use it from each surface
 
 **VS Code:** Workflow Studio → **Create with Copilot…**. Describe the steps, pass/fail routes,
-retry limits and human checkpoints in your own words. **Create draft with Copilot…** prefills a
+retry limits and human checkpoints in your own words. **Generate workflow with Copilot** prefills a
 reviewable chat request; send it in Copilot when ready. Copilot reads the installed grammar, asks
 only concrete missing questions, creates a new XML draft, validates it, and summarizes its phases,
 routes and exact saved path. It does not import or activate anything. The request is not silently sent.
 
-Choose **Load Copilot draft…** and select that saved XML file. SFlow captures only the selected
+Compatible hosts return the checked candidate directly to the designer through its native tool.
+For the file fallback, choose **Load Copilot draft…** and select that saved XML file. SFlow captures only the selected
 bounded local file, preserves its exact UTF-8 bytes, and automatically checks the draft and routes.
 There is no repository-wide scan or automatic watch. Review the phases, decisions and source-to-node
-mappings. The markup editor is collapsed under **Advanced: inspect or edit markup**; no one needs
+mappings. The markup editor is collapsed under **Advanced options**; no one needs
 to write XML to begin. **Check draft & routes** can revalidate manual edits. Plain prose is not
 interpreted by the deterministic compiler. Unsupported starter topology must be explained by Copilot,
 not silently replaced or represented as if it were supported.
 
 **Save bundle & review import…** rechecks exact source and bundle hashes, then opens the normal
-import review. After activation, use the ordinary workflow canvas. Existing Stories retain pins.
+import review. The candidate canvas is read-only; after activation, use the ordinary workflow canvas
+for reviewed edits. Existing Stories retain pins.
 
 **Shell:**
 
 ```sh
 singularity-flow workflow markup example
 singularity-flow workflow markup compile ./workflow.xml --json
+singularity-flow workflow markup compile ./workflow.xml --design-review --json
+singularity-flow workflow markup compile ./workflow.xml --inspect-phase <DECLARED-PHASE-ID> --json
 singularity-flow workflow markup compile ./workflow.xml --out ./demo.sflow-workflows.json --json
 singularity-flow workflow import ./demo.sflow-workflows.json --dry-run --propose --json
 ```
@@ -99,6 +103,14 @@ singularity-flow workflow import ./demo.sflow-workflows.json --dry-run --propose
 review and confirm the exact destination import plan. Portable-ready means definition, dependency,
 startability and native route checks passed—not destination compatibility, application test success,
 approval or activation.
+
+`--design-review` adds resolved phase policy and graph metadata without loading every guidance body.
+`--inspect-phase` adds the selected phase's hash-bound static agent/skill/instruction composition;
+it cannot be combined with `--out`. Both are model-free and preserve the bundle's identity. This
+is a candidate preview, not a Story prompt: runtime inputs, grounding, permissions and provider token
+usage are unavailable. Optional skill definitions are expanded for review; runtime loading still
+respects its retained scope and conditions. The designer also exposes the engine's route simulation
+without executing a Story or tests. An unknown phase is refused, never replaced with a default.
 
 **Copilot:** `/sf-workflows markup example` or `/sf-workflows markup compile ./workflow.xml --json`.
 There is no dedicated `@sflow` markup command. VS Code Check and shell compilation are model-free;

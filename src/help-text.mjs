@@ -364,6 +364,7 @@ Usage:
   singularity-flow workflow intent example [--source approved|installed] [--json]
   singularity-flow workflow intent attachments [--file FILE]... [--folder DIRECTORY]... [--expected-source SHA256] [--id ID] [--json]
   singularity-flow workflow markup compile <FILE|-> [--out BUNDLE.json] [--json]
+  singularity-flow workflow markup compile <FILE|-> [--design-review|--inspect-phase PHASE] --json
   singularity-flow workflow studio apply --change-set FILE|- [--dry-run] [--propose] [--json]
                                                         read-only BYO/mixed recipe preview; no activation or host launch
   singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative] [--propose]

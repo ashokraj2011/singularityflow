@@ -350,7 +350,8 @@ export function lowerWorkflowMarkup(source, { definition, agents = [], catalog =
 }
 
 /** All temporary writes are isolated; only --out writes a new explicit bundle after every check. */
-export async function compileWorkflowMarkup(source, { out = null, repository = null } = {}) {
+export async function compileWorkflowMarkup(source, { out = null, repository = null, designReview = false, inspectPhase = null } = {}) {
+  if (inspectPhase != null && out) markupError('Inspect the candidate without writing a bundle; save separately after review.');
   // Parse and credential-screen before initializing the scratch, loading catalogs or writing output.
   const parsed = parseWorkflowMarkup(source);
   if (!scanEntries([{ path: 'workflow-markup.xml', content: source, forceScan: true }]).clean) markupError('Possible credentials in markup; no bundle emitted.', null, 'WORKFLOW_MARKUP_CONTENT_BLOCKED');
@@ -359,13 +360,51 @@ export async function compileWorkflowMarkup(source, { out = null, repository = n
     const { withWorkflowIntentCatalog } = await import('./workflow-intent-catalog.mjs');
     return withWorkflowIntentCatalog(repository, { source: parsed.attrs['catalog-source'], expectedSource: parsed.attrs.catalog }, catalog => {
       if (!parsed.attrs.catalog) markupError('Version 2 requires an exact catalog digest.', parsed);
-      return compileCapturedMarkup(source, { out, catalog });
+      return compileCapturedMarkup(source, { out, catalog, designReview, inspectPhase });
     });
   }
-  return compileCapturedMarkup(source, { out, catalog: null });
+  return compileCapturedMarkup(source, { out, catalog: null, designReview, inspectPhase });
 }
 
-async function compileCapturedMarkup(source, { out, catalog }) {
+/** Candidate-only review uses the same resolved policy and skill composer as runtime, without a Story. */
+async function reviewDesign(root, resolved, definition, phaseAgents, { inspectPhase = null } = {}) {
+  const order = resolved.phases.map(phase => phase.id);
+  const phases = resolved.phases.map(phase => ({ id: phase.id, label: phase.label, agent: phaseAgents[phase.id],
+    task: phase.generation?.task ?? null, writeScope: phase.writeScope ?? null, artifact: phase.artifact,
+    inputs: phase.inputs ?? [], authoringSkill: phase.authoringSkill ?? null,
+    approval: normalizeApprovalPolicy(phase.approval, definition.approvalAuthorities, phase.id, definition.approvalSecurity),
+    qualityCommands: (phase.qualityCommands ?? []).map((command, index) => ({ id: command.id ?? `qualityCommands[${index}]`, name: command.name ?? command.label ?? null })) }));
+  const edges = phases.flatMap((phase, index) => {
+    const decision = resolved.decisions.find(item => item.after === phase.id);
+    const routes = decision ? decision.routes : [{ id: 'next', label: 'Continue', to: order[index + 1] ?? 'end' }];
+    return routes.map(route => ({ from: phase.id, to: route.to === 'next' ? order[index + 1] ?? 'end' : route.to,
+      label: route.label, decision: decision?.id ?? null, when: route.when ?? null,
+      kind: order.indexOf(route.to) >= 0 && order.indexOf(route.to) <= index ? 'return' : 'forward',
+      maxRounds: decision?.maxRounds ?? null, by: decision?.by ?? [] }));
+  });
+  const result = { schemaVersion: 1, kind: 'candidate-design-review', phases, edges, inspection: null,
+    notice: 'Static candidate guidance only. Story inputs, World Model context, permissions, tool availability and final generation prompts are resolved at Story runtime. This is not approval or execution.' };
+  if (inspectPhase != null) {
+    const phase = resolved.phases.find(item => item.id === inspectPhase);
+    if (!phase) markupError('Inspect a phase declared in the exact checked workflow.', null, 'WORKFLOW_MARKUP_PHASE_UNKNOWN');
+    const { discoverAgents, renderAgentSkills } = await import('./agents.mjs');
+    const agent = (await discoverAgents(root)).find(item => item.id === phaseAgents[phase.id]);
+    if (!agent || agent.dependencies.length) markupError('Design inspection accepts only retained local agent guidance; it never fetches dependencies.');
+    const guidance = await renderAgentSkills(root, { workItem: { id: 'design-preview', workType: resolved.id } }, phase, { agent: agent.id },
+      { fetchImpl: async () => { throw new Error('Design inspection cannot fetch remote resources.'); } });
+    const text = [withoutAttachedSkills(agent.prompt).trim(), guidance.text].filter(Boolean).join('\n\n');
+    const instructions = [...new Map(guidance.skills.flatMap(skill => skill.referencedInstructions ?? []).map(item => [item.id, { id: item.id, label: item.label, sha256: item.sha256 }])).values()];
+    result.inspection = { phase: phase.id, agent: { id: agent.id, description: agent.description, tools: agent.tools, sha256: agent.sha256, worldModelViews: agent.worldModelViews },
+      skills: guidance.skills.map(skill => ({ id: skill.id, label: skill.label, sha256: skill.sha256, loading: skill.loading, use: skill.use, scopes: skill.scopes, instructionRefs: skill.instructionRefs })),
+      instructions, representation: 'static-expanded-guidance', runtimeContextIncluded: false,
+      bytes: Buffer.byteLength(text), estimatedTokens: Math.ceil(text.length / 4), tokenEstimate: 'Approximate characters / 4, not measured provider tokens; excludes runtime context.',
+      sha256: digest(text), text: Buffer.byteLength(text) <= 256 * 1024 ? text : null,
+      display: Buffer.byteLength(text) <= 256 * 1024 ? 'complete' : 'over-display-limit', warnings: guidance.warnings };
+  }
+  return result;
+}
+
+async function compileCapturedMarkup(source, { out, catalog, designReview, inspectPhase }) {
   const [{ initializeDefinition, loadDefinition, resolveWorkType, assertWorkTypeStartable },
     { discoverAgents }, { compileWorkflowBundle, writeWorkflowBundle },
     { simulateWorkflowRoutes }, { librarySkillText, skillAttachmentsText, parseSkillAttachments, SKILL_ATTACHMENTS_PATH },
@@ -429,11 +468,13 @@ async function compileCapturedMarkup(source, { out, catalog }) {
     const simulation = simulateWorkflowRoutes(resolved, { approvalAuthorities: validated.approvalAuthorities });
     if (simulation.status === 'failed') markupError('The native route simulation refused the graph.', null, 'WORKFLOW_MARKUP_GRAPH_INVALID');
     const bundle = await compileWorkflowBundle(scratch, [lowered.id]);
+    const review = designReview || inspectPhase != null ? await reviewDesign(scratch, resolved, validated, lowered.phaseAgents, { inspectPhase }) : null;
     const outputPath = out ? await writeWorkflowBundle(bundle, out) : null;
     return { schemaVersion: 1, resultType: 'workflow-markup-compilation', format: WORKFLOW_MARKUP_FORMAT,
       status: 'portable-ready', sourceSha256: digest(source), bundleSha256: bundle.bundleSha256,
       workflow: { id: lowered.id, label: lowered.workflow.label, phases: resolved.phases.map(phase => ({ id: phase.id, label: phase.label, agent: lowered.phaseAgents[phase.id] })), decisions: resolved.decisions },
       sourceMap: lowered.sourceMap, routeSimulation: simulation, intent: lowered.intent, reusedAssets: lowered.reusedAssets, attachmentMappings: lowered.attachmentMappings,
+      ...(review ? { designReview: review } : {}),
       ...(catalog ? { catalog: { source: catalog.source, sourceSha256: catalog.sourceSha256 } } : {}), outputPath, ...(out ? {} : { bundle }),
       effects: { configurationChanged: false, storyChanged: false, approvalRecorded: false, bundleWritten: Boolean(out) },
       meaning: 'Portable-ready means deterministic definition, dependency and route checks passed; it is not approved, imported, activated or executed.' };

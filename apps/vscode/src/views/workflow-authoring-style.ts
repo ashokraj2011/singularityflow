@@ -1,4 +1,5 @@
-export const WORKFLOW_MARKUP_STYLE = `
+import { WORKFLOW_DESIGN_REVIEW_STYLE } from './workflow-design-review.ts';
+export const WORKFLOW_MARKUP_STYLE = WORKFLOW_DESIGN_REVIEW_STYLE + `
 body:has(#workflow-authoring){padding:24px 28px 40px}
 #workflow-authoring{max-width:1280px;margin:auto;font:13px/1.55 var(--vscode-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif);color:var(--vscode-foreground)}
 #workflow-authoring *{box-sizing:border-box}#workflow-authoring [hidden]{display:none!important}

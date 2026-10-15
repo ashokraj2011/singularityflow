@@ -18,6 +18,8 @@ interface MarkupResult {
   catalog?: { sourceSha256: string; source: { kind: string } };
   attachmentMappings?: { id: string; sha256: string; kind: string; targets: string[] }[];
   reusedAssets?: { kind: string; id: string; as: string }[];
+  designReview?: { phases: { id: string }[]; inspection: { phase: string } | null; notice: string };
+  routeSimulation?: { status: string; counts: Record<string, number>; scenarios: { id: string; kind: string; outcome: string; path: string[]; pausedFor?: string[] }[] };
 }
 
 interface IntentCatalog { resultType: string; sourceSha256: string; source: { kind: string }; entries: unknown[]; counts: Record<string, number>; patterns: unknown[]; families: unknown[] }
@@ -52,10 +54,14 @@ export class WorkflowMarkupPanel {
     panel.webview.html = page('Create workflow with Copilot', `<style nonce="${token}">${WORKFLOW_MARKUP_STYLE}</style>${WORKFLOW_MARKUP_BODY.replace('<!-- brand -->', brandMark(20))}`,
       contentSecurityPolicy(panel.webview, token), token, WORKFLOW_MARKUP_SCRIPT);
     let disposed = false, busy = false, revision = 0;
-    let reviewed: { source: string; result: MarkupResult; revision: number; repository: string } | null = null;
+    let reviewed: { source: string; result: MarkupResult; revision: number; repository: string; inspections: Map<string, Promise<unknown>> } | null = null;
     let handoff: { intent: string; selected: string; catalog: IntentCatalog; assets: { kind: string; id: string }[]; revision: number; repository: string; attempts: number; failedSource: string | null } | null = null;
     const intentRuntime = require(path.join(__dirname, 'workflow-intent-runtime.cjs')) as typeof import('../workflow-intent-runtime.ts');
     const post = (value: unknown) => { if (!disposed) void panel.webview.postMessage(value); };
+    const reviewPayload = (result: MarkupResult) => ({ ...result, bundle: undefined, routeSimulation: result.routeSimulation ? {
+      status: result.routeSimulation.status, counts: result.routeSimulation.counts,
+      scenarios: result.routeSimulation.scenarios.map(item => ({ id: item.id, kind: item.kind, outcome: item.outcome, path: item.path.slice(0, 80),
+        pathLength: item.path.length, pausedFor: item.pausedFor ?? [] })) } : undefined });
     const sourceText = (value: string | null) => {
       if (!value || Buffer.byteLength(value) > 256 * 1024) throw new Error('Enter a markup declaration of at most 256 KiB.');
       return value;
@@ -102,12 +108,12 @@ export class WorkflowMarkupPanel {
       if (request.attempts >= 3 || source === request.failedSource) throw new Error('The bounded draft check stopped; do not retry an unchanged failure. Preserve the candidate and request human review.');
       request.attempts++; busy = true; post({ type: 'markup.nativeBusy' });
       try {
-        const result = await client.runWithInput<MarkupResult>(['workflow', 'markup', 'compile', '-', '--json'], source);
+        const result = await client.runWithInput<MarkupResult>(['workflow', 'markup', 'compile', '-', '--design-review', '--json'], source);
         verifyDraft(result, request.intent, request.selected, request.assets);
         if (!current() || result.catalog?.sourceSha256 !== request.catalog.sourceSha256) throw new Error('The source or intent changed. Request a fresh handoff.');
-        reviewed = { source, result, revision, repository: request.repository };
+        reviewed = { source, result, revision, repository: request.repository, inspections: new Map() };
         handoff = null;
-        post({ type: 'markup.proposed', revision, source, result: { ...result, bundle: undefined, routeSimulation: undefined } });
+        post({ type: 'markup.proposed', revision, source, result: reviewPayload(result) });
         return { status: 'portable-ready', workflow: result.workflow, coveredRequirements: result.intent?.requirements.length,
           semanticReview: 'required', repositoryFilesChanged: false, approvalRecorded: false, next: 'Review the open designer, then use Save bundle & review import. No import or activation was performed.' };
       } catch (error) {
@@ -158,6 +164,27 @@ export class WorkflowMarkupPanel {
         try { post({ type: 'markup.attachmentPreview', revision, item: attachments.read(stringField(message, 'id') ?? '') }); }
         catch (error) { post({ type: 'markup.error', revision, message: (error as Error).message }); }
       },
+      'markup.inspectPhase': async message => {
+        const selected = reviewed, phase = stringField(message, 'phase'), request = integerField(message, 'request');
+        if (!selected || selected.revision !== integerField(message, 'revision') || client.repository !== selected.repository
+            || !selected.result.designReview?.phases.some(item => item.id === phase)) {
+          post({ type: 'markup.inspectionError', revision, request, message: 'Check the current draft, then choose one of its phases.' }); return;
+        }
+        try {
+          if (!selected.inspections.has(phase!)) selected.inspections.set(phase!, (async () => {
+            const result = await client.runWithInput<MarkupResult>(['workflow', 'markup', 'compile', '-', '--inspect-phase', phase!, '--json'], selected.source);
+            if (result.sourceSha256 !== selected.result.sourceSha256 || result.bundleSha256 !== selected.result.bundleSha256
+                || result.designReview?.inspection?.phase !== phase) throw new Error('The candidate or library changed. Recheck the preserved draft before inspecting its guidance.');
+            return result.designReview.inspection;
+          })());
+          const inspection = await selected.inspections.get(phase!);
+          if (!disposed && selected === reviewed && client.repository === selected.repository) post({ type: 'markup.phaseInspection', revision, request, inspection });
+          else if (!disposed) post({ type: 'markup.inspectionError', revision: selected.revision, request, message: 'The draft or repository changed. Recheck before inspecting its guidance.' });
+        } catch (error) {
+          selected.inspections.delete(phase!);
+          if (selected === reviewed) post({ type: 'markup.inspectionError', revision, request, message: (error as Error).message });
+        }
+      },
       'markup.catalog': async message => {
         try {
           const selected = catalogKind(stringField(message, 'catalogSource'));
@@ -196,13 +223,13 @@ export class WorkflowMarkupPanel {
         const repository = client.repository;
         try {
           const source = sourceText(stringField(message, 'source'));
-          const result = await client.runWithInput<MarkupResult>(['workflow', 'markup', 'compile', '-', '--json'], source);
+          const result = await client.runWithInput<MarkupResult>(['workflow', 'markup', 'compile', '-', '--design-review', '--json'], source);
           if (disposed || requested !== revision || client.repository !== repository) { post({ type: 'markup.error', message: 'The source or repository changed. Check again.', revision: requested }); return; }
           const intent = stringField(message, 'intent')?.trim() ?? '';
           const selected = catalogKind(stringField(message, 'catalogSource'));
           verifyDraft(result, intent, selected, selectedLibrary(message as { selectedAssets?: unknown }));
-          reviewed = { source, result, revision, repository };
-          post({ type: 'markup.checked', revision, result: { ...result, bundle: undefined, routeSimulation: undefined } });
+          reviewed = { source, result, revision, repository, inspections: new Map() };
+          post({ type: 'markup.checked', revision, result: reviewPayload(result) });
         } catch (error) { post({ type: 'markup.error', revision: requested, message: (error as Error).message }); }
         finally { busy = false; }
       },

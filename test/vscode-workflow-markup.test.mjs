@@ -18,7 +18,7 @@ const result = { status: 'portable-ready', sourceSha256: 'source-hash', bundleSh
 const catalog = { resultType: 'workflow-intent-catalog', sourceSha256: 'sha256:' + 'a'.repeat(64), source: { kind: 'installed-package' },
   entries: [], counts: { skill: 3 }, patterns: [], families: [] };
 class Element {
-  constructor(tag = 'div') { this.tag = tag; this.children = []; this.listeners = {}; this.attrs = {}; this.value = ''; this.disabled = false; this.hidden = false; this.selectionStart = 0; this.selectionEnd = 0; }
+  constructor(tag = 'div') { this.tag = tag; this.children = []; this.listeners = {}; this.attrs = {}; this.style = {}; this.value = ''; this.disabled = false; this.hidden = false; this.selectionStart = 0; this.selectionEnd = 0; }
   addEventListener(name, callback) { this.listeners[name] = callback; }
   appendChild(child) { this.children.push(child); }
   replaceChildren() { this.children = []; }
@@ -362,4 +362,79 @@ test('preparing a Copilot request prevents duplicate lookup and chat handoffs',a
   const first=ui.send({type:'markup.copilot',intent:'Create a review process',revision:0});
   await ui.send({type:'markup.copilot',intent:'Create a review process',revision:0});
   finish(catalog);await first;assert.equal(calls,1);assert.equal(ui.chats.length,1);
+});
+
+const inspection = { phase: 'intake', agent: { id: 'analyst', tools: ['read', 'edit'] }, skills: [{ id: 'local-checks', label: 'Local checks', loading: 'eager', scopes: ['agent analyst'], use: 'When UI files change', instructionRefs: ['keyboard-rule'] }],
+  instructions: [{ id: 'keyboard-rule', label: 'Keyboard access' }], text: '<script>never execute</script>', bytes: 32, estimatedTokens: 8 };
+const designResult = { ...result, designReview: { phases: [{ id: 'intake', label: 'Intake', agent: 'analyst', task: 'clarify', writeScope: 'artifact-only', artifact: { path: 'artifacts/intake.md' }, approval: { mode: 'required', authorities: ['reviewers'], rejectTo: ['intake'] }, inputs: [], qualityCommands: [] }], edges: [{ from: 'intake', to: 'end', label: 'Continue' }], inspection: null, notice: 'Static candidate only.' },
+  routeSimulation: { status: 'passed', counts: { pass: 1 }, scenarios: [{ id: 'pass', kind: 'pass', outcome: 'end', path: ['intake','end'] }] } };
+
+test('canvas phase selection is read-only, displays static guidance inertly and ignores stale inspector responses', () => {
+  const ui = browser();ui.receive({ type: 'markup.checked', revision: 0, result: designResult });
+  assert.equal(ui.elements['markup-phase-title'].textContent, 'Intake');
+  assert.equal(ui.posted.some(item => item.type === 'markup.inspectPhase'), false, 'checking does not read every prompt');
+  ui.elements['markup-inspect-prompt'].onclick(); const read = ui.posted.at(-1);
+  assert.equal(read.type, 'markup.inspectPhase');assert.equal(read.phase, 'intake');
+  ui.receive({ type: 'markup.phaseInspection', revision: 0, request: read.request, inspection });
+  assert.equal(ui.elements['markup-prompt-text'].textContent, inspection.text);
+  assert.equal(ui.elements['markup-inspection-content'].hidden, false);
+  assert.match(ui.elements['markup-inspection-status'].textContent, /static guidance only/u);
+  assert.equal(ui.elements['markup-scenario-path'].children.length, 2);
+  ui.elements['markup-intent'].value = 'Changed';ui.elements['markup-intent'].listeners.input();
+  ui.receive({ type: 'markup.phaseInspection', revision: 0, request: read.request, inspection: { ...inspection, text: 'stale' } });
+  assert.equal(ui.elements['markup-prompt-text'].textContent, inspection.text);assert.equal(ui.elements['markup-result'].hidden, true);
+});
+
+test('phase inspection caches and coalesces exact reads without import, writes or model calls', async () => {
+  const ui = await host();ui.compile(async () => designResult);await check(ui);
+  let finish;ui.compile(async (args) => { assert.ok(args.includes('--inspect-phase'));assert.ok(!args.includes('--out'));return new Promise(resolve => { finish = resolve; }); });
+  const first = ui.send({ type: 'markup.inspectPhase', phase: 'intake', revision: 0, request: 1 });
+  const second = ui.send({ type: 'markup.inspectPhase', phase: 'intake', revision: 0, request: 2 });
+  assert.equal(ui.calls.length, 2);
+  finish({ ...designResult, designReview: { ...designResult.designReview, inspection } });await Promise.all([first, second]);
+  await ui.send({ type: 'markup.inspectPhase', phase: 'intake', revision: 0, request: 3 });assert.equal(ui.calls.length, 2);
+  assert.equal(ui.posted.at(-1).inspection.text, inspection.text);
+  await ui.send({ type: 'markup.inspectPhase', phase: 'foreign', revision: 0, request: 4 });assert.equal(ui.calls.length, 2);assert.equal(ui.posted.at(-1).type, 'markup.inspectionError');
+  assert.deepEqual(ui.imports, []);assert.deepEqual(ui.chats, []);
+});
+
+test('edits, repository changes and drifted compiler bindings cannot display a stale prompt', async () => {
+  for (const changed of ['edit','repository','binding']) {
+    const ui = await host();ui.compile(async () => designResult);await check(ui);let finish;
+    ui.compile(() => new Promise(resolve => { finish = resolve; }));
+    const pending = ui.send({ type: 'markup.inspectPhase', phase: 'intake', revision: 0, request: 1 });
+    if (changed === 'edit') await ui.send({ type: 'markup.changed', revision: 1 });
+    if (changed === 'repository') ui.client.repository = '/other/repository';
+    finish({ ...designResult, ...(changed === 'binding' ? { bundleSha256: 'changed' } : {}), designReview: { ...designResult.designReview, inspection } });await pending;
+    assert.equal(ui.posted.some(item => item.type === 'markup.phaseInspection'), false);
+  }
+});
+
+test('attachment review reports duplicates and missing references without exposing source bodies or executing text', () => {
+  const ui = browser();
+  ui.receive({ type: 'markup.attachments', previousRevision: 0, items: [
+    ...localCapture.items,
+    { ...localCapture.items[0], id: 'local-copy', name: '<script>literal</script>.md', references: [{ status: 'not-in-capture', label: 'missing.md' }] }
+  ] });
+  assert.equal(ui.elements['markup-knowledge-summary'].textContent, '2 instructions');
+  const warnings = ui.elements['markup-knowledge-review'].children;
+  assert.match(warnings[0].textContent, /Same content/u);assert.ok(warnings[0].textContent.includes('<script>literal</script>'));
+  assert.equal(warnings[1].children[0].textContent, '1 references need review · no additional files fetched');
+});
+
+test('review simulation previews are bounded without presenting a shortened path as complete', async () => {
+  const ui = await host();ui.compile(async () => ({ ...designResult, routeSimulation: { ...designResult.routeSimulation, scenarios: [{ id: 'long', kind: 'repair', outcome: 'pause', path: Array(100).fill('intake'), pausedFor: ['reviewers'] }] } }));await check(ui);
+  const scenario = ui.posted.at(-1).result.routeSimulation.scenarios[0];
+  assert.equal(scenario.path.length, 80);assert.equal(scenario.pathLength, 100);assert.deepEqual(scenario.pausedFor, ['reviewers']);
+});
+test('phase refinement preserves the original description, invalidates old checks and only prepares a Copilot request', () => {
+  const ui = browser();ui.elements['markup-intent'].value = 'My original process';
+  ui.receive({ type: 'markup.proposed', source: '<existing-draft/>', revision: 0, result: designResult });
+  ui.elements['markup-refine-text'].value = 'Keep the tester independent.';ui.elements['markup-refine-text'].listeners.input();
+  assert.equal(ui.elements['markup-refine-phase'].disabled, false);
+  ui.elements['markup-refine-phase'].onclick();
+  const handoff = ui.posted.at(-1);
+  assert.equal(handoff.type, 'markup.copilot');assert.match(handoff.intent, /^My original process/u);assert.match(handoff.intent, /Change to the "Intake" phase/u);assert.match(handoff.intent, /tester independent/u);
+  assert.equal(handoff.source, '<existing-draft/>');
+  assert.equal(ui.elements['markup-result'].hidden, true);assert.equal(ui.elements['markup-import'].disabled, true);
 });

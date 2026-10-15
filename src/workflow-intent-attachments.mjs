@@ -47,13 +47,14 @@ async function selectedText(file) {
 export async function inspectWorkflowAttachments({ files = [], folders = [], expectedSource = null, id = null } = {}) {
   if (![files, folders].every(list => Array.isArray(list) && list.every(value => typeof value === 'string' && value.trim()))
       || !files.length && !folders.length || files.length + folders.length > WORKFLOW_ATTACHMENT_LIMITS.selections) fail('Choose up to 32 explicit files or folders. No directory is discovered automatically.');
-  const items = [], selections = [], notices = []; let bytes = 0;
+  const items = [], selections = [], notices = [], locations = new Map(); let bytes = 0;
   const add = (source, name, content, format, screening = 'clean') => {
     const size = Buffer.byteLength(content ?? ''); bytes += size;
     if (bytes > WORKFLOW_ATTACHMENT_LIMITS.totalBytes || items.length >= WORKFLOW_ATTACHMENT_LIMITS.files) fail('The attachment selection exceeds 128 files or 2 MiB. Choose a smaller guidance folder.');
     const identity = hash(source), slug = kebab(path.basename(name).replace(/\.[^.]+$/u, '')).slice(0, 40).replace(/-+$/u, '') || 'guidance';
     const itemId = `local-${slug}-${identity.slice(7, 19)}`;
     if (items.some(item => item.id === itemId)) return;
+    locations.set(itemId, path.resolve(source));
     if (content && scanText(content, { path: name }).length) screening = 'withheld'; // Imported waiver comments never grant disclosure.
     const clean = screening === 'clean' && content != null;
     items.push({ id: itemId, name, bytes: size, sha256: clean ? hash(content) : null, available: clean,
@@ -75,6 +76,21 @@ export async function inspectWorkflowAttachments({ files = [], folders = [], exp
     if (capture.excludedCount) notices.push(`${capture.excludedCount} dependency, generated or linked entries were excluded from ${path.basename(folder)}.`);
     const unresolved = capture.references.filter(reference => reference.status !== 'resolved').length;
     if (unresolved) notices.push(`${unresolved} source references in ${path.basename(folder)} need review; no missing or external file was fetched.`);
+  }
+  // References are navigation data only: resolve against this explicit capture, never open them.
+  for (const item of items.filter(entry => entry.available)) {
+    const written = [...item.content.matchAll(/!?\[[^\[\]\n]*\]\(\s*<?([^)\s>]+)>?(?:\s+["'][^"'\n]*["'])?\s*\)|#file:([^\s)\]`'"]+)/gu)]
+      .map(match => match[1] ?? match[2]);
+    const unique = [...new Set(written)].filter(value => !value.startsWith('#'));
+    item.referenceCount = unique.length;
+    item.references = unique.slice(0, 32).map(value => {
+      if (/^[a-z][a-z0-9+.-]*:/iu.test(value) && !/^[A-Za-z]:[\\/]/u.test(value)) return { status: 'external', label: 'External reference (not fetched)', targetId: null };
+      let relative; try { relative = decodeURIComponent(value.replace(/[#?].*$/u, '')).replaceAll('\\', '/'); } catch { relative = ''; }
+      const target = path.resolve(path.dirname(locations.get(item.id)), relative);
+      const candidates = items.filter(entry => [target, path.join(target, 'SKILL.md')].includes(locations.get(entry.id)));
+      const found = candidates.length === 1 ? candidates[0] : null;
+      return { status: found?.available ? 'resolved' : found ? 'withheld' : 'not-in-capture', label: found?.name ?? (path.posix.basename(relative).slice(0, 120) || 'Unresolved reference'), targetId: found?.id ?? null };
+    });
   }
   const sourceSha256 = hash(JSON.stringify({ selections, items: items.map(({ content, ...item }) => item) }));
   if (expectedSource && sourceSha256 !== expectedSource) fail('The selected local files changed. Preserve the workflow draft and reattach the files before rebinding it.');

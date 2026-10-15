@@ -40,9 +40,9 @@ async function capture(file) {
 
 export async function run(argv, { positionals, options }) {
   const action = positionals[2];
-  if (!['example', 'compile'].includes(action) || positionals.length !== (action === 'compile' ? 4 : 3)) markupError('Use workflow markup example, or workflow markup compile <FILE|-> [--out BUNDLE.json] [--json].');
+  if (!['example', 'compile'].includes(action) || positionals.length !== (action === 'compile' ? 4 : 3)) markupError('Use workflow markup example, or workflow markup compile <FILE|-> [--design-review|--inspect-phase PHASE] [--out BUNDLE.json] [--json].');
   for (const [key, value] of Object.entries(options)) {
-    if (key === 'json' ? value !== true : key === 'out' && action === 'compile' ? typeof value !== 'string' || !value.trim() : true) markupError('Unsupported or repeated markup command option.');
+    if (['json', 'design-review'].includes(key) && (key === 'json' || action === 'compile') ? value !== true : ['out', 'inspect-phase'].includes(key) && action === 'compile' ? typeof value !== 'string' || !value.trim() : true) markupError('Unsupported or repeated markup command option.');
   }
   if (action === 'example') {
     const source = await readFile(new URL('../../examples/demo-tagged-workflow.xml', import.meta.url), 'utf8');
@@ -53,7 +53,8 @@ export async function run(argv, { positionals, options }) {
   const source = await capture(positionals[3]);
   const parsed = parseWorkflowMarkup(source);
   const repository = parsed.attrs.version === '2' && parsed.attrs['catalog-source'] === 'approved' ? (await import('../git.mjs')).repoRoot() : null;
-  const result = await compileWorkflowMarkup(source, { out: options.out ?? null, repository });
+  if (options.out && options['inspect-phase']) markupError('Inspect the candidate without writing a bundle; use --out separately after review.');
+  const result = await compileWorkflowMarkup(source, { out: options.out ?? null, repository, designReview: Boolean(options['design-review']), inspectPhase: options['inspect-phase'] ?? null });
   // Version 2 checks are agent-facing summaries. The actual portable bundle needs explicit --out.
   if (parsed.attrs.version === '2') delete result.bundle;
   result.commandGuidance = safeCommandGuidance({ executable: 'singularity-flow', argv: result.outputPath

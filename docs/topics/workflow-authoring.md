@@ -32,7 +32,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 62
+version: 63
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -42,9 +42,11 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
 
 ## Workflow Studio
 
-For HTML-like descriptions and explicit branching tags, choose **Create from tags…**, or run
-`singularity-flow workflow markup example`. See `sflow explain workflow-markup` for the grammar,
-starter-based compilation and the separately reviewed JSON bundle import.
+Choose **Create with Copilot…** to describe the workflow in plain language. Copilot drafts the tags;
+**Load Copilot draft…** validates the saved file and previews its phases and routes. The markup editor
+is an advanced option, not a prerequisite. See `sflow explain workflow-markup` for the supported
+starter-based compilation and separately reviewed JSON bundle import. Manual authors can also run
+`singularity-flow workflow markup example`.
 
 The workflow catalog separates **User-created** and **Seeded** Story and Epic workflows. Seeded
 workflows remain read-only; use **Duplicate** to customize one. Search runs over the loaded catalog,

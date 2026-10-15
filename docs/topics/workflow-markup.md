@@ -1,13 +1,13 @@
 ---
 id: workflow-markup
-title: Create workflows with HTML-like tags
+title: Create workflows with Copilot and checked tags
 aliases: [tagged-workflow, workflow-tags]
 questions:
   - Can I describe branches and loops using tags?
   - How do I turn a tagged description into a workflow bundle?
 commands: [workflow]
 related: [workflow-authoring, workflow-decisions, reusable-instructions]
-version: 2
+version: 3
 ---
 
 ## What this does
@@ -28,9 +28,20 @@ deterministic compiler does not guess conditions, thresholds, destinations, grou
 
 ## Use it from each surface
 
-**VS Code:** Workflow Studio → **Create from tags…**. Edit the example, then **Check tags & routes**.
-Inspect phases, decisions and source-to-node mappings. **Draft / improve with Copilot…** prefills a
-reviewable chat request; it never silently sends it. Plain prose is not interpreted by Check.
+**VS Code:** Workflow Studio → **Create with Copilot…**. Describe the steps, pass/fail routes,
+retry limits and human checkpoints in your own words. **Create draft with Copilot…** prefills a
+reviewable chat request; send it in Copilot when ready. Copilot reads the installed grammar, asks
+only concrete missing questions, creates a new XML draft, validates it, and summarizes its phases,
+routes and exact saved path. It does not import or activate anything. The request is not silently sent.
+
+Choose **Load Copilot draft…** and select that saved XML file. SFlow captures only the selected
+bounded local file, preserves its exact UTF-8 bytes, and automatically checks the draft and routes.
+There is no repository-wide scan or automatic watch. Review the phases, decisions and source-to-node
+mappings. The markup editor is collapsed under **Advanced: inspect or edit markup**; no one needs
+to write XML to begin. **Check draft & routes** can revalidate manual edits. Plain prose is not
+interpreted by the deterministic compiler. Unsupported starter topology must be explained by Copilot,
+not silently replaced or represented as if it were supported.
+
 **Save bundle & review import…** rechecks exact source and bundle hashes, then opens the normal
 import review. After activation, use the ordinary workflow canvas. Existing Stories retain pins.
 

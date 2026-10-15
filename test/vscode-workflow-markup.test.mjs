@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import * as fs from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import path from 'node:path';
+import os from 'node:os';
 import { WORKFLOW_MARKUP_BODY, WORKFLOW_MARKUP_SCRIPT } from '../apps/vscode/src/views/workflow-markup-page.ts';
 import { integerField, registerMessageRouter, stringField } from '../apps/vscode/src/views/messages.ts';
 import { navigationTarget } from '../apps/vscode/src/views/webview.ts';
@@ -17,7 +20,7 @@ class Element {
   replaceChildren() { this.children = []; }
 }
 function browser() {
-  const elements = Object.fromEntries(['source', 'check', 'import', 'copilot', 'result', 'status', 'title', 'phases', 'routes', 'map', 'meaning'].map(id => [`markup-${id}`, new Element()]));
+  const elements = Object.fromEntries(['source', 'intent', 'open', 'check', 'import', 'copilot', 'result', 'status', 'title', 'phases', 'routes', 'map', 'meaning'].map(id => [`markup-${id}`, new Element()]));
   const posted = []; let receive;
   const window = { __sfVscode: { postMessage: message => posted.push(structuredClone(message)), getState: () => null, setState() {} }, addEventListener: (_name, callback) => { receive = callback; } };
   new Function('window', 'document', WORKFLOW_MARKUP_SCRIPT)(window, { getElementById: id => elements[id], createElement: tag => new Element(tag) });
@@ -51,18 +54,19 @@ async function host() {
   const source = await readFile(new URL('../apps/vscode/src/views/workflow-markup-panel.ts', import.meta.url), 'utf8');
   const code = stripTypeScriptTypes(source.slice(source.indexOf('export class WorkflowMarkupPanel')).replace('export class', 'class'));
   const posted = [], imports = [], chats = [], calls = []; let receive, dispose, saving = async () => ({ scheme: 'file', fsPath: '/chosen/bundle.json' });
+  let opening = async () => undefined;
   let compile = async (_args, _text) => structuredClone(result);
   const panel = { webview: { postMessage: message => posted.push(message), onDidReceiveMessage: callback => { receive = callback; return { dispose() {} }; } }, onDidDispose: callback => { dispose = callback; } };
   const vscode = { ViewColumn: { Active: 1 }, Uri: { file: fsPath => ({ fsPath }) },
-    window: { createWebviewPanel: () => panel, showSaveDialog: () => saving() },
+    window: { createWebviewPanel: () => panel, showSaveDialog: () => saving(), showOpenDialog: () => opening() },
     commands: { executeCommand: async (...args) => chats.push(args) } };
   const client = { repository: '/selected/repository', run: async () => ({ source: '<workflow />' }),
     runWithInput: async (args, text) => { calls.push({ args: [...args], text }); return compile(args, text); } };
-  const Panel = new Function('vscode', 'path', 'nonce', 'page', 'contentSecurityPolicy', 'registerMessageRouter', 'integerField', 'stringField', 'navigationTarget', 'navigateTo', 'WORKFLOW_MARKUP_BODY', 'WORKFLOW_MARKUP_STYLE', 'WORKFLOW_MARKUP_SCRIPT', code + '\nreturn WorkflowMarkupPanel;')(
-    vscode, path, () => 'nonce', () => '', () => '', registerMessageRouter, integerField, stringField, navigationTarget, () => {}, '', '', '');
+  const Panel = new Function('vscode', 'path', 'fs', 'constants', 'TextDecoder', 'nonce', 'page', 'contentSecurityPolicy', 'registerMessageRouter', 'integerField', 'stringField', 'navigationTarget', 'navigateTo', 'WORKFLOW_MARKUP_BODY', 'WORKFLOW_MARKUP_STYLE', 'WORKFLOW_MARKUP_SCRIPT', code + '\nreturn WorkflowMarkupPanel;')(
+    vscode, path, fs, constants, TextDecoder, () => 'nonce', () => '', () => '', registerMessageRouter, integerField, stringField, navigationTarget, () => {}, '', '', '');
   Panel.show(client, async file => { imports.push(file); return { outcome: 'proposed', error: null }; });
   return { posted, imports, chats, calls, client, send: message => receive(message), close: () => dispose(),
-    compile: fn => { compile = fn; }, saveDialog: fn => { saving = fn; } };
+    compile: fn => { compile = fn; }, saveDialog: fn => { saving = fn; }, openDialog: fn => { opening = fn; }, readDraft: file => Panel.readDraft(file) };
 }
 const check = (ui, source = '<workflow />', revision = 0) => ui.send({ type: 'markup.check', source, revision });
 const apply = (ui, revision = 0, overrides = {}) => ui.send({ type: 'markup.import', revision, sourceSha256: result.sourceSha256, bundleSha256: result.bundleSha256, ...overrides });
@@ -110,11 +114,97 @@ test('closing during save or package drift preserves the bundle boundary and ref
 });
 
 test('Copilot action only prefills a reviewable description request and compilation failures do not import', async () => {
-  const ui = await host(); await ui.send({ type: 'markup.copilot', source: 'If tests fail, repair and retest.' });
+  const ui = await host(); await ui.send({ type: 'markup.copilot', intent: 'If tests fail, repair and retest.' });
   assert.equal(ui.chats[0][0], 'workbench.action.chat.open');
   assert.equal(ui.chats[0][1].isPartialQuery, true);
   assert.match(ui.chats[0][1].query, /Do not import, approve or activate/u);
+  assert.match(ui.chats[0][1].query, /If tests fail, repair and retest/u);
+  assert.match(ui.chats[0][1].query, /never ask me to supply tags/u);
+  assert.match(ui.chats[0][1].query, /Load Copilot draft/u);
+  assert.match(ui.chats[0][1].query, /without overwriting existing files/u);
+  assert.match(ui.chats[0][1].query, /ask before substituting/u);
+  assert.match(ui.chats[0][1].query, /not the full XML or source code/u);
   assert.deepEqual(ui.calls, []);
   ui.compile(async () => { throw new Error('Unknown condition at line 7'); }); await check(ui); await apply(ui);
   assert.deepEqual(ui.imports, []);
+});
+
+test('description-first UI hides advanced syntax and sends intent, not the example, to Copilot', () => {
+  assert.match(WORKFLOW_MARKUP_BODY, /<details id="markup-advanced"><summary>Advanced/u);
+  assert.doesNotMatch(WORKFLOW_MARKUP_BODY, /<details id="markup-advanced" open/u);
+  const ui = browser();
+  assert.equal(ui.elements['markup-copilot'].disabled, true);
+  assert.equal(ui.elements['markup-check'].disabled, true);
+  ui.receive({ type: 'markup.example', source: '<workflow>not my requested workflow</workflow>' });
+  const intent = ui.elements['markup-intent']; intent.value = 'Intake, test, repair and retest three times, then human closure.'; intent.listeners.input();
+  assert.equal(ui.elements['markup-copilot'].disabled, false);
+  ui.elements['markup-copilot'].onclick();
+  assert.equal(ui.posted.at(-1).intent, intent.value);
+  assert.equal(ui.posted.at(-1).source, undefined);
+});
+
+test('loading a Copilot draft invalidates old bindings and automatically checks exact loaded bytes', () => {
+  const ui = browser();
+  ui.elements['markup-open'].onclick();
+  assert.deepEqual(ui.posted.at(-1), { type: 'markup.open', revision: 0 });
+  const source = '\uFEFF<workflow>generated\r\n</workflow>';
+  ui.receive({ type: 'markup.loaded', revision: 0, source });
+  assert.deepEqual(ui.posted.slice(-2), [{ type: 'markup.changed', revision: 1 }, { type: 'markup.check', revision: 1, source }]);
+  ui.receive({ type: 'markup.checked', revision: 1, result });
+  assert.equal(ui.elements['markup-import'].disabled, false);
+  ui.elements['markup-intent'].value = 'changed requirements'; ui.elements['markup-intent'].listeners.input();
+  assert.equal(ui.elements['markup-import'].disabled, true);
+  ui.receive({ type: 'markup.loaded', revision: 1, source: 'stale replacement' });
+  assert.equal(ui.elements['markup-source'].value, source);
+});
+
+test('Copilot draft loading only reads the explicitly selected bounded regular UTF-8 file', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'sflow-markup-load-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'copilot.workflow.xml'), source = '\uFEFF<workflow>\r\n</workflow>';
+  await fs.writeFile(file, source);
+  const ui = await host();
+  ui.openDialog(async () => [{ scheme: 'file', fsPath: file }]);
+  await ui.send({ type: 'markup.open', revision: 0, path: '/attacker/ignored.xml' });
+  assert.deepEqual(ui.posted.at(-1), { type: 'markup.loaded', revision: 0, source });
+  assert.deepEqual(ui.calls, []); assert.deepEqual(ui.imports, []);
+  const invalid = path.join(directory, 'invalid.xml');
+  await fs.writeFile(invalid, Buffer.from([0xff]));
+  await assert.rejects(ui.readDraft(invalid));
+  const big = path.join(directory, 'large.xml'); await fs.writeFile(big, 'x'.repeat(256 * 1024 + 1));
+  await assert.rejects(ui.readDraft(big), /256 KiB/u);
+  await assert.rejects(ui.readDraft(directory), /regular XML/u);
+  const empty = path.join(directory, 'empty.xml'); await fs.writeFile(empty, '  ');
+  await assert.rejects(ui.readDraft(empty), /empty/u);
+  const link = path.join(directory, 'link.xml');
+  try { await fs.symlink(file, link); }
+  catch (error) { if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes(error.code)) throw error; t.diagnostic('Host disallows creating symlinks; other file checks executed.'); return; }
+  await assert.rejects(ui.readDraft(link), /regular XML/u);
+});
+
+test('cancelled, nonlocal, stale or closed load cannot replace the current draft', async () => {
+  const ui = await host(); await check(ui);
+  await ui.send({ type: 'markup.open', revision: 0 });
+  assert.match(ui.posted.at(-1).message, /cancelled/u);
+  ui.openDialog(async () => [{ scheme: 'https', fsPath: '/remote.xml' }]);
+  await ui.send({ type: 'markup.open', revision: 0 });
+  assert.match(ui.posted.at(-1).message, /local XML/u);
+  let select;
+  ui.openDialog(() => new Promise(resolve => { select = resolve; }));
+  const pending = ui.send({ type: 'markup.open', revision: 0 });
+  await ui.send({ type: 'markup.changed', revision: 1 });
+  select([{ scheme: 'file', fsPath: '/must/not/be/read.xml' }]); await pending;
+  assert.match(ui.posted.at(-1).message, /changed/u);
+  assert.equal(ui.posted.some(message => message.type === 'markup.loaded'), false);
+  const closing = await host(); closing.openDialog(() => new Promise(resolve => { select = resolve; }));
+  const loading = closing.send({ type: 'markup.open', revision: 0 }); closing.close();
+  select([{ scheme: 'file', fsPath: '/must/not/be/read.xml' }]); await loading;
+  assert.equal(closing.posted.some(message => message.type === 'markup.loaded'), false);
+});
+
+test('empty or oversized description never opens a Copilot request', async () => {
+  const ui = await host();
+  await ui.send({ type: 'markup.copilot', intent: '  ' });
+  await ui.send({ type: 'markup.copilot', intent: 'x'.repeat(32769) });
+  assert.deepEqual(ui.chats, []);
 });

@@ -46,12 +46,24 @@ function describe(article) {
 }
 
 /**
- * `{ text, record }`. `text` is empty when the Story pinned no constitution. `record` says which
- * copy was used, for the composition receipt.
+ * A Story whose work type names a constitution but which pinned none (none existed when it
+ * started; `warn` lets it start). Its templates still carry a `## Constitution articles` section
+ * and its packets still name the configured path, so authors went looking for the file, then
+ * reported its absence as an input gap. Publication accepts no citation and refuses any, so say so.
+ */
+const UNPINNED_CONSTITUTION = ['# Constitution', '',
+  'This Story pinned no constitution: none existed when it started, so there are no articles to read or cite. '
+  + 'Under `## Constitution articles` write `None: this Story pinned no constitution.` '
+  + 'Do not look for a constitution file or report its absence as an input gap.'].join('\n');
+
+/**
+ * `{ text, record }`. `text` is empty when the Story's work type names no constitution, and a short
+ * "none pinned" note when it names one the Story did not pin. `record` says which copy was used,
+ * for the composition receipt.
  */
 export async function constitutionPromptContext(root, workflow) {
   const pin = workflow?.resolution?.constitutionPin ?? null;
-  if (!pin) return { text: '', record: null };
+  if (!pin) return { text: workflow?.resolution?.constitution ? UNPINNED_CONSTITUTION : '', record: null };
   const found = await pinnedConstitutionBytes(root, workflow, pin);
   const short = String(pin.fileSha256 ?? '').slice(0, 12);
   const lead = `This Story is held to the constitution pinned when it started (\`${pin.path}\`, sha256 ${short}). `

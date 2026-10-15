@@ -140,6 +140,17 @@ function finding(code, message, details = {}) {
   return { code, message, ...details };
 }
 
+/**
+ * A specification may write an anchor in any case (`[acct-7:req-002]`); extraction reads it as
+ * `ACCT-7:REQ-002`, and review rows are compared with that exact form. A reviewer that copied the
+ * anchor as written was told only "unknown clause", so name the exact ID to use.
+ */
+function clauseCaseHint(id, known) {
+  const wanted = String(id ?? '').toUpperCase();
+  const canonical = [...known].find((clause) => clause.toUpperCase() === wanted);
+  return canonical && canonical !== id ? canonical : null;
+}
+
 function citedSource(row, sources, findings, label) {
   const source = sources.get(row?.sourceId);
   if (!source) {
@@ -233,7 +244,9 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
       if (!Array.isArray(row.clauseIds) || !row.clauseIds.length || new Set(row.clauseIds).size !== row.clauseIds.length) {
         findings.push(finding('clause-list-invalid', `${label} needs distinct clause IDs.`));
       } else for (const id of row.clauseIds) {
-        if (!authoritative.has(id)) findings.push(finding('clause-unknown', `${label} names unknown clause '${id}'.`));
+        const canonical = authoritative.has(id) ? null : clauseCaseHint(id, authoritative);
+        if (canonical) findings.push(finding('clause-unknown', `${label} names clause '${id}'; write it exactly as '${canonical}' (clause IDs are compared in their canonical form).`, { canonical }));
+        else if (!authoritative.has(id)) findings.push(finding('clause-unknown', `${label} names unknown clause '${id}'.`));
         else mappedClauses.add(id);
       }
     } else if (row.outcome === 'excluded') {
@@ -261,7 +274,7 @@ function evaluateSpecificationRows(report, context, binding, findings, pendingDi
       `${uncovered.length - MAX_LISTED} more requirement statements in '${source.id}' have no row.`, { sourceId: source.id }));
   }
   for (const scenario of scenarios) if (!mappedScenarios.has(scenario)) findings.push(finding('scenario-unmapped',
-    `Scenario '${scenario}' has no cited source-to-clause mapping.`));
+    `Scenario '${scenario}' has no cited source-to-clause mapping. Add a covered row citing the source line it refines, also when a clarification answer shaped it (acknowledge that record in clarificationsReviewed; never edit it). If no source line supports it, it is new scope: report a blocking finding.`));
   for (const clause of authoritative) if (!mappedClauses.has(clause)) findings.push(finding('clause-unmapped',
     `Clause '${clause}' has no cited source-to-scenario mapping.`));
 }
@@ -286,7 +299,10 @@ function evaluatePlanningRows(report, context, findings, pendingDispositions) {
     const label = `Review row ${index + 1}`;
     if (!row || typeof row !== 'object' || Array.isArray(row) || !ids.includes(row.clauseId)
         || byId.has(row.clauseId)) {
-      findings.push(finding('clause-row-invalid', `${label} needs one unique approved clause ID.`));
+      const canonical = row && typeof row === 'object' && !ids.includes(row.clauseId) ? clauseCaseHint(row.clauseId, ids) : null;
+      findings.push(canonical
+        ? finding('clause-row-invalid', `${label} names clause '${row.clauseId}'; write it exactly as '${canonical}' (clause IDs are compared in their canonical form).`, { canonical })
+        : finding('clause-row-invalid', `${label} needs one unique approved clause ID.`));
       continue;
     }
     byId.set(row.clauseId, row);

@@ -1,6 +1,18 @@
 /** Keep legacy progress/review prose from preceding a failed --json command's terminal object. */
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 
+/**
+ * Whether this JSON result is read by an agent or a person rather than a program: `--for-agent`, or
+ * JSON written to a terminal. A host agent runs commands in a terminal and saved a long result to a
+ * file outside the workspace its own tools could not open (a /sf-session agent then reached for
+ * `jq` on that file). Programs read through pipes and files and keep the whole result.
+ */
+export function agentViewRequested(options, { stream = process.stdout, env = process.env } = {}) {
+  if (options?.['for-agent'] === true || options?.['for-agent'] === 'true') return true;
+  const json = options?.json === true || options?.json === 'true';
+  return json && stream?.isTTY === true && env.SINGULARITY_FLOW_AGENT_OUTPUT !== 'full';
+}
+
 export async function withCliJsonOutput(json, execute, { forAgent = false } = {}) {
   if (!json) return execute();
   const stream = process.stdout;

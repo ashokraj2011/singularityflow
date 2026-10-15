@@ -20,7 +20,7 @@ import { abandonRemoteBranchObservations } from './remote-observation-prefetch.m
 import { installFileLeaseSignalHandlers } from './file-lease.mjs';
 import { configurationReviewRetryDue, firstRunPassDue } from './product-alignment-gate.mjs';
 import { productRequirementDue } from './product-requirement-gate.mjs';
-import { withCliJsonOutput } from './cli-json-output.mjs';
+import { agentViewRequested, withCliJsonOutput } from './cli-json-output.mjs';
 import { copilotModeFile, copilotModePresentation, readCopilotMode } from './copilot-mode.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
@@ -562,7 +562,7 @@ export async function main(argv) {
   installGitFactStore();
   const uninstall = installFileLeaseSignalHandlers();
   const { options } = parseArgs(argv);
-  try { return await withCliJsonOutput(optionBoolean(options, 'json'), () => runMain(argv), { forAgent: optionBoolean(options, 'for-agent') }); }
+  try { return await withCliJsonOutput(optionBoolean(options, 'json'), () => runMain(argv), { forAgent: agentViewRequested(options) }); }
   finally { uninstall(); }
 }
 

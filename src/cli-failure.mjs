@@ -26,7 +26,7 @@ export async function reportCliFailure(error, argv = []) {
   try {
     const { options } = parseArgs(argv);
     json = optionBoolean(options, 'json');
-    forAgent = optionBoolean(options, 'for-agent');
+    forAgent = (await import('./cli-json-output.mjs')).agentViewRequested(options);
     verbose = optionBoolean(options, 'verbose');
   }
   catch { /* parsing may itself be the refusal */ }

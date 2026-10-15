@@ -344,6 +344,19 @@ async function importTeamGuard(payload, record, toolCalls) {
   return {};
 }
 
+/**
+ * A shell command that reads the host's own saved copy of a long tool result. The host keeps it
+ * outside the workspace, so the agent's file tools cannot open it, and an agent reached for `jq` on
+ * it in a turn that runs only SFlow commands. The SFlow result itself, run again as an agent view,
+ * is bounded and names its complete copy inside the repository.
+ */
+export function readsHostSavedOutput(call) {
+  const command = String(call?.args?.command ?? call?.args?.cmd ?? call?.args?.script ?? '');
+  return /copilot-tool-output|[\\/]tool-output-[^\s'"]*\.txt/iu.test(command);
+}
+
+const HOST_SAVED_OUTPUT_DENIAL = 'PHASE_MUTATION_TOOL_PROTOCOL: that file is the host\'s saved copy of a long result, outside the workspace; do not read it with shell tools. Run the same SFlow command again, standalone, with --for-agent --json: its result starts with act, fits the host, and names the complete copy inside the repository (agentOutput.path) for your file-read tool. This refusal does not invalidate the phase or require repeating clarification';
+
 export async function mutationToolGuard(payload = {}) {
   const record = await turn(payload);
   if (!record) return {};
@@ -372,6 +385,7 @@ export async function mutationToolGuard(payload = {}) {
             ? 'PHASE_MUTATION_DECISION_TURN_ENDED: the decision turn has ended. Preserve work and inspect the returned next action in a new turn; correcting command syntax cannot reopen approval'
             : 'PHASE_MUTATION_OPERATION_NOT_ALLOWED: this standalone command is not permitted by the bound turn mode. Preserve work and follow the exact returned action; tool-form repair does not grant authoring or decision authority');
         }
+        if (contract.turnMode !== 'authoring' && readsHostSavedOutput(call)) return mutationDenial(contract, HOST_SAVED_OUTPUT_DENIAL);
         if (contract.turnMode !== 'authoring')
           return mutationDenial(contract, 'PHASE_MUTATION_TOOL_PROTOCOL: use native file-read tools for output; write only exact issued staging files with a file-edit tool (source review also supports review-source stage --report-json). Run permitted SFlow commands standalone with the bound cwd. Correct the tool form in this turn; this refusal does not invalidate the phase or require repeating clarification');
         if (upstreamIssueDecision(call, value)) return mutationDenial(contract,

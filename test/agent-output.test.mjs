@@ -169,3 +169,14 @@ test('the same actionable result a third time in a row says it is a loop and nam
   const authoring = { resultType: 'sflow-phase-entry', status: 'authoring-entry', workId: 'W', phase: 'code' };
   for (let index = 0; index < 4; index += 1) assert.equal(observeAgentLoop(root, authoring, agentAct(authoring)).loop, undefined);
 });
+
+test('JSON written to a terminal is an agent view; JSON read through a pipe or file stays whole', async () => {
+  const { agentViewRequested } = await import('../src/cli-json-output.mjs');
+  const terminal = { isTTY: true }, pipe = { isTTY: false };
+  // A host agent runs commands in a terminal and saved a long /sf-session result where it could not read it.
+  assert.equal(agentViewRequested({ json: true }, { stream: terminal, env: {} }), true);
+  assert.equal(agentViewRequested({ json: true }, { stream: pipe, env: {} }), false, 'VS Code, scripts and tests read through pipes');
+  assert.equal(agentViewRequested({ 'for-agent': true, json: true }, { stream: pipe, env: {} }), true, '--for-agent asks for it anywhere');
+  assert.equal(agentViewRequested({ json: true }, { stream: terminal, env: { SINGULARITY_FLOW_AGENT_OUTPUT: 'full' } }), false);
+  assert.equal(agentViewRequested({}, { stream: terminal, env: {} }), false, 'human text output is unchanged');
+});

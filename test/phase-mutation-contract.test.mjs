@@ -174,6 +174,15 @@ test('review tool protocol recovers in the same turn; standalone check/stage/ret
     assert.doesNotMatch(refusal.permissionDecisionReason, /PHASE_MUTATION_TURN_READ_ONLY/);
     assert.match(refusal.permissionDecisionReason, /\/sf-review-source custom-step/);
   }
+  // The host's saved copy of a long result is outside the workspace: the refusal names the agent
+  // view to run again instead of telling the agent to use a file tool that cannot open it.
+  for (const command of [`jq '{status, workId, open: {ready: .open.ready}}' /var/folders/_j/yp8z/T/1792062996841-copilot-tool-output-80389-8c9dd931.txt`,
+    'Get-Content C:\\Users\\dev\\AppData\\Local\\Temp\\1792-copilot-tool-output-1.txt | ConvertFrom-Json']) {
+    const refusal = await shell(command);
+    assert.match(refusal.permissionDecisionReason, /PHASE_MUTATION_TOOL_PROTOCOL: that file is the host's saved copy of a long result, outside the workspace/u);
+    assert.match(refusal.permissionDecisionReason, /Run the same SFlow command again, standalone, with --for-agent --json/u);
+    assert.doesNotMatch(refusal.permissionDecisionReason, /use native file-read tools/u);
+  }
   const reportJson = JSON.stringify({ binding: { phase: 'custom-step' }, rows: [], rationale: 'literal [data] > not a redirect', detail: 'x'.repeat(4000) });
   assert.deepEqual(await shell(`singularity-flow review-source stage custom-step --report-json '${reportJson}' --json`), {});
   const quoted = JSON.stringify({ rows: [], rationale: "Story's literal [data] > $HOME; `not executed`; FILE <input> ...", detail: 'x'.repeat(4000) });

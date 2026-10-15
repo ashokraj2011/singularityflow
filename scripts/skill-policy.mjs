@@ -45,7 +45,7 @@ export const approvedInputsContractApplies = (contract) => contract === 'clarifi
  * repository (src/agent-output.mjs). Engine-owned like the contracts above, on the same Story
  * skills as the applicability contract.
  */
-export const COMPLETE_OUTPUT_CONTRACT = 'Act on a result\'s `act` first: its state, `do` routes and any `ask`. A bounded result lists `omittedFields` with exact line ranges in `agentOutput.path`; read only those you need with your file tool. Never stop because a result is long or was saved to a file.';
+export const COMPLETE_OUTPUT_CONTRACT = 'Act on a result\'s `act` first: its state, `do` routes and any `ask`. A bounded result lists `omittedFields` with exact line ranges in `agentOutput.path`; read only those you need with your file tool. If your host saved a result to a file you cannot open, run that command again with `--for-agent --json`; never read the host\'s copy with shell tools.';
 
 export function applicabilityContractApplies(rule) {
   return (rule?.executionBoundary ?? 'story') === 'story' && rule?.class !== 'delegation';
@@ -623,7 +623,11 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const refusalHandling = refusalHandlingApplies(rule);
     const refusalHandlingTokens = refusalHandling ? estimatedTokens(` ${REFUSAL_HANDLING_CONTRACT}`) : 0;
     const applicability = applicabilityContractApplies(rule);
-    const applicabilityTokens = applicability ? estimatedTokens(` ${APPLICABILITY_CONTRACT} ${COMPLETE_OUTPUT_CONTRACT}`) : 0;
+    // Measured in this body like the approved-inputs contract, so a longer shared contract never
+    // moves a skill's own prose count by rounding.
+    const applicabilityText = ` ${APPLICABILITY_CONTRACT} ${COMPLETE_OUTPUT_CONTRACT}`;
+    const applicabilityTokens = !applicability ? 0 : skill.body.includes(applicabilityText)
+      ? bodyTokens - estimatedTokens(skill.body.replace(applicabilityText, '')) : estimatedTokens(applicabilityText);
     const approvedInputs = approvedInputsContractApplies(classPolicy.outputContract);
     // Measured in this body, so rounding a separate estimate never moves the skill's own prose count.
     const approvedInputsTokens = approvedInputs && skill.body.includes(` ${APPROVED_INPUTS_CONTRACT}`)

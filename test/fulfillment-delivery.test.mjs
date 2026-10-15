@@ -22,9 +22,16 @@ const SCREEN_REQ = `${W}:REQ-008`;
 const SCREEN = `singularity/work-items/${W}/evidence/screen.png`;
 
 function run(command, args, cwd, { allowFailure = false } = {}) {
+  // Phase entry is session-aware. Never let a developer's selected desktop workspace choose a
+  // different Story, or let this disposable fixture update their real workspace/lead registry.
+  const environment = path.join(cwd, '.git', 'sflow-test-environment');
   const result = spawnSync(command, args, {
     cwd, encoding: 'utf8',
-    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Fulfillment Tester', SINGULARITY_FLOW_NO_MODEL: '1' }
+    env: { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Fulfillment Tester', SINGULARITY_FLOW_NO_MODEL: '1',
+      SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(environment, 'active.json'),
+      SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(environment, 'registry.json'),
+      SINGULARITY_FLOW_LEAD_REGISTRY: path.join(environment, 'leads.json'),
+      SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(environment, 'mode.json') }
   });
   if (!allowFailure && result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')} failed\n${result.stdout}\n${result.stderr}`);

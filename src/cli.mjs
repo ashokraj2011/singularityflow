@@ -117,7 +117,7 @@ import { completionVerdict, finalCheckRefusalMessage, printCompletionVerdict, re
 import { applicabilityStatus, omissionAuthorities, recordApplicabilityDecision } from './evidence/applicability.mjs';
 import { installWorkflow, optionalWorkflowCatalog, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowCatalogForDefinition, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
-import { copilotAgentStartHook, agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
+import { agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
 import { answerSelectionReceipt, beginCustomSelectionReceipt, consumeSelectionReceipt, readStartSelectionReceipt, resolveCustomSelectionReceipt, resolveHandedOffStartSelectionReceipt, resolveSelectionReceipt, selectionReceiptStatus } from './choices.mjs';
 import { loadPortfolio, usesEpicPlanningLifecycle } from './initiative-config.mjs';
@@ -8850,10 +8850,10 @@ async function hookCommand(positionals) {
       return console.log(JSON.stringify(await handler(payload)));
     }
     if ((await import('./copilot-mode.mjs')).readCopilotMode().paused) return console.log('{}');
+    if (event === 'agent-start') return console.log(JSON.stringify(
+      await (await import('./copilot-agent-start.mjs')).copilotAgentStartPayload(payload)));
     const candidate = typeof payload.cwd === 'string' && existsSync(payload.cwd) ? payload.cwd : process.cwd();
-    const root = event === 'agent-start'
-      ? await (await import('./copilot-repository-boundary.mjs')).resolveCopilotHookRoot({ ...payload, cwd: candidate })
-      : repoRoot(candidate);
+    const root = repoRoot(candidate);
     if (!root) return console.log('{}');
     const authority = await sessionRepositoryAuthority(root);
     if (!authority) return console.log('{}');
@@ -8866,7 +8866,6 @@ async function hookCommand(positionals) {
       await clearCopilotTurnIntent(root, payload.sessionId ?? payload.session_id ?? null);
       return console.log('{}');
     }
-    if (event === 'agent-start') return console.log(JSON.stringify(await copilotAgentStartHook(root, payload)));
     const { definition: config } = await sessionDiscoveryConfiguration(root, authority); let workflow = null;
     if (existsSync(path.join(root, WORKFLOW_PATH))) {
       try { workflow = await loadStoryAggregate(root, config); } catch { workflow = null; }

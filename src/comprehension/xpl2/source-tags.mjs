@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 import { clauseTagExplanation, EXPLANATION_LIMITS } from '../../implementation-bindings.mjs';
-import { scanSourceClauseTags } from '../../traceability-ids.mjs';
+import { scanSourceClauseTags } from '../../source-clause-tags.mjs';
 import { secureRepositoryPath, SingularityFlowError } from '../../util.mjs';
 import { xpl2Sha256 } from './model.mjs';
 

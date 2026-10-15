@@ -808,7 +808,8 @@ test('session skill synchronizes work-item state and activates the phase agent a
   assert.match(content, /session candidates --json --diagnostics/);
   assert.match(content, /workspace current --json[\s\S]*carries the active `workspacePath`\/`repositoryId` explicitly/);
   assert.match(content, /old host cwd must not replace that scope/);
-  assert.match(content, /Without an explicit work ID, run `singularity-flow session open --for-agent --json`[\s\S]*Relay its `table` verbatim/);
+  // The first packet is reused only within this invocation; a new /sf-session checks pause again.
+  assert.match(content, /Without an explicit work ID, reuse this invocation's initial `singularity-flow session open --for-agent --json` result[\s\S]*Relay its `table` verbatim/);
   assert.ok(content.indexOf('session open --for-agent --json') < content.indexOf('session open <WORK-ID> --for-agent --json'));
   assert.match(content, /current binding or first row is not selection/);
   assert.match(content, /Stop without attaching if no choice exists/);

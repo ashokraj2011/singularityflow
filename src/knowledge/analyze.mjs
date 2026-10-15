@@ -11,7 +11,7 @@ import path from 'node:path';
 
 import { buildLenses } from '../code-intelligence/generated/code-explainer-lenses.mjs';
 import { buildCodeExplainerModel, codeAreas, flattenSymbols, inArea, isTestPath, textSymbols } from '../code-intelligence/generated/code-explainer-model.mjs';
-import { scanSourceClauseTags } from '../traceability-ids.mjs';
+import { scanSourceClauseTags } from '../source-clause-tags.mjs';
 import { citation, invalidCitations, knowledgeItem, KNOWLEDGE_LEVELS, KNOWLEDGE_FORMAT } from './items.mjs';
 import {
   androidManifest, clientRoutes, configurationKeys, dataClasses, declaredHttpClients, enumsAndRecords, exceptionStatuses, gradleModules, manifestCommands, namedLimits, outboundHttp,

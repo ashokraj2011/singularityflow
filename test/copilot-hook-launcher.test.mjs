@@ -100,6 +100,31 @@ test('the launcher forwards stdin and rejects arbitrary hook operations', async 
   assert.deepEqual(JSON.parse(item.invoke('approve', [entry]).stdout), {});
 });
 
+test('a dedicated installed runtime is preferred, with a closed legacy diagnostic fallback', async t => {
+  const item = await fixture(t);
+  const runtime = path.join(item.directory, 'dedicated runtime');
+  await mkdir(path.join(runtime, 'bin'), { recursive: true });
+  await mkdir(path.join(runtime, 'src'));
+  await writeFile(path.join(runtime, 'package.json'), JSON.stringify({ name: 'singularity-flow', type: 'module',
+    bin: { 'singularity-flow': 'bin/singularity-flow.mjs' } }));
+  const entry = path.join(runtime, 'bin/singularity-flow.mjs');
+  await writeFile(entry, '// installed runtime fixture\n');
+  await writeFile(path.join(runtime, 'src/copilot-hook-runtime.mjs'),
+    'export async function runCopilotHook(action) { let input=""; for await (const chunk of process.stdin) input+=chunk; console.log(JSON.stringify({runtime:"dedicated",action,input})); }\n');
+  await writeFile(path.join(runtime, 'src/cli-entry.mjs'),
+    'export async function main(argv) { console.log(JSON.stringify({runtime:"legacy",argv})); }\n');
+  assert.deepEqual(JSON.parse(item.invoke('boundary-guard', [entry], '{"sessionId":"exact"}').stdout),
+    { runtime: 'dedicated', action: 'boundary-guard', input: '{"sessionId":"exact"}' });
+  item.env.SINGULARITY_FLOW_HOOK_RUNTIME = 'legacy';
+  assert.deepEqual(JSON.parse(item.invoke('boundary-guard', [entry]).stdout),
+    { runtime: 'legacy', argv: ['hook', 'boundary-guard'] });
+  item.env.SINGULARITY_FLOW_HOOK_RUNTIME = 'off';
+  assert.equal(JSON.parse(item.invoke('boundary-guard', [entry]).stdout).runtime, 'dedicated', 'off cannot disable the hook');
+  await writeFile(path.join(runtime, 'src/copilot-hook-runtime.mjs'), 'throw new Error("broken dedicated runtime");\n');
+  assert.match(JSON.parse(item.invoke('boundary-guard', [entry]).stdout).permissionDecisionReason,
+    /SFLOW_HOOK_RUNTIME_UNAVAILABLE/, 'do not silently downgrade a broken installed policy runtime');
+});
+
 test('a repository-owned PATH package cannot masquerade as the installed CLI', async t => {
   const item = await fixture(t);
   const runtime = path.join(item.cwd, 'node_modules/singularity-flow');

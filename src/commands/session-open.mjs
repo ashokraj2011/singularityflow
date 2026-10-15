@@ -14,20 +14,37 @@ import { step, stop as stopStep } from '../cli-steps.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 const LOCAL_FALLBACK = new Set(['SESSION_LOCAL_STORY_UNAVAILABLE', 'SESSION_LOCAL_REPOSITORY_UNAVAILABLE']);
-const OPTIONS = new Set(['workspace', 'repository', 'json']);
+const OPTIONS = new Set(['workspace', 'repository', 'json', 'for-agent']);
 const stop = (result, label) => stopStep(result, label, 'SESSION_OPEN_STEP_FAILED');
 
-export async function run({ positionals, options }) {
+/** Validate before a pause response, so an invalid request cannot silently become another action. */
+export function validateSessionOpenRequest({ positionals, options }) {
   for (const key of Object.keys(options)) {
-    if (!OPTIONS.has(key)) throw new SingularityFlowError(`session open takes --workspace, --repository and --json, not --${key}.`, { code: 'SESSION_OPEN_OPTION_UNSUPPORTED' });
+    if (!OPTIONS.has(key)) throw new SingularityFlowError(`session open takes --workspace, --repository, --for-agent and --json, not --${key}.`, { code: 'SESSION_OPEN_OPTION_UNSUPPORTED' });
   }
   if (positionals.length > 3) throw new SingularityFlowError('session open takes at most one work ID.', { code: 'SESSION_OPEN_OPTION_UNSUPPORTED' });
+  if (options.json !== undefined && options.json !== true) throw new SingularityFlowError('session open requires --json without a value.', { code: 'SESSION_OPEN_OPTION_UNSUPPORTED' });
+  if (options['for-agent'] !== undefined && (options['for-agent'] !== true || options.json !== true)) {
+    throw new SingularityFlowError('session open --for-agent requires --json; both are boolean flags.', { code: 'SESSION_OPEN_OPTION_UNSUPPORTED' });
+  }
+}
+
+/** The same paused result at early dispatch and inside the composed command. No Git or selection. */
+export function pausedSessionOpenResult(agentInstruction = null) {
+  return { schemaVersion: 1, resultType: 'session-open', status: 'paused', paused: true, agentInstruction }; // schema-transient: composed command response, never a durable record
+}
+
+export async function run({ positionals, options }) {
+  validateSessionOpenRequest({ positionals, options });
   const json = options.json === true;
   const workId = positionals[2] ?? null;
   const cwd = process.cwd();
   const pause = await step(['pause', 'status', '--json'], cwd);
-  if (pause.ok && pause.value?.data?.paused) {
-    const result = { schemaVersion: 1, resultType: 'session-open', status: 'paused', agentInstruction: pause.value.data.agentInstruction ?? null };
+  if (!pause.ok) stop(pause, 'pause status');
+  if (typeof pause.value?.data?.paused !== 'boolean') throw new SingularityFlowError(
+    'Session setup could not verify the pause state. Nothing was selected or attached.', { code: 'SESSION_OPEN_PAUSE_UNAVAILABLE' });
+  if (pause.value.data.paused) {
+    const result = pausedSessionOpenResult(pause.value.data.agentInstruction ?? null);
     return console.log(json ? JSON.stringify(result, null, 2) : 'Singularity Flow guidance is paused. Resume it with /sf-pause off.');
   }
   // Explicit selectors win; otherwise the active workspace's exact scope, never the host cwd's.
@@ -76,6 +93,8 @@ export async function run({ positionals, options }) {
     localOnly: !attached, attachedFromRemote: attached, open: opened.value, session: status.value,
     context: context.value, nextsteps: next.value
   };
+  if (options['for-agent']) Object.assign(result, { ready: true,
+    agentInstruction: 'Reuse the verified open/session binding, brief and nextsteps in this result. Do not repeat pause, workspace, session, context or nextsteps lookups merely to obtain the same fields. Selection changes and later operation-specific readiness/consent still require fresh checks.' });
   if (json) return console.log(JSON.stringify(result, null, 2));
   console.log(`${workId} is ready at ${checkout} (${attached ? 'attached from the remote' : 'local checkout, no remote sync'}).`);
   console.log(`Agent: ${agent ?? 'none (Story complete)'} · phase: ${opened.value.phase ?? status.value.phase ?? '—'} · commit: ${String(opened.value.head ?? '').slice(0, 8) || '—'}`);

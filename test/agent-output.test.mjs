@@ -21,6 +21,9 @@ const digest = `sha256:${'e'.repeat(64)}`;
 
 test('act reads each result by its own fields and never invents a next action', () => {
   assert.equal(agentAct({ paused: true }).state, 'paused');
+  assert.equal(agentAct({ resultType: 'session-open', status: 'choose' }).state, 'ask-person');
+  assert.equal(agentAct({ resultType: 'session-open', status: 'ready' }).do, null,
+    'opening a session never authorizes another skill in the session-only turn');
   assert.deepEqual(agentAct({ resultType: 'sflow-phase-entry', status: 'authoring-entry', phase: 'implementation' }).do, null,
     'authoring is the skill\'s own step, never a next action to relay');
   assert.equal(agentAct({ resultType: 'sflow-phase-entry', status: 'clarification-required' }).state, 'ask-person');

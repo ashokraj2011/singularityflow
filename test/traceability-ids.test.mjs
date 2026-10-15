@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  GOVERNED_CLAUSE_TYPES, normalizeQualifiedClauseId, scanSourceClauseTags
-} from '../src/traceability-ids.mjs';
+import { GOVERNED_CLAUSE_TYPES, normalizeQualifiedClauseId } from '../src/traceability-ids.mjs';
+import { scanSourceClauseTags } from '../src/source-clause-tags.mjs';
 import { isQualifiedAcceptanceId, acceptanceTagsInComment } from '../src/verification/tags.mjs';
 import { javascriptSourceComments } from '../src/javascript-source-comments.mjs';
 import { scanJavaScriptDeclarations } from '../src/verification/javascript-declarations.mjs';

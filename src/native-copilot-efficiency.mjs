@@ -1,5 +1,6 @@
 import { constants } from 'node:fs';
 import { open, lstat } from 'node:fs/promises';
+import { compareCopilotMeasurements, measurementSummary, nativeCopilotMeasurements } from './native-copilot-measurements.mjs';
 
 const LOOKUP = /^(?:singularity-flow )?(?:pause status|session current|status|clarification status|story references verify)(?:\s|$)/u;
 
@@ -9,6 +10,7 @@ export function summarizeNativeCopilotTrace(trace, { oversizedBytes = 16384 } = 
     throw new Error('Expected schemaVersion 1 and at most 10000 exported tool events.');
   }
   const phases = new Map(), packets = [], duplicates = [], reads = new Map(), lookups = new Set();
+  const durations = [];
   let responseBytes = 0, durationMsSum = 0, timedEvents = 0, usageEvents = 0, inputTokens = 0, outputTokens = 0, documentReads = 0;
   for (const [index, event] of trace.events.entries()) {
     if (!event || typeof event !== 'object' || typeof event.command !== 'string'
@@ -20,9 +22,15 @@ export function summarizeNativeCopilotTrace(trace, { oversizedBytes = 16384 } = 
     row.toolCalls++; row.responseBytes += event.responseBytes; phases.set(phase, row);
     responseBytes += event.responseBytes;
     if (Number.isFinite(event.durationMs) && event.durationMs >= 0) { durationMsSum += event.durationMs; timedEvents++; }
+    if (event.durationMs != null) {
+      if (!Number.isFinite(event.durationMs) || event.durationMs < 0) throw new Error(`Invalid duration in tool event ${index}.`);
+      durations.push(event.durationMs);
+    }
+    if (!Number.isSafeInteger(responseBytes) || !Number.isFinite(durationMsSum)) throw new Error('Trace totals exceeded their numeric bounds.');
     if (Number.isSafeInteger(event.usage?.inputTokens) && event.usage.inputTokens >= 0
         && Number.isSafeInteger(event.usage?.outputTokens) && event.usage.outputTokens >= 0) {
       inputTokens += event.usage.inputTokens; outputTokens += event.usage.outputTokens; usageEvents++;
+      if (!Number.isSafeInteger(inputTokens) || !Number.isSafeInteger(outputTokens)) throw new Error('Usage totals exceeded their numeric bounds.');
     }
     if (event.responseBytes > oversizedBytes) packets.push({ index, phase, bytes: event.responseBytes,
       exactReviewMaterial: event.exactReviewMaterial === true });
@@ -51,6 +59,8 @@ export function summarizeNativeCopilotTrace(trace, { oversizedBytes = 16384 } = 
       && new Set(expected).size === expected.length && Array.isArray(completed)
       && JSON.stringify(expected) === JSON.stringify(completed),
     toolCalls: trace.events.length, responseBytes, durationMsSum, timedEvents,
+    toolDurationMs: measurementSummary(durations),
+    measurements: nativeCopilotMeasurements(trace.events, trace.wallClock),
     phases: [...phases.values()], documentReads, completeDocumentBindings: reads.size,
     oversizedPackets: packets, duplicateCandidates: duplicates,
     providerUsage: usageEvents ? { inputTokens, outputTokens, usageEvents,
@@ -58,7 +68,13 @@ export function summarizeNativeCopilotTrace(trace, { oversizedBytes = 16384 } = 
     billedSavings: null,
     limitations: ['Completion and usage are reported by the exported trace, not independently attested.',
       'Response bytes are not provider tokens; summed tool durations are not wall-clock Story latency.',
+      'Absent measurements are unknown, not zero. Layer timings may overlap and must not be added.',
       'Duplicate candidates require review; fresh bindings, exact review material and consent must not be skipped.'] };
+}
+
+export function compareNativeCopilotTraces(beforeTrace, afterTrace) {
+  const before = summarizeNativeCopilotTrace(beforeTrace), after = summarizeNativeCopilotTrace(afterTrace);
+  return compareCopilotMeasurements(beforeTrace, afterTrace, before, after);
 }
 
 export async function readNativeCopilotTrace(file) {

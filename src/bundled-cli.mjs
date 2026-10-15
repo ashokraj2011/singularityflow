@@ -14,21 +14,32 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-/** The bundled CLI module URL to import, or null to run from `src/`. */
-export function bundledCliUrl(installRoot, env = process.env) {
+/** A known entry from the exact stamped bundle, or null to use its source counterpart. */
+function bundledEntryUrl(installRoot, entry, env) {
   if (String(env.SINGULARITY_FLOW_BUNDLE ?? '').toLowerCase() === 'off') return null;
   const forced = String(env.SINGULARITY_FLOW_BUNDLE_DIR ?? '').trim();
   const directory = forced ? path.resolve(forced) : path.join(installRoot, 'bundle');
   try {
     const manifest = JSON.parse(readFileSync(path.join(directory, 'manifest.json'), 'utf8'));
-    if (manifest?.format !== 1 || !Array.isArray(manifest.entries) || !manifest.entries.includes('cli.mjs')) return null;
+    if (manifest?.format !== 1 || !Array.isArray(manifest.entries)
+        || !manifest.entries.includes('cli.mjs') || !manifest.entries.includes(entry)) return null;
     if (!forced) {
       if (manifest.stamped !== true) return null;
       const buildInfo = readFileSync(path.join(installRoot, 'src', 'build-info.mjs'));
       if (manifest.buildInfoSha256 !== `sha256:${createHash('sha256').update(buildInfo).digest('hex')}`) return null;
     }
-    return pathToFileURL(path.join(directory, 'cli.mjs')).href;
+    return pathToFileURL(path.join(directory, entry)).href;
   } catch {
     return null;
   }
+}
+
+/** The bundled CLI module URL to import, or null to run from src/. */
+export function bundledCliUrl(installRoot, env = process.env) {
+  return bundledEntryUrl(installRoot, 'cli.mjs', env);
+}
+
+/** Same build/stamp rules; an older bundle without a hook entry uses the source hook runtime. */
+export function bundledCopilotHookUrl(installRoot, env = process.env) {
+  return bundledEntryUrl(installRoot, 'copilot-hook-runtime.mjs', env);
 }

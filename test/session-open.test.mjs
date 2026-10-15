@@ -6,6 +6,12 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { readFileSync } from 'node:fs';
+
+function completeAgentResult(text) {
+  const result = JSON.parse(text);
+  return result.agentOutput?.path ? JSON.parse(readFileSync(result.agentOutput.path, 'utf8')) : result;
+}
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -57,6 +63,20 @@ test('session open lists the Stories without an ID and opens one with its status
   assert.ok(opened.context, 'the brief context is included');
   assert.ok(opened.nextsteps, 'the next steps are included');
   assert.ok(opened.repositoryPath);
+
+  const compact = must(process.execPath, [cli, 'session', 'open', 'OPEN-1', '--for-agent', '--json']).stdout;
+  assert.ok(Buffer.byteLength(compact) <= 16000, 'the native host receives a bounded packet');
+  const packet = JSON.parse(compact);
+  const compactFull = completeAgentResult(compact);
+  assert.equal(compactFull.ready, true);
+  assert.equal(compactFull.workId, opened.workId);
+  assert.equal(compactFull.repositoryPath, opened.repositoryPath);
+  assert.equal(compactFull.session.ready, true);
+  assert.equal(packet.act.state, 'next');
+  assert.match(compactFull.agentInstruction, /Do not repeat pause, workspace, session/u);
+  const compactChoose = JSON.parse(must(process.execPath, [cli, 'session', 'open', '--for-agent', '--json']).stdout);
+  assert.equal(compactChoose.act.state, 'ask-person');
+  assert.equal(compactChoose.status, 'choose');
 
   const text = must(process.execPath, [cli, 'session', 'open', 'OPEN-1']).stdout;
   assert.match(text, /^OPEN-1 is ready at /);

@@ -74,6 +74,22 @@ test('registered process owners are separate from frozen legacy allowance', () =
   assert.deepEqual(compareWithBaseline(actual, {}), []);
 });
 
+test('the hook benchmark freezes one bounded Node launch, not a new general process owner', async () => {
+  const file = 'src/copilot-hook-benchmark.mjs';
+  assert.equal(REGISTERED_OWNERS.includes(file), false);
+  const source = await readFile(new URL(`../${file}`, import.meta.url), 'utf8');
+  const baseline = JSON.parse(await readFile(new URL('../scripts/git-bypass-baseline.json', import.meta.url), 'utf8')).sites[file];
+  const sites = collectExecutionSites(source, file);
+  assert.deepEqual(compareWithBaseline({ [file]: sites }, { [file]: baseline }), []);
+  assert.equal(sites.filter(site => site.id.startsWith('process-launch:')).length, 1);
+  assert.match(source, /spawnSync\(process\.execPath, \[\.\.\.imports, LAUNCHER, action, CLI\]/u);
+  assert.match(source, /timeout: 30000, maxBuffer: 1024 \* 1024/u);
+  assert.match(source, /SINGULARITY_FLOW_NO_MODEL: '1'/u);
+  const changed = source.replace('spawnSync(process.execPath,', 'spawnSync(unreviewedExecutable,');
+  assert.match(compareWithBaseline({ [file]: collectExecutionSites(changed, file) }, { [file]: baseline })[0],
+    /differ from reviewed baseline/u);
+});
+
 test('Docker hash candidate remains a frozen process site, not a registered owner', async () => {
   const file = 'src/skp-docker-hash-probe.mjs';
   assert.equal(REGISTERED_OWNERS.includes(file), false);

@@ -22,6 +22,8 @@ import { lstat, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { parseYamlText } from './yaml-parse-cache.mjs';
+import { scopedCatalogRead } from './catalog-read-scope.mjs';
+import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { SingularityFlowError, secureRepositoryPath } from './util.mjs';
 import { instructionReferences, resolveSkillInstructions, guidanceTags } from './instruction-library.mjs';
 import { inlineInstructionTags, instructionSlots, skillInstructionIds } from './skill-instruction-composition.mjs';
@@ -143,6 +145,13 @@ export async function readLibrarySkill(configRoot, id) {
 
 /** Every skill in the library, by ID, and why any folder there is not a usable skill. */
 export async function loadSkillLibrary(configRoot) {
+  // The reads below follow an approved-configuration overlay, so the overlay is part of the identity,
+  // as it is for agents: a working-tree read must never answer for the approved one.
+  return scopedCatalogRead(JSON.stringify(['skills', path.resolve(configRoot), configurationReadRoot(configRoot)]),
+    () => loadSkillLibrarySnapshot(configRoot));
+}
+
+async function loadSkillLibrarySnapshot(configRoot) {
   const skills = new Map();
   const problems = [];
   const directory = path.join(configRoot, SKILL_LIBRARY_ROOT);

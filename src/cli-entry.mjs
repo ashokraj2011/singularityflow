@@ -654,6 +654,18 @@ async function runMain(argv) {
       argvHash: `sha256:${argvSha256}`, command: 'pause', startedAt: new Date().toISOString() },
     async () => (await import('./commands/pause.mjs')).run(effectiveArgv, { positionals, options, operation }));
   }
+  // /sf-session uses this composed entry instead of a separate pause/workspace preflight. Serve
+  // pause before root discovery or product gates, including a broken or absent Git installation.
+  if (definition.name === 'session' && positionals[1] === 'open') {
+    const { validateSessionOpenRequest, pausedSessionOpenResult } = await import('./commands/session-open.mjs');
+    validateSessionOpenRequest({ positionals, options });
+    const mode = readCopilotMode();
+    if (mode.paused) {
+      const result = pausedSessionOpenResult(copilotModePresentation(mode).agentInstruction);
+      return console.log(options.json ? JSON.stringify(result, null, 2)
+        : 'Singularity Flow guidance is paused. Resume it with /sf-pause off.');
+    }
+  }
   // Host hooks are machine-local dispatch: SDK chats commonly have a non-Git cwd. Discovery
   // guards must not perform routing, telemetry or product migrations just to return no decision.
   if (definition.name === 'hook') {
@@ -669,7 +681,7 @@ async function runMain(argv) {
   }
   const phaseEntry = definition.name === 'phase' && positionals[1] === 'enter';
   if (phaseEntry) (await import('./commands/phase.mjs')).validatePhaseEntryRequest({ positionals, options });
-  if (definition.name === 'session' && options['for-agent'] !== undefined) {
+  if (definition.name === 'session' && positionals[1] !== 'open' && options['for-agent'] !== undefined) {
     const paused = (await import('./session-agent-entry.mjs')).sessionAgentEntryGuard(positionals, options);
     if (paused) return console.log(JSON.stringify(paused));
   }

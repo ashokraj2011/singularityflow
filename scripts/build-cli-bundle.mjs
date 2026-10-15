@@ -29,6 +29,7 @@ export const CLI_BUNDLE_FORMAT = 1;
 // configuration read/sync clients start these workers from their own directory).
 export const CLI_BUNDLE_ENTRIES = Object.freeze({
   cli: 'src/cli-bundle-entry.mjs',
+  'copilot-hook-runtime': 'src/copilot-hook-runtime.mjs',
   'history-index-worker': 'src/history-index-worker.mjs',
   'configuration-read-worker': 'src/configuration-read-worker.mjs',
   'configuration-proposal-sync-worker': 'src/configuration-proposal-sync-worker.mjs'

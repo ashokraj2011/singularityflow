@@ -93,7 +93,9 @@ export async function repositoryToolGuard(payload = {}) {
   if (!(await hasBoundaryTurn(payload))) return {};
   try {
     const mutation = await (await import('./copilot-mutation-guard.mjs')).mutationToolGuard(payload);
-    return mutation.permissionDecision === 'deny' ? mutation : repositoryDiscoveryGuard(payload);
+    // Awaited here, so a failing discovery guard denies like any other guard failure instead of
+    // escaping this catch to the hook's outer handler, which answers with no decision.
+    return mutation.permissionDecision === 'deny' ? mutation : await repositoryDiscoveryGuard(payload);
   } catch { return boundaryGuardUnavailable(); }
 }
 

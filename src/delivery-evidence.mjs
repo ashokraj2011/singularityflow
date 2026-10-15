@@ -18,7 +18,7 @@ import {
   validateAutoCandidateVerification
 } from './auto/auto-candidate.mjs';
 import { evaluateStoryProtectedPaths } from './configuration-materialization.mjs';
-import { committedFilesAtRevisions, exactChangedPathsBetweenObjects, exactFileAtObject, isAncestor } from './git.mjs';
+import { committedFilesAtRevisions, exactChangedPathsBetweenObjects, exactFileAtObject, isAncestor, prefetchExactObjectFiles } from './git.mjs';
 import { canonicalJson } from './records.mjs';
 import { normalizeSourceBoundary } from './source-boundary.mjs';
 import { configurationPathKind, isConfigurationPath } from './configuration-paths.mjs';
@@ -31,14 +31,15 @@ import {
 import {
   commandCovering, discoverDeclarations, profileForCommand, profileIsExact, testAdapterProfile
 } from './verification/adapters.mjs';
-import { normalizeQualifiedClauseId, scanSourceClauseTags } from './traceability-ids.mjs';
+import { normalizeQualifiedClauseId } from './traceability-ids.mjs';
+import { scanSourceClauseTags } from './source-clause-tags.mjs';
 import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
 import { contractRequiresTestTag, effectiveContract, mergedVerificationContracts } from './verification/contracts.mjs';
 import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
 import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
-import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
+import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot, SUBPROCESS_MAX_BUFFER_BYTES } from './util.mjs';
 import { committedChangedPaths, trackedPaths, worktreePatchMatching } from './git.mjs';
 import {
   applicationChangeSetProjection, applicationPathContext, isApplicationChangeEntry, isApplicationPath,
@@ -1573,6 +1574,41 @@ function safeEvidencePath(value) {
     && !candidate.split('/').some((segment) => !segment || segment === '.' || segment === '..');
 }
 
+/** Optional immutable read-ahead only; hashes, schemas and verdicts are still checked on replay. */
+function prefetchTestReplay(root, evidenceCommit, executions) {
+  const empty = () => ({ receipts: new Map(), records: new Map(), reports: new Map() });
+  if (!evidenceCommit || !Number.isSafeInteger(SUBPROCESS_MAX_BUFFER_BYTES) || SUBPROCESS_MAX_BUFFER_BYTES <= 0) return empty();
+  const maximumObjectBytes = Math.min(16 * 1024 * 1024, SUBPROCESS_MAX_BUFFER_BYTES);
+  const regular = executions.filter(execution => execution.kind !== 'phase-validation-observation');
+  const receipts = prefetchExactObjectFiles(root, evidenceCommit,
+    regular.map(execution => execution.receiptPath).filter(safeEvidencePath), { maximumObjectBytes });
+  const records = new Map();
+  const paths = new Set();
+  for (const execution of regular) {
+    const bytes = receipts.get(execution.receiptPath);
+    if (!bytes) continue;
+    try {
+      let record = records.get(execution.receiptPath);
+      if (!records.has(execution.receiptPath)) {
+        record = JSON.parse(bytes.toString('utf8'));
+        records.set(execution.receiptPath, record);
+      }
+      // Do not discover paths from an unbound or malformed record. This is not test acceptance:
+      // the original replay below still checks identity, candidate, adapter results and policy.
+      if (receiptDigest(record) !== String(execution.receiptSha256 ?? '').replace(/^sha256:/u, '')) continue;
+      const testReceipt = readRecord('test-execution', record).record;
+      const extension = ['junit-xml', 'dotnet-trx'].includes(testReceipt.adapter) ? '.xml' : '.bin';
+      for (const report of testReceipt.rawReports ?? []) {
+        if (safeEvidencePath(report.path) && /^[0-9a-f]{64}$/u.test(report.sha256 ?? '')
+            && Number.isInteger(report.bytes) && report.bytes >= 0 && report.bytes <= maximumObjectBytes
+            && report.path.includes('/context/code-delivery/tests/raw/')
+            && report.path.endsWith(`/${report.sha256}${extension}`)) paths.add(report.path);
+      }
+    } catch { /* malformed/unavailable records take their ordinary diagnostic route below */ }
+  }
+  return { receipts, records, reports: prefetchExactObjectFiles(root, evidenceCommit, [...paths], { maximumObjectBytes }) };
+}
+
 const MODEL_ASSURANCE_RANK = Object.freeze({
   unavailable: 0, 'host-observed': 1, 'provider-reported': 2, 'policy-selected': 3
 });
@@ -1677,6 +1713,26 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     }
   }
 
+  // The same committed file often backs many clauses. Prefetch only the recorded generation's
+  // source/test bytes; current worktree, authority, regular-file and final verdict checks remain
+  // at their original boundaries. Missing/oversized/unsupported batch answers take the old read.
+  const array = value => Array.isArray(value) ? value : [];
+  const generationFiles = prefetchExactObjectFiles(root, generationCommit, [
+    ...array(receipt.implementationBindings?.bindings).map(binding => binding?.explanation?.path),
+    ...array(receipt.fulfillment?.obligations).filter(item => item?.fulfillment !== 'evidence')
+      .flatMap(item => array(item?.paths).map(entry => entry?.path)),
+    ...array(receipt.traceability?.witnesses).map(witness => witness?.testSource),
+    ...array(sourceBindingPolicy === 'enforce' ? receipt.traceability?.sourceBindings : []).map(binding => binding?.sourcePath)
+  ].filter(file => safeEvidencePath(file)));
+  const readGenerationFile = (file, options = {}) => {
+    const bytes = generationFiles.get(file);
+    return !options.regularOnly && bytes && bytes.length <= (options.maximumBytes ?? 1024 * 1024)
+      ? bytes : exactFileAtObject(root, generationCommit, file, options);
+  };
+  const explanationLines = new Map();
+  const declarationIndexes = new Map();
+  const sourceTagIndexes = new Map();
+
   // The bindings a reviewer approves are exactly the recorded ones, and every explanation is still
   // on its tag line in the committed generation [E2G-011].
   if (receipt.implementationBindings) {
@@ -1687,8 +1743,9 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
       const explanation = binding.explanation;
       if (explanation == null) continue;
       const text = typeof explanation.text === 'string' ? explanation.text : '';
-      const bytes = generationCommit && safeEvidencePath(explanation.path) ? exactFileAtObject(root, generationCommit, explanation.path) : null;
-      const line = bytes?.toString('utf8').split(/\r?\n/u)[Number(explanation.line) - 1];
+      const bytes = generationCommit && safeEvidencePath(explanation.path) ? readGenerationFile(explanation.path) : null;
+      if (bytes && !explanationLines.has(explanation.path)) explanationLines.set(explanation.path, bytes.toString('utf8').split(/\r?\n/u));
+      const line = bytes ? explanationLines.get(explanation.path)?.[Number(explanation.line) - 1] : null;
       if (text.length < EXPLANATION_LIMITS.minimum || !line || !(clauseTagExplanation(line, binding.clauseId) ?? '').startsWith(text)) {
         fail(`the explanation of ${binding.clauseId} is not on its tag line in the generation`);
       }
@@ -1699,7 +1756,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     for (const entry of obligation?.paths ?? []) {
       if (!safeEvidencePath(entry?.path)) { fail(`fulfillment evidence for ${obligation?.clauseId ?? 'unknown'} names an unsafe path`); continue; }
       if (!generationCommit) continue;
-      const bytes = exactFileAtObject(root, generationCommit, entry.path, obligation.fulfillment === 'evidence'
+      const bytes = readGenerationFile(entry.path, obligation.fulfillment === 'evidence'
         ? { regularOnly: true, maximumBytes: 16 * 1024 * 1024 } : {});
       if (['existing', 'evidence'].includes(obligation.fulfillment)) {
         if (entry.state !== 'present' || !bytes || createHash('sha256').update(bytes).digest('hex') !== entry.sha256) {
@@ -1732,11 +1789,26 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   // revision and its tag must still be what publication recorded [E2G-015].
   for (const witness of traceability.witnesses ?? []) {
     if (!witness?.identity || !['jest-static-v2', 'vitest-static-v2', 'node-test-v1'].includes(witness.profile)) continue;
-    const bytes = generationCommit && safeEvidencePath(witness.testSource) ? exactFileAtObject(root, generationCommit, witness.testSource) : null;
+    const bytes = generationCommit && safeEvidencePath(witness.testSource) ? readGenerationFile(witness.testSource) : null;
     let declaration = null;
     try {
-      declaration = bytes ? scanJavaScriptDeclarations(bytes.toString('utf8'), { sourcePath: witness.testSource, framework: witness.identity.framework })
-        .declarations.find((entry) => entry.logicalTestId === witness.logicalTestId) ?? null : null;
+      if (bytes) {
+        const framework = witness.identity.framework;
+        const key = typeof framework === 'string' ? JSON.stringify([witness.testSource, framework]) : null;
+        if (!key) {
+          declaration = scanJavaScriptDeclarations(bytes.toString('utf8'), { sourcePath: witness.testSource, framework })
+            .declarations.find(entry => entry.logicalTestId === witness.logicalTestId) ?? null;
+        } else if (!declarationIndexes.has(key)) {
+          const index = new Map();
+          for (const entry of scanJavaScriptDeclarations(bytes.toString('utf8'), {
+            sourcePath: witness.testSource, framework
+          }).declarations) {
+            if (!index.has(entry.logicalTestId)) index.set(entry.logicalTestId, entry);
+          }
+          declarationIndexes.set(key, index);
+        }
+        if (key) declaration = declarationIndexes.get(key).get(witness.logicalTestId) ?? null;
+      }
     } catch { declaration = null; }
     if (!declaration || declaration.declarationSha256 !== witness.declarationSha256 || !declaration.clauseIds.includes(witness.clauseId)
         || (witness.profile === 'node-test-v1' && (declaration.line !== witness.line || declaration.gaps.length))) {
@@ -1778,7 +1850,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
         let historical;
         try {
           historical = generationCommit
-            ? exactFileAtObject(root, generationCommit, sourcePath, { maximumBytes: MAX_BOUND_SOURCE_BYTES })
+            ? readGenerationFile(sourcePath, { maximumBytes: MAX_BOUND_SOURCE_BYTES })
             : null;
         } catch (error) {
           fail(`source-clause binding ${clauseId} at ${sourcePath} could not be read: ${error.message}`);
@@ -1788,15 +1860,20 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
           if (historical) {
             fail(`planned deletion ${sourcePath} for ${clauseId} still exists in the generation commit`);
           }
-        } else if (!historical
-            || !scanSourceClauseTags(historical.toString('utf8'), { sourcePath }).some((tag) =>
-              tag.clauseId === clauseId && tag.line === binding.line && tag.tag === 'clause')) {
-          fail(`source-clause binding ${clauseId} at ${sourcePath}:${binding.line} does not replay from the generation commit`);
+        } else {
+          if (historical && !sourceTagIndexes.has(sourcePath)) {
+            sourceTagIndexes.set(sourcePath, new Set(scanSourceClauseTags(historical.toString('utf8'), { sourcePath })
+              .filter(tag => tag.tag === 'clause').map(tag => JSON.stringify([tag.clauseId, tag.line]))));
+          }
+          if (!historical || !sourceTagIndexes.get(sourcePath)?.has(JSON.stringify([clauseId, binding.line]))) {
+            fail(`source-clause binding ${clauseId} at ${sourcePath}:${binding.line} does not replay from the generation commit`);
+          }
         }
       }
     }
   }
 
+  const replayFiles = prefetchTestReplay(root, evidenceCommit, receipt.testExecutions ?? []);
   const executions = new Map();
   for (const execution of receipt.testExecutions ?? []) {
     if (execution.kind === 'phase-validation-observation') {
@@ -1833,16 +1910,18 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     }
     let testReceipt;
     try {
-      const source = evidenceCommit
+      const prefetched = replayFiles.receipts.get(execution.receiptPath);
+      const source = evidenceCommit && !prefetched
         ? run('git', ['show', `${evidenceCommit}:${execution.receiptPath}`], {
           cwd: root, allowFailure: true, encoding: 'buffer'
         })
         : null;
       if (source && source.status !== 0) throw new Error(`not present in evidence commit ${evidenceCommit}`);
-      const storedBytes = source
+      const storedBytes = prefetched ?? (source
         ? source.stdout
-        : await readDurableTestObservation(root, execution.receiptPath);
-      const storedRecord = JSON.parse(Buffer.isBuffer(storedBytes) ? storedBytes.toString('utf8') : storedBytes);
+        : await readDurableTestObservation(root, execution.receiptPath));
+      const storedRecord = replayFiles.records.has(execution.receiptPath) ? replayFiles.records.get(execution.receiptPath)
+        : JSON.parse(Buffer.isBuffer(storedBytes) ? storedBytes.toString('utf8') : storedBytes);
       if (receiptDigest(storedRecord) !== String(execution.receiptSha256 ?? '').replace(/^sha256:/, '')) {
         fail(`test receipt ${execution.commandId} differs from its bound digest`);
       }
@@ -1882,7 +1961,9 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
       referencedPaths.add(report.path);
       try {
         let bytes;
-        if (evidenceCommit) {
+        const prefetched = replayFiles.reports.get(report.path);
+        if (prefetched) bytes = prefetched;
+        else if (evidenceCommit) {
           const raw = run('git', ['show', `${evidenceCommit}:${report.path}`], {
             cwd: root, allowFailure: true, encoding: 'buffer'
           });

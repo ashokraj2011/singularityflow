@@ -1036,7 +1036,7 @@ function assertPublishedDocumentationBaseline(root, config, workflow, phase, pri
 }
 
 /** Refuse a code phase before generation state or telemetry is mutated. */
-export async function evaluateCodeDeliveryPreflight(root, config, workflow, phase, { strictCoverage = false } = {}) {
+export async function evaluateCodeDeliveryPreflight(root, config, workflow, phase, { strictCoverage = false, ignoreDisputes = false } = {}) {
   if (!phaseRequiresCodeDelivery(phase)) return null;
   if ((phase.writeScope ?? 'artifact-only') !== 'source-and-artifact') {
     throw new SingularityFlowError(
@@ -1305,7 +1305,13 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     errors.push(`planned product source does not contain required clause comments: ${sourceBindings.missing
       .map(({ clauseId, expectedPaths, otherStoryTags }) => `@clause:${clauseId} in ${expectedPaths.join(' or ')}${otherStoryTagsNote(otherStoryTags)}`).join('; ')}`);
   }
-  if (errors.length) {
+  // The step's approvers may accept these exact problems for this exact candidate as a disputed
+  // finding [recoverable-findings M2]; anything else, or any change, still refuses.
+  const candidateSha256 = errors.length ? (await import('./phase-finding-dispute.mjs')).codeDeliveryCandidateSha256(applicationEntries) : null;
+  const acceptedDispute = errors.length && !unknownCriteria.length && !ignoreDisputes
+    ? (await (await import('./phase-finding-dispute.mjs')).codeDeliveryDisputeStatus(root, config, workflow, phase,
+      { problems: errors, candidateSha256 })).active : null;
+  if (errors.length && !acceptedDispute) {
     const unknown = unknownCriteria.length > 0;
     // Without an index, a criterion the step owes is named only by an earlier artifact's text, so no
     // tag edit can make its exactly read test reviewable.
@@ -1328,6 +1334,8 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
             recoveryCommands: [`singularity-flow phase prepublish ${phase.id} --json`]
           } : {}),
           sourceBindingsMissing: sourceBindings.missing, explanationsMissing: bound?.explanationsMissing ?? [],
+          // The exact problems and candidate a dispute would bind to (appeal risk-prepare --finding).
+          ...(!unknown ? { problems: [...errors], candidateSha256 } : {}),
           // Each planned evidence file this step owes but has not produced, so recovery can name
           // the file and its route instead of a prose-only shortfall.
           retainedEvidenceMissing: fulfillment.obligations.filter((entry) => entry.fulfillment === 'evidence')
@@ -1411,6 +1419,9 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     fulfillment: fulfillment.obligations,
     implementationBindings: bound ? { bindings: bound.bindings, bindingsSha256: bound.bindingsSha256 } : null
   };
+  // Shown to whoever reads the result; not serialized into the delivery receipt, whose record
+  // family is versioned separately. The dispute itself is the retained, reviewed record.
+  if (acceptedDispute) Object.defineProperty(delivery, 'acceptedDispute', { value: acceptedDispute });
   // The preview loads bound Story records; defer that dependency until the kernel is initialized.
   const { assertCandidateSpecificationCoverage, assertStrictCandidateSpecificationCoverage } = await import('./spec-coverage-preview.mjs');
   try { await (strictCoverage ? assertStrictCandidateSpecificationCoverage : assertCandidateSpecificationCoverage)(root, config, workflow, phase, delivery); }

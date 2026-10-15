@@ -14,6 +14,7 @@ import { publishedGenerationCommit } from './generation-publication-store.mjs';
 import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { pendingCodeSubmissionEvidence } from './code-submission-evidence.mjs';
 import { ArtifactRiskPacketSchema, ArtifactRiskDecisionSchema } from './phase-artifact-risk-schema.mjs';
+import { DISPUTABLE_GATES, FindingDisputeDecisionSchema, FindingDisputePacketSchema, isFindingDispute } from './phase-finding-dispute-schema.mjs';
 import { isArtifactQualityFinding, phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { terminalTransitionAt } from './workflow-terminal-time.mjs';
 
@@ -40,8 +41,11 @@ const revocationSchema = z.object({ kind: z.literal('phase-quality-risk-revocati
   authorityGroup: z.string().min(1), authorizationId: z.string().min(1), at: z.string().datetime() }).strict();
 // Closed policy variants, not a lossy upgrade of a coverage decision into a document decision.
 const isArtifactRisk = record => record?.gate === 'PHASE_ARTIFACT_QUALITY';
-const riskPacketSchema = record => isArtifactRisk(record) ? ArtifactRiskPacketSchema : packetSchema;
-const riskDecisionSchema = record => isArtifactRisk(record) ? ArtifactRiskDecisionSchema : decisionSchema;
+// A disputed finding (schema 3) is the step's approvers' exception to one exact gate result.
+const riskPacketSchema = record => isFindingDispute(record) ? FindingDisputePacketSchema
+  : isArtifactRisk(record) ? ArtifactRiskPacketSchema : packetSchema;
+const riskDecisionSchema = record => isFindingDispute(record) ? FindingDisputeDecisionSchema
+  : isArtifactRisk(record) ? ArtifactRiskDecisionSchema : decisionSchema;
 
 export function normalizeQualityGateMode(value = 'hard') {
   if (!['hard', 'soft'].includes(value)) fail('Gate mode must be hard or soft. Soft mode still requires a specific authorized human risk decision.');
@@ -84,6 +88,9 @@ export function validateQualityRiskPacket(packet) {
   const { packetSha256, ...core } = parsed.data;
   if (digest(core) !== packetSha256 || new Set(packet.clauses).size !== packet.clauses.length
       || new Set(packet.transitions).size !== packet.transitions.length
+      || (isFindingDispute(packet) && (digest(packet.problems) !== packet.observationSha256
+        || new Set(packet.problems).size !== packet.problems.length
+        || new Set(packet.evidence.map(item => item.path)).size !== packet.evidence.length))
       || (isArtifactRisk(packet) && (digest(packet.findings) !== packet.observationSha256
         || new Set(packet.findings.map(finding => canonicalJson(finding))).size !== packet.findings.length
         || packet.findings.some(finding => !isArtifactQualityFinding(finding)
@@ -238,7 +245,7 @@ export async function inspectPhaseQualityGate(root, config, workflow, phase, { t
 }
 
 export async function prepareQualityRisk(root, config, workflow, { phaseId = workflow.currentPhase,
-  gateMode, clauses = [], findings = [], transitions, expires, reason } = {}) {
+  gateMode, clauses = [], findings = [], transitions, expires, reason, evidence = [] } = {}) {
   const phase = workflow.phases?.[phaseId];
   if (workflow.status !== 'in_progress'
       || !['in_progress', 'awaiting_approval', 'approved'].includes(phase?.status)
@@ -246,6 +253,15 @@ export async function prepareQualityRisk(root, config, workflow, { phaseId = wor
         && (phaseRequiresCodeDelivery(phase) || phaseId !== workflow.currentPhase))) {
     fail('Select an open code candidate, published, submitted or approved phase on an active Story.', 'PHASE_QUALITY_RISK_LIFECYCLE');
   }
+  // A disputed gate result: the step's approvers' exception on attached evidence, not a pilot risk.
+  if (findings.some(code => DISPUTABLE_GATES.includes(code))) {
+    if (findings.length !== 1 || clauses.length || transitions?.some(value => value !== 'publish')) {
+      fail('A dispute names one --finding, attaches --evidence-file paths, and covers the open candidate\'s publication only.', 'PHASE_FINDING_DISPUTE_INVALID');
+    }
+    const { prepareCodeDeliveryDispute } = await import('./phase-finding-dispute.mjs');
+    return validateQualityRiskPacket(await prepareCodeDeliveryDispute(root, config, workflow, phase, { evidence, expires, reason }));
+  }
+  if (evidence.length) fail('--evidence-file belongs to a disputed finding; name one with --finding.', 'PHASE_FINDING_DISPUTE_INVALID');
   const mode = normalizeQualityGateMode(gateMode ?? workflow.resolution?.qualityGateMode);
   if (mode !== 'soft') fail('Hard mode does not allow this quality exception. Choose --gate-mode soft explicitly for a reviewed pilot exception on this phase.', 'PHASE_QUALITY_RISK_HARD_MODE');
   if (findings.length || !phaseRequiresCodeDelivery(phase)) {
@@ -299,7 +315,9 @@ export async function acceptQualityRisk(root, config, workflow, options) {
   if (entries.filter(entry => !entry.revokes).length >= MAX_DECISIONS) fail('This Story reached its pilot-risk decision limit. Preserve the audit history and ask its workflow maintainer; existing decisions can still be revoked.', 'PHASE_QUALITY_RISK_INVALID');
   const card = { plan: { planId: id, planHash: digest({ packet, actor, authority }),
     subject: { workId: workflow.workItem.id, phaseId: phase.id }, revision: head(root), packet,
-    consequence: 'Advance with the exact recorded quality shortfall, not a passing proof. Required tests and phase approval are not waived.' },
+    consequence: isFindingDispute(packet)
+      ? 'Publish this exact candidate with the disputed gate result recorded as an accepted exception on the attached evidence, not as passing evidence. Required tests and phase approval are not waived.'
+      : 'Advance with the exact recorded quality shortfall, not a passing proof. Required tests and phase approval are not waived.' },
   action: { actionId: id, confirmation: { required: true } } };
   const grant = await captureTerminalActionAuthorization(root, card.plan, card.action, { label: `Accept risk ${id}` });
   if (!grant) return { status: 'cancelled', stateChanged: false };
@@ -330,6 +348,10 @@ export async function attestQualityRisk(root, config, workflow, { id, confirm } 
   if (!record || confirm !== digest(record)) fail('Select and confirm an exact retained risk decision.', 'PHASE_QUALITY_RISK_STALE');
   const phase = workflow.phases[record.binding.phaseId];
   const inspect = async () => {
+    if (isFindingDispute(record)) {
+      const { inspectCodeDeliveryDisputes } = await import('./phase-finding-dispute.mjs');
+      return inspectCodeDeliveryDisputes(root, config, workflow, phase);
+    }
     if (!isArtifactRisk(record)) return inspectPhaseQualityGate(root, config, workflow, phase);
     const { inspectPhaseAuthoredReviewContent } = await import('./publication-preflight.mjs');
     const { artifactQualityStatus } = await import('./phase-artifact-risk.mjs');

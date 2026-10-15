@@ -28,8 +28,13 @@ Usage:
   singularity-flow appeal repair-plan|repair-status [--phase PHASE] [--json]
   singularity-flow appeal repair-run --confirm PLAN_SHA256 [--phase PHASE] [--json]
   singularity-flow appeal repair-resume [--phase PHASE] [--json]
-  singularity-flow appeal risk-prepare|risk-accept [--phase PHASE] [--gate-mode soft] [--clause EXACT-ID | --finding EXACT-CODE] [--transition publish|submit|approve|consume|terminal] --expires YYYY-MM-DD --reason TEXT [--confirm PACKET_SHA256] [--json]
-  singularity-flow appeal evidence-prepare|evidence-accept --phase PHASE --clause EXACT-AC --path STORY/evidence/FILE --method visual|inspection --reason TEXT [--confirm PACKET_SHA256] [--review-ui] [--json]
+  singularity-flow appeal risk-prepare [--phase PHASE] [--gate-mode soft] [--clause EXACT-ID | --finding EXACT-CODE] [--transition publish|submit|approve|consume|terminal] --expires YYYY-MM-DD --reason TEXT [--json]
+  singularity-flow appeal risk-prepare --phase PHASE --finding CODE_DELIVERY_EVIDENCE_REQUIRED --evidence-file PATH [--evidence-file PATH]... --expires YYYY-MM-DD --reason TEXT [--json]
+  singularity-flow appeal risk-accept [same selectors as risk-prepare] --confirm PACKET_SHA256 [--json]
+  singularity-flow appeal risk-attest PQR-ID --confirm DECISION_SHA256 [--json]
+  singularity-flow appeal risk-revoke PQR-ID --confirm DECISION_SHA256 --reason TEXT [--json]
+  singularity-flow appeal evidence-prepare --phase PHASE --clause EXACT-AC --path STORY/evidence/FILE --method visual|inspection --reason TEXT [--json]
+  singularity-flow appeal evidence-accept [same selectors as evidence-prepare] --confirm PACKET_SHA256 [--review-ui] [--json]
   singularity-flow [--no-model] <command> [options]
     --no-model disables every kernel-owned model invocation. Equivalent: SINGULARITY_FLOW_NO_MODEL=1.
   singularity-flow about

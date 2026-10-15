@@ -6,6 +6,7 @@ import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding } from './phase-finding-policy.mjs';
 import { findingDocumentation } from './finding-catalog.mjs';
+import { DISPUTABLE_GATES } from './phase-finding-dispute-schema.mjs';
 import { upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mjs';
 import { latestStepBefore } from './phase-roles.mjs';
 
@@ -185,7 +186,14 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     resolution = route('owner-escalation', 'workflow-maintainer', ['doctor', '--json'],
       'No automatic repair or waiver is registered for this finding. Give the maintainer this exact finding and preserved-state diagnostics.', '/sf-doctor');
   }
-  const choices = [resolution, ...(upstreamReturn ? [upstreamReturn] : []), recovery];
+  // When the author has delivered everything and the check still misreads it, the step's approvers
+  // can accept the exact finding as an exception on evidence [recoverable-findings M2].
+  const dispute = DISPUTABLE_GATES.includes(phaseFindingCode(finding)) ? route('dispute', 'phase-approval-authority',
+    ['appeal', 'risk-prepare', '--work-id', workId, '--phase', phase.id, '--finding', phaseFindingCode(finding),
+      '--evidence-file', '<PATH>', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
+    'When every listed item is delivered and the finding still returns unchanged, the check is misreading the work: stop repairing and prepare a dispute with the evidence (test output, the test file). One of the step\'s approvers reviews it live and may accept it as an exception for this exact candidate; it is recorded as an exception, never a pass, and tests still run.',
+    '/sf-appeal') : null;
+  const choices = [resolution, ...(dispute ? [dispute] : []), ...(upstreamReturn ? [upstreamReturn] : []), recovery];
   if (isArtifactQualityFinding(finding)) choices.splice(1, 0, route('pilot-risk-review', 'phase-approval-authority',
     ['appeal', 'risk-prepare', '--work-id', workId, '--phase', phase.id, '--finding', phaseFindingCode(finding),
       '--gate-mode', 'soft', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],

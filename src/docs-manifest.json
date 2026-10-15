@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "1bbf6a82305eabbaa010e7db687a5849d1c6888e",
+  "sourceCommit": "b8dfbb6adf1a853025737942026880b794cdc57d",
   "topicCount": 84,
-  "contentSha256": "68aab1f66827e79d0ada786dae26c5360b0b84ff5a7d34b7988f985cc63cc88e",
+  "contentSha256": "a7b3d904e09c43818d06fe10927c601d2e3b7cc107037bbe3fd729781d157f0b",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -240,8 +240,8 @@
     {
       "id": "findings",
       "title": "Findings — what a blocking finding means and how to recover",
-      "version": 1,
-      "sha256": "0ee988d2a069e589e754943794d47a4bc7b88626b955d5fff7c8295dd9ba80a1",
+      "version": 2,
+      "sha256": "1ab857217b61b13113b49c4bf3856d3e496070d5bc20833476ca9fe5336151bf",
       "routingSha256": "63e669eb5eb939fd7ee9a8f6447d098138d7e424eac2ee4ff55901d902118539",
       "file": "findings.md"
     },
@@ -392,8 +392,8 @@
     {
       "id": "phase-appeals",
       "title": "Phase appeals and recoverable blockers",
-      "version": 4,
-      "sha256": "fc0d74606957ca2bd299b5c04e3deaf132da9bcd1245c5e56fee0b42e4445168",
+      "version": 5,
+      "sha256": "e21f414c6f691e7fd737381fb67433d6f632185b9c36c22dcd6349faaa9861b7",
       "routingSha256": "e2a804ba23d067717ab94a3b915334324e81bcc4ec14f67c09990e97295fed67",
       "file": "phase-appeals.md"
     },

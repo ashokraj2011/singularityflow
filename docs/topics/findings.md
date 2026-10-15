@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 1
+version: 2
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -41,7 +41,7 @@ Every finding belongs to one class. A finding without its own entry below is doc
 
 ### author-correction
 
-The step's own author fixes its current draft: the artifact, its tags, its tests or its planned evidence. Fix the listed item in the open generation and recheck with `sflow phase prepublish <PHASE> --json`. Published content needs a successor generation, never an edit in place. If the same finding returns unchanged after a real repair, stop repeating it: the check may be misreading correct work, so name the finding and its evidence to the step's approvers.
+The step's own author fixes its current draft: the artifact, its tags, its tests or its planned evidence. Fix the listed item in the open generation and recheck with `sflow phase prepublish <PHASE> --json`. Published content needs a successor generation, never an edit in place. If the same finding returns unchanged after a real repair, stop repeating it: the check may be misreading correct work. Where its entry offers a dispute, prepare one with the evidence; otherwise name the finding and its evidence to the step's approvers.
 
 ### quality
 
@@ -83,7 +83,7 @@ No automatic repair or decision is registered for this finding. Give the workflo
 
 ### CODE_DELIVERY_EVIDENCE_REQUIRED
 
-The code step's delivery is not publishable: no product source changed, no acceptance test was found, owed `@ac` or `@clause` tags are missing, or a fulfillment obligation is unmet. Common causes: a test that does not run, tags on the wrong line or naming a criterion the specification does not hold, or a test file outside every recognised test folder (the refusal names such a file). Fix the listed items in the open generation and recheck with `sflow phase prepublish <PHASE> --for-agent --json`. When every item is delivered and the finding still returns unchanged, the check is misreading the delivery: stop the repair loop and give the step's approvers the finding with the paths and test output.
+The code step's delivery is not publishable: no product source changed, no acceptance test was found, owed `@ac` or `@clause` tags are missing, or a fulfillment obligation is unmet. Common causes: a test that does not run, tags on the wrong line or naming a criterion the specification does not hold, or a test file outside every recognised test folder (the refusal names such a file). Fix the listed items in the open generation and recheck with `sflow phase prepublish <PHASE> --for-agent --json`. When every item is delivered and the finding still returns unchanged, the check is misreading the delivery: stop the repair loop and dispute it. `sflow appeal risk-prepare --phase <PHASE> --finding CODE_DELIVERY_EVIDENCE_REQUIRED --evidence-file <PATH> --expires <YYYY-MM-DD> --reason <TEXT>` binds the exact problems, this candidate and the evidence (test output, the test file); one of the step's approvers reviews it live with `sflow appeal risk-accept` and the same arguments plus `--confirm`. The gate then publishes this exact candidate with the finding recorded as an exception, never as passing evidence; tests still run, and any change to the candidate or a new problem ends the exception. `sflow appeal risk-revoke` withdraws it.
 
 ### CODE_DELIVERY_RETAINED_EVIDENCE_MISSING
 

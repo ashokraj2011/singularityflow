@@ -1,6 +1,6 @@
 ---
 id: phase-appeals
-version: 4
+version: 5
 title: Phase appeals and recoverable blockers
 summary: Preserve and review exact extra work without silently bypassing tests, intent or configuration authority.
 audience: [developer, approver, administrator]
@@ -41,6 +41,10 @@ The installed finding policy separates author-owned correction, current-phase pr
 `singularity-flow appeal checkpoint --phase PHASE --json` makes content-addressed private recovery copies of dirty files, the primary phase draft, deletion markers and the exact Git index. It does not stage, commit, stash, push, restore files or advance the phase. Owned-producer `repair-run` captures a checkpoint before reserving its repair; the journal retains its ID so interruption does not lose the recovery route. `repair-status` shows retained checkpoint commands.
 
 Inspect a returned ID with `singularity-flow appeal checkpoint-show PCP-ID --phase PHASE --json`. Compare verified recovery copies before a human-reviewed restoration of selected authored files. Never automatically overwrite a current draft, approved record or index. The copies live privately in the Git common directory, scoped to the checkout, Story and phase; Git does not share them. Bounds are 512 paths, 16 MiB per file, 128 MiB total dirty-file bytes and a 64 MiB index. Links, hard links, non-files and larger changes keep their originals and require owner-reviewed backup. No retention pruning or automatic deletion is performed.
+
+### A check that misreads correct work (dispute)
+
+When a code step has delivered everything a finding lists and `CODE_DELIVERY_EVIDENCE_REQUIRED` still returns unchanged, the check is misreading the work, and repeating the repair cannot pass. Dispute it instead: `singularity-flow appeal risk-prepare --phase PHASE --finding CODE_DELIVERY_EVIDENCE_REQUIRED --evidence-file PATH --expires YYYY-MM-DD --reason TEXT` previews a packet bound to the exact problems, the open candidate and up to five evidence files (their hashes and a short excerpt are retained). One of the step's own approvers, never the author or an agent, reviews it live with `singularity-flow appeal risk-accept` and the same arguments plus `--confirm PACKET_SHA256`. The gate then publishes exactly that candidate with the finding recorded as an accepted exception; it is shown in the governance results at submission, approval and the end of the Story, and it is never counted as passing evidence. Tests still run. A changed candidate, a new problem, a new generation, the expiry or `singularity-flow appeal risk-revoke` ends it. `singularity-flow explain findings --section CODE_DELIVERY_EVIDENCE_REQUIRED` describes the finding.
 
 ### Extra work within an existing requirement
 

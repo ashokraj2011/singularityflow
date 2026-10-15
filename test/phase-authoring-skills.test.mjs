@@ -34,7 +34,7 @@ test('existing implementation is completed through summary, planned assertions a
   assert.match(code, /commands\.publish` once when ready/);
   assert.match(code, /successful required tests continue publication/);
   assert.match(code, /Finish summary\/traceability\/prepublish\/publication/);
-  assert.match(code, /Published: handoff, not \/sf-code again/);
+  assert.match(code, /Published: relay `publishIfReady\.next`\./);
   assert.match(code, /Never submit\/approve/);
 });
 

@@ -72,5 +72,5 @@ test('authoring skills relay returned correction and human-risk alternatives wit
     assert.match(content, /authorized human confirmation/, name);
   }
   const code = await readFile(new URL('../plugin/skills/sflow-code/SKILL.md', import.meta.url), 'utf8');
-  assert.match(code, /revision status --json` only when `generation > 0`/);
+  assert.match(code, /revision status --for-agent --json` only when `generation > 0`/);
 });

@@ -5,6 +5,7 @@ import YAML from 'yaml';
 import { classifyPartialCloneResult } from './clone-strategy.mjs';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { refHead } from './git.mjs';
+import { readObjectsBatch } from './git-ref-tree.mjs';
 import { runRemoteGitAsync } from './git-execution.mjs';
 import { assertCredentialFreeRemote, frozenRemoteTransport, isPortableAbsoluteGitPath } from './git-remote-diagnostics.mjs';
 import {
@@ -24,10 +25,30 @@ const MAX_METADATA_BLOB_BYTES = 1024 * 1024;
 const MAX_METADATA_TOTAL_BYTES = 64 * 1024 * 1024;
 const MAX_OBJECT_STORE_BYTES = 256 * 1024 * 1024;
 const OID = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
+// Object IDs per by-ID fetch: 256 SHA-256 IDs stay far below the Windows command-line limit.
+const PREFETCH_GROUP = 256;
 
 /** Framework-owned refs can carry configuration history but are never Story branches. */
 export function isStoryDiscoveryBranch(branch) {
   return branch !== 'state' && !branch.startsWith('sflow/');
+}
+
+/**
+ * The candidate row for a Story the ledger summarized, or null to read its committed state.
+ *
+ * The row is what discovery shows and offers; `session attach` still proves the Story from its
+ * own committed state before it is used. An ID the approved definition does not accept is read
+ * from that state as before, under the Story's own pinned definition.
+ */
+export function ledgerSummaryCandidate(definition, pointer) {
+  const story = pointer?.story;
+  if (!story) return null;
+  try { validateId(definition, pointer.id); } catch { return null; }
+  return {
+    id: story.id, branch: story.branch, title: story.title, createdAt: story.createdAt ?? null,
+    status: story.status, phase: story.phase, progress: story.progress,
+    commit: story.commit, commitOid: story.commitOid, aliases: story.aliases
+  };
 }
 
 function remoteUrl(url) {
@@ -240,24 +261,60 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
 
     let metadataBytes = 0;
     const blobs = new Map();
+    // Blobs a by-ID fetch brought into a clone, read in one local batch. Each one counts toward
+    // the metadata limit only when it is read, as a blob fetched on its own does.
+    const prefetched = new Map();
+    /**
+     * Fetch the named blobs in one request per group instead of one lazy fetch each. `[perf]`
+     *
+     * A blobless clone fetched every blob discovery read on its own, one after another: each
+     * ledger entry, then each Story's definition and workflow.json. Each is an authenticated
+     * round trip, and on Windows each also starts Git, its HTTPS helper and the credential
+     * manager. This is best effort: a blob it does not bring is still fetched by readBlob.
+     */
+    const prefetchBlobs = async (store, storeTransport, oids) => {
+      const wanted = [...new Set(oids)].filter((oid) => OID.test(oid ?? '')
+        && !blobs.has(`${store}:${oid}`) && !prefetched.has(`${store}:${oid}`));
+      if (!wanted.length) return;
+      const limits = { env: storeTransport.env, maxObjectBytes: MAX_METADATA_BLOB_BYTES + 1, maxBatchBytes: MAX_METADATA_TOTAL_BYTES };
+      const present = readObjectsBatch(store, wanted, { ...limits, checkOnly: true });
+      const missing = wanted.filter((oid) => present?.get(oid)?.status !== 'ok');
+      for (let offset = 0; offset < missing.length; offset += PREFETCH_GROUP) {
+        // The request Git makes for a lazy fetch, made once for the group. A failed request is
+        // not repeated for the next group; readBlob reports the blob it could not bring.
+        const fetched = await runRemoteGitAsync([
+          '-c', 'fetch.negotiationAlgorithm=noop', 'fetch', '--no-tags', '--no-write-fetch-head',
+          '--recurse-submodules=no', '--filter=blob:none', '--refmap=', storeTransport.remote,
+          ...missing.slice(offset, offset + PREFETCH_GROUP)
+        ], { cwd: store, operation: 'remote-configuration', env: storeTransport.env });
+        if (fetched.status !== 0) break;
+      }
+      for (const [oid, answer] of readObjectsBatch(store, wanted, limits) ?? []) {
+        if (answer.status === 'ok' && answer.bytes) prefetched.set(`${store}:${oid}`, answer.bytes.toString('utf8'));
+      }
+    };
     const readBlob = async (store, storeTransport, oid) => {
       const cacheKey = `${store}:${oid}`;
       if (blobs.has(cacheKey)) return blobs.get(cacheKey);
-      const observed = await runRemoteGitAsync(['cat-file', 'blob', oid], {
-        cwd: store, operation: 'remote-configuration', env: storeTransport.env,
-        maxBuffer: MAX_METADATA_BLOB_BYTES + 1
-      });
-      if (observed.status !== 0) throw new SingularityFlowError(
-        'A Story metadata blob could not be read within its size and Git access limits.',
-        { code: 'SESSION_REMOTE_METADATA_UNAVAILABLE' }
-      );
-      metadataBytes += Buffer.byteLength(observed.stdout, 'utf8');
+      let text = prefetched.get(cacheKey);
+      if (text == null) {
+        const observed = await runRemoteGitAsync(['cat-file', 'blob', oid], {
+          cwd: store, operation: 'remote-configuration', env: storeTransport.env,
+          maxBuffer: MAX_METADATA_BLOB_BYTES + 1
+        });
+        if (observed.status !== 0) throw new SingularityFlowError(
+          'A Story metadata blob could not be read within its size and Git access limits.',
+          { code: 'SESSION_REMOTE_METADATA_UNAVAILABLE' }
+        );
+        text = observed.stdout;
+      }
+      metadataBytes += Buffer.byteLength(text, 'utf8');
       if (metadataBytes > MAX_METADATA_TOTAL_BYTES) throw new SingularityFlowError(
         'Story metadata exceeds the discovery request limit.',
         { code: 'SESSION_REMOTE_DISCOVERY_LIMIT' }
       );
-      blobs.set(cacheKey, observed.stdout);
-      return observed.stdout;
+      blobs.set(cacheKey, text);
+      return text;
     };
     let effectiveApprovedDefinition = approvedDefinition;
     if (configurationTransport) {
@@ -293,16 +350,30 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
       cwd: scratch, operation: 'local-read', env: { ...transport.env, GIT_NO_LAZY_FETCH: '1' }, maxBuffer: MAX_TREE_OUTPUT_BYTES
     });
     if (listed.status !== 0) throw new SingularityFlowError('The Story state index is unreadable.', { code: 'SESSION_STATE_INDEX_INVALID' });
-    const entries = new Map();
+    const rows = [];
     for (const row of listed.stdout.split('\0').filter(Boolean)) {
       const match = /^100(?:644|755) blob ([a-f0-9]{40}|[a-f0-9]{64})\t(ledger\/entries\/.+\.json)$/u.exec(row);
       if (!match) throw new SingularityFlowError('The Story state index contains unsafe ledger metadata.', { code: 'SESSION_STATE_INDEX_INVALID' });
-      entries.set(match[2], await readBlob(scratch, transport, match[1]));
+      rows.push(match);
     }
+    await prefetchBlobs(scratch, transport, [headOid, ...rows.map((match) => match[1])]);
+    const entries = new Map();
+    for (const match of rows) entries.set(match[2], await readBlob(scratch, transport, match[1]));
     const pointers = storyPointersFromLedger(readRecord('ledger-entry', await readBlob(scratch, transport, headOid)).record, entries);
     if (pointers.length > MAX_HEADS) throw new SingularityFlowError('The state Story roster exceeds its request bound.', { code: 'SESSION_REMOTE_DISCOVERY_LIMIT' });
+    const items = new Map();
+    const diagnostics = [];
+    // A Story whose ledger entry carries its summary is listed from it. The others are proven
+    // from their committed state below.
+    const proven = [];
+    for (const pointer of pointers) {
+      if (!isStoryDiscoveryBranch(pointer.branch)) continue;
+      const summarized = ledgerSummaryCandidate(effectiveApprovedDefinition, pointer);
+      if (summarized) items.set(summarized.id, summarized);
+      else proven.push(pointer);
+    }
     // Fetch only immutable commits named by this verified state chain, never a wildcard head set.
-    const commits = [...new Set(pointers.map(item => item.commitOid))];
+    const commits = [...new Set(proven.map(item => item.commitOid))];
     for (let offset = 0; offset < commits.length; offset += 128) {
       const fetched = await runRemoteGitAsync([
         'fetch', '--no-tags', '--depth=1', '--filter=blob:none', '--refmap=',
@@ -314,19 +385,39 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
     }
     if (await objectStoreBytes(scratch) > MAX_OBJECT_STORE_BYTES) throw new SingularityFlowError('State-indexed Story metadata exceeds its object-store bound.', { code: 'SESSION_REMOTE_DISCOVERY_LIMIT' });
 
-    const items = new Map();
-    const diagnostics = [];
-    for (const { id: indexedId, branch, commitOid: commit } of pointers) {
-      if (!isStoryDiscoveryBranch(branch)) continue;
+    // Each Story below reads its pinned definition, then its workflow.json under the root that
+    // definition names: fetch each of the two sets in one request.
+    const definitionOids = new Map(proven.map(({ commitOid }) => [commitOid, refBlobOid(scratch, commitOid, WORKFLOW_PATH, transport.env)]));
+    await prefetchBlobs(scratch, transport, [...definitionOids.values()]);
+    const listedPaths = new Map();
+    const pathsAt = (ref, pathspec) => {
+      const key = `${ref}\0${pathspec}`;
+      if (!listedPaths.has(key)) listedPaths.set(key, storyPathsAtRef(scratch, ref, pathspec, transport.env));
+      return listedPaths.get(key);
+    };
+    const stateOids = [];
+    for (const { id: indexedId, commitOid } of proven) {
+      const source = prefetched.get(`${scratch}:${definitionOids.get(commitOid)}`);
+      if (source == null) continue;
+      try {
+        const workRoot = YAML.parse(source)?.workItemRoot ?? 'singularity/work-items';
+        for (const entry of await pathsAt(commitOid, `${workRoot}/${indexedId}/workflow.json`)) stateOids.push(entry.oid);
+      } catch {
+        // The Story below reports what is wrong with it.
+      }
+    }
+    await prefetchBlobs(scratch, transport, stateOids);
+
+    for (const { id: indexedId, branch, commitOid: commit } of proven) {
       const ref = commit;
       let definition = effectiveApprovedDefinition;
       try {
-        const ownOid = refBlobOid(scratch, ref, WORKFLOW_PATH, transport.env);
+        const ownOid = definitionOids.get(commit);
         if (!ownOid) throw new Error('The state-indexed Story has no pinned workflow definition.');
         definition = YAML.parse(await readBlob(scratch, transport, ownOid));
         validateDefinition(definition);
         const workRoot = definition.workItemRoot ?? 'singularity/work-items';
-        const entries = await storyPathsAtRef(scratch, ref, `${workRoot}/${indexedId}/workflow.json`, transport.env);
+        const entries = await pathsAt(ref, `${workRoot}/${indexedId}/workflow.json`);
         if (!entries.length) throw new Error('The state-indexed Story metadata is missing at its pinned path.');
         for (const entry of entries) {
           const claimedId = path.posix.basename(path.posix.dirname(entry.file));

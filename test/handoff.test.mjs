@@ -326,8 +326,10 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   run('git', ['config', 'uploadpack.allowFilter', 'true'], remote);
 
   // A Windows-style blobless workspace has branch trees but may not yet hold the Story state
-  // blobs. Candidate refresh must explicitly recover only bounded metadata, with no checkout or
-  // source hydration, and must not count SFlow's own review refs as unreadable Stories.
+  // blobs. The Story's ledger entry carries its summary, so candidate refresh lists it without
+  // reading those blobs or recovering metadata from the remote, with no checkout or source
+  // hydration, and must not count SFlow's own review refs as unreadable Stories. Entries without a
+  // summary still recover bounded metadata (story-discovery-round-trips.test.mjs).
   const partial = path.join(base, 'partial');
   run('git', ['clone', '--quiet', '--filter=blob:none', '--no-checkout', '--single-branch',
     '--branch', 'main', pathToFileURL(remote).href, partial], base);
@@ -343,7 +345,7 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   });
   assert.equal(partialCandidates.status, 0, partialCandidates.stderr);
   const partialDiscovery = JSON.parse(partialCandidates.stdout);
-  assert.equal(partialDiscovery.source, 'materialized-metadata-recovery');
+  assert.equal(partialDiscovery.source, 'state-ledger');
   assert.ok(partialDiscovery.items.some((item) => item.id === 'BOOT-101'));
   assert.equal(partialDiscovery.unavailable.some((item) => item.branch?.startsWith('sflow/')), false);
   assert.equal(run('git', ['rev-parse', 'HEAD'], partial).stdout.trim(), partialHead);

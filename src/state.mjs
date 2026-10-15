@@ -106,6 +106,7 @@ import {
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { createLedgerIntent, ledgerLog, ledgerStatus, reconcileLedger } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
+import { storyLifecycleProgress } from './session-roster.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { compareRepositoryIdentity } from './repository-change-set.mjs';
 import {
@@ -9418,6 +9419,31 @@ export async function decideStorySkillVersion(root, config, workflow, options = 
   }
 }
 
+/**
+ * What a Story list shows, carried on the Story's ledger entries.
+ *
+ * Session candidates and URL-only discovery list Stories from the state ledger. Without these
+ * fields each Story's committed workflow.json had to be read, and a blobless clone that lacked it
+ * fell back to fetching every Story's metadata from the remote, one round trip each. Readers that
+ * do not know these fields ignore them; workId, phase, generation and branch are unchanged.
+ */
+function storyLedgerSummary(workflow) {
+  const lineage = workflow.lineage ?? {};
+  return {
+    title: workflow.workItem.title ?? workflow.workItem.id,
+    status: workflow.status ?? null,
+    currentPhase: workflow.currentPhase ?? null,
+    progress: structuredClone(storyLifecycleProgress(workflow)),
+    canonicalBranch: lineage.canonicalBranch ?? workflow.workItem.branch ?? workflow.workItem.id,
+    createdAt: workflow.workItem.createdAt ?? null,
+    updatedAt: workflow.history?.at(-1)?.at ?? workflow.workItem.createdAt ?? null,
+    aliases: [lineage.planId, lineage.jiraIssueId, lineage.sourceStableId, workflow.workItem.source?.stableId,
+      lineage.initialJiraKey, lineage.currentJiraKey,
+      ...(lineage.aliases ?? []).map((entry) => typeof entry === 'string' ? entry : entry?.value ?? entry?.key)]
+      .filter((alias) => typeof alias === 'string' && alias)
+  };
+}
+
 export async function commitAndPublish(root, config, workflow, event, message, extraPaths = [], {
   beforeStateWrite = null,
   afterOwnedWrites = null,
@@ -9496,7 +9522,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
         workType: workflow.workItem.workType,
         phase: envelope.phaseId,
         generation: envelope.generation,
-        branch: workflowPublicationBranch(root, workflow)
+        branch: workflowPublicationBranch(root, workflow),
+        ...storyLedgerSummary(workflow)
       },
       actor: envelope.actor,
       agent: envelope.agent,
@@ -9750,6 +9777,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
         if (unacceptedWorkflowSnapshot) {
           await finalizeDraftWorkflowSnapshot(root, config, workflow);
         }
+        // The transition above moved the Story on; the ledger lists it as it is committed.
+        if (ledgerIntent) Object.assign(ledgerIntent.subject, storyLedgerSummary(workflow));
         recordPublicationProjection(workflow, publicationEvent, ledgerIntent);
         await saveWorkflow(root, config, workflow);
         return { event: publicationEvent, transitionResult };

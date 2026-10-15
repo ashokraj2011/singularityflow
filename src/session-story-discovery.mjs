@@ -5,7 +5,9 @@ import { committedFilesAtRevisions, fileAtRef, hasRemote } from './git.mjs';
 import { ledgerStoryPointers } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
-import { discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch } from './session-remote-url-discovery.mjs';
+import {
+  discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch, ledgerSummaryCandidate
+} from './session-remote-url-discovery.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { storyLifecycleProgress } from './session-roster.mjs';
 import { validateId } from './state-stores.mjs';
@@ -67,9 +69,14 @@ export async function discoverRemoteStoryCandidates(root, definition, {
       { code: error.code ?? 'SESSION_STATE_INDEX_UNAVAILABLE' }
     );
   }
-  const pointers = roster.items.filter(item => isStoryDiscoveryBranch(item.branch));
   const unavailable = [];
   const items = [];
+  const pointers = [];
+  for (const pointer of roster.items.filter(item => isStoryDiscoveryBranch(item.branch))) {
+    const summarized = ledgerSummaryCandidate(definition, pointer);
+    if (summarized) items.push(summarized);
+    else pointers.push(pointer);
+  }
   const definitions = new Map();
   const files = new Map();
   const configurationBytes = committedFilesAtRevisions(root, pointers.map(item => ({
@@ -179,7 +186,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
   return {
     source: 'state-ledger', stateRef: roster.ref,
     repositoryPath: path.resolve(root), remote, fetched: fetch,
-    count: items.length, items,
+    count: items.length, items: items.sort((left, right) => left.id.localeCompare(right.id)),
     unavailableCount: unavailable.length, unavailable
   };
 }

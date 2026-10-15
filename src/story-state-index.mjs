@@ -7,6 +7,37 @@ import { SingularityFlowError } from './util.mjs';
 
 export const STORY_STATE_INDEX_LIMIT = 100_000;
 
+const text = (value) => typeof value === 'string' && value ? value : null;
+
+/**
+ * The Story summary a publication recorded on its ledger subject, or null when it recorded none.
+ *
+ * Only a summary whose canonical branch is the ledger location is used: a publication from a
+ * child branch, or one older than these fields, is still proven from the Story's committed state.
+ */
+function storySummaryFromSubject(entry, id, branch, commit) {
+  const subject = entry?.subject;
+  if (!subject || typeof subject !== 'object' || Array.isArray(subject)) return null;
+  const progress = subject.progress;
+  if (!text(subject.title) || !text(subject.status)
+      || !progress || typeof progress !== 'object' || Array.isArray(progress)) return null;
+  if ((text(subject.canonicalBranch) ?? branch) !== branch) return null;
+  return {
+    id,
+    branch,
+    title: subject.title,
+    createdAt: text(subject.createdAt),
+    status: subject.status,
+    phase: text(subject.currentPhase),
+    progress,
+    commit: commit.slice(0, 8),
+    commitOid: commit,
+    aliases: Array.isArray(subject.aliases) ? subject.aliases.filter((alias) => text(alias)) : [],
+    workType: text(subject.workType),
+    updatedAt: text(subject.updatedAt) ?? text(entry.createdAt)
+  };
+}
+
 export function storyPointersFromLedger(head, files) {
   const fail = (message) => { throw new SingularityFlowError(message, { code: 'SESSION_STATE_INDEX_INVALID' }); };
   if (!Number.isSafeInteger(head?.sequence) || head.sequence < 0 || head.sequence > STORY_STATE_INDEX_LIMIT) {
@@ -45,7 +76,8 @@ export function storyPointersFromLedger(head, files) {
     // by discovery before they can become Story rows; unrelated subjects remain diagnostics.
     if ((!kind || kind === 'story') && typeof id === 'string' && typeof branch === 'string'
         && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(commit ?? '') && !latest.has(id)) {
-      latest.set(id, { id, branch, commitOid: commit, entryHash: cursor });
+      const story = storySummaryFromSubject(entry, id, branch, commit);
+      latest.set(id, { id, branch, commitOid: commit, entryHash: cursor, ...(story ? { story } : {}) });
     }
     cursor = entry.parentEntryHash;
   }

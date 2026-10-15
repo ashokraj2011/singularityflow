@@ -7,6 +7,7 @@
  * guidance still wins; this module fills only the gap and never executes an action.
  */
 
+import { specificFindingDocumentation } from './finding-catalog.mjs';
 import { localGitHookFailure, redactDiagnosticText } from './git-remote-diagnostics.mjs';
 import { stripGlobalModelOptions } from './model-mode.mjs';
 import { requiredTestExecutionForRefusal } from './test-execution-diagnostics.mjs';
@@ -1005,10 +1006,13 @@ export function refusalRemediationPlan(error, argv = []) {
     : authoringIncomplete
       ? 'Retry the original command only after the author has corrected every finding and the same read-only prepublish check reports ready.'
       : 'Retry the original command only after the blocking condition is resolved.';
+  // A finding the catalog documents names its entry: what it means, its causes and who can act.
+  const documentation = specificFindingDocumentation(code);
   return Object.freeze({
     schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted
     status: 'blocked',
     code,
+    ...(documentation ? { documentation } : {}),
     ...(phaseContext ? { context: skillHostBlocked
       ? Object.freeze({ ...phaseContext, strategy: 'external-host-prerequisite', recoveryCommand: null, retryCommand: null, retrySkill: null })
       : phaseContext } : {}),
@@ -1153,6 +1157,7 @@ export function renderRefusalPlan(plan) {
       lines.push(...commandRouteLines({ ...entry, modelFreeCommand }, '     '));
     }
   }
+  if (plan.documentation) lines.push(`  Documentation: ${plan.documentation.command}`);
   lines.push(`  Then: ${plan.retry.label}`);
   return lines.join('\n');
 }

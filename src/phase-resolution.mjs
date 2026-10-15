@@ -5,6 +5,7 @@ import { submitRoute } from './submit-route.mjs';
 import { canonicalJson } from './records.mjs';
 import { renderPlatformCommand, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { phaseFindingPolicy, phaseFindingCode, phaseFindingIdentity, isArtifactQualityFinding } from './phase-finding-policy.mjs';
+import { findingDocumentation } from './finding-catalog.mjs';
 import { upstreamChangeRoutes, upstreamRouteSummary } from './upstream-routes.mjs';
 import { latestStepBefore } from './phase-roles.mjs';
 
@@ -191,6 +192,8 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     'An authorized human may carry this exact document-quality shortfall through the selected transitions. It remains unmet, not passed; tests, trust and phase approval remain required.', '/sf-appeal'));
   choices.push(preserve);
   return { code: finding.code ?? 'unknown', path: finding.path ?? null, policy,
+    // What the finding means, its usual causes, the fix, and who else can act.
+    documentation: findingDocumentation(finding),
     status: resolution.kind.endsWith('owner') || resolution.kind === 'owner-escalation'
       ? 'needs-owner' : resolution.kind.includes('risk') || resolution.kind.includes('appeal') || ['human-review', 'worktree-review', 'plan-amendment'].includes(resolution.kind) ? 'needs-human' : 'needs-correction',
     choices, preserved: ['working-tree bytes', 'Git index', 'published evidence', 'approval history'] };

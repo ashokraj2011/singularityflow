@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "86adbdd1ef0bb21427c07b1967dc92b1fc7cb4b8",
-  "topicCount": 83,
-  "contentSha256": "51d575f945547d3cb56ec15542d1138d44aa5d3f528c13af68a7aa9cb25334c4",
+  "sourceCommit": "62f43d11f65f2a5e5450bf2cd18690a117c1bbbc",
+  "topicCount": 84,
+  "contentSha256": "dd98460b0c63267e34c5c24b0ec0c0c539fb1891c29fc635544825aaf97ee9dc",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -236,6 +236,14 @@
       "sha256": "06d00b7abe74427b154f92621ed2e09d553d69dbd77db457a75b3b57b6dae314",
       "routingSha256": "17f477535d4ea94f9ce1a0c94ad8193814bd6112e2d131e16d9a321f57eff70b",
       "file": "fault-intake-and-repair.md"
+    },
+    {
+      "id": "findings",
+      "title": "Findings — what a blocking finding means and how to recover",
+      "version": 1,
+      "sha256": "0ee988d2a069e589e754943794d47a4bc7b88626b955d5fff7c8295dd9ba80a1",
+      "routingSha256": "63e669eb5eb939fd7ee9a8f6447d098138d7e424eac2ee4ff55901d902118539",
+      "file": "findings.md"
     },
     {
       "id": "getting-started",

@@ -18,6 +18,7 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
+import { parseYamlText } from './yaml-parse-cache.mjs';
 import { loadDefinition, mergePhaseOverride, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies, parseAttachedSkills } from './agents.mjs';
 import {
@@ -120,7 +121,7 @@ async function packagedDefinition() {
   const text = await readFile(path.join(PACKAGE_ROOT, 'templates', 'workflow.yml'), 'utf8');
   // Two copies: the validated one answers questions, the raw one is what gets copied, so an
   // installed blueprint reads like the packaged file rather than like its normalised form.
-  return Object.assign(validateDefinition(YAML.parse(text)), { raw: YAML.parse(text) });
+  return Object.assign(validateDefinition(parseYamlText(text)), { raw: parseYamlText(text) });
 }
 
 /**
@@ -386,7 +387,7 @@ function agentView(agent) {
 export async function buildStudioModel(root, { authority = null } = {}) {
   const configRoot = configurationReadRoot(root);
   const definitionText = await readFile(path.join(configRoot, WORKFLOW_PATH), 'utf8');
-  const raw = YAML.parse(definitionText) ?? {};
+  const raw = parseYamlText(definitionText) ?? {};
   const portfolioText = await readFile(path.join(configRoot, PORTFOLIO_PATH), 'utf8').catch(() => null);
   const problems = [];
   let definition = null;
@@ -403,7 +404,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
   const bundled = await bundledAgents();
   const workTypes = raw.workTypes ?? {};
   const constitutions = await studioConstitutions(configRoot, raw);
-  const protection = await seededWorkflowProtection(raw, portfolioText ? YAML.parse(portfolioText) : {}, discovered);
+  const protection = await seededWorkflowProtection(raw, portfolioText ? parseYamlText(portfolioText) : {}, discovered);
   const phases = raw.phases ?? {};
   const defaultAgentOf = (phaseId) => discovered.find((agent) => agent.defaultFor.includes(phaseId))?.id ?? null;
   const usedBy = (phaseId) => Object.entries(workTypes).filter(([, type]) => (type.phases ?? []).includes(phaseId)).map(([id]) => id);
@@ -477,7 +478,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     protection,
     workflows,
     constitutions: constitutionStudioView(constitutions, definition ?? raw, protection.workflows),
-    epics: epicModel(portfolioText == null ? null : YAML.parse(portfolioText) ?? {}, posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates')),
+    epics: epicModel(portfolioText == null ? null : parseYamlText(portfolioText) ?? {}, posix(raw.templatesRoot ?? definition?.templatesRoot ?? 'singularity/templates')),
     integrations: {
       targets: Object.entries(raw.integrations?.targets ?? {}).map(([id, target]) => ({ id, ...structuredClone(target) }))
     },
@@ -2814,13 +2815,13 @@ async function bundledAgents() {
 async function loadSources(root, options = {}) {
   const configRoot = configurationReadRoot(root);
   const definitionText = await readFile(path.join(configRoot, WORKFLOW_PATH), 'utf8');
-  const raw = YAML.parse(definitionText) ?? {};
+  const raw = parseYamlText(definitionText) ?? {};
   let definition = null;
   try { definition = await loadDefinition(root); } catch { definition = null; }
   const agents = (await discoverAgents(root)).filter((agent) => agent.scope !== 'plugin');
   const ledgerText = await readFile(path.join(configRoot, IMPORTS_LOCK_PATH), 'utf8').catch(() => null);
   const agentLockText = await readFile(path.join(configRoot, AGENT_LOCK_PATH), 'utf8').catch(() => null);
-  const agentLock = agentLockText ? YAML.parse(agentLockText) : { version: 1, agents: {} };
+  const agentLock = agentLockText ? parseYamlText(agentLockText) : { version: 1, agents: {} };
   const portfolioText = await readFile(path.join(configRoot, PORTFOLIO_PATH), 'utf8').catch(() => null);
   if (agentLock?.version !== 1 || !agentLock.agents || typeof agentLock.agents !== 'object') {
     throw new SingularityFlowError(`${AGENT_LOCK_PATH} is invalid.`, { code: 'AGENT_LOCK_INVALID' });
@@ -2839,7 +2840,7 @@ async function loadSources(root, options = {}) {
     portfolioText,
     attachments: await readSkillAttachments(root),
     attachmentsText: await readFile(path.join(configRoot, SKILL_ATTACHMENTS_PATH), 'utf8').catch(() => null),
-    protectedAgents: (await seededWorkflowProtection(raw, portfolioText ? YAML.parse(portfolioText) ?? {} : {}, agents)).agents
+    protectedAgents: (await seededWorkflowProtection(raw, portfolioText ? parseYamlText(portfolioText) ?? {} : {}, agents)).agents
   };
 }
 
@@ -2965,7 +2966,7 @@ function obligationFindings(files, touched) {
   const file = files.find((entry) => entry.path === WORKFLOW_PATH && entry.after != null);
   if (!file || !touched.length) return [];
   let definition;
-  try { definition = validateDefinition(YAML.parse(asText(file.after))); } catch { return []; }
+  try { definition = validateDefinition(parseYamlText(asText(file.after))); } catch { return []; }
   const warnings = [];
   for (const id of touched) {
     if (!definition.workTypes?.[id]) continue;
@@ -2985,9 +2986,9 @@ function obligationFindings(files, touched) {
 async function validateStudioCandidate(sources, files) {
   const readCandidate = (file, fallback) => {
     const changed = files.find((entry) => entry.path === file);
-    return changed ? YAML.parse(asText(changed.after) ?? '') ?? {} : fallback;
+    return changed ? parseYamlText(asText(changed.after) ?? '') ?? {} : fallback;
   };
-  const before = { story: sources.raw, initiative: sources.portfolioText ? YAML.parse(sources.portfolioText) : {} };
+  const before = { story: sources.raw, initiative: sources.portfolioText ? parseYamlText(sources.portfolioText) : {} };
   const after = { story: readCandidate(WORKFLOW_PATH, before.story), initiative: readCandidate(PORTFOLIO_PATH, before.initiative) };
   const afterAgents = new Map(sources.agents.map((agent) => [agent.id, agent]));
   for (const file of files.filter((entry) => entry.path.startsWith('.github/agents/'))) {

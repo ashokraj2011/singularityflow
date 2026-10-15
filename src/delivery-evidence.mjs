@@ -38,7 +38,7 @@ import { contractRequiresTestTag, effectiveContract, mergedVerificationContracts
 import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
 import { bindingsDigest, clauseTagExplanation, EXPLANATION_LIMITS, implementationBindings } from './implementation-bindings.mjs';
 import { inferRepositoryTestCommands } from './repository-test-command-inference.mjs';
-import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot } from './util.mjs';
+import { SingularityFlowError, posix, run, secureRepositoryPath, snapshot, SUBPROCESS_MAX_BUFFER_BYTES } from './util.mjs';
 import { committedChangedPaths, trackedPaths, worktreePatchMatching } from './git.mjs';
 import {
   applicationChangeSetProjection, applicationPathContext, isApplicationChangeEntry, isApplicationPath,
@@ -1573,6 +1573,41 @@ function safeEvidencePath(value) {
     && !candidate.split('/').some((segment) => !segment || segment === '.' || segment === '..');
 }
 
+/** Optional immutable read-ahead only; hashes, schemas and verdicts are still checked on replay. */
+function prefetchTestReplay(root, evidenceCommit, executions) {
+  const empty = () => ({ receipts: new Map(), records: new Map(), reports: new Map() });
+  if (!evidenceCommit || !Number.isSafeInteger(SUBPROCESS_MAX_BUFFER_BYTES) || SUBPROCESS_MAX_BUFFER_BYTES <= 0) return empty();
+  const maximumObjectBytes = Math.min(16 * 1024 * 1024, SUBPROCESS_MAX_BUFFER_BYTES);
+  const regular = executions.filter(execution => execution.kind !== 'phase-validation-observation');
+  const receipts = prefetchExactObjectFiles(root, evidenceCommit,
+    regular.map(execution => execution.receiptPath).filter(safeEvidencePath), { maximumObjectBytes });
+  const records = new Map();
+  const paths = new Set();
+  for (const execution of regular) {
+    const bytes = receipts.get(execution.receiptPath);
+    if (!bytes) continue;
+    try {
+      let record = records.get(execution.receiptPath);
+      if (!records.has(execution.receiptPath)) {
+        record = JSON.parse(bytes.toString('utf8'));
+        records.set(execution.receiptPath, record);
+      }
+      // Do not discover paths from an unbound or malformed record. This is not test acceptance:
+      // the original replay below still checks identity, candidate, adapter results and policy.
+      if (receiptDigest(record) !== String(execution.receiptSha256 ?? '').replace(/^sha256:/u, '')) continue;
+      const testReceipt = readRecord('test-execution', record).record;
+      const extension = ['junit-xml', 'dotnet-trx'].includes(testReceipt.adapter) ? '.xml' : '.bin';
+      for (const report of testReceipt.rawReports ?? []) {
+        if (safeEvidencePath(report.path) && /^[0-9a-f]{64}$/u.test(report.sha256 ?? '')
+            && Number.isInteger(report.bytes) && report.bytes >= 0 && report.bytes <= maximumObjectBytes
+            && report.path.includes('/context/code-delivery/tests/raw/')
+            && report.path.endsWith(`/${report.sha256}${extension}`)) paths.add(report.path);
+      }
+    } catch { /* malformed/unavailable records take their ordinary diagnostic route below */ }
+  }
+  return { receipts, records, reports: prefetchExactObjectFiles(root, evidenceCommit, [...paths], { maximumObjectBytes }) };
+}
+
 const MODEL_ASSURANCE_RANK = Object.freeze({
   unavailable: 0, 'host-observed': 1, 'provider-reported': 2, 'policy-selected': 3
 });
@@ -1837,6 +1872,7 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     }
   }
 
+  const replayFiles = prefetchTestReplay(root, evidenceCommit, receipt.testExecutions ?? []);
   const executions = new Map();
   for (const execution of receipt.testExecutions ?? []) {
     if (execution.kind === 'phase-validation-observation') {
@@ -1873,16 +1909,18 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
     }
     let testReceipt;
     try {
-      const source = evidenceCommit
+      const prefetched = replayFiles.receipts.get(execution.receiptPath);
+      const source = evidenceCommit && !prefetched
         ? run('git', ['show', `${evidenceCommit}:${execution.receiptPath}`], {
           cwd: root, allowFailure: true, encoding: 'buffer'
         })
         : null;
       if (source && source.status !== 0) throw new Error(`not present in evidence commit ${evidenceCommit}`);
-      const storedBytes = source
+      const storedBytes = prefetched ?? (source
         ? source.stdout
-        : await readDurableTestObservation(root, execution.receiptPath);
-      const storedRecord = JSON.parse(Buffer.isBuffer(storedBytes) ? storedBytes.toString('utf8') : storedBytes);
+        : await readDurableTestObservation(root, execution.receiptPath));
+      const storedRecord = replayFiles.records.has(execution.receiptPath) ? replayFiles.records.get(execution.receiptPath)
+        : JSON.parse(Buffer.isBuffer(storedBytes) ? storedBytes.toString('utf8') : storedBytes);
       if (receiptDigest(storedRecord) !== String(execution.receiptSha256 ?? '').replace(/^sha256:/, '')) {
         fail(`test receipt ${execution.commandId} differs from its bound digest`);
       }
@@ -1922,7 +1960,9 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
       referencedPaths.add(report.path);
       try {
         let bytes;
-        if (evidenceCommit) {
+        const prefetched = replayFiles.reports.get(report.path);
+        if (prefetched) bytes = prefetched;
+        else if (evidenceCommit) {
           const raw = run('git', ['show', `${evidenceCommit}:${report.path}`], {
             cwd: root, allowFailure: true, encoding: 'buffer'
           });

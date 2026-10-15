@@ -22,6 +22,7 @@ import { lstat, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import YAML from 'yaml';
 import { parseYamlText } from './yaml-parse-cache.mjs';
+import { scopedCatalogRead } from './catalog-read-scope.mjs';
 import { SingularityFlowError, secureRepositoryPath } from './util.mjs';
 import { instructionReferences, resolveSkillInstructions, guidanceTags } from './instruction-library.mjs';
 import { inlineInstructionTags, instructionSlots, skillInstructionIds } from './skill-instruction-composition.mjs';
@@ -143,6 +144,10 @@ export async function readLibrarySkill(configRoot, id) {
 
 /** Every skill in the library, by ID, and why any folder there is not a usable skill. */
 export async function loadSkillLibrary(configRoot) {
+  return scopedCatalogRead(JSON.stringify(['skills', path.resolve(configRoot)]), () => loadSkillLibrarySnapshot(configRoot));
+}
+
+async function loadSkillLibrarySnapshot(configRoot) {
   const skills = new Map();
   const problems = [];
   const directory = path.join(configRoot, SKILL_LIBRARY_ROOT);

@@ -5,6 +5,7 @@ import { constants } from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
 import { parseYamlText } from './yaml-parse-cache.mjs';
+import { scopedCatalogRead } from './catalog-read-scope.mjs';
 import { nearestNames, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 export const INSTRUCTION_LIBRARY_ROOT = 'singularity/instruction-library';
@@ -88,6 +89,10 @@ export async function readInstruction(root, id) {
 }
 
 export async function loadInstructionLibrary(root) {
+  return scopedCatalogRead(JSON.stringify(['instructions', path.resolve(root)]), () => loadInstructionLibrarySnapshot(root));
+}
+
+async function loadInstructionLibrarySnapshot(root) {
   const instructions = new Map(); const problems = [];
   const directory = path.join(root, INSTRUCTION_LIBRARY_ROOT);
   const entry = await lstat(directory).catch(error => error.code === 'ENOENT' ? null : Promise.reject(error));

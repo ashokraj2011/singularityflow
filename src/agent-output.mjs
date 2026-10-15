@@ -94,6 +94,12 @@ function withRoute(act, action) {
 export function agentAct(result) {
   if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
   if (result.paused === true) return { state: 'paused', said: 'SFlow is paused for this conversation; answer as native Copilot and offer only /sf-pause off.', do: null };
+  if (result.resultType === 'session-open') {
+    if (result.status === 'choose') return { state: 'ask-person', do: null, read: ['table', 'selectors'],
+      said: 'Show the returned candidates and ask for the exact Story ID. Reuse this packet; do not list them again without a selection change.' };
+    if (result.status === 'ready') return { state: 'next', do: null, read: ['open', 'session', 'nextsteps'],
+      said: 'The exact session is attached and verified. Relay its next actions and end the session-only turn; do not repeat context or nextsteps lookups.' };
+  }
   if (result.error && result.remediationPlan) {
     const plan = result.remediationPlan;
     const step = (plan.steps ?? []).find((entry) => entry?.command) ?? null;

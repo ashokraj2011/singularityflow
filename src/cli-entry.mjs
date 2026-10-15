@@ -681,7 +681,7 @@ async function runMain(argv) {
   }
   const phaseEntry = definition.name === 'phase' && positionals[1] === 'enter';
   if (phaseEntry) (await import('./commands/phase.mjs')).validatePhaseEntryRequest({ positionals, options });
-  if (definition.name === 'session' && options['for-agent'] !== undefined) {
+  if (definition.name === 'session' && positionals[1] !== 'open' && options['for-agent'] !== undefined) {
     const paused = (await import('./session-agent-entry.mjs')).sessionAgentEntryGuard(positionals, options);
     if (paused) return console.log(JSON.stringify(paused));
   }

@@ -12,6 +12,7 @@ import {
   DEFAULT_REMOTE_MAX_BYTES, HARD_REMOTE_MAX_BYTES, fetchRemoteMarkdown, validatePublicHttpsUrl
 } from './remote-fetch.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
+import { scopedCatalogRead } from './catalog-read-scope.mjs';
 import {
   LIBRARY_SKILL_TABLE, SKILL_ATTACHMENTS_PATH, effectiveLibrarySkills, librarySkillReference, normalizeSkillUse,
   parseLibrarySkill, readLibrarySkill, readSkillAttachments, renderLibrarySkills
@@ -244,6 +245,15 @@ async function packagedAgentIdentities() {
 
 export async function discoverAgents(root) {
   const repositoryRoot = configurationReadRoot(root);
+  return scopedCatalogRead(JSON.stringify(['agents', path.resolve(root), repositoryRoot]),
+    () => discoverAgentsSnapshot(root, repositoryRoot), (source, copy) => {
+      source.forEach((agent, index) => {
+        if (EXACT_PACKAGED_REPOSITORY_AGENTS.has(agent)) EXACT_PACKAGED_REPOSITORY_AGENTS.add(copy[index]);
+      });
+    });
+}
+
+async function discoverAgentsSnapshot(root, repositoryRoot) {
   const packagedIdentities = await packagedAgentIdentities();
   const locations = [
     ['repository', path.join(repositoryRoot, '.github/agents')],

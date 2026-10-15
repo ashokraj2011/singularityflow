@@ -7,7 +7,7 @@ export const COPILOT_TIMING_LAYERS = Object.freeze([
 export const COPILOT_OPERATION_COUNTERS = Object.freeze([
   'git.requests', 'git.spawns', 'git.fact-cache-hits', 'git.fact-store-hits', 'git.remote.total',
   'cli.steps.process-spawns', 'cli.steps.read-reused', 'configuration.definition-load',
-  'catalog.scans', 'files.read', 'files.bytes'
+  'catalog.scans', 'catalog.reads', 'catalog.cache-hits', 'files.read', 'files.bytes'
 ]);
 
 function observationError(index) {

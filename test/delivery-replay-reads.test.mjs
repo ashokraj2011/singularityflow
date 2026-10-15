@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { verifyCodeDeliveryReceipt } from '../src/delivery-evidence.mjs';
+import { buildTestExecutionReceipt, replayTestReports } from '../src/code-delivery-tests.mjs';
 import { bindingsDigest } from '../src/implementation-bindings.mjs';
+import { canonicalJson } from '../src/records.mjs';
 import { scanJavaScriptDeclarations } from '../src/verification/javascript-declarations.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -132,4 +134,86 @@ test('prefetch cannot enlarge the explanation reader byte limit to the source-bi
   assert.equal(result.errors.filter(message => /explanation.*not on its tag line/u.test(message)).length, 3);
   assert.equal(result.errors.filter(message => /source-clause.*does not replay/u.test(message)).length, 0,
     'the larger source-binding reader retains its own limit');
+});
+
+async function testEvidence(t) {
+  const f = await fixture(t);
+  f.receipt.tree.workingStateDigest = 'b'.repeat(64);
+  f.attempts = [];
+  for (let index = 0; index < 6; index++) {
+    const raw = Buffer.from(JSON.stringify({ numTotalTests: 1, numPassedTests: 1, numFailedTests: 0,
+      numPendingTests: 0, testResults: [{ name: `/repo/test/part-${index}.test.js`,
+        assertionResults: [{ title: `case ${index}`, fullName: `case ${index}`, ancestorTitles: [], status: 'passed' }] }] }));
+    const report = { path: `singularity/work-items/REPLAY/context/code-delivery/tests/raw/${sha256(raw)}.bin`, sha256: sha256(raw), bytes: raw.length };
+    const attemptId = `TA-${String(index).padStart(20, '0')}`;
+    const receiptPath = `singularity/work-items/REPLAY/context/code-delivery/tests/attempts/implementation/${attemptId}.json`;
+    const command = { id: `unit-${index}`, argv: ['npm', 'test'], workingDirectory: '.', affectedRoots: ['.'], result: { adapter: 'jest-json', path: '.sflow/results/unit.json' } };
+    const record = buildTestExecutionReceipt(command, { status: 'passed', exitCode: 0,
+      sourceTreeSha256: f.receipt.tree.workingStateDigest }, replayTestReports('jest-json', [{ contents: raw }]),
+    { attemptId, nonce: 'a'.repeat(64), workId: 'REPLAY', phase: 'implementation', generation: 1, rawReports: [report], profile: 'jest-static-v2' });
+    await mkdir(path.dirname(path.join(f.root, receiptPath)), { recursive: true });
+    await mkdir(path.dirname(path.join(f.root, report.path)), { recursive: true });
+    await writeFile(path.join(f.root, receiptPath), canonicalJson(record));
+    await writeFile(path.join(f.root, report.path), raw);
+    f.receipt.testExecutions.push({ commandId: command.id, attemptId, receiptPath, receiptSha256: sha256(canonicalJson(record)) });
+    f.attempts.push({ record, raw, report, receiptPath });
+  }
+  git(f.root, 'add', '.'); git(f.root, 'commit', '-q', '-m', 'retained test attempts');
+  f.evidenceCommit = git(f.root, 'rev-parse', 'HEAD');
+  f.replay = () => verifyCodeDeliveryReceipt(f.root, f.receipt, { sourceBindingPolicy: 'enforce',
+    requireAffectedModuleCoverage: false, evidenceCommit: f.evidenceCommit });
+  return f;
+}
+
+test('receipt and raw-report batches replay the same passing attempts with bounded Git processes', async t => {
+  const f = await testEvidence(t);
+  const result = await f.replay();
+  assert.deepEqual(result.errors, [missingExecutionErrors[0]]);
+  assert.equal(result.executions.length, 6);
+  const file = path.join(f.root, 'delivery-fixture.json');
+  await writeFile(file, JSON.stringify(f.receipt));
+  const module = new URL('../src/delivery-evidence.mjs', import.meta.url).href;
+  const script = `import { readFile } from 'node:fs/promises';
+    const { verifyCodeDeliveryReceipt } = await import(${JSON.stringify(module)});
+    const receipt = JSON.parse(await readFile(${JSON.stringify(file)}, 'utf8'));
+    const result = await verifyCodeDeliveryReceipt(process.cwd(), receipt, { sourceBindingPolicy: 'enforce',
+      requireAffectedModuleCoverage: false, evidenceCommit: ${JSON.stringify(f.evidenceCommit)} });
+    if (result.errors.length !== 1 || result.executions.length !== 6) throw new Error(JSON.stringify(result.errors));`;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], { cwd: f.root,
+    encoding: 'utf8', timeout: 15000, env: { ...process.env, SINGULARITY_FLOW_SUBPROCESS_PROBE: '1', SINGULARITY_FLOW_GIT_FACT_STORE: 'off' } });
+  assert.equal(child.status, 0, child.stderr);
+  const calls = Number(/subprocesses:\s+(\d+)\s+calls/u.exec(child.stderr)?.[1]);
+  assert.ok(calls <= 9, `replay took ${calls} Git processes`);
+  t.diagnostic(`8 source/test files + 6 receipts + 6 reports replayed in ${calls} Git processes`);
+});
+
+test('batch reuse cannot accept changed receipt hashes, forged counts or changed report bytes', async t => {
+  const f = await testEvidence(t);
+  assert.deepEqual((await f.replay()).errors, [missingExecutionErrors[0]]);
+  const bound = f.receipt.testExecutions[0];
+  const original = bound.receiptSha256;
+  bound.receiptSha256 = '0'.repeat(64);
+  assert.match((await f.replay()).errors.join('\n'), /differs from its bound digest/u);
+  bound.receiptSha256 = original;
+  const first = f.attempts[0];
+  first.record.tests.passed = 999;
+  await writeFile(path.join(f.root, first.receiptPath), canonicalJson(first.record));
+  bound.receiptSha256 = sha256(canonicalJson(first.record));
+  git(f.root, 'add', '.'); git(f.root, 'commit', '-q', '-m', 'forged retained counts');
+  f.evidenceCommit = git(f.root, 'rev-parse', 'HEAD');
+  assert.match((await f.replay()).errors.join('\n'), /module counts do not replay/u);
+  await writeFile(path.join(f.root, first.report.path), Buffer.concat([first.raw, Buffer.from('changed')]));
+  git(f.root, 'add', '.'); git(f.root, 'commit', '-q', '-m', 'changed raw evidence');
+  f.evidenceCommit = git(f.root, 'rev-parse', 'HEAD');
+  assert.match((await f.replay()).errors.join('\n'), /raw report differs from its content address/u);
+});
+
+test('local observation replay keeps fresh filesystem checks instead of immutable prefetch', async t => {
+  const f = await testEvidence(t);
+  f.evidenceCommit = null;
+  assert.deepEqual((await f.replay()).errors, [missingExecutionErrors[0]]);
+  const raw = path.join(f.root, f.attempts[0].report.path);
+  await rename(raw, `${raw}.original`);
+  await symlink(path.basename(`${raw}.original`), raw);
+  assert.match((await f.replay()).errors.join('\n'), /raw report is unavailable/u);
 });

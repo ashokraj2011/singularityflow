@@ -6563,6 +6563,8 @@ test('clicking a remote Story without a local checkout attaches it and opens Cop
   const workflowFile = path.join(root, 'singularity/workflow.yml');
   const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
   workflow.git = { ...(workflow.git ?? {}), publish: 'off' };
+  // Remote Story discovery reads the state ledger, never a branch scan (5be0d63e).
+  workflow.ledger = { ...(workflow.ledger ?? {}), enabled: true };
   await writeFile(workflowFile, YAML.stringify(workflow));
   run('git', ['add', '.'], { cwd: root });
   run('git', ['commit', '-qm', 'Initialize remote Story fixture'], { cwd: root });
@@ -6584,6 +6586,7 @@ test('clicking a remote Story without a local checkout attaches it and opens Cop
   const second = start('STORY-OPEN-REMOTE');
   run('git', ['push', '-q', '-u', 'origin', 'STORY-OPEN-FIRST'], { cwd: first });
   run('git', ['push', '-q', '-u', 'origin', 'STORY-OPEN-REMOTE'], { cwd: second });
+  run('git', ['push', '-q', 'origin', 'state'], { cwd: root });
   run('git', ['worktree', 'remove', '--', second], { cwd: root });
   await writeFile(path.join(first, 'unfinished-first.txt'), 'preserve the current Story\n');
   const firstHead = run('git', ['rev-parse', 'HEAD'], { cwd: first }).stdout.trim();

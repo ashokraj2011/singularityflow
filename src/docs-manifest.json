@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "c38ae9a30e5c37cf7c943d9fe3fbb8ec21c0f82b",
+  "sourceCommit": "397b3f1db9c4adcce133cf9f0a5b1a70783e2e94",
   "topicCount": 81,
-  "contentSha256": "f91df04d09ec36f93906ebf93853d68f9c16fdcf616db326da080ffbd3188446",
+  "contentSha256": "ce56bc922f3c5c3980d38b0c90c58f5bfc97d621af92e2609a1f0b20093b988c",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -128,8 +128,8 @@
     {
       "id": "copilot-and-surfaces",
       "title": "Copilot, VS Code, and shell surfaces",
-      "version": 15,
-      "sha256": "0a07c6f7d1758445164c77d2ce2b7ce1fd9653229424450c91ade3675084f5e9",
+      "version": 16,
+      "sha256": "fabef8ef3586e84cbed004412520ce7f6db990cae62d497beacb708d898b5cae",
       "routingSha256": "e858ea1962d0e273c529409ccaba3c62598ecc238bf7dba15de5e82163ce305b",
       "file": "copilot-and-surfaces.md"
     },
@@ -624,8 +624,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 60,
-      "sha256": "cdab0b474e7d8b9fd62279fb722dc052fc466e05a0193ee8cc5ba648d7c87bbb",
+      "version": 61,
+      "sha256": "54511b86ffca31dd97be89baece9bc638e330dd50a5f65374a3b2b0f268094cc",
       "routingSha256": "35c1448a7404566210cbc7b0c9f8ee3d251141f1a1c0799db76e145700104c2e",
       "file": "workflow-authoring.md"
     },

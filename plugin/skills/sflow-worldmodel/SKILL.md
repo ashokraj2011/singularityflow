@@ -22,7 +22,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 - Explicit arguments select the exact `wm` operation: `/sf-worldmodel compose --phase <PHASE>` → `singularity-flow wm compose --phase <PHASE>`. `--dry-run`/`--render-only` are read-only. Validate argv; reject shell chains/substitutions; unknown forms stop with help.
 - Knowledge (read-only, no model): `singularity-flow wm knowledge show [overview|business|rules|journeys|tests|change]`, `singularity-flow wm knowledge items`. `singularity-flow wm knowledge brief` and `singularity-flow wm knowledge explain <SYMBOL>` may call a model when model use is on: say so and confirm first.
 - Knowledge reviews (`confirm|correct|reject`) write `docs/knowledge/confirmations.yml` in the working tree; show the change and confirm.
-- Compose writes the phase prompt/receipt unless previewed, never approves. Relay its handoff; absent after compose, read `singularity-flow nextsteps --json`.
+- Compose writes the phase prompt/receipt unless previewed, never approves. Relay its handoff; absent after compose, read `singularity-flow nextsteps --for-agent --json`.
 - AST: `singularity-flow wm ast doctor|status --json`, bounded `singularity-flow wm ast context --paths <ROOT> --max-facts 50 --max-output-bytes 32768 --json`, or `singularity-flow wm ast query`. Symbol gates require explicit syntax policy.
 - FWM: `singularity-flow wm read-views`, `singularity-flow wm read-contract <VIEW>@<REVISION>`, `singularity-flow wm read <VIEW>`. Preserve provenance/unknowns; never `draft`.
 

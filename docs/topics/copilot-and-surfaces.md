@@ -17,7 +17,7 @@ related:
   - governed-execution
   - revision-loop
   - revision-feedback-attachments
-version: 16
+version: 17
 ---
 CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Bundled skills are explicit-only: installing SFlow never opts ordinary Copilot requests into governance. Invoke an `/sf-*` skill or explicitly select the SFlow workflow agent for natural-language routing. That agent accepts seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
 
@@ -59,6 +59,10 @@ Copilot guidance and leaves ordinary Copilot requests alone.
 - **Revision feedback files:** `/sf-revision-attachments` (or `/sflow-revision-attachments`) previews and registers verifiable local files against the selected Story/phase after explicit confirmation. In VS Code, `@sflow /attachments` accepts 1–5 genuine local file references, selects each whole file, and offers a separate confirmed registration button. `@sflow /attachments status` shows active/revoked set digests; `@sflow /attachments remove sha256:<SET>` reviews exclusion. An opaque Copilot chat upload without original bytes or a verified local reference returns `REV_CHAT_ATTACHMENT_UNAVAILABLE`; save it locally and provide its path. Registration only stages feedback evidence. Start an eligible guarded interval separately with `/sf-revise`, which previews the exact Candidate/criteria/attachment binding and requires the full plan digest. `@sflow /revise` runs read-only status/card inspection or prefills that skill; it never starts the interval itself. PDF/DOCX/images remain disabled until approved scanning and extraction exist.
 - **VS Code:** open the Singularity Flow Navigator. The fixed destinations are **My Work**, **Stories**, **Story Analytics**, **Code Explainer**, **Reviews**, **Workspaces**, and **Configuration**. The context area identifies the workspace, repository, and confirmed active work. Stories lists the workspace catalog; viewing details is read-only, while **Switch to Story** uses the guarded attach flow. Story Analytics opens the read-only lifecycle report directly, showing phase progress, time, tokens, and cost when available. Code Explainer opens the read-only code and change explanation. Reviews separates phase decisions from proposal and visual-evidence review routes; unqueried queues have no invented counts. Configuration opens the existing Configuration Center directly. **Work tools** retains phase actions, artifacts, Goals, Epic Story plans, and **Understand changes**. **Help & diagnostics** and **Activity & logs** contain the specialist tools; Local Journal remains private local history, not governed evidence. Hover gives a small visual zoom, never a command popup; reduced-motion settings disable the zoom. Commands and Copilot equivalents remain in explicit Help and recovery screens. The sidebar follows the editor theme and does not independently decide lifecycle state.
 
+### What an agent reads
+
+A command run with `--for-agent` starts its result with `act`: the state, the one thing to do now (`do`, with its Copilot, Shell and VS Code routes) and anything a person must answer or confirm first (`ask`). Every value comes from the engine's own fields. A result larger than 16,000 bytes is bounded: the complete result is written inside the repository's Git directory (`.git/singularity-flow/agent-results/`), long texts such as the composed context as their own files, and the printed view keeps `act`, the fields that fit and `omittedFields`, each with its exact line range in `agentOutput.path`. Nothing is truncated and the working tree is untouched. `SINGULARITY_FLOW_AGENT_OUTPUT_BYTES` changes the bound; `SINGULARITY_FLOW_AGENT_OUTPUT=full` prints the whole result.
+
 ## Guided workflow
 
 In Story intake, **Search branches → Exact match** filters by the complete, case-sensitive Git
@@ -84,6 +88,7 @@ These commands can mutate governed or machine-local state: `plugin`. They remain
 - If a command refuses because state moved, refresh and use the newly rendered action instead of replaying an old handle or confirmation.
 - If publication or synchronization is pending, follow the exact recovery command in the refusal and verify with `sflow doctor`.
 - If a Copilot or VS Code action is unavailable, use the displayed CLI fallback; do not guess a command from the label.
+- If an agent says a result was saved to a file it cannot open, it ran the command without `--for-agent`; rerun it with `--for-agent --json` and read `agentOutput.path`.
 - If ordinary language is ambiguous, choose from the displayed Home directions or invoke `/sf-home`; the router deliberately refuses to guess between mutations.
 - If a favorite disappears after an upgrade, reopen **Choose favorites**. Unknown or retired menu IDs are discarded rather than guessed.
 

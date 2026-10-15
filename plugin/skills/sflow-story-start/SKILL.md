@@ -21,7 +21,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 4. Run `git status --short`; stop for unrelated changes.
 5. Run `singularity-flow workspace branches --json`. Present branches published by every required delivery repository and require a choice; stop if a remote fails. Ask separately for optional **read-only reference repositories**. Each requires an explicit lower-kebab ID, credential-free Git URL, and branch and becomes paired `--reference-repository ID=URL --reference-branch ID=BRANCH` options. Never infer one or describe it as a delivery repository. Start `singularity-flow story start <STORY-KEY> --fetch --from-branch <SELECTED-BRANCH>` interactively and bridge workflow choices through `ask_user`. For `poc-workflow`, ask for the exact authorized target and pass `--target-url <AUTHORIZED-URL>`.
 6. If persistent terminal input is unavailable:
-   - Run `singularity-flow choices begin start <STORY-KEY> --json`.
+   - Run `singularity-flow choices begin start <STORY-KEY> --for-agent --json`.
    - Present and record `base-branch`; never preselect it.
    - Record `jira` for `intake-source`.
    - Present the workflow-template and governed-agent options with `ask_user`.

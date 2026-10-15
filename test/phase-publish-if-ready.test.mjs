@@ -10,6 +10,7 @@ import YAML from 'yaml';
 import { resolveOperation } from '../src/command-registry.mjs';
 import { publicationArguments } from '../src/commands/phase-publish-if-ready.mjs';
 import { submitArguments } from '../src/commands/submit-if-ready.mjs';
+import { completeAgentResult } from '../src/agent-output.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -79,8 +80,8 @@ test('prepublish --publish-if-ready returns the unchanged check, and publishes w
 
   const combined = ['phase', 'prepublish', 'intake', '--for-agent', '--json', '--publish-if-ready'];
   // The prepared template still has its TODOs: the check is returned as-is and nothing is published.
-  const draft = JSON.parse(sflow(...combined));
-  const plain = JSON.parse(sflow('phase', 'prepublish', 'intake', '--for-agent', '--json'));
+  const draft = completeAgentResult(sflow(...combined));
+  const plain = completeAgentResult(sflow('phase', 'prepublish', 'intake', '--for-agent', '--json'));
   // A composed read must not inherit an approved-config overlay or cached policy from its caller.
   const { step } = await import('../src/cli-steps.mjs');
   const { withConfigurationReadRoot } = await import('../src/configuration-read-scope.mjs');
@@ -105,14 +106,16 @@ test('prepublish --publish-if-ready returns the unchanged check, and publishes w
     '| `READY-1:AC-001` | `README.md` | `none` |', '', '## Initial evidence', '', 'The fixture README.', ''].join('\n'));
   sflow('wm', 'compose', '--phase', 'intake');
   sflow('clarification', 'record', 'intake', '--question', 'Is one publication enough?', '--answer', 'Yes.');
-  const published = JSON.parse(sflow(...combined));
+  const published = completeAgentResult(sflow(...combined));
   assert.equal(published.status, 'ready');
   assert.equal(published.publishIfReady.published, true);
   assert.equal(published.publishIfReady.command, published.commands.publish);
   assert.equal(published.publishIfReady.review.phase, 'intake');
   // What follows comes first, with its routes: an agent reading from the top ended at "published"
   // without offering the next step. The prepublish fields after it describe the draft before publication.
-  assert.equal(Object.keys(published)[0], 'publishIfReady');
+  assert.deepEqual(Object.keys(published).slice(0, 2), ['act', 'publishIfReady']);
+  assert.deepEqual(published.act.do, { reason: published.publishIfReady.next.reason, copilot: '/sf-submit',
+    shell: 'singularity-flow submit intake --work-id READY-1', vscode: '@sflow /submit intake --work-id READY-1' });
   assert.match(published.publishIfReady.next.instruction, /^Published\. End the reply with this next action/u);
   assert.deepEqual(published.publishIfReady.next.commandGuidance, { copilotCommand: '/sf-submit',
     command: 'singularity-flow submit intake --work-id READY-1', modelFreeCommand: '@sflow /submit intake --work-id READY-1' });
@@ -121,22 +124,22 @@ test('prepublish --publish-if-ready returns the unchanged check, and publishes w
   assert.equal(must('git', ['status', '--porcelain']), '', 'the publication was committed');
 
   // Submission: readiness says ready-to-attempt, so the same command submits and shows the review.
-  const submitted = JSON.parse(sflow('status', 'READY-1', '--submission-readiness', '--json', '--submit-if-ready'));
+  const submitted = completeAgentResult(sflow('status', 'READY-1', '--submission-readiness', '--json', '--submit-if-ready'));
   assert.equal(submitted.classification, 'ready-to-attempt');
   assert.equal(submitted.submitIfReady.submitted, true);
   assert.equal(submitted.submitIfReady.command, 'singularity-flow submit intake --work-id READY-1');
   assert.equal(submitted.submitIfReady.review.phase, 'intake');
-  assert.equal(Object.keys(submitted)[0], 'submitIfReady');
+  assert.equal(Object.keys(submitted)[0], 'submitIfReady', 'submission readiness is not an agent result');
   assert.match(submitted.submitIfReady.next.instruction, /^Submitted\. End the reply with this next action/u);
   assert.deepEqual(submitted.submitIfReady.next.commandGuidance, { copilotCommand: '/sf-approve intake --work-id READY-1',
     command: 'singularity-flow approve intake --work-id READY-1 --fetch', modelFreeCommand: '@sflow /approve intake --work-id READY-1' });
   assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.intake.status, 'awaiting_approval');
-  const again = JSON.parse(sflow('status', 'READY-1', '--submission-readiness', '--json', '--submit-if-ready'));
+  const again = completeAgentResult(sflow('status', 'READY-1', '--submission-readiness', '--json', '--submit-if-ready'));
   assert.deepEqual(again.submitIfReady, { submitted: false, reason: again.classification, command: again.nextCommand ?? null });
   assert.notEqual(again.classification, 'ready-to-attempt');
 
   // Approval: readiness, the receipt and the review arrive together; nothing is answered or approved.
-  const packet = JSON.parse(sflow('choices', 'begin', 'approve', 'READY-1', '--json', '--review-packet'));
+  const packet = completeAgentResult(sflow('choices', 'begin', 'approve', 'READY-1', '--json', '--review-packet'));
   assert.equal(packet.approvalContext.phase, 'intake');
   assert.equal(packet.ready, false);
   assert.match(packet.token, /^[0-9a-f-]{36}$/u);
@@ -169,5 +172,8 @@ test('a refused step is relayed with its own recovery plan, not one rebuilt from
   finally { console.log = log; }
   assert.equal(process.exitCode, 3);
   process.exitCode = previousExitCode;
-  assert.deepEqual(JSON.parse(printed.join('\n')), refusal, 'the step\'s refusal, field for field');
+  // The agent's copy leads with `act` from the step's own plan; the rest is the step's refusal unchanged.
+  const { act, ...relayed } = JSON.parse(printed.join('\n'));
+  assert.deepEqual(relayed, refusal, 'the step\'s refusal, field for field');
+  assert.deepEqual([act.state, act.do.shell], ['refused', 'singularity-flow recover A-1 --phase code --json']);
 });

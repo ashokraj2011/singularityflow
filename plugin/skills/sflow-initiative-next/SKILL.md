@@ -14,7 +14,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-1. Run `singularity-flow initiative next [INIT-ID] --json`.
+1. Run `singularity-flow initiative next [INIT-ID] --for-agent --json`.
 2. Present each returned action in order with its exact command and reason.
 3. Call out missing output approvals, checklist evidence, stale contracts, incomplete blocking stories, and materialization work.
 4. Keep this operation read-only. Do not execute an action unless the contributor explicitly asks.

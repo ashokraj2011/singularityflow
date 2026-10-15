@@ -23,7 +23,7 @@ Use this when the developer is confused, stuck, or does not know which SFlow rou
 3. If the result is ambiguous or has no confident route, preserve every returned choice and ask the developer to select one. Never choose on their behalf.
 4. When the question is about product behavior rather than current state, run `singularity-flow explain "$ARGUMENTS" --here --json` and cite the returned packaged topic. Do not answer product behavior from memory.
 5. When the returned guidance recommends `singularity-flow workspace reinitialize`, present `/sf-admin reinitialize` as the Copilot route. Explain that it previews an exact workspace/repository scope and requires the returned plan ID before applying; do not run either command from this advisory skill and never substitute factory reset.
-6. Only when Home returns an active Story and exact repository path, run `singularity-flow nextsteps <WORK-ID> --json`
+6. Only when Home returns an active Story and exact repository path, run `singularity-flow nextsteps <WORK-ID> --for-agent --json`
    there for an unexplained blocker. Run `singularity-flow doctor <WORK-ID>` only
    when guidance calls for repository diagnosis.
 7. Present:

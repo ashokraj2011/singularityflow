@@ -36,14 +36,16 @@ export const APPROVED_INPUTS_CONTRACT = 'Approved phase inputs are the earlier s
 export const approvedInputsContractApplies = (contract) => contract === 'clarification-and-artifact';
 
 /**
- * A command's result is complete even when the host saves it to a file. `[large-output]`
+ * Read `act` first; a long result is bounded, never lost. `[large-output]` `[agent-output]`
  *
- * Copilot keeps a long tool result in a file and shows the model only its start. Agents read that
- * start, missed the fields that said what to do next, and stopped (a source review ended with
- * "the review instructions need to be followed") or treated the result as truncated. Engine-owned
- * like the contracts above, on the same Story skills as the applicability contract.
+ * Copilot keeps a long tool result in a file and shows the model only its start, or saves it
+ * outside the workspace where its file tools cannot open it. Agents missed what to do next, stopped,
+ * or treated the result as truncated. A `--for-agent` result now starts with `act` and stays
+ * within a fixed size, listing every field it left out with its line range in a file inside the
+ * repository (src/agent-output.mjs). Engine-owned like the contracts above, on the same Story
+ * skills as the applicability contract.
  */
-export const COMPLETE_OUTPUT_CONTRACT = 'A command\'s JSON is complete even when long: if your tool saved it to a file, read that file to its end before acting; never treat a saved or long result as truncated or stop because of its size.';
+export const COMPLETE_OUTPUT_CONTRACT = 'Act on a result\'s `act` first: its state, `do` routes and any `ask`. A bounded result lists `omittedFields` with exact line ranges in `agentOutput.path`; read only those you need with your file tool. Never stop because a result is long or was saved to a file.';
 
 export function applicabilityContractApplies(rule) {
   return (rule?.executionBoundary ?? 'story') === 'story' && rule?.class !== 'delegation';
@@ -315,7 +317,7 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
   'sflow-workflow-rules': {
     required: [
       /Never run `singularity-flow next`/,
-      /singularity-flow nextsteps <WORK-ID> --json/,
+      /singularity-flow nextsteps <WORK-ID> (?:--for-agent )?--json/,
       /returned SFlow skill route/,
       /Repository brief is guidance/i
     ],

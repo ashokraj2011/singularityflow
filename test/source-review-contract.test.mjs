@@ -58,7 +58,7 @@ test('what the reviewer must act on comes before the material it reads, and the 
   before('reportSchema', 'mutationContract');
   const compact = compactSourceReviewContext(full, entry);
   assert.match(compact.reviewGuide.role, /You are this operation's reviewer/u);
-  assert.match(compact.reviewGuide.role, /read that file to its end/u);
+  assert.match(compact.reviewGuide.role, /lists omittedFields with their line ranges in agentOutput\.path/u);
   assert.match(compactSourceReviewContext({ canReview: false }, entry).reviewGuide.role, /relay continuation\.actions and stop/u);
 });
 

@@ -33,7 +33,7 @@ export function compactSourceReviewContext(packet, binding) {
     bindingPath: packet.reportTemplate ? 'reportTemplate.binding' : null,
     reviewGuide: {
       role: packet.canReview
-        ? 'You are this operation\'s reviewer: activation is automatic, so act under reviewer.instructions yourself in this conversation; no other agent, setup or selection is needed. Do the whole review now: fill reportTemplate, stage it at stagingPath, check it, then retain it. This packet is complete and not truncated: if your tool saved it to a file, read that file to its end before concluding anything is missing.'
+        ? 'You are this operation\'s reviewer: activation is automatic, so act under reviewer.instructions yourself in this conversation; no other agent, setup or selection is needed. Do the whole review now: fill reportTemplate, stage it at stagingPath, check it, then retain it. This packet is complete: a bounded copy lists omittedFields with their line ranges in agentOutput.path; read those ranges with your file tool before concluding anything is missing.'
         : 'No review can be prepared here; relay continuation.actions and stop.',
       readOrder: ['reviewer.instructions', 'clarifications', 'sources', 'upstreamSpec', 'artifact', 'reportTemplate', 'reportSchema'],
       exactTexts: true, bindingCopies: packet.reportTemplate ? 1 : 0,

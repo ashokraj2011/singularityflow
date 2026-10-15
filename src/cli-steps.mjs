@@ -20,8 +20,9 @@ const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../bin/s
 function processStep(args, cwd) {
   // A command started with --no-model runs its steps the same way.
   const model = operationContext()?.modelMode?.enabled === false && !args.includes('--no-model') ? ['--no-model'] : [];
+  // A step's result is read whole by the command that ran it; only that command's own output is bounded.
   const child = spawnSync(process.execPath, [CLI, ...model, ...args], {
-    cwd, env: process.env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 30 * 60 * 1000
+    cwd, env: { ...process.env, SINGULARITY_FLOW_AGENT_OUTPUT: 'raw' }, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 30 * 60 * 1000
   });
   let value = null;
   try { value = JSON.parse(child.stdout); } catch { value = null; }
@@ -48,6 +49,7 @@ export function reusableReadStep(args) {
 async function readStep(args, cwd) {
   const previousCwd = process.cwd(), previousExit = process.exitCode;
   const previousStarted = globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT;
+  const previousDepth = globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH ?? 0;
   const out = process.stdout.write, err = process.stderr.write;
   const chunks = { stdout: [], stderr: [] }, sizes = { stdout: 0, stderr: 0 };
   const capture = name => function(chunk, encoding, callback) {
@@ -63,6 +65,7 @@ async function readStep(args, cwd) {
   try {
     process.chdir(cwd); process.exitCode = undefined;
     globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT = process.hrtime.bigint();
+    globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH = previousDepth + 1;
     process.stdout.write = capture('stdout'); process.stderr.write = capture('stderr');
     await withoutReadScope(() => withoutConfigurationReadScope(async () => {
       try {
@@ -78,6 +81,7 @@ async function readStep(args, cwd) {
     process.stdout.write = out; process.stderr.write = err;
     process.exitCode = previousExit;
     globalThis.__SINGULARITY_FLOW_PROCESS_STARTED_AT = previousStarted;
+    globalThis.__SINGULARITY_FLOW_CLI_STEP_DEPTH = previousDepth;
     process.chdir(previousCwd);
   }
   const stdout = Buffer.concat(chunks.stdout).toString('utf8'), stderr = Buffer.concat(chunks.stderr).toString('utf8');

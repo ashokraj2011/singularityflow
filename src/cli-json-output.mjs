@@ -1,7 +1,7 @@
 /** Keep legacy progress/review prose from preceding a failed --json command's terminal object. */
 const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 
-export async function withCliJsonOutput(json, execute) {
+export async function withCliJsonOutput(json, execute, { forAgent = false } = {}) {
   if (!json) return execute();
   const stream = process.stdout;
   const write = stream.write;
@@ -28,6 +28,9 @@ export async function withCliJsonOutput(json, execute) {
     // this restoration. Human mode and child Git diagnostics on stderr are unchanged.
     stream.write = write;
   }
-  for (const chunk of chunks) write.call(stream, chunk);
+  // An agent reads `act` first and never more than its host shows (agent-output.mjs).
+  const { agentOutputGoverned, boundedAgentOutput } = forAgent ? await import('./agent-output.mjs') : {};
+  if (forAgent && agentOutputGoverned()) write.call(stream, await boundedAgentOutput(Buffer.concat(chunks).toString('utf8')));
+  else for (const chunk of chunks) write.call(stream, chunk);
   return value;
 }

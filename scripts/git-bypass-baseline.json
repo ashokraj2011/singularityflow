@@ -529,7 +529,7 @@
         "process-import": 1,
         "process-launch": 1
       },
-      "digest": "f8b8540656767076ce889ee1ab88a80b0716303296fdf1176f2424726f913599"
+      "digest": "5ef4cf2b4e7583177dd74eefe4a70926efc5983802973a922feca027b7684821"
     },
     "src/cli.mjs": {
       "counts": {

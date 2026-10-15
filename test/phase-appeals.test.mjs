@@ -30,6 +30,7 @@ import { readBoundSpecificationClaimMap } from '../src/specifications.mjs';
 import { recoveryPlan } from '../src/collaboration.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { inspectPhasePublicationReadiness, assertPhasePublicationReadiness } from '../src/phase-publication-readiness.mjs';
+import { completeAgentResult } from '../src/agent-output.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const WORK = 'APPEAL-1';
@@ -130,7 +131,7 @@ async function acceptDocumentRisk(root, cli, phase, { transitions = [] } = {}) {
   const reason = 'The unfinished explanatory appendix is deferred for this pilot; source, tests and review remain required.';
   const options = ['--phase', phase, '--finding', 'artifact.placeholder.unresolved', '--gate-mode', 'soft', '--expires', expires, '--reason', reason,
     ...transitions.flatMap(transition => ['--transition', transition])];
-  const packet = JSON.parse(cli('appeal', 'risk-prepare', ...options, '--json').stdout).data.packet;
+  const packet = completeAgentResult(cli('appeal', 'risk-prepare', ...options, '--json').stdout).data.packet;
   const id = `PQR-${packet.packetSha256.slice(7, 31)}`;
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
   const ceremony = spawnSync('/usr/bin/expect', ['-c', `set timeout 45\nspawn -noecho $env(PQR_NODE) $env(PQR_CLI) --no-model appeal risk-accept --phase $env(PQR_PHASE) --finding artifact.placeholder.unresolved --gate-mode soft --expires $env(PQR_EXPIRES) --reason $env(PQR_REASON) {*}$env(PQR_TRANSITIONS) --confirm $env(PQR_CONFIRM) --json\nexpect "Type Accept risk ${id} to confirm this exact action, or Enter to cancel:"\nsend -- "Accept risk ${id}\\r"\nexpect eof\ncatch wait result\nexit [lindex $result 3]`],
@@ -167,7 +168,7 @@ async function fixture(t, { pilotCoverage = false, directCoverage = false, missi
   await writeFile(configPath, YAML.stringify(config));
   git('add', '.'); git('commit', '-m', 'Initialize appeal fixture');
   run('git', ['init', '--bare', '-b', 'main', remote], root); git('remote', 'add', 'origin', remote); git('push', '-u', 'origin', 'main');
-  const ready = JSON.parse(cli('precheck', '--run', '--scope', 'dependency-test', '--json').stdout).data.plan;
+  const ready = completeAgentResult(cli('precheck', '--run', '--scope', 'dependency-test', '--json').stdout).data.plan;
   cli('precheck', '--run', '--scope', 'dependency-test', '--confirm-plan', ready.planId, '--json');
   cli('start', WORK, '--from-branch', 'main', '--work-type', completionWorkflow ? 'journey-proof' : 'classic-delivery', '--title', 'Use a helper', '--description', 'Return 2.',
     ...(pilotCoverage ? ['--gate-mode', 'soft'] : []));
@@ -252,7 +253,7 @@ for (const surface of ['terminal', 'browser']) test(`reviewed evidence typing vi
   await setAgentSession(f.root, definition, { name: 'Appeal Tester', email: 'appeal@example.test' },
     workflow.phases.implementation.defaultAgent, WORK, { phaseId: 'implementation', source: 'test' });
   const composed = f.cli('phase', 'enter', '--compose', '--for-agent', '--json');
-  const entry = JSON.parse(composed.stdout);
+  const entry = completeAgentResult(composed.stdout);
   assert.equal(entry.contextAdmission.allowed, true, composed.stdout);
   assert.equal(entry.contextComposition, 'delivered');
   if (surface === 'terminal') {
@@ -298,20 +299,20 @@ for (const surface of ['terminal', 'browser']) test(`reviewed evidence typing vi
   assert.equal(unrelatedRepair.correction.sameTurn, false);
   assert.equal(unrelatedRepair.commands.publish, null);
   await rm(path.join(f.root, foreignPath));
-  const packet = JSON.parse(f.cli('appeal', 'evidence-prepare', ...options, '--json').stdout).data.packet;
+  const packet = completeAgentResult(f.cli('appeal', 'evidence-prepare', ...options, '--json').stdout).data.packet;
   assert.equal(packet.humanReview.surface, 'local-browser');
   assert.equal(packet.humanReview.execution, 'human-mediated-review');
   assert.equal(packet.humanReview.terminalFallback, true);
   const id = `PEA-${packet.packetSha256.slice(7, 31)}`;
   assert.equal(packet.humanReview.confirmationText, `Correct evidence ${id}`);
   const stale = run(process.execPath, [CLI, '--no-model', 'appeal', 'evidence-accept', ...options, '--confirm', 'sha256:' + '0'.repeat(64), '--json'], f.root, true);
-  assert.equal(JSON.parse(stale.stdout).error.code, 'PLAN_EVIDENCE_CORRECTION_STALE');
+  assert.equal(completeAgentResult(stale.stdout).error.code, 'PLAN_EVIDENCE_CORRECTION_STALE');
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
   const browserArgv = ['--no-model', 'appeal', 'evidence-accept', ...options, '--confirm', packet.packetSha256, '--review-ui', '--json'];
   if (surface === 'browser') {
     const cancelled = await browserEvidenceAcceptance(t, f.root, browserArgv, `Correct evidence ${id}`, { cancel: true });
     assert.equal(cancelled.status, 0, cancelled.stdout + cancelled.stderr);
-    assert.equal(JSON.parse(cancelled.stdout).data.stateChanged, false);
+    assert.equal(completeAgentResult(cancelled.stdout).data.stateChanged, false);
     assert.equal((await f.load()).workflow.planAmendments?.length ?? 0, 0);
   }
   const ceremony = surface === 'browser' ? await browserEvidenceAcceptance(t, f.root, browserArgv, `Correct evidence ${id}`)
@@ -344,17 +345,17 @@ for (const surface of ['terminal', 'browser']) test(`reviewed evidence typing vi
   assert.match(f.git('status', '--porcelain=v1', '--untracked-files=all').stdout, /value\.png/u, 'screenshot stays private until normal publication');
   // Regression: ownership correction was previously the end of the test. Prove the actual
   // lifecycle: publish, fresh submission tests, explicit visual witness and human approval.
-  const staged = JSON.parse(f.cli('appeal', 'resolve', '--phase', 'implementation', '--json').stdout).data;
+  const staged = completeAgentResult(f.cli('appeal', 'resolve', '--phase', 'implementation', '--json').stdout).data;
   assert.equal(staged.continuationAllowed, false, JSON.stringify(staged));
   assert.ok(staged.journey.resolution.issues.some(issue => issue.code === 'LIFECYCLE_STAGED_GOVERNED_REVIEW_REQUIRED'));
   assert.equal(f.git('ls-files', '--stage').stdout.split('\n').find(line => line.endsWith('\tsrc/value.mjs')),
     indexBefore.split('\n').find(line => line.endsWith('\tsrc/value.mjs')), 'preflight preserves the exact staged source');
   // Explicit fixture-owner review only, never an automatic product operation.
   f.git('restore', '--staged', '--', 'src/value.mjs');
-  const preview = JSON.parse(f.cli('appeal', 'resolve', '--phase', 'implementation', '--json').stdout).data;
+  const preview = completeAgentResult(f.cli('appeal', 'resolve', '--phase', 'implementation', '--json').stdout).data;
   assert.equal(preview.journey.witnesses.length, 1, JSON.stringify(preview));
   assert.equal(preview.continuationAllowed, true, JSON.stringify(preview));
-  const continued = JSON.parse(f.cli('appeal', 'resolve-run', '--phase', 'implementation', '--confirm', preview.confirmation, '--json').stdout).data;
+  const continued = completeAgentResult(f.cli('appeal', 'resolve-run', '--phase', 'implementation', '--confirm', preview.confirmation, '--json').stdout).data;
   assert.equal(continued.executed[0].outcome, 'verified', JSON.stringify(continued));
   assert.equal(continued.executed[1].outcome, 'verified', JSON.stringify(continued));
   assert.equal(continued.journey.state, 'witness-review', JSON.stringify(continued));
@@ -363,7 +364,7 @@ for (const surface of ['terminal', 'browser']) test(`reviewed evidence typing vi
   f.cli('decision', 'witness', '--work-id', WORK, '--criterion', `${WORK}:AC-001`, '--slot', witness.slot,
     '--file', evidencePath, '--reason', 'The exact retained value screenshot was inspected for this synthetic candidate.',
     '--confirm', 'states-the-outcome', '--confirm', 'matches-the-criterion', '--confirm', 'current-for-this-change', '--json');
-  const approval = JSON.parse(f.cli('appeal', 'resolve', '--phase', 'implementation', '--json').stdout).data;
+  const approval = completeAgentResult(f.cli('appeal', 'resolve', '--phase', 'implementation', '--json').stdout).data;
   assert.equal(approval.journey.state, 'human-approval', JSON.stringify(approval));
   assert.equal(approval.continuationAllowed, false, 'the coordinator never grants human approval');
   ({ workflow } = await f.load());
@@ -440,17 +441,17 @@ test('rejected code successors submit fresh evidence, including old-writer histo
       reopened.phases.implementation.reworkRevalidation = { generation: 2 };
       assert.equal(await pendingCodeSubmissionEvidence(f.root, definition, reopened, reopened.phases.implementation), null,
         'an explicit rework boundary cannot borrow the prior generation\'s pending submission route');
-      const preflight = JSON.parse(f.cli('appeal', 'preflight', '--phase', phase.id, '--json').stdout).data;
+      const preflight = completeAgentResult(f.cli('appeal', 'preflight', '--phase', phase.id, '--json').stdout).data;
       assert.equal(preflight.quality.status, 'pending-submission-evidence', JSON.stringify(preflight));
       assert.equal(preflight.quality.testsWaived, false);
       assert.deepEqual(preflight.inspection.findings, []);
       assert.deepEqual(preflight.recovery.blockers, []);
       assert.ok(preflight.recovery.actions.some(action => action.command?.startsWith('singularity-flow submit implementation')));
       assert.equal(requiresProspectivePhaseInspection(workflow, phase), false);
-      const draft = JSON.parse(f.cli('phase', 'draft-check', phase.id, '--json').stdout);
+      const draft = completeAgentResult(f.cli('phase', 'draft-check', phase.id, '--json').stdout);
       assert.equal(draft.generation, 2); assert.equal(draft.inspectionStage, 'published');
       assert.equal(draft.commands.publish, null); assert.equal(draft.correction.sameTurn, false);
-      const prepublish = JSON.parse(f.cli('phase', 'prepublish', phase.id, '--json').stdout);
+      const prepublish = completeAgentResult(f.cli('phase', 'prepublish', phase.id, '--json').stdout);
       assert.equal(prepublish.status, 'ready', JSON.stringify(prepublish));
       assert.equal(prepublish.generation, 2); assert.equal(prepublish.commands.publish, null);
       assert.match(prepublish.commands.next, /submit implementation/u);
@@ -464,7 +465,7 @@ test('rejected code successors submit fresh evidence, including old-writer histo
       const riskRefusal = run(process.execPath, [CLI, '--no-model', 'appeal', 'risk-prepare', '--phase', phase.id,
         '--gate-mode', 'soft', '--json'], f.root, true);
       assert.notEqual(riskRefusal.status, 0);
-      const refusal = JSON.parse(riskRefusal.stdout);
+      const refusal = completeAgentResult(riskRefusal.stdout);
       assert.equal(refusal.error.code, 'PHASE_QUALITY_RISK_PENDING_TESTS');
       assert.ok(refusal.remediationPlan.steps.some(step => step.command === pending.next && step.copilotCommand === '/sf-submit'));
       if (!legacyWriter) {
@@ -487,7 +488,7 @@ test('rejected code successors submit fresh evidence, including old-writer histo
         assert.equal(preview.status, 'correction-required'); assert.equal(preview.correction.sameTurn, false);
         await f.write(pathToDocument, documentBytes);
       }
-      const repair = JSON.parse(f.cli('appeal', 'repair-plan', '--phase', phase.id, '--json').stdout).data;
+      const repair = completeAgentResult(f.cli('appeal', 'repair-plan', '--phase', phase.id, '--json').stdout).data;
       assert.equal(repair.status, 'ready-for-next-check');
       assert.deepEqual(repair.inspection.findings, []);
       assert.equal(repair.action, null, 'pending submission does not hand a published generation back to its author');
@@ -530,12 +531,12 @@ test('pilot risk unlocks only the reviewed editable candidate, still runs tests 
     const f = await fixture(t, { pilotCoverage: true });
     const options = ['--phase', 'implementation', '--expires', new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
       '--reason', 'The second planned location is explicitly deferred for this pilot.'];
-    const preview = JSON.parse(f.cli('appeal', 'risk-prepare', ...options, '--json').stdout).data.packet;
+    const preview = completeAgentResult(f.cli('appeal', 'risk-prepare', ...options, '--json').stdout).data.packet;
     assert.equal(preview.binding.stage, 'candidate'); assert.equal(preview.binding.generation, 1);
     assert.deepEqual(preview.transitions, ['publish']); assert.deepEqual(preview.clauses, [`${WORK}:AC-001`]);
     const source = await readFile(path.join(f.root, 'src/value.mjs'), 'utf8');
-    assert.equal(JSON.parse(f.cli('phase', 'prepublish', 'implementation', '--json').stdout).status, 'correction-required');
-    const blocked = JSON.parse(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
+    assert.equal(completeAgentResult(f.cli('phase', 'prepublish', 'implementation', '--json').stdout).status, 'correction-required');
+    const blocked = completeAgentResult(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
     assert.equal(blocked.resolution.issues.filter(issue => ['SPEC_COVERAGE_INCOMPLETE', 'code.delivery.incomplete'].includes(issue.code)).length, 1);
     assert.equal(blocked.resolution.issues.find(issue => issue.code === 'SPEC_COVERAGE_INCOMPLETE').choices[0].kind, 'pilot-risk-review');
     const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('NODE_TEST_')));
@@ -550,10 +551,10 @@ test('pilot risk unlocks only the reviewed editable candidate, still runs tests 
     assert.equal(await readFile(path.join(f.root, 'src/value.mjs'), 'utf8'), source);
     const paths = f.git('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').stdout.trim().split('\n');
     assert.deepEqual(paths.sort(), [`${f.item}/STATUS.md`, `${f.item}/workflow.json`].sort());
-    let preflight = JSON.parse(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
+    let preflight = completeAgentResult(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
     assert.equal(preflight.quality.status, 'ready-with-accepted-risk');
     await f.write('src/value.mjs', source.replace('value = 2', 'value = 3'));
-    preflight = JSON.parse(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
+    preflight = completeAgentResult(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
     assert.equal(preflight.quality.risks.items[0].status, 'stale');
     await f.write('src/value.mjs', source);
     f.cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
@@ -568,7 +569,7 @@ test('pilot risk unlocks only the reviewed editable candidate, still runs tests 
     assert.ok((await f.load()).workflow.phases.implementation.deliveryEvidence.testExecutions.some(execution => execution.status === 'passed'));
     const approval = run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes', '--json'], f.root, true);
     assert.notEqual(approval.status, 0, approval.stdout); assert.match(approval.stdout, /SPEC_COVERAGE_INCOMPLETE/u);
-    const retained = JSON.parse(f.cli('appeal', 'risk-prepare', ...options, '--json').stdout).data.packet;
+    const retained = completeAgentResult(f.cli('appeal', 'risk-prepare', ...options, '--json').stdout).data.packet;
     assert.equal(retained.binding.stage, 'published'); assert.notEqual(retained.packetSha256, preview.packetSha256);
     assert.deepEqual(retained.transitions, ['approve', 'consume', 'submit', 'terminal']);
     accept(retained);
@@ -586,18 +587,18 @@ test('one live document-quality decision survives publication and submission wit
     const reason = 'The unfinished explanatory appendix is deferred for this pilot; source, tests and review remain required.';
     const expires = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
     const options = ['--phase', 'implementation', '--finding', 'artifact.placeholder.unresolved', '--gate-mode', 'soft', '--expires', expires, '--reason', reason];
-    const preview = JSON.parse(f.cli('appeal', 'risk-prepare', ...options, '--json').stdout).data.packet;
+    const preview = completeAgentResult(f.cli('appeal', 'risk-prepare', ...options, '--json').stdout).data.packet;
     assert.equal(preview.schemaVersion, 2); assert.equal(preview.gate, 'PHASE_ARTIFACT_QUALITY');
-    const before = JSON.parse(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
+    const before = completeAgentResult(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
     assert.equal(before.artifactQuality.eligible, true);
     assert.ok(before.resolution.issues.some(issue => issue.choices.some(choice => choice.kind === 'preserve-checkpoint')));
     const beforeHead = f.git('rev-parse', 'HEAD').stdout.trim();
     const beforeStatus = f.git('status', '--porcelain=v1').stdout;
     const beforeIndex = await readFile(path.join(f.root, '.git/index'));
-    const saved = JSON.parse(f.cli('appeal', 'checkpoint', '--phase', 'implementation', '--json').stdout);
+    const saved = completeAgentResult(f.cli('appeal', 'checkpoint', '--phase', 'implementation', '--json').stdout);
     assert.equal(saved.operation.classification, 'mutation');
     assert.equal(saved.effects.stateChanged, false); assert.equal(saved.effects.filesChanged, true);
-    const shown = JSON.parse(f.cli('appeal', 'checkpoint-show', saved.data.id, '--phase', 'implementation', '--json').stdout);
+    const shown = completeAgentResult(f.cli('appeal', 'checkpoint-show', saved.data.id, '--phase', 'implementation', '--json').stdout);
     assert.equal(shown.data.automaticRestore, false); assert.equal(shown.effects.filesChanged, false);
     assert.equal(f.git('rev-parse', 'HEAD').stdout.trim(), beforeHead);
     assert.equal(f.git('status', '--porcelain=v1').stdout, beforeStatus);
@@ -620,13 +621,13 @@ test('one live document-quality decision survives publication and submission wit
     assert.equal(changed.items[0].status, 'stale'); assert.equal(changed.excepted, false);
     await f.write(f.summary, `${original}\nPilot limitation: TODO add the explanatory appendix.\n`);
     const source = await readFile(path.join(f.root, 'src/value.mjs'), 'utf8');
-    const accepted = JSON.parse(f.cli('phase', 'prepublish', 'implementation', '--json').stdout);
+    const accepted = completeAgentResult(f.cli('phase', 'prepublish', 'implementation', '--json').stdout);
     assert.equal(accepted.status, 'ready', JSON.stringify(accepted));
     assert.equal(accepted.qualityDisposition, 'accepted-risk');
     assert.ok((await readFile(path.join(f.root, f.summary), 'utf8')).includes('TODO'));
     f.cli('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
     assert.equal((await f.load()).workflow.phases.implementation.generation, 1);
-    const after = JSON.parse(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
+    const after = completeAgentResult(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
     assert.equal(after.artifactQuality.items[0].status, 'active', JSON.stringify(after.artifactQuality));
     f.cli('submit', 'implementation', '--json');
     const submitted = (await f.load()).workflow.phases.implementation;
@@ -724,17 +725,17 @@ test('exact-diff appeal preserves source/drafts/index, blocks transitions, and h
     const beforeHead = f.git('rev-parse', 'HEAD').stdout.trim();
     const draft = await readFile(path.join(f.root, f.summary), 'utf8');
     f.git('add', 'src/value.mjs'); const index = f.git('diff', '--cached').stdout;
-    const repairStatus = JSON.parse(f.cli('appeal', 'repair-status', '--phase', 'implementation', '--json').stdout);
+    const repairStatus = completeAgentResult(f.cli('appeal', 'repair-status', '--phase', 'implementation', '--json').stdout);
     assert.equal(repairStatus.operation.id, 'appeal.repair-status');
     assert.equal(repairStatus.data.consumed, 0); assert.equal(repairStatus.data.machineLocal, true);
-    const repairPlan = JSON.parse(f.cli('appeal', 'repair-plan', '--phase', 'implementation', '--json').stdout);
+    const repairPlan = completeAgentResult(f.cli('appeal', 'repair-plan', '--phase', 'implementation', '--json').stdout);
     assert.equal(repairPlan.data.phaseAdvanced, false); assert.equal(repairPlan.data.testsRun, false);
     assert.equal(repairPlan.effects.stateChanged, false); assert.equal(repairPlan.effects.filesChanged, false);
     const staleRepair = run(process.execPath, [CLI, '--no-model', 'appeal', 'repair-run', '--phase', 'implementation', '--confirm', sha('not this plan'), '--json'], f.root, true);
     assert.notEqual(staleRepair.status, 0); assert.match(staleRepair.stdout, /PHASE_REPAIR_PLAN_STALE/u);
     assert.equal(f.git('diff', '--cached').stdout, index);
     const prepared = await preparePhaseAppeal(f.root, definition, workflow, request);
-    const preview = JSON.parse(f.cli('appeal', 'prepare', '--add-location', `${WORK}:AC-001=src/helper.mjs`, '--reason', request.reason, '--json').stdout);
+    const preview = completeAgentResult(f.cli('appeal', 'prepare', '--add-location', `${WORK}:AC-001=src/helper.mjs`, '--reason', request.reason, '--json').stdout);
     assert.deepEqual(preview.data.packet.binding, prepared.binding);
     assert.deepEqual(preview.data.packet.diff, prepared.diff);
     assert.equal(f.git('rev-parse', 'HEAD').stdout.trim(), beforeHead, 'preparation is read-only');
@@ -751,10 +752,10 @@ test('exact-diff appeal preserves source/drafts/index, blocks transitions, and h
     assert.equal(await readFile(path.join(f.root, f.summary), 'utf8'), draft);
     assert.equal(f.git('diff', '--cached').stdout, index, 'existing staged application edits preserved');
     ({ definition, workflow } = await f.load());
-    const listed = JSON.parse(f.cli('appeal', 'list', '--json').stdout);
+    const listed = completeAgentResult(f.cli('appeal', 'list', '--json').stdout);
     assert.equal(listed.data.items[0].id, prepared.id);
-    assert.equal(JSON.parse(f.cli('appeal', 'show', prepared.id, '--json').stdout).data.packet.packetSha256, prepared.packetSha256);
-    const preflight = JSON.parse(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
+    assert.equal(completeAgentResult(f.cli('appeal', 'show', prepared.id, '--json').stdout).data.packet.packetSha256, prepared.packetSha256);
+    const preflight = completeAgentResult(f.cli('appeal', 'preflight', '--phase', 'implementation', '--json').stdout).data;
     assert.equal(preflight.mutates, false); assert.equal(preflight.testsRun, false); assert.equal(preflight.status, 'resolution-required');
     assert.equal((await phaseAppealStatus(f.root, definition, workflow)).status, 'needs-human');
     await assert.rejects(assertPhaseAppealsResolved(f.root, definition, workflow, workflow.phases.implementation), { code: 'PHASE_APPEAL_REVIEW_REQUIRED' });

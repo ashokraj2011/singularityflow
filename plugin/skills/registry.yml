@@ -103,7 +103,7 @@ skills:
   sflow-capability-protect: { class: interactive, executionBoundary: repository }
   sflow-capability-doctor: { class: echo, executionBoundary: organisation }
   sflow-capability-map: { class: interactive, executionBoundary: organisation }
-  sflow-code: { class: generative, maximumTokenOverride: 1262, exception: 'Code-phase recovery and publication-time test diagnosis must preserve safe current-phase repair without bypassing evidence, generated public code must carry doc comments, the code author must produce its planned evidence files, and a question that arises while coding must reach the person or the earlier step that owns it without stopping the code.' }
+  sflow-code: { class: generative, maximumTokenOverride: 1265, exception: 'Code-phase recovery and publication-time test diagnosis must preserve safe current-phase repair without bypassing evidence, generated public code must carry doc comments, the code author must produce its planned evidence files, and a question that arises while coding must reach the person or the earlier step that owns it without stopping the code. Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open.' }
   sflow-document-intake: { class: generative, maximumTokenOverride: 801, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself." }
   sflow-scenario-check: { class: generative, maximumTokenOverride: 811, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself." }
   sflow-scenario-repair: { class: delegation, executionBoundary: machine, delegatesTo: sflow-code }
@@ -118,10 +118,10 @@ skills:
   sflow-explain-code: { class: conversational, kernelModelPolicy: conditional }
   sflow-import: { class: mutation, executionBoundary: repository }
   sflow-specify: { class: generative }
-  sflow-plan: { class: generative, maximumTokenOverride: 812, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself." }
+  sflow-plan: { class: generative, maximumTokenOverride: 815, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself. Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
   sflow-review-source: { class: review }
   sflow-review-decide: { class: mutation }
-  sflow-converge: { class: generative, maximumTokenOverride: 818, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself." }
+  sflow-converge: { class: generative, maximumTokenOverride: 821, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself. Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
   sflow-doctor: { class: echo, executionBoundary: machine }
   sflow-documents: { class: mutation, executionBoundary: repository }
   sflow-environment: { class: interactive, executionBoundary: repository }
@@ -214,9 +214,9 @@ skills:
   sflow-refresh-branch: { class: mutation }
   sflow-refresh-configuration: { class: mutation, executionBoundary: machine }
   sflow-regression-investigate: { class: conversational }
-  sflow-recover: { class: mutation }
-  sflow-appeal: { class: review }
-  sflow-reject: { class: review }
+  sflow-recover: { class: mutation, maximumTokenOverride: 801, exception: "Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
+  sflow-appeal: { class: review, maximumTokenOverride: 802, exception: "Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
+  sflow-reject: { class: review, maximumTokenOverride: 803, exception: "Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
   sflow-release: { class: generative, maximumTokenOverride: 875, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step. It continues only on its own verified route, so a built-in step changed into code or sign-off only is relayed, with the reason when the route is withheld." }
   sflow-report: { class: echo, executionBoundary: repository }
   sflow-requirements: { class: generative, maximumTokenOverride: 924, exception: "A step may choose this skill, so it re-reads the step's verified route and follows that step's clarification mode, inputs, artifact contract and engine-computed handoff instead of assuming its original step. It continues only on its own verified route, so a built-in step changed into code or sign-off only is relayed, with the reason when the route is withheld. It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself." }
@@ -236,7 +236,7 @@ skills:
   sflow-snapshot: { class: echo, executionBoundary: repository }
   sflow-spec: { class: mutation, kernelModelPolicy: conditional }
   sflow-stack: { class: mutation, executionBoundary: repository }
-  sflow-start: { class: interactive, executionBoundary: repository }
+  sflow-start: { class: interactive, maximumTokenOverride: 801, executionBoundary: repository, exception: "Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
   sflow-status: { class: conversational, executionBoundary: repository }
   sflow-stories: { class: interactive, executionBoundary: machine }
   sflow-story-branch: { class: interactive, executionBoundary: repository }
@@ -246,7 +246,7 @@ skills:
   sflow-work-interval: { class: mutation }
   sflow-story-start: { class: interactive, kernelModelPolicy: never, executionBoundary: repository }
   sflow-story-skill-version: { class: mutation }
-  sflow-submit: { class: review, maximumTokenOverride: 825, exception: "Readiness with `--submit-if-ready` submits and returns the review in the same command instead of three Copilot round trips, so the skill names when not to run the submit command itself. A Convergence digest confirmed in its arguments advances without another preview loop." }
+  sflow-submit: { class: review, maximumTokenOverride: 828, exception: "Readiness with `--submit-if-ready` submits and returns the review in the same command instead of three Copilot round trips, so the skill names when not to run the submit command itself. A Convergence digest confirmed in its arguments advances without another preview loop. Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
   sflow-telemetry: { class: echo, executionBoundary: repository }
   sflow-upload: { class: delegation, executionBoundary: machine, delegatesTo: sflow-documents }
   sflow-validate: { class: echo, executionBoundary: repository }

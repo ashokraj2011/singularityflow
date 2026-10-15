@@ -15,7 +15,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-1. Run `singularity-flow epic next <EPIC-ID> --json`; continue only when it routes to Planning preparation, otherwise relay its action and stop.
+1. Run `singularity-flow epic next <EPIC-ID> --for-agent --json`; continue only when it routes to Planning preparation, otherwise relay its action and stop.
 2. Run `singularity-flow epic planning prepare` and read the complete governed prompt, approved requirements, impact analysis, pinned source evidence, and workspace repository registry. Do not request a world model on the Epic branch.
 3. Before drafting, ask one concise batch about any material allocation, repository ownership, dependency, boundary, or acceptance ambiguity. Wait for the human and persist each accepted response with `singularity-flow epic sources answer --epic <EPIC-ID>`; then rerun `singularity-flow epic planning prepare` so the answers become pinned governed context. If questions cannot be asked or persisted, stop rather than infer Story boundaries.
 4. Author `story-plan.yml`, `parent-spec.md`, and one complete Story specification per `STORY-nnn`.

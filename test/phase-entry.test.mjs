@@ -17,6 +17,7 @@ import { validatePhaseEntryRequest } from '../src/commands/phase.mjs';
 import { validateAgentEntryRequest } from '../src/agent-entry-options.mjs';
 import { phaseContextAdmission, phaseAdmissionActions } from '../src/phase-entry-admission.mjs';
 import { agentPacketPresentation } from '../src/agent-packet-presentation.mjs';
+import { completeAgentResult } from '../src/agent-output.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -108,7 +109,7 @@ test('CLI preparation is an unpublished authoring checkpoint, not a completed te
   const before = git(item.root, 'rev-parse', 'HEAD');
   const prepared = item.invoke('prepare', 'team-discovery', '--json');
   assert.equal(prepared.status, 0, prepared.stderr || prepared.stdout);
-  const result = JSON.parse(prepared.stdout);
+  const result = completeAgentResult(prepared.stdout);
   assert.equal(result.data.preparation.stage, 'prepared');
   assert.equal(result.data.preparation.producer, 'governed-agent');
   assert.equal(result.data.preparation.authoringRequired, true);
@@ -122,7 +123,7 @@ test('CLI preparation is an unpublished authoring checkpoint, not a completed te
   assert.match(draft, /TODO|<requirement>/);
   const checked = item.invoke('phase', 'prepublish', 'team-discovery', '--for-agent', '--json');
   assert.equal(checked.status, 0, checked.stderr || checked.stdout);
-  const check = JSON.parse(checked.stdout);
+  const check = completeAgentResult(checked.stdout);
   assert.equal(check.status, 'correction-required');
   assert.equal(check.commands.publish, null);
   const state = JSON.parse(await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8'));
@@ -135,18 +136,18 @@ test('entry and nextsteps resume an authored custom draft at prepublish without 
   const item = await fixture(t, { customPhase: 'team-resume' });
   const prepared = item.invoke('prepare', 'team-resume', '--json');
   assert.equal(prepared.status, 0, prepared.stderr || prepared.stdout);
-  const draft = path.join(item.root, JSON.parse(prepared.stdout).data.preparation.path);
+  const draft = path.join(item.root, completeAgentResult(prepared.stdout).data.preparation.path);
   const existing = await readFile(draft, 'utf8');
   await writeFile(draft, existing + '\n## Authored outcome\nThe current discovery records the user request and remaining verification obligations.\n');
   const entry = item.invoke('phase', 'enter', '--for-agent', '--json');
   assert.equal(entry.status, 0, entry.stderr || entry.stdout);
-  const packet = JSON.parse(entry.stdout);
+  const packet = completeAgentResult(entry.stdout);
   assert.equal(packet.authoringProgress.stage, 'validate-existing-draft');
   assert.equal(packet.codeAuthoringReady, false, 'a document phase has no product-source permission');
   assert.equal(packet.authoringProgress.next.command, 'singularity-flow phase prepublish team-resume --for-agent --json');
   const steps = item.invoke('nextsteps', '--for-agent', '--json');
   assert.equal(steps.status, 0, steps.stderr || steps.stdout);
-  const next = JSON.parse(steps.stdout);
+  const next = completeAgentResult(steps.stdout);
   assert.equal(next.authoringProgress.stage, packet.authoringProgress.stage);
   assert.equal(next.mutationContract.toolProtocol.mode, 'kernel-only');
   assert.equal(next.mutationContract.codeAuthoringReady, false);
@@ -159,7 +160,7 @@ test('no-model preparation retains human ownership instead of instructing native
   const item = await fixture(t, { customPhase: 'team-manual' });
   const prepared = item.invoke('prepare', 'team-manual', '--no-model', '--json');
   assert.equal(prepared.status, 0, prepared.stderr || prepared.stdout);
-  const result = JSON.parse(prepared.stdout);
+  const result = completeAgentResult(prepared.stdout);
   assert.equal(result.data.preparation.stage, 'prepared');
   assert.equal(result.data.preparation.producer, 'human');
   assert.equal(result.data.preparation.authoringRequired, true);
@@ -237,7 +238,7 @@ test('terminal agent routing retains completion actions without needing a drafti
   const before = await readFile(statePath, 'utf8');
   const result = item.invoke('nextsteps', '--for-agent', '--json');
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  const packet = JSON.parse(result.stdout);
+  const packet = completeAgentResult(result.stdout);
   assert.equal(packet.ready, true);
   assert.equal(packet.phase, null);
   assert.equal(packet.inputs, null);
@@ -252,7 +253,7 @@ test('entry bundles a custom-root Story without changing files, HEAD, index or l
     workflow: await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8') };
   const result = item.invoke('phase', 'enter', '--for-agent', '--json');
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  const entry = JSON.parse(result.stdout);
+  const entry = completeAgentResult(result.stdout);
   assert.equal(entry.resultType, 'sflow-phase-entry');
   assert.equal(entry.ready, true);
   assert.equal(entry.workId, 'ENTRY-1');
@@ -294,7 +295,7 @@ test('a future user-created workflow composes a question-only checkpoint for its
   const before = await readFile(statePath, 'utf8');
   const result = item.invoke('phase', 'enter', '--compose', '--for-agent', '--json');
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  const entry = JSON.parse(result.stdout);
+  const entry = completeAgentResult(result.stdout);
   assert.equal(entry.phase, 'team-discovery');
   assert.equal(entry.contextComposition, 'delivered');
   assert.equal(entry.authoringAllowed, false);
@@ -336,7 +337,7 @@ test('CLI recording retries preserve the receipt and re-entry does not restart c
     const invokeJson = (...args) => {
       const result = item.invoke(...args, '--json');
       assert.equal(result.status, 0, result.stdout + result.stderr);
-      return JSON.parse(result.stdout);
+      return completeAgentResult(result.stdout);
     };
     const entry = invokeJson('phase', 'enter', '--compose', '--for-agent');
     assert.equal(entry.authoringAllowed, false);
@@ -364,7 +365,7 @@ test('CLI recording retries preserve the receipt and re-entry does not restart c
     await writeFile(staging, JSON.stringify({ responses: [{ ...replies[0], answer: 'Different scope.' }] }));
     const conflict = item.invoke(...args, '--json');
     assert.notEqual(conflict.status, 0);
-    assert.equal(JSON.parse(conflict.stdout).error.code, 'CLARIFICATION_RESPONSE_CONFLICT');
+    assert.equal(completeAgentResult(conflict.stdout).error.code, 'CLARIFICATION_RESPONSE_CONFLICT');
     assert.equal(await readFile(receipt, 'utf8'), bytes);
     assert.match(await readFile(staging, 'utf8'), /Different scope/);
   });
@@ -375,7 +376,7 @@ test('a question that arises after the checkpoint joins the same record until th
   const invokeJson = (...args) => {
     const result = item.invoke(...args, '--json');
     assert.equal(result.status, 0, result.stdout + result.stderr);
-    return JSON.parse(result.stdout);
+    return completeAgentResult(result.stdout);
   };
   const entry = invokeJson('phase', 'enter', '--compose', '--for-agent');
   const staging = entry.clarification.responseStagingPath;
@@ -416,8 +417,8 @@ test('session agent entry retains the verified custom-root binding with no Story
   const full = item.invoke('session', 'current', '--json');
   const agent = item.invoke('session', 'current', '--for-agent', '--json');
   assert.equal(agent.status, 0, agent.stdout + agent.stderr);
-  const packet = JSON.parse(agent.stdout);
-  for (const [key, value] of Object.entries(JSON.parse(full.stdout))) assert.deepEqual(packet[key], value, key);
+  const packet = completeAgentResult(agent.stdout);
+  for (const [key, value] of Object.entries(completeAgentResult(full.stdout))) assert.deepEqual(packet[key], value, key);
   assert.equal(packet.resultType, 'sflow-session-entry');
   assert.equal(packet.paused, false);
   assert.equal(packet.workItemRoot, 'team/stories');
@@ -437,7 +438,7 @@ test('entry never interprets an explicit other Story or historical phase as sele
   ]) {
     const result = item.invoke(...args);
     assert.notEqual(result.status, 0);
-    const refusal = JSON.parse(result.stdout);
+    const refusal = completeAgentResult(result.stdout);
     assert.equal(refusal.error.code, code, result.stderr || result.stdout);
   }
   assert.equal(git(item.root, 'status', '--porcelain=v1'), '');
@@ -448,7 +449,7 @@ test('nextsteps agent entry returns one verified binding without changing the cu
   const before = await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8');
   const result = item.invoke('nextsteps', '--for-agent', '--json');
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  const packet = JSON.parse(result.stdout);
+  const packet = completeAgentResult(result.stdout);
   assert.equal(packet.resultType, 'sflow-nextsteps');
   assert.equal(packet.ready, true);
   assert.equal(packet.phaseAgent.valid, true);
@@ -461,7 +462,7 @@ test('nextsteps agent entry returns one verified binding without changing the cu
   assert.equal(git(item.root, 'status', '--porcelain=v1'), '');
   const mismatch = item.invoke('nextsteps', 'OTHER-1', '--for-agent', '--json');
   assert.notEqual(mismatch.status, 0);
-  assert.equal(JSON.parse(mismatch.stdout).error.code, 'ACTIVE_SUBJECT_MISMATCH');
+  assert.equal(completeAgentResult(mismatch.stdout).error.code, 'ACTIVE_SUBJECT_MISMATCH');
 });
 
 test('inputs agent preview and recording return exact artifacts and canonical continuation without publication', async t => {
@@ -469,7 +470,7 @@ test('inputs agent preview and recording return exact artifacts and canonical co
   const before = git(item.root, 'rev-parse', 'HEAD');
   const preview = item.invoke('inputs', '--dry-run', '--for-agent', '--json');
   assert.equal(preview.status, 0, preview.stderr || preview.stdout);
-  const inspected = JSON.parse(preview.stdout);
+  const inspected = completeAgentResult(preview.stdout);
   assert.equal(inspected.ready, true);
   assert.equal(inspected.phaseGeneration, 0);
   assert.equal(inspected.generation, 1);
@@ -477,7 +478,7 @@ test('inputs agent preview and recording return exact artifacts and canonical co
   assert.equal(git(item.root, 'status', '--porcelain=v1'), '');
   const result = item.invoke('inputs', inspected.phase, '--for-agent', '--json');
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  const recorded = JSON.parse(result.stdout);
+  const recorded = completeAgentResult(result.stdout);
   assert.equal(recorded.phaseGeneration, 0);
   assert.equal(recorded.generation, 1);
   assert.equal(recorded.artifact.status, 'rendered');
@@ -485,7 +486,7 @@ test('inputs agent preview and recording return exact artifacts and canonical co
   assert.match(recorded.artifact.path, /^team\/stories\/ENTRY-1\/artifacts\//);
   const next = item.invoke('nextsteps', '--for-agent', '--json');
   assert.equal(next.status, 0, next.stderr || next.stdout);
-  assert.deepEqual(recorded.continuation.nextAction, JSON.parse(next.stdout).actions.find(action => action.timing === 'now'));
+  assert.deepEqual(recorded.continuation.nextAction, completeAgentResult(next.stdout).actions.find(action => action.timing === 'now'));
   assert.equal(recorded.continuation.actions.some(action => action.timing === 'then'), false);
   assert.equal(git(item.root, 'rev-parse', 'HEAD'), before);
   const state = JSON.parse(await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8'));
@@ -497,11 +498,11 @@ test('inputs agent entry cannot write historical phases or operate without its a
   const item = await fixture(t);
   const historical = item.invoke('inputs', 'release', '--for-agent', '--json');
   assert.notEqual(historical.status, 0);
-  assert.equal(JSON.parse(historical.stdout).error.code, 'PHASE_DRAFT_NOT_ACTIVE');
+  assert.equal(completeAgentResult(historical.stdout).error.code, 'PHASE_DRAFT_NOT_ACTIVE');
   await restoreAgentSession(item.root, null);
   const result = item.invoke('inputs', '--for-agent', '--json');
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.equal(JSON.parse(result.stdout).ready, false);
+  assert.equal(completeAgentResult(result.stdout).ready, false);
   assert.equal(git(item.root, 'status', '--porcelain=v1'), '');
 });
 
@@ -510,21 +511,21 @@ test('enforced inputs go straight to authoring, whose prepare renders them; dire
   const before = git(item.root, 'rev-parse', 'HEAD');
   const initial = item.invoke('nextsteps', '--for-agent', '--json');
   assert.equal(initial.status, 0, initial.stderr || initial.stdout);
-  const packet = JSON.parse(initial.stdout);
+  const packet = completeAgentResult(initial.stdout);
   // Preparation renders and records the same inputs, so a separate input turn would add nothing.
   assert.ok(packet.actions.some(action => action.timing === 'now' && action.command === 'singularity-flow prepare planning'));
   assert.equal(packet.actions.some(action => action.command === 'singularity-flow inputs planning'), false);
   assert.equal(packet.inputs, null);
   const dryRun = item.invoke('inputs', 'planning', '--dry-run', '--json');
   assert.equal(dryRun.status, 0, dryRun.stderr || dryRun.stdout);
-  const previewed = JSON.parse(dryRun.stdout);
+  const previewed = completeAgentResult(dryRun.stdout);
   assert.equal(previewed.records[0].status, 'captured');
   assert.equal(previewed.records[0].repositoryPath,
     'team/stories/ENTRY-1/artifacts/specification/spec.md');
   assert.equal(git(item.root, 'status', '--porcelain=v1'), '');
   const recorded = item.invoke('inputs', 'planning', '--for-agent', '--json');
   assert.equal(recorded.status, 0, recorded.stderr || recorded.stdout);
-  const result = JSON.parse(recorded.stdout);
+  const result = completeAgentResult(recorded.stdout);
   assert.equal(result.artifact.managedBlock.matchesRendered, true);
   assert.equal(result.audit.path, 'team/stories/ENTRY-1/context/inputs-planning-gen1.json');
   assert.equal(result.continuation.nextAction.copilotCommand, '/sf-phase');
@@ -534,20 +535,20 @@ test('enforced inputs go straight to authoring, whose prepare renders them; dire
   const preview = item.invoke('inputs', 'planning', '--dry-run', '--json');
   assert.equal(full.status, 0, full.stderr || full.stdout);
   assert.equal(preview.status, 0, preview.stderr || preview.stdout);
-  assert.deepEqual(JSON.parse(preview.stdout).continuation.nextAction,
-    JSON.parse(full.stdout).actions.find(action => action.timing === 'now'));
+  assert.deepEqual(completeAgentResult(preview.stdout).continuation.nextAction,
+    completeAgentResult(full.stdout).actions.find(action => action.timing === 'now'));
 });
 
 test('an input preview never authorizes stale approved bytes, at recording or at preparation', async t => {
   const item = await fixture(t, { planningInputs: true });
   const initial = item.invoke('inputs', 'planning', '--dry-run', '--json');
   assert.equal(initial.status, 0, initial.stderr || initial.stdout);
-  assert.equal(JSON.parse(initial.stdout).records[0].status, 'captured');
+  assert.equal(completeAgentResult(initial.stdout).records[0].status, 'captured');
   await writeFile(path.join(item.root, 'team/stories/ENTRY-1/artifacts/specification/spec.md'), '# Unreviewed edit\n');
   const before = await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8');
   const result = item.invoke('inputs', 'planning', '--for-agent', '--json');
   assert.notEqual(result.status, 0);
-  assert.match(JSON.parse(result.stdout).error.message, /approved hash|inputs are not ready/);
+  assert.match(completeAgentResult(result.stdout).error.message, /approved hash|inputs are not ready/);
   const prepared = item.invoke('prepare', 'planning', '--json');
   assert.notEqual(prepared.status, 0, 'preparation renders the same inputs and refuses the same stale bytes');
   assert.match(prepared.stdout + prepared.stderr, /approved hash|inputs are not ready/);
@@ -559,7 +560,7 @@ test('a missing session only returns its verified attach route, never composes c
   await restoreAgentSession(item.root, null);
   const result = item.invoke('phase', 'enter', '--compose', '--for-agent', '--json');
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  const entry = JSON.parse(result.stdout);
+  const entry = completeAgentResult(result.stdout);
   assert.equal(entry.status, 'binding-required');
   assert.equal(entry.ready, false);
   assert.equal(entry.authoringAllowed, false);
@@ -580,7 +581,7 @@ test('manual worktree review prevents composition while preserving changes and e
   await writeFile(path.join(item.root, 'README.md'), '# Unrelated native work\n');
   const result = item.invoke('phase', 'enter', '--compose', '--json');
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  const entry = JSON.parse(result.stdout);
+  const entry = completeAgentResult(result.stdout);
   assert.equal(entry.authoringAllowed, false);
   assert.equal(entry.context, null);
   assert.equal(entry.contextComposition, 'not-admitted');
@@ -652,7 +653,7 @@ test('explicit entry composition returns the governed prompt once and reuses imm
   const before = git(item.root, 'rev-parse', 'HEAD');
   const result = item.invoke('phase', 'enter', '--compose', '--for-agent', '--json');
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  const entry = JSON.parse(result.stdout);
+  const entry = completeAgentResult(result.stdout);
   assert.equal(entry.contextComposition, 'delivered', JSON.stringify(entry.recovery));
   assert.equal(entry.authoringAllowed, false);
   assert.equal(entry.clarification.checkpoint.questioningAllowed, true);
@@ -666,7 +667,7 @@ test('explicit entry composition returns the governed prompt once and reuses imm
   const initial = await readFile(promptPath, 'utf8');
   const again = item.invoke('phase', 'enter', '--compose', '--for-agent', '--json');
   assert.equal(again.status, 0, again.stderr || again.stdout);
-  const reused = JSON.parse(again.stdout);
+  const reused = completeAgentResult(again.stdout);
   assert.equal(reused.contextComposition, 'delivered', JSON.stringify(reused.recovery));
   assert.equal(reused.context.text, entry.context.text);
   assert.equal(await readFile(promptPath, 'utf8'), initial);
@@ -707,11 +708,11 @@ test('CLI compact prepublish keeps the kernel findings and next actions; full JS
   const item = await fixture(t);
   const fullResult = item.invoke('phase', 'prepublish', '--json');
   assert.equal(fullResult.status, 0, fullResult.stderr || fullResult.stdout);
-  const full = JSON.parse(fullResult.stdout);
+  const full = completeAgentResult(fullResult.stdout);
   assert.equal(full.projection, undefined);
   const agentResult = item.invoke('phase', 'prepublish', '--for-agent', '--json');
   assert.equal(agentResult.status, 0, agentResult.stderr || agentResult.stdout);
-  const compact = JSON.parse(agentResult.stdout);
+  const compact = completeAgentResult(agentResult.stdout);
   assert.equal(compact.projection.kind, 'agent');
   for (const key of ['status', 'findings', 'advisories', 'commands', 'commandGuidance', 'testExecution', 'correction']) {
     assert.deepEqual(compact[key], agentPacketPresentation(full[key]), key);

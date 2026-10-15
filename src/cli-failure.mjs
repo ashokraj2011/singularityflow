@@ -22,9 +22,11 @@ export async function reportCliFailure(error, argv = []) {
   const result = commandResultOf(error);
   let json = false;
   let verbose = false;
+  let forAgent = false;
   try {
     const { options } = parseArgs(argv);
     json = optionBoolean(options, 'json');
+    forAgent = optionBoolean(options, 'for-agent');
     verbose = optionBoolean(options, 'verbose');
   }
   catch { /* parsing may itself be the refusal */ }
@@ -41,10 +43,15 @@ export async function reportCliFailure(error, argv = []) {
   const structuredBeside = !json && process.env.SINGULARITY_FLOW_REFUSAL_ENVELOPE === 'stderr-v1';
   // A command made of steps (cli-steps.mjs) relays the failed step's own JSON result as it is.
   const relayed = error?.relayedResult;
+  // An agent's refusal is bounded and starts with `act` like any agent result (agent-output.mjs).
+  const printJson = async (text) => {
+    const governed = forAgent && (await import('./agent-output.mjs'));
+    console.log(governed && governed.agentOutputGoverned() ? (await governed.boundedAgentOutput(text)).trimEnd() : text);
+  };
   if (relayed && json) {
-    console.log(JSON.stringify(relayed, null, 2));
+    await printJson(JSON.stringify(relayed, null, 2));
   } else if (result) {
-    if (json) console.log(renderCommandResultJson(result));
+    if (json) await printJson(renderCommandResultJson(result));
     else {
       console.error(`\n${redactDiagnosticText(error?.message ?? String(error), { multiline: true })}`);
       console.error(`\n${redactDiagnosticText(renderCommandResult(result), { multiline: true })}`);
@@ -54,7 +61,7 @@ export async function reportCliFailure(error, argv = []) {
     // A phase refusal that keeps returning unchanged says to stop and hand it on [recoverable-findings M3].
     const envelope = relayed?.resultType === 'sflow-refusal-plan' && relayed.remediationPlan ? relayed
       : (await import('./finding-escalation.mjs')).escalateRefusalEnvelope(refusalEnvelope(error, argv), error);
-    if (json) console.log(JSON.stringify(envelope, null, 2));
+    if (json) await printJson(JSON.stringify(envelope, null, 2));
     else {
       console.error(`\nSingularity Flow error: ${redactDiagnosticText(error?.message ?? String(error), { multiline: true })}`);
       // A broken workflow.yml names every problem, located and with its fix, not just the first.

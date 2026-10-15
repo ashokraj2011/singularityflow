@@ -19,6 +19,7 @@ import {
 import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
 import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
 import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
+import { completeAgentResult } from '../src/agent-output.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const executable = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -44,20 +45,20 @@ function cli(root, ...args) {
 function decide(root, phaseId, finding, reason) {
   const before = git(root, 'rev-parse', 'HEAD');
   const status = git(root, 'status', '--short');
-  const packet = JSON.parse(cli(root, 'review-source', 'decision-context', phaseId,
+  const packet = completeAgentResult(cli(root, 'review-source', 'decision-context', phaseId,
     '--work-id', WORK_ID, '--finding', finding, '--reason', reason, '--json'));
   assert.equal(git(root, 'rev-parse', 'HEAD'), before);
   assert.equal(git(root, 'status', '--short'), status);
-  return JSON.parse(cli(root, ...packet.commandGuidance.argv));
+  return completeAgentResult(cli(root, ...packet.commandGuidance.argv));
 }
 
 function reviewRoute(root, phaseId) {
   const beforeHead = git(root, 'rev-parse', 'HEAD');
   const beforeStatus = git(root, 'status', '--short');
-  const bundle = JSON.parse(cli(root, 'review', phaseId, '--format', 'json'));
+  const bundle = completeAgentResult(cli(root, 'review', phaseId, '--format', 'json'));
   assert.equal(bundle.phase.id, phaseId);
   assert.equal(bundle.continuation.automaticAdvance, false);
-  const documents = JSON.parse(cli(root, 'phase', 'show', phaseId, '--json'));
+  const documents = completeAgentResult(cli(root, 'phase', 'show', phaseId, '--json'));
   assert.equal(documents.handoffScope, 'after-publication');
   assert.deepEqual(documents.continuation, bundle.continuation,
     'document display and review must agree on current readiness, not a future publication handoff');
@@ -233,7 +234,7 @@ test('kernel review staging preserves published bytes and proceeds through check
     const guarded = async (args, toolName = 'bash') => {
       const command = renderPlatformCommand(['singularity-flow', ...args], toolName === 'powershell' ? 'win32' : 'darwin');
       assert.deepEqual(await mutationToolGuard({ ...hook, toolName, toolArgs: { command, cwd: hook.cwd } }), {}, command);
-      return JSON.parse(cli(root, ...args));
+      return completeAgentResult(cli(root, ...args));
     };
     const packet = await guarded(['review-source', 'context', phaseId, '--for-agent', '--json']);
     assert.equal(packet.mutationContract.applicationEdits, false);
@@ -260,7 +261,7 @@ test('kernel review staging preserves published bytes and proceeds through check
     assert.equal(checked.retentionReady, true);
     const retained = await guarded(['review-source', 'submit', phaseId, '--report-file', staged.stagingPath, '--json']);
     assert.ok(retained.reportSha256);
-    const status = JSON.parse(cli(root, 'status', WORK_ID, '--json'));
+    const status = completeAgentResult(cli(root, 'status', WORK_ID, '--json'));
     assert.equal(status.currentPhase, phaseId);
     assert.equal(status.phases[phaseId].generatedAgent, JSON.parse(stateBefore.toString()).phases[phaseId].generatedAgent);
     assert.notEqual(status.phases[phaseId].status, 'approved');
@@ -270,7 +271,7 @@ test('kernel review staging preserves published bytes and proceeds through check
 test('real and copied workflow preparation returns authoring instead of reviewing a retained generation', async t => {
   for (const copied of [false, true]) await t.test(copied ? 'copied scope' : 'seeded scope', async t => {
     const { root, phaseId } = await publishedSpecificationStory(t, { copied });
-    const old = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+    const old = completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--json'));
     const initialRoute = reviewRoute(root, phaseId);
     assert.equal(initialRoute.nextCommand, `singularity-flow review-source context ${phaseId} --json`);
     assert.equal(initialRoute.copilotCommand, `/sf-review-source ${phaseId}`);
@@ -279,7 +280,7 @@ test('real and copied workflow preparation returns authoring instead of reviewin
     const head = git(root, 'rev-parse', 'HEAD');
     const artifactBefore = await readFile(path.join(root, old.artifact.path), 'utf8');
     cli(root, 'prepare', phaseId, '--no-model', '--json');
-    const packet = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+    const packet = completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--json'));
     const authorRoute = reviewRoute(root, phaseId);
     // Preparation already ran: the author's next step checks the written draft, never prepares again.
     assert.equal(authorRoute.nextCommand, `singularity-flow phase prepublish ${phaseId} --for-agent --json`);
@@ -291,7 +292,7 @@ test('real and copied workflow preparation returns authoring instead of reviewin
     assert.equal(packet.continuation.targetGeneration, 2);
     assert.equal(packet.continuation.nextCommand, `singularity-flow prepare ${phaseId}`);
     assert.ok(packet.continuation.copilotCommand);
-    const status = JSON.parse(cli(root, 'review-source', 'status', phaseId, '--json'));
+    const status = completeAgentResult(cli(root, 'review-source', 'status', phaseId, '--json'));
     assert.equal(status.status, 'successor-publication-required');
     assert.deepEqual(status.continuation, packet.continuation);
     assert.match(cli(root, 'review-source', 'context', phaseId), /generation 2 publication/);
@@ -300,9 +301,9 @@ test('real and copied workflow preparation returns authoring instead of reviewin
       const refused = spawnSync(process.execPath, [executable, 'review-source', action, phaseId,
         '--report-file', old.stagingPath, '--json'], { cwd: root, encoding: 'utf8', timeout: 30000 });
       assert.notEqual(refused.status, 0);
-      assert.equal(JSON.parse(refused.stdout).error.code, 'SOURCE_REVIEW_SUCCESSOR_UNPUBLISHED');
+      assert.equal(completeAgentResult(refused.stdout).error.code, 'SOURCE_REVIEW_SUCCESSOR_UNPUBLISHED');
     }
-    const fast = JSON.parse(cli(root, 'specify', '--json'));
+    const fast = completeAgentResult(cli(root, 'specify', '--json'));
     assert.equal(fast.data.fastPath.next[0].command, `singularity-flow prepare ${phaseId}`);
     assert.equal(git(root, 'rev-parse', 'HEAD'), head, 'no Story publication or review was retained');
     assert.equal(await readFile(path.join(root, old.artifact.path), 'utf8'), artifactBefore,
@@ -311,7 +312,7 @@ test('real and copied workflow preparation returns authoring instead of reviewin
     // borrow a review, approval or human disposition from the retained generation.
     cli(root, 'phase', 'publish', phaseId, '--authored', 'human', '--channel', 'manual-in-place',
       '--external-ai', 'none', '--no-model', '--json');
-    const successor = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+    const successor = completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--json'));
     assert.equal(successor.generation, 2);
     assert.equal(successor.canReview, true);
     assert.equal(successor.binding.generation, 2);
@@ -326,13 +327,13 @@ test('real and copied workflow preparation returns authoring instead of reviewin
 test('a retained correction routes compact phase entry to explicit successor preparation without a self-loop', async t => {
   for (const copied of [false, true]) await t.test(copied ? 'copied scope' : 'seeded scope', async t => {
     const { root, phaseId } = await publishedSpecificationStory(t, { copied });
-    const packet = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+    const packet = completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--json'));
     const report = reviewReport(packet);
     report.findings = [{ id: 'F-001', severity: 'blocking', clauseId: `${WORK_ID}:REQ-001`,
       message: 'The save behavior needs a precise persisted-status requirement.' }];
     await mkdir(path.dirname(packet.stagingPath), { recursive: true });
     await writeFile(packet.stagingPath, JSON.stringify(report));
-    const retained = JSON.parse(cli(root, 'review-source', 'submit', phaseId,
+    const retained = completeAgentResult(cli(root, 'review-source', 'submit', phaseId,
       '--report-file', packet.stagingPath, '--json'));
     assert.equal(retained.status, 'correction-required');
     const artifact = path.join(root, packet.artifact.path);
@@ -341,7 +342,7 @@ test('a retained correction routes compact phase entry to explicit successor pre
     const stateBytes = await readFile(state, 'utf8');
     const before = git(root, 'rev-parse', 'HEAD');
     for (const options of [[], ['--compose']]) {
-      const entry = JSON.parse(cli(root, 'phase', 'enter', phaseId, ...options, '--for-agent', '--json'));
+      const entry = completeAgentResult(cli(root, 'phase', 'enter', phaseId, ...options, '--for-agent', '--json'));
       assert.equal(entry.status, 'successor-preparation-required');
       assert.equal(entry.authoringAllowed, false, 'preparation must precede composition');
       assert.equal(entry.context, null);
@@ -359,7 +360,7 @@ test('a retained correction routes compact phase entry to explicit successor pre
     const corrected = `${bytes}\nThe saved status is displayed only after durable persistence.\n`;
     await writeFile(artifact, corrected);
     cli(root, 'prepare', phaseId, '--no-model', '--json');
-    const prepared = JSON.parse(cli(root, 'phase', 'enter', phaseId, '--for-agent', '--json'));
+    const prepared = completeAgentResult(cli(root, 'phase', 'enter', phaseId, '--for-agent', '--json'));
     assert.notEqual(prepared.status, 'retained-generation');
     assert.notEqual(prepared.status, 'successor-preparation-required');
     assert.equal(prepared.inspectionGeneration, 2);
@@ -371,10 +372,10 @@ test('a retained correction routes compact phase entry to explicit successor pre
 
 test('compact review entry binds once and preserves every exact review material and report contract', async t => {
   const { root, phaseId } = await publishedSpecificationStory(t, { copied: true, humanAnswers: true });
-  const full = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+  const full = completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--json'));
   const before = git(root, 'status', '--short');
   const head = git(root, 'rev-parse', 'HEAD');
-  const compact = JSON.parse(cli(root, 'review-source', 'context', '--for-agent', '--json'));
+  const compact = completeAgentResult(cli(root, 'review-source', 'context', '--for-agent', '--json'));
   assert.equal(compact.ready, true);
   assert.equal(compact.workId, WORK_ID);
   assert.equal(compact.phase, phaseId);
@@ -388,12 +389,12 @@ test('compact review entry binds once and preserves every exact review material 
   }
   assert.equal(compact.reviewer.setupRequired, false);
   assert.equal(compact.canReview, true);
-  assert.equal(JSON.parse(cli(root, 'review-source', 'context', phaseId, '--for-agent', '--json')).phase, phaseId);
+  assert.equal(completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--for-agent', '--json')).phase, phaseId);
   const report = reviewReport(compact);
   report.clarificationsReviewed = compact.clarifications.map(record => record.id);
   await mkdir(path.dirname(compact.stagingPath), { recursive: true });
   await writeFile(compact.stagingPath, JSON.stringify(report));
-  const checked = JSON.parse(cli(root, 'review-source', 'check', phaseId,
+  const checked = completeAgentResult(cli(root, 'review-source', 'check', phaseId,
     '--report-file', compact.stagingPath, '--json'));
   assert.equal(checked.retentionReady, true, 'compact template remains accepted by the full retention validator');
   assert.equal(git(root, 'status', '--short'), before);
@@ -402,7 +403,7 @@ test('compact review entry binds once and preserves every exact review material 
 
 test('real Story CLI retains pinned reviewer report and separate human disposition before submission', async (t) => {
   const { root, authorAgent } = await publishedSpecificationStory(t);
-  const packet = JSON.parse(cli(root, 'review-source', 'context', 'specification', '--json'));
+  const packet = completeAgentResult(cli(root, 'review-source', 'context', 'specification', '--json'));
   assert.equal(packet.requiredReviewerAgentId, 'sflow-source-reviewer');
   assert.equal(packet.binding.generation, 1);
   assert.equal(packet.reviewer.setupRequired, false);
@@ -414,19 +415,19 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
   await mkdir(path.dirname(packet.stagingPath), { recursive: true });
   await writeFile(packet.stagingPath, `${JSON.stringify(report, null, 2)}\n`);
   const beforeCheck = git(root, 'rev-parse', 'HEAD');
-  const checked = JSON.parse(cli(root, 'review-source', 'check', 'specification', '--report-file', packet.stagingPath, '--json'));
+  const checked = completeAgentResult(cli(root, 'review-source', 'check', 'specification', '--report-file', packet.stagingPath, '--json'));
   assert.equal(checked.format.status, 'ready');
   assert.equal(checked.retentionReady, true);
   assert.equal(checked.status, 'correction-required', 'a preflight never grants the pending human decision');
   assert.equal(git(root, 'rev-parse', 'HEAD'), beforeCheck);
   assert.equal(git(root, 'status', '--short'), '');
   const authorSession = await loadSession(root);
-  const submitted = JSON.parse(cli(root, 'review-source', 'submit', 'specification',
+  const submitted = completeAgentResult(cli(root, 'review-source', 'submit', 'specification',
     '--report-file', packet.stagingPath, '--json'));
   assert.equal(submitted.status, 'correction-required');
   assert.deepEqual(await loadSession(root), authorSession, 'review retention changed the shared phase author');
   assert.deepEqual(submitted.pendingDispositions.map((entry) => entry.id), ['exclusion:export-exclusion']);
-  const pending = JSON.parse(cli(root, 'review-source', 'status', 'specification', '--json'));
+  const pending = completeAgentResult(cli(root, 'review-source', 'status', 'specification', '--json'));
   assert.equal(pending.reportSha256, submitted.reportSha256);
   const humanRoute = reviewRoute(root, 'specification');
   assert.match(humanRoute.nextCommand, /review-source decision-context specification --work-id REVIEW-1 --finding exclusion:export-exclusion/);
@@ -451,11 +452,11 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
     'the selected read-only reviewer cannot record its own human disposition');
   assert.match(`${reviewerDecision.stderr}\n${reviewerDecision.stdout}`,
     /read-only source reviewer.*cannot record a human source review decision/u);
-  assert.equal(JSON.parse(cli(root, 'review-source', 'status', 'specification', '--json')).status,
+  assert.equal(completeAgentResult(cli(root, 'review-source', 'status', 'specification', '--json')).status,
     'correction-required');
   cli(root, 'agent', '--agent', authorAgent);
   const reason = 'Confirmed outside requested scope.';
-  const decisionPacket = JSON.parse(cli(root, 'review-source', 'decision-context', 'specification',
+  const decisionPacket = completeAgentResult(cli(root, 'review-source', 'decision-context', 'specification',
     '--work-id', WORK_ID, '--finding', 'exclusion:export-exclusion', '--reason', reason, '--json'));
   const beforeDecision = git(root, 'rev-parse', 'HEAD');
   for (const confirmation of [undefined, 'b'.repeat(64)]) {
@@ -467,11 +468,11 @@ test('real Story CLI retains pinned reviewer report and separate human dispositi
     assert.equal(git(root, 'rev-parse', 'HEAD'), beforeDecision);
     assert.equal(git(root, 'status', '--short'), '');
   }
-  const decided = JSON.parse(cli(root, ...decisionPacket.commandGuidance.argv));
+  const decided = completeAgentResult(cli(root, ...decisionPacket.commandGuidance.argv));
   assert.equal(decided.status, 'ready');
   assert.equal(decided.turnBoundary, 'end');
   assert.deepEqual(decided.effects, { decisionRecorded: true, phaseAdvanced: false, approvalRecorded: false });
-  assert.equal(JSON.parse(cli(root, 'review-source', 'status', 'specification', '--json')).status, 'ready');
+  assert.equal(completeAgentResult(cli(root, 'review-source', 'status', 'specification', '--json')).status, 'ready');
   const submitRoute = reviewRoute(root, 'specification');
   assert.equal(submitRoute.nextCommand, `singularity-flow submit specification --work-id ${WORK_ID}`);
   assert.equal(submitRoute.nextSkill, '/sf-submit');
@@ -522,7 +523,7 @@ test('review reports legacy pending publication without migrating or deleting th
 
 test('real CLI review requires acknowledgement of the human answers retained by generation publication', async (t) => {
   const { root, phaseId } = await publishedSpecificationStory(t, { copied: true, humanAnswers: true });
-  const packet = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+  const packet = completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--json'));
   assert.equal(packet.clarifications[0].phase, phaseId);
   assert.equal(packet.clarifications[0].responses[0].id, 'Q-005');
   assert.match(packet.clarifications[0].responses[0].answer, /one automated positive-value test/i);
@@ -531,22 +532,22 @@ test('real CLI review requires acknowledgement of the human answers retained by 
   await mkdir(path.dirname(packet.stagingPath), { recursive: true });
   await writeFile(packet.stagingPath, JSON.stringify(report));
   const before = git(root, 'rev-parse', 'HEAD');
-  const refused = JSON.parse(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json'));
+  const refused = completeAgentResult(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json'));
   assert.equal(refused.retentionReady, false);
   assert.ok(refused.findings.some((entry) => entry.code === 'clarifications-not-all-reviewed'));
   assert.equal(git(root, 'rev-parse', 'HEAD'), before);
   report.clarificationsReviewed = packet.clarifications.map((entry) => entry.id);
   await writeFile(packet.stagingPath, JSON.stringify(report));
-  assert.equal(JSON.parse(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json')).retentionReady, true);
+  assert.equal(completeAgentResult(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json')).retentionReady, true);
   cli(root, 'review-source', 'submit', phaseId, '--report-file', packet.stagingPath, '--json');
-  const retained = JSON.parse(cli(root, 'review-source', 'status', phaseId, '--json'));
+  const retained = completeAgentResult(cli(root, 'review-source', 'status', phaseId, '--json'));
   assert.deepEqual(retained.report.clarificationsReviewed, report.clarificationsReviewed);
   assert.deepEqual(retained.binding.clarifications, packet.binding.clarifications);
   assert.equal(retained.status, 'correction-required', 'reading an answer must not waive the separate exclusion');
   const decided = decide(root, phaseId, 'exclusion:export-exclusion', 'Confirmed outside requested scope.');
   assert.equal(decided.status, 'ready');
   cli(root, 'submit', phaseId, '--skip-checks');
-  const afterSubmission = JSON.parse(cli(root, 'review-source', 'status', phaseId, '--json'));
+  const afterSubmission = completeAgentResult(cli(root, 'review-source', 'status', phaseId, '--json'));
   assert.equal(afterSubmission.status, 'ready', 'submission metadata must preserve the clarification-bound review');
   assert.deepEqual(afterSubmission.binding.clarifications, packet.binding.clarifications);
   const approval = spawnSync(process.execPath, [executable, 'approve', phaseId, '--yes'], {
@@ -559,15 +560,15 @@ test('real CLI review requires acknowledgement of the human answers retained by 
 test('a copied specification is reviewed and rejected using its accepted contract after live resources change [E2G-001]', async (t) => {
   const { root, phaseId, authorAgent, workType } = await publishedSpecificationStory(t, { copied: true });
   assert.equal(phaseId, 'specification-spec-driven-standard');
-  const packet = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+  const packet = completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--json'));
   // The report template once carried the step's name as its kind, which the evaluator compares with
   // what the step does, so every review of a renamed step was refused as an invalid contract.
   assert.equal(packet.kind, 'specification');
   assert.equal(packet.reportTemplate.kind, 'specification');
   await mkdir(path.dirname(packet.stagingPath), { recursive: true });
   await writeFile(packet.stagingPath, `${JSON.stringify(reviewReport(packet), null, 2)}\n`);
-  assert.equal(JSON.parse(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json')).retentionReady, true);
-  const submitted = JSON.parse(cli(root, 'review-source', 'submit', phaseId, '--report-file', packet.stagingPath, '--json'));
+  assert.equal(completeAgentResult(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json')).retentionReady, true);
+  const submitted = completeAgentResult(cli(root, 'review-source', 'submit', phaseId, '--report-file', packet.stagingPath, '--json'));
   assert.equal(submitted.status, 'correction-required');
   assert.deepEqual(submitted.pendingDispositions.map((entry) => entry.id), ['exclusion:export-exclusion']);
   cli(root, 'agent', '--agent', authorAgent);
@@ -588,7 +589,7 @@ test('a copied specification is reviewed and rejected using its accepted contrac
 
 test('malformed reviewer packets are diagnosed read-only and cannot be committed by bypassing check', async (t) => {
   const { root, phaseId } = await publishedSpecificationStory(t);
-  const packet = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
+  const packet = completeAgentResult(cli(root, 'review-source', 'context', phaseId, '--json'));
   const authorSession = await loadSession(root);
   const report = reviewReport(packet);
   report.findings = [{ id: 'review-gap', severity: 'high', explanation: 'A real gap should use blocking and message.' }];
@@ -597,21 +598,21 @@ test('malformed reviewer packets are diagnosed read-only and cannot be committed
   const head = git(root, 'rev-parse', 'HEAD');
   const index = git(root, 'write-tree');
   const tracked = git(root, 'status', '--porcelain');
-  const checked = JSON.parse(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json'));
+  const checked = completeAgentResult(cli(root, 'review-source', 'check', phaseId, '--report-file', packet.stagingPath, '--json'));
   assert.equal(checked.retentionReady, false);
   assert.ok(checked.findings.some((entry) => entry.field === 'findings[0].severity'));
   assert.ok(checked.findings.some((entry) => entry.field === 'findings[0].message'));
   const submit = spawnSync(process.execPath, [executable, 'review-source', 'submit', phaseId,
     '--report-file', packet.stagingPath, '--json'], { cwd: root, encoding: 'utf8', timeout: 30000 });
   assert.notEqual(submit.status, 0);
-  const refusal = JSON.parse(submit.stdout);
+  const refusal = completeAgentResult(submit.stdout);
   assert.equal(refusal.error.code, 'SOURCE_REVIEW_REPORT_INVALID');
   assert.match(submit.stdout, /findings\[0\]\.message/u);
   assert.equal(git(root, 'rev-parse', 'HEAD'), head);
   assert.equal(git(root, 'write-tree'), index);
   assert.equal(git(root, 'status', '--porcelain'), tracked);
   assert.deepEqual(await loadSession(root), authorSession, 'failed retention changed the phase author');
-  assert.equal(JSON.parse(cli(root, 'review-source', 'status', phaseId, '--json')).status, 'missing');
+  assert.equal(completeAgentResult(cli(root, 'review-source', 'status', phaseId, '--json')).status, 'missing');
 });
 
 test('reviewer cannot prepare or publish a phase under shared authorship, before any Git mutation', async (t) => {
@@ -664,7 +665,7 @@ test('legacy/off-policy Story status does not demand a reviewer or published gen
   }));
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'Accept off-policy Story');
-  const status = JSON.parse(cli(root, 'review-source', 'status', 'specification', '--json'));
+  const status = completeAgentResult(cli(root, 'review-source', 'status', 'specification', '--json'));
   assert.equal(status.status, 'not-required');
   assert.equal(status.mode, 'off');
   assert.deepEqual(status.findings, []);

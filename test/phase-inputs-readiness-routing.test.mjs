@@ -15,6 +15,7 @@ import { inputReadinessFindings, phaseInputsNotReadyError } from '../src/inputs.
 import { refusalEnvelope, refusalRemediationPlan, renderRefusalPlan } from '../src/refusal-remediation.mjs';
 import { phaseContextAdmission, phaseAdmissionActions } from '../src/phase-entry-admission.mjs';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
+import { completeAgentResult } from '../src/agent-output.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -238,7 +239,7 @@ test('a drifted approved input is reported by the dry run, coded at preparation,
 
   const dryRun = item.invoke('inputs', 'planning', '--dry-run', '--json');
   assert.equal(dryRun.status, 0, 'a dry run reports instead of throwing\n' + dryRun.stderr + dryRun.stdout);
-  const report = JSON.parse(dryRun.stdout);
+  const report = completeAgentResult(dryRun.stdout);
   assert.equal(report.records[0].status, 'hash_mismatch');
   assert.equal(report.readiness.ready, false);
   assert.deepEqual(report.readiness.upstreamPhases, ['specification']);
@@ -250,7 +251,7 @@ test('a drifted approved input is reported by the dry run, coded at preparation,
 
   const prepared = item.invoke('inputs', 'planning', '--json');
   assert.notEqual(prepared.status, 0);
-  const refusal = JSON.parse(prepared.stdout);
+  const refusal = completeAgentResult(prepared.stdout);
   assert.equal(refusal.error.code, 'PHASE_INPUTS_NOT_READY');
   assert.deepEqual(refusal.error.details.upstreamPhases, ['specification']);
   assert.equal(refusal.remediationPlan.context.strategy, 'upstream-input');
@@ -259,7 +260,7 @@ test('a drifted approved input is reported by the dry run, coded at preparation,
 
   const entry = item.invoke('phase', 'enter', 'planning', '--compose', '--for-agent', '--json');
   assert.equal(entry.status, 0, entry.stderr || entry.stdout);
-  const packet = JSON.parse(entry.stdout);
+  const packet = completeAgentResult(entry.stdout);
   assert.equal(packet.contextComposition, 'not-admitted');
   assert.equal(packet.context, null);
   assert.ok(packet.contextAdmission.blockers.some(blocker => blocker.code === 'PHASE_CONTEXT_INPUTS_NOT_READY'),
@@ -268,7 +269,7 @@ test('a drifted approved input is reported by the dry run, coded at preparation,
 
   const composed = item.invoke('wm', 'compose', '--phase', 'planning', '--work-id', 'ROUTE-1', '--json');
   assert.notEqual(composed.status, 0);
-  assert.equal(JSON.parse(composed.stdout).error.code, 'PHASE_INPUTS_NOT_READY');
+  assert.equal(completeAgentResult(composed.stdout).error.code, 'PHASE_INPUTS_NOT_READY');
   assert.equal(await readFile(path.join(item.root, 'team/stories/ROUTE-1/workflow.json'), 'utf8'), before);
 });
 
@@ -276,7 +277,7 @@ test('a pending prompt is recomposed when an approved input changed, and refused
   const item = await fixture(t);
   const first = item.invoke('phase', 'enter', 'planning', '--compose', '--for-agent', '--json');
   assert.equal(first.status, 0, first.stderr || first.stdout);
-  const entry = JSON.parse(first.stdout);
+  const entry = completeAgentResult(first.stdout);
   assert.equal(entry.contextComposition, 'delivered', JSON.stringify(entry.contextAdmission));
   assert.match(entry.context.text, /Preserve exact input identity/);
   const context = path.join(item.root, 'team/stories/ROUTE-1/context');
@@ -288,7 +289,7 @@ test('a pending prompt is recomposed when an approved input changed, and refused
   await writeFile(path.join(item.root, SPEC), `${APPROVED}\nAn unreviewed edit.\n`);
   const refused = item.invoke('wm', 'compose', '--phase', 'planning', '--work-id', 'ROUTE-1', '--json');
   assert.notEqual(refused.status, 0);
-  assert.equal(JSON.parse(refused.stdout).error.code, 'PHASE_INPUTS_NOT_READY');
+  assert.equal(completeAgentResult(refused.stdout).error.code, 'PHASE_INPUTS_NOT_READY');
 
   // A newly approved specification generation: the pending prompt is set aside and recomposed.
   const amended = `${APPROVED}\n[ROUTE-1:REQ-002] Recompose stale prompts.\n`;
@@ -302,7 +303,7 @@ test('a pending prompt is recomposed when an approved input changed, and refused
   git(item.root, 'commit', '-qm', 'simulated specification generation 2');
   const again = item.invoke('phase', 'enter', 'planning', '--compose', '--for-agent', '--json');
   assert.equal(again.status, 0, again.stderr || again.stdout);
-  const recomposed = JSON.parse(again.stdout);
+  const recomposed = completeAgentResult(again.stdout);
   assert.equal(recomposed.contextComposition, 'delivered', JSON.stringify(recomposed.contextAdmission));
   assert.match(recomposed.context.text, /Recompose stale prompts/);
   assert.match(again.stderr, /Recomposing planning generation 1: approved input from specification changed/);

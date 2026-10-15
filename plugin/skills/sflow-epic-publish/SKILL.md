@@ -15,7 +15,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 <!-- sflow-execution-boundary -->
 **Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
 
-1. Run `singularity-flow epic next <EPIC-KEY> --json`; continue only when it returns the `materialize` action.
+1. Run `singularity-flow epic next <EPIC-KEY> --for-agent --json`; continue only when it returns the `materialize` action.
 2. Ask which approved artifacts should also be attached and whether their target is the Epic, Stories, or both.
 3. Run `singularity-flow epic jira preview --epic <EPIC-KEY> [--artifact <PHASE/OUTPUT>] [--artifact-to epic|stories|both]`.
 4. Display every Jira field, parent link, visible lineage comment, `com.singularity.flow.lineage` property, attachment, repository, canonical branch, specification hash, and exact write-plan SHA-256.

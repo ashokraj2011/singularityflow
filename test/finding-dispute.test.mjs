@@ -15,6 +15,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { completeAgentResult } from '../src/agent-output.mjs';
 
 const CLI = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin/singularity-flow.mjs');
 const ENV = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_TEST_IDENTITY: 'Dispute Tester' };
@@ -61,7 +62,7 @@ async function story(t) {
   must('git', ['init', '-q', '--bare', '-b', 'main', remote]);
   must('git', ['remote', 'add', 'origin', remote]);
   must('git', ['push', '-q', '-u', 'origin', 'main']);
-  const readiness = JSON.parse(cli('precheck', '--run', '--scope', 'dependency-test', '--json').stdout).data.plan;
+  const readiness = completeAgentResult(cli('precheck', '--run', '--scope', 'dependency-test', '--json').stdout).data.plan;
   cli('precheck', '--run', '--scope', 'dependency-test', '--confirm-plan', readiness.planId, '--json');
   cli('start', W, '--from-branch', 'main', '--work-type', 'classic-delivery', '--title', 'Change the value', '--description', 'Return 2.');
   const item = path.join(root, 'singularity/work-items', W);
@@ -112,12 +113,12 @@ test('a disputed code-delivery finding is accepted live and honoured for exactly
   assert.notEqual(refused.status, 0);
   assert.match(refused.stdout + refused.stderr, /no acceptance test is available for the implementation/u);
   assert.match(refused.stdout + refused.stderr, /Documentation: singularity-flow explain findings --section CODE_DELIVERY_EVIDENCE_REQUIRED/u);
-  const preflight = JSON.parse(attempt('phase', 'prepublish', 'implementation', '--for-agent', '--json').stdout);
+  const preflight = completeAgentResult(attempt('phase', 'prepublish', 'implementation', '--for-agent', '--json').stdout);
   const issue = JSON.stringify(preflight);
   assert.match(issue, /appeal risk-prepare --work-id DISPUTE-1 --phase implementation --finding CODE_DELIVERY_EVIDENCE_REQUIRED --evidence-file <PATH>/u,
     'the recovery routes offer the dispute to the step\'s approvers');
 
-  const prepared = JSON.parse(cli('appeal', 'risk-prepare', ...disputeArgs, '--json').stdout).data.packet;
+  const prepared = completeAgentResult(cli('appeal', 'risk-prepare', ...disputeArgs, '--json').stdout).data.packet;
   assert.equal(prepared.gateMode, 'dispute');
   assert.equal(prepared.gate, 'CODE_DELIVERY_EVIDENCE_REQUIRED');
   assert.ok(prepared.problems.some((problem) => /no acceptance test is available/u.test(problem)));
@@ -169,13 +170,13 @@ test('the same refusal three times says to stop and hand it on; prepublish count
   assert.doesNotMatch(outputs[1], /Stop: CODE_DELIVERY_EVIDENCE_REQUIRED/u);
   assert.match(outputs[2], /1\. Stop: CODE_DELIVERY_EVIDENCE_REQUIRED has returned 3 times; repeating the repair cannot pass\./u);
   assert.match(outputs[2], /Dispute \(phase-approval-authority\): singularity-flow appeal risk-prepare --phase implementation --finding CODE_DELIVERY_EVIDENCE_REQUIRED/u);
-  const json = JSON.parse(attempt('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place', '--json').stdout);
+  const json = completeAgentResult(attempt('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place', '--json').stdout);
   assert.equal(json.remediationPlan.escalation.required, true);
   assert.equal(json.remediationPlan.steps[0].id, 'escalate-repeated-finding');
   assert.equal(json.remediationPlan.context.strategy, 'escalate-repeated-finding', 'agents follow the strategy, so it must stop the repair');
   assert.match(outputs[2], /Scope: phase implementation — the same finding keeps returning; stop repairing it/u);
 
-  const check = () => JSON.parse(attempt('phase', 'prepublish', 'implementation', '--for-agent', '--json').stdout);
+  const check = () => completeAgentResult(attempt('phase', 'prepublish', 'implementation', '--for-agent', '--json').stdout);
   const first = check();
   assert.notEqual(first.repairLoop?.status, 'escalate');
   assert.notEqual(check().repairLoop?.status, 'escalate', 'a recheck with nothing changed is not a repair');

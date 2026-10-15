@@ -7,6 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
+import { completeAgentResult } from '../src/agent-output.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -44,7 +45,7 @@ async function featureStory(t) {
   run('git', ['init', '--bare', '-b', 'main', remote], root);
   run('git', ['remote', 'add', 'origin', remote], root);
   run('git', ['push', '-u', 'origin', 'main'], root);
-  const readiness = JSON.parse(cli('precheck', '--run', '--scope', 'dependency-test', '--json').stdout).data.plan;
+  const readiness = completeAgentResult(cli('precheck', '--run', '--scope', 'dependency-test', '--json').stdout).data.plan;
   cli('precheck', '--run', '--scope', 'dependency-test', '--confirm-plan', readiness.planId, '--json');
   cli('start', W, '--from-branch', 'main', '--work-type', 'feature', '--title', 'Cache the value', '--description', 'Decide how long callers cache the value.');
   cli('prepare', 'intake');
@@ -105,7 +106,7 @@ test('next submits an unreviewed intake but shows the review route for a publish
   assert.equal((await state()).phases.intake.status, 'awaiting_approval', 'intake owes no review, so next submits it');
   cli('approve', 'intake', '--yes');
   // The composed context is also named as a verified file, and control fields lead the packet.
-  const entry = JSON.parse(cli('phase', 'enter', 'requirements', '--compose', '--for-agent', '--json').stdout);
+  const entry = completeAgentResult(cli('phase', 'enter', 'requirements', '--compose', '--for-agent', '--json').stdout);
   assert.equal(entry.context.file.sha256, createHash('sha256').update(await readFile(path.join(root, entry.context.file.path))).digest('hex'));
   assert.ok(Object.keys(entry).indexOf('authoring') < Object.keys(entry).indexOf('recovery'));
   assert.equal(Object.keys(entry).at(-1), 'context');

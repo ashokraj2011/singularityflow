@@ -561,7 +561,8 @@ export async function main(argv) {
   // Git answers earlier commands in this session already proved; see git-fact-store.mjs.
   installGitFactStore();
   const uninstall = installFileLeaseSignalHandlers();
-  try { return await withCliJsonOutput(optionBoolean(parseArgs(argv).options, 'json'), () => runMain(argv)); }
+  const { options } = parseArgs(argv);
+  try { return await withCliJsonOutput(optionBoolean(options, 'json'), () => runMain(argv), { forAgent: optionBoolean(options, 'for-agent') }); }
   finally { uninstall(); }
 }
 

@@ -11,6 +11,7 @@ import { initializeDefinition, loadDefinition, resolveWorkType, validateDefiniti
 import { phaseRequiresCodeDelivery } from '../src/code-delivery-policy.mjs';
 import { installWorkflow, simulateWorkflow, workflowCatalog } from '../src/workflow-catalog.mjs';
 import { summarizeNativeCopilotTrace } from '../src/native-copilot-efficiency.mjs';
+import { completeAgentResult } from '../src/agent-output.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = path.join(ROOT, 'bin/singularity-flow.mjs');
@@ -119,15 +120,15 @@ test('Classic delivery commits passing test results before Testing and Code chec
   const measureEntry = () => {
     const full = cli('phase', 'enter', '--json');
     const compact = cli('phase', 'enter', '--for-agent', '--json');
-    const packet = JSON.parse(compact.stdout);
+    const packet = completeAgentResult(compact.stdout);
     assert.equal(packet.workId, workId);
     assert.equal(packet.phase, measuredPhase);
     assert.equal(packet.agentGuide.platform, process.platform);
-    const session = JSON.parse(cli('session', 'current', '--for-agent', '--json').stdout);
+    const session = completeAgentResult(cli('session', 'current', '--for-agent', '--json').stdout);
     assert.equal(session.workId, workId);
     assert.equal(session.phase, measuredPhase);
     entryMeasurements.push({ phase: measuredPhase, fullBytes: Buffer.byteLength(full.stdout),
-      legacyAgentBytes: Buffer.byteLength(JSON.stringify(JSON.parse(full.stdout))) + 1,
+      legacyAgentBytes: Buffer.byteLength(JSON.stringify(completeAgentResult(full.stdout))) + 1,
       agentBytes: Buffer.byteLength(compact.stdout) });
   };
   run('git', ['init', '-b', 'main'], root);
@@ -159,11 +160,11 @@ test('Classic delivery commits passing test results before Testing and Code chec
   run('git', ['push', '-u', 'origin', 'main'], root);
   const base = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
 
-  const readinessPlan = JSON.parse(cli('precheck', '--run', '--scope', 'dependency-test', '--json').stdout).data.plan;
+  const readinessPlan = completeAgentResult(cli('precheck', '--run', '--scope', 'dependency-test', '--json').stdout).data.plan;
   assert.equal(config.repositoryReadiness.requiredBeforeStory, false);
   assert.equal(readinessPlan.status, 'ready');
   assert.equal(readinessPlan.sourceCommit, base);
-  const readiness = JSON.parse(cli('precheck', '--run', '--scope', 'dependency-test',
+  const readiness = completeAgentResult(cli('precheck', '--run', '--scope', 'dependency-test',
     '--confirm-plan', readinessPlan.planId, '--json').stdout).data.receipt;
   assert.equal(readiness.status, 'pass');
   assert.equal(readiness.sourceCommit, base);
@@ -178,7 +179,7 @@ test('Classic delivery commits passing test results before Testing and Code chec
   const workflow = () => readFile(path.join(item, 'workflow.json'), 'utf8').then(JSON.parse);
   // Starting the Story is the selection a Copilot conversation asks for: the first agent entry is
   // ready, and it carries the request near its top.
-  const firstEntry = JSON.parse(cli('nextsteps', '--for-agent', '--json').stdout);
+  const firstEntry = completeAgentResult(cli('nextsteps', '--for-agent', '--json').stdout);
   assert.equal(firstEntry.ready, true, JSON.stringify(firstEntry.phaseAgent));
   assert.deepEqual([firstEntry.story?.title, firstEntry.story?.outcome], ['Change the value', 'Prove committed executable-test evidence.']);
   cli('prepare', 'intake');
@@ -211,14 +212,14 @@ test('Classic delivery commits passing test results before Testing and Code chec
   measuredPhase = 'implementation';
   // Intake was approved here, outside any Copilot conversation: the next agent entry repeats the
   // boundary that approval owes until Code is prepared.
-  const owed = JSON.parse(cli('nextsteps', '--for-agent', '--json').stdout);
+  const owed = completeAgentResult(cli('nextsteps', '--for-agent', '--json').stdout);
   assert.deepEqual([owed.contextBoundary?.mode, owed.contextBoundary?.phase, owed.contextBoundary?.commands], ['new', 'intake', ['/clear', '/sf-next']]);
   cli('prepare', 'implementation');
-  assert.equal(JSON.parse(cli('nextsteps', '--for-agent', '--json').stdout).contextBoundary, undefined);
+  assert.equal(completeAgentResult(cli('nextsteps', '--for-agent', '--json').stdout).contextBoundary, undefined);
   measureEntry();
   // Code works from what intake approved. Its input comes before the Story's one-line request, and
   // the request says it is refined, so an agent reading from the top never asks what intake settled.
-  const entered = JSON.parse(cli('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
+  const entered = completeAgentResult(cli('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
   assert.deepEqual(entered.story?.refinedBy, ['intake']);
   assert.match(entered.story.authority, /outputs of intake .*never ask what they answer/u);
   const prompt = entered.context.text;
@@ -311,8 +312,8 @@ test('Classic delivery commits passing test results before Testing and Code chec
     if (phase === 'conformance') {
       // The agent review view sends authored text and references the engine-written blocks; it names
       // the same documents and display binding as the full review.
-      const full = JSON.parse(cli('phase', 'show', phase, '--json').stdout);
-      const agent = JSON.parse(cli('phase', 'show', phase, '--for-agent', '--json').stdout);
+      const full = completeAgentResult(cli('phase', 'show', phase, '--json').stdout);
+      const agent = completeAgentResult(cli('phase', 'show', phase, '--for-agent', '--json').stdout);
       assert.deepEqual(agent.displayBinding, full.displayBinding);
       const [fullReport, agentReport] = [full, agent].map((review) => review.documents.find((document) => document.kind === 'conformance-report'));
       assert.equal(agentReport.sha256, fullReport.sha256);
@@ -329,7 +330,7 @@ test('Classic delivery commits passing test results before Testing and Code chec
   // reads the record it left for exactly this evidence.
   assert.equal(finished.completion.label, 'Complete');
   assert.equal(finished.completion.decision.gate, 'allow');
-  const matrix = JSON.parse(cli('evidence', 'matrix', '--json').stdout).data.matrix;
+  const matrix = completeAgentResult(cli('evidence', 'matrix', '--json').stdout).data.matrix;
   assert.equal(matrix.evaluation.completion.label, 'Complete', JSON.stringify(matrix.evaluation.findings));
   assert.equal(matrix.evaluation.inputSha256, finished.completion.inputSha256);
   assert.equal(run('git', ['rev-parse', 'refs/remotes/origin/CLASSIC-1'], root).stdout.trim(),

@@ -300,7 +300,7 @@ export interface StudioProposalSummary {
   branch: string; proposalCommit: string; valid: boolean; merged: boolean;
   proposalCreatedAt: string | null;
   proposalId: string | null;
-  workflows: Array<{ id: string; governs: string | null; change: string; label: string | null }>;
+  workflows: Array<{ id: string; governs: string | null; change: string; label: string | null; phases?: string[] }>;
   files: number; invalidFiles: string[]; failure: string | null;
 }
 
@@ -314,7 +314,14 @@ export function proposalSummaries(listed: unknown): StudioProposalSummary[] {
     if (!branch || !PROPOSAL_BRANCH.test(branch) || !proposalCommit) return [];
     const workflows = (Array.isArray(entry.workflows) ? entry.workflows : []).slice(0, 50).map((item) => {
       const workflow = (item ?? {}) as Record<string, unknown>;
-      return { id: text(workflow.id, 80) ?? '?', governs: text(workflow.governs, 20), change: text(workflow.change, 20) ?? 'changed', label: text(workflow.label, 120) };
+      const phases = (Array.isArray(workflow.phases) ? workflow.phases : [])
+        .filter((phase): phase is string => typeof phase === 'string' && phase.trim().length > 0)
+        .slice(0, 50);
+      return {
+        id: text(workflow.id, 80) ?? '?', governs: text(workflow.governs, 20),
+        change: text(workflow.change, 20) ?? 'changed', label: text(workflow.label, 120),
+        ...(phases.length ? { phases } : {})
+      };
     });
     return [{
       branch, proposalCommit, valid: entry.valid === true, merged: entry.merged === true, workflows,
@@ -885,7 +892,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     renderConstitution: renderConstitution, openConstitutionForm: openConstitutionForm, saveConstitutionArticle: saveConstitutionArticle,
     renderEpicStep: renderEpicStep, renderSeededWorkflow: renderSeededWorkflow,
     insertSkillInstruction: insertSkillInstruction,
-    proposalGroups: function () { return proposalGroups.apply(null, arguments); },
+    proposalGroups: function () { return proposalGroups.apply(null, arguments); }, proposalEntityCard: function () { return proposalEntityCard.apply(null, arguments); },
     worldModelSection: function () { return worldModelSection.apply(null, arguments); }, knowledgeReader: function () { return knowledgeReader.apply(null, arguments); },
     newStepWorldModelHint: function () { return newStepWorldModelHint.apply(null, arguments); },
     renderReadOnlyStep: function () { return renderReadOnlyStep.apply(null, arguments); }, renderReadOnlyDecision: function () { return renderReadOnlyDecision.apply(null, arguments); },
@@ -1269,7 +1276,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   }
 
   function renderNav(root) {
-    var pending = changesNow().length + savedDrafts().length;
+    var waitingProposals = (proposalsState().list || []).filter(function (proposal) { return !proposal.merged; }).length;
+    var waitingUploads = (proposalsState().uploads || []).length;
+    var pending = changesNow().length + savedDrafts().length + waitingProposals + waitingUploads;
     var blocked = Object.keys(state.draft.groups).filter(groupBlocked).length;
     // A target some step sends to, whose secret this machine does not have: its deliveries would wait.
     var secretsHere = integrationsState().secrets;
@@ -1337,6 +1346,10 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var noAgent = Object.keys(state.draft.phases).filter(function (id) { return !state.draft.phases[id].agent && workflows.some(function (workflowId) { return workflowSteps(workflowId).indexOf(id) >= 0; }); });
     var blocked = Object.keys(state.draft.groups).filter(groupBlocked);
     var pending = changesNow().length + savedDrafts().length;
+    var waitingProposals = (proposalsState().list || []).filter(function (proposal) { return !proposal.merged; });
+    var waitingUploads = (proposalsState().uploads || []).filter(function (upload) {
+      return !waitingProposals.some(function (proposal) { return proposal.branch === upload.branch; });
+    });
     main.appendChild(el('header', { class: 'studio-card', style: 'border:0;background:transparent;padding:0' },
       el('h1', { text: 'Design how your team works' }),
       el('p', { class: 'studio-lede', text: 'A workflow is the list of steps a Story goes through. In each step an agent drafts the work and people sign it off. Arrange the steps, pick who does what from the lists, then publish once.' })));
@@ -1349,7 +1362,13 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       check('ok', workflows.length + (workflows.length === 1 ? ' workflow' : ' workflows'), 'Any of them can start a Story once published.'),
       blocked.length ? check('bad', blocked.length + (blocked.length === 1 ? ' approval group can never approve' : ' approval groups can never approve'), 'Add people to ' + blocked.map(function (id) { return state.draft.groups[id].label; }).join(', ') + ', or steps they sign off can never finish.', button('Add people', function () { state.view = 'people'; render(); })) : check('ok', 'Every approval group can sign off', 'Empty groups enrol whoever starts a Story, unless your repository requires named people.'),
       noAgent.length ? check('bad', noAgent.length + ' step(s) have no agent', noAgent.map(function (id) { return state.draft.phases[id].label; }).join(', '), null) : check('ok', 'Every step has an agent', 'Each step has exactly one agent that drafts it.'),
-      pending ? check('wait', pending + (pending === 1 ? ' change' : ' changes') + ' not published yet', 'Check and publish them together from Changes.', button('Review changes', function () { state.view = 'changes'; render(); }, { class: 'primary' })) : check('dim', 'No unpublished changes', 'Edits you make collect here until you publish them.')));
+      pending ? check('wait', pending + (pending === 1 ? ' change' : ' changes') + ' not published yet', 'Check and publish them together from Changes.', button('Review changes', function () { state.view = 'changes'; render(); }, { class: 'primary' })) : check('dim', 'No unpublished changes', 'Edits you make collect here until you publish them.'),
+      waitingProposals.length ? check('wait', waitingProposals.length + (waitingProposals.length === 1 ? ' proposal waiting for review' : ' proposals waiting for review'), 'Imported or published workflows become active after you review and activate them.',
+        waitingProposals.length === 1 && waitingProposals[0].valid
+          ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and activate', function () { reviewProposal(waitingProposals[0].branch); }, { class: 'primary', disabled: Boolean(state.busy) })
+          : button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'primary' })) : null,
+      waitingUploads.length ? check('wait', waitingUploads.length + (waitingUploads.length === 1 ? ' proposal saved on this computer' : ' proposals saved on this computer'), 'Not uploaded to the remote yet; check Changes if an upload needs your attention.',
+        button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'secondary' })) : null));
     main.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Your workflows' }), el('div', { class: 'studio-row' },
       button(state.busy === 'import' ? 'Importing…' : 'Import…', importWorkflows, { class: 'secondary', disabled: Boolean(state.busy), title: 'Add workflows from a bundle file, as one reviewed change' }),
       button('Import a team…', function () { post({ type: 'studio.importTeam' }); }, { class: 'secondary', title: 'Turn a team\'s agents, skills and instructions into a workflow bundle with Copilot, then import it here' }),
@@ -1364,10 +1383,18 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       var workflow = state.draft.workflows[id];
       var readOnly = workflowReadOnly(id);
       var code = workflow.phases.some(function (phaseId) { return stepOutput(id, phaseId) === 'code'; });
+      var pendingProposal = waitingProposals.find(function (proposal) {
+        return (proposal.workflows || []).some(function (entry) { return entry.id === id && entry.governs !== 'initiative'; });
+      });
       var card = el('article', { class: 'studio-card ' + (readOnly ? 'workflow-seeded' : 'workflow-editable'), 'data-workflow-card': id },
         el('div', { class: 'studio-row spread' },
-          el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflowOrigin(readOnly), workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'NEW' }) : null),
+          el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflowOrigin(readOnly),
+            workflow.isNew || workflow.installFrom ? el('span', { class: 'pill new', text: 'NEW' }) : null,
+            pendingProposal ? el('span', { class: 'pill new', text: 'Pending review' }) : null),
           el('div', { class: 'studio-row' },
+            pendingProposal && pendingProposal.valid
+              ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and activate', function () { reviewProposal(pendingProposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + pendingProposal.branch })
+              : null,
             button(readOnly ? 'View' : 'Edit', function () { openWorkflowCanvas(id); }, { class: 'secondary', 'data-key': 'workflow-open-' + id,
               'aria-label': (readOnly ? 'View seeded workflow ' : 'Edit workflow in canvas: ') + workflow.label }),
             button('Duplicate', function () { duplicateWorkflow('story:' + id); }, { class: 'secondary', disabled: workflow.isNew || Boolean(workflow.installFrom), 'aria-label': 'Duplicate ' + workflow.label }))),
@@ -1380,6 +1407,47 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         workflow.phases.map(stepLabel).join(' '), workflow.phases.join(' '),
         (workflow.reworkLoops || []).map(function (loop) { return 'rejected ' + stepLabel(loop.from) + ' ' + stepLabel(loop.to); }).join(' '),
         (workflow.decisions || []).map(function (decision) { return decision.label + ' ' + decisionLines(workflow, decision).join(' '); }).join(' ')], [id, workflow.label], group);
+    });
+    var seenProposed = {};
+    waitingProposals.forEach(function (proposal) {
+      (proposal.workflows || []).forEach(function (workflow) {
+        if (workflow.governs === 'initiative' || workflow.change === 'removed' || state.draft.workflows[workflow.id] || seenProposed[workflow.id]) return;
+        seenProposed[workflow.id] = true;
+        var phases = Array.isArray(workflow.phases) ? workflow.phases : [];
+        var card = el('article', { class: 'studio-card workflow-editable', 'data-proposed-workflow-card': workflow.id, 'aria-label': 'Proposed workflow ' + (workflow.label || workflow.id) },
+          el('div', { class: 'studio-row spread' },
+            el('div', { class: 'studio-row' },
+              el('strong', { text: workflow.label || workflow.id }),
+              el('span', { class: 'pill new', text: proposal.valid ? 'Pending review' : 'Blocked' })),
+            el('div', { class: 'studio-row' },
+              proposal.valid
+                ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and activate', function () { reviewProposal(proposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + proposal.branch })
+                : null,
+              button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'secondary' }))),
+          el('span', { class: 'muted', text: (phases.length ? phases.length + (phases.length === 1 ? ' step · ' : ' steps · ') : '') + 'Proposed on ' + proposal.branch + ' — activate to edit or start Stories' }),
+          proposal.failure ? el('div', { class: 'callout bad', text: proposal.failure }) : null,
+          phases.length ? rail(phases) : null);
+        userWorkflows.appendChild(card);
+        search.add(card, [workflow.id, workflow.label, 'pending review proposed', proposal.branch, phases.map(stepLabel).join(' '), phases.join(' ')],
+          [workflow.id, workflow.label], userWorkflows);
+      });
+    });
+    waitingUploads.forEach(function (upload) {
+      var view = uploadView(upload);
+      var card = el('article', { class: 'studio-card workflow-editable', 'data-uploading-proposal-card': upload.branch, 'aria-label': 'Uploading proposal ' + upload.branch },
+        el('div', { class: 'studio-row spread' },
+          el('div', { class: 'studio-row' },
+            el('strong', { text: upload.branch }),
+            el('span', { class: 'pill new', text: view.status })),
+          el('div', { class: 'studio-row' },
+            view.actions.indexOf('retry') >= 0 ? button(state.busy === 'upload' ? 'Uploading…' : 'Retry upload', function () {
+              state.busy = 'upload'; setStatus('Uploading ' + upload.branch + '…'); render();
+              post({ type: 'studio.retryUpload', intentId: upload.intentId });
+            }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Retry upload of ' + upload.branch }) : null,
+            button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'secondary' }))),
+        el('span', { class: 'muted', text: view.reason }));
+      userWorkflows.appendChild(card);
+      search.add(card, [upload.branch, view.status, view.reason], [upload.branch], userWorkflows);
     });
     renderEpicList(main, search);
     search.finish();
@@ -1425,6 +1493,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function renderEpicList(main, search) {
     var epics = state.draft.epics;
     if (!epics) return;
+    var waitingProposals = (proposalsState().list || []).filter(function (proposal) { return !proposal.merged; });
     main.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Epic workflows' }),
       button('New Epic workflow', function () { state.epicForm = { label: '', description: '', from: null, copy: false }; render(); }, { class: 'primary' })));
     if (state.epicForm) main.appendChild(renderEpicForm(state.epicForm));
@@ -1433,11 +1502,18 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     epics.order.concat(Object.keys(epics.workflows).filter(function (id) { return epics.order.indexOf(id) < 0; })).forEach(function (id) {
       var workflow = epics.workflows[id];
       var readOnly = protectedObject('epics', id);
+      var pendingProposal = waitingProposals.find(function (proposal) {
+        return (proposal.workflows || []).some(function (entry) { return entry.id === id && entry.governs === 'initiative'; });
+      });
       var card = el('article', { class: 'studio-card ' + (readOnly ? 'workflow-seeded' : 'workflow-editable'), 'aria-label': 'Epic workflow ' + workflow.label },
         el('div', { class: 'studio-row spread' },
           el('div', { class: 'studio-row' }, el('strong', { text: workflow.label }), workflowOrigin(readOnly), workflow.isNew ? el('span', { class: 'pill new', text: 'NEW' }) : null,
+            pendingProposal ? el('span', { class: 'pill new', text: 'Pending review' }) : null,
             el('span', { class: 'pill', text: workflow.lifecycleMode === 'planning-only' ? 'Plans Stories' : 'Full delivery' })),
           el('div', { class: 'studio-row' },
+            pendingProposal && pendingProposal.valid
+              ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and activate', function () { reviewProposal(pendingProposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + pendingProposal.branch })
+              : null,
             button(protectedObject('epics', id) ? 'View' : 'Edit', function () { openEpicCanvas(id); }, { class: 'secondary',
               'aria-label': (protectedObject('epics', id) ? 'View seeded Epic workflow ' : 'Edit Epic workflow in canvas: ') + workflow.label }),
             button('Duplicate', function () { duplicateWorkflow('initiative:' + id); }, { class: 'secondary', disabled: workflow.isNew, 'aria-label': 'Duplicate ' + workflow.label }))),
@@ -1446,6 +1522,30 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       var group = readOnly ? seededWorkflows : userWorkflows;
       group.appendChild(card);
       search.add(card, [id, workflow.label, workflow.description, readOnly ? 'seeded read-only' : 'editable', workflow.phases.map(epicStepLabel).join(' ')], [id, workflow.label], group);
+    });
+    var seenProposedEpics = {};
+    waitingProposals.forEach(function (proposal) {
+      (proposal.workflows || []).forEach(function (workflow) {
+        if (workflow.governs !== 'initiative' || workflow.change === 'removed' || epics.workflows[workflow.id] || seenProposedEpics[workflow.id]) return;
+        seenProposedEpics[workflow.id] = true;
+        var phases = Array.isArray(workflow.phases) ? workflow.phases : [];
+        var card = el('article', { class: 'studio-card workflow-editable', 'data-proposed-epic-card': workflow.id, 'aria-label': 'Proposed Epic workflow ' + (workflow.label || workflow.id) },
+          el('div', { class: 'studio-row spread' },
+            el('div', { class: 'studio-row' },
+              el('strong', { text: workflow.label || workflow.id }),
+              el('span', { class: 'pill new', text: proposal.valid ? 'Pending review' : 'Blocked' })),
+            el('div', { class: 'studio-row' },
+              proposal.valid
+                ? button(state.busy === 'review' ? 'Reviewing…' : 'Review and activate', function () { reviewProposal(proposal.branch); }, { class: 'primary', disabled: Boolean(state.busy), 'aria-label': 'Review and activate ' + proposal.branch })
+                : null,
+              button('Open Changes', function () { state.view = 'changes'; render(); }, { class: 'secondary' }))),
+          el('span', { class: 'muted', text: (phases.length ? phases.length + (phases.length === 1 ? ' step · ' : ' steps · ') : '') + 'Proposed on ' + proposal.branch + ' — activate to edit or start Epics' }),
+          proposal.failure ? el('div', { class: 'callout bad', text: proposal.failure }) : null,
+          phases.length ? el('div', { class: 'rail' }, phases.map(function (phaseId) { return el('span', { class: 'pill', text: epicStepLabel(phaseId) }); })) : null);
+        userWorkflows.appendChild(card);
+        search.add(card, [workflow.id, workflow.label, 'pending review proposed', proposal.branch, phases.map(epicStepLabel).join(' ')],
+          [workflow.id, workflow.label], userWorkflows);
+      });
     });
   }
   function renderEpicForm(form) {
@@ -5436,14 +5536,17 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var revisions = group.current.concat(group.earlier);
     var first = revisions[0];
     var name = first.workflows.map(function (workflow) { return workflow.label || workflow.id; }).join(', ') || 'Configuration proposal';
-    var chosen = revisions.length === 1 && first.valid ? first.branch : '';
-    var review = button('Review exact revision', function () { if (chosen) reviewProposal(chosen); }, { class: 'primary', disabled: Boolean(state.busy) || !chosen });
+    var chosenMap = proposalsState().chosen || (proposalsState().chosen = {});
+    var defaultBranch = group.current.length === 1 && first.valid ? first.branch : '';
+    var saved = Object.prototype.hasOwnProperty.call(chosenMap, first.proposalId) ? chosenMap[first.proposalId] : defaultBranch;
+    var chosen = revisions.some(function (revision) { return revision.branch === saved && revision.valid; }) ? saved : '';
+    var review = button(state.busy === 'review' ? 'Reviewing…' : 'Review exact revision', function () { if (chosen) reviewProposal(chosen); }, { class: 'primary', disabled: Boolean(state.busy) || !chosen });
     var options = [{ value: '', label: 'Choose a revision to review' }].concat(revisions.map(function (revision) {
       return { value: revision.branch, label: revision.proposalCommit.slice(0, 12) + ' · ' + (revision.proposalCreatedAt || 'creation time unavailable'), disabled: !revision.valid };
     }));
     var picker = select('proposal-' + first.proposalId, options, chosen, function (value) {
-      chosen = revisions.some(function (revision) { return revision.branch === value && revision.valid; }) ? value : '';
-      review.disabled = Boolean(state.busy) || !chosen;
+      chosenMap[first.proposalId] = revisions.some(function (revision) { return revision.branch === value && revision.valid; }) ? value : '';
+      render();
     }, { 'aria-label': 'Exact revision for ' + name });
     return el('article', { class: 'decision-box', 'aria-label': 'Proposal entity ' + first.proposalId },
       el('div', { class: 'studio-row spread' }, el('h3', { text: name }), el('span', { class: 'pill', text: revisions.length + (revisions.length === 1 ? ' revision' : ' preserved revisions') })),

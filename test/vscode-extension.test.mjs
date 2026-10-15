@@ -7719,9 +7719,14 @@ test('configuration proposals stay visible in Workflow Studio and offer exact gu
     'a proposal reports its durable state instead of making the change appear to disappear');
   assert.match(extension, /'workflow', 'proposal', branch, '--json'/, 'the exact proposal diff opens before activation');
   assert.match(extension, /showReviewDocument\(`\$\{inspected\.branch\}\.diff`/, 'the diff opens read-only');
-  assert.match(extension, /'workflow', 'activate', inspected\.branch/);
-  assert.match(extension, /--confirm', inspected\.proposalCommit/, 'activation binds the complete reviewed proposal commit');
-  assert.match(extension, /WORKFLOW_CONFIGURATION_UNPROTECTED/, 'a direct unprotected merge requires a second explicit acknowledgement');
+  // Activation lives in one helper (bd45981e); the panel hands it the proposal it just showed.
+  const save = await readFile(source('views/configuration-save.ts'), 'utf8');
+  assert.match(extension, /activateReviewedWorkflowProposal<[^(]*>\(inspected,/);
+  assert.match(save, /\['workflow', 'activate', reviewed\.branch, '--confirm', reviewed\.proposalCommit\]/,
+    'activation binds the complete reviewed proposal commit');
+  assert.match(save, /if \(!await boundary\.acknowledge\(\)\) return null;\s*args\.push\('--acknowledge-unprotected'\);/,
+    'a direct unprotected merge requires a second explicit acknowledgement, asked before activation starts');
+  assert.match(extension, /const acknowledge = 'Acknowledge and merge';/);
   assert.match(extension, /application branch remains unchanged/i);
   assert.match(extension, /'singularityFlow\.openDesigner': \(\) => vscode\.commands\.executeCommand\('singularityFlow\.openWorkflowStudio'\)/,
     'the retired Designer command opens Workflow Studio');

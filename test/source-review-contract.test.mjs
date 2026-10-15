@@ -41,6 +41,27 @@ test('compact planning review has one exact binding and does not trim source, pl
     { code: 'SOURCE_REVIEW_BINDING_MISMATCH' });
 });
 
+test('what the reviewer must act on comes before the material it reads, and the guide says who acts', () => {
+  // A real planning review is hundreds of kilobytes; Copilot read its beginning, never reached the
+  // guide, template or staging protocol, and stopped with the review undone.
+  const ctx = input();
+  const entry = { schemaVersion: 1, workId: ctx.workId, ready: true,
+    mutationContract: { summary: 'long entry contract' }, authoringContract: { summary: 'long authoring contract' } };
+  const full = { canReview: true, binding: ctx.binding, sources: ctx.sources, upstreamSpec: ctx.upstreamSpec,
+    artifact: ctx.artifact, reportTemplate: sourceReviewReportTemplate(ctx), reportSchema: sourceReviewReportSchema(ctx.kind),
+    stagingPath: '/private/staging.json', stagingProtocol: { retain: 'retain' }, reviewer: { instructions: 'reviewer text' } };
+  const keys = Object.keys(compactSourceReviewContext(full, entry));
+  const before = (first, second) => assert.ok(keys.indexOf(first) < keys.indexOf(second), `${first} before ${second}: ${keys.join(', ')}`);
+  for (const material of ['reviewer', 'sources', 'upstreamSpec', 'artifact', 'reportSchema', 'mutationContract', 'authoringContract']) {
+    before('reviewGuide', material); before('reportTemplate', material); before('stagingProtocol', material);
+  }
+  before('reportSchema', 'mutationContract');
+  const compact = compactSourceReviewContext(full, entry);
+  assert.match(compact.reviewGuide.role, /You are this operation's reviewer/u);
+  assert.match(compact.reviewGuide.role, /read that file to its end/u);
+  assert.match(compactSourceReviewContext({ canReview: false }, entry).reviewGuide.role, /relay continuation\.actions and stop/u);
+});
+
 test('context contract seeds exact planning metadata, never a supported judgment, for custom phase names', () => {
   const ctx = input();
   const draft = sourceReviewReportTemplate(ctx);

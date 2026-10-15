@@ -6,6 +6,21 @@ import { branch, gitDir } from './git.mjs';
 import { workflowBranchAllowed } from './state-stores.mjs';
 import { SingularityFlowError } from './util.mjs';
 
+/**
+ * What a reviewer must act on comes first. `[review-packet-order]`
+ *
+ * The packet spread the phase entry (its long mutation and authoring contracts) and then the review
+ * material, and appended the guide last. A real planning review is hundreds of kilobytes, so
+ * Copilot saved it to a file, read its beginning, saw only that `sflow-source-reviewer` was
+ * required, never reached the guide, template or staging protocol, and stopped with the review
+ * undone. Same fields, same values: identity, then the guide (with who acts and that the packet is
+ * complete), the template and staging, then the material to read, then everything else.
+ */
+const FIRST_FIELDS = ['schemaVersion', 'resultType', 'paused', 'personalization', 'ready', 'repositoryPath', 'workItemRoot',
+  'workId', 'story', 'phase', 'phaseStatus', 'generation', 'kind', 'canReview', 'status', 'reason', 'continuation', 'recovery',
+  'reviewGuide', 'bindingPath', 'reportTemplate', 'stagingPath', 'stagingProtocol', 'authorAgentId', 'requiredReviewerAgentId',
+  'reviewer', 'clarifications', 'clarificationGuidance', 'unreadableSources', 'sources', 'upstreamSpec', 'artifact', 'reportSchema'];
+
 /** Lossless review projection: one authoritative binding, no duplicated inventory. */
 export function compactSourceReviewContext(packet, binding) {
   const { binding: duplicate, ...context } = packet;
@@ -14,12 +29,20 @@ export function compactSourceReviewContext(packet, binding) {
       code: 'SOURCE_REVIEW_BINDING_MISMATCH'
     });
   }
-  return { ...binding, ...context, resultType: 'source-review-agent-context',
+  const merged = { ...binding, ...context, resultType: 'source-review-agent-context',
     bindingPath: packet.reportTemplate ? 'reportTemplate.binding' : null,
-    reviewGuide: { readOrder: ['reviewer.instructions', 'clarifications', 'sources', 'upstreamSpec', 'artifact', 'reportTemplate', 'reportSchema'],
+    reviewGuide: {
+      role: packet.canReview
+        ? 'You are this operation\'s reviewer: activation is automatic, so act under reviewer.instructions yourself in this conversation; no other agent, setup or selection is needed. Do the whole review now: fill reportTemplate, stage it at stagingPath, check it, then retain it. This packet is complete and not truncated: if your tool saved it to a file, read that file to its end before concluding anything is missing.'
+        : 'No review can be prepared here; relay continuation.actions and stop.',
+      readOrder: ['reviewer.instructions', 'clarifications', 'sources', 'upstreamSpec', 'artifact', 'reportTemplate', 'reportSchema'],
       exactTexts: true, bindingCopies: packet.reportTemplate ? 1 : 0,
       verification: 'Specification: assess declared verification intent against pinned source obligations, not tool availability. Planning: preserve approved methods and exact verificationCriterion; primary visual/inspection proof is not a test exemption. A real omitted-test exemption still needs a pending human disposition. Neither a contract nor file presence establishes a visual pass.',
       next: 'Start from reportTemplate; preserve binding/metadata and supply independent assessments/citations. Use stagingProtocol: exact file-edit staging or the standalone kernel stage command, then check and retain. Read captured output with native file-read tools, not shell parsers. Do not enumerate JSON keys or reread inventories; exact material is already in this packet.' } };
+  const ordered = {};
+  for (const key of FIRST_FIELDS) if (Object.hasOwn(merged, key)) ordered[key] = merged[key];
+  for (const [key, value] of Object.entries(merged)) if (!Object.hasOwn(ordered, key)) ordered[key] = value;
+  return ordered;
 }
 
 /** A single model-free pause, session and published-review context boundary. */

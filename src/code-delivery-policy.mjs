@@ -147,6 +147,19 @@ export function phaseRequiresCodeDelivery(phase) {
 }
 
 /**
+ * A step the kernel builds entirely: a deterministic producer and no code to deliver.
+ *
+ * On a code step, a deterministic producer builds the summary from what changed; the code itself is
+ * still written (quick-fix's `implement`). From 2026-10-08 the session, entry admission and mutation
+ * contract treated every deterministic step as kernel-owned, so no agent could write that code
+ * while every route still offered /sf-code. Only a kernel-owned step clears the agent, skips
+ * composition and refuses source edits; a deterministic code step keeps its summary engine-built.
+ */
+export function phaseKernelOwned(phase) {
+  return phaseUsesDeterministicGeneration(phase) && !phaseRequiresCodeDelivery(phase);
+}
+
+/**
  * Project the code-generation contract of one resolved workflow.
  *
  * Callers must pass the result of `resolveWorkType`, not raw work-type phase ids: generation task

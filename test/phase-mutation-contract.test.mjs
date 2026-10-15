@@ -682,3 +682,21 @@ test('after a command that changed nothing, current contracts are not rebuilt an
   assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'view', toolArgs: { path: 'src/App.jsx' } }), {});
 
 });
+
+test('a deterministic code step lets its author write code; only its summary is kernel-built', async t => {
+  // Quick-fix's implement step builds its summary deterministically from what changed. From
+  // 2026-10-11 the contract refused every source edit there while every route offered /sf-code.
+  const f = await fixture(t, { id: 'implement', writeScope: 'source-and-artifact',
+    requiredArtifact: { path: 'artifacts/implement/implementation-summary.md' },
+    generationPolicy: { task: 'code', requirement: 'required', producer: 'deterministic', allowedProducers: ['deterministic'] } });
+  assert.equal(mutationPathDecision(f.contract('authoring'), 'src/App.jsx').allowed, false, 'only in an open generation');
+  f.phase.generationIntent = { status: 'open', generation: 1 };
+  const open = f.contract('authoring');
+  assert.equal(mutationPathDecision(open, 'src/App.jsx').allowed, true);
+  assert.equal(mutationPathDecision(open, 'singularity/work-items/PMC-1/artifacts/implement/implementation-summary.md').allowed, false,
+    'the deterministic summary is never edited by hand');
+  assert.match(open.summary, /summary is built by `singularity-flow prepare` from what changed, never edited by hand/u);
+  // A deterministic step that delivers no code stays kernel-owned.
+  f.phase.generationPolicy.task = 'analyze';
+  assert.equal(mutationPathDecision(f.contract('authoring'), 'src/App.jsx').allowed, false);
+});

@@ -17,10 +17,8 @@ import {
   activeWorkspaceFile, workspaceMemberContextForRepository, workspacePromptLabel,
   workspaceRegistryFile
 } from './workspace-context.mjs';
-import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
-import {
-  phasePublicationAuthorship, phasePublicationCommand, phaseUsesDeterministicGeneration
-} from './manual-authorship.mjs';
+import { phaseKernelOwned, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { phasePublicationAuthorship, phasePublicationCommand } from './manual-authorship.mjs';
 import { DEFAULT_WORK_ITEM_ROOT, workItemWorkflowRelative } from './work-item-location.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
 import { readCopilotMode } from './copilot-mode.mjs';
@@ -181,7 +179,7 @@ export async function sessionStartAgentHook(root, definition, workflow, payload 
         ? !activeWorkId
         : false;
   const selectedWorkId = workItemSelectionRequired ? null : activeWorkId;
-  const deterministicPhase = Boolean(phase && phaseUsesDeterministicGeneration(phase));
+  const deterministicPhase = Boolean(phase && phaseKernelOwned(phase));
   const phaseAgent = deterministicPhase ? null : phase?.defaultAgent
     ?? definition.agentCatalog?.find((agent) => agent.defaultFor.includes(phase?.id))?.id
     ?? null;

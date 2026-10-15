@@ -6,7 +6,7 @@ import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import {
   inferModuleTestCommand, isAllowedTestAutomationPath, isExecutableTestSourcePath,
-  isSupportingTestResourcePath, persistedOccurrences, readDurableTestObservation, replayTestReports,
+  isSupportingTestResourcePath, isTestSourceName, persistedOccurrences, readDurableTestObservation, replayTestReports,
   resolveAffectedModule, testReceiptPassing
 } from './code-delivery-tests.mjs';
 import {
@@ -1244,7 +1244,14 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     errors.push('no product source path changed; a summary, configuration or test-only edit is not an implementation');
   }
   errors.push(...fulfillment.problems);
-  if (!testPaths.length) errors.push('no acceptance test is available for the implementation');
+  if (!testPaths.length) {
+    // A file named as a test outside every recognised test folder is counted as product source; say
+    // so, or the author keeps re-tagging a test the gate never reads.
+    const uncounted = changedPaths.filter((candidate) => !isAllowedTestAutomationPath(candidate) && isTestSourceName(candidate));
+    errors.push(uncounted.length
+      ? `no acceptance test is available for the implementation: ${uncounted.slice(0, 5).join(', ')}${uncounted.length > 5 ? ` and ${uncounted.length - 5} more` : ''} ${uncounted.length === 1 ? 'is' : 'are'} named as tests but not in a recognised test folder (test, tests, spec, __tests__, e2e, src/<name>Test, <Target>Tests, <Project>.Tests), so ${uncounted.length === 1 ? 'it counts' : 'they count'} as product source`
+      : 'no acceptance test is available for the implementation');
+  }
 
   const requiredAcIds = await acceptanceIds(root, config, workflow, phase);
   const criteria = specificationCriteria(await loadActiveSpecRecords(itemDirectory, workflow), workflow, config);

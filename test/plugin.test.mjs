@@ -396,7 +396,7 @@ test('code skill treats a prepared draft as authoring work without bypassing gen
   assert.match(content, /Consumed-changed intent needs reviewed rollover/);
   assert.match(content, /Consumed intent requires `\/sf-recover`/);
   assert.match(content, /unchanged publication: relay `next`, stop/);
-  assert.match(content, /Follow `repairLoop.protocol`; stop unchanged/i);
+  assert.match(content, /Follow returned `repairLoop.protocol`; stop unchanged/i);
   assert.match(content, /Untracked `\.sflow\/results\/\*\*` need no cleaning; review tracked\/staged reports/);
   assert.doesNotMatch(content, /stop for manual\/unchanged\/other-producer recovery/);
 });

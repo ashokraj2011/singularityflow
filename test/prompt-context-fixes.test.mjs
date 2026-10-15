@@ -101,6 +101,25 @@ test('the phase prompt carries exactly the pinned constitution, never a newer on
   assert.match(lost.text, /- TST-001 \(judged, must, evidence required\)\n- TST-002 \(judged, should\)\n- TST-003 \(judged, must, withdrawn\)/u);
 });
 
+test('a Story that pinned no constitution is told so, instead of hunting for the configured file', async (t) => {
+  // Spec-Driven Standard names singularity/constitution.md at `warn`, init creates none, and its
+  // specification template still asks for `## Constitution articles`: the author went looking for
+  // the file and reported its absence as an input gap.
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-constitution-unpinned-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const unpinned = await constitutionPromptContext(root, { workItem: { id: 'C-2' },
+    resolution: { constitution: { mode: 'warn', path: 'singularity/constitution.md' } } });
+  assert.equal(unpinned.record, null);
+  assert.match(unpinned.text, /^# Constitution\n\nThis Story pinned no constitution/u);
+  assert.match(unpinned.text, /Under `## Constitution articles` write `None: this Story pinned no constitution\.`/u);
+  assert.match(unpinned.text, /Do not look for a constitution file or report its absence as an input gap\./u);
+  assert.doesNotMatch(unpinned.text, /singularity\/constitution\.md/u, 'the configured path is not offered as something to read');
+  // What the note tells the author to write is a citation of nothing, which publication accepts.
+  const { citedArticleIds, validateCitations } = await import('../src/constitution.mjs');
+  const section = '## Constitution articles\n\nNone: this Story pinned no constitution.\n';
+  assert.deepEqual(validateCitations(null, citedArticleIds(section)), { cited: [], errors: [], warnings: [] });
+});
+
 test('the persona section leaves out the skill tables the skills section already renders', () => {
   const agent = ['# Developer', '', 'Keep changes small.', '', '## Attached skills', '', '| Skill | Phases | When to use it |', '|---|---|---|',
     '| review | build | Before publishing |', '', '## Remote skills', '', '| ID | URL | Phases | Optional | Max bytes |', '|---|---|---|---|---|',

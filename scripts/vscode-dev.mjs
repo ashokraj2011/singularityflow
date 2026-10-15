@@ -67,6 +67,7 @@ const VSCODE_GENERATED_FILES = new Set([
   'dist/support-runtime.cjs',
   'dist/workflow-markup-runtime.cjs',
   'dist/workflow-intent-runtime.cjs',
+  'dist/workflow-authoring-ui-runtime.cjs',
   'dist/world-model-build.cjs'
 ]);
 

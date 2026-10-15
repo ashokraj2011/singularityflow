@@ -73,7 +73,8 @@ const options = {
     'lazy-panels-runtime': 'src/lazy-panels-runtime.ts',
     'support-runtime': 'src/support-runtime.ts',
     'workflow-markup-runtime': 'src/workflow-markup-runtime.ts',
-    'workflow-intent-runtime': 'src/workflow-intent-runtime.ts'
+    'workflow-intent-runtime': 'src/workflow-intent-runtime.ts',
+    'workflow-authoring-ui-runtime': 'src/workflow-authoring-ui-runtime.ts'
   },
   bundle: true,
   outdir: isolatedTestOutdir ? path.resolve(isolatedTestOutdir) : 'dist',

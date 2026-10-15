@@ -136,6 +136,15 @@ test('the installed VS Code CLI carries the canonical Help manual and intent-aut
   assert.equal(check.status, 0, check.stderr || check.stdout);
   assert.equal(JSON.parse(check.stdout).status, 'portable-ready');
   assert.equal(JSON.parse(check.stdout).bundle, undefined, 'model-facing checks return a summary, not a duplicate bundle');
+  const localGuide = path.join(extension, "team's local instructions.md");
+  await writeFile(localGuide, 'Keep keyboard focus visible.');
+  const attached = spawnSync(process.execPath, [path.join(staged, 'bin', 'singularity-flow.mjs'),
+    'workflow', 'intent', 'attachments', '--file', localGuide, '--json'], { cwd: extension, encoding: 'utf8' });
+  assert.equal(attached.status, 0, attached.stderr || attached.stdout);
+  const captured = JSON.parse(attached.stdout);
+  assert.equal(captured.resultType, 'workflow-intent-attachments');
+  assert.equal(captured.items[0].content, 'Keep keyboard focus visible.');
+  assert.match(captured.readGuidance.command, /--id '<CAPTURE-ID>'/u);
   const providerImport = spawnSync(process.execPath, [
     '--input-type=module', '-e', 'await import("./src/model-providers/copilot-cli.mjs")'
   ], { cwd: staged, encoding: 'utf8' });
@@ -1033,7 +1042,10 @@ test('the extension package contains every explicit lazy runtime used by the act
   assert.match(intentRuntime, /singularityFlow_workflowAuthoring/);
   assert.match(intentRuntime, /attachWorkflowIntentTool/);
   const markupSources = JSON.parse(await readFile(path.join(extension, 'dist', 'workflow-markup-runtime.cjs.map'), 'utf8')).sources;
-  assert.ok(markupSources.some(source => source.endsWith('/views/workflow-markup-page.ts')));
+  assert.match(markupRuntime, /workflow-authoring-ui-runtime\.cjs/);
+  const authoringSources = JSON.parse(await readFile(path.join(extension, 'dist', 'workflow-authoring-ui-runtime.cjs.map'), 'utf8')).sources;
+  for (const component of ['workflow-markup-page.ts', 'workflow-authoring-script.ts', 'workflow-authoring-style.ts', 'workflow-attachment-store.ts']) assert.ok(authoringSources.some(source => source.endsWith(`/views/${component}`)));
+  assert.ok(!markupSources.some(source => source.endsWith('/views/workflow-markup-page.ts')), 'the richer designer remains behind an explicit lazy boundary');
   assert.ok(!JSON.parse(panelSourceMap).sources.some(source => source.includes('/views/workflow-markup-')),
     'tag authoring must stay outside ordinary panel loading');
   assert.ok(!markupSources.some(source => source.endsWith('/workflow-intent-runtime.ts') || source.endsWith('/workflow-intent-prompt.ts')),

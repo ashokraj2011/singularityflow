@@ -4,6 +4,19 @@ import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 
 export async function run(_argv, { positionals, options }) {
   const action = positionals[2];
+  if (action === 'attachments') {
+    if (positionals.length !== 3 || Object.entries(options).some(([key,value]) => !['file', 'folder', 'expected-source', 'id', 'json'].includes(key)
+      || key === 'json' && value !== true || ['id','expected-source'].includes(key) && typeof value !== 'string')) throw new SingularityFlowError('Use workflow intent attachments --file FILE|--folder DIRECTORY [--expected-source SHA256] [--id ID] --json.');
+    const { optionStrings } = await import('../util.mjs');
+    if (options.id && !options['expected-source']) throw new SingularityFlowError('Exact attachment retrieval requires --expected-source from the capture.');
+    const files = optionStrings(options, 'file'), folders = optionStrings(options, 'folder');
+    const result = await (await import('../workflow-intent-attachments.mjs')).inspectWorkflowAttachments({ files, folders, expectedSource: options['expected-source'], id: options.id });
+    result.readGuidance = safeCommandGuidance({ executable: 'singularity-flow', argv: ['workflow', 'intent', 'attachments',
+      ...files.flatMap(file => ['--file', file]), ...folders.flatMap(folder => ['--folder', folder]), '--expected-source', result.sourceSha256, '--id', '<CAPTURE-ID>', '--json'] });
+    if (options.json) return console.log(JSON.stringify(result, null, 2));
+    for (const item of result.items) console.log(`${item.name}: ${item.available ? item.classification.kind : 'withheld'} (${item.classification.confidence})`);
+    return console.log(result.meaning);
+  }
   if (!['catalog', 'show', 'example'].includes(action) || positionals.length !== (action === 'show' ? 5 : 3)) throw new SingularityFlowError('Use workflow intent catalog [--kind KIND] [--query TEXT], workflow intent show KIND ID --expected-source SHA256, or workflow intent example. All accept --source approved|installed and --json.', { code: 'WORKFLOW_INTENT_USAGE' });
   const allowed = new Set(['source', 'expected-source', 'json', ...(action === 'catalog' ? ['kind', 'query', 'tag', 'cursor', 'limit'] : [])]);
   for (const [key, value] of Object.entries(options)) if (!allowed.has(key) || key === 'json' && value !== true || key !== 'json' && typeof value !== 'string') throw new SingularityFlowError('Unsupported, repeated or malformed workflow intent option.', { code: 'WORKFLOW_INTENT_USAGE' });

@@ -56,7 +56,7 @@ function omit(node) {
 export function lowerWorkflowMarkup(source, { definition, agents = [], catalog = null }) {
   const root = parseWorkflowMarkup(source);
   const version2 = root.attrs.version === '2';
-  markupShape(root, 'workflow', ['version', 'id', 'label', 'extends', ...(version2 ? ['catalog', 'catalog-source'] : [])], ['description', 'agent', 'skill', 'instruction', 'phase', 'omit', ...(version2 ? ['intent'] : [])]);
+  markupShape(root, 'workflow', ['version', 'id', 'label', 'extends', ...(version2 ? ['catalog', 'catalog-source'] : [])], ['description', 'agent', 'skill', 'instruction', 'phase', 'omit', ...(version2 ? ['intent', 'attachment'] : [])]);
   if (!['1', '2'].includes(root.attrs.version)) markupError('Declare workflow version="1" or catalog-bound version="2".', root);
   if (version2 && (!catalog || root.attrs.catalog !== catalog.sourceSha256 || !['approved', 'installed'].includes(root.attrs['catalog-source']))) markupError('Version 2 requires the exact captured catalog and catalog-source.', root, 'WORKFLOW_MARKUP_CATALOG_REQUIRED');
   const reusedAssets = [];
@@ -332,8 +332,21 @@ export function lowerWorkflowMarkup(source, { definition, agents = [], catalog =
       + requirements.map(item => `- ${item.id}: ${item.statement} -> ${item.targets.join(', ')}`).join('\n')
       + (reusedAssets.length ? '\n\nSource bindings:\n' + reusedAssets.map(item => `- ${item.kind}:${item.id} (${item.sha256}) -> ${item.as}`).join('\n') : '');
   }
+  const attachmentMappings = []; const localIds = new Set();
+  for (const node of children(root, 'attachment')) {
+    markupShape(node, 'attachment', ['id', 'sha256', 'kind', 'maps-to']); empty(node);
+    const localId = markupId(node.attrs.id, node, 'Captured attachment ID');
+    if (localIds.has(localId) || !/^sha256:[a-f0-9]{64}$/u.test(node.attrs.sha256 ?? '')) markupError('Attachment IDs must be unique and bind the captured SHA-256.', node);
+    localIds.add(localId);
+    const kind = node.attrs.kind, targets = list(node.attrs['maps-to']);
+    if (!['agent', 'skill', 'instruction', 'reference'].includes(kind) || !targets.length || targets.some(target => !(sourceMap.some(item => item.target === target) || reusedAssets.some(item => `${item.kind}:${item.as}` === target))
+        || kind !== 'reference' && !target.startsWith(`${kind}:`))) markupError('Map each attachment to declared objects of its proposed type; reference documents map to declared nodes.', node);
+    attachmentMappings.push({ id: localId, sha256: node.attrs.sha256, kind, targets });
+  }
+  if (attachmentMappings.length) workflow.description += '\n\n## Local source mapping (candidate; requires human review)\n\n'
+    + attachmentMappings.map(item => `- ${item.id} (${item.sha256}) as ${item.kind} -> ${item.targets.join(', ')}`).join('\n');
   return { id, extends: baseId, workflow, phases, agents: newAgents, skills, instructions, attachments,
-    phaseAgents, sourceMap, intent, reusedAssets, mcpServers: mcp.servers, mcpAliases: mcp.aliases };
+    phaseAgents, sourceMap, intent, reusedAssets, attachmentMappings, mcpServers: mcp.servers, mcpAliases: mcp.aliases };
 }
 
 /** All temporary writes are isolated; only --out writes a new explicit bundle after every check. */
@@ -420,7 +433,7 @@ async function compileCapturedMarkup(source, { out, catalog }) {
     return { schemaVersion: 1, resultType: 'workflow-markup-compilation', format: WORKFLOW_MARKUP_FORMAT,
       status: 'portable-ready', sourceSha256: digest(source), bundleSha256: bundle.bundleSha256,
       workflow: { id: lowered.id, label: lowered.workflow.label, phases: resolved.phases.map(phase => ({ id: phase.id, label: phase.label, agent: lowered.phaseAgents[phase.id] })), decisions: resolved.decisions },
-      sourceMap: lowered.sourceMap, routeSimulation: simulation, intent: lowered.intent, reusedAssets: lowered.reusedAssets,
+      sourceMap: lowered.sourceMap, routeSimulation: simulation, intent: lowered.intent, reusedAssets: lowered.reusedAssets, attachmentMappings: lowered.attachmentMappings,
       ...(catalog ? { catalog: { source: catalog.source, sourceSha256: catalog.sourceSha256 } } : {}), outputPath, ...(out ? {} : { bundle }),
       effects: { configurationChanged: false, storyChanged: false, approvalRecorded: false, bundleWritten: Boolean(out) },
       meaning: 'Portable-ready means deterministic definition, dependency and route checks passed; it is not approved, imported, activated or executed.' };

@@ -613,7 +613,7 @@ function resolveWorkflowCommandOperation(definition, positionals, options) {
   const subcommand = positionals[1] ?? 'list';
   if (subcommand === 'intent') {
     const action = positionals[2];
-    if (!['catalog', 'show', 'example'].includes(action)) return unknownSubcommand('workflow intent', action, ['catalog', 'show', 'example']);
+    if (!['catalog', 'show', 'example', 'attachments'].includes(action)) return unknownSubcommand('workflow intent', action, ['catalog', 'show', 'example', 'attachments']);
     return never(`workflow.intent.${action}`, definition, 'read');
   }
   if (subcommand === 'markup') {
@@ -1791,6 +1791,7 @@ export function operationCatalog() {
     never('workflow.intent.catalog', workflowDefinition, 'read'),
     never('workflow.intent.show', workflowDefinition, 'read'),
     never('workflow.intent.example', workflowDefinition, 'read'),
+    never('workflow.intent.attachments', workflowDefinition, 'read'),
     never('workflow.markup.compile', workflowDefinition, 'read'),
     never('workflow.markup.write', workflowDefinition, 'mutation'),
     ...DOCUMENTS_READ_SUBCOMMANDS.map((name) => never(`documents.${name}`, documentsDefinition, 'read')),

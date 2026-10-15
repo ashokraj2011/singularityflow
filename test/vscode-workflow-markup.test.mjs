@@ -10,6 +10,7 @@ import { WORKFLOW_MARKUP_BODY, WORKFLOW_MARKUP_SCRIPT } from '../apps/vscode/src
 import { integerField, registerMessageRouter, stringField } from '../apps/vscode/src/views/messages.ts';
 import { navigationTarget } from '../apps/vscode/src/views/webview.ts';
 import { workflowIntentPrompt } from '../apps/vscode/src/views/workflow-intent-prompt.ts';
+import { WorkflowAttachmentStore } from '../apps/vscode/src/views/workflow-attachment-store.ts';
 
 const result = { status: 'portable-ready', sourceSha256: 'source-hash', bundleSha256: 'bundle-hash',
   workflow: { id: 'demo', label: '<script>literal</script>', phases: [{ id: 'intake', label: 'Intake', agent: 'analyst' }], decisions: [] },
@@ -17,23 +18,28 @@ const result = { status: 'portable-ready', sourceSha256: 'source-hash', bundleSh
 const catalog = { resultType: 'workflow-intent-catalog', sourceSha256: 'sha256:' + 'a'.repeat(64), source: { kind: 'installed-package' },
   entries: [], counts: { skill: 3 }, patterns: [], families: [] };
 class Element {
-  constructor(tag = 'div') { this.tag = tag; this.children = []; this.listeners = {}; this.value = ''; this.disabled = false; this.hidden = false; }
+  constructor(tag = 'div') { this.tag = tag; this.children = []; this.listeners = {}; this.attrs = {}; this.value = ''; this.disabled = false; this.hidden = false; this.selectionStart = 0; this.selectionEnd = 0; }
   addEventListener(name, callback) { this.listeners[name] = callback; }
   appendChild(child) { this.children.push(child); }
   replaceChildren() { this.children = []; }
+  setAttribute(key, value) { this.attrs[key] = value; }
+  getAttribute(key) { return this.attrs[key]; }
+  removeAttribute(key) { delete this.attrs[key]; }
+  focus() {}
+  setRangeText(text, start, end) { this.value = this.value.slice(0, start) + text + this.value.slice(end); }
 }
 function browser() {
-  const elements = Object.fromEntries(['source', 'intent', 'open', 'check', 'import', 'copilot', 'result', 'status', 'title', 'phases', 'routes', 'map', 'meaning', 'catalog-source', 'kind', 'query', 'search', 'more', 'assets', 'catalog-status', 'coverage'].map(id => [`markup-${id}`, new Element()]));
+  const elements = Object.fromEntries([...WORKFLOW_MARKUP_BODY.matchAll(/id="([^"]+)"/gu)].map(match => [match[1], new Element()]));
   elements['markup-catalog-source'].value = 'approved';
   const posted = []; let receive;
   const window = { __sfVscode: { postMessage: message => posted.push(structuredClone(message)), getState: () => null, setState() {} }, addEventListener: (_name, callback) => { receive = callback; } };
-  new Function('window', 'document', WORKFLOW_MARKUP_SCRIPT)(window, { getElementById: id => elements[id], createElement: tag => new Element(tag) });
+  new Function('window', 'document', WORKFLOW_MARKUP_SCRIPT)(window, { getElementById: id => elements[id], createElement: tag => new Element(tag), createTextNode: text => ({ textContent: text }), querySelectorAll: () => [] });
   return { elements, posted, receive: message => receive({ data: message }) };
 }
 
 test('tag editor preserves source, rejects stale checks, and renders markup as inert text', () => {
   assert.match(WORKFLOW_MARKUP_BODY, /aria-live="polite"/);
-  const ui = browser(); assert.deepEqual(ui.posted, [{ type: 'markup.ready' }]);
+  const ui = browser(); assert.equal(ui.posted[0].type, 'markup.ready');
   ui.receive({ type: 'markup.example', source: '<workflow>example</workflow>' });
   const source = ui.elements['markup-source']; source.value = '<script>literal input</script>'; source.listeners.input();
   ui.elements['markup-check'].onclick();
@@ -54,6 +60,20 @@ test('tag editor preserves source, rejects stale checks, and renders markup as i
   assert.equal(Object.hasOwn(ui.posted.at(-1), 'path'), false, 'webview never selects a host output path');
 });
 
+test('description preview formats lists and checklists without executing imported markup', () => {
+  const ui = browser();
+  ui.elements['markup-intent'].value = '## Review\n\n- **Independent** tests\n- [x] Evidence retained\n\n1. Human approval\n\n<img src=x onerror=alert(1)>';
+  ui.elements['markup-preview-toggle'].onclick();
+  const nodes = ui.elements['markup-intent-preview'].children;
+  assert.deepEqual(nodes.map(node => node.tag), ['h3', 'ul', 'ol', 'p']);
+  assert.equal(nodes[1].children[0].children[1].tag, 'strong');
+  assert.equal(nodes[1].children[1].children[0].textContent, '☑ Evidence retained');
+  assert.equal(nodes[3].children[0].textContent, '<img src=x onerror=alert(1)>');
+  assert.equal(ui.elements['markup-intent'].hidden, true);
+  ui.elements['markup-write'].onclick();
+  assert.equal(ui.elements['markup-intent'].hidden, false);
+});
+
 async function host({ native = false } = {}) {
   const source = await readFile(new URL('../apps/vscode/src/views/workflow-markup-panel.ts', import.meta.url), 'utf8');
   const code = stripTypeScriptTypes(source.slice(source.indexOf('export class WorkflowMarkupPanel')).replace('export class', 'class'));
@@ -62,20 +82,20 @@ async function host({ native = false } = {}) {
   let toolHandler;
   let compile = async (_args, _text) => structuredClone(result);
   const panel = { webview: { postMessage: message => posted.push(message), onDidReceiveMessage: callback => { receive = callback; return { dispose() {} }; } }, onDidDispose: callback => { dispose = callback; } };
-  let modelMode = 'auto', aiDisabled = false, catalogRun = async () => structuredClone(catalog);
+  let modelMode = 'auto', aiDisabled = false, catalogRun = async () => structuredClone(catalog), captureRun;
   const vscode = { ViewColumn: { Active: 1 }, Uri: { file: fsPath => ({ fsPath }) },
     workspace: { getConfiguration: scope => ({ get: () => scope === 'singularityFlow' ? modelMode : aiDisabled }) },
     window: { createWebviewPanel: () => panel, showSaveDialog: () => saving(), showOpenDialog: () => opening() },
     commands: { executeCommand: async (...args) => chats.push(args) } };
-  const client = { repository: '/selected/repository', run: async args => args.includes('intent') ? catalogRun(args) : ({ source: '<workflow />' }),
+  const client = { repository: '/selected/repository', run: async args => args.includes('attachments') ? captureRun(args) : args.includes('intent') ? catalogRun(args) : ({ source: '<workflow />' }),
     runWithInput: async (args, text) => { calls.push({ args: [...args], text }); return compile(args, text); } };
   const intentRuntime = { workflowIntentPrompt, attachWorkflowIntentTool: handler => { toolHandler = handler; return { available: native, session: 'designer-session', dispose() {} }; } };
-  const Panel = new Function('vscode', 'path', 'fs', 'constants', 'TextDecoder', 'require', '__dirname', 'nonce', 'page', 'contentSecurityPolicy', 'registerMessageRouter', 'integerField', 'stringField', 'navigationTarget', 'navigateTo', 'WORKFLOW_MARKUP_BODY', 'WORKFLOW_MARKUP_STYLE', 'WORKFLOW_MARKUP_SCRIPT', code + '\nreturn WorkflowMarkupPanel;')(
-    vscode, path, fs, constants, TextDecoder, () => intentRuntime, '/extension/dist', () => 'nonce', () => '', () => '', registerMessageRouter, integerField, stringField, navigationTarget, () => {}, '', '', '');
+  const Panel = new Function('vscode', 'path', 'fs', 'constants', 'TextDecoder', 'require', '__dirname', 'nonce', 'page', 'contentSecurityPolicy', 'registerMessageRouter', 'integerField', 'stringField', 'navigationTarget', 'navigateTo', 'brandMark', code + '\nreturn WorkflowMarkupPanel;')(
+    vscode, path, fs, constants, TextDecoder, file => file.endsWith('workflow-intent-runtime.cjs') ? intentRuntime : { WorkflowAttachmentStore, WORKFLOW_MARKUP_BODY, WORKFLOW_MARKUP_SCRIPT, WORKFLOW_MARKUP_STYLE: '' }, '/extension/dist', () => 'nonce', () => '', () => '', registerMessageRouter, integerField, stringField, navigationTarget, () => {}, () => '');
   Panel.show(client, async file => { imports.push(file); return { outcome: 'proposed', error: null }; });
   return { posted, imports, chats, calls, client, send: message => receive(message), close: () => dispose(),
     compile: fn => { compile = fn; }, saveDialog: fn => { saving = fn; }, openDialog: fn => { opening = fn; }, readDraft: file => Panel.readDraft(file),
-    catalog: fn => { catalogRun = fn; }, models: (mode, disabled = false) => { modelMode = mode; aiDisabled = disabled; }, tool: request => toolHandler(request) };
+    catalog: fn => { catalogRun = fn; }, capture: fn => { captureRun = fn; }, models: (mode, disabled = false) => { modelMode = mode; aiDisabled = disabled; }, tool: request => toolHandler(request) };
 }
 const check = (ui, source = '<workflow />', revision = 0) => ui.send({ type: 'markup.check', source, revision });
 const apply = (ui, revision = 0, overrides = {}) => ui.send({ type: 'markup.import', revision, sourceSha256: result.sourceSha256, bundleSha256: result.bundleSha256, ...overrides });
@@ -139,7 +159,7 @@ test('Copilot action only prefills a reviewable description request and compilat
 });
 
 test('description-first UI hides advanced syntax and sends intent, not the example, to Copilot', () => {
-  assert.match(WORKFLOW_MARKUP_BODY, /<details id="markup-advanced"><summary>Advanced/u);
+  assert.match(WORKFLOW_MARKUP_BODY, /<details id="markup-advanced"[^>]*><summary>Advanced/u);
   assert.doesNotMatch(WORKFLOW_MARKUP_BODY, /<details id="markup-advanced" open/u);
   const ui = browser();
   assert.equal(ui.elements['markup-copilot'].disabled, true);
@@ -158,7 +178,7 @@ test('loading a Copilot draft invalidates old bindings and automatically checks 
   assert.deepEqual(ui.posted.at(-1), { type: 'markup.open', revision: 0 });
   const source = '\uFEFF<workflow>generated\r\n</workflow>';
   ui.receive({ type: 'markup.loaded', revision: 0, source });
-  assert.deepEqual(ui.posted.slice(-2), [{ type: 'markup.changed', revision: 1 }, { type: 'markup.check', revision: 1, source, intent: '', catalogSource: 'approved' }]);
+  assert.deepEqual(ui.posted.slice(-2), [{ type: 'markup.changed', revision: 1 }, { type: 'markup.check', revision: 1, source, intent: '', catalogSource: 'approved', selectedAssets: [] }]);
   ui.receive({ type: 'markup.checked', revision: 1, result });
   assert.equal(ui.elements['markup-import'].disabled, false);
   ui.elements['markup-intent'].value = 'changed requirements'; ui.elements['markup-intent'].listeners.input();
@@ -244,7 +264,7 @@ test('a described draft must preserve exact intent and catalog source before imp
   assert.equal(ui.posted.at(-1).type, 'markup.checked');
 });
 
-test('catalog UI renders inert names/tags, inserts typed references and ignores obsolete search responses', () => {
+test('catalog cards render inert names/tags, attach typed references without editing intent and ignore obsolete responses', () => {
   const ui = browser(); ui.elements['markup-kind'].value = 'skill'; ui.elements['markup-query'].value = 'angular';
   ui.elements['markup-search'].onclick(); const first = ui.posted.at(-1);
   ui.elements['markup-query'].value = 'spring'; ui.elements['markup-query'].listeners.input(); ui.elements['markup-search'].onclick();
@@ -253,9 +273,10 @@ test('catalog UI renders inert names/tags, inserts typed references and ignores 
   ui.receive({ type: 'markup.catalogResult', request: first.request, catalogSource: 'approved', result: data });
   assert.equal(ui.elements['markup-assets'].children.length, 0);
   ui.receive({ type: 'markup.catalogResult', request: second.request, catalogSource: 'approved', result: data });
-  assert.match(ui.elements['markup-assets'].children[0].textContent, /<script>inert<\/script>/u);
-  ui.elements['markup-assets'].children[0].children[0].onclick();
-  assert.match(ui.elements['markup-intent'].value, /\[skill:spring-test\]/u);
+  assert.equal(ui.elements['markup-assets'].children[0].children[2].textContent, '<script>inert</script>');
+  ui.elements['markup-assets'].children[0].children[0].children[1].onclick();
+  assert.equal(ui.elements['markup-intent'].value, '');
+  assert.equal(ui.elements['markup-linked'].children.length, 1);
 });
 
 test('native Copilot submits a checked draft directly to the designer without a file or lifecycle mutation', async () => {
@@ -302,4 +323,43 @@ test('direct proposals preview exact checked bytes without another compilation a
   ui.elements['markup-intent'].value = 'Changed while the model worked'; ui.elements['markup-intent'].listeners.input();
   ui.receive({ type: 'markup.proposed', revision: 0, source: '<late/>', result });
   assert.equal(ui.elements['markup-source'].value, '<direct/>'); assert.equal(ui.elements['markup-import'].disabled, true);
+});
+
+const localCapture = { resultType: 'workflow-intent-attachments', sourceSha256: 'sha256:' + 'b'.repeat(64), notices: [], items: [
+  { id: 'local-team-rule', name: 'INSTRUCTIONS.md', content: 'Keep every control keyboard accessible.', bytes: 39, available: true, sha256: 'sha256:' + 'c'.repeat(64),
+    classification: { kind: 'instruction', confidence: 'recognized', reason: 'Named instructions', scope: null } }
+] };
+test('local attachment picker owns paths, exposes no file bodies to the webview list and binds generated objects', async () => {
+  const ui=await host({native:true});ui.capture(async args=>{assert.deepEqual(args.slice(0,5),['workflow','intent','attachments','--file','/chosen/INSTRUCTIONS.md']);return structuredClone(localCapture);});
+  ui.openDialog(async()=>[{scheme:'file',fsPath:'/chosen/INSTRUCTIONS.md'}]);await ui.send({type:'markup.attach',mode:'files',revision:0,path:'/untrusted/ignored.md'});
+  const attached=ui.posted.find(item=>item.type==='markup.attachments');assert.equal(attached.revision,1);assert.equal(attached.items[0].content,undefined);assert.ok(!JSON.stringify(attached).includes('/chosen/'));
+  await ui.send({type:'markup.copilot',intent:'Use our local guidance',catalogSource:'installed',revision:1});
+  const body=await ui.tool({action:'asset',kind:'attachment',id:'local-team-rule',revision:1});assert.match(body.content,/keyboard/u);assert.ok(!JSON.stringify(body).includes('/chosen/'));
+  ui.compile(async()=>({...result,intent:{text:'Use our local guidance',requirements:[]},catalog:{...catalog}}));
+  await assert.rejects(ui.tool({action:'draft',revision:1,source:'<candidate/>'}),/Every available attachment/u);
+  ui.compile(async()=>({...result,intent:{text:'Use our local guidance',requirements:[]},catalog:{...catalog},attachmentMappings:[{id:'local-team-rule',sha256:localCapture.items[0].sha256,kind:'instruction',targets:['instruction:flow-rule']}]}));
+  await ui.tool({action:'draft',revision:1,source:'<corrected/>'});assert.ok(ui.posted.some(item=>item.type==='markup.proposed'));assert.deepEqual(ui.imports,[]);
+  await ui.send({type:'markup.changed',revision:2});await ui.send({type:'markup.removeAttachment',id:'local-team-rule',revision:2});await apply(ui,1);assert.deepEqual(ui.imports,[]);
+});
+test('cancelled, nonlocal and late attachment captures never mutate the current draft', async () => {
+  const ui=await host();await ui.send({type:'markup.attach',mode:'files',revision:0});assert.match(ui.posted.at(-1).message,/cancelled/u);
+  ui.openDialog(async()=>[{scheme:'https',fsPath:'/outside'}]);await ui.send({type:'markup.attach',mode:'files',revision:0});assert.match(ui.posted.at(-1).message,/local files/u);
+  ui.openDialog(async()=>[{scheme:'file',fsPath:'/chosen/INSTRUCTIONS.md'}]);let finish;ui.capture(()=>new Promise(resolve=>{finish=resolve;}));
+  const capture=ui.send({type:'markup.attach',mode:'files',revision:0});await Promise.resolve();await Promise.resolve();await ui.send({type:'markup.changed',revision:1});finish(structuredClone(localCapture));await capture;
+  assert.equal(ui.posted.some(item=>item.type==='markup.attachments'),false);
+  await ui.send({type:'markup.check',revision:1,source:'<empty/>'});assert.equal(ui.posted.at(-1).type,'markup.checked','a discarded late capture did not leave invisible attachments');
+});
+test('selected library skills cannot disappear silently from a checked proposal',async()=>{
+  const ui=await host({native:true});await ui.send({type:'markup.copilot',intent:'Use our skill',catalogSource:'installed',selectedAssets:[{kind:'skill',id:'team-test'}],revision:0});
+  ui.compile(async()=>({...result,intent:{text:'Use our skill',requirements:[]},catalog:{...catalog}}));
+  await assert.rejects(ui.tool({action:'draft',revision:0,source:'<missing/>'}),/does not account/u);
+  ui.compile(async()=>({...result,intent:{text:'Use our skill',requirements:[]},catalog:{...catalog},reusedAssets:[{kind:'skill',id:'team-test',as:'team-test'}]}));
+  await ui.tool({action:'draft',revision:0,source:'<selected/>'});assert.ok(ui.posted.some(item=>item.type==='markup.proposed'));
+});
+
+test('preparing a Copilot request prevents duplicate lookup and chat handoffs',async()=>{
+  const ui=await host();let finish,calls=0;ui.catalog(()=>{calls++;return new Promise(resolve=>{finish=resolve;});});
+  const first=ui.send({type:'markup.copilot',intent:'Create a review process',revision:0});
+  await ui.send({type:'markup.copilot',intent:'Create a review process',revision:0});
+  finish(catalog);await first;assert.equal(calls,1);assert.equal(ui.chats.length,1);
 });

@@ -7,7 +7,7 @@ questions:
   - Can different teams describe their own workflow instead of writing markup?
 commands: [workflow]
 related: [workflow-markup, workflow-authoring, reusable-instructions, sgos-governed-execution]
-version: 1
+version: 2
 ---
 
 ## Purpose
@@ -18,13 +18,18 @@ activation. This is authoring, not permission to execute the candidate or modify
 
 ## VS Code
 
+The designer is a two-column workspace: a Markdown writing area with formatting tools and a
+read-only preview, and a searchable team library. Add a library item to the separate **Team
+knowledge** list instead of inserting machine tags into the description. Description starters are
+editable suggestions, not approved intent. Advanced source and file-loading controls stay collapsed.
+
 In Workflow Studio choose **Create with Copilot…**, describe the steps, inputs, decisions, retry
-limits and human checkpoints, then choose **Approved repository configuration** or **Installed
-starters only**. The first reads the locally observed approved configuration, not dirty checkout
+limits and human checkpoints, then choose **Approved repository library** or **SFlow starters**.
+The first reads the locally observed approved configuration, not dirty checkout
 edits; the second is explicitly starter-only, not a fallback silently selected after an error.
 
-The expandable catalog searches names, purposes and tags. **Use in intent** inserts a typed
-reference such as `[skill:team-angular-tests]`; it does not attach or execute the skill. Source
+The team library searches names, purposes and tags. **Add** selects a typed library reference in
+Team knowledge; it does not execute the skill or change approved configuration. Source
 changes invalidate the checked draft. The prepared Copilot request carries catalog metadata and
 exact retrieval instructions, not every skill body. Send the request yourself. Model-off settings
 disable that handoff; discovery, loading and compilation remain model-free.
@@ -44,6 +49,46 @@ Use **Load Copilot draft…** for that saved XML file; an active Story write gua
 The host rejects a described draft that omits or changes the original intent or uses another catalog source.
 Review the phases, routes, structural coverage, reused/derived assets and source mappings before
 saving a bundle and entering normal import review. Summaries are not semantic approval.
+
+### Bring guidance from your laptop
+
+Use **Attach files** for Markdown, text, MDC, JSON or YAML, or **Folder…** for an explicitly selected
+guidance directory. SFlow recognizes conventional agent, skill and instruction layouts and proposes
+types for other guidance. Ambiguous or malformed files remain labelled for review; Copilot must
+explain their classification rather than pretending recognition is semantic verification. A type
+selector permits an explicit correction, and each available file can be previewed or removed.
+
+Only the selected roots are captured. Dependency/build/Git directories, symbolic links, credentials
+and oversized or non-text files are excluded or refused. Imported secret-waiver comments do not
+authorize disclosure. Limits are 32 selections, 128 captured files, 256 KiB per file and 2 MiB per
+designer. No linked URL or missing external file is fetched, and no imported command is executed.
+
+The raw local capture stays in the open designer's memory; raw capture bodies and laptop paths are
+not stored in its webview list or saved attachment state. The generated workflow draft is retained
+as usual and may contain converted guidance. Native Copilot retrieves the exact selected body with the
+authoring tool's `asset` action, `kind: attachment`, and its capture ID. The fallback provides
+explicit read-only CLI arguments bound to the capture; changed originals require recapture. Closing
+the designer discards the local capture. Reattach originals when resuming a saved draft that still
+contains their source mappings.
+
+Copilot proposes namespaced agents, skills, reusable instructions or consuming reference mappings.
+An agent that describes a process must be analysed as process data, not flattened blindly into one
+agent. Instruction files must be placed in skills at the intended steps; skills must be attached to
+the proper agents or phases. Scope conditions such as `applyTo` are not promoted to global policy.
+The draft must account for every available attachment by exact ID, content hash, proposed type and
+target object. Selected library agents, skills, instructions and workflow contracts cannot silently
+disappear from its reuse mapping. The preview shows these mappings for human review; classification
+and structural checks are not a claim that a model proved semantic completeness.
+
+The same read-only capture is available with:
+
+```sh
+singularity-flow workflow intent attachments --file /path/to/SKILL.md --folder /path/to/team-guidance --json
+singularity-flow workflow intent attachments --file /path/to/SKILL.md --expected-source <CAPTURE-SHA256> --id <CAPTURE-ID> --json
+```
+
+For exact retrieval, repeat the same selection arguments as the original capture. This creates no
+repository configuration, Story generation, approval, source edit or machine-wide instruction.
 
 ## Read-only catalog commands
 
@@ -76,9 +121,10 @@ the interpretation implementation; changing them requires a fresh capture. Disco
 neither membership nor host/tool permission. Bodies rejected by credential screening are unavailable
 for retrieval.
 
-Only declared approved roots and the installed package are inspected. Personal/home directories,
-parents, application trees and all Git branches are not searched. External team directories must
-first use the existing reviewed team-import route. URLs are not fetched. Constitution guidance
+Catalog discovery inspects only declared approved roots and the installed package. Personal/home
+directories, parents, application trees and all Git branches are not searched. External guidance
+enters only through explicit file/folder attachments above or the reviewed team-import route.
+URLs are not fetched. Constitution guidance
 does not become an ordinary optional skill or an authority override.
 
 ## Tags and scope

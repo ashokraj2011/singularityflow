@@ -7,7 +7,7 @@ questions:
   - How do I turn a tagged description into a workflow bundle?
 commands: [workflow]
 related: [workflow-intent, workflow-authoring, workflow-decisions, reusable-instructions]
-version: 4
+version: 5
 ---
 
 ## What this does
@@ -57,6 +57,11 @@ before writing a bundle; a changed source is a fresh-review condition, not a has
   rows and explicit empty `<pattern ref="PATTERN-ID" />` elements. Each target must exist. Node
   target prefixes include workflow, phase, agent, skill, instruction and decision. The VS Code
   host compares the original description, not a model rewrite, before offering import.
+- `<attachment id="CAPTURE-ID" sha256="sha256:..." kind="agent|skill|instruction|reference"
+  maps-to="KIND:ID ..." />` maps an explicitly captured laptop file to declared or selected reused
+  objects. Agent/skill/instruction mappings must target their own object kind; references target
+  consuming nodes. The designer checks exact capture identity and selected type. The normal bundle
+  retains the proposed provenance as prose, not executable policy or an approval receipt.
 
 The mapping is structural only and requires human semantic review. Unsupported patterns report a
 capability requirement instead of silently becoming sequential. The existing version 1 syntax and

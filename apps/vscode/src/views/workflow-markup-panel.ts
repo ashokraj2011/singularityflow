@@ -5,10 +5,9 @@ import { constants } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import { TextDecoder } from 'node:util';
 import type { SingularityFlowClient } from '../cli/client.ts';
-import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
+import { brandMark, contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
 import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter, stringField } from './messages.ts';
-import { WORKFLOW_MARKUP_BODY, WORKFLOW_MARKUP_SCRIPT, WORKFLOW_MARKUP_STYLE } from './workflow-markup-page.ts';
 import type { StudioChangeOutcome } from './workflow-studio.ts';
 
 interface MarkupResult {
@@ -17,6 +16,8 @@ interface MarkupResult {
   sourceMap: unknown[]; meaning: string;
   intent?: { text: string; requirements: unknown[] } | null;
   catalog?: { sourceSha256: string; source: { kind: string } };
+  attachmentMappings?: { id: string; sha256: string; kind: string; targets: string[] }[];
+  reusedAssets?: { kind: string; id: string; as: string }[];
 }
 
 interface IntentCatalog { resultType: string; sourceSha256: string; source: { kind: string }; entries: unknown[]; counts: Record<string, number>; patterns: unknown[]; families: unknown[] }
@@ -42,14 +43,17 @@ export class WorkflowMarkupPanel {
   }
 
   static show(client: SingularityFlowClient, importBundle: (file: string) => Promise<StudioChangeOutcome>): void {
+    const ui = require(path.join(__dirname, 'workflow-authoring-ui-runtime.cjs')) as typeof import('../workflow-authoring-ui-runtime.ts');
+    const attachments = new ui.WorkflowAttachmentStore();
+    const { WORKFLOW_MARKUP_BODY, WORKFLOW_MARKUP_SCRIPT, WORKFLOW_MARKUP_STYLE } = ui;
     const panel = vscode.window.createWebviewPanel('singularityFlow.workflowMarkup', 'Create workflow with Copilot', vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true });
     const token = nonce();
-    panel.webview.html = page('Create workflow with Copilot', `<style nonce="${token}">${WORKFLOW_MARKUP_STYLE}</style>${WORKFLOW_MARKUP_BODY}`,
+    panel.webview.html = page('Create workflow with Copilot', `<style nonce="${token}">${WORKFLOW_MARKUP_STYLE}</style>${WORKFLOW_MARKUP_BODY.replace('<!-- brand -->', brandMark(20))}`,
       contentSecurityPolicy(panel.webview, token), token, WORKFLOW_MARKUP_SCRIPT);
     let disposed = false, busy = false, revision = 0;
     let reviewed: { source: string; result: MarkupResult; revision: number; repository: string } | null = null;
-    let handoff: { intent: string; selected: string; catalog: IntentCatalog; revision: number; repository: string; attempts: number; failedSource: string | null } | null = null;
+    let handoff: { intent: string; selected: string; catalog: IntentCatalog; assets: { kind: string; id: string }[]; revision: number; repository: string; attempts: number; failedSource: string | null } | null = null;
     const intentRuntime = require(path.join(__dirname, 'workflow-intent-runtime.cjs')) as typeof import('../workflow-intent-runtime.ts');
     const post = (value: unknown) => { if (!disposed) void panel.webview.postMessage(value); };
     const sourceText = (value: string | null) => {
@@ -65,10 +69,18 @@ export class WorkflowMarkupPanel {
       if (result.resultType !== 'workflow-intent-catalog' || !/^sha256:[a-f0-9]{64}$/.test(result.sourceSha256)) throw new Error('The installed build did not return a bound intent catalog. Update the matching CLI and extension.');
       return result;
     };
-    const verifyDraft = (result: MarkupResult, intent: string, selected: string) => {
+    const selectedLibrary = (message: { selectedAssets?: unknown }) => {
+      const chosen = message.selectedAssets;
+      if (chosen == null) return [];
+      if (!Array.isArray(chosen) || chosen.length > 64 || chosen.some(item => !item || typeof item.kind !== 'string' || typeof item.id !== 'string' || item.kind.length > 64 || item.id.length > 256)) throw new Error('Choose up to 64 named library assets.');
+      return chosen.map(item => ({ kind: item.kind as string, id: item.id as string }));
+    };
+    const verifyDraft = (result: MarkupResult, intent: string, selected: string, assets: { kind: string; id: string }[] = []) => {
       if (result.status !== 'portable-ready') throw new Error('The compiler did not return a portable-ready bundle.');
       if (intent && result.intent?.text !== intent) throw new Error('The draft does not preserve the exact current intent. Ask Copilot for a catalog-bound version 2 draft with the original description and requirement-to-node coverage.');
       if (result.catalog && (selected === 'installed') !== (result.catalog.source.kind === 'installed-package')) throw new Error('The draft uses a different catalog source. Review the chosen source and regenerate explicitly.');
+      attachments.verify(result.attachmentMappings);
+      for (const asset of assets.filter(item => ['agent', 'skill', 'instruction', 'workflow'].includes(item.kind))) if (!result.reusedAssets?.some(item => item.kind === asset.kind && item.id === asset.id)) throw new Error(`The draft does not account for selected ${asset.kind} '${asset.id}'. Use it or review its removal before importing.`);
     };
     const nativeTool = intentRuntime.attachWorkflowIntentTool(async input => {
       const request = handoff;
@@ -82,6 +94,7 @@ export class WorkflowMarkupPanel {
       }
       if (input.action === 'asset') {
         if (!input.kind || !input.id) throw new Error('Select one exact asset kind and ID.');
+        if (input.kind === 'attachment') return attachments.read(input.id);
         return client.run(['workflow', 'intent', 'show', input.kind, input.id, ...args, '--json']);
       }
       if (busy) throw new Error('A designer check or save is already running. Preserve the candidate.');
@@ -90,7 +103,7 @@ export class WorkflowMarkupPanel {
       request.attempts++; busy = true; post({ type: 'markup.nativeBusy' });
       try {
         const result = await client.runWithInput<MarkupResult>(['workflow', 'markup', 'compile', '-', '--json'], source);
-        verifyDraft(result, request.intent, request.selected);
+        verifyDraft(result, request.intent, request.selected, request.assets);
         if (!current() || result.catalog?.sourceSha256 !== request.catalog.sourceSha256) throw new Error('The source or intent changed. Request a fresh handoff.');
         reviewed = { source, result, revision, repository: request.repository };
         handoff = null;
@@ -112,6 +125,38 @@ export class WorkflowMarkupPanel {
       'markup.changed': message => {
         const next = integerField(message, 'revision');
         if (next != null && next > revision) { revision = next; reviewed = null; }
+      },
+      'markup.attach': async message => {
+        const requested = integerField(message, 'revision'), mode = stringField(message, 'mode');
+        if (busy || requested !== revision || !['files', 'folder'].includes(mode ?? '')) { post({ type: 'markup.error', revision, message: 'Finish the current designer action before attaching files.' }); return; }
+        busy = true; const repository = client.repository;
+        const current = () => !disposed && revision === requested && client.repository === repository;
+        try {
+          const selected = await vscode.window.showOpenDialog({ title: mode === 'folder' ? 'Attach a folder of agents, skills and instructions' : 'Attach team guidance from your computer',
+            canSelectFiles: mode === 'files', canSelectFolders: mode === 'folder', canSelectMany: mode === 'files',
+            ...(mode === 'files' ? { filters: { 'Guidance files': ['md', 'markdown', 'txt', 'mdc', 'json', 'yaml', 'yml'] } } : {}) });
+          if (!selected?.length) { post({ type: 'markup.done', revision: requested, message: 'Attachment selection cancelled. Your draft is unchanged.' }); return; }
+          if (selected.some(item => item.scheme !== 'file') || !current()) throw new Error('Choose local files for the current designer. Nothing was attached.');
+          const notices = await attachments.capture(client, selected.map(item => item.fsPath), mode === 'folder', current);
+          reviewed = null; handoff = null; revision++;
+          post({ type: 'markup.attachments', previousRevision: requested, revision, items: attachments.list(), notices });
+        } catch (error) { post({ type: 'markup.error', revision: requested, message: (error as Error).message }); }
+        finally { busy = false; }
+      },
+      'markup.removeAttachment': message => {
+        if (integerField(message, 'revision') !== revision) return;
+        try { attachments.remove(stringField(message, 'id') ?? ''); reviewed = null; handoff = null; }
+        catch (error) { post({ type: 'markup.error', revision, message: (error as Error).message }); }
+      },
+      'markup.attachmentKind': message => {
+        if (integerField(message, 'revision') !== revision) return;
+        try { attachments.setKind(stringField(message, 'id') ?? '', stringField(message, 'kind') ?? ''); reviewed = null; handoff = null; }
+        catch (error) { post({ type: 'markup.error', revision, message: (error as Error).message }); }
+      },
+      'markup.previewAttachment': message => {
+        if (integerField(message, 'revision') !== revision) return;
+        try { post({ type: 'markup.attachmentPreview', revision, item: attachments.read(stringField(message, 'id') ?? '') }); }
+        catch (error) { post({ type: 'markup.error', revision, message: (error as Error).message }); }
       },
       'markup.catalog': async message => {
         try {
@@ -155,13 +200,15 @@ export class WorkflowMarkupPanel {
           if (disposed || requested !== revision || client.repository !== repository) { post({ type: 'markup.error', message: 'The source or repository changed. Check again.', revision: requested }); return; }
           const intent = stringField(message, 'intent')?.trim() ?? '';
           const selected = catalogKind(stringField(message, 'catalogSource'));
-          verifyDraft(result, intent, selected);
+          verifyDraft(result, intent, selected, selectedLibrary(message as { selectedAssets?: unknown }));
           reviewed = { source, result, revision, repository };
           post({ type: 'markup.checked', revision, result: { ...result, bundle: undefined, routeSimulation: undefined } });
         } catch (error) { post({ type: 'markup.error', revision: requested, message: (error as Error).message }); }
         finally { busy = false; }
       },
       'markup.copilot': async message => {
+        if (busy) { post({ type: 'markup.error', revision, message: 'A designer action is already running. Your draft is retained.' }); return; }
+        busy = true;
         try {
           if (vscode.workspace.getConfiguration('singularityFlow').get<string>('modelMode', 'auto') === 'disabled'
               || vscode.workspace.getConfiguration('chat').get<boolean>('disableAIFeatures', false)) throw new Error('Model features are disabled. Catalog search, manual drafts and deterministic checking remain available.');
@@ -175,10 +222,14 @@ export class WorkflowMarkupPanel {
           const requested = integerField(message, 'revision') ?? revision;
           const catalog = await readCatalog(selected, ['--limit', '8']);
           if (disposed || repository !== client.repository || requested !== revision) throw new Error('The repository or intent changed. Review the current intent before opening Copilot.');
-          handoff = { intent, selected, catalog, revision: requested, repository, attempts: 0, failedSource: null };
-          const query = intentRuntime.workflowIntentPrompt({ repository, selected, catalog, intent, source, tool: nativeTool, revision: requested });
+          const chosen = selectedLibrary(message as { selectedAssets?: unknown });
+          handoff = { intent, selected, catalog, assets: chosen, revision: requested, repository, attempts: 0, failedSource: null };
+          const query = intentRuntime.workflowIntentPrompt({ repository, selected, catalog, intent, source, tool: nativeTool, revision: requested,
+            attachments: attachments.prompt(), attachmentReads: nativeTool.available ? [] : attachments.fallback(), selectedAssets: chosen });
           await vscode.commands.executeCommand('workbench.action.chat.open', { query, isPartialQuery: true });
+          post({ type: 'markup.done', revision: requested, message: 'Your request is ready in Copilot. Review and send it there; the checked workflow will return to this designer.' });
         } catch (error) { post({ type: 'markup.error', revision, message: (error as Error).message }); }
+        finally { busy = false; }
       },
       'markup.import': async message => {
         const selected = reviewed;
@@ -189,6 +240,7 @@ export class WorkflowMarkupPanel {
         }
         busy = true;
         try {
+          attachments.verify(selected.result.attachmentMappings);
           const uri = await vscode.window.showSaveDialog({ title: 'Save a new portable workflow bundle',
             defaultUri: vscode.Uri.file(path.join(selected.repository, `${selected.result.workflow.id}.sflow-workflows.json`)), filters: { 'SFlow workflow bundle': ['json'] } });
           if (!uri) { post({ type: 'markup.done', revision, message: 'Save cancelled. The checked source is retained.' }); return; }

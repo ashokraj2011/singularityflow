@@ -50,6 +50,7 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/commands/workflow-markup.mjs',
   'src/workflow-intent-catalog.mjs',
   'src/workflow-intent-patterns.mjs',
+  'src/workflow-intent-attachments.mjs',
   'src/workflow-markup.mjs',
   'src/workflow-markup-parser.mjs',
   'src/workflow-markup-mcp.mjs',

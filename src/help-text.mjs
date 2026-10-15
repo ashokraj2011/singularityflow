@@ -360,6 +360,7 @@ Usage:
   singularity-flow workflow intent catalog [--source approved|installed] [--kind KIND] [--query TEXT] [--tag TAG] [--limit 1..64] [--cursor N] [--expected-source SHA256] [--json]
   singularity-flow workflow intent show KIND ID --expected-source SHA256 [--source approved|installed] [--json]
   singularity-flow workflow intent example [--source approved|installed] [--json]
+  singularity-flow workflow intent attachments [--file FILE]... [--folder DIRECTORY]... [--expected-source SHA256] [--id ID] [--json]
   singularity-flow workflow markup compile <FILE|-> [--out BUNDLE.json] [--json]
   singularity-flow workflow studio apply --change-set FILE|- [--dry-run] [--propose] [--json]
                                                         read-only BYO/mixed recipe preview; no activation or host launch

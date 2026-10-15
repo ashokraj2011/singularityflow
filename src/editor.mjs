@@ -2,7 +2,6 @@ import { SKILL_LIBRARY_ROOT } from './skill-library.mjs';
 import { INSTRUCTION_LIBRARY_ROOT } from './instruction-library.mjs';
 import { isConfigurationStatePath } from './configuration-state-contract.mjs';
 import { usesEpicPlanningLifecycle } from './initiative-phase-roles.mjs';
-import { assertPhaseTopology, phaseTopologyFindings } from './phase-semantics.mjs';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -16,7 +15,8 @@ import {
 } from './git.mjs';
 import { createTransportIntent, retryTransportIntent } from './transport-intents.mjs';
 import {
-  DEFAULT_PLANNING_PROMPT, ensureRepositoryTemplates, loadDefinition, normalizePlanning, resolveWorkType, validateDefinition, withDefinitionCache, WORKFLOW_PATH
+  assertWorkflowReadinessChanges, DEFAULT_PLANNING_PROMPT, ensureRepositoryTemplates, loadDefinition, normalizePlanning,
+  resolveWorkType, validateDefinition, withDefinitionCache, WORKFLOW_PATH
 } from './config.mjs';
 import { MODEL_TASKS } from './model-tasks.mjs';
 import { templateReferences } from './template-catalog.mjs';
@@ -1677,54 +1677,8 @@ function contentSha256(content) {
   return createHash('sha256').update(content).digest('hex');
 }
 
-function plannedClaimsReadinessShape(resolved) {
-  return {
-    spec: resolved.spec,
-    phases: resolved.phases.map((phase) => ({
-      id: phase.id,
-      artifactKind: phase.artifact?.kind ?? null,
-      generationTask: phase.generation?.task ?? null
-    }))
-  };
-}
-
-/**
- * Keep old catalogs readable, but do not let an authoring boundary introduce or reshape an
- * unresolved planned-claim topology. Presentation-only edits remain possible while the legacy
- * workflow is being migrated; phase order, specification policy, and the artifact/task signals
- * that determine clause ownership are the material contract.
- */
-export function assertWorkflowReadinessChanges(previousDefinition, candidateDefinition) {
-  for (const workTypeId of Object.keys(candidateDefinition.workTypes)) {
-    const candidate = resolveWorkType(candidateDefinition, workTypeId);
-    const previousWorkType = previousDefinition.workTypes?.[workTypeId];
-    const previous = previousWorkType ? resolveWorkType(previousDefinition, workTypeId) : null;
-    if (phaseTopologyFindings(candidate).length) {
-      const topology = (resolved) => (resolved?.phases ?? []).map((phase) => ({
-        id: phase.id, kind: phase.artifact?.kind, task: phase.generation?.task,
-        requirement: phase.generation?.requirement, writeScope: phase.writeScope
-      }));
-      // Existing incomplete drafts may be relabelled and repaired. They may not be copied or
-      // materially reshaped into another accepted-but-unexecutable workflow.
-      if (!previous || JSON.stringify(topology(previous)) !== JSON.stringify(topology(candidate))) {
-        assertPhaseTopology(candidate);
-      }
-    }
-    if (candidate.plannedClaims.mode !== 'migration-required') continue;
-    const unchangedLegacy = previous?.plannedClaims.mode === 'migration-required'
-      && JSON.stringify(plannedClaimsReadinessShape(previous))
-        === JSON.stringify(plannedClaimsReadinessShape(candidate));
-    if (unchangedLegacy) continue;
-    throw new SingularityFlowError(
-      `Workflow '${workTypeId}' has a migration-required planned-claim contract and cannot be added or materially changed. `
-      + 'Declare a resolvable required topology. A workflow that defines no requirement clauses declares omits for scope instead.',
-      {
-        code: 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED',
-        details: { workType: workTypeId, reason: candidate.plannedClaims.reason ?? null }
-      }
-    );
-  }
-}
+// The gate lives in config.mjs, so a workflow import and the proposal list run it without the editor.
+export { assertWorkflowReadinessChanges };
 
 async function copyConfigurationSource(root, validationRoot, relative) {
   if (!relative || relative === '.' || relative.startsWith('..') || path.isAbsolute(relative)) return;

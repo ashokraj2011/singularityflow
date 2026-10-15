@@ -18,7 +18,7 @@ import {
   CONFIGURATION_BRANCH, CONFIGURATION_SOURCE_PATH, resolveConfigurationRemote,
   STATE_CONFIGURATION_BRANCH
 } from './configuration-branch.mjs';
-import { validateDefinition } from './config.mjs';
+import { assertWorkflowReadinessChanges, validateDefinition } from './config.mjs';
 import { isConfigurationReadPath } from './configuration-read-scope.mjs';
 import { configurationAssetPolicy } from './configuration-assets.mjs';
 import { createGitRuntime } from './git-access.mjs';
@@ -262,6 +262,22 @@ function workflowChanges(reader, base, proposal) {
   return rows;
 }
 
+/**
+ * Why activation would refuse this proposal's workflows, or null.
+ *
+ * Activation runs this gate against the approved configuration; the list runs it too, so a
+ * proposal it would refuse is shown as blocked, with the reason, instead of as ready to activate.
+ */
+function workflowReadinessFailure(reader, base, proposal) {
+  const yaml = (commit) => YAML.parse(reader.file(commit, 'singularity/workflow.yml')?.bytes.toString('utf8') ?? '{}') ?? {};
+  try {
+    assertWorkflowReadinessChanges(yaml(base), yaml(proposal));
+    return null;
+  } catch (error) {
+    return { code: error.code ?? 'WORKFLOW_PROPOSAL_INVALID', message: error.message, ...(error.details ? { details: error.details } : {}) };
+  }
+}
+
 function changedConfigurationFiles(root, base, proposal, env) {
   return readGitNameStatusDiff(root, base, proposal, { env });
 }
@@ -296,10 +312,12 @@ async function inspectWorkflowProposalCheckout(root, remote, branch, ref, {
       cwd: root, env
     }).stdout
     : null;
+  const failure = merged ? null : workflowReadinessFailure(reader, reviewBase, proposalCommit);
   return {
     remote: sanitizeRemote(remote), branch, targetBranch: CONFIGURATION_BRANCH,
     targetCommit, proposalCommit, proposalBase, proposalCreatedAt, mergeBase, merged,
-    valid: changed.names.length > 0 && invalidFiles.length === 0,
+    valid: changed.names.length > 0 && invalidFiles.length === 0 && failure === null,
+    ...(failure ? { failure } : {}),
     invalidFiles, changedFiles: changed.statuses,
     workflows: workflowChanges(reader, reviewBase, proposalCommit),
     diff: diff == null ? null
@@ -582,6 +600,10 @@ export async function activateWorkflowConfigurationProposal(root, branch, {
         `Confirmation must be the exact workflow proposal commit '${reviewed.proposalCommit}'. Nothing was changed. Re-run: ${nextAction}`,
         { code: 'WORKFLOW_PROPOSAL_CONFIRMATION_MISMATCH', details: { nextAction } }
       );
+    }
+    if (reviewed.failure) {
+      throw new SingularityFlowError(`${reviewed.failure.message} Nothing was changed.`,
+        { code: reviewed.failure.code, details: reviewed.failure.details });
     }
     if (!reviewed.valid) {
       throw new SingularityFlowError(

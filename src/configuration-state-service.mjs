@@ -15,7 +15,8 @@ const initSql = () => import('sql.js/dist/sql-asm.js').then(({ default: init }) 
 
 let sql;
 const MAX_BYTES = 8 * 1024 * 1024;
-const PROJECTION_VERSION = 1;
+// 2: a proposal activation would refuse for its workflows is no longer valid.
+const PROJECTION_VERSION = 2;
 const fail = (message, code = 'CONFIGURATION_STATE_INVALID') => { throw new SingularityFlowError(message, { code }); };
 async function directory(parent, name) {
   const target = path.join(parent, name);

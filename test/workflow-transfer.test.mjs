@@ -1036,6 +1036,40 @@ test('workflow import previews, requires exact confirmation, round-trips, and re
     conflictingBefore);
 });
 
+test('an imported workflow without a planned-claim contract is refused at preview, as activation would refuse it', async (t) => {
+  // A hand-written or older workflow: a code step with no step before it that defines requirement
+  // clauses. It used to import, list as a valid proposal, and fail only at Review and activate.
+  const source = await initializedRepository(t, 'sflow-workflow-import-legacy-source-');
+  const target = await initializedRepository(t, 'sflow-workflow-import-legacy-target-');
+  const configuration = await workflowConfiguration(source);
+  configuration.workTypes['legacy-custom'] = {
+    label: 'Legacy custom', phases: ['implement', 'verify'],
+    templateOverrides: { implement: 'quick-fix/implement.md', verify: 'quick-fix/verify.md' },
+    phaseOverrides: { verify: { inputs: ['implement'] } }
+  };
+  await writeWorkflowConfiguration(source, configuration);
+  const before = await readFile(path.join(target, 'singularity/workflow.yml'), 'utf8');
+
+  const plan = await planWorkflowImport(target, await exportWorkflowBundle(source, ['legacy-custom']));
+  assert.equal(plan.status, 'blocked');
+  const refusal = plan.conflicts.find((item) => item.code === 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED');
+  assert.ok(refusal, JSON.stringify(plan.conflicts));
+  assert.match(refusal.reason, /Workflow 'legacy-custom' has a migration-required planned-claim contract/);
+  assert.match(refusal.reason, /omits with responsibility scope, a reason, and the approval group as authority/);
+  assert.equal(await readFile(path.join(target, 'singularity/workflow.yml'), 'utf8'), before);
+
+  // Declaring that it defines no requirement clauses is one of the two repairs the refusal names.
+  configuration.workTypes['legacy-custom'].omits = [{
+    responsibility: 'scope', reason: 'Small fixes carry no requirement clauses.', authority: 'engineering-reviewers'
+  }];
+  await writeWorkflowConfiguration(source, configuration);
+  const repaired = await planWorkflowImport(target, await exportWorkflowBundle(source, ['legacy-custom']));
+  assert.equal(repaired.status, 'ready', JSON.stringify(repaired.conflicts));
+  const applied = await applyWorkflowImport(target, await exportWorkflowBundle(source, ['legacy-custom']),
+    { expectedPlanSha256: repaired.planSha256 });
+  assert.equal(applied.status, 'imported');
+});
+
 test('workflow import reuses pure LF/CRLF text and refuses ambiguous text encodings', async (t) => {
   const source = await initializedRepository(t, 'sflow-workflow-line-endings-source-');
   const target = await initializedRepository(t, 'sflow-workflow-line-endings-target-');

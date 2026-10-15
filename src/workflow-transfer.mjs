@@ -48,7 +48,7 @@ import {
   transferCatalog, setTransferCatalog
 } from './workflow-transfer-resolution.mjs';
 import { bundleContentsLines, planEntriesText } from './workflow-transfer-resolution.mjs';
-import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { assertWorkflowReadinessChanges, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { constitutionPolicy, parseConstitution } from './constitution.mjs';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -1968,10 +1968,18 @@ function storyImportCandidate(value, agentCatalog) {
   return candidate;
 }
 
-function validateStoryImportCandidate(value, agentCatalog) {
+/**
+ * The merged Story configuration an import would write, refused as activation would refuse it.
+ *
+ * Activation runs the readiness gate against the approved configuration. Without it here, a
+ * workflow with no planned-claim contract imported, was listed as a valid proposal, and was
+ * refused only at Review and activate.
+ */
+function validateStoryImportCandidate(value, agentCatalog, existing) {
   const candidate = storyImportCandidate(value, agentCatalog);
   validateDefinition(candidate);
   validateAgentCatalog(candidate.agentCatalog, candidate);
+  assertWorkflowReadinessChanges(existing ?? {}, value);
   return candidate;
 }
 
@@ -2580,7 +2588,7 @@ async function importPlan(root, destination, original, chosen) {
     const hasObjectConflict = open.some((item) => item.kind.startsWith(`${governs}.`));
     if (!incomingConfiguration[governs] || hasObjectConflict) continue;
     try {
-      if (governs === 'story') validateStoryImportCandidate(candidates.story, agentCatalog);
+      if (governs === 'story') validateStoryImportCandidate(candidates.story, agentCatalog, values.story);
       else validatePortfolio(clone(candidates.initiative));
     } catch (error) {
       open.push(entry(`${governs}.configuration`, STORE[governs].file, {
@@ -2846,7 +2854,7 @@ export async function applyWorkflowImport(root, bundleOrPath, {
   };
   const agentCatalog = await mergedImportAgentCatalog(target.root, bundle, keptAgents);
   validateSkillTargetPolicy(bundle, target.story?.value ?? {}, await discoverAgents(target.root));
-  if (incomingConfiguration.story) validateStoryImportCandidate(candidateValues.story, agentCatalog);
+  if (incomingConfiguration.story) validateStoryImportCandidate(candidateValues.story, agentCatalog, target.story?.value);
   if (incomingConfiguration.initiative) {
     const portfolioCandidate = validatePortfolio(clone(candidateValues.initiative));
     const storyCandidate = storyImportCandidate(candidateValues.story, agentCatalog);

@@ -7,7 +7,8 @@
  * Stories, growing with every Story and every ledger entry. On Windows each one also starts Git's
  * HTTPS helper and the credential manager. A ledger entry now carries its Story's summary, so
  * such Stories are listed without any read; entries written before that are read with one fetch
- * for each kind of blob.
+ * for each kind of blob, once: what that proved is kept by commit, so the next listing reads only
+ * the state branch (seven round trips on every listing before, about 11 s in the office).
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -81,6 +82,10 @@ function candidatesInBloblessClone(base, remote, label) {
   const partial = path.join(base, `partial-${label}`);
   run('git', ['clone', '--quiet', '--filter=blob:none', '--single-branch', '--branch', 'main',
     pathToFileURL(remote).href, partial], base);
+  return { partial, ...candidatesIn(base, partial) };
+}
+
+function candidatesIn(base, partial) {
   const result = flow(base, partial, ['session', 'candidates', '--json', '--diagnostics'], {
     SINGULARITY_FLOW_SUBPROCESS_PROBE: '1', SINGULARITY_FLOW_GIT_FACT_STORE: 'off'
   });
@@ -91,7 +96,9 @@ function candidatesInBloblessClone(base, remote, label) {
   return {
     discovery: JSON.parse(result.stdout),
     perBlobReads: calls(/^git cat-file blob$/u),
-    byIdFetches: calls(/^git -c fetch\.negotiationAlgorithm=noop$/u)
+    byIdFetches: calls(/^git -c fetch\.negotiationAlgorithm=noop$/u),
+    // The recovery's temporary clone and its fetch of the Stories' commits.
+    recoveryTransfers: calls(/^git (?:-c maintenance\.auto=false|fetch\b)/u)
   };
 }
 
@@ -150,4 +157,19 @@ test('a blobless clone lists summarized Stories with no Story read, and older en
   // Stories' workflow.json; this used to be one lazy fetch per blob: eight for three Stories.
   assert.equal(older.perBlobReads, 0);
   assert.equal(older.byIdFetches, 3);
+
+  const again = candidatesIn(base, older.partial);
+  assert.equal(again.discovery.source, 'state-ledger', 'proven once, not recovered on every listing');
+  assert.equal(again.byIdFetches + again.recoveryTransfers + again.perBlobReads, 0);
+  assert.deepEqual(comparable(again.discovery.items), comparable(summarized.discovery.items));
+
+  // A damaged file is ignored and rewritten; it never removes or invents a Story.
+  const remembered = path.join(older.partial, '.git/singularity-flow/story-summaries.json');
+  const rows = JSON.parse(await readFile(remembered, 'utf8'));
+  rows.items[0].title = '';
+  await writeFile(remembered, JSON.stringify(rows));
+  const repaired = candidatesIn(base, older.partial);
+  assert.equal(repaired.discovery.source, 'materialized-metadata-recovery');
+  assert.deepEqual(comparable(repaired.discovery.items), comparable(summarized.discovery.items));
+  assert.equal(candidatesIn(base, older.partial).recoveryTransfers, 0);
 });

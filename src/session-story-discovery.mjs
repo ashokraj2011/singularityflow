@@ -1,7 +1,9 @@
+import { randomBytes } from 'node:crypto';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import YAML from 'yaml';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
-import { committedFilesAtRevisions, fileAtRef, hasRemote } from './git.mjs';
+import { committedFilesAtRevisions, fileAtRef, gitCommonDir, hasRemote } from './git.mjs';
 import { ledgerStoryPointers } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
@@ -12,6 +14,74 @@ import { readRecord } from './schema-migrations.mjs';
 import { storyLifecycleProgress } from './session-roster.mjs';
 import { validateId } from './state-stores.mjs';
 import { posix, SingularityFlowError } from './util.mjs';
+
+/**
+ * What a Story's exact committed state proved, kept for the next listing. `[perf]`
+ *
+ * A ledger entry written before Story summaries names only the Story's commit, so every listing
+ * proved each such Story from that commit. A blobless clone, the usual office checkout, holds none
+ * of those objects, and the bounded remote recovery fetched them into a temporary store it then
+ * deleted: every listing (and every attach) paid seven round trips for the same immutable bytes,
+ * about 11 s in the office. The proof depends only on the commit, so its row is kept by commit,
+ * Story and branch; a pointer that moves is a new key, and a Story published since carries its
+ * summary on the ledger. Only rows that passed the full proof are kept, the file holds only the
+ * current roster's rows, and an unreadable or malformed file or row is ignored and rewritten.
+ */
+const PROVEN_FORMAT = 1;
+const PROVEN_MAXIMUM_BYTES = 8 * 1024 * 1024;
+const provenKey = (row) => `${row.commitOid}\0${row.id}\0${row.branch}`;
+const provenText = (value) => typeof value === 'string' && value.length > 0;
+
+function provenRow(item) {
+  if (!item || !provenText(item.id) || !provenText(item.branch) || !provenText(item.title) || !provenText(item.status)
+      || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(item.commitOid ?? '')
+      || !item.progress || typeof item.progress !== 'object' || Array.isArray(item.progress)
+      || !(item.phase == null || typeof item.phase === 'string')
+      || !(item.createdAt == null || typeof item.createdAt === 'string')
+      || !Array.isArray(item.aliases) || !item.aliases.every(provenText)) return null;
+  return {
+    id: item.id, branch: item.branch, title: item.title, createdAt: item.createdAt ?? null,
+    status: item.status, phase: item.phase ?? null, progress: item.progress,
+    commit: item.commitOid.slice(0, 8), commitOid: item.commitOid, aliases: item.aliases
+  };
+}
+
+function provenSummaries(root) {
+  let file = null;
+  try { file = path.join(gitCommonDir(root), 'singularity-flow', 'story-summaries.json'); } catch { return { file, rows: new Map() }; }
+  try {
+    const bytes = readFileSync(file);
+    const parsed = bytes.length <= PROVEN_MAXIMUM_BYTES ? JSON.parse(bytes.toString('utf8')) : null;
+    if (parsed?.format !== PROVEN_FORMAT || !Array.isArray(parsed.items)) return { file, rows: new Map() };
+    return { file, rows: new Map(parsed.items.map(provenRow).filter(Boolean).map((row) => [provenKey(row), row])) };
+  } catch {
+    return { file, rows: new Map() };
+  }
+}
+
+/** Keep the rows the unsummarized pointers proved; best effort, and unchanged rows are not rewritten. */
+function rememberProvenSummaries(cache, kept, pointers, items, unavailable) {
+  if (!cache.file) return;
+  const rows = new Map(kept);
+  const byId = new Map(items.map((item) => [item.id, item]));
+  for (const pointer of pointers) {
+    const item = byId.get(pointer.id);
+    // A Story with any unreadable or conflicting claim is proven again, so its refusal stays.
+    if (unavailable.some((entry) => entry.claimedId === pointer.id || entry.branch === pointer.branch)) continue;
+    const row = item?.branch === pointer.branch && item.commitOid === pointer.commitOid ? provenRow(item) : null;
+    if (row) rows.set(provenKey(row), row);
+  }
+  if (rows.size === cache.rows.size && [...rows.keys()].every((key) => cache.rows.has(key))) return;
+  const temporary = `${cache.file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+  try {
+    mkdirSync(path.dirname(cache.file), { recursive: true });
+    writeFileSync(temporary, `${JSON.stringify({ format: PROVEN_FORMAT, items: [...rows.values()] })}\n`);
+    renameSync(temporary, cache.file);
+  } catch {
+    // A busy file (Windows) or a read-only Git directory only means the next listing proves again.
+    try { rmSync(temporary, { force: true }); } catch {}
+  }
+}
 
 /**
  * Prove that a remote ref contains the Story it claims, under its own pinned definition.
@@ -72,9 +142,13 @@ export async function discoverRemoteStoryCandidates(root, definition, {
   const unavailable = [];
   const items = [];
   const pointers = [];
+  const cache = provenSummaries(root);
+  const kept = new Map();
   for (const pointer of roster.items.filter(item => isStoryDiscoveryBranch(item.branch))) {
     const summarized = ledgerSummaryCandidate(definition, pointer);
+    const known = summarized ? null : cache.rows.get(provenKey(pointer));
     if (summarized) items.push(summarized);
+    else if (known) { items.push(known); kept.set(provenKey(known), known); }
     else pointers.push(pointer);
   }
   const definitions = new Map();
@@ -168,10 +242,12 @@ export async function discoverRemoteStoryCandidates(root, definition, {
       const remaining = unavailable.filter((entry) => !restoredBranches.has(entry.branch)
         && !recovered.unavailable.some((failure) => failure.branch === entry.branch
           && failure.path === entry.path));
+      const restored = [...merged.values()].sort((left, right) => left.id.localeCompare(right.id));
+      rememberProvenSummaries(cache, kept, pointers, restored, [...remaining, ...recovered.unavailable]);
       return {
         source: 'materialized-metadata-recovery', repositoryPath: path.resolve(root),
         remote, fetched: fetch,
-        count: merged.size, items: [...merged.values()].sort((left, right) => left.id.localeCompare(right.id)),
+        count: merged.size, items: restored,
         unavailableCount: remaining.length + recovered.unavailable.length,
         unavailable: [...remaining, ...recovered.unavailable]
       };
@@ -183,6 +259,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
       });
     }
   }
+  rememberProvenSummaries(cache, kept, pointers, items, unavailable);
   return {
     source: 'state-ledger', stateRef: roster.ref,
     repositoryPath: path.resolve(root), remote, fetched: fetch,

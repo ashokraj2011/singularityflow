@@ -202,7 +202,8 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.checkSignIn': (message) => this.checkSignIn(stringField(message, 'intentId')),
     'studio.importTeam': () => this.actions.importTeam?.(),
     'studio.markup': async () => {
-      const { WorkflowMarkupPanel } = await import('./workflow-markup-panel.ts');
+      // CommonJS cannot split import() automatically; load this editor only on explicit use.
+      const { WorkflowMarkupPanel } = require(path.join(__dirname, 'workflow-markup-runtime.cjs')) as typeof import('./workflow-markup-panel.ts');
       WorkflowMarkupPanel.show(this.client, async file => {
         if (!this.actions.importWorkflows) return { outcome: 'failed', error: 'Workflow import is unavailable here.' };
         const outcome = await this.actions.importWorkflows(file);

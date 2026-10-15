@@ -71,7 +71,8 @@ const options = {
     'gateway-status-worker': 'src/gateway-status-worker.ts',
     'help-runtime': 'src/help-runtime.ts',
     'lazy-panels-runtime': 'src/lazy-panels-runtime.ts',
-    'support-runtime': 'src/support-runtime.ts'
+    'support-runtime': 'src/support-runtime.ts',
+    'workflow-markup-runtime': 'src/workflow-markup-runtime.ts'
   },
   bundle: true,
   outdir: isolatedTestOutdir ? path.resolve(isolatedTestOutdir) : 'dist',

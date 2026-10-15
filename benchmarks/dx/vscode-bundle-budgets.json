@@ -9,6 +9,7 @@
     "gateway-status-worker.cjs": { "maximumBytes": 200000, "maximumModules": 30 },
     "help-runtime.cjs": { "maximumBytes": 665000, "maximumModules": 128 },
     "lazy-panels-runtime.cjs": { "maximumBytes": 3030000, "maximumModules": 249 },
-    "support-runtime.cjs": { "maximumBytes": 455000, "maximumModules": 105 }
+    "support-runtime.cjs": { "maximumBytes": 455000, "maximumModules": 105 },
+    "workflow-markup-runtime.cjs": { "maximumBytes": 140000, "maximumModules": 12 }
   }
 }

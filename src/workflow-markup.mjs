@@ -14,7 +14,7 @@ const list = value => value?.trim() ? value.trim().split(/\s+/u) : [];
 const children = (node, name) => markupChildren(node).filter(child => child.name === name);
 const text = (value, node, label) => {
   if (typeof value !== 'string' || !value.trim()) markupError(`${label} is required.`, node);
-  return value.trim();
+  return value.trim().replace(/\r\n?/gu, '\n');
 };
 function one(node, name) {
   const matches = children(node, name);

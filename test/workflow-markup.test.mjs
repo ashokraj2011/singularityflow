@@ -4,6 +4,8 @@ import { mkdtemp, readFile, writeFile, rm, symlink, readdir } from 'node:fs/prom
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import YAML from 'yaml';
 import { parseWorkflowMarkup, WORKFLOW_MARKUP_LIMITS } from '../src/workflow-markup-parser.mjs';
 import { compileWorkflowMarkup, lowerWorkflowMarkup } from '../src/workflow-markup.mjs';
@@ -16,7 +18,7 @@ import { excludesActiveWorkspaceRouting } from '../src/cli-entry.mjs';
 import { parseArgs } from '../src/util.mjs';
 
 const example = await readFile(new URL('../examples/demo-tagged-workflow.xml', import.meta.url), 'utf8');
-const CLI = new URL('../bin/singularity-flow.mjs', import.meta.url);
+const CLI = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-markup-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -190,12 +192,19 @@ test('output is exclusive, invalid sources cannot create files, and command oper
 test('actual CLI works outside any repository and rejects unsafe file and option inputs', async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-markup-cli-')); t.after(() => rm(directory, { recursive: true, force: true }));
   const file = path.join(directory, 'workflow.xml'); await writeFile(file, example);
-  const invoke = (args, input = '') => spawnSync(process.execPath, [CLI.pathname, 'workflow', 'markup', ...args], { cwd: directory, input, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_DISABLE_MODELS: '1' } });
+  const invoke = (args, input = '') => spawnSync(process.execPath, [CLI, 'workflow', 'markup', ...args], { cwd: directory, input, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_DISABLE_MODELS: '1' } });
   const result = invoke(['compile', '-', '--json'], example);
   assert.equal(result.status, 0, result.stderr); assert.equal(JSON.parse(result.stdout).status, 'portable-ready');
   const exampleResult = invoke(['example', '--json']); assert.equal(exampleResult.status, 0, exampleResult.stderr); assert.equal(JSON.parse(exampleResult.stdout).source, example);
-  const link = path.join(directory, 'symlink.xml'); await symlink(file, link);
-  for (const args of [['compile', link, '--json'], ['compile', directory, '--json'], ['compile', file, '--yes'],
+  const bom = '\ufeff' + example.replaceAll('\n', '\r\n'); await writeFile(file, bom);
+  const exact = invoke(['compile', file, '--json']); assert.equal(exact.status, 0, `${exact.stdout}${exact.stderr}`);
+  assert.equal(JSON.parse(exact.stdout).sourceSha256, `sha256:${createHash('sha256').update(bom).digest('hex')}`);
+  assert.equal(JSON.parse(exact.stdout).bundleSha256, JSON.parse(result.stdout).bundleSha256);
+  const link = path.join(directory, 'symlink.xml'); let linked = false;
+  try { await symlink(file, link); linked = true; }
+  catch (error) { if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes(error.code)) throw error; t.diagnostic('Windows does not permit file symlinks for this test identity.'); }
+  if (linked) assert.notEqual(invoke(['compile', link, '--json']).status, 0);
+  for (const args of [['compile', directory, '--json'], ['compile', file, '--yes'],
     ['compile', file, '--out', 'one.json', '--out', 'two.json'], ['compile', file, '--json', '--json'], ['compile', file, 'extra'], ['example', '--out', 'output']]) {
     assert.notEqual(invoke(args).status, 0, args.join(' '));
   }

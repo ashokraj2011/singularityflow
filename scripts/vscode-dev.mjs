@@ -65,6 +65,7 @@ const VSCODE_GENERATED_FILES = new Set([
   'dist/help-runtime.cjs',
   'dist/lazy-panels-runtime.cjs',
   'dist/support-runtime.cjs',
+  'dist/workflow-markup-runtime.cjs',
   'dist/world-model-build.cjs'
 ]);
 

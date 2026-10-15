@@ -33,7 +33,7 @@ async function capture(file) {
       markupError('The selected markup file could not be read.', null, 'WORKFLOW_MARKUP_UNAVAILABLE');
     } finally { await handle?.close(); }
   }
-  try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+  try { return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes); }
   catch { markupError('Markup must be valid UTF-8.'); }
 }
 

@@ -515,7 +515,7 @@ function loadExtension(api) {
   // otherwise static panel state and the intercepted `vscode` API leak from the preceding host.
   for (const name of [
     'extension.cjs', 'gateway-context-runtime.cjs', 'gateway-runtime.cjs', 'gateway-status-worker.cjs',
-    'help-runtime.cjs', 'lazy-panels-runtime.cjs', 'support-runtime.cjs'
+    'help-runtime.cjs', 'lazy-panels-runtime.cjs', 'support-runtime.cjs', 'workflow-markup-runtime.cjs'
   ]) {
     const target = path.join(packageRoot, 'apps', 'vscode', 'dist', name);
     if (existsSync(target)) delete hostRequire.cache[hostRequire.resolve(target)];

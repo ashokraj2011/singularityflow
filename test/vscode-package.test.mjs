@@ -1008,6 +1008,13 @@ test('the extension package contains every explicit lazy runtime used by the act
   assert.match(bundle, /lazy-panels-runtime\.cjs/);
   assert.match(bundle, /gateway-status-worker\.cjs/);
   assert.match(bundle, /support-runtime\.cjs/);
+  assert.match(panels, /workflow-markup-runtime\.cjs/);
+  const markupRuntime = await readFile(path.join(extension, 'dist', 'workflow-markup-runtime.cjs'), 'utf8');
+  assert.match(markupRuntime, /WorkflowMarkupPanel/);
+  const markupSources = JSON.parse(await readFile(path.join(extension, 'dist', 'workflow-markup-runtime.cjs.map'), 'utf8')).sources;
+  assert.ok(markupSources.some(source => source.endsWith('/views/workflow-markup-page.ts')));
+  assert.ok(!JSON.parse(panelSourceMap).sources.some(source => source.includes('/views/workflow-markup-')),
+    'tag authoring must stay outside ordinary panel loading');
   assert.doesNotMatch(bundle, /world-model-build\.cjs/, 'the World Model build bundle was removed');
   assert.match(gatewayContext, /gateway-runtime\.cjs/);
   assert.match(gatewayContext, /\bfunction\s+activeRepositoryContext\s*\(/u,

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "7d0ede60fc55de7d49af1707d2091a616c08ade4",
+  "sourceCommit": "03d24819b517d3dc4883c824bfabacc463e9fead",
   "topicCount": 82,
-  "contentSha256": "ee60d1663d7e294ee36eb303754e433d58cf07d2d88eb4fe4878ff8d2c438e69",
+  "contentSha256": "8afafc9f017afb53deb94774d435b87e0ee6ae6a2a372772ac82aa6ba441f8cf",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -640,8 +640,8 @@
     {
       "id": "workflow-markup",
       "title": "Create workflows with HTML-like tags",
-      "version": 1,
-      "sha256": "0aa161da4c24fb0f35fbcd1073208129b68bb96f9e08b26517867b4270bf0bb9",
+      "version": 2,
+      "sha256": "bb053dfba2425357bd22010372c53927141c2d1bec1932ceff1ddd221bc25d02",
       "routingSha256": "34a2a9b5d9fdb5e7fec9a3200601e73fd71de35ea35557d4ee560165e0781c6c",
       "file": "workflow-markup.md"
     },

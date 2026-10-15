@@ -35,7 +35,7 @@ export function parseWorkflowMarkup(source) {
   let offset = 0; let line = 1; let count = 0;
   const document = { name: '#document', children: [], start: 0, line: 1 };
   const stack = [document];
-  const advance = end => { line += (source.slice(offset, end).match(/\n/gu) ?? []).length; offset = end; };
+  const advance = end => { line += (source.slice(offset, end).match(/\r\n?|\n/gu) ?? []).length; offset = end; };
   const at = () => ({ line, start: offset });
   const spaces = () => { const m = /^[\t\r\n ]*/u.exec(source.slice(offset))[0]; advance(offset + m.length); return m.length; };
   const name = () => { const m = NAME.exec(source.slice(offset)); if (!m || m[0].length > 64) markupError('Expected a lower-case tag or attribute name of at most 64 characters.', at()); advance(offset + m[0].length); return m[0]; };

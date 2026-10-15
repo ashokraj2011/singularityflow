@@ -7,7 +7,7 @@ questions:
   - How do I turn a tagged description into a workflow bundle?
 commands: [workflow]
 related: [workflow-authoring, workflow-decisions, reusable-instructions]
-version: 1
+version: 2
 ---
 
 ## What this does
@@ -138,3 +138,5 @@ removed on success and failure. Source files, repository configuration and Stori
 The bundle carries referenced agents, skills, instructions and templates with normal digests.
 The result binds source SHA-256 and spans for explicit nodes/routes. Inherited contracts remain
 owned by the installed starter; they are not attributed to prose the user never wrote.
+The source hash includes its original BOM and line endings. Generated text assets use LF consistently,
+so Windows CRLF input cannot produce mixed-line-ending portable assets.

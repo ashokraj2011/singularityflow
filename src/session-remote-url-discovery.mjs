@@ -349,6 +349,7 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
             if (items.has(claimedId)) throw new Error('Story ID is claimed by more than one canonical branch');
             items.set(claimedId, {
               id: claimedId, branch: canonical, title: workflow.workItem.title,
+              createdAt: workflow.workItem.createdAt ?? null,
               status: workflow.status, phase: workflow.currentPhase,
               commit: commit.slice(0, 8), commitOid: commit,
               progress: storyLifecycleProgress(rawWorkflow),

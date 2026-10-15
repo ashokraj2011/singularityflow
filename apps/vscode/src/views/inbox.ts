@@ -9,7 +9,7 @@ import { navigateTo } from './navigate.ts';
 import { registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import { decisionTargetText } from '../decisions.ts';
 import type { WorkspaceStore } from '../state.ts';
-import { workspaceStoriesHtml, STORY_FILTER_SCRIPT, STORY_CATALOG_STYLE } from './workspace-stories-page.ts';
+import { workspaceStoriesHtml, storyCreatedDateHtml, STORY_FILTER_SCRIPT, STORY_CATALOG_STYLE } from './workspace-stories-page.ts';
 
 export type InboxMode = 'inbox' | 'stories' | 'reviews';
 
@@ -82,6 +82,7 @@ function storyCards(inbox: Inbox): string {
         <span class="active-story-title">${icon(story.current ? 'statusCurrent' : 'story')}${escape(story.workId)}</span>
         <span class="active-story-phase">${escape(story.repositoryId)} · ${escape(story.phase)}${story.terminal ? ` · ${escape(story.status)}` : ''}</span>
         <small>${escape(story.title)}</small>
+        <small>Created (UTC): ${storyCreatedDateHtml(story.createdAt)}</small>
         ${story.attachable
     ? `<span class="active-story-action">${story.current ? 'Continue in Copilot' : story.materialized ? 'Open &amp; continue' : 'Materialize &amp; continue'}${icon('next')}</span>`
     : '<small>Repository mapping is unavailable</small>'}

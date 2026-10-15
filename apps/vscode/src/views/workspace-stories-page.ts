@@ -8,6 +8,20 @@ export function storyCategory(story: Pick<InboxStory, 'status'>): string {
   return 'active';
 }
 
+const createdDateFormat = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC'
+});
+
+/** Retained Story creation, never the last commit or refresh time. UTC keeps dates unambiguous. */
+export function storyCreatedDateHtml(createdAt: string | null | undefined): string {
+  const milliseconds = typeof createdAt === 'string' ? Date.parse(createdAt) : NaN;
+  if (!Number.isFinite(milliseconds)) return '<span class="muted">Not recorded</span>';
+  const date = new Date(milliseconds);
+  const iso = date.toISOString();
+  const label = createdDateFormat.format(date);
+  return `<time datetime="${escape(iso)}" title="${escape(iso)} (UTC)">${escape(label)}</time>`;
+}
+
 /** Catalog details are read-only. Only the explicitly labelled switch button can attach. */
 export function workspaceStoriesHtml(inbox: Inbox, refresh: string): string {
   return `<header><h1>${icon('story')}Stories</h1><p class="meta">Stories discovered in this workspace's mapped repositories.</p>${refresh}</header>
@@ -16,11 +30,11 @@ export function workspaceStoriesHtml(inbox: Inbox, refresh: string): string {
       <label>Status<select id="story-status"><option value="all">All Stories</option><option value="active">Active</option><option value="completed">Completed</option><option value="cancelled">Cancelled / invalid</option></select></label>
     </div><p class="muted">Viewing details does not switch your workspace, checkout, or active Story. Switching uses the existing guarded attach flow.</p>
     <p id="story-count" role="status">${inbox.stories.length} ${inbox.stories.length === 1 ? 'Story' : 'Stories'}</p>
-    <div class="story-table-scroll" role="region" aria-label="Workspace Stories" tabindex="0"><table class="story-catalog-table"><thead><tr><th>Story</th><th>Repository</th><th>Phase / progress</th><th>Status</th><th>Action</th></tr></thead><tbody>
+    <div class="story-table-scroll" role="region" aria-label="Workspace Stories" tabindex="0"><table class="story-catalog-table"><thead><tr><th>Story</th><th>Repository</th><th>Created (UTC)</th><th>Phase / progress</th><th>Status</th><th>Action</th></tr></thead><tbody>
     ${inbox.stories.map(story => `<tr data-story-row data-category="${storyCategory(story)}" data-search="${escape([story.workId, story.title, story.repositoryId].join(' ').toLowerCase())}">
       <td><strong>${escape(story.title)}</strong><div class="muted">${escape(story.workId)}${story.current ? ' · Current Story' : ''}</div>
         <details data-detail-key="${escape(`${story.repositoryId}:${story.workId}`)}"><summary>View details</summary><p>Branch: ${escape(story.branch ?? 'Not reported')}</p><p>${escape(story.repositoryPath || story.repositoryUrl || 'Repository mapping unavailable')}</p><p>${story.materialized ? 'Local checkout available' : 'Materialized only when you switch'}</p></details></td>
-      <td>${escape(story.repositoryId)}</td><td>${escape(story.phase)}<div class="muted">${escape(story.progress ?? 'Phase totals not reported')}</div></td>
+      <td>${escape(story.repositoryId)}</td><td>${storyCreatedDateHtml(story.createdAt)}</td><td>${escape(story.phase)}<div class="muted">${escape(story.progress ?? 'Phase totals not reported')}</div></td>
       <td>${escape(story.status)}</td><td><button type="button" class="secondary" data-story="${escape(story.workId)}" data-repository-id="${escape(story.repositoryId)}"${story.attachable ? '' : ' disabled'}>${story.current ? 'Continue Story' : 'Switch to Story'}</button></td>
     </tr>`).join('')}</tbody></table></div>
     <p id="story-empty"${inbox.stories.length ? ' hidden' : ''}>${escape(inbox.empty ?? 'No Stories match. Refresh to check the mapped repositories.')}</p></section>`;

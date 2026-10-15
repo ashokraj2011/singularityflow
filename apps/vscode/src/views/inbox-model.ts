@@ -48,6 +48,7 @@ export interface WorkspaceStoryCatalogRow {
   repositoryUrl?: string | null;
   id: string;
   title: string;
+  createdAt?: string | null;
   status: string;
   currentPhase: string | null;
   branch: string | null;
@@ -64,6 +65,7 @@ export interface InboxRepositoryBinding {
 export interface InboxStory {
   workId: string;
   title: string;
+  createdAt?: string | null;
   phase: string;
   status: string;
   terminal: boolean;
@@ -220,6 +222,8 @@ function storiesOf(
       catalogRow?.repositoryUrl, binding?.repositoryId ?? catalogRow?.repositoryId), {
       workId: item.id,
       title: item.title ?? catalogRow?.title ?? item.id,
+      createdAt: item.createdAt ?? (snapshot?.workflow?.workItem.id === item.id
+        ? snapshot.workflow.workItem.createdAt : null) ?? catalogRow?.createdAt ?? null,
       phase: String(item.currentPhase ?? item.status ?? 'active').replaceAll('_', ' '),
       status: String(item.status ?? 'active').replaceAll('_', ' '),
       terminal: TERMINAL_STORY_STATUSES.has(String(item.status)),
@@ -239,6 +243,7 @@ function storiesOf(
     byRepositoryAndId.set(identity, {
       workId: row.id,
       title: row.title || row.id,
+      createdAt: row.createdAt ?? null,
       phase: String(row.currentPhase || row.status || 'active').replaceAll('_', ' '),
       status: String(row.status || 'active').replaceAll('_', ' '),
       terminal: TERMINAL_STORY_STATUSES.has(String(row.status)),

@@ -116,6 +116,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
         id: subject.id,
         branch: canonicalBranch,
         title: workflow.workItem.title,
+        createdAt: workflow.workItem.createdAt ?? null,
         status: workflow.status,
         phase: workflow.currentPhase,
         progress: storyLifecycleProgress(retainedWorkflow),

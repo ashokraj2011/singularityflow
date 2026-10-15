@@ -274,6 +274,10 @@ test('a fresh production-bootstrap clone discovers and attaches a published Stor
   assert.equal(remoteDiscovery.source, 'remote-url');
   assert.equal(remoteDiscovery.repositoryPath, null);
   assert.ok(remoteDiscovery.items.some((item) => item.id === 'BOOT-101'));
+  const retainedStory = JSON.parse(await readFile(path.join(boot.root, 'singularity/work-items/BOOT-101/workflow.json'), 'utf8'));
+  assert.ok(retainedStory.workItem.createdAt);
+  assert.equal(remoteDiscovery.items.find(item => item.id === 'BOOT-101').createdAt, retainedStory.workItem.createdAt,
+    'metadata-only URL discovery carries the retained Story creation date without materializing its repository');
   assert.equal(remoteDiscovery.unavailable.some((entry) => entry.claimedId === 'BROKEN'), false);
 
   // A mapped delivery repository may publish Stories while the lead repository alone owns

@@ -71,7 +71,8 @@ test('workflow favourites reject invalid preference data and deduplicate stable 
 test('workflow catalog filters rules, preserves draft and query, and labels seeded versus editable workflows', () => {
   const f = fixture(); const main = f.main();
   f.logic.renderHome(main);
-  const cards = all(main).filter((node) => node.attributes?.['data-workflow-card']);
+  const cards = all(main).filter((node) => node.attributes?.['data-workflow-card']).sort((left, right) =>
+    left.attributes['data-workflow-card'].localeCompare(right.attributes['data-workflow-card']));
   assert.equal(cards.length, 2);
   assert.match(cards[0].className, /workflow-seeded/);
   assert.match(text(cards[0]), /Seeded · read-only/);
@@ -85,6 +86,53 @@ test('workflow catalog filters rules, preserves draft and query, and labels seed
   assert.equal(byId(reopened, 'catalog-search-workflows').value, 'CAFE\u0301');
   click(all(main).find((node) => node.tag === 'button' && text(node) === 'Clear search'));
   assert.ok(cards.every((node) => !node.hidden));
+  assert.deepEqual(f.posted, []);
+  assert.deepEqual(f.logic.changeSetFrom(f.model, f.logic.state().draft).changes, []);
+});
+
+test('Workflow Studio separates user-created and seeded workflows and exact search matches only a full name or ID', () => {
+  const f = fixture(); const main = f.main(); f.logic.renderHome(main);
+  const groups = all(main).filter(node => node.attributes?.['data-workflow-group']);
+  assert.deepEqual(groups.map(group => group.attributes['data-workflow-group']), ['story-user', 'story-seeded']);
+  assert.match(text(groups[0]), /User-created Story workflows \(1\).*Team café delivery/s);
+  assert.match(text(groups[1]), /Seeded Story workflows \(1\).*Seeded delivery/s);
+  const input = byId(main, 'catalog-search-workflows');
+  const exact = byId(main, 'catalog-search-workflows-exact');
+  type(input, 'team'); exact.checked = true; exact.listeners.change({ target: exact });
+  assert.equal(byId(main, 'catalog-search-workflows-count').textContent, '1 of 2 shown', 'complete ID matches');
+  assert.equal(groups[0].hidden, false); assert.equal(groups[1].hidden, true);
+  type(input, 'delivery'); assert.ok(groups.every(group => group.hidden), 'partial names do not match');
+  type(input, 'TEAM CAFE\u0301 DELIVERY'); assert.equal(groups[0].hidden, false, 'full names retain Unicode and case-insensitive catalog search');
+  type(input, 'Test and repair'); assert.ok(groups.every(group => group.hidden), 'description is not an exact name');
+  const reopened = f.main(); f.logic.renderHome(reopened);
+  assert.equal(byId(reopened, 'catalog-search-workflows-exact').checked, true, 'toggle survives Studio redraws');
+  type(input, ''); assert.ok(groups.every(group => !group.hidden));
+  exact.checked = false; exact.listeners.change({ target: exact });
+  type(input, 'screenshot'); assert.ok(groups.every(group => !group.hidden), 'normal search still includes rules');
+  assert.deepEqual(f.posted, []);
+  assert.deepEqual(f.logic.changeSetFrom(f.model, f.logic.state().draft).changes, []);
+});
+
+test('Epic workflows use the same origin sections and exact-name filtering without losing canvas actions', () => {
+  const f = fixture();
+  const epic = (id, readOnly) => ({ id, label: id === 'epic-seed' ? 'Seeded Epic' : 'Team Epic', readOnly,
+    description: 'Coordinate deliveries', phases: ['plan'], steps: [], packs: 0 });
+  f.model.epics = { workflows: [epic('epic-seed', true), epic('epic-team', false)], steps: [
+    { id: 'plan', label: 'Plan children', agents: ['builtin'], lanes: [], views: [], outputs: [], approval: { mode: 'none', authorities: [] } }
+  ] };
+  f.model.protection.epics = ['epic-seed'];
+  f.logic.state().draft = f.logic.initialDraft(f.model);
+  const main = f.main(); f.logic.renderHome(main);
+  const groups = all(main).filter(node => node.attributes?.['data-workflow-group']);
+  const user = groups.find(group => group.attributes['data-workflow-group'] === 'epic-user');
+  const seeded = groups.find(group => group.attributes['data-workflow-group'] === 'epic-seeded');
+  assert.match(text(user), /User-created Epic workflows \(1\).*Team Epic.*Edit/s);
+  assert.match(text(seeded), /Seeded Epic workflows \(1\).*Seeded Epic.*View/s);
+  const input = byId(main, 'catalog-search-workflows');
+  type(input, 'epic-seed');
+  const toggle = byId(main, 'catalog-search-workflows-exact'); toggle.checked = true; toggle.listeners.change({ target: toggle });
+  assert.equal(seeded.hidden, false); assert.equal(user.hidden, true);
+  assert.equal(byId(main, 'catalog-search-workflows-count').textContent, '1 of 4 shown');
   assert.deepEqual(f.posted, []);
   assert.deepEqual(f.logic.changeSetFrom(f.model, f.logic.state().draft).changes, []);
 });

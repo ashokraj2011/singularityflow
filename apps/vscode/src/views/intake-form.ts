@@ -951,6 +951,8 @@ function baseBranchHtml(form: IntakeForm): string {
           placeholder="Branch name or Story title" autocomplete="off" spellcheck="false"
           aria-controls="story-base-branch-choices" aria-describedby="story-base-branch-count">
       </label>
+      <label class="search-exact" title="Match the complete, case-sensitive branch name only"><input type="checkbox" data-base-branch-exact
+        aria-controls="story-base-branch-choices"> Exact match</label>
       <button type="button" class="secondary" data-base-branch-clear disabled>Clear search</button>
     </div>
     <p class="meta" id="story-base-branch-count" data-base-branch-count role="status" aria-live="polite">
@@ -958,6 +960,7 @@ function baseBranchHtml(form: IntakeForm): string {
     <div class="choices base-branch-choices" id="story-base-branch-choices" role="radiogroup" aria-label="Story base branch">
       ${form.baseBranchChoices.map((choice) => `
       <label class="choice${choice.branch === form.baseBranch ? ' chosen' : ''}" data-base-branch-choice
+        data-base-branch-name="${escape(choice.branch)}"
         data-base-branch-search-text="${escape([choice.branch, choice.story?.workId, choice.story?.title].filter(Boolean).join(' '))}">
         <input type="radio" name="baseBranch" value="${escape(choice.branch)}" data-base-branch="${escape(choice.branch)}"${choice.branch === form.baseBranch ? ' checked' : ''}>
         <span class="choice-label">${escape(choice.branch)}</span>
@@ -1395,15 +1398,17 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
   const vscode = window.__sfVscode;
   // Search only the already-offered catalog. It never selects a base or asks the host/Git to read.
   let branchSearch = document.querySelector('[data-base-branch-search]');
+  let branchExact = document.querySelector('[data-base-branch-exact]');
   let branchRows = [...document.querySelectorAll('[data-base-branch-choice]')].map((row) => ({
-    row, text: (row.dataset.baseBranchSearchText || '').normalize('NFC').toLowerCase()
+    row, name: row.dataset.baseBranchName, text: (row.dataset.baseBranchSearchText || '').normalize('NFC').toLowerCase()
   }));
   const filterBaseBranches = () => {
     if (!branchSearch) return;
     const query = branchSearch.value.trim().normalize('NFC').toLowerCase();
     let visible = 0;
-    branchRows.forEach(({ row, text }) => {
-      row.hidden = !text.includes(query);
+    branchRows.forEach(({ row, name, text }) => {
+      // Git branch names are case-sensitive; titles and IDs are not exact branch names.
+      row.hidden = branchExact?.checked && query ? name !== branchSearch.value.trim() : !text.includes(query);
       if (!row.hidden) visible += 1;
     });
     const count = document.querySelector('[data-base-branch-count]');
@@ -1421,6 +1426,7 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
   };
   const savedBranchSearch = vscode.getState ? (vscode.getState() || {}).intakeView?.branchSearch : null;
   if (branchSearch && typeof savedBranchSearch === 'string') branchSearch.value = savedBranchSearch;
+  if (branchExact) branchExact.checked = vscode.getState?.()?.intakeView?.branchExact === true;
   filterBaseBranches();
   let workflowSearch = document.querySelector('[data-workflow-search]');
   let workflowRows = [...document.querySelectorAll('[data-workflow-search-text]')];
@@ -1521,6 +1527,7 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
    */
   document.addEventListener('change', (event) => {
     const el = event.target;
+    if (el.hasAttribute('data-base-branch-exact')) { filterBaseBranches(); saveIntakeView(); return; }
     if (el.hasAttribute('data-readiness-baseline')) return vscode.postMessage({ type: 'readinessBaseline', value: el.value });
     if (el.hasAttribute('data-story-test-scope')) return vscode.postMessage({ type: 'storyTestScope', value: el.value });
     if (el.hasAttribute('data-quality-gate-mode')) return vscode.postMessage({ type: 'qualityGateMode', value: el.value });
@@ -1574,6 +1581,7 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
   const intakeFocusKey = (el) => !el || !el.dataset ? null
     : el.hasAttribute('data-workflow-search') ? 'workflow-search'
     : el.hasAttribute('data-base-branch-search') ? 'base-branch-search'
+    : el.hasAttribute('data-base-branch-exact') ? 'base-branch-exact'
       : el.dataset.field ? 'field:' + el.dataset.field
       : el.dataset.referenceField ? 'reference:' + el.dataset.referenceIndex + ':' + el.dataset.referenceField
         : el.dataset.attachmentName !== undefined ? 'attachment:' + el.dataset.attachmentName
@@ -1586,6 +1594,7 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
     state.intakeView = {
       key: key,
       branchSearch: branchSearch ? branchSearch.value : (state.intakeView?.branchSearch || ''),
+      branchExact: branchExact ? branchExact.checked : state.intakeView?.branchExact === true,
       workflowSearch: workflowSearch ? workflowSearch.value : (state.intakeView?.workflowSearch || ''),
       workflowOtherOpen: workflowOtherOpen,
       start: key && typeof el.selectionStart === 'number' ? el.selectionStart : null,
@@ -1606,6 +1615,7 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
     const parts = String(saved.key).split(':');
     const selector = saved.key === 'workflow-search' ? '[data-workflow-search]'
       : saved.key === 'base-branch-search' ? '[data-base-branch-search]'
+      : saved.key === 'base-branch-exact' ? '[data-base-branch-exact]'
       : parts[0] === 'field' ? '[data-field="' + parts[1] + '"]'
       : parts[0] === 'attachment' ? '[data-attachment-name="' + parts[1] + '"]'
         : '[data-reference-index="' + parts[1] + '"][data-reference-field="' + parts[2] + '"]';
@@ -1642,10 +1652,12 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
     const saved = vscode.getState ? (vscode.getState() || {}).intakeView || {} : {};
     if (changed.has('base')) {
       branchSearch = document.querySelector('[data-base-branch-search]');
+      branchExact = document.querySelector('[data-base-branch-exact]');
       branchRows = [...document.querySelectorAll('[data-base-branch-choice]')].map((row) => ({
-        row, text: (row.dataset.baseBranchSearchText || '').normalize('NFC').toLowerCase()
+        row, name: row.dataset.baseBranchName, text: (row.dataset.baseBranchSearchText || '').normalize('NFC').toLowerCase()
       }));
       if (branchSearch) branchSearch.value = saved.branchSearch || '';
+      if (branchExact) branchExact.checked = saved.branchExact === true;
       filterBaseBranches();
     }
     if (changed.has('workflow')) {

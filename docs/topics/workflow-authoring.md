@@ -41,6 +41,11 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
 
 ## Workflow Studio
 
+The workflow catalog separates **User-created** and **Seeded** Story and Epic workflows. Seeded
+workflows remain read-only; use **Duplicate** to customize one. Search runs over the loaded catalog,
+including rules. Turn on **Exact match** to match a complete workflow name or ID instead; names
+are case-insensitive. Searching and changing this toggle never changes workflow configuration.
+
 Workflow Studio is one screen for the whole lifecycle setup. A workflow is drawn as a canvas of
 connected steps, left to right in the order a Story goes through them. Each step shows what it
 produces (a document, an analysis, code changes, or nothing), the agent that drafts it and how many

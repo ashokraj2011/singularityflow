@@ -81,7 +81,7 @@ function mount(intake = form(), priorState = {}) {
     }
   };
   const rows = [...html.matchAll(/<label\b[^>]*data-base-branch-choice[^>]*>([\s\S]*?)<\/label>/g)].map(([markup]) => {
-    const row = element({ baseBranchChoice: '', baseBranchSearchText: attribute(markup, 'data-base-branch-search-text') });
+    const row = element({ baseBranchChoice: '', baseBranchName: attribute(markup, 'data-base-branch-name'), baseBranchSearchText: attribute(markup, 'data-base-branch-search-text') });
     const tag = markup.match(/<input\b[^>]*>/)[0];
     const input = element({ baseBranch: attribute(tag, 'data-base-branch') });
     input.value = attribute(tag, 'value');
@@ -115,7 +115,7 @@ function mount(intake = form(), priorState = {}) {
   if (other) {
     other.open = false; other.summary = element(); other.querySelector = (selector) => selector === 'summary' ? other.summary : null;
   }
-  for (const name of ['search', 'clear', 'count', 'empty', 'selected']) {
+  for (const name of ['search', 'exact', 'clear', 'count', 'empty', 'selected']) {
     if (html.includes(`data-base-branch-${name}`)) controls[`[data-base-branch-${name}]`] = element({
       [`baseBranch${name[0].toUpperCase()}${name.slice(1)}`]: ''
     });
@@ -149,6 +149,9 @@ function mount(intake = form(), priorState = {}) {
     },
     selectText(start, end) { search.setSelectionRange(start, end); dispatch('select', search); },
     clear() { dispatch('click', controls['[data-base-branch-clear]']); },
+    exact(checked) {
+      const toggle = controls['[data-base-branch-exact]']; toggle.checked = checked; dispatch('change', toggle);
+    },
     workflowType(query) {
       const control = controls['[data-workflow-search]']; control.focus(); control.value = query;
       control.setSelectionRange(query.length, query.length); dispatch('input', control);
@@ -299,6 +302,31 @@ test('branch filtering is case-insensitive, literal, and searches Story IDs and 
   assert.deepEqual(view.visible(), [], 'query is not executed as a regular expression');
   assert.deepEqual(view.messages, [], 'searching does not call the host, preflight, or Git');
   assert.ok(intakeProblems(form()).includes('Choose the remote base branch from which the Story branch will be created.'));
+});
+
+test('exact branch matching is a local, persisted toggle over full case-sensitive branch names only', () => {
+  const view = mount(form({ baseBranch: 'main', baseBranchChoices: [
+    ...choices, choice('main-backup'), choice('Main'), choice('story-main', { workId: 'main', title: 'main' })
+  ] }));
+  view.type('main');
+  assert.deepEqual(view.visible(), ['main', 'main-backup', 'Main', 'story-main']);
+  view.exact(true);
+  assert.deepEqual(view.visible(), ['main']);
+  assert.equal(view.state().intakeView.branchExact, true);
+  view.type('PAY-12'); assert.deepEqual(view.visible(), [], 'Story IDs do not match branch names');
+  view.type('.*'); assert.deepEqual(view.visible(), [], 'not a regular expression');
+  view.type('Main'); assert.deepEqual(view.visible(), ['Main']);
+  view.type('main');
+  const restored = mount(form({ baseBranchChoices: [choice('main'), choice('main-backup')] }), view.state());
+  assert.equal(restored.controls['[data-base-branch-exact]'].checked, true);
+  assert.deepEqual(restored.visible(), ['main']);
+  restored.patch({ sequence: 1, regions: [{ id: 'base', html: 'refreshed catalog' }] });
+  assert.deepEqual(restored.visible(), ['main'], 'catalog replacement preserves exact matching');
+  view.exact(false); assert.equal(view.visible().length, 4);
+  view.exact(true); view.clear(); assert.equal(view.visible().length, 7, 'empty query shows every offered branch');
+  assert.equal(view.rows.find(row => row.input.value === 'main').input.checked, true, 'filtering never selects or clears a base');
+  assert.deepEqual(view.messages, [], 'toggling, searching and restoring never call Git or readiness');
+  assert.match(view.html, /data-base-branch-exact[\s\S]*?Exact match/);
 });
 
 test('no results and clear are recoverable without changing the selected base', () => {

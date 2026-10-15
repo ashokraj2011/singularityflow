@@ -61,6 +61,12 @@ Copilot guidance and leaves ordinary Copilot requests alone.
 
 ## Guided workflow
 
+In Story intake, **Search branches → Exact match** filters by the complete, case-sensitive Git
+branch name rather than partial names, Story IDs or titles. Clear the query to see all offered
+branches. Filtering stays local and never selects a branch for you. The **Stories** list shows the
+recorded creation date in UTC; hover for the full timestamp. Older Stories without that metadata
+show **Not recorded**, not a commit or refresh date.
+
 1. Ask naturally or read current state with `sflow home`, `sflow status`, or the relevant list/status form. The conversational layer selects a read planner only; it never turns prose directly into a lifecycle mutation.
 2. Review the repository, workspace, Work ID, phase, actor, and any warnings before selecting an action.
 3. Read-only orientation, inspection, and recovery diagnosis may run immediately. For Start, Continue, Generate, Submit, or Next, review the proposed action and its effects, then explicitly select it. Approval, rejection, cancellation, resets, and destructive operations require their exact `/sf-*` skill and ceremony.

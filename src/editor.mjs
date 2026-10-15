@@ -369,6 +369,7 @@ async function workItems(root, definition) {
     status: state.status ?? 'unknown',
     currentPhase: state.currentPhase ?? null,
     branch: state.lineage?.canonicalBranch ?? state.workItem?.branch ?? fallbackId,
+    createdAt: state.workItem?.createdAt ?? null,
     updatedAt: state.history?.at(-1)?.at ?? state.workItem?.createdAt ?? null,
     source
   });

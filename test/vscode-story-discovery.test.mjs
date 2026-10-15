@@ -13,7 +13,7 @@ test('Story discovery reads every ready workspace repository without hiding part
     called.push(repository.id);
     if (repository.id === 'beta') throw new Error('Git authentication failed');
     return {
-      items: [{ id: 'STORY-1', title: 'Half-done Story', status: 'in_progress', phase: 'implementation', branch: 'STORY-1' }],
+      items: [{ id: 'STORY-1', title: 'Half-done Story', status: 'in_progress', phase: 'implementation', branch: 'STORY-1', createdAt: '2026-10-01T08:30:00Z' }],
       unavailableCount: 1
     };
   });
@@ -21,6 +21,7 @@ test('Story discovery reads every ready workspace repository without hiding part
   assert.deepEqual(result.stories.map((row) => [row.repositoryId, row.id, row.status]), [
     ['alpha', 'STORY-1', 'in_progress']
   ]);
+  assert.equal(result.stories[0].createdAt, '2026-10-01T08:30:00Z');
   assert.deepEqual(result.issues.map((issue) => issue.repositoryId), ['alpha', 'beta', 'deferred']);
   assert.match(result.issues.find((issue) => issue.repositoryId === 'deferred').message, /materialize or repair/);
 });
@@ -70,13 +71,14 @@ test('deferred repository Stories retain their mapped URL for explicit attach an
   ], async (repository) => {
     observedConfigurationUrl = repository.configurationUrl;
     return { items: [
-      { id: 'WRK-7', title: 'In progress elsewhere', status: 'in_progress', phase: 'testing', branch: 'WRK-7' }
+      { id: 'WRK-7', title: 'In progress elsewhere', status: 'in_progress', phase: 'testing', branch: 'WRK-7', createdAt: '2026-09-30T16:00:00Z' }
     ] };
   });
   assert.deepEqual(result.issues, []);
   assert.equal(observedConfigurationUrl, 'file:///team/lead.git');
   assert.equal(result.stories[0].repositoryPath, '');
   assert.equal(result.stories[0].repositoryUrl, 'file:///team/deferred.git');
+  assert.equal(result.stories[0].createdAt, '2026-09-30T16:00:00Z');
 });
 
 test('post-attachment Story refresh reruns after an older in-flight catalog read', async () => {

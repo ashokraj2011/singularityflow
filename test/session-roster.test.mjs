@@ -260,7 +260,7 @@ test('fresh-clone discovery projects exact mixed-profile and historical progress
   const ledger = { ...definition.ledger, enabled: true, pinTransport: 'none' };
   await initializeLedger(seed, ledger);
   const modern = (id, phases, approved, currentIndex) => ({
-    schemaVersion: 11, workItem: { id, title: `Retained ${id}`, branch: id },
+    schemaVersion: 11, workItem: { id, title: `Retained ${id}`, branch: id, createdAt: '2026-10-01T08:30:00Z' },
     lineage: { canonicalBranch: id }, status: 'in_progress',
     currentPhase: phases[currentIndex].id, phaseOrder: phases.map((phase) => phase.id),
     phases: Object.fromEntries(phases.map((phase, index) => [phase.id, {
@@ -319,6 +319,8 @@ test('fresh-clone discovery projects exact mixed-profile and historical progress
   assert.equal(discovered.count, 5);
   assert.equal(discovered.fetched, false);
   const byId = new Map(discovered.items.map((entry) => [entry.id, entry]));
+  assert.equal(byId.get('ROST-101').createdAt, '2026-10-01T08:30:00Z', 'creation is read from retained Story metadata, not Git commit time');
+  assert.equal(byId.get('ROST-103').createdAt, null, 'historical Stories without creation metadata remain unknown');
   assert.deepEqual([byId.get('ROST-101').progress.approved, byId.get('ROST-101').progress.total], [2, feature.length]);
   assert.deepEqual([byId.get('ROST-102').progress.approved, byId.get('ROST-102').progress.total], [1, short.length]);
   assert.equal(byId.get('ROST-101').progress.current.generation, 0);

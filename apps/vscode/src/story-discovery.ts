@@ -45,6 +45,7 @@ interface CandidateResponse {
   items?: Array<{
     id?: string;
     title?: string;
+    createdAt?: string | null;
     status?: string;
     phase?: string | null;
     branch?: string | null;
@@ -119,6 +120,7 @@ export async function discoverWorkspaceStoryRows(
             repositoryUrl: repository.url ?? null,
             id: candidate.id,
             title: candidate.title || candidate.id,
+            createdAt: candidate.createdAt ?? null,
             status: candidate.status || 'unknown',
             currentPhase: candidate.phase ?? null,
             branch: candidate.branch ?? null

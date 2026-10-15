@@ -292,6 +292,7 @@ export interface WorkItemSummary {
   status?: string;
   currentPhase?: string | null;
   updatedAt?: string | null;
+  createdAt?: string | null;
   source?: string | null;
   [key: string]: unknown;
 }
@@ -373,7 +374,7 @@ export interface StoryPhase {
 }
 
 export interface StoryWorkflow {
-  workItem: { id: string; title?: string; branch?: string; baseBranch?: string; workType?: string };
+  workItem: { id: string; title?: string; branch?: string; baseBranch?: string; workType?: string; createdAt?: string | null };
   currentPhase: string | null;
   phaseOrder: string[];
   phases: Record<string, StoryPhase>;

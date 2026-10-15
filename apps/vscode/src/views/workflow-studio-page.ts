@@ -17,6 +17,9 @@ const STUDIO_STYLE = `
 .catalog-search{display:flex;flex-direction:column;gap:8px}
 .catalog-search input{flex:1;min-width:120px}
 .catalog-search label{font-size:12px}
+.catalog-search .search-exact{display:inline-flex;align-items:center;gap:6px}
+.catalog-search .search-exact input{flex:none;min-width:0;width:auto;margin:0}
+.workflow-group{display:flex;flex-direction:column;gap:var(--sf-space-3)}
 .agent-prompt pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:360px;overflow:auto;font-size:12px;line-height:1.6}
 .agent-prompt{min-width:0}
 .constitution-rule{white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto;font-size:12px;line-height:1.6}
@@ -985,25 +988,48 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   }
 
   /** Filter already-loaded cards in place: no rendering, draft edits, host calls or model calls. */
-  function catalogSearch(parent, key, label) {
+  function catalogSearch(parent, key, label, allowExact) {
     var rows = [];
+    var groups = [];
+    state.exactSearches = state.exactSearches || {};
     var id = 'catalog-search-' + key;
     var count = el('span', { id: id + '-count', class: 'hint', role: 'status', 'aria-live': 'polite' });
     var empty = el('p', { class: 'muted', text: 'No matches. Try another search or clear it.' });
     var input = el('input', { id: id, 'data-key': id, type: 'search', value: state.searches[key] || '', placeholder: label,
       'aria-describedby': id + '-count', oninput: function () { state.searches[key] = input.value; apply(); } });
     var clear = button('Clear search', function () { input.value = ''; state.searches[key] = ''; apply(); input.focus(); }, { class: 'secondary' });
+    var exact = allowExact ? el('input', { type: 'checkbox', id: id + '-exact', checked: state.exactSearches[key] === true,
+      onchange: function () { state.exactSearches[key] = exact.checked; apply(); } }) : null;
     parent.appendChild(el('div', { class: 'catalog-search' }, el('label', { for: id, text: label }),
-      el('div', { class: 'studio-row' }, input, button('Search', function () { state.searches[key] = input.value; apply(); input.focus(); }, { class: 'secondary' }), clear), count, empty));
+      el('div', { class: 'studio-row' }, input, exact ? el('label', { class: 'search-exact', for: id + '-exact', title: 'Match a complete workflow name or ID' }, exact, 'Exact match') : null,
+        button('Search', function () { state.searches[key] = input.value; apply(); input.focus(); }, { class: 'secondary' }), clear), count, empty));
     function apply() {
       var visible = 0;
-      rows.forEach(function (row) { row.node.hidden = !catalogMatches(input.value, row.values); if (!row.node.hidden) visible += 1; });
+      rows.forEach(function (row) {
+        row.node.hidden = exact && exact.checked && input.value.trim()
+          ? !(row.exactValues || []).some(function (value) { return catalogText(value).trim() === catalogText(input.value).trim(); })
+          : !catalogMatches(input.value, row.values);
+        if (!row.node.hidden) visible += 1;
+      });
+      groups.forEach(function (group) {
+        var members = rows.filter(function (row) { return row.group === group.node; });
+        var shown = members.filter(function (row) { return !row.node.hidden; }).length;
+        group.heading.textContent = group.label + ' (' + shown + ')';
+        group.node.hidden = Boolean(input.value.trim()) && shown === 0;
+      });
       count.textContent = visible + ' of ' + rows.length + ' shown';
       empty.hidden = visible !== 0 || rows.length === 0;
       clear.disabled = !input.value;
     }
     apply();
-    return { add: function (node, values) { rows.push({ node: node, values: values }); }, finish: apply };
+    return {
+      add: function (node, values, exactValues, group) { rows.push({ node: node, values: values, exactValues: exactValues, group: group }); },
+      group: function (parent, id, label) {
+        var heading = el('h2', { text: label });
+        var node = el('section', { class: 'workflow-group', 'data-workflow-group': id, 'aria-label': label }, heading);
+        parent.appendChild(node); groups.push({ node: node, heading: heading, label: label }); return node;
+      }, finish: apply
+    };
   }
 
   function workflowOrigin(readOnly) {
@@ -1330,7 +1356,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       button('Export…', function () { state.exporting = state.exporting || {}; render(); }, { class: 'secondary' }),
       button('New workflow', function () { state.view = 'new'; state.wizard = { label: '', from: null }; render(); }, { class: 'primary' }))));
     if (state.exporting) main.appendChild(renderExport());
-    var search = catalogSearch(main, 'workflows', 'Search workflows and rules');
+    var search = catalogSearch(main, 'workflows', 'Search workflows and rules', true);
+    var userWorkflows = search.group(main, 'story-user', 'User-created Story workflows');
+    var seededWorkflows = search.group(main, 'story-seeded', 'Seeded Story workflows');
     workflows.forEach(function (id) {
       var workflow = state.draft.workflows[id];
       var readOnly = workflowReadOnly(id);
@@ -1345,11 +1373,12 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         el('span', { class: 'muted', text: workflow.phases.length + ' steps' + (code ? ' · writes code' : '') }),
         workflow.description ? el('span', { class: 'muted', text: workflow.description }) : null,
         rail(workflow.phases));
-      main.appendChild(card);
+      var group = readOnly ? seededWorkflows : userWorkflows;
+      group.appendChild(card);
       search.add(card, [id, workflow.label, workflow.description, readOnly ? 'seeded read-only' : 'editable',
         workflow.phases.map(stepLabel).join(' '), workflow.phases.join(' '),
         (workflow.reworkLoops || []).map(function (loop) { return 'rejected ' + stepLabel(loop.from) + ' ' + stepLabel(loop.to); }).join(' '),
-        (workflow.decisions || []).map(function (decision) { return decision.label + ' ' + decisionLines(workflow, decision).join(' '); }).join(' ')]);
+        (workflow.decisions || []).map(function (decision) { return decision.label + ' ' + decisionLines(workflow, decision).join(' '); }).join(' ')], [id, workflow.label], group);
     });
     renderEpicList(main, search);
     search.finish();
@@ -1398,6 +1427,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     main.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Epic workflows' }),
       button('New Epic workflow', function () { state.epicForm = { label: '', description: '', from: null, copy: false }; render(); }, { class: 'primary' })));
     if (state.epicForm) main.appendChild(renderEpicForm(state.epicForm));
+    var userWorkflows = search.group(main, 'epic-user', 'User-created Epic workflows');
+    var seededWorkflows = search.group(main, 'epic-seeded', 'Seeded Epic workflows');
     epics.order.concat(Object.keys(epics.workflows).filter(function (id) { return epics.order.indexOf(id) < 0; })).forEach(function (id) {
       var workflow = epics.workflows[id];
       var readOnly = protectedObject('epics', id);
@@ -1411,8 +1442,9 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
             button('Duplicate', function () { duplicateWorkflow('initiative:' + id); }, { class: 'secondary', disabled: workflow.isNew, 'aria-label': 'Duplicate ' + workflow.label }))),
         el('span', { class: 'muted', text: workflow.phases.length + (workflow.phases.length === 1 ? ' step' : ' steps') + (workflow.packs ? ' · ' + workflow.packs + ' review packs' : '') + (workflow.description ? ' · ' + workflow.description : '') }),
         el('div', { class: 'rail' }, workflow.phases.map(function (phaseId) { return el('span', { class: 'pill', text: epicStepLabel(phaseId) }); })));
-      main.appendChild(card);
-      if (search) search.add(card, [id, workflow.label, workflow.description, readOnly ? 'seeded read-only' : 'editable', workflow.phases.map(epicStepLabel).join(' ')]);
+      var group = readOnly ? seededWorkflows : userWorkflows;
+      group.appendChild(card);
+      search.add(card, [id, workflow.label, workflow.description, readOnly ? 'seeded read-only' : 'editable', workflow.phases.map(epicStepLabel).join(' ')], [id, workflow.label], group);
     });
   }
   function renderEpicForm(form) {

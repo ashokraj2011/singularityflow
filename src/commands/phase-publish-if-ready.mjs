@@ -9,7 +9,7 @@
  * reads stays where it was, plus `publishIfReady` with what happened after it. Publication runs only
  * when prepublish itself offered the exact command; a refused step keeps its own refusal.
  */
-import { step, stop } from '../cli-steps.mjs';
+import { nextAfterStep, step, stop } from '../cli-steps.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 const PRODUCERS = new Set(['human', 'governed-agent', 'deterministic', 'external-tool']);
@@ -53,9 +53,10 @@ export async function run({ positionals, options }) {
   if (!published.ok) stop(published, 'phase publish');
   const shown = await step(['phase', 'show', phaseId, '--for-agent', '--json'], cwd);
   if (!shown.ok) stop(shown, 'phase show');
-  console.log(JSON.stringify({ ...prepublish, publishIfReady: {
-    published: true, command: prepublish.commands.publish,
+  // First, with what follows: the prepublish fields after it describe the draft before publication.
+  console.log(JSON.stringify({ publishIfReady: {
+    published: true, next: nextAfterStep(shown.value, 'Published.'), command: prepublish.commands.publish,
     output: published.stdout.trim().split('\n').slice(-40).join('\n'),
     review: shown.value
-  } }));
+  }, ...prepublish }));
 }

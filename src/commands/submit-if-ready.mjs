@@ -9,7 +9,7 @@
  * convergence digest, a source review, an amendment choice) is never `ready-to-attempt` without
  * confirmation, so it is returned unrun, exactly as before; a refused step keeps its own refusal.
  */
-import { step, stop } from '../cli-steps.mjs';
+import { nextAfterStep, step, stop } from '../cli-steps.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 /** The returned submit command as arguments, only when it is exactly the readiness route. */
@@ -47,9 +47,10 @@ export async function run({ positionals, options }) {
   if (!submitted.ok) stop(submitted, 'submit');
   const shown = await step(['phase', 'show', readiness.phaseId, '--for-agent', '--json'], cwd);
   if (!shown.ok) stop(shown, 'phase show');
-  console.log(JSON.stringify({ ...readiness, submitIfReady: {
-    submitted: true, command: readiness.nextCommand,
+  // First, with what follows: the readiness fields after it describe the step before submission.
+  console.log(JSON.stringify({ submitIfReady: {
+    submitted: true, next: nextAfterStep(shown.value, 'Submitted.'), command: readiness.nextCommand,
     result: submitted.value ?? submitted.stdout.trim().split('\n').slice(-40).join('\n'),
     review: shown.value
-  } }, null, 2));
+  }, ...readiness }, null, 2));
 }

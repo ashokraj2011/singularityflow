@@ -122,3 +122,21 @@ export function stop(result, label, code = 'CLI_STEP_FAILED') {
   if (relayed) Object.defineProperty(error, 'relayedResult', { value: relayed });
   throw error;
 }
+
+/**
+ * What follows a step an `-if-ready` command just took, from the review it already read. The
+ * checked result's own fields stay unchanged and describe the moment before the step ran, when that
+ * step was itself the next action. An agent that read the long result from the top reported
+ * "published" and ended without offering what follows, so callers put this first.
+ */
+export function nextAfterStep(review, done) {
+  const continuation = review?.continuation ?? null;
+  const action = continuation?.nextAction ?? null;
+  return {
+    instruction: `${done} End the reply with this next action: its reason, then its Copilot, Shell and VS Code (model-free) routes in that order, saying "not available for this action" for a missing one. Fields after this one describe the check before the step ran.`,
+    ...(continuation?.contextBoundary ? { contextBoundary: continuation.contextBoundary } : {}),
+    reason: action?.reason ?? null,
+    commandGuidance: action ? { copilotCommand: continuation.copilotCommand ?? null,
+      command: continuation.nextCommand ?? null, modelFreeCommand: continuation.modelFreeCommand ?? null } : null
+  };
+}

@@ -110,6 +110,12 @@ test('prepublish --publish-if-ready returns the unchanged check, and publishes w
   assert.equal(published.publishIfReady.published, true);
   assert.equal(published.publishIfReady.command, published.commands.publish);
   assert.equal(published.publishIfReady.review.phase, 'intake');
+  // What follows comes first, with its routes: an agent reading from the top ended at "published"
+  // without offering the next step. The prepublish fields after it describe the draft before publication.
+  assert.equal(Object.keys(published)[0], 'publishIfReady');
+  assert.match(published.publishIfReady.next.instruction, /^Published\. End the reply with this next action/u);
+  assert.deepEqual(published.publishIfReady.next.commandGuidance, { copilotCommand: '/sf-submit',
+    command: 'singularity-flow submit intake --work-id READY-1', modelFreeCommand: '@sflow /submit intake --work-id READY-1' });
   const workflow = JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8'));
   assert.equal(workflow.phases.intake.generation, 1);
   assert.equal(must('git', ['status', '--porcelain']), '', 'the publication was committed');
@@ -120,6 +126,10 @@ test('prepublish --publish-if-ready returns the unchanged check, and publishes w
   assert.equal(submitted.submitIfReady.submitted, true);
   assert.equal(submitted.submitIfReady.command, 'singularity-flow submit intake --work-id READY-1');
   assert.equal(submitted.submitIfReady.review.phase, 'intake');
+  assert.equal(Object.keys(submitted)[0], 'submitIfReady');
+  assert.match(submitted.submitIfReady.next.instruction, /^Submitted\. End the reply with this next action/u);
+  assert.deepEqual(submitted.submitIfReady.next.commandGuidance, { copilotCommand: '/sf-approve intake --work-id READY-1',
+    command: 'singularity-flow approve intake --work-id READY-1 --fetch', modelFreeCommand: '@sflow /approve intake --work-id READY-1' });
   assert.equal(JSON.parse(await readFile(path.join(item, 'workflow.json'), 'utf8')).phases.intake.status, 'awaiting_approval');
   const again = JSON.parse(sflow('status', 'READY-1', '--submission-readiness', '--json', '--submit-if-ready'));
   assert.deepEqual(again.submitIfReady, { submitted: false, reason: again.classification, command: again.nextCommand ?? null });

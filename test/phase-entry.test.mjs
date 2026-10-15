@@ -93,6 +93,10 @@ async function fixture(t, { planningInputs = false, customPhase = null, clarific
     SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(root, '.git/mode-not-set.json'),
     SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(root, '.git/no-workspace.json'),
     SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(root, '.git/no-registry.json') };
+  // These tests assert model-mode routes; the no-model case passes --no-model itself. An inherited
+  // SINGULARITY_FLOW_NO_MODEL=1 (a no-model test runner, or a developer's shell) turned preparation
+  // into a human import and failed three of them.
+  delete env.SINGULARITY_FLOW_NO_MODEL;
   const invoke = (...args) => spawnSync(process.execPath, [cli, ...args], {
     cwd: root, env, encoding: 'utf8', timeout: 30_000
   });

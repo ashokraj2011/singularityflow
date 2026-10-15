@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createSourceAnalysisCache } from '../src/source-analysis-cache.mjs';
-import { scanSourceClauseTags } from '../src/traceability-ids.mjs';
+import { scanSourceClauseTags } from '../src/source-clause-tags.mjs';
 import { discoverDeclarations } from '../src/verification/adapters.mjs';
 import { scanJavaScriptDeclarations } from '../src/verification/javascript-declarations.mjs';
 

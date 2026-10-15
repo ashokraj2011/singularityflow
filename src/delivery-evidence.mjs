@@ -31,7 +31,8 @@ import {
 import {
   commandCovering, discoverDeclarations, profileForCommand, profileIsExact, testAdapterProfile
 } from './verification/adapters.mjs';
-import { normalizeQualifiedClauseId, scanSourceClauseTags } from './traceability-ids.mjs';
+import { normalizeQualifiedClauseId } from './traceability-ids.mjs';
+import { scanSourceClauseTags } from './source-clause-tags.mjs';
 import { codeCandidateScope, outsideEveryCandidate } from './candidate-scope.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
 import { contractRequiresTestTag, effectiveContract, mergedVerificationContracts } from './verification/contracts.mjs';

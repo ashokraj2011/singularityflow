@@ -26,7 +26,7 @@ import { applicationPathContext } from '../application-paths.mjs';
 import { changedFiles, head, trackedPathListing } from '../git.mjs';
 import { clauseTagExplanation, EXPLANATION_LIMITS } from '../implementation-bindings.mjs';
 import { normalizeSourceRoots } from '../source-scope.mjs';
-import { scanSourceClauseTags } from '../traceability-ids.mjs';
+import { scanSourceClauseTags } from '../source-clause-tags.mjs';
 import { nowIso, SingularityFlowError } from '../util.mjs';
 import { comprehensionDefinition, isExplainedPath } from './code-scope.mjs';
 

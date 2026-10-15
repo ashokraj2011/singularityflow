@@ -192,7 +192,34 @@ async function witnessReviewSnapshot(root, config, workflow, phase) {
   };
 }
 
+/**
+ * Files at exact commits, kept for this process: `<commit ID>:<path>` names the same bytes forever.
+ * `[perf]` Verifying a review packet read the same artifact at the same commit four times per
+ * lifecycle command. Bounded; only successful reads at a full commit ID are kept.
+ */
+const filesAtExactCommits = new Map();
+let filesAtExactCommitsBytes = 0;
+
 function gitBlobAtCommit(root, commit, relativePath) {
+  const exact = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u.test(String(commit)) && !process.env.GIT_DIR
+    && !process.env.GIT_OBJECT_DIRECTORY;
+  const key = `${path.resolve(root)}\0${commit}:${relativePath}`;
+  const known = exact ? filesAtExactCommits.get(key) : null;
+  if (known) return { status: 0, bytes: Buffer.from(known), error: '' };
+  const read = gitBlobAtCommitFromGit(root, commit, relativePath);
+  if (exact && read.status === 0 && read.bytes.length <= 4 * 1024 * 1024) {
+    filesAtExactCommits.set(key, Buffer.from(read.bytes));
+    filesAtExactCommitsBytes += read.bytes.length;
+    for (const [oldest, bytes] of filesAtExactCommits) {
+      if (filesAtExactCommitsBytes <= 16 * 1024 * 1024) break;
+      filesAtExactCommits.delete(oldest);
+      filesAtExactCommitsBytes -= bytes.length;
+    }
+  }
+  return read;
+}
+
+function gitBlobAtCommitFromGit(root, commit, relativePath) {
   const result = run('git', ['show', `${commit}:${relativePath}`], {
     cwd: root,
     encoding: 'buffer',

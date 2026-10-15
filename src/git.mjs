@@ -1215,6 +1215,46 @@ export function committedFileBytes(root, ref, relative, { env = process.env } = 
   return readLocalGitBlobs(root, [oid], { env, label: `${relative} at ${ref}` }).get(oid);
 }
 
+/** Files of exact objects already read in this process (exactFileAtObject). `[perf]` */
+const exactObjectFiles = new Map();
+
+/**
+ * `<commit ID>:<path>` names the same object forever, so a row Git resolved for one is kept for
+ * this process. `[perf]` One lifecycle command asked for the same Story files at the same commits
+ * up to six times: about a hundred repeated resolutions in one Story. A missing row is not kept (a
+ * fetch can supply the object), nor is anything asked under a relocating Git environment.
+ */
+const resolvedCommittedPaths = new Map();
+const RESOLVED_COMMITTED_PATHS = 8_192;
+const FULL_OBJECT_ID = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
+const OBJECT_RELOCATING_ENV = ['GIT_DIR', 'GIT_COMMON_DIR', 'GIT_WORK_TREE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES'];
+
+function resolvedCommittedPathRows(root, names, refs, env, resolve) {
+  const scope = OBJECT_RELOCATING_ENV.some((name) => env[name]) ? null : path.resolve(root);
+  const keyOf = (index) => (scope && FULL_OBJECT_ID.test(refs[index]) ? `${scope}\0${names[index]}` : null);
+  const rows = names.map((name, index) => {
+    const key = keyOf(index);
+    return key ? resolvedCommittedPaths.get(key) ?? null : null;
+  });
+  const unknown = names.map((name, index) => index).filter((index) => rows[index] === null);
+  if (!unknown.length) return { status: 0, rows };
+  const checked = resolve(unknown.map((index) => names[index]));
+  if (checked.status !== 0) return { status: checked.status, checked, rows: null };
+  const answered = String(checked.stdout).split('\n');
+  unknown.forEach((index, position) => {
+    const row = String(answered[position] ?? '');
+    rows[index] = row;
+    const key = keyOf(index);
+    if (key && /^[a-f0-9]{40,64} \w+ \d+$/u.test(row.trim())) {
+      resolvedCommittedPaths.set(key, row);
+      if (resolvedCommittedPaths.size > RESOLVED_COMMITTED_PATHS) {
+        resolvedCommittedPaths.delete(resolvedCommittedPaths.keys().next().value);
+      }
+    }
+  });
+  return { status: 0, checked, rows };
+}
+
 /**
  * Files at several revisions, read in a fixed number of Git calls however many are asked for.
  * `requests` is `[{ key, ref, path }]`; the map holds the bytes of each file that exists and fits
@@ -1229,13 +1269,21 @@ export function committedFilesAtRevisions(root, requests, {
   const wanted = (requests ?? []).filter((request) => request?.ref && request?.path
     && !/[\n\0]/u.test(`${request.ref}:${request.path}`));
   if (!wanted.length) return new Map();
-  const checked = git(['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], {
-    cwd: root, env: immutableLocalGitEnvironment(env), allowFailure: true,
-    input: `${wanted.map((request) => `${request.ref}:${request.path}`).join('\n')}\n`
-  });
-  if (requireCompleteRead) gitReadOutput(checked, 'Committed file resolution');
-  else if (checked.status !== 0) return new Map();
-  const rows = String(checked.stdout).split('\n');
+  const resolution = resolvedCommittedPathRows(root,
+    wanted.map((request) => `${request.ref}:${request.path}`), wanted.map((request) => request.ref), env,
+    (names) => {
+      const checked = git(['cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'], {
+        cwd: root, env: immutableLocalGitEnvironment(env), allowFailure: true,
+        input: `${names.join('\n')}\n`
+      });
+      if (requireCompleteRead) gitReadOutput(checked, 'Committed file resolution');
+      return checked;
+    });
+  if (resolution.status !== 0) {
+    if (requireCompleteRead) gitReadOutput(resolution.checked, 'Committed file resolution');
+    return new Map();
+  }
+  const rows = resolution.rows;
   const found = [];
   let total = 0;
   wanted.forEach((request, index) => {
@@ -1529,6 +1577,12 @@ export function exactFileAtObject(root, objectId, file, { maximumBytes = 1024 * 
     const match = String(entry.stdout ?? '').match(/^(100644|100755) blob [a-f0-9]{40,64}\t([^\0]+)\0$/u);
     if (entry.status !== 0 || !match || match[2] !== file) return null;
   }
+  // An exact object's file never changes; a repeat in this process reads what Git already gave.
+  const isolated = ISOLATED_GIT_OBJECT_REPOSITORIES.has(root);
+  const memoKey = isolated || OBJECT_RELOCATING_ENV.some((name) => process.env[name]) ? null
+    : `${path.resolve(root)}\0${objectId}:${file}`;
+  const known = memoKey ? exactObjectFiles.get(memoKey) : null;
+  if (known && known.length <= maximumBytes) return Buffer.from(known);
   const result = git(['show', `${objectId}:${file}`], {
     cwd: root,
     env: immutableLocalGitEnvironment(),
@@ -1536,7 +1590,11 @@ export function exactFileAtObject(root, objectId, file, { maximumBytes = 1024 * 
     encoding: 'buffer',
     maxBuffer: maximumBytes
   });
-  if (ISOLATED_GIT_OBJECT_REPOSITORIES.has(root) && !processResultCompleted(result)) {
+  if (memoKey && result.status === 0 && Buffer.isBuffer(result.stdout) && result.stdout.length <= 1024 * 1024) {
+    exactObjectFiles.set(memoKey, Buffer.from(result.stdout));
+    if (exactObjectFiles.size > 512) exactObjectFiles.delete(exactObjectFiles.keys().next().value);
+  }
+  if (isolated && !processResultCompleted(result)) {
     const error = new SingularityFlowError('The isolated exact-object read did not prove process cleanup.', { code: 'GIT_OBJECT_READ_UNAVAILABLE' });
     error.temporaryGitCleanupUnproven = true;
     throw error;

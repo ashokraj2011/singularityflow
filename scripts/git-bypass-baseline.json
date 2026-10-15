@@ -808,9 +808,9 @@
     },
     "src/generation-publication-store.mjs": {
       "counts": {
-        "command-run": 10
+        "command-run": 8
       },
-      "digest": "35efdf631e983b7b6d2aa76ca50f25ac341f7456dbeb1da00686ba319c4f88ec"
+      "digest": "46955cc18b23cdd3e158fcd44b42a3253311803806c39bb3c3d008f5d7b44304"
     },
     "src/git-access.mjs": {
       "counts": {
@@ -1316,7 +1316,7 @@
       "counts": {
         "command-run": 10
       },
-      "digest": "ee16f88a95815a83db52f53562eb3258f5481d264d39c26c5ec63ae89903f0a7"
+      "digest": "3f93e9845684dbbce519941193f1d458d361a51472a87709ae9daf716367e6ff"
     },
     "src/story-stack.mjs": {
       "counts": {

@@ -69,15 +69,26 @@ function commitIdentity(root, commit) {
   const verified = run('git', ['rev-parse', '--verify', `${commit}^{commit}`], { cwd: root, allowFailure: true });
   if (verified.status !== 0) return null;
   const exact = verified.stdout.trim();
-  const message = run('git', ['show', '-s', '--format=%B', exact], { cwd: root }).stdout;
+  // Tree, parents and message are all in the commit object: one read instead of three, as in
+  // governedCommitIdentity (git.mjs). Headers end at the first blank line; a signature's
+  // continuation lines start with a space.
+  const raw = run('git', ['cat-file', 'commit', exact], { cwd: root }).stdout;
+  const separator = raw.indexOf('\n\n');
+  const message = separator < 0 ? '' : raw.slice(separator + 2);
+  let tree = '';
+  const parents = [];
+  for (const line of (separator < 0 ? raw : raw.slice(0, separator)).split('\n')) {
+    if (line.startsWith('tree ')) tree = line.slice(5).trim();
+    else if (line.startsWith('parent ')) parents.push(line.slice(7).trim());
+  }
   const trailer = (name) => {
     const values = [...message.matchAll(new RegExp(`^${name}:\\s*(.+?)\\s*$`, 'gmi'))];
     return values.length === 1 ? values[0][1] : null;
   };
   return {
     commit: exact,
-    tree: run('git', ['rev-parse', `${exact}^{tree}`], { cwd: root }).stdout.trim(),
-    parents: run('git', ['show', '-s', '--format=%P', exact], { cwd: root }).stdout.trim().split(/\s+/).filter(Boolean),
+    tree,
+    parents,
     transactionId: trailer('Singularity-Flow-Transaction'),
     eventSha256: trailer('Singularity-Flow-Event-SHA256')
   };

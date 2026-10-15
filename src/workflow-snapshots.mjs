@@ -1734,6 +1734,26 @@ function ensureCompleteStoryCreationHistory(root, label) {
   }
 }
 
+/**
+ * Listings of an exact commit, kept for this process: a commit's tree never changes. `[perf]` One
+ * lifecycle command listed the Story's creation commit up to four times.
+ */
+const exactCommitListings = new Map();
+const FULL_COMMIT_ID = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
+
+function listExactCommit(root, commit, selected, listing) {
+  if (!FULL_COMMIT_ID.test(commit) || process.env.GIT_DIR || process.env.GIT_OBJECT_DIRECTORY) return listing();
+  const key = `${path.resolve(root)}\0${commit}\0${selected.join('\0')}`;
+  const known = exactCommitListings.get(key);
+  if (known) return { status: 0, stdout: Buffer.from(known) };
+  const listed = listing();
+  if (listed.status === 0 && Buffer.isBuffer(listed.stdout)) {
+    exactCommitListings.set(key, Buffer.from(listed.stdout));
+    if (exactCommitListings.size > 1024) exactCommitListings.delete(exactCommitListings.keys().next().value);
+  }
+  return listed;
+}
+
 function gitTreeEntries(root, commit, paths, label, {
   maximumBytes = MAXIMUM_BUNDLE_BYTES,
   maximumObjectBytes = MAXIMUM_ASSET_BYTES
@@ -1741,11 +1761,11 @@ function gitTreeEntries(root, commit, paths, label, {
   const entries = new Map();
   for (let offset = 0; offset < paths.length; offset += 256) {
     const selected = paths.slice(offset, offset + 256);
-    const listed = run('git', ['ls-tree', '-z', commit, '--', ...selected], {
+    const listed = listExactCommit(root, commit, selected, () => run('git', ['ls-tree', '-z', commit, '--', ...selected], {
       cwd: root, encoding: 'buffer', allowFailure: true,
       env: { ...process.env, GIT_NO_LAZY_FETCH: '1' },
       maxBuffer: Math.max(64 * 1024, selected.length * 1024)
-    });
+    }));
     if (listed.status !== 0) {
       fail(`${label} cannot be read from the immutable Story creation commit.`,
         'WFA_DEPENDENCY_UNAVAILABLE');

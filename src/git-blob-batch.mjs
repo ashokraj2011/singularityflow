@@ -52,6 +52,61 @@ function objectFormatKey(root, env, runCommand) {
   } catch { return null; }
 }
 
+/**
+ * Blob bytes this process has already read and verified, by repository and object ID. `[perf]`
+ *
+ * A blob's bytes are fixed by its ID, yet one lifecycle command read the same blobs (the Story's
+ * workflow.json, its configuration snapshot) up to ten times: about sixty repeated batch reads in
+ * one Story. A request whose every blob was already read is answered from here within the same
+ * limits; any other request reads as before, and what it read is remembered. Only reads by the real
+ * runner in a repository Git locates by itself are kept, bounded in bytes, and never across
+ * processes: an object another program prunes is still refused by the next command.
+ */
+const rememberedBlobs = new Map();
+const REMEMBERED_BLOB_BYTES = 32 * 1024 * 1024;
+let rememberedBlobBytes = 0;
+const OBJECT_RELOCATING = [...RELOCATING, 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES'];
+
+function blobMemoScope(root, env, runCommand) {
+  return runCommand === run && !OBJECT_RELOCATING.some((name) => env[name]) ? path.resolve(root) : null;
+}
+
+function rememberedRead(scope, objectIds, { maximumBytes, maximumObjectBytes }) {
+  const found = objectIds.map((oid) => rememberedBlobs.get(`${scope}\0${oid}`));
+  if (!found.every(Boolean)) return null;
+  let total = 0;
+  for (const bytes of found) {
+    total += bytes.length;
+    // A limit the request would break is refused by the ordinary read, with its exact reason.
+    if (bytes.length > maximumObjectBytes || total > maximumBytes) return null;
+  }
+  const output = new Map();
+  objectIds.forEach((oid, index) => {
+    const key = `${scope}\0${oid}`;
+    rememberedBlobs.delete(key);
+    rememberedBlobs.set(key, found[index]);
+    output.set(oid, Buffer.from(found[index]));
+  });
+  return output;
+}
+
+function rememberBlobs(scope, blobs) {
+  if (!scope) return blobs;
+  for (const [oid, bytes] of blobs) {
+    if (bytes.length > REMEMBERED_BLOB_BYTES / 8) continue;
+    const key = `${scope}\0${oid}`;
+    if (rememberedBlobs.has(key)) continue;
+    rememberedBlobs.set(key, Buffer.from(bytes));
+    rememberedBlobBytes += bytes.length;
+  }
+  for (const [key, bytes] of rememberedBlobs) {
+    if (rememberedBlobBytes <= REMEMBERED_BLOB_BYTES) break;
+    rememberedBlobs.delete(key);
+    rememberedBlobBytes -= bytes.length;
+  }
+  return blobs;
+}
+
 function blobId(objectFormat, body) {
   return createHash(objectFormat).update(`blob ${body.length}\0`, 'utf8').update(body).digest('hex');
 }
@@ -146,10 +201,13 @@ export function readLocalGitBlobs(root, objectIds, {
   if (unique.some((oid) => oid.length !== objectIdLength)) {
     refusal(`${label} contains an object identity for a different repository format.`, code);
   }
+  const scope = blobMemoScope(root, env, runCommand);
+  const remembered = scope && rememberedRead(scope, unique, { maximumBytes, maximumObjectBytes });
+  if (remembered) return remembered;
   const unsized = readWithoutSizing(root, unique, {
     runCommand, env: localEnv, objectFormat, maximumBytes, maximumObjectBytes, maximumBatchBytes
   });
-  if (unsized) return unsized;
+  if (unsized) return rememberBlobs(scope, unsized);
   const input = `${unique.join('\n')}\n`;
   const checked = runCommand('git', [
     'cat-file', '--batch-check=%(objectname) %(objecttype) %(objectsize)'
@@ -234,5 +292,5 @@ export function readLocalGitBlobs(root, objectIds, {
     }
     if (cursor !== bytes.length) refusal(`${label} returned unexpected trailing bytes.`, code);
   }
-  return output;
+  return rememberBlobs(scope, output);
 }

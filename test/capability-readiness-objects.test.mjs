@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -87,6 +88,23 @@ test('private bare transport sealing removes modern/legacy promisors and refuses
   run('git', ['config', 'extensions.partialClone', alias], { cwd: scratch });
   assert.deepEqual(sealTemporaryGitReadTransport(scratch), { ok: true, cleanupUnproven: false });
   assert.equal(run('git', ['remote'], { cwd: scratch }).stdout, '');
+  assert.equal(run('git', ['config', '--local', '--get-regexp', 'promisor|partialclone'], {
+    cwd: scratch, allowFailure: true
+  }).status, 1);
+  // Already sealed: proven with one settings read, without touching its configuration. `[perf]`
+  const sealed = await readFile(path.join(scratch, 'config'));
+  const probe = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `const { sealTemporaryGitReadTransport } = await import(${JSON.stringify(new URL('../src/git-execution.mjs', import.meta.url).href)});
+     if (!sealTemporaryGitReadTransport(${JSON.stringify(scratch)}).ok) process.exit(3);`], {
+    encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_SUBPROCESS_PROBE: '1', SINGULARITY_FLOW_GIT_FACT_STORE: 'off' }
+  });
+  assert.equal(probe.status, 0, probe.stderr);
+  // Sealing's own Git calls (each carries the disabled hooks path): bare check, remotes, settings.
+  assert.equal(Number(/^\s+(\d+)x\s+\d+ ms\s+git -c core\.hooksPath=/mu.exec(probe.stderr)?.[1]), 3);
+  assert.deepEqual(await readFile(path.join(scratch, 'config')), sealed);
+  // A leftover promisor setting without a remote is still removed.
+  run('git', ['config', 'extensions.partialClone', alias], { cwd: scratch });
+  assert.deepEqual(sealTemporaryGitReadTransport(scratch), { ok: true, cleanupUnproven: false });
   assert.equal(run('git', ['config', '--local', '--get-regexp', 'promisor|partialclone'], {
     cwd: scratch, allowFailure: true
   }).status, 1);

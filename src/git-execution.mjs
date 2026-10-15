@@ -1044,13 +1044,20 @@ export function sealTemporaryGitReadTransport(root, { env = process.env } = {}) 
     return refused();
   }
   for (const name of names) if (!processResultSucceeded(local(['remote', 'remove', name]))) return refused();
-  const legacy = local(['config', '--local', '--unset-all', 'extensions.partialClone']);
-  if (!processResultCompleted(legacy) || ![0, 5].includes(legacy.status)) return refused();
-  const remaining = local(['remote']);
-  const promisors = local(['config', '--local', '--get-regexp',
+  const promisorSettings = () => local(['config', '--local', '--get-regexp',
     '^(remote\\..*\\.(promisor|partialclonefilter)|extensions\\.partialclone)$']);
-  if (!processResultSucceeded(remaining) || remaining.stdout !== ''
-      || !processResultCompleted(promisors) || promisors.status !== 1
+  // A store sealed by an earlier read already has no remote and no promisor setting: one read
+  // proves it. Only a store that still has something to remove is changed and read again.
+  let promisors = names.length ? null : promisorSettings();
+  if (!promisors || !processResultCompleted(promisors) || promisors.status !== 1
+      || promisors.stdout !== '' || promisors.stderr !== '') {
+    const legacy = local(['config', '--local', '--unset-all', 'extensions.partialClone']);
+    if (!processResultCompleted(legacy) || ![0, 5].includes(legacy.status)) return refused();
+    const remaining = local(['remote']);
+    if (!processResultSucceeded(remaining) || remaining.stdout !== '') return refused();
+    promisors = promisorSettings();
+  }
+  if (!processResultCompleted(promisors) || promisors.status !== 1
       || promisors.stdout !== '' || promisors.stderr !== '') return refused();
   return { ok: true, cleanupUnproven: false };
 }

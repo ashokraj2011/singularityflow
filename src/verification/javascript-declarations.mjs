@@ -15,9 +15,11 @@
  */
 import { createHash } from 'node:crypto';
 
+import { createSourceAnalysisCache } from '../source-analysis-cache.mjs';
 import { acceptanceTagsInComment, adjacentWhitespace } from './tags.mjs';
 
 export const JAVASCRIPT_DECLARATION_SCHEMA = 'javascript-test-v2';
+const analyzedDeclarations = createSourceAnalysisCache();
 const MAX_SOURCE_CHARACTERS = 1024 * 1024;
 const MAX_TOKENS = 400_000;
 const TEST_FUNCTIONS = new Set(['test', 'it', 'xit', 'xtest', 'fit']);
@@ -350,6 +352,12 @@ function gap(code, message) {
  */
 export function scanJavaScriptDeclarations(source, { sourcePath, framework }) {
   const text = String(source ?? '');
+  const analyze = () => analyzeJavaScriptDeclarations(text, { sourcePath, framework });
+  if (typeof sourcePath !== 'string' || typeof framework !== 'string') return analyze();
+  return analyzedDeclarations(text, JSON.stringify([JAVASCRIPT_DECLARATION_SCHEMA, sourcePath, framework]), analyze);
+}
+
+function analyzeJavaScriptDeclarations(text, { sourcePath, framework }) {
   const empty = { schema: JAVASCRIPT_DECLARATION_SCHEMA, sourcePath, framework, declarations: [], unattachedTags: [], fileGaps: [] };
   if (text.length > MAX_SOURCE_CHARACTERS) {
     return { ...empty, fileGaps: [gap('JAVASCRIPT_SOURCE_LIMIT_EXCEEDED', `the file exceeds ${MAX_SOURCE_CHARACTERS} characters`)] };

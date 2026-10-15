@@ -1,4 +1,7 @@
 import { javascriptSourceComments } from './javascript-source-comments.mjs';
+import { createSourceAnalysisCache } from './source-analysis-cache.mjs';
+
+const analyzedSourceTags = createSourceAnalysisCache();
 
 /** The clause identities that an approved specification may define. */
 export const GOVERNED_CLAUSE_TYPES = Object.freeze(['REQ', 'BEH', 'IFC', 'AC', 'CON']);
@@ -50,6 +53,12 @@ export function clauseTagsInComment(text, { legacy = false } = {}) {
  */
 export function scanSourceClauseTags(source, { legacy = false, sourcePath = null } = {}) {
   const text = String(source ?? '');
+  const analyze = () => analyzeSourceClauseTags(text, { legacy, sourcePath });
+  if (sourcePath !== null && typeof sourcePath !== 'string') return analyze();
+  return analyzedSourceTags(text, JSON.stringify(['source-clause-tags-v1', Boolean(legacy), sourcePath]), analyze);
+}
+
+function analyzeSourceClauseTags(text, { legacy, sourcePath }) {
   // Preserve polyglot comment syntax. JavaScript/JSX gets lexical provenance so literal text
   // cannot become a witness, including multiline templates and JSX attributes/children.
   const javascript = /\.(?:[cm]?[jt]sx?|[cm][jt]s)$/iu.test(sourcePath ?? '')

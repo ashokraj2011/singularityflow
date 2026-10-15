@@ -1566,6 +1566,44 @@ export function proposalGitLineageCommit(root, {
 
 const EXACT_LOCAL_OBJECT_ID = /^[a-f0-9]{40,64}$/iu;
 
+/**
+ * Optional, bounded prefetch for repeated exact-object replay reads. `[perf]`
+ *
+ * Only full immutable object IDs qualify. Returned blobs have verified object hashes, but do not
+ * prove a regular-file mode: a regularOnly caller must still use exactFileAtObject. An omitted
+ * path is not evidence of absence; the caller must use its ordinary exact read for that path or
+ * a different byte limit. Special object stores retain their per-read cleanup/environment checks.
+ */
+export function prefetchExactObjectFiles(root, objectId, files, {
+  maximumObjectBytes = 16 * 1024 * 1024, maximumBytes = 32 * 1024 * 1024
+} = {}) {
+  if (!EXACT_LOCAL_OBJECT_ID.test(String(objectId ?? ''))
+      || ISOLATED_GIT_OBJECT_REPOSITORIES.has(root)
+      || OBJECT_RELOCATING_ENV.some((name) => process.env[name])) return new Map();
+  const wanted = [...new Set(files)].filter((file) => typeof file === 'string' && file.length > 0
+    && file.length <= 4096 && !/[\n\0]/u.test(file)).slice(0, 512);
+  const prefetched = new Map();
+  let remainingBytes = maximumBytes;
+  const scope = path.resolve(root);
+  for (const file of wanted) {
+    const known = exactObjectFiles.get(`${scope}\0${objectId}:${file}`);
+    if (known && known.length <= maximumObjectBytes && known.length <= remainingBytes) {
+      prefetched.set(file, Buffer.from(known));
+      remainingBytes -= known.length;
+    }
+  }
+  const unread = wanted.filter(file => !prefetched.has(file));
+  // A small replay already benefits from exactFileAtObject's process-local memo; don't add a
+  // resolver and object-format lookup just to replace one or two reads.
+  if (unread.length < 4 || remainingBytes <= 0) return prefetched;
+  // An integrity or process-boundary refusal must propagate, never downgrade to a less strict
+  // read. Ordinary missing/oversized entries are omitted by the bounded batch and read normally.
+  const batch = committedFilesAtRevisions(root, unread.map((file) => ({ key: file, ref: objectId, path: file })), {
+    maximumObjectBytes, maximumBytes: remainingBytes
+  });
+  return new Map([...prefetched, ...batch]);
+}
+
 /** Read one blob from an exact local object without replace refs or a promisor-network fallback. */
 export function exactFileAtObject(root, objectId, file, { maximumBytes = 1024 * 1024, regularOnly = false } = {}) {
   invariant(EXACT_LOCAL_OBJECT_ID.test(String(objectId ?? '')), 'Exact Git object ID is invalid.');

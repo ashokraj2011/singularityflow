@@ -157,8 +157,8 @@ causal proof. No trace is captured automatically from native Copilot; no billed 
 inferred. Keep Windows and macOS baselines separate and use at least 30 independent repetitions
 for repeatable read benchmarks. Do not use a synthetic/unit-test trace as native-host evidence.
 
-Remaining milestones: further combined-entry adoption, catalog/parser
-reuse and batched receipt reads. A local warm service is conditional on measured residual startup
+Remaining milestones: further combined-entry adoption, catalog reuse and batching remaining
+test-receipt/raw-report reads. A local warm service is conditional on measured residual startup
 cost; it is not introduced by this increment. All accelerations must preserve current permissions,
 independent review, fresh tests, publication boundaries and human confirmation.
 
@@ -190,3 +190,37 @@ removed afterward; inherited Git relocation, workspace selection and Node preloa
 cleared, so it never runs a model or an existing Story. Loader profiling runs separately
 from timed samples. These source-runtime, OS-warm results do not establish Windows, installed-bundle,
 complete Story or end-to-end Copilot performance; measure those separately before claiming savings.
+
+### Immutable delivery replay and source analysis
+
+Code-delivery receipt verification prefetches up to 512 recorded generation paths through the
+existing verified Git blob batch reader, within 16 MiB per object and 32 MiB total. It accepts only
+full local object IDs, not moving refs. Already-read exact files reuse the existing process memo;
+fewer than four unread paths keep the old per-file route. Missing, oversized or omitted paths
+still take their ordinary exact read, with that call's original byte ceiling. A regular-file
+evidence obligation always retains its separate mode check. Relocated and isolated object stores
+retain the old path, and integrity/process-boundary refusals are not swallowed.
+
+Within a replay, source tags, test declaration indexes and explanation lines are computed once
+per file/context rather than once per clause. The shared source-tag and JavaScript-declaration
+scanners also reuse pure analysis by complete source content, source path, scanner schema and
+options/framework. Each has a process-only LRU capped at 128 entries / 8 MiB, with a 1 MiB entry
+ceiling and a 1,048,576-character source ceiling. Serialized private snapshots prevent caller mutation from changing a
+later result. Source edits select a new key; filesystem, symlink, UTF-8, authority, current-tree,
+test execution and final receipt/approval checks are never cached by this layer.
+
+The Git regression fixture measures **24 individual Git processes versus 3 batched processes**
+for 24 immutable files. It separately proves a warm exact-file memo adds no Git processes.
+On macOS arm64 / Node v25.5.0, a synthetic in-process parser probe (30 samples after 5 warm-ups,
+10 files / 1,000 declarations / 68,820 bytes per batch) observed these nearest-rank timings:
+
+| Parser batch | p50 | p95 |
+| --- | ---: | ---: |
+| Previous scanner | 5.92 ms | 13.38 ms |
+| First content analysis with caching | 6.76 ms | 12.66 ms |
+| Reused content analysis | 0.89 ms | 1.48 ms |
+
+This is repeat-analysis savings, not a claim that first reads are faster: hashing and snapshotting
+add work on cache misses. These synthetic process-count/parser observations do not establish
+complete Story, native Copilot, billed-token or Windows latency savings. Java parsing, catalog
+filesystem discovery and durable test-result/raw-report replay are not changed by this increment.

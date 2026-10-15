@@ -7,7 +7,7 @@ disable-model-invocation: true
 # Attach the Copilot session to durable Git state
 
 <!-- sflow-copilot-pause -->
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+Start with `singularity-flow session open --json` once, including only an explicitly supplied Work ID and workspace/repository selectors; resolve partial selectors as below. It checks pause before Git and resolves workspace selection itself. If `status: paused`, native Copilot; only offer `/sf-pause off`, never resume implicitly. Do not precede it with separate pause/workspace/session lookups. Without a Work ID, show its candidates and ask for an exact choice; never infer selection.
 
 <!-- sflow-output-contract: explicit-selection -->
 **Output contract:** Collect every required choice explicitly; never infer or preselect; preserve errors, artifacts, and next actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say "not available for this action". Missing Copilot: "no verified equivalent". Never invent routes.

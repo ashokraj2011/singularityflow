@@ -96,3 +96,68 @@ shows the brief and its source scope; the extension does not own a separate mode
 Use `/sf-show-prompt` before authoring to see the complete skill and rendered
 prompt, including file paths and hashes. See the [glossary](docs/GLOSSARY.md) and
 [under-the-hood guide](docs/UNDER-THE-HOOD.md) for the full composition path.
+
+## Native execution performance (SPEC-NCE-001, first increment)
+
+Reuse the explicit skill's authoritative entry rather than preceding it with repeated pause,
+workspace or session lookups. `/sf-session` starts with `singularity-flow session open --json`
+(or an explicitly chosen Work ID and selectors). That entry checks pause before Git discovery,
+preserves selection, and keeps its existing attachment/status checks. Other skills retain their
+own entry and fresh operation checks; this is not permission to reuse approval consent.
+
+Audit an exported native host trace, or compare two like-for-like exports:
+
+```bash
+npm run audit:copilot -- --trace /absolute/path/before.json
+npm run audit:copilot -- --trace /absolute/path/before.json --compare /absolute/path/after.json
+```
+
+The exported trace remains `schemaVersion: 1` with an `events` array. Every event requires
+`command` and `responseBytes`; `durationMs` is optional. Add observations only when the exporting
+host actually measured them:
+
+- `timings`: optional nonnegative millisecond values for `preHookMs`, `startupMs`, `moduleLoadMs`,
+  `executionMs`, `postHookMs`, `modelWaitMs` and `gitMs`.
+- `counters`: selected existing counter names such as `git.requests`, `git.spawns`,
+  `git.fact-cache-hits`, `git.remote.total`, `cli.steps.process-spawns`, and `cli.steps.read-reused`.
+  `catalog.scans`, `files.read` and `files.bytes` can be supplied by an instrumented exporter.
+  Unknown names are not retained; counters must be nonnegative safe integers.
+- `runtimeMode`: `bundled` or `sources` only when observed; omission is `unknown`.
+- Optional trace-level `wallClock`: `startedAt` and `completedAt` ISO timestamps with explicit
+  timezones. Without them end-to-end latency is unavailable, not the sum of tool durations.
+
+The audit reports sample coverage and nearest-rank p50/p95 for each timing independently. Missing
+measurements remain unknown, not zero. Git time can be part of execution time, and hooks or tools
+can overlap; never add the layers. Tool-call quantiles are not quantiles of complete Story runs.
+
+To produce comparison differences, both exports must declare matching `benchmark` metadata:
+
+```json
+{
+  "scope": "command",
+  "scenarioId": "session-open",
+  "fixtureSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "platform": "win32",
+  "host": "vscode-copilot",
+  "temperature": "warm",
+  "sampleCount": 30
+}
+```
+
+The hash above is illustrative: use the digest of the actual reviewed fixture. `scope` is
+`command` or `story`; `platform` is `win32`, `darwin` or `linux`; `temperature` is `cold` or `warm`.
+`sampleCount` describes independent runs, not tool events. Story comparisons also require the
+same workflow and phase order and a reported complete phase journey on both sides. A mismatched
+fixture, platform, host, temperature or sample count returns `comparable: false` with no differences
+and a nonzero exit status when `--compare` was requested.
+Partial service timing cannot establish a complete service-time reduction.
+
+These are observational exports, not receipts, provider accounting, statistical significance or
+causal proof. No trace is captured automatically from native Copilot; no billed savings are
+inferred. Keep Windows and macOS baselines separate and use at least 30 independent repetitions
+for repeatable read benchmarks. Do not use a synthetic/unit-test trace as native-host evidence.
+
+Remaining milestones: dedicated hook runtime, further combined-entry adoption, catalog/parser
+reuse and batched receipt reads. A local warm service is conditional on measured residual startup
+cost; it is not introduced by this increment. All accelerations must preserve current permissions,
+independent review, fresh tests, publication boundaries and human confirmation.

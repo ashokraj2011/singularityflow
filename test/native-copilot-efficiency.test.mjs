@@ -10,7 +10,17 @@ import { agentPacketPresentation, phaseEntryAgentPresentation } from '../src/age
 import { agentNextSteps } from '../src/commands/nextsteps.mjs';
 import { authoringSkillCatalog } from '../src/authoring-skills.mjs';
 import { loadSkillPolicy } from '../scripts/skill-policy.mjs';
-import { SESSION_ENTRY_PAUSE_GUARD } from '../src/copilot-mode.mjs';
+import { copilotPauseGuardForSkill, SESSION_ENTRY_PAUSE_GUARD, SESSION_OPEN_PAUSE_GUARD } from '../src/copilot-mode.mjs';
+
+test('session setup uses its pause-aware entry without an extra host lookup', async () => {
+  assert.equal(copilotPauseGuardForSkill('sflow-session', 'repository'), SESSION_OPEN_PAUSE_GUARD);
+  assert.match(SESSION_OPEN_PAUSE_GUARD, /Do not precede it with separate pause\/workspace\/session lookups/);
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const { readFile } = await import('node:fs/promises');
+  const skill = await readFile(path.join(root, 'plugin/skills/sflow-session/SKILL.md'), 'utf8');
+  assert.ok(skill.includes(SESSION_OPEN_PAUSE_GUARD));
+  assert.equal(skill.includes('`singularity-flow pause status --json`'), false);
+});
 
 test('agent presentation preserves exact current-platform commands, bindings, material and findings', () => {
   const packet = { ready: false, context: { text: 'Exact governed input' },

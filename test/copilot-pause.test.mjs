@@ -75,12 +75,23 @@ test('pause, paused Home and hooks work without Git or any workspace, and leave 
   assert.equal(invoke(['home', '--json', '--request', 'write ordinary code']).nativeCopilot, true);
   assert.equal(invoke(['phase', 'enter', '--for-agent', '--json']).nativeCopilot, true);
   assert.equal(invoke(['session', 'current', '--for-agent', '--json']).nativeCopilot, true);
+  for (const args of [['session', 'open', '--json'], ['session', 'open', 'CHOSEN-1', '--json'],
+    ['session', 'open', '--workspace', 'EXPLICIT', '--repository', 'APP', '--json']]) {
+    const opened = invoke(args);
+    assert.equal(opened.resultType, 'session-open');
+    assert.equal(opened.status, 'paused', 'pause precedes Git, workspace reads and selection');
+    assert.equal(opened.agentInstruction, paused.agentInstruction);
+  }
   for (const args of [['session', 'current', '--for-agent', '--allow-dirty', '--json'],
     ['session', 'attach', 'OTHER', '--for-agent', '--json'], ['session', 'current', 'OTHER', '--for-agent', '--json'],
-    ['session', 'current', '--for-agent=false', '--json'], ['session', 'current', '--for-agent']]) {
+    ['session', 'current', '--for-agent=false', '--json'], ['session', 'current', '--for-agent'],
+    ['session', 'open', '--allow-dirty', '--json'], ['session', 'open', 'CHOSEN-1', 'EXTRA', '--json'],
+    ['session', 'open', '--json=false']]) {
     const invalid = spawnSync(process.execPath, [cli, ...args], { cwd: directory, env, encoding: 'utf8', timeout: 15_000 });
     assert.notEqual(invalid.status, 0);
-    assert.match(invalid.stdout + invalid.stderr, /SESSION_AGENT_OPTIONS_INVALID|session current --for-agent --json/);
+    assert.match(invalid.stdout + invalid.stderr, args.includes('--json=false')
+      ? /session open requires --json without a value/ : args[1] === 'open'
+        ? /SESSION_OPEN_OPTION_UNSUPPORTED/ : /SESSION_AGENT_OPTIONS_INVALID|session current --for-agent --json/);
   }
   assert.equal(invoke(['phase', 'enter', '--compose', '--for-agent', '--json']).nativeCopilot, true);
   assert.equal(invoke(['nextsteps', '--for-agent', '--json']).nativeCopilot, true);

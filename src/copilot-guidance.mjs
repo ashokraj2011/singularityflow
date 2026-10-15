@@ -109,6 +109,13 @@ export function copilotCommandForCommand(command, skill = null, fallback = '/sf-
     const match = value.match(/^(?:singularity-flow|sflow)\s+pause(?:\s+(on|off|status))?(?:\s+--json)?$/u);
     return match?.[1] ? `${selected} ${match[1]}` : selected;
   }
+  if (selected === '/sf-submit') {
+    // A reviewed Convergence digest travels with the route. A bare /sf-submit only previews the
+    // same digest again, so a person who followed it never reached the confirmation and looped.
+    const match = !/[\u0000-\u001f\u007f]/u.test(value) && value.match(
+      /^(?:singularity-flow|sflow)\s+story\s+advance\s+--work-id\s+([A-Za-z0-9][A-Za-z0-9._-]{0,127})\s+--confirm\s+(sha256:[a-f0-9]{64})$/u);
+    return match ? `${selected} --work-id ${match[1]} --confirm ${match[2]}` : selected;
+  }
   if (selected === '/sf-approve') {
     const selectors = approvalSelectors(value);
     return selectors ? `${selected} ${selectors}` : selected;

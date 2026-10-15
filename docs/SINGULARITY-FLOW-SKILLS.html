@@ -10703,11 +10703,11 @@ TRP: read and follow `singularity-flow explain test-recovery`; returned legal ac
           <span class="pill">review</span>
           <span class="pill">story boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1162 body tokens</span>
+          <span class="pill">~1180 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-submit</code></dd></div>
-          <div><dt>Arguments</dt><dd><code>[--skip-checks only when explicitly authorized]</code></dd></div>
+          <div><dt>Arguments</dt><dd><code>[--confirm sha256:&lt;DIGEST&gt; for a reviewed Convergence] [--skip-checks only when explicitly authorized]</code></dd></div>
           <div><dt>Model-capable operations</dt><dd>none</dd></div>
           <div><dt>Source</dt><dd><code>plugin/skills/sflow-submit/SKILL.md</code></dd></div>
         </dl>
@@ -10719,7 +10719,7 @@ TRP: read and follow `singularity-flow explain test-recovery`; returned legal ac
 name: sflow-submit
 description: Validate and submit the active Singularity Flow phase for human approval, registering changed artifacts and running configured quality commands.
 disable-model-invocation: true
-argument-hint: &quot;[--skip-checks only when explicitly authorized]&quot;
+argument-hint: &quot;[--confirm sha256:&lt;DIGEST&gt; for a reviewed Convergence] [--skip-checks only when explicitly authorized]&quot;
 
 ---
 # Submit
@@ -10738,7 +10738,7 @@ Reuse a verified pause-aware entry supplied in this invocation before any mutati
 2. `lifecycleReady: true`: **Published generation &lt;N&gt; — ready to submit**; otherwise disable Submit. Generation zero means unpublished, not missing code. `generation-required`: relay `authoringProgress.stage`, preservation instruction and exact `nextCommand`/`nextSkill`. Finish missing summary/planned bindings or validate the authored draft; never redo existing code, infer publication from manual tests, use session UUID as WORK-ID or generate/publish here.
 3. Source review is part of readiness: only when it reports `source-review-required`, relay `sourceReviewFindings` and its exact review actions; never run a separate review check. Reviewer reports are not approval. Pending amendment acknowledgement requires the person&#39;s explicit choice.
 4. `confirmationRequired: true`: show full warning and returned Work-ID-pinned command; human provides `continue`.
-5. Readiness `classification` `convergence-advance-required`: never generic `singularity-flow submit`. Run returned `singularity-flow story advance` without `--confirm`; show review/digest, stop on unresolved dispositions. Human confirms exact `--confirm sha256:&lt;DIGEST&gt;` once. Changed digest requires fresh review.
+5. Readiness `classification` `convergence-advance-required`: never generic `singularity-flow submit`. Run returned `singularity-flow story advance` without `--confirm`; show review/digest, stop on unresolved dispositions. Invoked with `--confirm sha256:&lt;DIGEST&gt;` equal to the shown digest, or the person confirms it here: run it with `--confirm` once. Changed digest requires fresh review.
 6. Unless `submitIfReady.submitted`, run returned Work-ID-pinned submit command. `--skip-checks` requires authorization.
 7. On failure, fingerprint refusal plus artifact/check hashes and diagnosed runtime evidence. Nonzero exit fails despite passing JUnit. Proven environment repair permits retry without republishing unchanged source; changed source/artifacts need reviewed rollover. Stop on an unchanged condition or after three distinct repairs. Never loop quality commands or waive tests/integrity/policy. `/sf-recover` never substitutes for terminal decisions.
 8. Use `submitIfReady.review`, else `singularity-flow phase show &lt;phase&gt; --for-agent --json`. Summarize submitted status/checks/warnings and list each artifact/brief&#39;s identity, generation/hash and verified Markdown-preview link. Preserve `displayBinding` and fresh `reviewBinding`; never reproduce document bodies, code or diffs. Tool output or summaries are not review.

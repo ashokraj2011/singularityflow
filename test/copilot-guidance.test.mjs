@@ -77,6 +77,20 @@ test('continuation handoffs retain the exact operation, phase, Story and confirm
   }
 });
 
+test('a reviewed Convergence digest travels with its Copilot route instead of a bare submit that previews again', () => {
+  // Following a bare /sf-submit previewed the same digest again, so the confirmation was never reached.
+  const digest = `sha256:${'c'.repeat(64)}`;
+  const confirm = safeCommandGuidance({ command: `singularity-flow story advance --work-id after-fix --confirm ${digest}`, skill: '/sf-submit' });
+  assert.equal(confirm.copilotCommand, `/sf-submit --work-id after-fix --confirm ${digest}`);
+  assert.equal(confirm.command, `singularity-flow story advance --work-id after-fix --confirm ${digest}`);
+  // The preview, a malformed digest and an extra argument keep the plain review route.
+  for (const command of ['singularity-flow story advance --work-id after-fix',
+    'singularity-flow story advance --work-id after-fix --confirm sha256:abc',
+    `singularity-flow story advance --work-id after-fix --confirm ${digest} --json`]) {
+    assert.equal(copilotCommandForCommand(command, '/sf-submit'), '/sf-submit', command);
+  }
+});
+
 test('approval guidance preserves exact phase and Story selectors without execution authority', () => {
   for (const command of [
     'singularity-flow approve poc-review-v2 --work-id CUSTOM-STORY-17 --fetch',

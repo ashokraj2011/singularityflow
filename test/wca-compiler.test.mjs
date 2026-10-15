@@ -451,7 +451,7 @@ test('ordinary context/catalog/preview performs zero extra package captures and 
   git(f.root, 'commit', '-m', 'Approved existing executable resource mode');
   git(f.root, 'branch', '-f', 'sflow/config', 'HEAD'); git(f.root, 'push', 'origin', 'main', 'sflow/config');
   f.commit = git(f.root, 'rev-parse', 'HEAD'); f.request.baseRevision = f.commit; f.replacementRequest.baseRevision = f.commit;
-  const counts = new Map(); const timer = { increment(name, amount) { counts.set(name, (counts.get(name) ?? 0) + amount); } };
+  const counts = new Map(); const timer = { increment(name, amount) { counts.set(name, (counts.get(name) ?? 0) + amount); }, measure: (name, action) => action() };
   await withCommandTiming(timer, async () => {
     const context = await captureWorkflowCompilerContext(f.root); workflowCompilerCatalogChoices(context);
     const ordinary = await preview(f); assert.equal(ordinary.result.readiness.authoring, 'valid', JSON.stringify(ordinary.result.findings));
@@ -705,7 +705,7 @@ test('shared content metadata/effect/mixed-profile/stale-byte proposals refuse w
 
 test('ordinary approved reads omit authoring byte work and only explicit opt-in snapshots expose the private raw profile', async (t) => {
   const f = await fixture(t); const counts = new Map();
-  const timer = { increment(name, amount) { counts.set(name, (counts.get(name) ?? 0) + amount); } };
+  const timer = { increment(name, amount) { counts.set(name, (counts.get(name) ?? 0) + amount); }, measure: (name, action) => action() };
   await withCommandTiming(timer, () => withApprovedConfigurationRead(f.root, () => {
     assert.throws(() => captureVerifiedConfigurationAssetBytes(configurationReadSnapshot(f.root), {
       selectPaths: ['singularity/workflow.yml']

@@ -108,7 +108,9 @@ test('workspace dependencies resolve to candidate source, not excluded working-t
 test('an unrelated local edit that would break the tests stays in the worktree while the candidate is verified, published and approved [D9]', async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-isolation-'));
   const remote = `${root}.git`;
-  t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(remote, { recursive: true, force: true })]));
+  // Git's detached maintenance can still be writing .git/objects as the test ends (ENOTEMPTY).
+  const removed = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 };
+  t.after(() => Promise.all([rm(root, removed), rm(remote, removed)]));
   const cli = (...args) => run(process.execPath, [CLI, '--no-model', ...args], root);
   const write = async (relative, contents) => {
     await mkdir(path.dirname(path.join(root, relative)), { recursive: true });
@@ -199,7 +201,7 @@ test('an unrelated local edit that would break the tests stays in the worktree w
   // Review the exact published candidate in a clean clone, without committing or discarding
   // unrelated work in the original checkout. This is a reviewed alternative, not --allow-dirty.
   const reviewRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-review-'));
-  t.after(() => rm(reviewRoot, { recursive: true, force: true }));
+  t.after(() => rm(reviewRoot, removed));
   run('git', ['clone', '--branch', W, remote, reviewRoot], root);
   run('git', ['config', 'user.name', 'Isolation Tester'], reviewRoot);
   run('git', ['config', 'user.email', 'iso@example.test'], reviewRoot);

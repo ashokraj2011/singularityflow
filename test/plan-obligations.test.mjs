@@ -135,8 +135,9 @@ test('publishing a plan refuses an obligation allocated to a step it does not pl
   const specPath = path.join(root, 'singularity/work-items', W, 'artifacts/specification/spec.md');
   const spec = (steps) => [
     `# ${W} — Specification`, '', '## Agent brief', '', 'The exported value must be 2, with a matching executable test.', '',
-    '## Actors', '', 'A user reads the value.', '', '## User scenarios', '', 'Given a ready application, when a user reads the value, then 2 is displayed.', '',
+    '## Actors', '', 'A user reads the value.', '', '## User scenarios', '', '### S1 — Read the value', '', 'Given a ready application, when a user reads the value, then 2 is displayed.', '',
     '## Requirements', '', `- The application returns the value 2. [${W}:REQ-001]`, `- The user sees the value 2. [${W}:AC-001]`, '',
+    '## Scenario coverage', '', '| Clause | Scenario | Outcome |', '|---|---|---|', `| \`${W}:REQ-001\` | S1 | success |`, `| \`${W}:AC-001\` | S1 | success |`, '',
     '## Boundary and non-functional requirements', '', 'Do not expose private data; invalid input is rejected deterministically.', '',
     '## Planned implementation evidence', '',
     '| Clause | Expected paths | Planned tests | Fulfillment | Steps | Observable result |', '|---|---|---|---|---|---|',

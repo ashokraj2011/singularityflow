@@ -660,7 +660,9 @@ test('phase remediation preserves an exact safe producer retry without replacing
     }
   }), ['phase', 'publish', 'implementation']);
   assert.equal(plan.retry.command, retry);
-  assert.equal(plan.retry.skill, '/sf-code');
+  // The exact command is preserved; a standalone publication is always presented as /sf-publish
+  // (e759274f), while the author's repair step keeps its authoring skill.
+  assert.equal(plan.retry.skill, '/sf-publish');
   assert.equal(plan.steps[0].skill, '/sf-code');
   assert.ok(plan.steps.some((entry) => entry.command ===
     'singularity-flow recover CODE-9 --phase implementation --json'));

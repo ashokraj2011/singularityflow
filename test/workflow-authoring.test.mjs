@@ -309,7 +309,10 @@ test('Workflow Studio changes workflows, steps and artifacts only through the en
   assert.doesNotMatch(host, /writeFile|fs\.promises/, 'the extension never writes configuration files itself');
   // A change made outside the change set (an imported bundle) is still a shared-configuration
   // proposal: the extension must not borrow the selected Story worktree.
-  assert.match(extension, /if \(!command\.includes\('--propose'\)\) command\.push\('--propose'\)/);
+  // Since 30128f92 a repository with no shared configuration authority applies the import locally;
+  // whenever the plan names a destination authority, import and duplicate both propose.
+  assert.match(extension, /if \(propose && !command\.includes\('--propose'\)\) command\.push\('--propose'\)/);
+  assert.equal(extension.match(/\{ propose: Boolean\(plan\.destinationAuthority\) \}/g)?.length, 2);
   assert.match(extension, /if \(!command\.includes\('--json'\)\) command\.push\('--json'\)/);
   assert.match(extension, /The active Story was not changed/);
   assert.doesNotMatch(extension, /runGovernedAction\(client, \{ command: message\.command/);

@@ -161,8 +161,10 @@ test('POC Lite completes its one human boundary with --no-model and a local bare
     'phase', 'publish', phase, '--authored', 'deterministic', '--channel', 'kernel-generator'
   );
   const preparedPlan = lifecycle('prepare', 'poc-lite-plan');
-  assert.match(preparedPlan.stdout,
-    /phase publish poc-lite-plan --authored deterministic --channel kernel-generator/);
+  // Preparation already ran: its route checks the prepared deterministic artifact and publishes it
+  // only when ready (/sf-publish), never as a human import.
+  assert.match(preparedPlan.stdout, /phase prepublish poc-lite-plan --for-agent --json/);
+  assert.match(preparedPlan.stdout, /Copilot: \/sf-publish poc-lite-plan/);
   assert.doesNotMatch(preparedPlan.stdout, /--authored human/);
   publish('poc-lite-plan');
   const submittedPlan = lifecycle('run', '--yes');

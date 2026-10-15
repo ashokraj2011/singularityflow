@@ -1142,6 +1142,8 @@ export function renderRefusalPlan(plan) {
         ? `  Scope: phase ${plan.context.phaseId} — external host prerequisite; do not rewrite Story evidence or bypass the gate.`
         : plan.context.strategy === 'pinned-test-policy-prerequisite'
           ? `  Scope: phase ${plan.context.phaseId} — pinned test-policy prerequisite; preview a reviewed test-command amendment for the active phase, then follow its preparation or fresh-validation route.`
+        : plan.context.strategy === 'escalate-repeated-finding'
+          ? `  Scope: phase ${plan.context.phaseId} — the same finding keeps returning; stop repairing it and hand it to someone other than the author. Nothing was accepted or waived.`
         : plan.context.strategy === 'upstream-input'
           ? `  Scope: phase ${plan.context.phaseId} — the cause is an approved input from ${plan.context.upstreamPhases?.join(', ') || 'an earlier phase'}; do not edit it here. Restore its approved bytes or use that phase's return or amendment route.`
         : `  Scope: phase ${plan.context.phaseId} — repair in place; no automatic advance or history rewrite.`
@@ -1156,6 +1158,9 @@ export function renderRefusalPlan(plan) {
       const modelFreeCommand = safeCommandGuidance(entry)?.modelFreeCommand ?? null;
       lines.push(...commandRouteLines({ ...entry, modelFreeCommand }, '     '));
     }
+  }
+  if (plan.escalation) for (const route of plan.escalation.routes) {
+    lines.push(`  ${route.kind === 'dispute' ? 'Dispute' : route.kind === 'documentation' ? 'Read' : 'Inspect'} (${route.owner}): ${route.command}`);
   }
   if (plan.documentation) lines.push(`  Documentation: ${plan.documentation.command}`);
   lines.push(`  Then: ${plan.retry.label}`);

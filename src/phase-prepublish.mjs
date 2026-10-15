@@ -30,7 +30,7 @@ import {
   predecessorSpecClauses
 } from './specifications.mjs';
 import { exists, posix, secureRepositoryPath, snapshot, SingularityFlowError } from './util.mjs';
-import { phaseFindingPolicy } from './phase-finding-policy.mjs';
+import { phaseFindingCode, phaseFindingPolicy } from './phase-finding-policy.mjs';
 import { planningEvidenceRepair } from './planning-evidence-repair.mjs';
 import { phaseAuthoringContract, phasePlansDelivery } from './phase-authoring-contract.mjs';
 
@@ -529,6 +529,19 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
       : (briefOnly || authoringRepairOnly) && agentOwnsRepair);
   const planningRepairAllowed = planningRepairCandidate && sameTurnCorrection;
   const { phaseResolutionProjection } = await import('./phase-resolution.mjs');
+  // The same finding returning after the author changed something is a loop no repair can end:
+  // say so, and hand it on [recoverable-findings M3]. Machine-local and advisory; nothing is accepted.
+  let escalation = null;
+  if (!ready && !retained && findings.size) {
+    const { findingEscalation, findingFingerprint, observeFindingStreak, worktreeAttempt } = await import('./finding-escalation.mjs');
+    const { DISPUTABLE_GATES } = await import('./phase-finding-dispute-schema.mjs');
+    const blocking = [...findings.values()];
+    const codes = blocking.map((finding) => phaseFindingCode(finding));
+    const count = observeFindingStreak(root, { workId: workflow.workItem.id, phaseId: phase.id, generation: draft.generation,
+      fingerprint: findingFingerprint(blocking), attempt: worktreeAttempt(root, draftFingerprint) });
+    escalation = findingEscalation({ count, code: codes.find((code) => DISPUTABLE_GATES.includes(code)) ?? codes[0],
+      workId: workflow.workItem.id, phaseId: phase.id });
+  }
   return Object.freeze({
     schemaVersion: 1,
     resultType: 'sflow-phase-prepublish',
@@ -551,7 +564,9 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
     resolution: phaseResolutionProjection(workflow, phase, [...findings.values()], {
       advisories: draft.advisories ?? [], transition: retained ? 'submit' : 'publish'
     }),
-    repairLoop: dependencies.repairLoop,
+    repairLoop: escalation ? { ...(dependencies.repairLoop ?? {}), status: 'escalate', escalation, protocol: escalation.instruction }
+      : dependencies.repairLoop,
+    ...(escalation ? { escalation } : {}),
     ...(draftRepairAllowed ? { draftRepair: { allowed: true, scope: 'draft-only',
       heldEvidence: heldDraft.heldEvidence, publicationBlocked: true, evidenceAccepted: false,
       deferredFindingCodes: ['PLAN_EVIDENCE_CORRECTION_REVIEW_REQUIRED'] } } : {}),

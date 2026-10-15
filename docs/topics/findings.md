@@ -14,7 +14,7 @@ related:
   - recovery
   - phase-appeals
   - escalation
-version: 2
+version: 3
 ---
 A finding is one exact reason a step cannot publish, submit or finish. Every finding has an owner and a recovery route: the step's own author fixes its draft, an earlier step's approvers decide an upstream issue, a person records a decision, or an owner restores trusted bytes. Each refusal names its finding code; read its entry here with `sflow explain findings --section <CODE>` (the code is matched without regard to case). Nothing in this catalog waives a test, approves a step or accepts a risk by itself.
 
@@ -34,6 +34,7 @@ Use this topic when a step was refused and you need to know what the finding mea
 2. Read its entry below: what it means, the usual causes, and the fix.
 3. Fix what the entry says the author owns, then recheck with `sflow phase prepublish <PHASE> --json`.
 4. When the author cannot fix it (the finding belongs to an earlier step, a person must decide, or the check misreads correct work), use the route its entry names for someone else instead of repeating the same repair.
+5. When the same finding returns a third time after real changes, the result says so: a refusal's first step becomes "Stop" with the routes for someone other than the author, and `sflow phase prepublish` reports `repairLoop.status: escalate`. A recheck with nothing changed is not counted. The count is kept on this computer only and accepts nothing.
 
 ## Finding classes
 

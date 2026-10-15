@@ -161,3 +161,32 @@ test('a dispute covers only a code-delivery finding, and needs evidence and a re
     '--evidence-file', '../outside.txt', '--expires', EXPIRES, '--reason', REASON, '--json');
   assert.notEqual(elsewhere.status, 0);
 });
+
+test('the same refusal three times says to stop and hand it on; prepublish counts only real repairs [recoverable-findings M3]', async (t) => {
+  const { attempt, write, testSource } = await story(t);
+  const publish = () => attempt('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place');
+  const outputs = [publish(), publish(), publish()].map((result) => result.stdout + result.stderr);
+  assert.doesNotMatch(outputs[1], /Stop: CODE_DELIVERY_EVIDENCE_REQUIRED/u);
+  assert.match(outputs[2], /1\. Stop: CODE_DELIVERY_EVIDENCE_REQUIRED has returned 3 times; repeating the repair cannot pass\./u);
+  assert.match(outputs[2], /Dispute \(phase-approval-authority\): singularity-flow appeal risk-prepare --phase implementation --finding CODE_DELIVERY_EVIDENCE_REQUIRED/u);
+  const json = JSON.parse(attempt('phase', 'publish', 'implementation', '--authored', 'human', '--channel', 'manual-in-place', '--json').stdout);
+  assert.equal(json.remediationPlan.escalation.required, true);
+  assert.equal(json.remediationPlan.steps[0].id, 'escalate-repeated-finding');
+  assert.equal(json.remediationPlan.context.strategy, 'escalate-repeated-finding', 'agents follow the strategy, so it must stop the repair');
+  assert.match(outputs[2], /Scope: phase implementation — the same finding keeps returning; stop repairing it/u);
+
+  const check = () => JSON.parse(attempt('phase', 'prepublish', 'implementation', '--for-agent', '--json').stdout);
+  const first = check();
+  assert.notEqual(first.repairLoop?.status, 'escalate');
+  assert.notEqual(check().repairLoop?.status, 'escalate', 'a recheck with nothing changed is not a repair');
+  const repair = async (note) => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await write(TEST_PATH, `// repair attempt: ${note}\n${testSource(2, true)}`);
+    return check();
+  };
+  assert.notEqual((await repair('second')).repairLoop?.status, 'escalate', 'two attempts are still repairs');
+  const third = await repair('third');
+  assert.equal(third.repairLoop.status, 'escalate', JSON.stringify(third.repairLoop));
+  assert.equal(third.escalation.code, 'CODE_DELIVERY_EVIDENCE_REQUIRED');
+  assert.match(third.repairLoop.protocol, /Stop repairing, prepublishing, recovering or re-running the appeal preflight/u);
+});

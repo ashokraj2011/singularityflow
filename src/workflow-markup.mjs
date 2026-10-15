@@ -7,6 +7,9 @@ import YAML from 'yaml';
 import { parseWorkflowMarkup, markupChildren, markupShape, markupId, markupText, markupError } from './workflow-markup-parser.mjs';
 import { scanEntries } from './secrets.mjs';
 import { inlineInstructionTags } from './skill-instruction-composition.mjs';
+import { withoutAttachedSkills, effectiveLibrarySkills } from './skill-library.mjs';
+import { derivedMcpPolicy } from './workflow-markup-mcp.mjs';
+import { normalizeApprovalPolicy } from './approval-authority.mjs';
 
 export const WORKFLOW_MARKUP_FORMAT = 'sflow-workflow-markup/v1';
 const digest = text => `sha256:${createHash('sha256').update(text).digest('hex')}`;
@@ -50,19 +53,29 @@ function omit(node) {
  * Pure lowering against an explicit installed starter. It cannot fetch a URL, execute a command,
  * change group membership, invent a test runner or rewrite another workflow's phase or skills.
  */
-export function lowerWorkflowMarkup(source, { definition, agents = [] }) {
+export function lowerWorkflowMarkup(source, { definition, agents = [], catalog = null }) {
   const root = parseWorkflowMarkup(source);
-  markupShape(root, 'workflow', ['version', 'id', 'label', 'extends'], ['description', 'agent', 'skill', 'instruction', 'phase', 'omit']);
-  if (root.attrs.version !== '1') markupError('Declare workflow version="1".', root);
+  const version2 = root.attrs.version === '2';
+  markupShape(root, 'workflow', ['version', 'id', 'label', 'extends', ...(version2 ? ['catalog', 'catalog-source'] : [])], ['description', 'agent', 'skill', 'instruction', 'phase', 'omit', ...(version2 ? ['intent'] : [])]);
+  if (!['1', '2'].includes(root.attrs.version)) markupError('Declare workflow version="1" or catalog-bound version="2".', root);
+  if (version2 && (!catalog || root.attrs.catalog !== catalog.sourceSha256 || !['approved', 'installed'].includes(root.attrs['catalog-source']))) markupError('Version 2 requires the exact captured catalog and catalog-source.', root, 'WORKFLOW_MARKUP_CATALOG_REQUIRED');
+  const reusedAssets = [];
+  const reuse = (kind, name, node, as = name) => {
+    const found = catalog?.entries.find(item => item.kind === kind && item.id === name && item.available);
+    if (!found) markupError(`No available ${kind} '${name}' exists in the bound catalog. Search the catalog; do not invent IDs.`, node);
+    if (!reusedAssets.some(item => item.kind === kind && item.id === name && item.as === as)) reusedAssets.push({ kind, id: name, as, sha256: found.sha256 });
+    return found.value;
+  };
   const id = markupId(root.attrs.id, root); const baseId = markupId(root.attrs.extends, root, 'Starter workflow');
   const base = Object.hasOwn(definition.workTypes ?? {}, baseId) ? definition.workTypes[baseId] : null;
-  if (!base) markupError('The extends workflow is not an installed starter.', root);
+  if (!base) markupError('The extends workflow is not in the selected configuration.', root);
+  if (version2) reuse('workflow', baseId, root);
   if (Object.hasOwn(definition.workTypes, id)) markupError('Workflow ID already exists; choose a new namespace.', root);
   const workflow = structuredClone(base);
   workflow.label = text(root.attrs.label, root, 'Workflow label');
   workflow.description = description(root) ?? base.description ?? '';
   const phaseNodes = children(root, 'phase');
-  if (!phaseNodes.length || phaseNodes.length > 30 || phaseNodes.length !== base.phases.length) markupError('Version 1 explicitly maps every starter phase once, in its existing order.', root);
+  if (!phaseNodes.length || phaseNodes.length > 30 || phaseNodes.length !== base.phases.length) markupError('Map every selected workflow-contract phase once, in its existing order. Use the canvas or reviewed workflow-authoring package route for a different topology.', root);
   const phaseMap = new Map(); const phaseIds = new Set();
   const declared = new Map(); const sourceMap = [{ target: `workflow:${id}`, start: root.start, end: root.end, line: root.line }];
   const claim = (kind, value, node) => {
@@ -77,6 +90,7 @@ export function lowerWorkflowMarkup(source, { definition, agents = [] }) {
     markupShape(node, 'phase', ['id', 'label', 'from', 'agent', 'next'], ['description', 'skill', 'decision', 'loop', 'approval']);
     const phaseId = claim('phase', node.attrs.id, node);
     if (node.attrs.from !== base.phases[index]) markupError('Each from must match the corresponding starter phase; no phase contract is silently dropped or reordered.', node);
+    if (version2) reuse('phase', node.attrs.from, node, phaseId);
     if (phaseIds.has(phaseId) || Object.hasOwn(definition.phases, phaseId)) markupError('Phase ID already exists.', node);
     phaseMap.set(node.attrs.from, phaseId); phaseIds.add(phaseId);
   });
@@ -111,16 +125,24 @@ export function lowerWorkflowMarkup(source, { definition, agents = [] }) {
     ...(decision.back ? { back: remap(decision.back) } : {}),
     ...(decision.routes ? { routes: decision.routes.map((route, at) => ({ ...structuredClone(route), id: markupId(`${id}-route-${index + 1}-${at + 1}`, root), to: ['next', 'end'].includes(route.to) ? route.to : remap(route.to) })) } : {}) }));
   const skills = []; const instructions = []; const newAgents = []; const attachments = [];
+  if (version2) for (const use of catalog.attachments.filter(item => item.workflow === baseId)) {
+    attachments.push({ skill: use.id, workflow: id, steps: use.phases.map(remap), use: use.use });
+  }
   const knownSkills = new Set(); const knownInstructions = new Set();
   for (const node of children(root, 'instruction')) {
-    markupShape(node, 'instruction', ['id', 'description'], [], true);
+    markupShape(node, 'instruction', ['id', 'description', ...(version2 ? ['from'] : [])], [], true);
     const name = claim('instruction', node.attrs.id, node); knownInstructions.add(name);
-    instructions.push({ id: name, description: text(node.attrs.description, node, 'Instruction description'), instructions: text(markupText(node), node, 'Instruction text') });
+    const parent = node.attrs.from ? reuse('instruction', node.attrs.from, node, name) : null;
+    if (parent && markupText(node).trim()) markupError('A from instruction reuses its exact body; declare a new instruction to change it.', node);
+    instructions.push({ id: name, description: text(node.attrs.description ?? parent?.description, node, 'Instruction description'), instructions: text(parent?.instructions ?? markupText(node), node, 'Instruction text'), ...(parent ? { tags: parent.tags } : {}) });
   }
   for (const node of children(root, 'skill')) {
-    markupShape(node, 'skill', ['id', 'description'], ['instruction'], true);
+    markupShape(node, 'skill', ['id', 'description', ...(version2 ? ['from'] : [])], ['instruction'], true);
     const name = claim('skill', node.attrs.id, node); knownSkills.add(name);
-    skills.push({ id: name, description: text(node.attrs.description, node, 'Skill description'), instructions: text(prose(node), node, 'Skill procedure') });
+    const parent = node.attrs.from ? reuse('skill', node.attrs.from, node, name) : null;
+    if (parent && prose(node).trim()) markupError('A from skill reuses its exact procedure; declare a new skill for different instructions.', node);
+    skills.push({ id: name, description: text(node.attrs.description ?? parent?.description, node, 'Skill description'),
+      instructions: text(parent?.instructions ?? prose(node), node, 'Skill procedure'), ...(parent ? { loading: parent.loading, instructionRefs: parent.declaredInstructionRefs, tags: parent.tags } : {}) });
   }
   const references = (node, target) => {
     for (const child of children(node, 'skill')) {
@@ -130,11 +152,23 @@ export function lowerWorkflowMarkup(source, { definition, agents = [] }) {
     }
   };
   for (const node of children(root, 'agent')) {
-    markupShape(node, 'agent', ['id', 'description', 'tools'], ['description', 'skill']);
+    markupShape(node, 'agent', ['id', 'description', 'tools', ...(version2 ? ['from'] : [])], ['description', 'skill']);
     const name = claim('agent', node.attrs.id, node);
     if (agents.some(agent => agent.id === name)) markupError('Agent ID already exists.', node);
-    newAgents.push({ id: name, description: text(node.attrs.description, node, 'Agent description'),
-      instructions: text(description(node), node, 'Agent prompt'), tools: list(node.attrs.tools) });
+    const parent = node.attrs.from ? reuse('agent', node.attrs.from, node, name) : null;
+    if (parent?.dependencies?.length) markupError('This agent has remote resources. Use the existing reviewed authoring/import route; they cannot be silently dropped or fetched.', node);
+    if (parent && node.attrs.tools !== undefined && list(node.attrs.tools).some(tool => !parent.tools.includes(tool))) markupError('A derived agent cannot silently expand its parent tools.', node);
+    const extra = description(node);
+    // The skill table is remapped below; copying its old phase selectors would silently lose skills.
+    const body = parent ? withoutAttachedSkills(parent.prompt).trim() : null;
+    newAgents.push({ id: name, description: text(node.attrs.description ?? parent?.description, node, 'Agent description'),
+      instructions: text(parent ? [body, extra ? `## Workflow-specific guidance\n\n${extra}` : ''].filter(Boolean).join('\n\n') : extra, node, 'Agent prompt'),
+      tools: node.attrs.tools !== undefined ? list(node.attrs.tools) : parent?.tools ?? [], ...(parent ? { parentId: parent.id, views: parent.worldModelViews } : {}) });
+    if (parent) for (const use of effectiveLibrarySkills(parent)) {
+      const steps = (use.phases ?? []).map(id => phaseMap.get(id)).filter(Boolean);
+      if (use.phases?.length && !steps.length) continue;
+      attachments.push({ skill: use.id, agent: name, use: use.use, ...(steps.length ? { steps } : {}) });
+    }
     references(node, { agent: name });
   }
   const knownAgents = new Set(newAgents.map(agent => agent.id));
@@ -224,30 +258,101 @@ export function lowerWorkflowMarkup(source, { definition, agents = [] }) {
     }
     phases[phaseId] = phase;
   }
-  for (const attachment of attachments) if (!knownSkills.has(attachment.skill)) markupError('Every attached skill must be declared in this portable markup.', root);
+  for (const attachment of attachments) if (!knownSkills.has(attachment.skill)) {
+    if (!version2) markupError('Every attached skill must be declared in this portable markup.', root);
+    reuse('skill', attachment.skill, root);
+  }
   const placedInstructions = new Set();
   for (const skill of skills) for (const tag of inlineInstructionTags(skill.instructions)) {
-    if (!knownInstructions.has(tag.id)) markupError('Every instruction tag must resolve to an instruction declared in this portable markup.', root);
+    if (!knownInstructions.has(tag.id)) {
+      if (!version2) markupError('Every instruction tag must resolve to an instruction declared in this portable markup.', root);
+      reuse('instruction', tag.id, root);
+    }
     placedInstructions.add(tag.id);
   }
   for (const name of knownSkills) if (!attachments.some(item => item.skill === name)) markupError('A declared skill is unattached; attach it to a phase or agent so export cannot drop it.', declared.get(`skill:${name}`));
   for (const name of knownInstructions) if (!placedInstructions.has(name)) markupError('A declared instruction is not placed in a live skill procedure; quoted examples do not select it.', declared.get(`instruction:${name}`));
+  if (version2) for (const selected of [...reusedAssets].filter(item => item.kind === 'skill')) {
+    const skill = reuse('skill', selected.id, root, selected.as);
+    for (const name of skill.instructionRefs) reuse('instruction', name, root);
+  }
   for (const agent of newAgents) if (!phaseNodes.some(node => node.attrs.agent === agent.id)) markupError('A declared agent is not used by any phase.', declared.get(`agent:${agent.id}`));
   const codeAgents = new Set(phaseNodes.filter(node => phases[node.attrs.id].generation?.task === 'code').map(node => node.attrs.agent));
-  for (const node of phaseNodes) if (phases[node.attrs.id].artifact.kind === 'test-evidence' && codeAgents.has(node.attrs.agent)) {
+  const principal = id => newAgents.find(agent => agent.id === id)?.parentId ?? id;
+  const codePrincipals = new Set([...codeAgents].map(principal));
+  for (const node of phaseNodes) if (phases[node.attrs.id].artifact.kind === 'test-evidence' && codePrincipals.has(principal(node.attrs.agent))) {
     markupError('Independent test evidence and code repair require separate custom agents.', node);
   }
   workflow.decisions = decisions;
   if (children(root, 'omit').length) workflow.omits = children(root, 'omit').map(omit);
+  const phaseAgents = Object.fromEntries(phaseNodes.map(node => [node.attrs.id, node.attrs.agent]));
+  const mcp = derivedMcpPolicy({ id, definition, phaseMap, phaseAgents, agents: newAgents, workflow, phases });
+  for (const [sourceId, alias] of mcp.aliases) {
+    markupId(alias, root, 'Derived MCP policy');
+    if (Object.hasOwn(definition.mcpServers ?? {}, alias)) markupError('Derived MCP policy ID already exists.', root);
+    if (version2) reuse('mcp-server', sourceId, root, alias);
+  }
+  let intent = null;
+  if (version2) {
+    const node = one(root, 'intent');
+    if (!node) markupError('Version 2 needs the original intent and a structural coverage map.', root);
+    markupShape(node, 'intent', ['family'], ['description', 'requirement', 'pattern']);
+    const { WORKFLOW_INTENT_PATTERNS, WORKFLOW_INTENT_FAMILIES } = catalog;
+    if (!WORKFLOW_INTENT_FAMILIES.some(item => item.id === node.attrs.family)) markupError('Choose a catalog workflow family.', node);
+    const patterns = children(node, 'pattern').map(item => {
+      markupShape(item, 'pattern', ['ref']); empty(item);
+      const selected = WORKFLOW_INTENT_PATTERNS.find(pattern => pattern.id === item.attrs.ref);
+      if (!selected) markupError('Unknown workflow pattern.', item);
+      if (selected.status !== 'supported') markupError(`Pattern '${selected.id}' requires ${selected.route} and qualified adapters; do not silently replace it with sequential phases.`, item, 'WORKFLOW_MARKUP_CAPABILITY_REQUIRED');
+      return selected.id;
+    });
+    const targets = new Set([...sourceMap.map(item => item.target), ...decisions.map(item => `decision:${item.id}`), ...reusedAssets.map(item => `${item.kind}:${item.as}`)]);
+    const requirementIds = new Set();
+    const requirements = children(node, 'requirement').map(item => {
+      markupShape(item, 'requirement', ['id', 'maps-to'], [], true);
+      const id = markupId(item.attrs.id, item, 'Intent requirement');
+      if (requirementIds.has(id)) markupError('Intent requirement IDs must be unique.', item);
+      requirementIds.add(id);
+      const mapping = list(item.attrs['maps-to']);
+      if (!mapping.length || mapping.some(target => !targets.has(target))) markupError('Every intent requirement must map to exact generated nodes or selected assets.', item);
+      return { id, statement: text(markupText(item), item, 'Intent requirement statement'), targets: mapping };
+    });
+    if (!requirements.length) markupError('Capture at least one intent requirement; coverage is structural and still requires human review.', node);
+    if (!patterns.length) markupError('Declare the requested workflow patterns explicitly; prose alone does not qualify runtime capabilities.', node);
+    if (patterns.includes('choice') && !decisions.some(item => ['ask', 'branch'].includes(item.kind))) markupError('The requested choice pattern has no generated decision.', node);
+    if (patterns.includes('bounded-loop') && !decisions.some(item => item.maxRounds > 0)) markupError('The requested bounded loop has no finite native round limit.', node);
+    if (patterns.includes('human-checkpoint') && !Object.entries(phases).some(([id, phase]) => normalizeApprovalPolicy(workflow.phaseOverrides?.[id]?.approval ?? phase.approval,
+      definition.approvalAuthorities, id, definition.approvalSecurity).mode === 'required')) markupError('The requested human checkpoint has no required native phase approval.', node);
+    if (patterns.includes('test-repair') && !(Object.values(phases).some(phase => phase.artifact.kind === 'test-evidence') && codeAgents.size && decisions.some(item => item.maxRounds > 0))) markupError('A test-repair pattern needs independent test evidence, a code phase and a bounded return route.', node);
+    const original = text(description(node), node, 'Original intent');
+    intent = { family: node.attrs.family, text: original, sha256: digest(original), patterns: [...new Set(patterns)], requirements, structuralOnly: true, humanReviewRequired: true };
+    // Keep authoring trace in an existing native prose field, so ordinary export/import retains it.
+    // It is not a new executable policy field and never fabricates a semantic review or approval.
+    workflow.description += `\n\n## Authoring intent\n\n${original}\n\nCatalog: ${catalog.sourceSha256}. Family: ${intent.family}.\n\nStructural coverage (requires human semantic review):\n`
+      + requirements.map(item => `- ${item.id}: ${item.statement} -> ${item.targets.join(', ')}`).join('\n')
+      + (reusedAssets.length ? '\n\nSource bindings:\n' + reusedAssets.map(item => `- ${item.kind}:${item.id} (${item.sha256}) -> ${item.as}`).join('\n') : '');
+  }
   return { id, extends: baseId, workflow, phases, agents: newAgents, skills, instructions, attachments,
-    phaseAgents: Object.fromEntries(phaseNodes.map(node => [node.attrs.id, node.attrs.agent])), sourceMap };
+    phaseAgents, sourceMap, intent, reusedAssets, mcpServers: mcp.servers, mcpAliases: mcp.aliases };
 }
 
 /** All temporary writes are isolated; only --out writes a new explicit bundle after every check. */
-export async function compileWorkflowMarkup(source, { out = null } = {}) {
+export async function compileWorkflowMarkup(source, { out = null, repository = null } = {}) {
   // Parse and credential-screen before initializing the scratch, loading catalogs or writing output.
-  parseWorkflowMarkup(source);
+  const parsed = parseWorkflowMarkup(source);
   if (!scanEntries([{ path: 'workflow-markup.xml', content: source, forceScan: true }]).clean) markupError('Possible credentials in markup; no bundle emitted.', null, 'WORKFLOW_MARKUP_CONTENT_BLOCKED');
+  if (parsed.attrs.version === '2') {
+    if (!/^sha256:[a-f0-9]{64}$/u.test(parsed.attrs.catalog ?? '') || !['approved', 'installed'].includes(parsed.attrs['catalog-source'])) markupError('Version 2 requires the exact catalog SHA-256 and an explicit catalog-source.', parsed, 'WORKFLOW_MARKUP_CATALOG_REQUIRED');
+    const { withWorkflowIntentCatalog } = await import('./workflow-intent-catalog.mjs');
+    return withWorkflowIntentCatalog(repository, { source: parsed.attrs['catalog-source'], expectedSource: parsed.attrs.catalog }, catalog => {
+      if (!parsed.attrs.catalog) markupError('Version 2 requires an exact catalog digest.', parsed);
+      return compileCapturedMarkup(source, { out, catalog });
+    });
+  }
+  return compileCapturedMarkup(source, { out, catalog: null });
+}
+
+async function compileCapturedMarkup(source, { out, catalog }) {
   const [{ initializeDefinition, loadDefinition, resolveWorkType, assertWorkTypeStartable },
     { discoverAgents }, { compileWorkflowBundle, writeWorkflowBundle },
     { simulateWorkflowRoutes }, { librarySkillText, skillAttachmentsText, parseSkillAttachments, SKILL_ATTACHMENTS_PATH },
@@ -258,10 +363,16 @@ export async function compileWorkflowMarkup(source, { out = null } = {}) {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-markup-'));
   try {
     await initializeDefinition(scratch);
+    if (catalog) for (const [relative, contents] of catalog.files) {
+      const target = path.join(scratch, ...relative.split('/'));
+      if (path.isAbsolute(relative) || relative.split(/[\\/]/u).includes('..') || !target.startsWith(scratch + path.sep)) markupError('Catalog asset is not a safe relative source path.');
+      await mkdir(path.dirname(target), { recursive: true }); await writeFile(target, contents, 'utf8');
+    }
     const file = path.join(scratch, 'singularity/workflow.yml');
     const definition = YAML.parse(await readFile(file, 'utf8'));
     const baselineAgents = await discoverAgents(scratch);
-    const lowered = lowerWorkflowMarkup(source, { definition, agents: baselineAgents });
+    const patterns = catalog ? await import('./workflow-intent-patterns.mjs') : null;
+    const lowered = lowerWorkflowMarkup(source, { definition, agents: baselineAgents, catalog: catalog ? { ...catalog, ...patterns } : null });
     const put = async (relative, content) => {
       const target = path.join(scratch, ...relative.split('/')); await mkdir(path.dirname(target), { recursive: true }); await writeFile(target, content, 'utf8');
     };
@@ -272,13 +383,19 @@ export async function compileWorkflowMarkup(source, { out = null } = {}) {
     }
     for (const [id, phase] of Object.entries(lowered.phases)) definition.phases[id] = phase;
     definition.workTypes[lowered.id] = lowered.workflow;
+    definition.mcpServers = { ...(definition.mcpServers ?? {}), ...lowered.mcpServers };
     // New phases use explicit custom agents. The bundle compiler captures scoped source bytes,
     // never an implicit change to an installed agent or its global attachments.
     const front = fields => `---\n${YAML.stringify(fields, { lineWidth: 0 })}---\n\n`;
+    if (catalog) for (const [sourceId, alias] of lowered.mcpAliases) {
+      const { mcpDescriptorPath } = await import('./mcp-descriptor.mjs');
+      const descriptor = catalog.files.get(mcpDescriptorPath(sourceId));
+      if (descriptor) await put(mcpDescriptorPath(alias), descriptor);
+    }
     for (const agent of lowered.agents) {
       const selected = Object.entries(lowered.phaseAgents).filter(([, id]) => id === agent.id).map(([phase]) => phase);
       await put(`.github/agents/${agent.id}.agent.md`, front({ name: agent.id, description: agent.description, tools: agent.tools,
-        metadata: { 'sflow-phases': selected.join(', '), 'sflow-default-for': selected.join(', ') } }) + agent.instructions + '\n');
+        metadata: { 'sflow-phases': selected.join(', '), 'sflow-default-for': selected.join(', '), ...(agent.views?.length ? { 'sflow-world-model-views': agent.views.join(', ') } : {}) } }) + agent.instructions + '\n');
     }
     for (const skill of lowered.skills) await put(`singularity/skill-library/${skill.id}/SKILL.md`, librarySkillText(skill));
     for (const instruction of lowered.instructions) await put(`singularity/instruction-library/${instruction.id}/INSTRUCTIONS.md`, instructionText(instruction));
@@ -286,8 +403,11 @@ export async function compileWorkflowMarkup(source, { out = null } = {}) {
     const attached = new Map();
     for (const item of lowered.attachments) {
       const key = `${item.agent ? 'agent:' + item.agent : 'workflow:' + item.workflow}/${item.skill}`;
-      const entry = attached.get(key) ?? { id: item.skill, ...(item.agent ? { agent: item.agent } : { workflow: item.workflow }), phases: [], use: '' };
-      entry.phases = [...new Set([...entry.phases, ...(item.steps ?? [])])]; attached.set(key, entry);
+      const prior = attached.get(key), steps = item.steps ?? [];
+      if (prior && prior.use !== (item.use ?? '')) markupError('Duplicate skill attachments have conflicting use conditions; preserve the inherited condition or choose a separate namespaced procedure.');
+      const entry = prior ?? { id: item.skill, ...(item.agent ? { agent: item.agent } : { workflow: item.workflow }), phases: steps, use: item.use ?? '' };
+      entry.phases = prior && prior.phases.length && steps.length ? [...new Set([...prior.phases, ...steps])] : prior ? [] : steps;
+      attached.set(key, entry);
     }
     await put(SKILL_ATTACHMENTS_PATH, skillAttachmentsText([...baselineAttachments, ...attached.values()]));
     await writeFile(file, YAML.stringify(definition, { lineWidth: 0 }), 'utf8');
@@ -300,7 +420,8 @@ export async function compileWorkflowMarkup(source, { out = null } = {}) {
     return { schemaVersion: 1, resultType: 'workflow-markup-compilation', format: WORKFLOW_MARKUP_FORMAT,
       status: 'portable-ready', sourceSha256: digest(source), bundleSha256: bundle.bundleSha256,
       workflow: { id: lowered.id, label: lowered.workflow.label, phases: resolved.phases.map(phase => ({ id: phase.id, label: phase.label, agent: lowered.phaseAgents[phase.id] })), decisions: resolved.decisions },
-      sourceMap: lowered.sourceMap, routeSimulation: simulation, outputPath, ...(out ? {} : { bundle }),
+      sourceMap: lowered.sourceMap, routeSimulation: simulation, intent: lowered.intent, reusedAssets: lowered.reusedAssets,
+      ...(catalog ? { catalog: { source: catalog.source, sourceSha256: catalog.sourceSha256 } } : {}), outputPath, ...(out ? {} : { bundle }),
       effects: { configurationChanged: false, storyChanged: false, approvalRecorded: false, bundleWritten: Boolean(out) },
       meaning: 'Portable-ready means deterministic definition, dependency and route checks passed; it is not approved, imported, activated or executed.' };
   } finally { await rm(scratch, { recursive: true, force: true }); }

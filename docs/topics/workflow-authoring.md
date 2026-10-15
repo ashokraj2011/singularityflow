@@ -32,7 +32,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 63
+version: 64
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through governed configuration. Existing work remains pinned to the resolution it started with.
 
@@ -42,9 +42,13 @@ Use this topic when the current goal matches **workflow authoring**. Start in a 
 
 ## Workflow Studio
 
-Choose **Create with Copilot…** to describe the workflow in plain language. Copilot drafts the tags;
-**Load Copilot draft…** validates the saved file and previews its phases and routes. The markup editor
-is an advanced option, not a prerequisite. See `sflow explain workflow-markup` for the supported
+Choose **Create with Copilot…** to describe the workflow in plain language. Copilot drafts the tags
+and can propose its checked draft directly in the designer on compatible native-chat hosts.
+**Load Copilot draft…** validates the saved file when that tool is unavailable. The markup editor
+is an advanced option, not a prerequisite. Search the approved or explicitly chosen installed catalog
+for agents, skills, instructions and tags; Copilot receives exact retrieval routes, not every body.
+See `sflow explain workflow-intent` for scope, capabilities and semantic review, and
+`sflow explain workflow-markup` for the supported
 starter-based compilation and separately reviewed JSON bundle import. Manual authors can also run
 `singularity-flow workflow markup example`.
 

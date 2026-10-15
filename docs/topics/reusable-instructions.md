@@ -10,7 +10,7 @@ related:
   - skill-master
   - workflow-authoring
   - importing-assets
-version: 6
+version: 7
 ---
 
 ## Purpose and prerequisites
@@ -24,6 +24,12 @@ before activation.
 
 Work in a governed checkout; no Story is required. Definitions are configuration, so every change
 uses the same exact preview, human review and activation path as workflow and agent changes.
+
+Optional `metadata.sflow-tags` provides up to 32 lower-case discovery tags, such as
+`[framework:angular, activity:review]`. Tags never grant authority or change placement/conditions.
+The intent-to-workflow catalog searches names, descriptions and tags, then retrieves only selected
+bodies with an exact source binding. See `sflow explain workflow-intent`. Existing tags survive
+ordinary skill and instruction edits.
 
 A definition has front matter and a nonempty Markdown body:
 

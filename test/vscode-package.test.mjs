@@ -74,7 +74,7 @@ function zipEntryModes(archive) {
   return modes;
 }
 
-test('the installed VS Code CLI carries the canonical Help manual', async () => {
+test('the installed VS Code CLI carries the canonical Help manual and intent-authoring closure', async t => {
   assert.ok(CLI_PAYLOAD.includes('HELP.md'), 'HELP.md is part of the declared installed payload');
   assert.ok(CLI_PAYLOAD.includes('LICENSE'), 'the bundled polyglot pack license is part of the installed payload');
   assert.ok(CLI_PAYLOAD.includes('scripts/install-staged-artifacts.mjs'),
@@ -108,6 +108,7 @@ test('the installed VS Code CLI carries the canonical Help manual', async () => 
   }
 
   const extension = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-package-'));
+  t.after(() => rm(extension, { recursive: true, force: true }));
   const staged = await stageCli({ rootDir: root, extensionDir: extension });
   for (const relative of VSIX_REQUIRED_CLI_RUNTIME) {
     assert.equal(existsSync(path.join(staged, ...relative.split('/'))), true,
@@ -122,6 +123,19 @@ test('the installed VS Code CLI carries the canonical Help manual', async () => 
   assert.equal(manual.title, 'Singularity Flow Help');
   assert.ok(manual.topics.some((topic) => topic.id === 'story-intake'));
   assert.ok(manual.topics.some((topic) => topic.id === 'workspaces-and-capabilities'));
+  const topic = spawnSync(process.execPath, [path.join(staged, 'bin', 'singularity-flow.mjs'),
+    'explain', 'workflow-intent', '--json'], { cwd: extension, encoding: 'utf8' });
+  assert.equal(topic.status, 0, topic.stderr || topic.stdout);
+  assert.match(topic.stdout, /Intent-to-workflow creation with catalog-grounded Copilot/u);
+  const example = spawnSync(process.execPath, [path.join(staged, 'bin', 'singularity-flow.mjs'),
+    'workflow', 'intent', 'example', '--source', 'installed', '--json'], { cwd: extension, encoding: 'utf8' });
+  assert.equal(example.status, 0, example.stderr || example.stdout);
+  const candidate = JSON.parse(example.stdout);
+  const check = spawnSync(process.execPath, [path.join(staged, 'bin', 'singularity-flow.mjs'),
+    'workflow', 'markup', 'compile', '-', '--json'], { cwd: extension, input: candidate.source, encoding: 'utf8' });
+  assert.equal(check.status, 0, check.stderr || check.stdout);
+  assert.equal(JSON.parse(check.stdout).status, 'portable-ready');
+  assert.equal(JSON.parse(check.stdout).bundle, undefined, 'model-facing checks return a summary, not a duplicate bundle');
   const providerImport = spawnSync(process.execPath, [
     '--input-type=module', '-e', 'await import("./src/model-providers/copilot-cli.mjs")'
   ], { cwd: staged, encoding: 'utf8' });
@@ -166,6 +180,7 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     mkdir(path.join(repository, 'src', 'revision'), { recursive: true }),
     mkdir(path.join(repository, 'src', 'evidence'), { recursive: true }),
     mkdir(path.join(repository, 'src', 'commands'), { recursive: true }),
+    mkdir(path.join(repository, 'examples'), { recursive: true }),
     mkdir(path.join(repository, 'schemas'), { recursive: true }),
     mkdir(path.join(repository, 'plugin', 'agents'), { recursive: true }),
     mkdir(path.join(repository, 'plugin', 'skills', 'sflow-review-source'), { recursive: true }),
@@ -209,6 +224,8 @@ test('CLI staging admits only tracked payload blobs and a deterministic locked c
     writeFile(path.join(repository, 'src', 'wel-readiness-foundation.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'wel-test-lifecycle.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'workflow-transfer.mjs'), '// fixture\n'),
+    ...VSIX_REQUIRED_CLI_RUNTIME.filter(relative => /^(?:src\/(?:commands\/)?workflow-(?:intent|markup)|examples\/demo-(?:tagged|intent)-workflow\.xml)/u.test(relative))
+      .map(relative => writeFile(path.join(repository, ...relative.split('/')), '// fixture\n')),
     writeFile(path.join(repository, 'src', 'document-identity.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'document-storage.mjs'), '// fixture\n'),
     writeFile(path.join(repository, 'src', 'document-storage-policy.mjs'), '// fixture\n'),
@@ -1011,10 +1028,16 @@ test('the extension package contains every explicit lazy runtime used by the act
   assert.match(panels, /workflow-markup-runtime\.cjs/);
   const markupRuntime = await readFile(path.join(extension, 'dist', 'workflow-markup-runtime.cjs'), 'utf8');
   assert.match(markupRuntime, /WorkflowMarkupPanel/);
+  assert.match(markupRuntime, /workflow-intent-runtime\.cjs/);
+  const intentRuntime = await readFile(path.join(extension, 'dist', 'workflow-intent-runtime.cjs'), 'utf8');
+  assert.match(intentRuntime, /singularityFlow_workflowAuthoring/);
+  assert.match(intentRuntime, /attachWorkflowIntentTool/);
   const markupSources = JSON.parse(await readFile(path.join(extension, 'dist', 'workflow-markup-runtime.cjs.map'), 'utf8')).sources;
   assert.ok(markupSources.some(source => source.endsWith('/views/workflow-markup-page.ts')));
   assert.ok(!JSON.parse(panelSourceMap).sources.some(source => source.includes('/views/workflow-markup-')),
     'tag authoring must stay outside ordinary panel loading');
+  assert.ok(!markupSources.some(source => source.endsWith('/workflow-intent-runtime.ts') || source.endsWith('/workflow-intent-prompt.ts')),
+    'optional model-tool registration and prompt preparation have an explicit lazy boundary');
   assert.doesNotMatch(bundle, /world-model-build\.cjs/, 'the World Model build bundle was removed');
   assert.match(gatewayContext, /gateway-runtime\.cjs/);
   assert.match(gatewayContext, /\bfunction\s+activeRepositoryContext\s*\(/u,

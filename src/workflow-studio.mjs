@@ -1005,8 +1005,8 @@ class StudioCandidate {
     this.attachmentsChanged = true;
   }
 
-  writeSkill(skillId, { label, description, instructions, loading, instructionRefs }) {
-    const text = librarySkillText({ id: skillId, label, description, instructions, loading, instructionRefs });
+  writeSkill(skillId, { label, description, instructions, loading, instructionRefs, tags }) {
+    const text = librarySkillText({ id: skillId, label, description, instructions, loading, instructionRefs, tags });
     const skill = parseLibrarySkill(text, { id: skillId });
     this.skills.set(skillId, skill);
     this.skillFiles.set(librarySkillPath(skillId), text);
@@ -1025,6 +1025,7 @@ class StudioCandidate {
     const skill = this.writeSkill(current.id, {
       label: label ?? current.label, description: description ?? current.description,
       instructions: instructions ?? current.instructions, loading: loading ?? current.loading,
+      tags: current.tags,
       instructionRefs: instructionRefs ?? current.declaredInstructionRefs ?? current.instructionRefs
     });
     // The agents that use the new text are known once every change is applied.
@@ -1160,7 +1161,7 @@ class StudioCandidate {
       const current = replace ? this.skills.get(skillId) : null;
       const what = String(description ?? current?.description ?? '').replace(/\s+/g, ' ').trim();
       if (!what) throw new SingularityFlowError('This file is plain Markdown, so the skill needs a description of what it does and when to use it (--description on the command line).', { code: 'STUDIO_SKILL_INVALID' });
-      text = librarySkillText({ id: skillId, label: current?.label ?? null, description: what, instructions: staged.text, loading: current?.loading, instructionRefs: current?.declaredInstructionRefs ?? current?.instructionRefs });
+      text = librarySkillText({ id: skillId, label: current?.label ?? null, description: what, instructions: staged.text, loading: current?.loading, instructionRefs: current?.declaredInstructionRefs ?? current?.instructionRefs, tags: current?.tags });
       skill = parseLibrarySkill(text, { id: skillId });
       extra = { transforms: ['wrapped-as-skill'], fileSha256: sha256Of(Buffer.from(text, 'utf8')) };
     }

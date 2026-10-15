@@ -286,7 +286,7 @@ const WORKFLOW_AUTHOR_MUTATION_ACTIONS = Object.freeze(['create', 'save', 'delet
 const WORKFLOW_AUTHOR_ACTIONS = Object.freeze([...WORKFLOW_AUTHOR_READ_ACTIONS, ...WORKFLOW_AUTHOR_MUTATION_ACTIONS]);
 const WORKFLOW_STUDIO_ACTIONS = Object.freeze(['show', 'apply']);
 const WORKFLOW_IMPORT_TEAM_ACTIONS = Object.freeze(['inspect', 'compile', 'status']);
-const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS, 'author', 'studio', 'import-team', 'markup']);
+const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS, 'author', 'studio', 'import-team', 'markup', 'intent']);
 const DOCUMENTS_READ_SUBCOMMANDS = Object.freeze(['list', 'view', 'preview', 'browse', 'artifacts']);
 const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'scope', 'store', 'upload', 'add', 'fetch']);
 const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...DOCUMENTS_MUTATION_SUBCOMMANDS]);
@@ -611,6 +611,11 @@ function resolveInputsOperation(definition, positionals, options) {
 
 function resolveWorkflowCommandOperation(definition, positionals, options) {
   const subcommand = positionals[1] ?? 'list';
+  if (subcommand === 'intent') {
+    const action = positionals[2];
+    if (!['catalog', 'show', 'example'].includes(action)) return unknownSubcommand('workflow intent', action, ['catalog', 'show', 'example']);
+    return never(`workflow.intent.${action}`, definition, 'read');
+  }
   if (subcommand === 'markup') {
     const action = positionals[2];
     if (!['example', 'compile'].includes(action)) return unknownSubcommand('workflow markup', action, ['example', 'compile']);
@@ -1783,6 +1788,9 @@ export function operationCatalog() {
     never('workflow.import-team.compile.preview', workflowDefinition, 'read'),
     never('workflow.import-team.compile', workflowDefinition, 'mutation'),
     never('workflow.markup.example', workflowDefinition, 'read'),
+    never('workflow.intent.catalog', workflowDefinition, 'read'),
+    never('workflow.intent.show', workflowDefinition, 'read'),
+    never('workflow.intent.example', workflowDefinition, 'read'),
     never('workflow.markup.compile', workflowDefinition, 'read'),
     never('workflow.markup.write', workflowDefinition, 'mutation'),
     ...DOCUMENTS_READ_SUBCOMMANDS.map((name) => never(`documents.${name}`, documentsDefinition, 'read')),

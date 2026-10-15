@@ -23,7 +23,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { parseYamlText } from './yaml-parse-cache.mjs';
 import { SingularityFlowError, secureRepositoryPath } from './util.mjs';
-import { instructionReferences, resolveSkillInstructions } from './instruction-library.mjs';
+import { instructionReferences, resolveSkillInstructions, guidanceTags } from './instruction-library.mjs';
 import { inlineInstructionTags, instructionSlots, skillInstructionIds } from './skill-instruction-composition.mjs';
 
 export const SKILL_LIBRARY_ROOT = 'singularity/skill-library';
@@ -98,6 +98,7 @@ export function parseLibrarySkill(text, { id, source = librarySkillPath(id) } = 
   const rawLabel = metadata['sflow-label'];
   const loading = metadata['sflow-loading'] ?? 'eager';
   const declaredInstructionRefs = instructionReferences(metadata['sflow-instructions']);
+  const tags = guidanceTags(metadata['sflow-tags']);
   if (!['eager', 'on-demand'].includes(loading)) fail(`Skill '${name}' sflow-loading must be eager or on-demand.`);
   if (rawLabel != null && (typeof rawLabel !== 'string' || !rawLabel.trim() || rawLabel.length > MAX_LABEL)) {
     fail(`Skill '${name}' has an invalid sflow-label.`);
@@ -111,17 +112,18 @@ export function parseLibrarySkill(text, { id, source = librarySkillPath(id) } = 
   return Object.freeze({
     id: name, label: rawLabel?.trim() ?? defaultSkillLabel(name), description, instructions, loading, instructionRefs, declaredInstructionRefs,
     instructionPlacements, inlineInstructionPlacements,
-    path: librarySkillPath(name), sha256: sha256(text), bytes: Buffer.byteLength(text, 'utf8'), text
+    path: librarySkillPath(name), sha256: sha256(text), bytes: Buffer.byteLength(text, 'utf8'), text, tags
   });
 }
 
 /** The SKILL.md text for a skill written in Workflow Studio or by `skill create`. */
-export function librarySkillText({ id, label = null, description, instructions, loading = 'eager', instructionRefs = [] }) {
+export function librarySkillText({ id, label = null, description, instructions, loading = 'eager', instructionRefs = [], tags = [] }) {
   if (!ID.test(String(id ?? ''))) fail('A skill ID must be lower-case kebab-case.');
   const front = { name: id, description: String(description ?? '').replace(/\s+/g, ' ').trim() };
   const name = String(label ?? '').trim();
   if (name && name !== defaultSkillLabel(id)) front.metadata = { 'sflow-label': name };
   if (loading !== 'eager') front.metadata = { ...front.metadata, 'sflow-loading': loading };
+  if (guidanceTags(tags).length) front.metadata = { ...front.metadata, 'sflow-tags': guidanceTags(tags) };
   // Tagged instructions select themselves, so only the untagged ones are written to metadata.
   const tagged = new Set(inlineInstructionTags(String(instructions ?? '')).map(tag => tag.id));
   const listed = instructionReferences(instructionRefs ?? []).filter(id => !tagged.has(id));

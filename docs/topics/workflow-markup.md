@@ -6,8 +6,8 @@ questions:
   - Can I describe branches and loops using tags?
   - How do I turn a tagged description into a workflow bundle?
 commands: [workflow]
-related: [workflow-authoring, workflow-decisions, reusable-instructions]
-version: 3
+related: [workflow-intent, workflow-authoring, workflow-decisions, reusable-instructions]
+version: 4
 ---
 
 ## What this does
@@ -25,6 +25,42 @@ counters are outside this version.
 
 Descriptions may express branches in natural language. Copilot proposes explicit tags; the
 deterministic compiler does not guess conditions, thresholds, destinations, groups or limits.
+
+Version 2 is the intent-to-workflow authoring format. It binds an exact approved or installed
+catalog, supports asset reuse and preserves structural intent coverage. See
+`singularity-flow explain workflow-intent` before drafting. The selected workflow contract still
+owns its phase count, order and obligations; a family label never grants new runtime support.
+
+## Version 2 catalog binding and reuse
+
+Get a fully bound, dependency-complete example with `singularity-flow workflow intent example
+--source installed --json`. The checked-in `examples/demo-intent-workflow.xml` is its template;
+the command fills its digest and source placeholders from the exact captured owner.
+
+The root takes `version="2"`, `catalog="sha256:..."` and `catalog-source="approved"` or `installed`.
+`extends` names an exact workflow in that catalog. The compiler rechecks the entire catalog binding
+before writing a bundle; a changed source is a fresh-review condition, not a hash to auto-replace.
+
+- `<agent id="NEW-NAMESPACED-ID" from="CATALOG-AGENT-ID" />` derives a new agent with the exact
+  parent prompt and applicable skills. An optional description adds workflow-specific guidance;
+  optional tools may narrow, not expand, the parent's tools. Remote dependencies require the existing
+  reviewed authoring route. Independent testing and code repair cannot derive from the same parent.
+- `<skill id="NEW-NAMESPACED-ID" from="CATALOG-SKILL-ID" />` copies the exact procedure and
+  instruction references. `<instruction id="NEW-NAMESPACED-ID" from="CATALOG-INSTRUCTION-ID" />`
+  copies the exact guidance. Neither takes replacement body text; declare new content deliberately.
+- `<skill ref="EXISTING-LIBRARY-SKILL-ID" />` under an agent or phase selects existing retained
+  guidance. It is not a procedural `command-skill`. Ordinary bundle dependency closure includes the
+  selected instructions; no model needs to copy their bodies. A custom skill can place an existing
+  catalog instruction with `<instruction>EXISTING-ID</instruction>`.
+- One `<intent family="CATALOG-FAMILY">` contains a `<description>` with the exact original user
+  description, one or more `<requirement id="ID" maps-to="phase:ID decision:ID">statement</requirement>`
+  rows and explicit empty `<pattern ref="PATTERN-ID" />` elements. Each target must exist. Node
+  target prefixes include workflow, phase, agent, skill, instruction and decision. The VS Code
+  host compares the original description, not a model rewrite, before offering import.
+
+The mapping is structural only and requires human semantic review. Unsupported patterns report a
+capability requirement instead of silently becoming sequential. The existing version 1 syntax and
+repository-independent compiler remain supported for explicit manual authoring.
 
 ## Use it from each surface
 

@@ -357,6 +357,9 @@ Usage:
   singularity-flow workflow skills-recipe <ID> --label TEXT --phases a,b,c [--planned-claims required --clause-phases CRITERIA --claim-owners CODE=PLAN] [--json]
   singularity-flow workflow studio [show] [--json]
   singularity-flow workflow markup example [--json]
+  singularity-flow workflow intent catalog [--source approved|installed] [--kind KIND] [--query TEXT] [--tag TAG] [--limit 1..64] [--cursor N] [--expected-source SHA256] [--json]
+  singularity-flow workflow intent show KIND ID --expected-source SHA256 [--source approved|installed] [--json]
+  singularity-flow workflow intent example [--source approved|installed] [--json]
   singularity-flow workflow markup compile <FILE|-> [--out BUNDLE.json] [--json]
   singularity-flow workflow studio apply --change-set FILE|- [--dry-run] [--propose] [--json]
                                                         read-only BYO/mixed recipe preview; no activation or host launch

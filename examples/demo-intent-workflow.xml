@@ -1,0 +1,20 @@
+<workflow version="2" id="demo-intent" label="Demo — Intent-to-workflow acceptance"
+          extends="demo-instruction-test-loop" catalog="{{CATALOG_SHA256}}" catalog-source="{{CATALOG_SOURCE}}">
+  <description>A catalog-grounded independent test and repair workflow.</description>
+  <agent id="demo-intent-analyst" from="demo-instruction-analyst" />
+  <agent id="demo-intent-tester" from="demo-instruction-tester" />
+  <agent id="demo-intent-developer" from="demo-instruction-developer" />
+  <agent id="demo-intent-closer" from="demo-instruction-closer" />
+  <phase id="demo-intent-intake" from="demo-instruction-intake" agent="demo-intent-analyst" />
+  <phase id="demo-intent-test" from="demo-instruction-test" agent="demo-intent-tester" />
+  <phase id="demo-intent-repair" from="demo-instruction-repair" agent="demo-intent-developer" />
+  <phase id="demo-intent-close" from="demo-instruction-close" agent="demo-intent-closer" />
+  <intent family="visual-acceptance">
+    <description>Test the web application against approved screenshots and documents. Repair failures and retest with bounded retries. Keep the tester independent and require human acceptance before closing.</description>
+    <requirement id="capture-inputs" maps-to="phase:demo-intent-intake">Capture screenshots, documents, observable expectations and evidence locations.</requirement>
+    <requirement id="independent-test" maps-to="phase:demo-intent-test agent:demo-intent-tester">Independently check the current revision using fresh evidence.</requirement>
+    <requirement id="repair-retest" maps-to="phase:demo-intent-repair decision:demo-intent-decision-2">Preserve work, repair defects and return for bounded independent retesting.</requirement>
+    <requirement id="human-close" maps-to="phase:demo-intent-close">Retain closing documents and obtain authorized human acceptance.</requirement>
+    <pattern ref="test-repair" /><pattern ref="bounded-loop" /><pattern ref="human-checkpoint" />
+  </intent>
+</workflow>

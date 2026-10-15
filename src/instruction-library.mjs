@@ -57,15 +57,23 @@ export function parseInstruction(text, { id, source = instructionPath(id) } = {}
   const description = typeof front.description === 'string' ? front.description.replace(/\s+/gu, ' ').trim() : '';
   const metadata = front.metadata ?? {};
   if (!description || description.length > 1024 || !metadata || typeof metadata !== 'object' || Array.isArray(metadata)
-      || Object.keys(metadata).some(key => key !== 'sflow-label')) fail(`${source} needs a description; instruction references and loading policies belong to skills, not instructions.`);
+      || Object.keys(metadata).some(key => !['sflow-label', 'sflow-tags'].includes(key))) fail(`${source} needs a description; instruction references and loading policies belong to skills, not instructions.`);
+  const tags = guidanceTags(metadata['sflow-tags']);
   const label = metadata['sflow-label'] ?? front.name.split('-').join(' ').replace(/^./u, letter => letter.toUpperCase());
   if (typeof label !== 'string' || !label.trim() || label.length > 120 || !match[2].trim()) fail(`${source} needs a label and nonempty instruction body.`);
   return Object.freeze({ id: front.name, label: label.trim(), description, instructions: match[2].trim(),
-    path: instructionPath(front.name), sha256: hash(text), bytes: Buffer.byteLength(text), text });
+    path: instructionPath(front.name), sha256: hash(text), bytes: Buffer.byteLength(text), text, tags });
 }
 
-export function instructionText({ id, label, description, instructions }) {
-  const front = { name: id, description, ...(label ? { metadata: { 'sflow-label': label } } : {}) };
+/** Discovery metadata only: tags never change applicability, permissions or approval policy. */
+export function guidanceTags(value = []) {
+  if (!Array.isArray(value) || value.length > 32 || value.some(tag => typeof tag !== 'string' || tag.length > 80 || !/^[a-z0-9]+(?:[-:][a-z0-9]+)*$/u.test(tag))) fail('sflow-tags must be at most 32 short lower-case discovery tags.', 'INSTRUCTION_TAGS_INVALID');
+  return [...new Set(value)];
+}
+
+export function instructionText({ id, label, description, instructions, tags = [] }) {
+  const metadata = { ...(label ? { 'sflow-label': label } : {}), ...(guidanceTags(tags).length ? { 'sflow-tags': guidanceTags(tags) } : {}) };
+  const front = { name: id, description, ...(Object.keys(metadata).length ? { metadata } : {}) };
   const text = `---\n${YAML.stringify(front, { lineWidth: 0 })}---\n\n${String(instructions ?? '').trim()}\n`;
   parseInstruction(text, { id });
   return text;

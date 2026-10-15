@@ -6,6 +6,7 @@ export const VSIX_SOURCE_MANIFEST_ENV = 'SINGULARITY_FLOW_VSIX_SOURCE_MANIFEST';
 export const VSIX_SOURCE_MANIFEST_SHA256_ENV = 'SINGULARITY_FLOW_VSIX_SOURCE_MANIFEST_SHA256';
 export const VSIX_CLI_PAYLOAD = Object.freeze([
   'bin', 'src', 'docs', 'templates', 'plugin', 'schemas',
+  'examples/demo-tagged-workflow.xml', 'examples/demo-intent-workflow.xml',
   'scripts/install-staged-artifacts.mjs',
   'package.json', 'HELP.md', 'LICENSE'
 ]);
@@ -45,6 +46,15 @@ export const VSIX_REQUIRED_CLI_RUNTIME = Object.freeze([
   'src/wel-readiness-foundation.mjs',
   'src/wel-test-lifecycle.mjs',
   'src/workflow-transfer.mjs',
+  'src/commands/workflow-intent.mjs',
+  'src/commands/workflow-markup.mjs',
+  'src/workflow-intent-catalog.mjs',
+  'src/workflow-intent-patterns.mjs',
+  'src/workflow-markup.mjs',
+  'src/workflow-markup-parser.mjs',
+  'src/workflow-markup-mcp.mjs',
+  'examples/demo-tagged-workflow.xml',
+  'examples/demo-intent-workflow.xml',
   'src/safe-command-guidance.mjs',
   'src/phase-preparation-guidance.mjs',
   'src/skp-amendment-plan.mjs',

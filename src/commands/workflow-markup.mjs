@@ -4,6 +4,7 @@ import { lstat, open, readFile } from 'node:fs/promises';
 import { TextDecoder } from 'node:util';
 import { WORKFLOW_MARKUP_LIMITS, markupError } from '../workflow-markup-parser.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
+import { parseWorkflowMarkup } from '../workflow-markup-parser.mjs';
 
 async function capture(file) {
   let bytes;
@@ -49,7 +50,12 @@ export async function run(argv, { positionals, options }) {
     return console.log(options.json ? JSON.stringify({ schemaVersion: 1, resultType: 'workflow-markup-example', source, commandGuidance }) : source);
   }
   const { compileWorkflowMarkup } = await import('../workflow-markup.mjs');
-  const result = await compileWorkflowMarkup(await capture(positionals[3]), { out: options.out ?? null });
+  const source = await capture(positionals[3]);
+  const parsed = parseWorkflowMarkup(source);
+  const repository = parsed.attrs.version === '2' && parsed.attrs['catalog-source'] === 'approved' ? (await import('../git.mjs')).repoRoot() : null;
+  const result = await compileWorkflowMarkup(source, { out: options.out ?? null, repository });
+  // Version 2 checks are agent-facing summaries. The actual portable bundle needs explicit --out.
+  if (parsed.attrs.version === '2') delete result.bundle;
   result.commandGuidance = safeCommandGuidance({ executable: 'singularity-flow', argv: result.outputPath
     ? ['workflow', 'import', result.outputPath, '--dry-run', '--propose', '--json']
     : ['workflow', 'markup', 'compile', positionals[3] === '-' ? '<FILE>' : positionals[3], '--out', '<BUNDLE.json>', '--json'] });

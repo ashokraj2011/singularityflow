@@ -81,6 +81,10 @@ export function copilotCommandForCommand(command, skill = null, fallback = '/sf-
     const match = !/[\u0000-\u001f\u007f]/u.test(value) && value.match(/^(?:singularity-flow|sflow)\s+instruction\s+(list|show|create|edit|remove)(?:\s+(.+))?$/u);
     return match ? `${selected} ${match[1]}${match[2] ? ` ${match[2]}` : ''}` : selected;
   }
+  if (selected === '/sf-workflows') {
+    const match = !/[\u0000-\u001f\u007f]/u.test(value) && value.match(/^(?:singularity-flow|sflow)\s+workflow\s+((?:intent|markup)\s+.+)$/u);
+    return match ? `${selected} ${match[1]}` : selected;
+  }
   if (selected === '/sf-appeal') {
     const match = !/[\u0000-\u001f\u007f]/u.test(value)
       && value.match(/^(?:singularity-flow|sflow)\s+appeal\s+(evidence-prepare|evidence-accept|resolve|resolve-run|resolve-resume)(?:\s+(.+))?$/u);

@@ -17,7 +17,7 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 Run `singularity-flow workflow $ARGUMENTS`; default `list`.
 
-Tagged authoring: read `docs/topics/workflow-markup.md` first; prose never executes.
+Intent/tags: read `docs/topics/workflow-intent.md` and `docs/topics/workflow-markup.md`; prose is inert.
 
 Run `author` from opened root; only explicit `--repository-story-refs` may read other local roots.
 `list|read|history|show|preview|catalog|where-used|op-status` is read-only; relay coverage/gaps.
@@ -54,5 +54,3 @@ Skill invocation is not confirmation. Never substitute digests, overwrite or ret
 Qualify ambiguous IDs. Linked dependencies stay shared; later edits affect both. Review and wait:
 `singularity-flow workflow copy <[story|initiative:]SOURCE> <TARGET> --label <TEXT> --confirm <PLAN-SHA256> --propose --json`.
 Run once; never overwrite, bypass review, commit, activate, merge or refresh automatically.
-
-On refusal, relay routes.

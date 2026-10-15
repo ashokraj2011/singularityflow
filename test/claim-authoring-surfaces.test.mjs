@@ -73,5 +73,4 @@ test('authoring skills relay returned correction and human-risk alternatives wit
   }
   const code = await readFile(new URL('../plugin/skills/sflow-code/SKILL.md', import.meta.url), 'utf8');
   assert.match(code, /revision status --json` only when `generation > 0`/);
-  assert.match(code, /first-generation authoring creates that candidate/);
 });

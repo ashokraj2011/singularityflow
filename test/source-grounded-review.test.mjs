@@ -172,3 +172,38 @@ test('one row never stands for a whole document: every requirement statement nee
   const complete = evaluateSourceGroundedReview(packet, ctx);
   assert.ok(!complete.findings.some((entry) => entry.code === 'source-statement-unmapped'), 'a covered or excluded row maps each statement');
 });
+
+test('a case-variant clause ID is answered with the exact ID, and a clarified scenario maps to the line it refines', () => {
+  // The specification wrote its anchors in lower case; extraction reads them as EXAMPLE:REQ-002.
+  // A reviewer that copied them as written was told only "unknown clause", and for a scenario a
+  // human clarification answer shaped it planned to edit the pinned clarification record.
+  const clarified = `${specification}### S2 — Pick one of several drafts
+- Given two drafts, when one is chosen, then only that draft is saved.
+- Save only the chosen draft. (S2) [example:req-002]
+`;
+  const ctx = { ...context(), artifact: { ...context().artifact, text: clarified } };
+  const copied = report(ctx);
+  copied.rows.push({ id: 'story-choice', sourceId: 'story', line: 2, quote: 'Save a draft and show saved status.',
+    outcome: 'covered', scenarioId: 'S2', clauseIds: ['example:req-002'] });
+  const hinted = evaluateSourceGroundedReview(copied, ctx);
+  const caseFinding = hinted.findings.find((entry) => entry.code === 'clause-unknown');
+  assert.equal(caseFinding.canonical, 'EXAMPLE:REQ-002');
+  assert.match(caseFinding.message, /names clause 'example:req-002'; write it exactly as 'EXAMPLE:REQ-002'/u);
+
+  const unmapped = report(ctx);
+  const missing = evaluateSourceGroundedReview(unmapped, ctx).findings.find((entry) => entry.code === 'scenario-unmapped');
+  assert.match(missing.message, /Scenario 'S2' has no cited source-to-clause mapping\. Add a covered row citing the source line it refines/u);
+  assert.match(missing.message, /never edit it/u);
+
+  // What the messages ask for passes: the exact ID, and a row citing the line the answer refines.
+  copied.rows.at(-1).clauseIds = ['EXAMPLE:REQ-002'];
+  const fixed = evaluateSourceGroundedReview(copied, ctx);
+  assert.deepEqual(fixed.findings, []);
+  assert.equal(fixed.status, 'ready');
+
+  const planCtx = context('planning');
+  const planReport = report(planCtx);
+  planReport.rows[0].clauseId = 'example:req-001';
+  const planFinding = evaluateSourceGroundedReview(planReport, planCtx).findings.find((entry) => entry.code === 'clause-row-invalid');
+  assert.equal(planFinding.canonical, 'EXAMPLE:REQ-001');
+});

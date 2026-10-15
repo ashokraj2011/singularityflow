@@ -560,6 +560,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       this.focus = null;
       if (this.bundleToImport) this.post({ type: 'studio.importRequested', name: this.bundleToImport.split(/[\\/]/).pop() });
       await this.offerSavedDraft();
+      await this.proposals();
     } catch (error) {
       this.post({ type: 'studio.failed', message: (error as Error).message });
     }

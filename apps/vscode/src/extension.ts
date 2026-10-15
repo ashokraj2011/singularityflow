@@ -7509,6 +7509,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return message;
       }
       await refreshAfterKnownMutation();
+      await lazyPanels().WorkflowStudioPanel.refreshAfterConfigurationSync();
       void showCompactInformationMessage(
         `Workflow configuration activated on ${activation.targetBranch ?? 'sflow/config'} at `
         + `${activation.targetCommit?.slice(0, 12) ?? 'the reviewed commit'}. `
@@ -7528,7 +7529,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * Keeping these routes here means the extension never writes workflow configuration directly:
    * every mutation receives the same validation, lead-authority proposal, exact-diff review, and
    * local-authority draft treatment as the existing authoring controls.
-  */
+   */
   /**
    * Follow a proposal's background upload for a while, so the person learns its outcome instead of
    * finding nothing to review. The upload makes one attempt and never answers a sign-in prompt, so on
@@ -7538,7 +7539,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!/^psh_[a-f0-9-]{20,64}$/.test(intentId)) return;
     void (async () => {
       for (let round = 0; round < 40; round += 1) {
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise(resolve => setTimeout(resolve, round === 0 ? 500 : 3000));
         let intent: { status?: string; fault?: { advice?: string; classification?: string } | null;
           attempts?: Array<{ completedAt?: string | null }> } | undefined;
         try {
@@ -7549,7 +7550,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (intent.status === 'succeeded') {
           const { WorkflowStudioPanel } = lazyPanels();
           await WorkflowStudioPanel.refreshProposals();
-          void showCompactInformationMessage(`Workflow proposal ${branch} was uploaded and is waiting for review in Workflow Studio → Changes.`);
+          const review = 'Review and activate';
+          const openChanges = 'Open Changes';
+          const choice = await showCompactInformationMessage(
+            `Workflow proposal ${branch} was uploaded and is waiting for review in Workflow Studio → Changes.`,
+            review, openChanges
+          );
+          if (choice === review) await reviewAndActivateWorkflowProposal(branch);
+          else if (choice === openChanges) await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' });
           return;
         }
         const stopped = ['needs-user', 'attempt-budget-exhausted', 'remote-diverged'].includes(intent.status)
@@ -7567,10 +7575,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     })();
   };
-  const proposeWorkflowChange = async (baseCommand: string[], title: string): Promise<WorkflowChangeOutcome> => {
+  const proposeWorkflowChange = async (
+    baseCommand: string[], title: string, { propose = true }: { propose?: boolean } = {}
+  ): Promise<WorkflowChangeOutcome> => {
     const command = [...baseCommand];
-    if (!command.includes('--propose')) command.push('--propose');
-    if (!command.includes('--background-sync')) command.push('--background-sync');
+    if (propose && !command.includes('--propose')) command.push('--propose');
+    if (propose && !command.includes('--background-sync')) command.push('--background-sync');
     if (!command.includes('--json')) command.push('--json');
     output.appendLine(`\n$ singularity-flow ${formatCliArgsForDisplay(command)}`);
     try {
@@ -7605,7 +7615,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           return { outcome: 'proposed', branch: proposal.branch, error: stopped };
         }
         return { outcome: 'proposed', branch: proposal.branch, error: null };
-      } else if (proposal.authorityMode === 'local') {
+      } else if (proposal.authorityMode === 'local' || !propose) {
         const openSourceControl = 'Open Source Control';
         const selected = await showCompactInformationMessage(
           'Workflow configuration was saved as an uncommitted local draft. Review and commit '
@@ -7677,7 +7687,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (choices) => client.run<WorkflowMutationPreview>(['workflow', 'import', source.fsPath,
         ...workflowImportResolveArgs(choices), '--resolve-all', 'suggested', '--dry-run', '--json']),
       (plan, choices) => proposeWorkflowChange(['workflow', 'import', source.fsPath,
-        ...workflowImportResolveArgs({ ...choices, ...plan.resolutions }), '--confirm', plan.planSha256!], 'Importing workflows'));
+        ...workflowImportResolveArgs({ ...choices, ...plan.resolutions }), '--confirm', plan.planSha256!], 'Importing workflows',
+      { propose: Boolean(plan.destinationAuthority) }));
   };
   const duplicateWorkflow = async (selector: string): Promise<WorkflowChangeOutcome> => {
     const catalog = await client.run<{ workflows: { id: string; label: string }[]; epics?: { workflows: { id: string; label: string }[] } }>(['workflow', 'studio', '--json']);
@@ -7694,7 +7705,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const { WorkflowTransferPanel } = await import('./views/workflow-transfer-panel.ts');
     return WorkflowTransferPanel.show(`Duplicate ${source.label}`,
       (choices) => client.run<WorkflowMutationPreview>([...command(choices), '--dry-run', '--json']),
-      (plan, choices) => proposeWorkflowChange([...command({ ...choices, ...plan.resolutions }), '--confirm', plan.planSha256!], `Duplicating ${source.label}`));
+      (plan, choices) => proposeWorkflowChange([...command({ ...choices, ...plan.resolutions }), '--confirm', plan.planSha256!], `Duplicating ${source.label}`,
+        { propose: Boolean(plan.destinationAuthority) }));
   };
 
   const registered: Record<string, (...args: never[]) => unknown> = {

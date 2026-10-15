@@ -141,13 +141,19 @@ test('a refusal printed for people still reaches the VS Code card as its structu
   const described = describeCrossPhaseChange(change, { code: 'PRIOR_CODE_TEST_EVIDENCE_STALE', gate: 'consumption', workflow, phase: workflow.phases.review });
   const error = new SingularityFlowError(`Phase 'review' requires current Code evidence. ${described.text}`,
     { code: 'PRIOR_CODE_TEST_EVIDENCE_STALE', details: { gate: described.gate } });
+  // This runs in the source checkout, where every run of the test repeats the same refusal: the
+  // machine-local repeat count (finding-escalation.mjs) would lead the card with "Stop" after three
+  // runs. That escalation is tested on its own; here it is off.
   const capture = async (env) => {
     const written = []; const original = console.error; const before = process.env.SINGULARITY_FLOW_REFUSAL_ENVELOPE; const exitCode = process.exitCode;
+    const streaks = process.env.SINGULARITY_FLOW_FINDING_STREAKS;
     console.error = (text) => written.push(String(text));
+    process.env.SINGULARITY_FLOW_FINDING_STREAKS = 'off';
     if (env) process.env.SINGULARITY_FLOW_REFUSAL_ENVELOPE = env; else delete process.env.SINGULARITY_FLOW_REFUSAL_ENVELOPE;
     try { await reportCliFailure(error, ['phase', 'publish', 'review']); } finally {
       console.error = original; process.exitCode = exitCode;
       if (before === undefined) delete process.env.SINGULARITY_FLOW_REFUSAL_ENVELOPE; else process.env.SINGULARITY_FLOW_REFUSAL_ENVELOPE = before;
+      if (streaks === undefined) delete process.env.SINGULARITY_FLOW_FINDING_STREAKS; else process.env.SINGULARITY_FLOW_FINDING_STREAKS = streaks;
     }
     return written.join('\n');
   };

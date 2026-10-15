@@ -100,7 +100,7 @@ export async function load(url, context, next) {
     const modules = (await readFile(log, 'utf8').catch(() => '')).split('\n').filter(Boolean);
     return { status: result.status, stdout: result.stdout, modules };
   };
-  for (const args of [['--version'], ['help'], ['nextsteps', '--json']]) {
+  for (const args of [['--version'], ['help'], ['nextsteps', '--json'], ['workflow', 'intent', 'preflight', '--source', 'installed', '--json']]) {
     const source = await runWith(args, false);
     const bundled = await runWith(args, true);
     assert.equal(bundled.status, source.status, args.join(' '));

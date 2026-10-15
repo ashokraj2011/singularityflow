@@ -262,7 +262,6 @@ import {
 } from './skp-phase-evidence.mjs';
 import { planSkillAmendmentEvidence } from './skp-amendment-plan.mjs';
 import { captureSkillConfigurationAncestry } from './skp-amendment-audit.mjs';
-import { diagnoseSkillHostReadiness } from './skp-host-readiness.mjs';
 import { gateRefusal } from './evidence/gate-refusal.mjs';
 import { crossPhaseChange, describeCrossPhaseChange } from './evidence/cross-phase-change.mjs';
 import { obligationId } from './evidence/vocabulary.mjs';
@@ -281,9 +280,10 @@ const MODEL_ASSURANCE_RANK = Object.freeze({
   unavailable: 0, 'host-observed': 1, 'provider-reported': 2, 'policy-selected': 3
 });
 
-function assertSkillPhaseHostReady(workflow, phase, operation) {
+async function assertSkillPhaseHostReady(workflow, phase, operation) {
   const pinned = workflow.resolution?.phases?.find((entry) => entry.id === phase?.id);
   if (pinned?.kind !== 'skill' && phase?.kind !== 'skill') return;
+  const { diagnoseSkillHostReadiness } = await import('./skp-host-readiness.mjs');
   // M2 pins and verifies skill bytes and phase evidence, but does not grant execution authority.
   // In particular, a model host or direct CLI call cannot reinterpret the accepted SKILL.md as
   // instructions until the qualified containment and delivery-receipt boundary is installed.
@@ -2382,7 +2382,7 @@ export async function beginPhaseGeneration(root, config, workflow, {
   const testAdmission = await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
   const riskInput = workflow.resolution?.phases?.find(item => item.id === phase.id)?.testEvidenceFrom;
   if (riskInput && workflow.phases[riskInput]?.deliveryEvidence?.testRecovery) await assertPassedCodeDeliveryInput(root, config, workflow, phase);
-  assertSkillPhaseHostReady(workflow, phase, 'begin code generation for');
+  await assertSkillPhaseHostReady(workflow, phase, 'begin code generation for');
   if (!phaseRequiresCodeDelivery(phase)) {
     throw new SingularityFlowError(`Phase '${phase.id}' is not a code-generation phase.`, { code: 'GENERATION_INTENT_NOT_APPLICABLE' });
   }
@@ -2415,7 +2415,7 @@ export async function preparePhaseInputs(root, config, workflow, requested = und
   const testAdmission = await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
   const riskInput = workflow.resolution?.phases?.find(item => item.id === phase.id)?.testEvidenceFrom;
   if (riskInput && workflow.phases[riskInput]?.deliveryEvidence?.testRecovery) await assertPassedCodeDeliveryInput(root, config, workflow, phase);
-  if (!dryRun) assertSkillPhaseHostReady(workflow, phase, 'prepare');
+  if (!dryRun) await assertSkillPhaseHostReady(workflow, phase, 'prepare');
   let references = [];
   if (!dryRun) {
     references = await storyReferenceRepositories(root, config, workflow);
@@ -3571,7 +3571,7 @@ export async function publishGeneration(root, config, workflow, {
   const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
   await assertStoryDocumentRiskGates(root, config, workflow, phase, 'publish');
   await assertStoryTestRecoveryFeatureAdmission(root, config, workflow, phase);
-  assertSkillPhaseHostReady(workflow, phase, 'publish');
+  await assertSkillPhaseHostReady(workflow, phase, 'publish');
   // Deterministic generation is kernel-owned and deliberately carries no phase-agent session.
   // Its explicit authorship still binds the human Git identity that invoked the publication.
   const session = authorship?.producer === 'deterministic'
@@ -5057,7 +5057,7 @@ async function submitPhaseTransition(root, config, workflow, {
   const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
   await assertStoryDocumentRiskGates(root, config, workflow, phase, 'submit');
   const testCommandEpochRun = beginTestCommandEpochValidation(workflow, phase);
-  assertSkillPhaseHostReady(workflow, phase, 'submit');
+  await assertSkillPhaseHostReady(workflow, phase, 'submit');
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'submit for approval');
   const verifiedCodeInput = await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   await assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });
@@ -5766,7 +5766,7 @@ export async function approvePhase(root, config, workflow, {
   await assertPhaseAppealsResolved(root, config, workflow, phase);
   const { assertStoryDocumentRiskGates } = await import('./trp-document-runtime.mjs');
   const documentRisks = await assertStoryDocumentRiskGates(root, config, workflow, phase, 'approve');
-  assertSkillPhaseHostReady(workflow, phase, 'approve');
+  await assertSkillPhaseHostReady(workflow, phase, 'approve');
   await assertQualifiedConformanceReady(root, config, workflow, phase, 'be approved');
   const verifiedCodeInput = await assertPassedCodeDeliveryInput(root, config, workflow, phase);
   await assertReviewCodeEvidenceFresh(root, config, workflow, phase, { verifiedCodeInput });

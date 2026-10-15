@@ -519,7 +519,7 @@ function aggregateReviewableFingerprint(artifacts) {
  * binary evidence are not prose drafts. The returned aggregate is what authoring hosts use for
  * bounded repair progress, so changing only a supporting Markdown document must change it.
  */
-export async function phaseAuthoredReviewArtifacts(root, config, workflow, phase) {
+export async function phaseAuthoredReviewArtifacts(root, config, workflow, phase, { observeFile = null } = {}) {
   const required = requiredArtifactRepoPath(config, workflow, phase);
   const declared = new Map([[required, { path: required, scope: 'primary' }]]);
   const set = resolvedArtifactSet(config, workflow, phase);
@@ -539,6 +539,7 @@ export async function phaseAuthoredReviewArtifacts(root, config, workflow, phase
 
   const artifacts = [];
   for (const declaration of [...declared.values()].sort((left, right) => left.path.localeCompare(right.path))) {
+    await observeFile?.(declaration.path);
     const text = await readReviewArtifact(
       root,
       declaration.path,

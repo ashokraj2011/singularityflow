@@ -795,6 +795,7 @@ Every public operation is classified before its implementation module is importe
 | workflow.intent.attachments | read | never | — | — |
 | workflow.intent.catalog | read | never | — | — |
 | workflow.intent.example | read | never | — | — |
+| workflow.intent.preflight | read | never | — | — |
 | workflow.intent.show | read | never | — | — |
 | workflow.list | read | never | — | — |
 | workflow.markup.compile | read | never | — | — |

@@ -1,4 +1,5 @@
 import { jiraSnapshotSource, listEpicSources } from './epic-sources.mjs';
+export { isInitiativeGenerator } from './initiative-phase-roles.mjs';
 
 /**
  * Generated initiative outputs.
@@ -104,10 +105,6 @@ async function sourceCatalog(root, { initiative }) {
 }
 
 export const INITIATIVE_GENERATORS = Object.freeze({ 'source-catalog': sourceCatalog });
-
-export function isInitiativeGenerator(id) {
-  return Object.prototype.hasOwnProperty.call(INITIATIVE_GENERATORS, id);
-}
 
 export async function renderInitiativeGenerator(id, root, context) {
   const generator = INITIATIVE_GENERATORS[id];

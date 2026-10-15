@@ -391,6 +391,12 @@ export function commandClass(args: string[]): 'read' | 'mutation' | 'unknown' {
     if (action !== 'compile') return 'read';
     return enabledBooleanOption(args, 'dry-run') || !hasOption(args, 'out') ? 'read' : 'mutation';
   }
+  if (args[0] === 'workflow' && args[1] === 'intent') {
+    return ['catalog', 'show', 'example', 'attachments', 'preflight'].includes(args[2] ?? '') ? 'read' : 'mutation';
+  }
+  if (args[0] === 'workflow' && args[1] === 'markup') {
+    return args[2] === 'example' || args[2] === 'compile' && !hasOption(args, 'out') ? 'read' : 'mutation';
+  }
   if (args[0] === 'workflow') return ['list', 'proposals', 'proposal', 'proposal-status'].includes(args[1] ?? 'list') ? 'read' : 'mutation';
   if (args[0] === 'phase') return ['show', 'draft-check', 'prepublish'].includes(args[1] ?? '')
     ? 'read' : 'mutation';

@@ -14,16 +14,17 @@ import { step, stop as stopStep } from '../cli-steps.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 const LOCAL_FALLBACK = new Set(['SESSION_LOCAL_STORY_UNAVAILABLE', 'SESSION_LOCAL_REPOSITORY_UNAVAILABLE']);
-const OPTIONS = new Set(['workspace', 'repository', 'json', 'for-agent']);
+const OPTIONS = new Set(['workspace', 'repository', 'json', 'for-agent', 'timings']);
 const stop = (result, label) => stopStep(result, label, 'SESSION_OPEN_STEP_FAILED');
 
 /** Validate before a pause response, so an invalid request cannot silently become another action. */
 export function validateSessionOpenRequest({ positionals, options }) {
   for (const key of Object.keys(options)) {
-    if (!OPTIONS.has(key)) throw new SingularityFlowError(`session open takes --workspace, --repository, --for-agent and --json, not --${key}.`, { code: 'SESSION_OPEN_OPTION_UNSUPPORTED' });
+    if (!OPTIONS.has(key)) throw new SingularityFlowError(`session open takes --workspace, --repository, --for-agent, --timings and --json, not --${key}.`, { code: 'SESSION_OPEN_OPTION_UNSUPPORTED' });
   }
   if (positionals.length > 3) throw new SingularityFlowError('session open takes at most one work ID.', { code: 'SESSION_OPEN_OPTION_UNSUPPORTED' });
   if (options.json !== undefined && options.json !== true) throw new SingularityFlowError('session open requires --json without a value.', { code: 'SESSION_OPEN_OPTION_UNSUPPORTED' });
+  if (options.timings !== undefined && options.timings !== true) throw new SingularityFlowError('--timings is a boolean flag.', { code: 'SESSION_OPEN_OPTION_UNSUPPORTED' });
   if (options['for-agent'] !== undefined && (options['for-agent'] !== true || options.json !== true)) {
     throw new SingularityFlowError('session open --for-agent requires --json; both are boolean flags.', { code: 'SESSION_OPEN_OPTION_UNSUPPORTED' });
   }
@@ -76,7 +77,9 @@ export async function run({ positionals, options }) {
   }
   const checkout = opened.value?.repositoryPath;
   if (!checkout) throw new SingularityFlowError(`Opening ${workId} returned no checkout path.`, { code: 'SESSION_OPEN_STEP_FAILED' });
-  const status = await step(['session', 'status', '--json'], checkout);
+  const projection = process.env.SINGULARITY_FLOW_SESSION_READS === 'legacy' ? null
+    : await (await import('../session-read-service.mjs')).readOpenedSession(checkout, { workId });
+  const status = projection ? { ok: true, value: projection.session } : await step(['session', 'status', '--json'], checkout);
   if (!status.ok) stop(status, 'session status');
   const agent = opened.value.agent ?? null;
   if (status.value?.ready !== true || status.value.workId !== workId || (status.value.activeAgent ?? null) !== agent) {
@@ -84,9 +87,10 @@ export async function run({ positionals, options }) {
       `${workId} opened at ${checkout}, but its session does not match (ready: ${status.value?.ready}, Story: ${status.value?.workId}, agent: ${status.value?.activeAgent ?? 'none'}; expected ${agent ?? 'none'}). Nothing else was done.`,
       { code: 'SESSION_OPEN_BINDING_MISMATCH', details: { repositoryPath: checkout } });
   }
-  const context = await step(['session', 'context', '--work-id', workId, '--slice', 'brief', '--max-output-bytes', '32768', '--json'], checkout);
+  const context = projection ? { ok: true, value: projection.context }
+    : await step(['session', 'context', '--work-id', workId, '--slice', 'brief', '--max-output-bytes', '32768', '--json'], checkout);
   if (!context.ok) stop(context, 'session context');
-  const next = await step(['nextsteps', workId, '--json'], checkout);
+  const next = projection ? { ok: true, value: projection.nextsteps } : await step(['nextsteps', workId, '--json'], checkout);
   if (!next.ok) stop(next, 'nextsteps');
   const result = {
     schemaVersion: 1, resultType: 'session-open', status: 'ready', workId, repositoryPath: checkout,

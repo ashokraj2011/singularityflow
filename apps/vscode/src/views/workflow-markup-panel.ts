@@ -23,6 +23,11 @@ interface MarkupResult {
 }
 
 interface IntentCatalog { resultType: string; sourceSha256: string; source: { kind: string }; entries: unknown[]; counts: Record<string, number>; patterns: unknown[]; families: unknown[] }
+interface IntentPreflight {
+  resultType: string; sourceSha256: string; catalog: IntentCatalog;
+  capabilities: { protocol: number; engine: { sha256: string }; grammarVersions: number[]; cli: { catalog: boolean; asset: boolean; attachments: boolean; compile: boolean; documentation: boolean } };
+  approvalAuthorities: { id: string; label: string }[];
+}
 
 export class WorkflowMarkupPanel {
   /** Capture one explicitly selected, bounded local file; never scan the repository or follow links. */
@@ -54,6 +59,7 @@ export class WorkflowMarkupPanel {
     panel.webview.html = page('Create workflow with Copilot', `<style nonce="${token}">${WORKFLOW_MARKUP_STYLE}</style>${WORKFLOW_MARKUP_BODY.replace('<!-- brand -->', brandMark(20))}`,
       contentSecurityPolicy(panel.webview, token), token, WORKFLOW_MARKUP_SCRIPT);
     let disposed = false, busy = false, revision = 0;
+    let catalogRead: AbortController | null = null;
     let reviewed: { source: string; result: MarkupResult; revision: number; repository: string; inspections: Map<string, Promise<unknown>> } | null = null;
     let handoff: { intent: string; selected: string; catalog: IntentCatalog; assets: { kind: string; id: string }[]; revision: number; repository: string; attempts: number; failedSource: string | null } | null = null;
     const intentRuntime = require(path.join(__dirname, 'workflow-intent-runtime.cjs')) as typeof import('../workflow-intent-runtime.ts');
@@ -70,8 +76,8 @@ export class WorkflowMarkupPanel {
       if (value != null && !['approved', 'installed'].includes(value)) throw new Error('Select the approved repository catalog or installed starters explicitly.');
       return value ?? 'approved';
     };
-    const readCatalog = async (selected: string, args: string[] = []) => {
-      const result = await client.run<IntentCatalog>(['workflow', 'intent', 'catalog', '--source', selected, ...args, '--json']);
+    const readCatalog = async (selected: string, args: string[] = [], signal?: AbortSignal) => {
+      const result = await client.run<IntentCatalog>(['workflow', 'intent', 'catalog', '--source', selected, ...args, '--json'], signal);
       if (result.resultType !== 'workflow-intent-catalog' || !/^sha256:[a-f0-9]{64}$/.test(result.sourceSha256)) throw new Error('The installed build did not return a bound intent catalog. Update the matching CLI and extension.');
       return result;
     };
@@ -186,15 +192,20 @@ export class WorkflowMarkupPanel {
         }
       },
       'markup.catalog': async message => {
+        catalogRead?.abort();
+        const controller = new AbortController(); catalogRead = controller;
         try {
           const selected = catalogKind(stringField(message, 'catalogSource'));
           const kind = stringField(message, 'kind'), query = stringField(message, 'query'), expected = stringField(message, 'expectedSource');
           const args = ['--limit', '16', '--cursor', String(integerField(message, 'cursor') ?? 0)];
           if (kind) args.push('--kind', kind); if (query) args.push('--query', query); if (expected) args.push('--expected-source', expected);
-          const result = await readCatalog(selected, args);
+          const result = await readCatalog(selected, args, controller.signal);
+          if (controller.signal.aborted || catalogRead !== controller) return;
           post({ type: 'markup.catalogResult', catalogSource: selected, request: integerField(message, 'request'), result });
-        } catch (error) { post({ type: 'markup.catalogError', request: integerField(message, 'request'), message: (error as Error).message }); }
+        } catch (error) { if (!controller.signal.aborted) post({ type: 'markup.catalogError', request: integerField(message, 'request'), message: (error as Error).message }); }
+        finally { if (catalogRead === controller) catalogRead = null; }
       },
+      'markup.cancelCatalog': async () => { catalogRead?.abort(); catalogRead = null; },
       'markup.open': async message => {
         const requested = integerField(message, 'revision');
         if (busy) { post({ type: 'markup.error', revision: requested, message: 'A designer check or save is already running.' }); return; }
@@ -247,12 +258,35 @@ export class WorkflowMarkupPanel {
           const selected = catalogKind(stringField(message, 'catalogSource'));
           const repository = client.repository;
           const requested = integerField(message, 'revision') ?? revision;
-          const catalog = await readCatalog(selected, ['--limit', '8']);
+          const preflight = await client.run<IntentPreflight>(['workflow', 'intent', 'preflight', '--source', selected, '--json']);
+          if (preflight.resultType !== 'workflow-intent-preflight' || preflight.capabilities?.protocol !== 1
+              || !Array.isArray(preflight.capabilities.grammarVersions) || !preflight.capabilities.grammarVersions.includes(2)
+              || preflight.capabilities.cli?.compile !== true || preflight.capabilities.cli.catalog !== true
+              || preflight.capabilities.cli.asset !== true || preflight.capabilities.cli.attachments !== true
+              || preflight.capabilities.cli.documentation !== true
+              || !/^sha256:[a-f0-9]{64}$/.test(preflight.capabilities.engine?.sha256 ?? '')
+              || !/^sha256:[a-f0-9]{64}$/.test(preflight.sourceSha256 ?? '') || preflight.catalog?.resultType !== 'workflow-intent-catalog'
+              || preflight.catalog?.sourceSha256 !== preflight.sourceSha256
+              || !Array.isArray(preflight.approvalAuthorities) || preflight.approvalAuthorities.length > 256
+              || preflight.approvalAuthorities.some(group => typeof group?.id !== 'string' || !group.id || group.id.length > 256)) {
+            throw new Error('The selected CLI cannot verify this designer protocol. Your draft is retained. Open After install and align the CLI, extension and plugin before retrying.');
+          }
+          const catalog = preflight.catalog;
           if (disposed || repository !== client.repository || requested !== revision) throw new Error('The repository or intent changed. Review the current intent before opening Copilot.');
           const chosen = selectedLibrary(message as { selectedAssets?: unknown });
+          const attachmentReads = attachments.prepareHandoff();
+          const selectedGroup = await vscode.window.showQuickPick([
+            ...preflight.approvalAuthorities.map(group => ({ label: group.label || group.id, description: group.id, group })),
+            { label: 'Keep draft without choosing a group', description: 'No checkpoint authority is selected; nothing is imported or activated.', group: undefined }
+          ], { title: 'Choose the approval group for requested checkpoints', placeHolder: 'This selects a group, not an approval. Preserve the draft if you are not ready.' });
+          if (!selectedGroup?.group) {
+            post({ type: 'markup.done', revision: requested, message: 'Draft retained locally with unresolved checkpoint authority. Select an existing group before generating an import-ready workflow; no model request was sent.' }); return;
+          }
+          if (disposed || repository !== client.repository || requested !== revision) throw new Error('The repository or intent changed while selecting authority. Your draft is retained.');
           handoff = { intent, selected, catalog, assets: chosen, revision: requested, repository, attempts: 0, failedSource: null };
           const query = intentRuntime.workflowIntentPrompt({ repository, selected, catalog, intent, source, tool: nativeTool, revision: requested,
-            attachments: attachments.prompt(), attachmentReads: nativeTool.available ? [] : attachments.fallback(), selectedAssets: chosen });
+            attachments: attachments.prompt(), attachmentReads, selectedAssets: chosen, checkpointGroup: selectedGroup.group,
+            cliLocation: client.location, capabilities: preflight.capabilities });
           await vscode.commands.executeCommand('workbench.action.chat.open', { query, isPartialQuery: true });
           post({ type: 'markup.done', revision: requested, message: 'Your request is ready in Copilot. Review and send it there; the checked workflow will return to this designer.' });
         } catch (error) { post({ type: 'markup.error', revision, message: (error as Error).message }); }
@@ -286,6 +320,6 @@ export class WorkflowMarkupPanel {
       if (navigation) return navigateTo(navigation);
       return router.route(raw);
     });
-    panel.onDidDispose(() => { disposed = true; reviewed = null; handoff = null; nativeTool.dispose(); listener.dispose(); });
+    panel.onDidDispose(() => { disposed = true; catalogRead?.abort(); catalogRead = null; reviewed = null; handoff = null; nativeTool.dispose(); listener.dispose(); });
   }
 }

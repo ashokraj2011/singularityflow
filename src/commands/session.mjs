@@ -26,90 +26,12 @@ import YAML from 'yaml';
 import { readRecord } from '../schema-migrations.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
+import { resolveSessionRepository } from './shared/session-repository-selection.mjs';
+export { resolveSessionRepository };
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability(positionals[0], argv, options,
     () => withCommandConfirmation(options, () => sessionCommand(positionals, options)));
-}
-
-export async function resolveSessionRepository({
-  workspaceReference = null, repositoryId = null, localStoryOnly = false, remoteProbe = true
-} = {}) {
-  // An existing managed checkout proves its governance through its accepted Story aggregate.
-  // Resolving that local candidate must not probe a remote for configuration authority.
-  const governed = (candidate) => localStoryOnly
-    ? candidate ? { source: 'local-story-candidate', remote: null } : null
-    : sessionRepositoryAuthority(candidate, { remoteProbe });
-
-  if (repositoryId != null && workspaceReference == null) throw new SingularityFlowError(
-    '--repository requires --workspace for session candidates or attach.',
-    { code: 'SESSION_WORKSPACE_SELECTION_REQUIRED' }
-  );
-
-  // An exact workspace/repository selector is independent of the host's current directory. In
-  // particular, VS Code may be rooted in a different Story worktree when its Inbox opens a remote
-  // Story from another mapped repository. This read does not change the active local selection.
-  const explicit = workspaceReference == null ? null : await buildWorkspaceContext(
-    workspaceRegistryFile(), workspaceReference, { repositoryId, detectStory: false }
-  );
-  if (explicit && repositoryId == null
-      && Object.keys((await readWorkspace(explicit.workspacePath)).repositories).length > 1) {
-    throw new SingularityFlowError(
-      `Workspace '${explicit.workspaceName}' contains multiple repositories. Choose one with --repository <ID>.`,
-      { code: 'SESSION_REPOSITORY_SELECTION_REQUIRED' }
-    );
-  }
-
-  let cwdRoot = null;
-  if (!explicit) {
-    try { cwdRoot = repoRoot(); } catch { /* Not inside a Git repository at all. */ }
-    const cwdAuthority = await governed(cwdRoot);
-    if (cwdAuthority) {
-      return { root: cwdRoot, resolvedFrom: 'working-directory', workspaceId: null, authority: cwdAuthority };
-    }
-  }
-
-  let context = explicit;
-  if (!context) {
-    try {
-      context = await readActiveWorkspaceContext(activeWorkspaceFile(), workspaceRegistryFile());
-    } catch { /* An unreadable or stale selection is a miss, not a failure of the command. */ }
-  }
-
-  if (!context) {
-    return {
-      root: null,
-      reason: 'no-workspace-selected',
-      detail: 'Select a workspace with `singularity-flow session workspace <workspace>`.'
-    };
-  }
-  if (context.repositoryState !== 'ready') {
-    // Candidates can inspect a deferred repository without cloning. Attach will preflight the
-    // exact Story before materializing only this reviewed workspace member.
-    return {
-      root: null,
-      reason: 'workspace-repository-not-ready',
-      workspaceContext: context,
-      detail: `Workspace '${context.workspaceName}' repository '${context.repositoryId}' is ${context.repositoryState}. `
-        + `Run \`singularity-flow workspace repair ${context.workspacePath}\`.`
-    };
-  }
-  const workspaceRoot = context.canonicalRepositoryPath ?? context.repositoryPath;
-  const workspaceAuthority = await governed(workspaceRoot);
-  if (!workspaceAuthority) {
-    return {
-      root: null,
-      reason: 'workspace-repository-not-initialized',
-      detail: `Workspace '${context.workspaceName}' repository '${context.repositoryId}' has no ${WORKFLOW_PATH}.`
-    };
-  }
-  return {
-    root: path.resolve(explicit ? workspaceRoot : context.repositoryPath),
-    resolvedFrom: explicit ? 'explicit-workspace' : 'active-workspace',
-    workspaceId: context.workspaceId,
-    authority: workspaceAuthority,
-    workspaceContext: context
-  };
 }
 
 export async function selectedSessionRemote(context) {
@@ -239,6 +161,7 @@ export async function printSessionCandidateResult(discovered, options, scope = {
 }
 
 export async function sessionCommand(positionals, options) {
+  if (positionals[1] === 'open-local') return (await import('./session-open-local.mjs')).openLocalSessionCommand(positionals, options);
   const agentEntry = options['for-agent'] != null ? await import('../session-agent-entry.mjs') : null;
   const paused = agentEntry?.sessionAgentEntryGuard(positionals, options);
   if (paused) return console.log(JSON.stringify(paused));
@@ -529,97 +452,6 @@ export async function sessionCommand(positionals, options) {
     };
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
     console.log(`Selected Story ${workId} at ${result.repositoryPath}. No Git state was changed.`);
-    return result;
-  }
-  if (subcommand === 'open-local') {
-    const workId = requirePositional(positionals, 2, 'work ID');
-    const resolved = await resolveSessionRepository({
-      workspaceReference, repositoryId: selectedRepositoryId, localStoryOnly: true
-    });
-    if (!resolved.root) throw new SingularityFlowError(
-      `No ready repository is available for local Story '${workId}'. Select its exact workspace and repository, or use session attach to materialize it.`,
-      { code: 'SESSION_LOCAL_REPOSITORY_UNAVAILABLE' }
-    );
-    const root = resolved.workspaceContext?.canonicalRepositoryPath ?? resolved.root;
-    const { listStoryWorktrees } = await import('../story-worktree.mjs');
-    const commonDir = gitCommonDir(root);
-    const matches = [];
-    // Verifying a Story is the expensive step, and only a checkout holding this Story's state can
-    // match. Try those first; any other layout falls back to verifying every registered checkout.
-    const registeredWorktrees = listStoryWorktrees(root);
-    const holding = registeredWorktrees.filter((entry) => existsSync(path.join(entry.repositoryPath, 'singularity/work-items', workId, 'workflow.json')));
-    for (const registered of holding.length ? holding : registeredWorktrees) {
-      const checkout = registered.repositoryPath;
-      try {
-        // The Git worktree registry supplies paths, never a webview or caller-supplied path.
-        // A same-named Story in another workspace repository cannot satisfy this selection.
-        if (!samePlatformPath(gitCommonDir(checkout), commonDir)
-            || branch(checkout) !== registered.branch) continue;
-        const accepted = await loadAcceptedStoryExecution(checkout);
-        const workflow = accepted.workflow;
-        if (workflow.workItem?.id !== workId
-            || workflow.workItem?.branch !== registered.branch
-            || (workflow.lineage?.canonicalBranch ?? registered.branch) !== registered.branch) continue;
-        matches.push({ checkout, accepted });
-      } catch {
-        // A stale or damaged registered worktree is not an authority for local selection.
-        // Remote attachment remains available and retains its strict synchronization gate.
-      }
-    }
-    if (matches.length !== 1) throw new SingularityFlowError(
-      matches.length
-        ? `More than one managed checkout claims Story '${workId}'. Inspect the registered worktrees before selecting it.`
-        : `No verified managed checkout owns local Story '${workId}'. Use session attach to synchronize or materialize it.`,
-      { code: matches.length ? 'SESSION_LOCAL_STORY_AMBIGUOUS' : 'SESSION_LOCAL_STORY_UNAVAILABLE' }
-    );
-    const { checkout, accepted } = matches[0];
-    // A repository-local caller may win resolution even while the machine's selected workspace
-    // points at another repository. Refuse that ambiguity before changing phase session metadata.
-    if (!workspaceReference) {
-      const active = await readActiveWorkspaceContext(
-        activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
-      );
-      if (active && !samePlatformPath(
-        gitCommonDir(active.canonicalRepositoryPath ?? active.repositoryPath), commonDir
-      )) throw new SingularityFlowError(
-        `Local Story '${workId}' belongs to a different repository than the active workspace. Select its exact workspace and repository before opening it.`,
-        { code: 'SESSION_LOCAL_WORKSPACE_MISMATCH' }
-      );
-    }
-    const session = await activateWorkItemSession(checkout, accepted.definition, accepted.workflow);
-    const readiness = await agentSessionStatus(checkout, accepted.definition, accepted.workflow);
-    if (!readiness.ready) throw new SingularityFlowError(
-      `Local Story '${workId}' could not bind its current phase agent. No Git state was changed.`,
-      { code: 'SESSION_LOCAL_AGENT_UNAVAILABLE' }
-    );
-    if (workspaceReference && resolved.workspaceContext) await activateWorkspaceContext(
-      workspaceRegistryFile(), activeWorkspaceFile(), resolved.workspaceContext.workspaceId,
-      { repositoryId: resolved.workspaceContext.repositoryId, detectStory: false }
-    );
-    const selection = await activateWorkspaceStoryContext(
-      activeWorkspaceFile(), workspaceRegistryFile(), checkout,
-      { storyId: workId, selectionSource: 'session-open-local' }
-    );
-    if (!selection) {
-      const active = await readActiveWorkspaceContext(
-        activeWorkspaceFile(), workspaceRegistryFile(), { refresh: false }
-      );
-      if (resolved.workspaceContext || active) throw new SingularityFlowError(
-        `Local Story '${workId}' could not be selected in its mapped workspace repository. No Git state was changed.`,
-        { code: 'SESSION_LOCAL_WORKSPACE_MISMATCH' }
-      );
-    }
-    const result = {
-      ready: true, localOnly: true, remoteSynchronized: false,
-      workId, branch: branch(checkout), head: head(checkout), repositoryPath: checkout,
-      workspaceId: selection?.workspaceId ?? resolved.workspaceId ?? null,
-      repositoryId: selection?.repositoryId ?? null,
-      phase: accepted.workflow.currentPhase, status: accepted.workflow.status,
-      agent: session.selectedAgent ?? readiness.activeAgent ?? null,
-      materialization: 'opened-existing-managed-story-worktree'
-    };
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    console.log(`Opened local Story ${workId} at ${checkout}. Remote synchronization was not attempted.`);
     return result;
   }
   let resolved = await resolveSessionRepository({ workspaceReference, repositoryId: selectedRepositoryId, remoteProbe: subcommand !== 'context' });

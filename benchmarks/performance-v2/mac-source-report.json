@@ -1,0 +1,3622 @@
+{
+  "format": "sflow-performance-v2-local-report/1",
+  "recordedAt": "2026-10-15T23:26:30.555Z",
+  "baseCommit": "0e695809291c6196f8ce01656403f47e450269a0",
+  "branch": "codex/performance-v2",
+  "sourceIdentity": {
+    "sha256": "sha256:9d73ae172165f756f4eb213e74a44a34a910c36dff4efcfb60c6fb8d233f18e5",
+    "scope": "Sorted relative paths and complete .mjs/.ts/.json bytes under src/ and apps/vscode/src/. Development source, not an installed-build stamp."
+  },
+  "protocol": {
+    "samples": 30,
+    "warmups": 5,
+    "order": "Alternating reference/candidate pairs. Session and logs ran sequentially without concurrent builds or test suites.",
+    "comparison": "Exact main source clone at baseCommit versus frozen candidate sources; matching lockfile, Node, Git and installed dependencies. Not installed builds.",
+    "coldStorage": false,
+    "coldModuleCompilation": false,
+    "outliers": "All samples retained; no trimming.",
+    "processCounts": "Separate instrumented calls, including Node descendants. Parent-only sample counters are labeled separately. Not OS-wide process tracing.",
+    "outputParity": "Exact session/context/nextsteps equality, localOnly binding checks and unchanged log output. No test, review, consent or publication policy relaxed.",
+    "filesystem": {
+      "kind": null,
+      "description": "Local filesystem; OS caches warm. Filesystem type was not independently recorded."
+    }
+  },
+  "results": {
+    "sessionOpen": {
+      "resultType": "sflow-session-read-qualification",
+      "fixture": "existing-managed-local-session-open",
+      "reference": "Exact local source baseline 0e695809291c6196f8ce01656403f47e450269a0; not an installed build.",
+      "packageMode": "source",
+      "storage": "fresh process, OS-warm local filesystem; not cold storage",
+      "warmups": 5,
+      "compilation": "Both routes request the existing CLI compile cache when supported; not cold module compilation.",
+      "samples": 30,
+      "node": "v25.5.0",
+      "git": "git version 2.54.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "identityPreserved": true,
+      "modelsInvoked": 0,
+      "physicalProcesses": {
+        "legacy": {
+          "git": {
+            "parent": 49,
+            "descendants": 30,
+            "total": 79
+          },
+          "nodeChildren": 1,
+          "otherProcesses": 0,
+          "scope": "All observed child_process launches in the CLI and inherited Node descendants; separate instrumented calls, not latency samples."
+        },
+        "shared": {
+          "git": {
+            "parent": 26,
+            "descendants": 30,
+            "total": 56
+          },
+          "nodeChildren": 1,
+          "otherProcesses": 0,
+          "scope": "All observed child_process launches in the CLI and inherited Node descendants; separate instrumented calls, not latency samples."
+        }
+      },
+      "probeScope": "The subprocesses array below is the legacy parent-only probe; physicalProcesses includes descendants.",
+      "peakResources": null,
+      "nativeStoryQualification": false,
+      "installedPlatformQualification": false,
+      "summaries": {
+        "legacy": {
+          "samples": 30,
+          "minMs": 2739.7899169999873,
+          "maxMs": 3541.3103330000013,
+          "p50Ms": 2971.2987090000097,
+          "p95Ms": 3509.959999999992,
+          "coefficientOfVariation": 0.07348278277535379,
+          "subprocesses": [
+            49
+          ],
+          "outputBytes": [
+            11968
+          ]
+        },
+        "shared": {
+          "samples": 30,
+          "minMs": 1804.300500000012,
+          "maxMs": 3035.5257909999928,
+          "p50Ms": 1999.4318330000096,
+          "p95Ms": 2576.2327080000105,
+          "coefficientOfVariation": 0.11186412477020498,
+          "subprocesses": [
+            26
+          ],
+          "outputBytes": [
+            11968
+          ]
+        }
+      },
+      "timings": {
+        "legacy": [
+          {
+            "durationMs": 3340.4562090000036,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 3014.637124999994,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2971.2987090000097,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2970.0898749999906,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2895.971583999999,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2798.085666999992,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 3057.621457999994,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 3010.5346659999923,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 3040.1352909999987,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2776.0963749999937,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2935.0731249999953,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2867.183208000002,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 3157.6301660000026,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 3509.959999999992,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 3459.730958,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 3541.3103330000013,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 3178.919750000001,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 3140.585457999987,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 3093.611667000019,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 3177.652999999991,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2993.315958000021,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 3084.4251670000085,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2739.7899169999873,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2745.699874999991,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2828.3257919999887,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2787.0684170000022,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2892.630999999994,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2835.992249999981,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2781.2560829999857,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2780.663291999983,
+            "outputBytes": 11968,
+            "calls": 49,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          }
+        ],
+        "shared": [
+          {
+            "durationMs": 2008.6294999999955,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2070.603041999995,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1986.7592499999955,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1908.114499999996,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1982.7614590000012,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2051.235375000004,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2009.106541999994,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2005.237500000003,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1943.8257920000033,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1991.9757919999975,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2086.6472090000025,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2063.2250829999975,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1935.3009579999925,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2122.9448330000014,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2303.656833000001,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2576.2327080000105,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2269.3478750000068,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2205.040000000008,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2123.8795830000017,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 2203.524624999991,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 3035.5257909999928,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1999.4318330000096,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1988.647958000016,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1804.300500000012,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1899.6028750000114,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1980.8642500000133,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1980.8325839999889,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1925.540249999991,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1928.4488750000019,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          },
+          {
+            "durationMs": 1888.141667000018,
+            "outputBytes": 11968,
+            "calls": 26,
+            "moduleLoadMs": null,
+            "snapshotBuilds": null
+          }
+        ]
+      }
+    },
+    "logs": {
+      "resultType": "sflow-logs-entry-qualification",
+      "fixture": "local-repository-without-activity",
+      "reference": "Exact local source baseline 0e695809291c6196f8ce01656403f47e450269a0; not an installed build.",
+      "packageMode": "source",
+      "samples": 30,
+      "warmups": 5,
+      "platform": "darwin",
+      "architecture": "arm64",
+      "node": "v25.5.0",
+      "compilation": "Both routes request the same CLI compile cache when supported; warm samples, not cold module compilation.",
+      "modules": {
+        "legacy": 695,
+        "isolated": 274
+      },
+      "identityPreserved": true,
+      "modelsInvoked": 0,
+      "summaries": {
+        "legacy": {
+          "samples": 30,
+          "minMs": 451.7640840000022,
+          "maxMs": 531.7109579999997,
+          "p50Ms": 479.54820800000016,
+          "p95Ms": 525.9429999999993,
+          "coefficientOfVariation": 0.04747787151763867
+        },
+        "isolated": {
+          "samples": 30,
+          "minMs": 252.3848340000004,
+          "maxMs": 312.50129200000083,
+          "p50Ms": 279.308583,
+          "p95Ms": 300.2020420000008,
+          "coefficientOfVariation": 0.04850542062316048
+        }
+      },
+      "timings": {
+        "legacy": [
+          493.3162080000002,
+          492.30812499999956,
+          531.7109579999997,
+          524.4646670000002,
+          469.5587080000005,
+          455.178249999999,
+          486.6839170000003,
+          471.44816700000047,
+          479.54820800000016,
+          469.2220839999991,
+          513.5567499999997,
+          512.9939579999991,
+          525.9429999999993,
+          451.7640840000022,
+          486.97491699999955,
+          472.1737090000024,
+          459.50787499999933,
+          475.8754169999993,
+          477.3406670000004,
+          454.47899999999936,
+          475.6867910000001,
+          463.3590000000004,
+          461.94508300000234,
+          480.8139999999985,
+          504.5820419999982,
+          452.23179099999834,
+          498.89579199999935,
+          517.6740829999981,
+          483.7533340000009,
+          503.70391599999857
+        ],
+        "isolated": [
+          277.27700000000004,
+          291.3944160000001,
+          290.6625839999997,
+          287.654708,
+          297.32937499999935,
+          259.204208000001,
+          266.7164590000011,
+          312.50129200000083,
+          294.9115419999998,
+          286.36254199999894,
+          276.26191700000163,
+          267.4723750000012,
+          279.308583,
+          286.9822499999973,
+          262.47191699999894,
+          296.0073340000017,
+          300.2020420000008,
+          277.03633400000035,
+          295.92541699999856,
+          279.2214590000003,
+          283.4435000000012,
+          260.05904199999713,
+          266.7936660000014,
+          280.93454199999906,
+          270.36154199999874,
+          278.61775000000125,
+          291.82274999999936,
+          276.3991669999996,
+          252.3848340000004,
+          283.7288329999974
+        ]
+      }
+    }
+  },
+  "componentTargets": {
+    "sessionOpen": {
+      "requiredP50Percent": 30,
+      "requiredP95Percent": 20,
+      "observedP50Percent": 32.708487808924524,
+      "observedP95Percent": 26.602220310202497,
+      "metInFinalSourceCohort": true,
+      "generalReleaseQualified": false
+    },
+    "logsStartup": {
+      "requiredP50Percent": 25,
+      "observedP50Percent": 41.755890577741475,
+      "metInFinalSourceCohort": true,
+      "scope": "Startup with an empty activity log, not large-log parsing or a complete Story."
+    }
+  },
+  "retainedEarlierCohorts": {
+    "meaning": "Development diagnostics, not the final source qualification; original observations retained even when slower or missing a target.",
+    "interpretationCorrections": [
+      "The first two session cohorts lacked a managed Story checkout. They exercised fallback attachment, despite the original existing-local-session-open label.",
+      "Their subprocesses/calls fields count the parent CLI only, not child Node processes. Missing timing counters parsed as zero in the early harness are unavailable metrics, not observed zeros.",
+      "The historical managed cohorts below use the corrected managed-checkout fixture. All raw samples, including the 29.9-percent median improvement before final eligibility hardening, remain visible.",
+      "Absolute latency drift between cohorts cannot be attributed solely to code changes. Only paired within-cohort comparisons support component gains."
+    ],
+    "initialUnmanagedDiagnostic": {
+      "meaning": "Earlier development probes before the local-opening adapter was isolated. Retained for transparency, not pooled with final samples or used to attribute cross-cohort absolute changes.",
+      "session": {
+        "resultType": "sflow-session-read-qualification",
+        "fixture": "existing-local-session-open",
+        "reference": "Same frozen source binary, original isolated read path; not a historical or installed build.",
+        "packageMode": "source",
+        "storage": "fresh process, OS-warm local filesystem; not cold storage",
+        "warmups": 5,
+        "samples": 30,
+        "node": "v25.5.0",
+        "git": "git version 2.54.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "identityPreserved": true,
+        "modelsInvoked": 0,
+        "peakResources": null,
+        "nativeStoryQualification": false,
+        "installedPlatformQualification": false,
+        "summaries": {
+          "legacy": {
+            "samples": 30,
+            "minMs": 3582.9297080000106,
+            "maxMs": 4486.618041000009,
+            "p50Ms": 4253.136541999993,
+            "p95Ms": 4459.120374999999,
+            "coefficientOfVariation": 0.052462045074622335,
+            "subprocesses": [
+              46
+            ],
+            "outputBytes": [
+              12123
+            ]
+          },
+          "shared": {
+            "samples": 30,
+            "minMs": 2957.1794999999984,
+            "maxMs": 3725.481375000003,
+            "p50Ms": 3403.1931659999973,
+            "p95Ms": 3675.8902499999967,
+            "coefficientOfVariation": 0.061041019825075225,
+            "subprocesses": [
+              26
+            ],
+            "outputBytes": [
+              12123
+            ]
+          }
+        },
+        "timings": {
+          "legacy": [
+            {
+              "durationMs": 4135.994458000001,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.3,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4390.413250000005,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.6,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4367.477666000006,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.4,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4419.675750000009,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4406.5507910000015,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4253.136541999993,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4450.661708,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4486.618041000009,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.3,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4402.612500000003,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.2,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4306.738416000007,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4459.120374999999,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.5,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4442.412000000011,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.9,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4453.258291000006,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.5,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4320.262000000017,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.5,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4268.601707999973,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4429.3867080000055,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.7,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4149.266957999993,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.3,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4219.741792000015,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.8,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3796.413415999996,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3924.941709000006,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.6,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4073.4741669999785,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.7,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3582.9297080000106,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3935.3314580000006,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4408.877374999982,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.5,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4038.8587919999845,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4092.1536250000063,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.9,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4231.28683300002,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.6,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3949.30245800002,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.9,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4112.968374999997,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.5,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4142.316541999986,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1,
+              "snapshotBuilds": 0
+            }
+          ],
+          "shared": [
+            {
+              "durationMs": 3296.0344160000022,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 2.5,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3675.468000000008,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.2,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3472.181792000003,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3558.0064170000114,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.3,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3386.475209000011,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.5,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3277.8569169999973,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3403.1931659999973,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3725.481375000003,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.8,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3630.871665999992,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.5,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3675.8902499999967,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 2.1,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3643.5229999999865,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3512.924250000011,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.4,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3515.983124999999,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.2,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3563.730165999994,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.8,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3494.5910830000066,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.2,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3404.5256659999723,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3564.8341669999936,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.8,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3021.626916999987,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.5,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2957.1794999999984,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.5,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3106.073959000001,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3121.7534999999916,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3247.5082910000056,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3291.52674999999,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.4,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3551.4145410000056,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3648.978415999998,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3168.7221250000002,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.3,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3280.6724579999864,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 2.3,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3332.833166999975,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.5,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3153.9063750000205,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3261.121207999997,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1,
+              "snapshotBuilds": 1
+            }
+          ]
+        }
+      },
+      "logs": {
+        "resultType": "sflow-logs-entry-qualification",
+        "fixture": "local-repository-without-activity",
+        "reference": "Same frozen source handler via original heavyweight dispatcher; not a historical or installed build.",
+        "packageMode": "source",
+        "samples": 30,
+        "warmups": 5,
+        "platform": "darwin",
+        "architecture": "arm64",
+        "node": "v25.5.0",
+        "compilation": "Both routes request the same CLI compile cache when supported; warm samples, not cold module compilation.",
+        "modules": {
+          "legacy": 686,
+          "isolated": 316
+        },
+        "identityPreserved": true,
+        "modelsInvoked": 0,
+        "summaries": {
+          "legacy": {
+            "samples": 30,
+            "minMs": 460.4943750000002,
+            "maxMs": 639.0964590000003,
+            "p50Ms": 530.1743340000012,
+            "p95Ms": 588.5858750000007,
+            "coefficientOfVariation": 0.06905433282979254
+          },
+          "isolated": {
+            "samples": 30,
+            "minMs": 292.1750830000001,
+            "maxMs": 425.1824579999993,
+            "p50Ms": 331.28462500000023,
+            "p95Ms": 401.31979200000205,
+            "coefficientOfVariation": 0.09153973748403396
+          }
+        },
+        "timings": {
+          "legacy": [
+            530.1743340000012,
+            530.8891250000015,
+            581.7797500000015,
+            460.4943750000002,
+            497.7624589999996,
+            535.0062079999989,
+            549.7453750000004,
+            538.0892500000009,
+            487.45891699999993,
+            506.91349999999875,
+            469.2962090000001,
+            520.9424169999984,
+            526.0034999999989,
+            588.5858750000007,
+            521.3973330000008,
+            487.54725000000326,
+            532.9551249999968,
+            525.7184579999994,
+            546.4061250000013,
+            535.9956249999996,
+            639.0964590000003,
+            562.0540000000001,
+            544.9577079999981,
+            476.9683750000004,
+            495.96316600000137,
+            492.265625,
+            527.7814580000013,
+            554.4301669999986,
+            534.9109170000011,
+            535.0457080000051
+          ],
+          "isolated": [
+            340.5700419999994,
+            358.6236250000002,
+            307.31183300000157,
+            301.94637499999953,
+            319.31512499999917,
+            292.1750830000001,
+            342.62816699999894,
+            336.01645800000006,
+            357.1569159999999,
+            331.04704200000015,
+            329.5744589999995,
+            331.28462500000023,
+            344.58591700000034,
+            313.45429199999853,
+            379.4372919999987,
+            308.54079099999944,
+            333.58037499999773,
+            305.39849999999933,
+            359.59929199999897,
+            352.5949580000015,
+            401.31979200000205,
+            425.1824579999993,
+            304.4075419999972,
+            361.95841599999767,
+            306.08279200000106,
+            348.14037499999904,
+            312.36895899999945,
+            294.6545830000032,
+            314.7873339999969,
+            355.4906669999982
+          ]
+        }
+      }
+    },
+    "laterUnmanagedDiagnostic": {
+      "sourceIdentity": {
+        "sha256": "sha256:48fdd92f5a44b4a0bfed1621386cd6aa007db45699ae8b302e17117370099c1d",
+        "scope": "Sorted relative paths and complete .mjs/.ts/.json bytes under src/ and apps/vscode/src/. Development source, not an installed-build stamp."
+      },
+      "sessionOpen": {
+        "resultType": "sflow-session-read-qualification",
+        "fixture": "existing-local-session-open",
+        "reference": "Same frozen source binary, original isolated read path; not a historical or installed build.",
+        "packageMode": "source",
+        "storage": "fresh process, OS-warm local filesystem; not cold storage",
+        "warmups": 5,
+        "compilation": "Both routes request the existing CLI compile cache when supported; not cold module compilation.",
+        "samples": 30,
+        "node": "v25.5.0",
+        "git": "git version 2.54.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "identityPreserved": true,
+        "modelsInvoked": 0,
+        "peakResources": null,
+        "nativeStoryQualification": false,
+        "installedPlatformQualification": false,
+        "summaries": {
+          "legacy": {
+            "samples": 30,
+            "minMs": 2929.601958000014,
+            "maxMs": 4014.1637079999928,
+            "p50Ms": 3305.5315419999824,
+            "p95Ms": 4007.1662499999948,
+            "coefficientOfVariation": 0.09346944922284278,
+            "subprocesses": [
+              46
+            ],
+            "outputBytes": [
+              12123
+            ]
+          },
+          "shared": {
+            "samples": 30,
+            "minMs": 2370.027457999997,
+            "maxMs": 3366.152332999991,
+            "p50Ms": 2650.3366249999963,
+            "p95Ms": 3213.1140830000077,
+            "coefficientOfVariation": 0.09680532759710676,
+            "subprocesses": [
+              26
+            ],
+            "outputBytes": [
+              12123
+            ]
+          }
+        },
+        "timings": {
+          "legacy": [
+            {
+              "durationMs": 3887.379667000001,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.4,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3737.9955409999966,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3821.917709000001,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4007.1662499999948,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.4,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 4014.1637079999928,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.2,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3872.5084170000046,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.2,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3910.8519170000072,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3779.280375000002,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3531.2037500000006,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3610.2397499999934,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3540.701834000007,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3370.3489580000023,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.9,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3198.383792000008,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3327.4875000000175,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3146.437249999988,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.5,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3275.524875000003,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.8,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3079.020542000013,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3060.492750000005,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.1,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3305.726041999995,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.3,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3185.6221250000235,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.9,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3305.5315419999824,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.5,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3312.1630409999925,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.5,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3228.216167000006,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.9,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3187.415915999998,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3178.1887910000223,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.3,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3249.663583000016,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3119.060750000004,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.5,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 3276.047332999995,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 1.3,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 2929.601958000014,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 0
+            },
+            {
+              "durationMs": 2957.180250000005,
+              "outputBytes": 12123,
+              "calls": 46,
+              "moduleLoadMs": 0.8,
+              "snapshotBuilds": 0
+            }
+          ],
+          "shared": [
+            {
+              "durationMs": 3065.569958,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.2,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3043.2527919999993,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.5,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3193.3034580000094,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.2,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3202.53083399999,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3111.8781660000095,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3197.781833000001,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3213.1140830000077,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2955.5097499999974,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 3366.152332999991,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.5,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2903.264458000005,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.5,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2851.3984999999957,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2597.737124999985,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2562.1511670000036,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2558.8537080000096,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2551.8125829999917,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2704.7077080000017,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.5,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2837.863041000004,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2538.8663750000123,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.8,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2650.3366249999963,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2581.4084999999905,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.7,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2645.589208999998,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.8,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2467.0029579999973,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2606.328291999991,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.3,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2554.292583000002,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2638.6735409999965,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.5,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2628.683833999996,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.5,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2773.9686249999795,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.4,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2682.914291999972,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 1.2,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2479.046000000002,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.9,
+              "snapshotBuilds": 1
+            },
+            {
+              "durationMs": 2370.027457999997,
+              "outputBytes": 12123,
+              "calls": 26,
+              "moduleLoadMs": 0.6,
+              "snapshotBuilds": 1
+            }
+          ]
+        },
+        "improvement": {
+          "p50Percent": 19.82116669210684,
+          "p95Percent": 19.815802925570857
+        },
+        "gitProcessesReductionPercent": 43.47826086956522,
+        "proposedTarget": {
+          "p50Percent": 30,
+          "p95Percent": 20,
+          "status": "not-demonstrated"
+        }
+      },
+      "logs": {
+        "resultType": "sflow-logs-entry-qualification",
+        "fixture": "local-repository-without-activity",
+        "reference": "Same frozen source handler via original heavyweight dispatcher; not a historical or installed build.",
+        "packageMode": "source",
+        "samples": 30,
+        "warmups": 5,
+        "platform": "darwin",
+        "architecture": "arm64",
+        "node": "v25.5.0",
+        "compilation": "Both routes request the same CLI compile cache when supported; warm samples, not cold module compilation.",
+        "modules": {
+          "legacy": 686,
+          "isolated": 316
+        },
+        "identityPreserved": true,
+        "modelsInvoked": 0,
+        "summaries": {
+          "legacy": {
+            "samples": 30,
+            "minMs": 287.81566700000076,
+            "maxMs": 326.70695799999976,
+            "p50Ms": 302.9770410000001,
+            "p95Ms": 324.11683300000004,
+            "coefficientOfVariation": 0.030332329754406195
+          },
+          "isolated": {
+            "samples": 30,
+            "minMs": 184.5607089999994,
+            "maxMs": 223.29279199999928,
+            "p50Ms": 195.55624999999964,
+            "p95Ms": 213.67687500000102,
+            "coefficientOfVariation": 0.04941234443459632
+          }
+        },
+        "timings": {
+          "legacy": [
+            310.33195799999976,
+            307.33308299999953,
+            302.9770410000001,
+            326.70695799999976,
+            296.67395899999974,
+            290.84216600000036,
+            294.1403329999994,
+            302.9034579999998,
+            317.09033400000044,
+            297.2308329999996,
+            316.80275000000074,
+            303.56824999999844,
+            305.1446250000008,
+            297.1560420000005,
+            308.56654100000014,
+            306.10304200000064,
+            298.7155409999996,
+            292.66033400000015,
+            306.385624999999,
+            293.1928749999988,
+            287.81566700000076,
+            311.67583299999933,
+            297.72133400000166,
+            324.11683300000004,
+            308.18220799999835,
+            300.5724999999984,
+            295.05183300000135,
+            307.16149999999834,
+            297.87054200000057,
+            303.48312499999884
+          ],
+          "isolated": [
+            213.6552500000007,
+            207.32641700000022,
+            209.7264580000001,
+            196.83041700000012,
+            223.29279199999928,
+            186.23954099999992,
+            195.45724999999948,
+            185.24041699999998,
+            185.90804099999878,
+            195.60083399999894,
+            192.46958300000006,
+            213.67687500000102,
+            199.50683300000128,
+            198.21570900000006,
+            184.5607089999994,
+            195.55624999999964,
+            188.89799999999923,
+            188.54258400000072,
+            197.84599999999955,
+            191.81104100000084,
+            189.39629100000093,
+            201.1047499999986,
+            197.46875,
+            213.5757080000003,
+            202.66175000000112,
+            191.95920900000056,
+            186.65795799999978,
+            193.79683300000033,
+            205.0508329999975,
+            191.8518750000003
+          ]
+        },
+        "improvement": {
+          "p50Percent": 35.45509278374674,
+          "p95Percent": 34.0741198097536
+        },
+        "proposedTarget": {
+          "p50Percent": 25,
+          "status": "met-in-this-source-component-cohort"
+        }
+      }
+    },
+    "historicalManagedBeforeCaptureRaceFix": {
+      "sourceIdentity": "sha256:6cfd2a7105fe15e76b7d069b8d1848f6bf5303ad47cc3a77ce9770c7f421afdd",
+      "sessionOpen": {
+        "resultType": "sflow-session-read-qualification",
+        "fixture": "existing-managed-local-session-open",
+        "reference": "Exact local source baseline 0e695809291c6196f8ce01656403f47e450269a0; not an installed build.",
+        "packageMode": "source",
+        "storage": "fresh process, OS-warm local filesystem; not cold storage",
+        "warmups": 5,
+        "compilation": "Both routes request the existing CLI compile cache when supported; not cold module compilation.",
+        "samples": 30,
+        "node": "v25.5.0",
+        "git": "git version 2.54.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "identityPreserved": true,
+        "modelsInvoked": 0,
+        "physicalProcesses": {
+          "legacy": {
+            "git": {
+              "parent": 49,
+              "descendants": 30,
+              "total": 79
+            },
+            "nodeChildren": 1,
+            "otherProcesses": 0,
+            "scope": "All observed child_process launches in the CLI and inherited Node descendants; separate instrumented calls, not latency samples."
+          },
+          "shared": {
+            "git": {
+              "parent": 26,
+              "descendants": 30,
+              "total": 56
+            },
+            "nodeChildren": 1,
+            "otherProcesses": 0,
+            "scope": "All observed child_process launches in the CLI and inherited Node descendants; separate instrumented calls, not latency samples."
+          }
+        },
+        "probeScope": "The subprocesses array below is the legacy parent-only probe; physicalProcesses includes descendants.",
+        "peakResources": null,
+        "nativeStoryQualification": false,
+        "installedPlatformQualification": false,
+        "summaries": {
+          "legacy": {
+            "samples": 30,
+            "minMs": 2264.3748329999944,
+            "maxMs": 3122.869749999998,
+            "p50Ms": 2484.201958000005,
+            "p95Ms": 2780.558833000003,
+            "coefficientOfVariation": 0.06453470589836707,
+            "subprocesses": [
+              49
+            ],
+            "outputBytes": [
+              11968
+            ]
+          },
+          "shared": {
+            "samples": 30,
+            "minMs": 1394.9263749999955,
+            "maxMs": 2009.310708999983,
+            "p50Ms": 1703.588208000001,
+            "p95Ms": 1839.1403750000172,
+            "coefficientOfVariation": 0.05958248279536157,
+            "subprocesses": [
+              26
+            ],
+            "outputBytes": [
+              11968
+            ]
+          }
+        },
+        "timings": {
+          "legacy": [
+            {
+              "durationMs": 2366.0648329999967,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2369.1425830000007,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3122.869749999998,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2271.881500000003,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2461.482625000004,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2451.9814590000024,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2397.347167,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2264.3748329999944,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2414.1419160000078,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2446.355666999996,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2610.9351670000033,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2360.7810420000023,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2780.558833000003,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2492.5327499999985,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2386.253416000007,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2502.5296249999956,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2484.201958000005,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2520.4155420000025,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2452.955249999999,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2537.0990420000016,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2594.6467919999996,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2552.8490829999937,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2577.6185410000035,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2641.385292000021,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2544.722458000004,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2503.311874999985,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2539.1531249999825,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2401.6234579999873,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2450.831999999995,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2726.0056249999907,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            }
+          ],
+          "shared": [
+            {
+              "durationMs": 1394.9263749999955,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1633.1243749999994,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1698.1615840000013,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1635.390625,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1543.6464170000036,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1625.6614160000026,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1764.611791000003,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1681.766374999992,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1652.7945829999953,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1764.960791000005,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1716.0007500000065,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1687.7763749999867,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1667.4147499999963,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1639.1633339999971,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1703.588208000001,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1826.2260419999948,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1726.291207999995,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1702.133541999996,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1681.332500000004,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1754.4596250000031,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1674.3669579999987,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1756.7606659999874,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1749.3082500000019,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1839.1403750000172,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1814.6204579999903,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1756.313374999998,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2009.310708999983,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1782.2841250000056,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1726.4027090000163,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 1763.1102090000059,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            }
+          ]
+        }
+      },
+      "logs": {
+        "resultType": "sflow-logs-entry-qualification",
+        "fixture": "local-repository-without-activity",
+        "reference": "Exact local source baseline 0e695809291c6196f8ce01656403f47e450269a0; not an installed build.",
+        "packageMode": "source",
+        "samples": 30,
+        "warmups": 5,
+        "platform": "darwin",
+        "architecture": "arm64",
+        "node": "v25.5.0",
+        "compilation": "Both routes request the same CLI compile cache when supported; warm samples, not cold module compilation.",
+        "modules": {
+          "legacy": 695,
+          "isolated": 274
+        },
+        "identityPreserved": true,
+        "modelsInvoked": 0,
+        "summaries": {
+          "legacy": {
+            "samples": 30,
+            "minMs": 523.03125,
+            "maxMs": 1011.0897089999999,
+            "p50Ms": 582.4065420000006,
+            "p95Ms": 653.2622499999998,
+            "coefficientOfVariation": 0.14014324523026667
+          },
+          "isolated": {
+            "samples": 30,
+            "minMs": 281.8894999999975,
+            "maxMs": 352.90629100000115,
+            "p50Ms": 324.46329200000037,
+            "p95Ms": 352.7568330000013,
+            "coefficientOfVariation": 0.05913809672842766
+          }
+        },
+        "timings": {
+          "legacy": [
+            604.1340829999999,
+            605.7275419999987,
+            607.3132499999992,
+            527.2684169999993,
+            623.4047499999997,
+            582.4065420000006,
+            1011.0897089999999,
+            600.1311669999996,
+            599.6317919999983,
+            581.0345840000009,
+            545.6311249999999,
+            566.8509169999998,
+            563.6341670000002,
+            583.1184580000008,
+            543.2584999999999,
+            553.3259590000016,
+            597.5260000000017,
+            581.3457500000004,
+            544.6980000000003,
+            594.4270830000023,
+            592.9163749999971,
+            598.2465830000001,
+            523.03125,
+            537.4576250000027,
+            588.9047499999979,
+            565.3278339999997,
+            536.6631659999985,
+            598.614083000004,
+            653.2622499999998,
+            578.1808339999989
+          ],
+          "isolated": [
+            345.53279100000054,
+            313.8592499999995,
+            348.6727090000004,
+            298.2045419999995,
+            352.7568330000013,
+            292.04062499999964,
+            352.90629100000115,
+            346.4643750000014,
+            323.53608299999905,
+            322.74870799999917,
+            304.0992499999993,
+            321.7375409999986,
+            351.6075419999979,
+            297.3218749999978,
+            335.2827500000021,
+            329.5060830000002,
+            335.3356669999994,
+            314.78320800000074,
+            343.2372920000016,
+            333.2879580000008,
+            321.4965420000008,
+            324.46329200000037,
+            344.1283340000009,
+            314.32095800000025,
+            310.7328329999982,
+            337.14458300000115,
+            301.54512500000055,
+            338.85533399999986,
+            336.06708300000173,
+            281.8894999999975
+          ]
+        }
+      }
+    },
+    "historicalManagedBeforeEligibilityHardening": {
+      "sourceIdentity": "sha256:7d74690a732eecf79f85ae6195ab2a23829e04c2d6ea9be19875de3faa6b1201",
+      "sessionOpen": {
+        "resultType": "sflow-session-read-qualification",
+        "fixture": "existing-managed-local-session-open",
+        "reference": "Exact local source baseline 0e695809291c6196f8ce01656403f47e450269a0; not an installed build.",
+        "packageMode": "source",
+        "storage": "fresh process, OS-warm local filesystem; not cold storage",
+        "warmups": 5,
+        "compilation": "Both routes request the existing CLI compile cache when supported; not cold module compilation.",
+        "samples": 30,
+        "node": "v25.5.0",
+        "git": "git version 2.54.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "identityPreserved": true,
+        "modelsInvoked": 0,
+        "physicalProcesses": {
+          "legacy": {
+            "git": {
+              "parent": 49,
+              "descendants": 30,
+              "total": 79
+            },
+            "nodeChildren": 1,
+            "otherProcesses": 0,
+            "scope": "All observed child_process launches in the CLI and inherited Node descendants; separate instrumented calls, not latency samples."
+          },
+          "shared": {
+            "git": {
+              "parent": 26,
+              "descendants": 30,
+              "total": 56
+            },
+            "nodeChildren": 1,
+            "otherProcesses": 0,
+            "scope": "All observed child_process launches in the CLI and inherited Node descendants; separate instrumented calls, not latency samples."
+          }
+        },
+        "probeScope": "The subprocesses array below is the legacy parent-only probe; physicalProcesses includes descendants.",
+        "peakResources": null,
+        "nativeStoryQualification": false,
+        "installedPlatformQualification": false,
+        "summaries": {
+          "legacy": {
+            "samples": 30,
+            "minMs": 3042.851834000001,
+            "maxMs": 3784.2734999999957,
+            "p50Ms": 3206.614750000008,
+            "p95Ms": 3570.3131670000002,
+            "coefficientOfVariation": 0.043627271253928554,
+            "subprocesses": [
+              49
+            ],
+            "outputBytes": [
+              11968
+            ]
+          },
+          "shared": {
+            "samples": 30,
+            "minMs": 2077.278542,
+            "maxMs": 2658.544750000001,
+            "p50Ms": 2247.2740420000046,
+            "p95Ms": 2560.2203329999757,
+            "coefficientOfVariation": 0.05658538598852477,
+            "subprocesses": [
+              26
+            ],
+            "outputBytes": [
+              11968
+            ]
+          }
+        },
+        "timings": {
+          "legacy": [
+            {
+              "durationMs": 3340.927542000005,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3131.2910000000047,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3167.3838749999995,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3206.614750000008,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3261.488750000004,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3285.031458000012,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3784.2734999999957,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3570.3131670000002,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3110.5863329999993,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3201.293166999996,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3053.3654589999933,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3163.807750000007,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3169.9013330000016,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3213.067458000005,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3042.851834000001,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3179.021334000019,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3200.2969579999917,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3288.5335410000116,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3265.843125000014,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3337.508415999997,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3155.43637499999,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3136.1833749999932,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3302.456165999989,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3277.0921660000167,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3321.2141659999907,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3330.589082999999,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3203.158083999995,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3307.3211249999877,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3186.6289169999945,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3242.718541999988,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            }
+          ],
+          "shared": [
+            {
+              "durationMs": 2126.8511249999938,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2522.9500419999968,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2233.2554999999993,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2235.669167,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2260.8012089999975,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2300.7562499999913,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2322.6820000000007,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2274.8457920000073,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2376.9553339999984,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2097.2223749999976,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2185.7525830000086,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2193.8570409999957,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2130.896332999997,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2077.278542,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2179.4625840000226,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2140.7025840000133,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2261.2547920000216,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2234.6771660000086,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2658.544750000001,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2269.971332999994,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2247.2740420000046,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2310.6579160000256,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2307.2776670000167,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2232.9962499999965,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2148.592457999999,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2217.735167000006,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2327.534458000009,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2268.4243750000023,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2345.3423329999787,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2560.2203329999757,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            }
+          ]
+        }
+      }
+    },
+    "historicalManagedBeforeFinalFormatting": {
+      "sourceIdentity": {
+        "sha256": "sha256:e8df89106f77d157aa9de34246de472940e2884d59d0475a611d562b11e7e95f",
+        "scope": "Sorted relative paths and complete .mjs/.ts/.json bytes under src/ and apps/vscode/src/. Development source, not an installed-build stamp."
+      },
+      "sessionOpen": {
+        "resultType": "sflow-session-read-qualification",
+        "fixture": "existing-managed-local-session-open",
+        "reference": "Exact local source baseline 0e695809291c6196f8ce01656403f47e450269a0; not an installed build.",
+        "packageMode": "source",
+        "storage": "fresh process, OS-warm local filesystem; not cold storage",
+        "warmups": 5,
+        "compilation": "Both routes request the existing CLI compile cache when supported; not cold module compilation.",
+        "samples": 30,
+        "node": "v25.5.0",
+        "git": "git version 2.54.0",
+        "platform": "darwin",
+        "architecture": "arm64",
+        "identityPreserved": true,
+        "modelsInvoked": 0,
+        "physicalProcesses": {
+          "legacy": {
+            "git": {
+              "parent": 49,
+              "descendants": 30,
+              "total": 79
+            },
+            "nodeChildren": 1,
+            "otherProcesses": 0,
+            "scope": "All observed child_process launches in the CLI and inherited Node descendants; separate instrumented calls, not latency samples."
+          },
+          "shared": {
+            "git": {
+              "parent": 26,
+              "descendants": 30,
+              "total": 56
+            },
+            "nodeChildren": 1,
+            "otherProcesses": 0,
+            "scope": "All observed child_process launches in the CLI and inherited Node descendants; separate instrumented calls, not latency samples."
+          }
+        },
+        "probeScope": "The subprocesses array below is the legacy parent-only probe; physicalProcesses includes descendants.",
+        "peakResources": null,
+        "nativeStoryQualification": false,
+        "installedPlatformQualification": false,
+        "summaries": {
+          "legacy": {
+            "samples": 30,
+            "minMs": 3125.37950000001,
+            "maxMs": 3630.4713750000083,
+            "p50Ms": 3272.0217500000144,
+            "p95Ms": 3529.7885420000093,
+            "coefficientOfVariation": 0.03253737332688231,
+            "subprocesses": [
+              49
+            ],
+            "outputBytes": [
+              11968
+            ]
+          },
+          "shared": {
+            "samples": 30,
+            "minMs": 2125.7115829999966,
+            "maxMs": 2391.734500000006,
+            "p50Ms": 2245.604625000007,
+            "p95Ms": 2349.334083000009,
+            "coefficientOfVariation": 0.02821447329645784,
+            "subprocesses": [
+              26
+            ],
+            "outputBytes": [
+              11968
+            ]
+          }
+        },
+        "timings": {
+          "legacy": [
+            {
+              "durationMs": 3216.2119999999995,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3374.751750000003,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3209.012916000007,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3312.2108750000043,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3186.051667000007,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3529.7885420000093,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3201.64675,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3339.531541000004,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3311.3304170000047,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3242.6817919999885,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3293.536374999996,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3263.3273340000014,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3299.605125000002,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3630.4713750000083,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3204.2428749999963,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3253.9909160000097,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3309.981625000015,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3207.4684169999964,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3272.0217500000144,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3323.9704590000038,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3255.9166249999835,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3468.8724160000274,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3393.0900830000173,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3450.8255409999983,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3270.4014169999864,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3281.445792000013,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3259.841374999989,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3292.945875000005,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3169.6961249999877,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 3125.37950000001,
+              "outputBytes": 11968,
+              "calls": 49,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            }
+          ],
+          "shared": [
+            {
+              "durationMs": 2273.2731249999997,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2349.2468329999974,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2279.322374999996,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2281.479250000004,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2220.80187499999,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2133.474583000003,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2205.240208999996,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2155.3572089999943,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2391.734500000006,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2232.3380000000034,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2272.9949170000036,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2349.334083000009,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2205.850624999992,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2242.101542000004,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2245.604625000007,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2248.5026670000225,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2268.4370000000054,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2273.4243330000027,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2307.804541999998,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2237.391707999981,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2148.8293330000015,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2162.6723750000237,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2195.3067080000183,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2220.286334000004,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2279.8340420000022,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2125.7115829999966,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2169.9672919999866,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2261.7426249999844,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2250.4526250000054,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            },
+            {
+              "durationMs": 2296.8957079999964,
+              "outputBytes": 11968,
+              "calls": 26,
+              "moduleLoadMs": null,
+              "snapshotBuilds": null
+            }
+          ]
+        }
+      },
+      "logs": {
+        "resultType": "sflow-logs-entry-qualification",
+        "fixture": "local-repository-without-activity",
+        "reference": "Exact local source baseline 0e695809291c6196f8ce01656403f47e450269a0; not an installed build.",
+        "packageMode": "source",
+        "samples": 30,
+        "warmups": 5,
+        "platform": "darwin",
+        "architecture": "arm64",
+        "node": "v25.5.0",
+        "compilation": "Both routes request the same CLI compile cache when supported; warm samples, not cold module compilation.",
+        "modules": {
+          "legacy": 695,
+          "isolated": 274
+        },
+        "identityPreserved": true,
+        "modelsInvoked": 0,
+        "summaries": {
+          "legacy": {
+            "samples": 30,
+            "minMs": 596.6520410000012,
+            "maxMs": 715.8950829999994,
+            "p50Ms": 648.604542000001,
+            "p95Ms": 695.0235409999987,
+            "coefficientOfVariation": 0.04419202105591499
+          },
+          "isolated": {
+            "samples": 30,
+            "minMs": 342.13095800000156,
+            "maxMs": 532.6754159999982,
+            "p50Ms": 370.651041000001,
+            "p95Ms": 408.8600409999999,
+            "coefficientOfVariation": 0.0871622331855379
+          }
+        },
+        "timings": {
+          "legacy": [
+            635.3205419999995,
+            660.5438749999994,
+            715.8950829999994,
+            658.3639579999999,
+            642.4705000000013,
+            665.7907919999998,
+            692.4821659999998,
+            663.4316670000007,
+            669.197833000002,
+            599.9554580000004,
+            628.510624999999,
+            695.0235409999987,
+            648.604542000001,
+            654.1655409999985,
+            632.4564170000012,
+            611.5882079999974,
+            663.507999999998,
+            642.9885830000021,
+            596.6520410000012,
+            616.1153750000012,
+            650.4642079999976,
+            614.4785830000001,
+            622.3936670000003,
+            639.6537919999973,
+            651.1124580000032,
+            641.541833000003,
+            671.6683750000011,
+            610.9346250000017,
+            694.958375000002,
+            658.3740000000034
+          ],
+          "isolated": [
+            382.12795899999946,
+            385.46187499999905,
+            367.3784169999999,
+            408.8600409999999,
+            374.5811670000003,
+            385.5217080000002,
+            390.592541,
+            385.3688750000001,
+            366.4692079999986,
+            342.13095800000156,
+            370.11937500000204,
+            365.69708300000275,
+            374.9393330000021,
+            357.61504100000093,
+            371.1129580000015,
+            355.3843330000018,
+            383.8696659999987,
+            370.651041000001,
+            383.4010420000013,
+            343.34375,
+            532.6754159999982,
+            376.60795900000085,
+            354.1731249999975,
+            354.77850000000035,
+            355.07358399999794,
+            383.5717500000028,
+            356.83820800000103,
+            355.5013340000005,
+            357.50445800000307,
+            375.42191699999967
+          ]
+        }
+      },
+      "reason": "Final staging removed only trailing blank lines in three extracted command files; a new frozen source cohort is recorded separately."
+    }
+  },
+  "verification": {
+    "countsAreNotAdditive": true,
+    "testRuns": [
+      {
+        "scope": "Phase entry, scoped catalogs, Git, workflow intent and VS Code read classification/pools",
+        "passed": 148
+      },
+      {
+        "scope": "Publication, linked worktrees, required tests, evidence and intake receipts",
+        "passed": 144
+      },
+      {
+        "scope": "Local opening, managed Story worktrees, plugin contracts, imports and CLI source/bundle parity",
+        "passed": 155
+      },
+      {
+        "scope": "Latest workflow designer frontend",
+        "passed": 33
+      },
+      {
+        "scope": "Final snapshot, phase-neutral eligibility, local async reads, context queue and physical process probe",
+        "passed": 17
+      },
+      {
+        "scope": "Latest designer, source/bundle parity, import ceilings, selector refusals, SKP lifecycle and model boundary",
+        "passed": 55
+      },
+      {
+        "scope": "Isolated central Git execution suite",
+        "passed": 69
+      }
+    ],
+    "repositoryChecks": 2576,
+    "vscodeTypecheck": "passed",
+    "vscodeBuild": "passed",
+    "existingBundleBudgets": "passed without changing ceilings",
+    "gitBypassAudit": "1652 production sites; no new unregistered owners",
+    "modelBoundaryAudit": "passed",
+    "retainedFailedAttempt": {
+      "scope": "86-test run concurrent with a build/check job",
+      "passed": 85,
+      "failed": 1,
+      "finding": "The 10 ms async Git deadline test observed no signals because its deadline expired before mock spawn.",
+      "rerun": "All 69 central Git tests passed in an isolated run. No timeout or assertion was relaxed."
+    },
+    "bundle": {
+      "gatewayRuntimeBytes": 7468373,
+      "gatewayRuntimeModules": 691,
+      "maximumBytes": 7470000,
+      "maximumModules": 691,
+      "ceilingsChanged": false
+    }
+  },
+  "releaseQualification": {
+    "complete": false,
+    "phaseEntryTarget": "not newly measured",
+    "intakeTarget": "not newly measured",
+    "publicationTarget": "not newly measured",
+    "nativeWindows": "not available; not certified",
+    "installedMacOS": "not measured",
+    "completeNativeStories": "not run; requires explicit model-expenditure authorization",
+    "scaleAndAdjacentCohorts": "existing protocol/budgets unchanged; new matched release cohorts remain required",
+    "expandedReadWorker": {
+      "enabled": false,
+      "reason": "No installed-host latency and resource qualification meets the conditional expansion gates."
+    },
+    "billedSavings": null,
+    "peakResources": null,
+    "componentSourceTargets": "Session and logs targets met in the final cohort only; not a complete release certificate."
+  },
+  "limitations": [
+    "Fresh processes with warm OS and CLI compile caches are not cold-storage or cold-module-compilation measurements.",
+    "Earlier managed source medians improved by 31.4 percent and 29.9 percent; the latter narrowly missed the proposed median threshold and is not rounded into a pass.",
+    "Final session coefficients of variation are 7.3 percent (main) and 11.2 percent (candidate); every outlier is retained. A component point target is not a repeatability or general-release guarantee.",
+    "Different absolute latencies across cohorts show host variation. Component timings are not predictions for Windows, installed surfaces or native Copilot.",
+    "Peak resources, billed usage and complete-Story latency are unavailable, not zero.",
+    "Phase-entry, receipt-backed intake and publication relative targets, scale/adjacent journeys and installed macOS/Windows/native Story qualification remain open.",
+    "Expanded workers remain disabled. No required test, security admission, independent review, human consent or remote-publication semantics was removed."
+  ]
+}

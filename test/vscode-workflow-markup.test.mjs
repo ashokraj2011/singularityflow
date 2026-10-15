@@ -79,15 +79,21 @@ async function host({ native = false } = {}) {
   const code = stripTypeScriptTypes(source.slice(source.indexOf('export class WorkflowMarkupPanel')).replace('export class', 'class'));
   const posted = [], imports = [], chats = [], calls = []; let receive, dispose, saving = async () => ({ scheme: 'file', fsPath: '/chosen/bundle.json' });
   let opening = async () => undefined;
+  let choosingGroup = async choices => choices[0];
   let toolHandler;
   let compile = async (_args, _text) => structuredClone(result);
   const panel = { webview: { postMessage: message => posted.push(message), onDidReceiveMessage: callback => { receive = callback; return { dispose() {} }; } }, onDidDispose: callback => { dispose = callback; } };
   let modelMode = 'auto', aiDisabled = false, catalogRun = async () => structuredClone(catalog), captureRun;
   const vscode = { ViewColumn: { Active: 1 }, Uri: { file: fsPath => ({ fsPath }) },
     workspace: { getConfiguration: scope => ({ get: () => scope === 'singularityFlow' ? modelMode : aiDisabled }) },
-    window: { createWebviewPanel: () => panel, showSaveDialog: () => saving(), showOpenDialog: () => opening() },
+    window: { createWebviewPanel: () => panel, showSaveDialog: () => saving(), showOpenDialog: () => opening(), showQuickPick: choices => choosingGroup(choices) },
     commands: { executeCommand: async (...args) => chats.push(args) } };
-  const client = { repository: '/selected/repository', run: async args => args.includes('attachments') ? captureRun(args) : args.includes('intent') ? catalogRun(args) : ({ source: '<workflow />' }),
+  let capabilities = { protocol: 1, engine: { sha256: 'sha256:' + 'd'.repeat(64) }, grammarVersions: [2], cli: { compile: true, catalog: true, asset: true, attachments: true, documentation: true } };
+  const client = { repository: '/selected/repository', location: { executable: '/installed/node', cli: '/installed/sflow.mjs' },
+    run: async args => args.includes('attachments') ? captureRun(args) : args.includes('preflight')
+      ? { resultType: 'workflow-intent-preflight', sourceSha256: catalog.sourceSha256, catalog: await catalogRun(args), capabilities,
+        approvalAuthorities: [{ id: 'quality-reviewers', label: 'Quality reviewers' }] }
+      : args.includes('intent') ? catalogRun(args) : ({ source: '<workflow />' }),
     runWithInput: async (args, text) => { calls.push({ args: [...args], text }); return compile(args, text); } };
   const intentRuntime = { workflowIntentPrompt, attachWorkflowIntentTool: handler => { toolHandler = handler; return { available: native, session: 'designer-session', dispose() {} }; } };
   const Panel = new Function('vscode', 'path', 'fs', 'constants', 'TextDecoder', 'require', '__dirname', 'nonce', 'page', 'contentSecurityPolicy', 'registerMessageRouter', 'integerField', 'stringField', 'navigationTarget', 'navigateTo', 'brandMark', code + '\nreturn WorkflowMarkupPanel;')(
@@ -95,7 +101,8 @@ async function host({ native = false } = {}) {
   Panel.show(client, async file => { imports.push(file); return { outcome: 'proposed', error: null }; });
   return { posted, imports, chats, calls, client, send: message => receive(message), close: () => dispose(),
     compile: fn => { compile = fn; }, saveDialog: fn => { saving = fn; }, openDialog: fn => { opening = fn; }, readDraft: file => Panel.readDraft(file),
-    catalog: fn => { catalogRun = fn; }, capture: fn => { captureRun = fn; }, models: (mode, disabled = false) => { modelMode = mode; aiDisabled = disabled; }, tool: request => toolHandler(request) };
+    catalog: fn => { catalogRun = fn; }, capture: fn => { captureRun = fn; }, models: (mode, disabled = false) => { modelMode = mode; aiDisabled = disabled; }, tool: request => toolHandler(request),
+    capabilities: value => { capabilities = value; }, group: fn => { choosingGroup = fn; } };
 }
 const check = (ui, source = '<workflow />', revision = 0) => ui.send({ type: 'markup.check', source, revision });
 const apply = (ui, revision = 0, overrides = {}) => ui.send({ type: 'markup.import', revision, sourceSha256: result.sourceSha256, bundleSha256: result.bundleSha256, ...overrides });
@@ -156,6 +163,69 @@ test('Copilot action only prefills a reviewable description request and compilat
   assert.deepEqual(ui.calls, []);
   ui.compile(async () => { throw new Error('Unknown condition at line 7'); }); await check(ui); await apply(ui);
   assert.deepEqual(ui.imports, []);
+});
+
+test('incompatible designer capabilities and unresolved group choices stop before opening chat', async () => {
+  const ui = await host();
+  ui.capabilities({ protocol: 0 });
+  await ui.send({ type: 'markup.copilot', intent: 'Keep human checkpoints', revision: 0 });
+  assert.equal(ui.chats.length, 0); assert.match(ui.posted.at(-1).message, /align.*CLI.*extension.*plugin/u);
+  const unresolved = await host(); unresolved.group(async choices => choices.at(-1));
+  await unresolved.send({ type: 'markup.copilot', intent: 'Keep human checkpoints', revision: 0 });
+  assert.equal(unresolved.chats.length, 0); assert.match(unresolved.posted.at(-1).message, /Draft retained.*unresolved/u);
+});
+
+test('native registration does not suppress attachment fallback or bind chat to another CLI from PATH', async () => {
+  const ui = await host({ native: true }); ui.capture(async () => structuredClone(localCapture));
+  ui.openDialog(async () => [{ scheme: 'file', fsPath: '/chosen/INSTRUCTIONS.md' }]);
+  await ui.send({ type: 'markup.attach', mode: 'files', revision: 0 });
+  await ui.send({ type: 'markup.copilot', intent: 'Use our instructions', catalogSource: 'installed', revision: 1 });
+  assert.equal(ui.chats.length, 1);
+  const prompt = ui.chats[0][1].query;
+  assert.match(prompt, /\/installed\/sflow\.mjs/u);
+  assert.match(prompt, /Attachment read groups[\s\S]*expected-source/u);
+  assert.match(prompt, /quality-reviewers/u);
+  assert.match(prompt, /availability here is unknown/u);
+});
+
+test('missing, stale or withheld attachment retrieval blocks generation while retaining the selected files', async () => {
+  for (const kind of ['missing', 'stale', 'withheld']) {
+    const ui = await host({ native: true });
+    const captured = structuredClone(localCapture);
+    if (kind === 'missing') captured.readGuidance = null;
+    if (kind === 'stale') captured.readGuidance.argv[captured.readGuidance.argv.indexOf('--expected-source') + 1] = 'sha256:' + '0'.repeat(64);
+    if (kind === 'withheld') { captured.items[0].available = false; captured.items[0].sha256 = null; }
+    ui.capture(async () => captured);
+    ui.openDialog(async () => [{ scheme: 'file', fsPath: '/chosen/INSTRUCTIONS.md' }]);
+    await ui.send({ type: 'markup.attach', revision: 0, mode: 'files' });
+    await ui.send({ type: 'markup.copilot', intent: 'Use the selected guidance.', revision: 1 });
+    assert.equal(ui.chats.length, 0, kind);
+    assert.match(ui.posted.at(-1).message, /attach|withheld|unreadable/iu);
+    assert.deepEqual(ui.imports, []);
+  }
+});
+
+test('replacing and removing attachment captures releases their obsolete private read groups', async () => {
+  const store = new WorkflowAttachmentStore();
+  for (let index = 0; index < 20; index++) {
+    const captured = structuredClone(localCapture);
+    captured.sourceSha256 = 'sha256:' + index.toString(16).padStart(64, '0');
+    await store.capture({ run: async () => captured }, ['/chosen/INSTRUCTIONS.md'], false);
+    assert.equal(store.reads.size, 1);
+  }
+  store.remove(localCapture.items[0].id);
+  assert.equal(store.reads.size, 0);
+});
+
+test('catalog cancellation and replacement reach the supervised CLI, not just late response suppression', async () => {
+  const ui = await host(); const signals = []; let complete;
+  ui.client.run = async (_args, signal) => { signals.push(signal); return new Promise(resolve => { complete = resolve; }); };
+  const pending = ui.send({ type: 'markup.catalog', catalogSource: 'installed', request: 1 });
+  await Promise.resolve();
+  await ui.send({ type: 'markup.cancelCatalog' });
+  assert.equal(signals[0].aborted, true);
+  complete(structuredClone(catalog)); await pending;
+  assert.equal(ui.posted.some(message => message.type === 'markup.catalogResult'), false);
 });
 
 test('description-first UI hides advanced syntax and sends intent, not the example, to Copilot', () => {
@@ -325,7 +395,8 @@ test('direct proposals preview exact checked bytes without another compilation a
   assert.equal(ui.elements['markup-source'].value, '<direct/>'); assert.equal(ui.elements['markup-import'].disabled, true);
 });
 
-const localCapture = { resultType: 'workflow-intent-attachments', sourceSha256: 'sha256:' + 'b'.repeat(64), notices: [], items: [
+const localCapture = { resultType: 'workflow-intent-attachments', sourceSha256: 'sha256:' + 'b'.repeat(64), notices: [],
+  readGuidance: { argv: ['workflow', 'intent', 'attachments', '--file', '/chosen/INSTRUCTIONS.md', '--expected-source', 'sha256:' + 'b'.repeat(64), '--id', '<CAPTURE-ID>', '--json'] }, items: [
   { id: 'local-team-rule', name: 'INSTRUCTIONS.md', content: 'Keep every control keyboard accessible.', bytes: 39, available: true, sha256: 'sha256:' + 'c'.repeat(64),
     classification: { kind: 'instruction', confidence: 'recognized', reason: 'Named instructions', scope: null } }
 ] };

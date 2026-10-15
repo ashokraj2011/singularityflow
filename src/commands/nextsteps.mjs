@@ -71,7 +71,7 @@ async function initiativeSnapshot(root, selected) {
 }
 
 export async function storyPrerequisites(root, workflow, selected, modelMode = { enabled: true }, {
-  definition = null, executionCatalog = null
+  definition = null, executionCatalog = null, observeFile = null
 } = {}) {
   const prerequisites = [];
   const active = activePhase(workflow);
@@ -102,7 +102,7 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
   if (active?.status === 'in_progress' && !deterministicConvergence && phaseNeedsGeneration(workflow, active)) {
     const { loadDefinition } = await import('../config.mjs');
     definition ??= await loadDefinition(root);
-    if (!(await composedPromptCurrent(root, definition, workflow, active))) prerequisites.push({
+    if (!(await composedPromptCurrent(root, definition, workflow, active, observeFile))) prerequisites.push({
       timing: 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
       route: 'grounding-composition',
       reason: 'Compose the governed prompt for this generation before authoring and publishing it.'
@@ -125,10 +125,13 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
 }
 
 /** Whether the phase's next generation has a composed prompt whose snapshot still matches its record. */
-async function composedPromptCurrent(root, definition, workflow, phase) {
+async function composedPromptCurrent(root, definition, workflow, phase, observeFile = null) {
   const { groundingRecordRelative } = await import('./nextsteps-deferred.mjs');
-  const record = await readJson(path.join(root, groundingRecordRelative(definition, workflow, phase))).catch(() => null);
+  const relative = groundingRecordRelative(definition, workflow, phase);
+  await observeFile?.(relative);
+  const record = await readJson(path.join(root, relative)).catch(() => null);
   if (typeof record?.promptPath !== 'string' || typeof record.renderedSha256 !== 'string') return false;
+  await observeFile?.(record.promptPath);
   const prompt = await readFile(path.join(root, record.promptPath)).catch(() => null);
   return prompt != null && createHash('sha256').update(prompt).digest('hex') === record.renderedSha256.replace(/^sha256:/u, '');
 }
@@ -158,7 +161,9 @@ async function resolveSnapshotInScope(root, positionals, approvedConfigurationAv
 }
 
 /** Canonical prerequisites and lifecycle routing, also used by the inputs continuation. */
-export async function resolveStorySnapshot(root, { workflow, definition, executionCatalog = null }) {
+export async function resolveStorySnapshot(root, { workflow, definition, executionCatalog = null }, {
+  observeFile = null, publicationPending = undefined
+} = {}) {
   const selected = { id: workflow.workItem.id,
     location: { path: path.join(definition.workItemRoot, workflow.workItem.id, 'workflow.json') } };
   const modelMode = operationContext()?.modelMode ?? { enabled: true, source: 'default' };
@@ -166,7 +171,7 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
   const { phaseAuthoringProgress, readPhaseDraftEvidence } = await import('../phase-authoring-progress.mjs');
   const pendingAuthoring = phaseAuthoringProgress(workflow, active);
   const authoringProgress = pendingAuthoring ? phaseAuthoringProgress(workflow, active, {
-    draftEvidence: await readPhaseDraftEvidence(root, definition, workflow, active)
+    draftEvidence: await readPhaseDraftEvidence(root, definition, workflow, active, { observeFile })
   }) : null;
   const consumedGenerationChanged = active?.generationIntent?.status === 'consumed'
     && Number(active.generationIntent.generation) === Number(active.generation);
@@ -200,12 +205,12 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       authoringProgress,
       sourceReviewEvidence,
       stepActionHold,
-      publicationPending: Boolean(await readPendingPublication(root, {
+      publicationPending: publicationPending ?? Boolean(await readPendingPublication(root, {
         kind: 'story', id: selected.id, migrate: false,
         roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) }
       })),
       recovery,
-      prerequisites: await storyPrerequisites(root, workflow, selected, modelMode, { definition, executionCatalog }),
+      prerequisites: await storyPrerequisites(root, workflow, selected, modelMode, { definition, executionCatalog, observeFile }),
       modelMode
     }),
     evidence: evidenceSummary(workflow)

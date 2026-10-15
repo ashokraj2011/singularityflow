@@ -92,6 +92,26 @@ async function staticClosure(relativeEntry) {
   return visited;
 }
 
+test('performance-v2 source entry manifest enforces module ceilings and unrelated-domain exclusions', async () => {
+  const manifest = JSON.parse(await readFile(path.join(packageRoot, 'benchmarks/performance-v2/import-budgets.json'), 'utf8'));
+  for (const { entry, maximumModules, forbidden = manifest.forbidden } of manifest.source) {
+    const names = [...await staticClosure(entry)].map(file => path.relative(packageRoot, file).split(path.sep).join('/'));
+    assert.ok(names.length <= maximumModules, `${entry}: ${names.length} modules exceeds ${maximumModules}`);
+    for (const name of forbidden) assert.ok(!names.includes(name), `${entry} reaches ${name}`);
+  }
+  assert.equal((await import('../src/command-registry.mjs')).commandDefinition('logs').modulePath, './commands/logs.mjs');
+});
+
+test('generator validation shares exact IDs with rendering without importing its Jira/source graph', async () => {
+  const { INITIATIVE_GENERATOR_IDS, isInitiativeGenerator } = await import('../src/initiative-phase-roles.mjs');
+  const { INITIATIVE_GENERATORS } = await import('../src/initiative-generators.mjs');
+  assert.deepEqual([...INITIATIVE_GENERATOR_IDS].sort(), Object.keys(INITIATIVE_GENERATORS).sort());
+  for (const id of INITIATIVE_GENERATOR_IDS) assert.equal(isInitiativeGenerator(id), true);
+  for (const id of ['unknown', 'constructor', '__proto__']) assert.equal(isInitiativeGenerator(id), false);
+  const names = [...await staticClosure('src/initiative-config.mjs')].map(file => path.relative(packageRoot, file).split(path.sep).join('/'));
+  for (const forbidden of ['src/initiative-generators.mjs', 'src/epic-sources.mjs', 'src/jira.mjs']) assert.ok(!names.includes(forbidden), forbidden);
+});
+
 test('startup read entrypoints do not statically reach the legacy monolith', async () => {
   const registry = await import('../src/command-registry.mjs');
   assert.equal(registry.commandDefinition('workspace').modulePath, './commands/workspace.mjs');

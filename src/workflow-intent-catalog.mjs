@@ -8,6 +8,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { SingularityFlowError, secureRepositoryPath } from './util.mjs';
 import { canonicalJson } from './records.mjs';
+import { PACKAGE_ROOT } from './package-root.mjs';
 import { scanEntries } from './secrets.mjs';
 import { WORKFLOW_INTENT_PATTERNS, WORKFLOW_INTENT_FAMILIES } from './workflow-intent-patterns.mjs';
 
@@ -134,11 +135,11 @@ async function capture(root, authority) {
     { phase: id, declaration: command, readiness: 'declared-only; runtime resolution and fresh execution still required' }, { description: `Quality command declaration for ${id}; not permission or proof of runner availability.` });
   for (const task of (await import('./model-tasks.mjs')).MODEL_TASKS) add('execution-task', task, { id: task, qualification: 'not-verified' }, { description: 'Installed task name; host/provider availability, phase policy and authority still require verification.' });
   // Procedural Copilot skills are discoverable, but are not attachable prompt-library skills.
-  const packageRoot = new URL('../plugin/skills/', import.meta.url);
+  const packageRoot = path.join(PACKAGE_ROOT, 'plugin', 'skills');
   const folders = await readdir(packageRoot, { withFileTypes: true });
   if (folders.length > 512) fail('Too many packaged procedural skills.', 'WORKFLOW_INTENT_LIMIT');
   for (const folder of folders.filter(item => item.isDirectory()).sort((a, b) => compare(a.name, b.name))) {
-    const file = new URL(`${folder.name}/SKILL.md`, packageRoot);
+    const file = path.join(packageRoot, folder.name, 'SKILL.md');
     const text = await captureText(file, 256 * 1024); const front = /^---\r?\n([\s\S]*?)\r?\n---/u.exec(text);
     const metadata = front ? YAML.parse(front[1]) : {};
     add('command-skill', metadata.name ?? folder.name, { text, attachable: false }, { description: metadata.description ?? '', text, tags: ['use:invoke-only'] });
@@ -146,8 +147,8 @@ async function capture(root, authority) {
   entries.sort((a, b) => compare(`${a.kind}:${a.id}`, `${b.kind}:${b.id}`));
   if (entries.length > 4096) fail('Too many catalog assets.', 'WORKFLOW_INTENT_LIMIT');
   const source = { kind: authority.kind, ref: authority.ref ?? null, commit: authority.commit ?? null };
-  const interpretation = await Promise.all(['workflow-intent-catalog.mjs', 'workflow-intent-patterns.mjs', 'workflow-markup.mjs', 'workflow-markup-parser.mjs', 'workflow-markup-mcp.mjs', 'skill-instruction-composition.mjs']
-    .map(async file => ({ file, sha256: sha(await readFile(new URL(file, import.meta.url), 'utf8')) })));
+  const interpretation = await Promise.all(['workflow-intent-catalog.mjs', 'workflow-intent-patterns.mjs', 'workflow-markup.mjs', 'workflow-markup-parser.mjs', 'workflow-markup-mcp.mjs', 'skill-instruction-composition.mjs', 'workflow-intent-capabilities.mjs', 'commands/workflow-intent.mjs']
+    .map(async file => ({ file, sha256: sha(await readFile(path.join(PACKAGE_ROOT, 'src', file), 'utf8')) })));
   const sourceSha256 = sha({ format: WORKFLOW_INTENT_CATALOG_FORMAT, interpretation, source, definition: sha(rawText),
     files: [...files].sort(([a], [b]) => compare(a, b)).map(([file, text]) => ({ file, sha256: sha(text) })), entries: entries.map(({ value, ...item }) => item), problems });
   return { root: configRoot, source, sourceSha256, definition, agents, attachments: attachmentFile, skills: skills.skills, instructions: instructions.instructions, files, entries, problems };
@@ -200,7 +201,7 @@ export function selectWorkflowIntentAsset(catalog, kind, id) {
 /** Source-binding placeholders are filled by the owner; the example never imports or executes. */
 export async function workflowIntentExample(catalog) {
   selectWorkflowIntentAsset(catalog, 'workflow', 'demo-instruction-test-loop');
-  const template = await readFile(new URL('../examples/demo-intent-workflow.xml', import.meta.url), 'utf8');
+  const template = await readFile(path.join(PACKAGE_ROOT, 'examples', 'demo-intent-workflow.xml'), 'utf8');
   return { schemaVersion: 1, resultType: 'workflow-intent-example', sourceSha256: catalog.sourceSha256,
     source: template.replaceAll('{{CATALOG_SHA256}}', catalog.sourceSha256).replaceAll('{{CATALOG_SOURCE}}', catalog.source.kind === 'installed-package' ? 'installed' : 'approved'),
     meaning: 'Illustrative candidate only. Adapt the exact original intent, then compile and review; nothing was imported or approved.' };

@@ -99,6 +99,7 @@ const LAZY_MODULES = Object.freeze({
   // Machine-level like `reinstall`: product surfaces, never a repository or workspace.
   product: './commands/product.mjs',
   help: './commands/help.mjs',
+  logs: './commands/logs.mjs',
   inbox: './commands/inbox.mjs',
   progress: './commands/progress.mjs',
   report: './commands/report.mjs',
@@ -613,7 +614,7 @@ function resolveWorkflowCommandOperation(definition, positionals, options) {
   const subcommand = positionals[1] ?? 'list';
   if (subcommand === 'intent') {
     const action = positionals[2];
-    if (!['catalog', 'show', 'example', 'attachments'].includes(action)) return unknownSubcommand('workflow intent', action, ['catalog', 'show', 'example', 'attachments']);
+    if (!['catalog', 'show', 'example', 'attachments', 'preflight'].includes(action)) return unknownSubcommand('workflow intent', action, ['catalog', 'show', 'example', 'attachments', 'preflight']);
     return never(`workflow.intent.${action}`, definition, 'read');
   }
   if (subcommand === 'markup') {
@@ -1792,6 +1793,7 @@ export function operationCatalog() {
     never('workflow.intent.show', workflowDefinition, 'read'),
     never('workflow.intent.example', workflowDefinition, 'read'),
     never('workflow.intent.attachments', workflowDefinition, 'read'),
+    never('workflow.intent.preflight', workflowDefinition, 'read'),
     never('workflow.markup.compile', workflowDefinition, 'read'),
     never('workflow.markup.write', workflowDefinition, 'mutation'),
     ...DOCUMENTS_READ_SUBCOMMANDS.map((name) => never(`documents.${name}`, documentsDefinition, 'read')),

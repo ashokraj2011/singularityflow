@@ -1,5 +1,10 @@
 import { SingularityFlowError } from './util.mjs';
 
+/** Closed generator metadata; configuration validation must not import source/Jira rendering. */
+export const INITIATIVE_GENERATOR_IDS = Object.freeze(['source-catalog']);
+const generatorNames = Object.freeze(Object.fromEntries(INITIATIVE_GENERATOR_IDS.map(id => [id, true])));
+export function isInitiativeGenerator(id) { return Object.hasOwn(generatorNames, id); }
+
 export const EPIC_PHASES = Object.freeze({
   intake: 'epic-intake', requirements: 'epic-requirements',
   planning: 'epic-planning', publish: 'epic-publish'

@@ -149,6 +149,15 @@ export async function composeContextBrief(root, {
   const budget = Math.min(MAX_OUTPUT_BYTES, Math.max(4096, Number(maxOutputBytes) || DEFAULT_MAX_OUTPUT_BYTES));
   const config = await loadConfig(root);
   const workflow = await loadStoryAggregate(root, config, workId);
+  return composeContextBriefFromState(root, config, workflow, { slice, maxOutputBytes: budget });
+}
+
+/** Kernel-owned projection of already loaded state; this is guidance, never permission or evidence. */
+export async function composeContextBriefFromState(root, config, workflow, {
+  slice = 'brief', maxOutputBytes = DEFAULT_MAX_OUTPUT_BYTES
+} = {}) {
+  if (!LEGACY_CONTEXT_BRIEF_SLICES.includes(slice)) throw new Error(`Unsupported context slice '${slice}'.`);
+  const budget = Math.min(MAX_OUTPUT_BYTES, Math.max(4096, Number(maxOutputBytes) || DEFAULT_MAX_OUTPUT_BYTES));
   const phaseId = workflow.currentPhase;
   const sourceCommit = head(root) ?? null;
   const base = {

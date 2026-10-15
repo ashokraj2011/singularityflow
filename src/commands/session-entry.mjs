@@ -1,9 +1,12 @@
 /** Select a session operation before loading unrelated session handlers. */
 const modules = new Map();
 export function load({ positionals }) {
-  const name = positionals[1] === 'open' ? './session-open.mjs' : './session.mjs';
-  // Literal imports, so the bundled CLI carries both.
-  if (!modules.has(name)) modules.set(name, name === './session-open.mjs' ? import('./session-open.mjs') : import('./session.mjs'));
+  const name = positionals[1] === 'open' ? './session-open.mjs'
+    : positionals[1] === 'open-local' && process.env.SINGULARITY_FLOW_SESSION_READS !== 'legacy'
+      ? './session-open-local.mjs' : './session.mjs';
+  // Literal imports, so the bundled CLI carries every adapter.
+  if (!modules.has(name)) modules.set(name, name === './session-open.mjs' ? import('./session-open.mjs')
+    : name === './session-open-local.mjs' ? import('./session-open-local.mjs') : import('./session.mjs'));
   return modules.get(name);
 }
 

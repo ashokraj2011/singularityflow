@@ -2071,6 +2071,8 @@ load, and execution stages. Local POC and release gates run `npm run benchmark:d
 automatically, so an absolute-budget regression cannot be packaged unnoticed. See
 [Developer-experience performance](docs/DX-PERFORMANCE.md). Audited but deliberately deferred
 performance work is tracked in the [pending-work roadmap](docs/PENDING-WORK-ROADMAP.md).
+The [Performance v2 implementation report](docs/PERFORMANCE-V2.md) covers shared session reads,
+lighter handlers and workflow-designer preflight, with measured gains and remaining qualification.
 
 Durations include nights and weekends; they are not business-hours or developer-productivity estimates. Reports are derived views, not authoritative workflow state. Standard output is read-only, while `--out` writes only the requested report file and does not commit or push it automatically.
 

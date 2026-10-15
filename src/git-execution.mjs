@@ -1,9 +1,10 @@
 /**
  * One boundary for Git commands that contact a remote.
  *
- * Local Git operations are intentionally still synchronous and live in git.mjs: reading HEAD,
+ * Most local Git operations remain synchronous and live in git.mjs: reading HEAD,
  * the index, or an object is bounded by local storage and many write transactions depend on the
- * answer immediately. Remote Git is a different contract. It must not open an invisible credential
+ * answer immediately. Closed, measured read descriptors may use this same asynchronous boundary.
+ * Remote Git must not open an invisible credential
  * prompt, wait forever behind an office proxy, or make every caller independently interpret the
  * same provider error.
  */
@@ -16,12 +17,13 @@ import { spawn, spawnSync } from 'node:child_process';
 import { lstatSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import {
   resolvePlatformProcess, withoutAutomaticGitMaintenance, withoutInteractiveGitPrompts, withoutOptionalStatusLocks
 } from './platform-process.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
-import { scopedReadSync } from './read-scope.mjs';
+import { inReadScope, scopedReadSync } from './read-scope.mjs';
 import { localReadDeadlineAt, localReadDeadlineTimeoutMs } from './local-read-deadline.mjs';
 import { gitDeveloperToolsUnavailable, gitHostChildEnvironment } from './git-host-selection.mjs';
 import {
@@ -74,11 +76,22 @@ export function gitRemoteProbeTimeout(remote, env = process.env) {
  * than in git.mjs, which re-exports them, so a surface that only needs to know where it is (help,
  * support, VS Code activation) does not load git.mjs's commit admission, secret scanning and YAML
  * parser. A repository root and its Git directories do not move under a running process, so they
- * are cached; HEAD changes mid-process and is never cached; the branch is memoized per read scope.
+ * are cached; HEAD is fresh except inside an explicit read-only snapshot whose owner independently
+ * revalidates it before returning; the branch is memoized per read scope.
  */
 const repoRootCache = new Map();
 const gitDirCache = new Map();
 const gitCommonDirCache = new Map();
+const verifiedReadHeads = new AsyncLocalStorage();
+
+/** Kernel-only read projection: the owner must prove this HEAD before/after its bounded snapshot.
+ * Never wrap a mutation. Ordinary readers/writers outside this explicit scope still read fresh Git.
+ */
+export function withVerifiedReadHead(root, observedHead, action) {
+  if (!inReadScope() || typeof root !== 'string' || !path.isAbsolute(root) || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/iu.test(observedHead)
+      || typeof action !== 'function') throw new TypeError('A verified HEAD requires an explicit private read scope.');
+  return verifiedReadHeads.run(Object.freeze({ root: path.resolve(root), head: observedHead }), action);
+}
 
 export function repoRoot(cwd = process.cwd()) {
   if (repoRootCache.has(cwd)) return repoRootCache.get(cwd);
@@ -115,6 +128,11 @@ export function branch(root) {
 }
 
 export function head(root) {
+  const verified = verifiedReadHeads.getStore();
+  if (verified && path.resolve(root ?? process.cwd()) === verified.root) {
+    incrementCommandCounter('git.snapshot-head-hits');
+    return verified.head;
+  }
   return run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
 }
 
@@ -194,6 +212,26 @@ const terminationGraceFor = (env) => boundedTerminationGrace(
 );
 
 const REMOTE_GIT_VERBS = new Set(['clone', 'fetch', 'ls-remote', 'pull', 'push']);
+const LOCAL_ASYNC_READS = Object.freeze({
+  'repository.identity': Object.freeze(['rev-parse', '--path-format=absolute', '--git-common-dir', '--absolute-git-dir', 'HEAD', '--symbolic-full-name', 'HEAD'])
+});
+const registeredLocalRead = args => Object.values(LOCAL_ASYNC_READS).some(argv =>
+  argv.length === args.length && argv.every((argument, index) => argument === args[index]));
+
+/** Closed local descriptors reuse the existing hardened async process/cleanup boundary. */
+export async function readLocalGitAsync(id, root, { signal = null, env = process.env } = {}) {
+  if (!Object.hasOwn(LOCAL_ASYNC_READS, id)) throw new SingularityFlowError(
+    'Unknown local Git read descriptor.', { code: 'LOCAL_GIT_READ_UNSUPPORTED' });
+  if (typeof root !== 'string' || !path.isAbsolute(root)) throw new SingularityFlowError(
+    'A local Git read requires an explicit absolute repository root.', { code: 'LOCAL_GIT_READ_ROOT_REQUIRED' });
+  const result = await runRemoteGitAsync([...LOCAL_ASYNC_READS[id]], {
+    cwd: root, operation: 'local-read', signal, env, timeoutMs: 15_000, maxBuffer: 64 * 1024, allowFailure: true
+  });
+  if (!processResultSucceeded(result)) throw new SingularityFlowError(
+    result.aborted ? 'The local Git read was cancelled.' : 'The local Git read did not complete. Inspect repository readiness before retrying.',
+    { code: result.aborted ? 'READ_CANCELLED' : 'LOCAL_GIT_READ_FAILED' });
+  return result;
+}
 
 /**
  * Count only closed-vocabulary transport facts. Arguments may contain credentials, repository
@@ -331,17 +369,19 @@ export async function runRemoteGitAsync(args, {
   terminationGraceMs = terminationGraceFor(env),
   terminateTree = signalProcessTree
 } = {}) {
+  const localRead = operation === 'local-read' && registeredLocalRead(args);
   const sharedReadDeadlineAt = operation === 'local-read' ? localReadDeadlineAt() : null;
   if (sharedReadDeadlineAt !== null) {
     timeoutMs = localReadDeadlineTimeoutMs(positive(timeoutMs, timeoutFor(operation, env)));
   }
-  if (networkDisabled(env)) {
+  if (networkDisabled(env) && !localRead) {
     return runRemoteGit(args, {
       cwd, env, operation, timeoutMs, allowFailure,
       runCommand() { throw new Error('offline Git execution must not spawn'); }
     });
   }
-  recordRemoteGitInvocation(args, operation);
+  if (localRead) { incrementCommandCounter('git.requests'); incrementCommandCounter('git.local.async-reads'); }
+  else recordRemoteGitInvocation(args, operation);
   const serviceStarted = performance.now();
   const operationDeadlineAt = Math.min(serviceStarted + positive(timeoutMs, timeoutFor(operation, env)),
     sharedReadDeadlineAt ?? Infinity);
@@ -595,7 +635,7 @@ export async function runRemoteGitAsync(args, {
     status: succeeded ? 0 : result.status === 0 ? 1 : result.status,
     failure, operation, timeoutMs
   };
-  recordRemoteGitOutcome(observed);
+  if (!localRead) recordRemoteGitOutcome(observed);
   if (!succeeded && !allowFailure) throwRemoteFailure(observed);
   return observed;
 }

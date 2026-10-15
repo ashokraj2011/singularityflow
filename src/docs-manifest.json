@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "397b3f1db9c4adcce133cf9f0a5b1a70783e2e94",
-  "topicCount": 81,
-  "contentSha256": "ce56bc922f3c5c3980d38b0c90c58f5bfc97d621af92e2609a1f0b20093b988c",
+  "sourceCommit": "7d0ede60fc55de7d49af1707d2091a616c08ade4",
+  "topicCount": 82,
+  "contentSha256": "ee60d1663d7e294ee36eb303754e433d58cf07d2d88eb4fe4878ff8d2c438e69",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -624,9 +624,9 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 61,
-      "sha256": "54511b86ffca31dd97be89baece9bc638e330dd50a5f65374a3b2b0f268094cc",
-      "routingSha256": "35c1448a7404566210cbc7b0c9f8ee3d251141f1a1c0799db76e145700104c2e",
+      "version": 62,
+      "sha256": "0d103953079cc8c4adf5abde42e7df4835823948a9b88d67d8081d426737cd5c",
+      "routingSha256": "52ea5d0663b720fca50e9c4439a88674cece947be2cff2f23f7f8fe5640f9f01",
       "file": "workflow-authoring.md"
     },
     {
@@ -636,6 +636,14 @@
       "sha256": "df513d18b9975702f272a31a05b64ac093cbb9af68dbd4622f4c9a318b4bcef4",
       "routingSha256": "dcc9577dec4f1d3b710538ad2115d7409ea5022c47c100ad95caff22977b8b96",
       "file": "workflow-decisions.md"
+    },
+    {
+      "id": "workflow-markup",
+      "title": "Create workflows with HTML-like tags",
+      "version": 1,
+      "sha256": "0aa161da4c24fb0f35fbcd1073208129b68bb96f9e08b26517867b4270bf0bb9",
+      "routingSha256": "34a2a9b5d9fdb5e7fec9a3200601e73fd71de35ea35557d4ee560165e0781c6c",
+      "file": "workflow-markup.md"
     },
     {
       "id": "workspaces-and-sessions",

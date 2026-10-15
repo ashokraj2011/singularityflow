@@ -793,6 +793,9 @@ Every public operation is classified before its implementation module is importe
 | workflow.install | mutation | never | — | — |
 | workflow.install.preview | read | never | — | — |
 | workflow.list | read | never | — | — |
+| workflow.markup.compile | read | never | — | — |
+| workflow.markup.example | read | never | — | — |
+| workflow.markup.write | mutation | never | — | — |
 | workflow.phase | mutation | never | — | — |
 | workflow.proposal | read | never | — | — |
 | workflow.proposal-status | read | never | — | — |

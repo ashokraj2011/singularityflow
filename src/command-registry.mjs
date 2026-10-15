@@ -286,7 +286,7 @@ const WORKFLOW_AUTHOR_MUTATION_ACTIONS = Object.freeze(['create', 'save', 'delet
 const WORKFLOW_AUTHOR_ACTIONS = Object.freeze([...WORKFLOW_AUTHOR_READ_ACTIONS, ...WORKFLOW_AUTHOR_MUTATION_ACTIONS]);
 const WORKFLOW_STUDIO_ACTIONS = Object.freeze(['show', 'apply']);
 const WORKFLOW_IMPORT_TEAM_ACTIONS = Object.freeze(['inspect', 'compile', 'status']);
-const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS, 'author', 'studio', 'import-team']);
+const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS, 'author', 'studio', 'import-team', 'markup']);
 const DOCUMENTS_READ_SUBCOMMANDS = Object.freeze(['list', 'view', 'preview', 'browse', 'artifacts']);
 const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'scope', 'store', 'upload', 'add', 'fetch']);
 const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...DOCUMENTS_MUTATION_SUBCOMMANDS]);
@@ -611,6 +611,12 @@ function resolveInputsOperation(definition, positionals, options) {
 
 function resolveWorkflowCommandOperation(definition, positionals, options) {
   const subcommand = positionals[1] ?? 'list';
+  if (subcommand === 'markup') {
+    const action = positionals[2];
+    if (!['example', 'compile'].includes(action)) return unknownSubcommand('workflow markup', action, ['example', 'compile']);
+    return never(action === 'example' ? 'workflow.markup.example' : options.out ? 'workflow.markup.write' : 'workflow.markup.compile', definition,
+      action === 'compile' && options.out ? 'mutation' : 'read');
+  }
   if (subcommand === 'author') {
     const action = positionals[2] ?? 'list';
     if (!WORKFLOW_AUTHOR_ACTIONS.includes(action)) {
@@ -1776,6 +1782,9 @@ export function operationCatalog() {
     never('workflow.import-team.status', workflowDefinition, 'read'),
     never('workflow.import-team.compile.preview', workflowDefinition, 'read'),
     never('workflow.import-team.compile', workflowDefinition, 'mutation'),
+    never('workflow.markup.example', workflowDefinition, 'read'),
+    never('workflow.markup.compile', workflowDefinition, 'read'),
+    never('workflow.markup.write', workflowDefinition, 'mutation'),
     ...DOCUMENTS_READ_SUBCOMMANDS.map((name) => never(`documents.${name}`, documentsDefinition, 'read')),
     ...DOCUMENTS_MUTATION_SUBCOMMANDS.map((name) => never(`documents.${name}`, documentsDefinition, 'mutation')),
     ...DECISION_READ_SUBCOMMANDS.map((name) => never(`decision.${name}`, decisionDefinition, 'read')),

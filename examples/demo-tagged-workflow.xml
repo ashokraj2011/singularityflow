@@ -1,0 +1,58 @@
+<workflow version="1" id="demo-tagged" label="Demo — Tagged web acceptance"
+          extends="demo-instruction-test-loop">
+  <description>Intake screenshots and documents. Test the application independently.
+    If it passes, request human acceptance and close with documents. Otherwise repair
+    and retest, with at most three automatic returns per decision before human escalation.</description>
+
+  <instruction id="demo-tagged-reference" description="Use the approved input references.">
+    Compare against pinned screenshots, documents and intake criteria. Report missing evidence.
+  </instruction>
+  <instruction id="demo-tagged-evidence" description="Require fresh test evidence.">
+    Record the tested revision, actual command result and retained evidence. Never invent a pass.
+  </instruction>
+  <instruction id="demo-tagged-authority" description="Preserve human checkpoints.">
+    The agent proposes a route; only authorized humans approve scope, returns and final acceptance.
+  </instruction>
+  <skill id="demo-tagged-check" description="Independently compare and test the web application.">
+    Before checking, follow <instruction>demo-tagged-reference</instruction>.
+    For every verdict, follow <instruction>demo-tagged-evidence</instruction>.
+    Before handing off, follow <instruction>demo-tagged-authority</instruction>.
+  </skill>
+
+  <agent id="demo-tagged-analyst" description="Prepare the approved intake." tools="read search edit ask_user">
+    <description>Capture expected behavior, scenarios, evidence locations and the planned repair contract.</description>
+  </agent>
+  <agent id="demo-tagged-checker" description="Independently check behavior." tools="read search edit bash ask_user">
+    <description>Inspect the current application against the approved scenario matrix; record pass, repair or blocked from fresh evidence.</description>
+    <skill ref="demo-tagged-check" />
+  </agent>
+  <agent id="demo-tagged-developer" description="Repair approved defects." tools="read search edit bash ask_user">
+    <description>Change code only within the approved repair contract. Preserve existing work, add regressions and return to the independent checker.</description>
+  </agent>
+  <agent id="demo-tagged-closer" description="Prepare closing documents." tools="read search edit ask_user">
+    <description>Retain final evidence, repair history and residual risk. Closure requires authorized human acceptance.</description>
+  </agent>
+
+  <phase id="demo-tagged-intake" label="Intake" from="demo-instruction-intake" agent="demo-tagged-analyst" next="demo-tagged-test" />
+  <phase id="demo-tagged-test" label="Test" from="demo-instruction-test" agent="demo-tagged-checker">
+    <decision id="demo-tagged-test-result" label="Does fresh evidence meet the approved criteria?"
+              source="verdict" values="pass repair blocked" max-attempts="3" by="quality-reviewers">
+      <when id="pass" equals="pass" next="demo-tagged-close">
+        <omit responsibility="implement" reason="Fresh evidence proves the existing code satisfies the agreed scenarios without another repair." authority="quality-reviewers" />
+      </when>
+      <when id="repair" equals="repair" next="demo-tagged-repair" />
+      <otherwise id="blocked" next="demo-tagged-test" />
+    </decision>
+  </phase>
+  <phase id="demo-tagged-repair" label="Repair" from="demo-instruction-repair" agent="demo-tagged-developer">
+    <description>Keep the changed files and evidence. After repair, independently rerun the checks against the current revision.</description>
+    <decision id="demo-tagged-repair-result" label="Retest the repair or revisit scope?"
+              source="next" values="recheck revise-intake" max-attempts="3" by="engineering-reviewers">
+      <when id="retest" equals="recheck" next="demo-tagged-test" />
+      <otherwise id="scope-review" next="demo-tagged-intake" />
+    </decision>
+  </phase>
+  <phase id="demo-tagged-close" label="Close" from="demo-instruction-close" agent="demo-tagged-closer" next="end">
+    <approval authority="quality-reviewers" on-reject="demo-tagged-repair" />
+  </phase>
+</workflow>

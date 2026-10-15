@@ -1353,6 +1353,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     main.appendChild(el('div', { class: 'studio-row spread' }, el('h2', { text: 'Your workflows' }), el('div', { class: 'studio-row' },
       button(state.busy === 'import' ? 'Importing…' : 'Import…', importWorkflows, { class: 'secondary', disabled: Boolean(state.busy), title: 'Add workflows from a bundle file, as one reviewed change' }),
       button('Import a team…', function () { post({ type: 'studio.importTeam' }); }, { class: 'secondary', title: 'Turn a team\'s agents, skills and instructions into a workflow bundle with Copilot, then import it here' }),
+      button('Create from tags…', function () { post({ type: 'studio.markup' }); }, { class: 'secondary', title: 'Compile descriptions and explicit tagged decisions into a validated portable workflow bundle' }),
       button('Export…', function () { state.exporting = state.exporting || {}; render(); }, { class: 'secondary' }),
       button('New workflow', function () { state.view = 'new'; state.wizard = { label: '', from: null }; render(); }, { class: 'primary' }))));
     if (state.exporting) main.appendChild(renderExport());

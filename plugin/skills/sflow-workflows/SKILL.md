@@ -17,6 +17,8 @@ Before any boundary lookup or SFlow action, run `singularity-flow pause status -
 
 Run `singularity-flow workflow $ARGUMENTS`; default `list`.
 
+Tagged authoring: read `docs/topics/workflow-markup.md` first; prose never executes.
+
 Run `author` from opened root; only explicit `--repository-story-refs` may read other local roots.
 `list|read|history|show|preview|catalog|where-used|op-status` is read-only; relay coverage/gaps.
 `author where-used <SKILL-ID> --json` reads approved configuration; `--story <ID>` selects
@@ -40,7 +42,7 @@ BYO: `singularity-flow workflow skills-recipe <NEW-ID> --label <TEXT>
 Proposals need separate authorization.
 
 `singularity-flow workflow export --workflow <ID> [--workflow <ID>...] --out <FILE> --json`.
-Relay complete dependency closure/locks; Policy/World Model prerequisites remain. Never edit bundles.
+Relay complete dependency closure/locks and prerequisites. Never edit bundles.
 
 Import preview: `singularity-flow workflow import <FILE> --dry-run --propose --json`.
 After digest/path/collision review and explicit acceptance run

@@ -356,6 +356,8 @@ Usage:
   singularity-flow skill remove <ID> [--dry-run] [--propose] [--json]    also detaches it from every agent
   singularity-flow workflow skills-recipe <ID> --label TEXT --phases a,b,c [--planned-claims required --clause-phases CRITERIA --claim-owners CODE=PLAN] [--json]
   singularity-flow workflow studio [show] [--json]
+  singularity-flow workflow markup example [--json]
+  singularity-flow workflow markup compile <FILE|-> [--out BUNDLE.json] [--json]
   singularity-flow workflow studio apply --change-set FILE|- [--dry-run] [--propose] [--json]
                                                         read-only BYO/mixed recipe preview; no activation or host launch
   singularity-flow workflow create <ID> --phases a,b,c [--label TEXT] [--governs story|initiative] [--propose]

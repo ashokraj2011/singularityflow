@@ -201,6 +201,17 @@ export class WorkflowStudioPanel implements vscode.Disposable {
     'studio.retryUpload': (message) => this.retryUpload(stringField(message, 'intentId')),
     'studio.checkSignIn': (message) => this.checkSignIn(stringField(message, 'intentId')),
     'studio.importTeam': () => this.actions.importTeam?.(),
+    'studio.markup': async () => {
+      const { WorkflowMarkupPanel } = await import('./workflow-markup-panel.ts');
+      WorkflowMarkupPanel.show(this.client, async file => {
+        if (!this.actions.importWorkflows) return { outcome: 'failed', error: 'Workflow import is unavailable here.' };
+        const outcome = await this.actions.importWorkflows(file);
+        if (outcome.outcome !== 'cancelled' && outcome.outcome !== 'failed') {
+          this.post({ type: 'studio.externalConfigurationChanged' }); await this.actions.refresh(); await this.proposals();
+        }
+        return outcome;
+      });
+    },
     'studio.duplicateWorkflow': (message) => this.duplicateWorkflow(stringField(message, 'selector'), integerField(message, 'pending') ?? 0),
     'studio.openFile': (message) => this.openFile(stringField(message, 'path')),
     'studio.integrationTest': (message) => this.integrationTest(stringField(message, 'target'), stringField(message, 'trigger'),

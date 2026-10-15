@@ -104,7 +104,7 @@ import {
   ENVIRONMENT_IDENTIFIER, loadEnvironmentDeclaration, validateEnvironmentQualityCommandCatalog
 } from './environment-declaration.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
-import { createLedgerIntent, ledgerLog, ledgerStatus, reconcileLedger } from './ledger.mjs';
+import { createLedgerIntent, ledgerLog, ledgerStatus, reconcileLedger, refreshLedgerRemoteView } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { storyLifecycleProgress } from './session-roster.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
@@ -9805,7 +9805,8 @@ export async function commitAndPublish(root, config, workflow, event, message, e
         return restoration;
       },
       validate: async () => {
-        const validation = await validateWorkflow(root, config, workflow);
+        // Publication acts on errors only; its warnings were never shown.
+        const validation = await validateWorkflow(root, config, workflow, { reportWarnings: false });
         if (!validation.valid) {
           throw new SingularityFlowError(`Story state is invalid before publication: ${validation.errors.join(' ')}`, {
             code: 'STORY_STATE_INVALID',
@@ -10232,7 +10233,9 @@ export async function syncPublication(root, config, workflow, { fault = null } =
  * the remote; only a surface that is merely *describing* state opts out, and it says so through the
  * same ledger fields every other offline reader uses.
  */
-export async function validateWorkflow(root, config, workflow, { strict = false, offline = false } = {}) {
+export async function validateWorkflow(root, config, workflow, {
+  strict = false, offline = false, reportWarnings = true
+} = {}) {
   const errors = [], warnings = []; if (!workflowBranchAllowed(workflow, branch(root))) errors.push(`Current branch ${branch(root)} is not registered for Story ${workflow.workItem.id}.`);
   const prospective = PROSPECTIVE_SKILL_AMENDMENT.get(workflow) ?? prospectiveTestCommandAmendment(workflow);
   const prospectiveValid = Boolean(prospective
@@ -10368,7 +10371,14 @@ export async function validateWorkflow(root, config, workflow, { strict = false,
   // Validation reports; it does not migrate. The enforcement paths that gate a mutation still do.
   if (await storyPublicationPending(root, config, workflow.workItem.id, { migrate: false })) errors.push('Publication is pending; run singularity-flow sync.');
   const ledgerConfig = normalizeLedgerConfig(workflow.resolution?.ledger ?? config.ledger ?? {});
-  if (ledgerConfig.enabled) {
+  // Only an enforced ledger turns its health into errors. A caller that discards warnings
+  // (publication) gets nothing from the all-Stories health report otherwise: every remote Story
+  // branch's intents, the whole ledger verified and its whole log read, about 33 Git processes per
+  // publication. It keeps the remote state refresh the report starts with.
+  const ledgerBlocks = ledgerConfig.enforcement === 'required' || ledgerConfig.behind === 'block';
+  if (ledgerConfig.enabled && !reportWarnings && !ledgerBlocks) {
+    try { await refreshLedgerRemoteView(root, ledgerConfig, { offline }); } catch { /* only ever a warning */ }
+  } else if (ledgerConfig.enabled) {
     try {
       const ledger = await ledgerStatus(root, ledgerConfig, { offline });
       const messages = [];

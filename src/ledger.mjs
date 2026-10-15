@@ -3592,6 +3592,18 @@ export async function ledgerShow(root, rawConfig, hashOrEventId) {
  *
  * Outside a scope this is a plain call, so writers are untouched.
  */
+/**
+ * The remote state view `ledgerStatus` refreshes first, without the status report itself.
+ *
+ * For a caller that cannot act on the report (publication with an unenforced ledger) this keeps
+ * the same remote observation and fetch, so the later ledger append leases the same state tip.
+ */
+export async function refreshLedgerRemoteView(root, rawConfig, { offline = false } = {}) {
+  const config = normalizeLedgerConfig(rawConfig);
+  if (!config.enabled) return null;
+  return ensureRemoteBranchFetchedAsync(root, config, { offline });
+}
+
 export async function ledgerStatus(root, rawConfig, { offline = false } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   const key = `ledger.status:${root}:${offline ? 'offline' : 'online'}:${canonicalJson(config)}`;

@@ -484,7 +484,7 @@ async function writeCandidateTransportReceipt(root, plan, remoteFingerprint, pus
 export async function freezeSgosCandidate(root, {
   subjectId = path.basename(root), createdBy, createdAt = nowIso(), candidateId = null,
   expectedBaseline = null, baselineCommit: suppliedBaselineCommit = null, paths = null,
-  exactCandidateCommit = null, expectedCandidateTree = null
+  exactCandidateCommit = null, expectedCandidateTree = null, admittedTree = null
 } = {}) {
   if (!createdBy?.id || !createdBy?.kind) {
     fail('Candidate freeze requires a typed creator.', 'SGOS_CANDIDATE_CREATOR_REQUIRED');
@@ -523,8 +523,14 @@ export async function freezeSgosCandidate(root, {
     });
   }
   const baselineTree = gitText(root, ['rev-parse', `${baselineCommit}^{tree}`]);
+  if (admittedTree != null && (exactCandidateCommit != null || !paths?.length)) {
+    fail('An admitted Candidate tree needs its governed paths and no exact commit.', 'SGOS_CANDIDATE_SCOPE_INVALID');
+  }
+  // `admittedTree` is the tree publication admission already built from exactly these paths at
+  // this baseline; building it again from the checkout only repeated that. It is still admitted
+  // below, and the commit rebuilds the tree and refuses any difference from this Candidate.
   const candidateTree = exactCandidateCommit != null
-    ? gitText(root, ['rev-parse', `${exactCandidateCommit}^{tree}`]) : paths == null
+    ? gitText(root, ['rev-parse', `${exactCandidateCommit}^{tree}`]) : admittedTree != null ? admittedTree : paths == null
     ? await worktreeTree(root)
     : paths.length === 0 ? baselineTree
       : await scopedWorktreeTree(root, baselineCommit, paths);
@@ -705,7 +711,8 @@ export async function freezeAndVerifySgosLifecycleCandidate(root, {
     createdAt: event.createdAt,
     expectedBaseline,
     paths,
-    expectedCandidateTree
+    // The publication unit passes the tree it admitted from these paths: the Candidate is that tree.
+    ...(expectedCandidateTree != null ? { admittedTree: expectedCandidateTree } : {})
   });
   const verification = await verifySgosLifecycleCandidate(root, candidateId, {
     signal, verifiedAt: nowIso(), lifecycleAdmission

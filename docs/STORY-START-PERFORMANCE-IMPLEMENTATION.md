@@ -226,6 +226,28 @@ Not adopted: reusing the intake preview's verified configuration in Start. The v
 skip cost about 80 ms on this replay, and their running on every read is a safeguard this ledger
 keeps (S1).
 
+## 2026-10-15: publication asks only what can change its outcome
+
+A Story start on a production-bootstrap repository (approved configuration and a state ledger,
+local bare remote) ran 216 Git processes, 81 of them preparing the first publication. Two causes:
+
+| Change | Delivered | Safeguard retained |
+|---|---|---|
+| Ledger report only where it can refuse (`validateWorkflow` `reportWarnings: false`) | Publication validation ran `ledgerStatus`: every remote Story branch's intents, the whole ledger verified, its whole log read (about 33 processes) and then discarded its warnings. With `enforcement: shadow` and `behind: warn` (the defaults, kept by production bootstrap) it can only warn, so publication now skips it. Every publish, submit and approval saves the same. | Where it can refuse (`enforcement: required` or `behind: block`) it runs as before. `validate`, `doctor` and the gates still show it. The remote state refresh it began with still runs (`refreshLedgerRemoteView`), so the ledger append leases the same tip. |
+| One tree build per commit (`commitIsolated`) | The commit admitted its scope by building the tree once, then built it again to commit and compared the two. It now builds once and admits that exact tree. | The same secret, environment and scope admission, now on the committed bytes; staging-drift checks and the Candidate comparison are unchanged. An unchanged tree was already admitted, so admitting it again costs nothing. |
+| The Candidate is the admitted tree (`freezeSgosCandidate` `admittedTree`) | The publication unit's Candidate rebuilt from the checkout the tree publication admission had just built from the same paths and baseline. | Only that caller passes it, with its paths and no exact commit. The tree is still admitted, the independent Candidate verifier is unchanged, and the commit rebuilds the tree and refuses any difference (`PUBLICATION_CANDIDATE_DRIFT`). |
+
+Measured on that fixture: 216 → 181 Git processes per start (publication preparation 81 → 49,
+commit 16 → 13), network unchanged (3 operations). Not changed, because they are guards:
+
+- The governance-archive check rereads the archive from live refs at every write boundary (8 per
+  start) and does not cache mutable refs.
+- Ref re-checks at each step (the Story branch, `origin/<base>`, the state tip) are fresh by design.
+- After the Story branch is created from `origin/<base>`, Git writes its tracking configuration,
+  which correctly invalidates cached configuration and HEAD answers for the rest of the start.
+- The ledger intent walk reads Story-branch trees one depth level per process across all branches,
+  so its cost does not grow with the number of Stories.
+
 ## Deliberately remaining
 
 - The publication-permission dry run (one round trip). Dropping it would turn a revoked permission

@@ -3143,6 +3143,17 @@ function prospectiveGovernedTreeAndSecretScan(root, scope, expectedHead) {
  * `commitIsolated` repeats it at its own boundary to catch races after verification.
  */
 export function admitGovernedPublication(root, paths, { expectedHead = head(root) } = {}) {
+  const scope = governedPublicationScope(root, paths, expectedHead);
+  const prospectiveTree = prospectiveGovernedTreeAndSecretScan(root, scope, expectedHead);
+  const admitted = [...scope];
+  Object.defineProperty(admitted, 'prospectiveTree', {
+    value: prospectiveTree, enumerable: false, writable: false, configurable: false
+  });
+  return Object.freeze(admitted);
+}
+
+/** The governed path scope and its pre-staged-overlap refusal, without building its tree. */
+function governedPublicationScope(root, paths, expectedHead) {
   const env = immutableLocalGitEnvironment();
   const scope = [...new Set((paths ?? []).filter(Boolean))].filter((candidate) =>
     existsSync(path.join(root, candidate))
@@ -3157,12 +3168,7 @@ export function admitGovernedPublication(root, paths, { expectedHead = head(root
       + 'Commit or unstage those paths, then retry.'
     );
   }
-  const prospectiveTree = prospectiveGovernedTreeAndSecretScan(root, scope, expectedHead);
-  const admitted = [...scope];
-  Object.defineProperty(admitted, 'prospectiveTree', {
-    value: prospectiveTree, enumerable: false, writable: false, configurable: false
-  });
-  return Object.freeze(admitted);
+  return Object.freeze(scope);
 }
 
 /**
@@ -3259,7 +3265,10 @@ export async function commitIsolated(root, message, paths, {
   // allowed to harvest knowledge but found none). Git rejects an entirely unknown pathspec even
   // when `git add -A` is otherwise correct. Keep paths that exist now or were tracked at HEAD so
   // deletions are still staged; omit only roots that have never contained governed bytes.
-  const scope = admitGovernedPublication(root, paths, { expectedHead });
+  // The tree is built once, below, and that exact tree is admitted (secret, environment and
+  // scope checks) before it can be committed. Admission used to build it a first time here only
+  // to compare the two builds; an unchanged tree costs nothing to admit again.
+  const scope = governedPublicationScope(root, paths, expectedHead);
 
   // A publisher may perform slow validation before staging while an editor, formatter, or test
   // watcher is still capable of writing the worktree. Capture its content-aware guard immediately
@@ -3316,15 +3325,9 @@ export async function commitIsolated(root, message, paths, {
     }
 
     const tree = git(['write-tree'], { cwd: root, env }).stdout.trim();
-    if (tree !== scope.prospectiveTree) {
-      throw new SingularityFlowError(
-        'Governed publication bytes changed after exact secret/scope admission. The commit was not created.',
-        {
-          code: 'PUBLICATION_SNAPSHOT_CHANGED',
-          details: { admittedTree: scope.prospectiveTree, observedTree: tree }
-        }
-      );
-    }
+    admitExactProspectiveTree(root, {
+      baselineCommit: expectedHead, candidateTree: tree, label: 'Governed publication'
+    });
     if (expectedTree != null && tree !== expectedTree) {
       throw new SingularityFlowError(
         'Governed publication bytes changed after Candidate verification. The commit was not created; freeze and verify a new Candidate.',

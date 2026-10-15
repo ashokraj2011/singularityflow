@@ -97,7 +97,7 @@ Use `/sf-show-prompt` before authoring to see the complete skill and rendered
 prompt, including file paths and hashes. See the [glossary](docs/GLOSSARY.md) and
 [under-the-hood guide](docs/UNDER-THE-HOOD.md) for the full composition path.
 
-## Native execution performance (SPEC-NCE-001, first increment)
+## Native execution performance (SPEC-NCE-001, increments 1–2)
 
 Reuse the explicit skill's authoritative entry rather than preceding it with repeated pause,
 workspace or session lookups. `/sf-session` starts with `singularity-flow session open --json`
@@ -157,7 +157,36 @@ causal proof. No trace is captured automatically from native Copilot; no billed 
 inferred. Keep Windows and macOS baselines separate and use at least 30 independent repetitions
 for repeatable read benchmarks. Do not use a synthetic/unit-test trace as native-host evidence.
 
-Remaining milestones: dedicated hook runtime, further combined-entry adoption, catalog/parser
+Remaining milestones: further combined-entry adoption, catalog/parser
 reuse and batched receipt reads. A local warm service is conditional on measured residual startup
 cost; it is not introduced by this increment. All accelerations must preserve current permissions,
 independent review, fresh tests, publication boundaries and human confirmation.
+
+### Dedicated plugin hook runtime
+
+The installed launcher prefers the dedicated hook entry, using a matching stamped hook bundle
+when available and its source entry otherwise. It dispatches only the four boundary events and
+`agent-start`. Boundary decisions use the existing handlers; agent-start shares root/authority,
+mapping and trust checks with the CLI. No permission, approval or evidence result is cached here.
+Git fact-cache validation, the registered never-model operation context and lease signal cleanup
+remain active. Unbound hooks do not load the general CLI or the legacy dispatcher.
+
+Older installations without the dedicated entry retain their existing CLI route. For diagnosis,
+`SINGULARITY_FLOW_HOOK_RUNTIME=legacy` selects that verified route rather than disabling hooks.
+A present but broken dedicated runtime is not silently downgraded: the launcher keeps its
+runtime-unavailable refusal/marker behavior. Inactive Bash/PowerShell shortcuts still avoid Node
+entirely. Install the updated build/plugin and reload the host to use the new entry.
+
+Run the isolated, model-free transport benchmark on each target platform:
+
+```bash
+npm run benchmark:copilot-hooks -- --samples 30
+```
+
+It alternates fresh legacy/dedicated Node processes after warm-up, verifies equal JSON decisions,
+and reports p50/p95 plus loaded module counts. It measures unbound hooks and an active explicit
+turn with a missing Story contract that must still deny edits. Its private synthetic directory is
+removed afterward; inherited Git relocation, workspace selection and Node preload settings are
+cleared, so it never runs a model or an existing Story. Loader profiling runs separately
+from timed samples. These source-runtime, OS-warm results do not establish Windows, installed-bundle,
+complete Story or end-to-end Copilot performance; measure those separately before claiming savings.

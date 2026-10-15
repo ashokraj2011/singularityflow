@@ -1428,11 +1428,19 @@
       },
       "digest": "155f93effe6b3bea4faa532d1a6056fb87d1e9c8a23062f02a735ebc192129e5"
     },
+    "src/copilot-hook-benchmark.mjs": {
+      "counts": {
+        "command-run": 3,
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "ba91b0a1343aae8f731abdf8016d6c7eabb2c16db71565eebf5de844ee1d1849"
+    },
     "package.json": {
       "counts": {
-        "package-script": 65
+        "package-script": 66
       },
-      "digest": "04af2ec08bab3f5324d7c3968e18a9c4b1be19ff1994537f867c5016477180a0"
+      "digest": "50083c87a6144bd3051f7806d07c5cfb743f45304824aa00b814c69979b46300"
     },
     "apps/vscode/package.json": {
       "counts": {

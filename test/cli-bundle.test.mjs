@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { COMMAND_REGISTRY } from '../src/command-registry.mjs';
 import { COMMAND_LOADERS } from '../src/command-loaders.mjs';
-import { bundledCliUrl } from '../src/bundled-cli.mjs';
+import { bundledCliUrl, bundledCopilotHookUrl } from '../src/bundled-cli.mjs';
 import { buildCliBundle } from '../scripts/build-cli-bundle.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -38,13 +38,19 @@ test('the bundle runs only for the stamped build it was made for, unless it is f
   assert.equal(bundledCliUrl(pkg, {}), null, 'no manifest: the sources');
   await manifest({});
   assert.equal(bundledCliUrl(pkg, {}), expected, 'the stamped build it was made for');
+  assert.equal(bundledCopilotHookUrl(pkg, {}), null, 'older manifests use source hook execution');
+  await manifest({ entries: ['cli.mjs', 'copilot-hook-runtime.mjs'] });
+  assert.equal(bundledCopilotHookUrl(pkg, {}), pathToFileURL(path.join(pkg, 'bundle', 'copilot-hook-runtime.mjs')).href);
+  assert.equal(bundledCopilotHookUrl(pkg, { SINGULARITY_FLOW_BUNDLE: 'off' }), null);
   assert.equal(bundledCliUrl(pkg, { SINGULARITY_FLOW_BUNDLE: 'off' }), null);
   await manifest({ stamped: false });
   assert.equal(bundledCliUrl(pkg, {}), null, 'a development build is never used on its own');
   assert.equal(bundledCliUrl(pkg, { SINGULARITY_FLOW_BUNDLE_DIR: path.join(pkg, 'bundle') }), expected, 'unless forced');
-  await manifest({});
+  await manifest({ entries: ['cli.mjs', 'copilot-hook-runtime.mjs'] });
+  assert.ok(bundledCopilotHookUrl(pkg, {}), 'a matching hook bundle exists before the build moves');
   await writeFile(path.join(pkg, 'src', 'build-info.mjs'), 'export const BUILD_INFO = { commit: null };\n');
   assert.equal(bundledCliUrl(pkg, {}), null, 'restored or edited build information: the sources');
+  assert.equal(bundledCopilotHookUrl(pkg, {}), null, 'hook bundles must match the live build stamp too');
   await manifest({ format: 2 });
   assert.equal(bundledCliUrl(pkg, { SINGULARITY_FLOW_BUNDLE_DIR: path.join(pkg, 'bundle') }), null, 'an unknown format is never run');
 });
@@ -53,7 +59,12 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   const outdir = path.join(root, `.bundle-test-${process.pid}`);
   t.after(() => rm(outdir, { recursive: true, force: true }));
   const { manifest } = await buildCliBundle({ outdir });
-  assert.deepEqual(manifest.entries, ['cli.mjs', 'history-index-worker.mjs', 'configuration-read-worker.mjs', 'configuration-proposal-sync-worker.mjs']);
+  assert.deepEqual(manifest.entries, ['cli.mjs', 'copilot-hook-runtime.mjs', 'history-index-worker.mjs', 'configuration-read-worker.mjs', 'configuration-proposal-sync-worker.mjs']);
+  const hookOutput = manifest.outputs.find(output => output.file === 'copilot-hook-runtime.mjs');
+  assert.ok(hookOutput.bytes <= 8 * 1024 * 1024, `hook bundle: ${hookOutput.bytes} bytes`);
+  assert.ok(hookOutput.modules <= 650, `hook bundle: ${hookOutput.modules} modules`);
+  assert.ok(hookOutput.bytes < manifest.outputs.find(output => output.file === 'cli.mjs').bytes / 2,
+    'the hook runtime must not become a second general CLI bundle');
   const text = await readFile(path.join(outdir, 'cli.mjs'), 'utf8');
   assert.doesNotMatch(text, /node_modules\/(?:typescript|pyright|sql\.js|@agentclientprotocol)\//u, 'large or file-based packages stay external');
   assert.match(text, /\.\.\/src\/build-info\.mjs/u, 'the install stamp is read live from src/');
@@ -96,6 +107,39 @@ export async function load(url, context, next) {
     assert.equal(bundled.stdout, source.stdout, `${args.join(' ')} prints the same`);
     assert.ok(bundled.modules.length <= 8, `${args.join(' ')} opened ${bundled.modules.length} module files: ${bundled.modules.join(', ')}`);
     if (args[0] !== '--version') assert.ok(source.modules.length > 35, `${args.join(' ')} from the sources opened ${source.modules.length}`);
+  }
+
+  // The launcher must actually select the dedicated bundle, not just a manifest URL. Real turn
+  // capture and edit denials replay identically, while the bundled entry opens only a few files.
+  for (const [action, payload] of [
+    ['boundary-guard', {}],
+    ['agent-start', { agentName: 'product-owner', cwd: repo }],
+    ['boundary-turn', { sessionId: 'bundled-hook', cwd: repo, prompt: '/sf-code' }],
+    ['boundary-guard', { sessionId: 'bundled-hook', cwd: repo, toolName: 'edit', toolArgs: { path: 'src/App.jsx' } }],
+    ['boundary-after', { sessionId: 'bundled-hook', cwd: repo }],
+    ['boundary-end', { sessionId: 'bundled-hook', cwd: repo }]
+  ]) {
+    const results = [];
+    for (const bundled of [false, true]) {
+      const log = path.join(base, `hook-modules-${bundled}.log`);
+      await rm(log, { force: true });
+      const result = spawnSync(process.execPath, ['--import', pathToFileURL(hook).href,
+        path.join(root, 'plugin/hook-launcher.mjs'), action, cli], {
+        cwd: repo, encoding: 'utf8', input: JSON.stringify(payload), timeout: 30000,
+        env: { ...env, MODULE_LOG: log, SINGULARITY_FLOW_HOOK_RUNTIME: 'dedicated',
+          SINGULARITY_FLOW_BUNDLE: bundled ? 'on' : 'off', ...(bundled ? { SINGULARITY_FLOW_BUNDLE_DIR: outdir } : {}) }
+      });
+      assert.equal(result.status, 0, `${action}: ${result.stderr}`);
+      results.push(JSON.parse(result.stdout));
+      const modules = (await readFile(log, 'utf8')).split('\n').filter(Boolean);
+      if (bundled) {
+        assert.ok(modules.some(url => url.endsWith('/copilot-hook-runtime.mjs') && !url.includes('/src/')),
+          `${action}: the dedicated bundle ran`);
+        assert.ok(modules.length <= 8, `${action}: ${modules.length} module files`);
+      }
+    }
+    assert.deepEqual(results[1], results[0], `${action}: bundled hooks preserve the source decision`);
+    if (action === 'boundary-guard' && payload.sessionId) assert.equal(results[1].permissionDecision, 'deny');
   }
 
   // `secrets protect` writes a hook that runs the CLI it was installed from. Bundled, its module is

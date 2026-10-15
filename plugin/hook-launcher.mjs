@@ -53,12 +53,20 @@ try {
     const root = candidates.map(packageFor).find(Boolean);
     if (!root) unavailable();
     else {
-      // The installed bundle when it belongs to this build (src/bundled-cli.mjs), else the sources.
-      // An older installed package has no selector: it simply runs its sources.
-      const bundled = await import(pathToFileURL(path.join(root, 'src/bundled-cli.mjs')).href)
-        .then(({ bundledCliUrl }) => bundledCliUrl(root), () => null);
-      const { main } = await import(bundled ?? pathToFileURL(path.join(root, 'src/cli-entry.mjs')).href);
-      await main(['hook', action]);
+      const selector = await import(pathToFileURL(path.join(root, 'src/bundled-cli.mjs')).href)
+        .catch(() => null);
+      const hookSource = path.join(root, 'src/copilot-hook-runtime.mjs');
+      // Diagnostic fallback changes the transport, never the policy. Older installations keep
+      // their verified CLI route; a present but broken dedicated runtime fails closed below.
+      if (process.env.SINGULARITY_FLOW_HOOK_RUNTIME !== 'legacy' && existsSync(hookSource)) {
+        const bundled = selector?.bundledCopilotHookUrl?.(root);
+        const { runCopilotHook } = await import(bundled ?? pathToFileURL(hookSource).href);
+        await runCopilotHook(action);
+      } else {
+        const bundled = selector?.bundledCliUrl?.(root);
+        const { main } = await import(bundled ?? pathToFileURL(path.join(root, 'src/cli-entry.mjs')).href);
+        await main(['hook', action]);
+      }
     }
   }
 } catch { unavailable(); }

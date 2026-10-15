@@ -6,7 +6,7 @@ import { recoveryPlan } from './collaboration.mjs';
 import { verifyClarificationRecord } from './clarifications.mjs';
 import { phaseInspectionGeneration } from './code-submission-evidence.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
-import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { phaseKernelOwned, phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
 import { phaseAuthoringSummary } from './phase-authoring-summary.mjs';
 import { branch, head, repoRoot, gitDir } from './git.mjs';
 import { agentSessionStatus } from './session.mjs';
@@ -18,7 +18,6 @@ import { contextBoundaryPresentation, pendingContextBoundary } from './context-p
 import { storyRequestSummary } from './story-request-summary.mjs';
 import { approvedInputPhases } from './inputs.mjs';
 import { SingularityFlowError } from './util.mjs';
-import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
 import { phaseContextAdmission, phaseAdmissionActions } from './phase-entry-admission.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
@@ -141,7 +140,7 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   const requiresDecision = recovery.actions.some(action => action.id === 'working-tree'
     && action.confirmation !== 'none');
   const contextAdmission = phaseContextAdmission({ authoring, recovery, references,
-    deterministic: phaseUsesDeterministicGeneration(phase) });
+    deterministic: phaseKernelOwned(phase) });
   const canCompose = contextAdmission.allowed;
   let context = null;
   if (compose && canCompose) {

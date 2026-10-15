@@ -7,7 +7,7 @@ import { SingularityFlowError, nowIso, run } from './util.mjs';
 import { normalizeSessionPolicy } from './config.mjs';
 import { currentSchemaVersion, readRecord, stampCurrentRecord } from './schema-migrations.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
-import { phaseUsesDeterministicGeneration } from './manual-authorship.mjs';
+import { phaseKernelOwned } from './code-delivery-policy.mjs';
 import { identity } from './git.mjs';
 
 const SESSION_FAMILY = 'session-registry';
@@ -355,7 +355,7 @@ export async function activateWorkItemSession(root, definition, workflow) {
     });
   }
   const phase = workflow.phases?.[phaseId] ?? null;
-  if (phaseUsesDeterministicGeneration(phase)) {
+  if (phaseKernelOwned(phase)) {
     // Kernel-owned phases consume repository evidence directly. Carrying the previous phase's
     // governed agent across this boundary makes a stale session look authoritative and can turn a
     // deterministic projection into apparent agent authorship. Clear it explicitly; the next
@@ -417,7 +417,7 @@ export async function agentSessionStatus(root, definition, workflow) {
   const workId = workItemSelectionRequired ? null : workflow?.workItem?.id ?? copilot?.workId ?? null;
   const phaseId = workflow?.currentPhase ?? copilot?.phase ?? null;
   const phase = phaseId ? workflow?.phases?.[phaseId] ?? null : null;
-  const agentRequired = Boolean(phaseId && !phaseUsesDeterministicGeneration(phase));
+  const agentRequired = Boolean(phaseId && !phaseKernelOwned(phase));
   const expectedAgent = agentRequired ? phase?.defaultAgent ?? null : null;
   const baseValid = workId ? validAgentSession(definition, session, workId, null, phaseId) : false;
   const bound = baseValid && (!copilot?.sessionId || session.copilotSessionId === copilot.sessionId);

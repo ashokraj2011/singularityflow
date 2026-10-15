@@ -84,7 +84,8 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
       if (exact.startsWith(`${item}/evidence/`) && !exact.endsWith('/') && !exact.split('/').includes('..')) artifacts.push(exact);
     }
   }
-  const application = turnMode === 'authoring' && editable && !deterministic
+  // A deterministic code step builds only its summary; its code is written in the open generation.
+  const application = turnMode === 'authoring' && editable && (!deterministic || code)
     && phase?.writeScope === 'source-and-artifact' && (!code || openGeneration);
   const next = !phase ? [route(['session', 'current', '--for-agent', '--json'], 'Resolve the Story binding first.')]
     : turnMode === 'read-only-review'
@@ -112,7 +113,8 @@ export function deriveMutationContract({ root = null, definition, workflow, phas
           : [route(['prepare', phase.id], 'Continue the configured phase author; publish only after its checks pass.', generationSkillForPhase(phase, workflow))];
   const summary = turnMode === 'approval-only' ? 'Approval/rejection only. No file edits or next-phase authoring; end this turn after the decision.'
     : turnMode !== 'authoring' ? `${turnMode}: no direct repository edits; only explicitly issued staging files and permitted kernel operations.`
-      : !editable || deterministic ? 'No direct edits to this retained or deterministic generation. Use the returned kernel/recovery action.'
+      : !editable || (deterministic && !code) ? 'No direct edits to this retained or deterministic generation. Use the returned kernel/recovery action.'
+        : deterministic && application ? 'May edit application paths within pinned policy; the summary is built by `singularity-flow prepare` from what changed, never edited by hand.'
         : application ? `May edit this phase's artifacts and ${phase.sourceBoundary === 'test-automation' ? 'test-automation' : 'application'} paths within pinned policy; protected and governed state remain kernel-owned.`
           : `May edit this phase's artifacts only.${code ? ' Open a code generation before application edits.' : ' Do not implement application code in this phase.'}`;
   return {

@@ -6,6 +6,7 @@ import path from 'node:path';
 import YAML from 'yaml';
 import { parseYamlText } from './yaml-parse-cache.mjs';
 import { scopedCatalogRead } from './catalog-read-scope.mjs';
+import { configurationReadRoot } from './configuration-read-scope.mjs';
 import { nearestNames, secureRepositoryPath, SingularityFlowError } from './util.mjs';
 
 export const INSTRUCTION_LIBRARY_ROOT = 'singularity/instruction-library';
@@ -89,7 +90,9 @@ export async function readInstruction(root, id) {
 }
 
 export async function loadInstructionLibrary(root) {
-  return scopedCatalogRead(JSON.stringify(['instructions', path.resolve(root)]), () => loadInstructionLibrarySnapshot(root));
+  // Keyed by the approved-configuration overlay too, as agents and skills are.
+  return scopedCatalogRead(JSON.stringify(['instructions', path.resolve(root), configurationReadRoot(root)]),
+    () => loadInstructionLibrarySnapshot(root));
 }
 
 async function loadInstructionLibrarySnapshot(root) {

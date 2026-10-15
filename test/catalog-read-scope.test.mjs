@@ -109,3 +109,21 @@ test('one application root cannot reuse a catalog from a different approved conf
     assert.equal(b.some(agent => agent.id === 'overlay'), true);
   });
 });
+
+test('skill and instruction catalogs, like agents, never answer an approved overlay from the working tree', async t => {
+  // Their reads follow the overlay, but their keys named only the application root: inside one
+  // read scope a working-tree read answered for the approved configuration.
+  const first = await fixture(t); const second = await fixture(t);
+  await writeFile(second.skill, librarySkillText({ id: 'custom', description: 'Approved overlay skill.', instructions: 'Inspect approved code.' }));
+  await writeFile(second.instruction, instructionText({ id: 'standards', description: 'Approved standards.', instructions: 'Use approved names.' }));
+  await withReadScope(async () => {
+    const workingSkills = await loadSkillLibrary(first.root);
+    const approvedSkills = await withConfigurationReadRoot(first.root, second.root, null, () => loadSkillLibrary(first.root));
+    assert.equal(workingSkills.skills.get('custom').description, 'Check scoped code.');
+    assert.equal(approvedSkills.skills.get('custom').description, 'Approved overlay skill.');
+    const workingInstructions = await loadInstructionLibrary(first.root);
+    const approvedInstructions = await withConfigurationReadRoot(first.root, second.root, null, () => loadInstructionLibrary(first.root));
+    assert.equal(workingInstructions.instructions.get('standards').description, 'Coding standards.');
+    assert.equal(approvedInstructions.instructions.get('standards').description, 'Approved standards.');
+  });
+});

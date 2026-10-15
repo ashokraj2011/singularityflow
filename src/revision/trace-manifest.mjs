@@ -118,7 +118,17 @@ export async function collectRevisionTestBodies(source, filename = 'test/witness
   const parsed = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
   if (parsed.parseDiagnostics.length) fail(`test source '${filename}' has parser diagnostics`);
   const bodies = [];
-  function visit(node, ancestors, inheritedDisabled = false) {
+  // An explicit stack, not recursion: one long expression nests the tree thousands deep.
+  const stack = [{ node: parsed, ancestors: [], inheritedDisabled: false }];
+  const pushChildren = (parent, ancestors, inheritedDisabled) => {
+    const children = [];
+    ts.forEachChild(parent, (child) => { children.push(child); });
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push({ node: children[index], ancestors, inheritedDisabled });
+    }
+  };
+  while (stack.length > 0) {
+    const { node, ancestors, inheritedDisabled } = stack.pop();
     const call = testCall(ts, node);
     const callback = call == null ? null : [...node.arguments].reverse().find((argument) =>
       ts.isArrowFunction(argument) || ts.isFunctionExpression(argument));
@@ -128,12 +138,11 @@ export async function collectRevisionTestBodies(source, filename = 'test/witness
       if (call.kind === 'test') {
         bodies.push({ namePath, bodySha256: sha256(callback.body.getText(parsed)), disabled });
       }
-      ts.forEachChild(callback.body, (child) => visit(child, namePath, disabled));
-      return;
+      pushChildren(callback.body, namePath, disabled);
+      continue;
     }
-    ts.forEachChild(node, (child) => visit(child, ancestors, inheritedDisabled));
+    pushChildren(node, ancestors, inheritedDisabled);
   }
-  visit(parsed, []);
   return bodies;
 }
 

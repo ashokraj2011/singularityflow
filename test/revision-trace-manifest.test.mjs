@@ -151,6 +151,20 @@ test('REV:TRACE pilot witness context is exact and cannot be omitted', async (t)
   assert.equal(report.platformProfile, witnessContext.platformProfile);
 });
 
+test('REV:TRACE reads test bodies in source order when one expression nests thousands deep', async () => {
+  // A long concatenation nests the syntax tree one level per term; a recursive walk failed at 5,000.
+  const terms = Array.from({ length: 20000 }, () => 'value').join(' + ');
+  const source = `import test, { describe } from 'node:test';
+describe('outer', () => {
+  test('first', () => { const total = ${terms}; });
+  test('second', () => {});
+});
+test('third', () => {});
+`;
+  const bodies = await collectRevisionTestBodies(source);
+  assert.deepEqual(bodies.map((body) => body.namePath), [['outer', 'first'], ['outer', 'second'], ['third']]);
+});
+
 test('REV:TRACE rejects focused tests and inherited skipped suites', async () => {
   const source = `describe.skip('suite', () => { test('REV:AC-001 inherited', () => { throw Error('run'); }); });\n`
     + `test.only('REV:AC-002 focused', () => { throw Error('run'); });\n`

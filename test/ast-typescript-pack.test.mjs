@@ -62,6 +62,18 @@ test('the syntax pack names declarations once, with the identities the semantic 
   assert.ok(facts.every((fact) => fact.assurance === 'syntax'));
 });
 
+test('one expression nested thousands deep is read without running out of stack', { skip: !typescript }, async (t) => {
+  // A long concatenation nests the syntax tree one level per term; a recursive walk failed at 2,000.
+  const terms = Array.from({ length: 20000 }, () => 'helper()').join(' + ');
+  const text = `function helper(): number { return 1; }\nexport function deep(): number { return ${terms}; }\n`;
+  const ids = syntaxFacts(typescript, 'src/deep.ts', text).filter((fact) => fact.kind === 'symbol').map((fact) => fact.id);
+  assert.deepEqual(ids, ['ts:src/deep.ts#helper:function', 'ts:src/deep.ts#deep:function']);
+  const directory = await repository(t, { 'tsconfig.json': FILES['tsconfig.json'], 'src/deep.ts': text });
+  const edges = semanticCalls(typescript, directory, ['src/deep.ts']).flatMap((file) => file.facts)
+    .map((fact) => `${fact.sourceId.split('#')[1]} -> ${fact.target.split('#')[1]}`);
+  assert.deepEqual(edges, ['deep:function -> helper:function']);
+});
+
 test('the type checker resolves calls through imports, aliases and methods, and leaves library calls out', { skip: !typescript }, async (t) => {
   const directory = await repository(t, FILES);
   const edges = semanticCalls(typescript, directory, ['src/cart.ts', 'src/money.ts'])

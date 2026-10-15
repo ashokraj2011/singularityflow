@@ -19,11 +19,15 @@ import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
 import { readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { observeFindingStreak } from './finding-escalation.mjs';
 import { gitDir } from './git-execution.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { writeAtomic } from './util.mjs';
 
 export const DEFAULT_AGENT_OUTPUT_BYTES = 16_000;
+export const LOOP_THRESHOLD = 3;
+const LOOP_WINDOW_MS = 2 * 60 * 60 * 1000;
+const UNCOUNTED_STATES = new Set(['author', 'read', 'paused']);
 const LARGE_TEXT_BYTES = 4_000;
 const FIELD_BYTES = 6_000;
 const SMALL_FIELD_BYTES = 300;
@@ -124,6 +128,35 @@ export function agentAct(result) {
   return withRoute({ state: action ? state : 'read', said, do: null }, action);
 }
 
+/**
+ * The same actionable result three times in a row is a loop, whatever produced it. `[agent-output]`
+ *
+ * A person following a preview route saw the same Convergence digest again and again; agents
+ * re-ran reads that could not change. When an agent result with something to do or confirm comes
+ * back unchanged a third time for the same Story step (same state, command, value, head and
+ * generation, within two hours), `act` says so and names the one thing that changes it. The count
+ * is kept on this computer only (finding-escalation.mjs's private store) and accepts nothing.
+ */
+export function observeAgentLoop(root, result, act, { now = Date.now() } = {}) {
+  if (!act || UNCOUNTED_STATES.has(act.state) || !(act.do || act.ask)) return act;
+  const fingerprint = sha256(JSON.stringify([result.resultType ?? null, act.state, act.do?.shell ?? act.do?.copilot ?? null,
+    act.ask?.value ?? null, result.head ?? null, result.generation ?? null, result.status ?? result.classification ?? null]));
+  let count = 1;
+  try {
+    count = observeFindingStreak(root, { workId: `agent-loop:${result.workId ?? result.resultType ?? 'result'}`,
+      phaseId: String(result.phase ?? result.phaseId ?? '-'), fingerprint, windowMs: LOOP_WINDOW_MS, now });
+  } catch { return act; }
+  if (count < LOOP_THRESHOLD) return act;
+  const instruction = act.ask?.kind === 'confirm' || act.state === 'confirm'
+    ? `This confirmation has come back ${count} times in a row and the person has not given it. Ask them now in this chat to confirm the exact value; only on an explicit yes run do.shell once. Do not offer the preview again.`
+    : act.state === 'confirm-review'
+      ? `This review has come back ${count} times in a row unconfirmed. Run do.shell once to show the digest, then ask the person now in this chat to confirm it; only on an explicit yes run the returned --confirm command once. Do not end with this route again.`
+    : act.state === 'ask-person'
+      ? `The same questions have been due ${count} times in a row. Ask them now with ask_user (or print them and stop); do not load the context again.`
+      : `The same result has come back ${count} times in a row; repeating the command cannot change it. Do act.do now, or tell the person exactly what is blocked and stop.`;
+  return { ...act, said: `Repeated ${count} times: ${act.said ?? ''}`.trim(), loop: { repeated: count, instruction } };
+}
+
 /** Write a long text as its own line-readable file; the full JSON keeps a reference to it. */
 async function externalize(value, directory, base, trail, written) {
   if (typeof value === 'string' && bytes(value) > LARGE_TEXT_BYTES) {
@@ -182,12 +215,17 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
   try { result = JSON.parse(text); } catch { return text; }
   if (!result || typeof result !== 'object' || Array.isArray(result)) return text;
   const { agentJson } = await import('./agent-packet-presentation.mjs');
-  const act = result.act ?? agentAct(result);
+  // The repository is resolved only when it is needed (a counted result or one to write), so the
+  // small reads every skill turn makes cost no extra Git process.
+  let located;
+  const locate = () => (located ??= repositoryOf(result, cwd) ?? false) || null;
+  const derived = result.act ?? agentAct(result);
+  const counted = derived && !UNCOUNTED_STATES.has(derived.state) && (derived.do || derived.ask);
+  const act = counted && locate() ? observeAgentLoop(locate().root, result, derived, { now: now.getTime() }) : derived;
   const ordered = act ? { act, ...Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'act')) } : result;
   const whole = agentJson(ordered);
-  if (bytes(whole) <= budget) return `${whole}\n`;
-  const target = repositoryOf(result, cwd);
-  if (!target) return `${whole}\n`;
+  if (bytes(whole) <= budget || !locate()) return `${whole}\n`;
+  const target = locate();
   const kind = String(result.resultType ?? (result.error ? 'refusal' : 'result')).replace(/[^A-Za-z0-9-]/gu, '-').slice(0, 48);
   const base = `${kind}-${now.toISOString().replace(/[:.]/gu, '-')}-${sha256(whole).slice(7, 15)}`;
   const texts = [];

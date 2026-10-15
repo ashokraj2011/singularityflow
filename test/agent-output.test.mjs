@@ -14,7 +14,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
-import { agentAct, agentOutputGoverned, boundedAgentOutput, DEFAULT_AGENT_OUTPUT_BYTES } from '../src/agent-output.mjs';
+import { agentAct, agentOutputGoverned, boundedAgentOutput, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop } from '../src/agent-output.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const digest = `sha256:${'e'.repeat(64)}`;
@@ -135,4 +135,37 @@ test('the CLI bounds a real phase entry, and the bytes it leaves out are in the 
   const changed = spawnSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).stdout.trim().split('\n');
   assert.ok(changed.every((line) => line.startsWith('?? singularity/work-items/OUT-1/context/')), changed.join('\n'));
   assert.match(view.agentOutput.relativePath, /^\.git\//u);
+});
+
+test('the same actionable result a third time in a row says it is a loop and names what changes it', async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-loop-'));
+  const previous = process.env.SINGULARITY_FLOW_FINDING_STREAKS;
+  process.env.SINGULARITY_FLOW_FINDING_STREAKS = path.join(root, 'streaks');
+  t.after(async () => {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_FINDING_STREAKS;
+    else process.env.SINGULARITY_FLOW_FINDING_STREAKS = previous;
+    await rm(root, { recursive: true, force: true });
+  });
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  const now = Date.parse('2026-10-15T12:00:00Z');
+  // The Convergence preview the person kept following without confirming: readiness returns the
+  // preview, and only the preview's own route carries the digest.
+  const preview = { resultType: 'sflow-submission-readiness', workId: 'W', phaseId: 'convergence', head: 'h0',
+    classification: 'convergence-advance-required', nextCommand: 'singularity-flow story advance --work-id W', nextSkill: '/sf-submit' };
+  const previews = [1, 2, 3].map((minute) => observeAgentLoop(root, preview, agentAct(preview), { now: now - 30 * 60_000 + minute * 60_000 }));
+  assert.equal(previews[2].state, 'confirm-review');
+  assert.match(previews[2].loop.instruction, /Run do\.shell once to show the digest, then ask the person now in this chat to confirm it; only on an explicit yes run the returned --confirm command once\./u);
+  const review = { ...preview, head: 'h1', nextCommand: `singularity-flow story advance --work-id W --confirm ${digest}` };
+  const seen = [1, 2, 3].map((minute) => observeAgentLoop(root, review, agentAct(review), { now: now + minute * 60_000 }));
+  assert.equal(seen[1].loop, undefined);
+  assert.equal(seen[2].loop.repeated, LOOP_THRESHOLD);
+  assert.match(seen[2].loop.instruction, /Ask them now in this chat to confirm the exact value; only on an explicit yes run do\.shell once\. Do not offer the preview again\./u);
+  assert.match(seen[2].said, /^Repeated 3 times: /u);
+  // A change of head is progress, not a repeat; nor is a result two hours later.
+  assert.equal(observeAgentLoop(root, { ...review, head: 'h2' }, agentAct(review), { now: now + 4 * 60_000 }).loop, undefined);
+  assert.equal(observeAgentLoop(root, { ...review, head: 'h2' }, agentAct(review), { now: now + 5 * 60_000 }).loop, undefined);
+  assert.equal(observeAgentLoop(root, { ...review, head: 'h2' }, agentAct(review), { now: now + 4 * 60 * 60_000 }).loop, undefined);
+  // Authoring and plain reads are never counted, however often they repeat.
+  const authoring = { resultType: 'sflow-phase-entry', status: 'authoring-entry', workId: 'W', phase: 'code' };
+  for (let index = 0; index < 4; index += 1) assert.equal(observeAgentLoop(root, authoring, agentAct(authoring)).loop, undefined);
 });

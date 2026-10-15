@@ -17,7 +17,7 @@ related:
   - governed-execution
   - revision-loop
   - revision-feedback-attachments
-version: 18
+version: 19
 ---
 CLI, Copilot, and VS Code read the same durable repository and workspace records through shared projections. They do not share an in-memory global store, conversation history, or signed handles. Bundled skills are explicit-only: installing SFlow never opts ordinary Copilot requests into governance. Invoke an `/sf-*` skill or explicitly select the SFlow workflow agent for natural-language routing. That agent accepts seven closed intents: orient, continue, start, inspect, act, recover, and help. Help retrieves cited packaged documentation; it does not convert an answer into an action.
 
@@ -61,7 +61,7 @@ Copilot guidance and leaves ordinary Copilot requests alone.
 
 ### What an agent reads
 
-A command run with `--for-agent` starts its result with `act`: the state, the one thing to do now (`do`, with its Copilot, Shell and VS Code routes) and anything a person must answer or confirm first (`ask`). Every value comes from the engine's own fields. A result larger than 16,000 bytes is bounded: the complete result is written inside the repository's Git directory (`.git/singularity-flow/agent-results/`), long texts such as the composed context as their own files, and the printed view keeps `act`, the fields that fit and `omittedFields`, each with its exact line range in `agentOutput.path`. Nothing is truncated and the working tree is untouched. `SINGULARITY_FLOW_AGENT_OUTPUT_BYTES` changes the bound; `SINGULARITY_FLOW_AGENT_OUTPUT=full` prints the whole result. A route never drops a reviewed digest: where a confirmation carries `--confirm sha256:<DIGEST>` and its own skill would only preview it again, the Copilot route is `/sf-confirm <the exact command>`, which runs that confirmation once; the CLI refuses a digest that no longer matches.
+A command run with `--for-agent` starts its result with `act`: the state, the one thing to do now (`do`, with its Copilot, Shell and VS Code routes) and anything a person must answer or confirm first (`ask`). Every value comes from the engine's own fields. A result larger than 16,000 bytes is bounded: the complete result is written inside the repository's Git directory (`.git/singularity-flow/agent-results/`), long texts such as the composed context as their own files, and the printed view keeps `act`, the fields that fit and `omittedFields`, each with its exact line range in `agentOutput.path`. Nothing is truncated and the working tree is untouched. `SINGULARITY_FLOW_AGENT_OUTPUT_BYTES` changes the bound; `SINGULARITY_FLOW_AGENT_OUTPUT=full` prints the whole result. A route never drops a reviewed digest: where a confirmation carries `--confirm sha256:<DIGEST>` and its own skill would only preview it again, the Copilot route is `/sf-confirm <the exact command>`, which runs that confirmation once; the CLI refuses a digest that no longer matches. When the same result with something to do or confirm comes back a third time in a row for the same step, unchanged, `act.loop` says so and names the one thing that changes it, such as asking the person to confirm now; the count is kept on this computer only and accepts nothing.
 
 ## Guided workflow
 

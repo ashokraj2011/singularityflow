@@ -57,9 +57,10 @@ function storeFile(root, env = process.env) {
 /**
  * Count this observation and return how many times in a row the same finding has been seen for
  * this Story step. With `attempt`, a repeat counts only when the attempt changed (a recheck of the
- * same draft is not a repair); without it, every repeat counts (a refused command retried).
+ * same draft is not a repair); without it, every repeat counts (a refused command retried). With
+ * `windowMs`, an observation older than the window starts the count again.
  */
-export function observeFindingStreak(root, { workId, phaseId, generation = null, fingerprint, attempt = null }) {
+export function observeFindingStreak(root, { workId, phaseId, generation = null, fingerprint, attempt = null, windowMs = null, now = Date.now() }) {
   const file = storeFile(root);
   if (!file || !workId || !phaseId || !fingerprint) return 1;
   const key = `${workId}\u0000${phaseId}\u0000${generation ?? ''}`;
@@ -69,10 +70,11 @@ export function observeFindingStreak(root, { workId, phaseId, generation = null,
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) store = parsed;
   } catch { store = {}; }
   const prior = store[key];
-  const same = prior?.fingerprint === fingerprint;
+  const fresh = windowMs == null || now - Date.parse(prior?.at ?? 0) <= windowMs;
+  const same = fresh && prior?.fingerprint === fingerprint;
   const repeated = same && (attempt == null || prior.attempt !== attempt);
   const count = !same ? 1 : repeated ? Number(prior.count ?? 1) + 1 : Number(prior.count ?? 1);
-  store[key] = { fingerprint, attempt, count, at: new Date().toISOString() };
+  store[key] = { fingerprint, attempt, count, at: new Date(now).toISOString() };
   const keys = Object.keys(store).sort((left, right) => String(store[right].at).localeCompare(String(store[left].at)));
   for (const stale of keys.slice(MAX_KEYS)) delete store[stale];
   const temporary = `${file}.${process.pid}.tmp`;

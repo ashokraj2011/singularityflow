@@ -330,7 +330,8 @@ export function proposalSummaries(listed: unknown): StudioProposalSummary[] {
         && Number.isFinite(Date.parse(entry.proposalCreatedAt)) ? entry.proposalCreatedAt : null,
       files: Array.isArray(entry.changedFiles) ? entry.changedFiles.length : 0,
       invalidFiles: (Array.isArray(entry.invalidFiles) ? entry.invalidFiles : []).filter((name): name is string => typeof name === 'string').slice(0, 10),
-      failure: text((entry.failure as { message?: unknown } | undefined)?.message)
+      // A refusal names its repair after the reason; 300 characters cut the repair off.
+      failure: text((entry.failure as { message?: unknown } | undefined)?.message, 1200)
     }];
   });
 }

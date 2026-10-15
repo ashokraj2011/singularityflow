@@ -718,7 +718,7 @@ exit 1
   }
 });
 
-test('workflow proposal activation rejects a newly added migration-required Story workflow', async () => {
+test('a newly added migration-required Story workflow is listed as blocked, and activation refuses it', async () => {
   const item = await fixture();
   const authoring = path.join(item.base, 'unsafe-proposal');
   const proposalBranch = 'sflow/config-change/workflow/unsafe-legacy-custom';
@@ -740,6 +740,13 @@ test('workflow proposal activation rejects a newly added migration-required Stor
     run('git', ['commit', '-qm', 'propose unresolved legacy workflow'], { cwd: authoring });
     run('git', ['push', '-q', 'origin', `HEAD:refs/heads/${proposalBranch}`], { cwd: authoring });
     const commit = run('git', ['rev-parse', 'HEAD'], { cwd: authoring }).stdout.trim();
+
+    // The list says so before anyone presses Review and activate: it ran the same gate.
+    const listed = (await listWorkflowConfigurationProposals(item.story)).find((entry) => entry.branch === proposalBranch);
+    assert.equal(listed.valid, false);
+    assert.equal(listed.failure.code, 'WORKFLOW_PLANNED_CLAIMS_MIGRATION_REQUIRED');
+    assert.equal(listed.failure.details.workType, 'legacy-custom');
+    assert.match(listed.failure.message, /omits with responsibility scope/);
 
     await assert.rejects(
       () => activateWorkflowConfigurationProposal(item.story, proposalBranch, {

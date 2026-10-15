@@ -142,6 +142,11 @@ The draft must fit the configured maximum size.
 ## Requirements
 - Persist a saved draft. (S1) [${WORK_ID}:REQ-001]
 - Display saved status after persistence. (S1) [${WORK_ID}:AC-001]
+## Scenario coverage
+| Clause | Scenario | Outcome |
+|---|---|---|
+| ${WORK_ID}:REQ-001 | S1 | success |
+| ${WORK_ID}:AC-001 | S1 | success |
 ## Non-functional requirements
 No additional non-functional target is asserted.
 ## Assumptions
@@ -276,7 +281,8 @@ test('real and copied workflow preparation returns authoring instead of reviewin
     cli(root, 'prepare', phaseId, '--no-model', '--json');
     const packet = JSON.parse(cli(root, 'review-source', 'context', phaseId, '--json'));
     const authorRoute = reviewRoute(root, phaseId);
-    assert.equal(authorRoute.nextCommand, `singularity-flow prepare ${phaseId}`);
+    // Preparation already ran: the author's next step checks the written draft, never prepares again.
+    assert.equal(authorRoute.nextCommand, `singularity-flow phase prepublish ${phaseId} --for-agent --json`);
     assert.notEqual(authorRoute.nextSkill, '/sf-submit');
     assert.equal(packet.canReview, false);
     assert.equal(packet.generation, 1, 'preparation is not publication');

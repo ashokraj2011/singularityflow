@@ -39,7 +39,7 @@ function run(command, args, cwd, { allowFailure = false, env = {} } = {}) {
 }
 
 async function repository(t, {
-  workItemRoot = 'singularity/work-items', repositoryRelative = 'repository'
+  workItemRoot = 'singularity/work-items', repositoryRelative = 'repository', ledger = false
 } = {}) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-worktree-'));
   t.after(() => rm(base, { recursive: true, force: true }));
@@ -61,6 +61,8 @@ async function repository(t, {
   // Most cases here exercise worktree isolation, not the separate repository-readiness gate.
   // The readiness-specific cases below opt back in explicitly.
   definition.repositoryReadiness.requiredBeforeStory = false;
+  // Remote Story discovery and attach read the state ledger, never a branch scan (5be0d63e).
+  if (ledger) definition.ledger = { ...(definition.ledger ?? {}), enabled: true };
   await writeFile(definitionFile, YAML.stringify(definition));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-q', '-m', 'initialize'], root);
@@ -1291,7 +1293,7 @@ test('isolated Story start retains an external workspace capability authority in
 });
 
 test('session attach reuses the managed Story worktree instead of switching its launch clone', async (t) => {
-  const { root } = await repository(t);
+  const { root } = await repository(t, { ledger: true });
   const started = run(process.execPath, [cli,
     'start', 'ISO-ATTACH-1', '--isolated-worktree', '--json', '--from-branch', 'main',
     '--work-type', 'feature', '--title', 'Attach independently',
@@ -1483,7 +1485,7 @@ test('session open-local refuses a Story branch without a managed checkout', asy
 });
 
 test('session attach from Story A creates Story B worktree without switching or discarding A', async (t) => {
-  const { root } = await repository(t);
+  const { root } = await repository(t, { ledger: true });
   const start = (id) => JSON.parse(run(process.execPath, [cli,
     'start', id, '--isolated-worktree', '--json', '--from-branch', 'main',
     '--work-type', 'feature', '--title', id, '--description', `Keep ${id} isolated.`

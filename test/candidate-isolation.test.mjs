@@ -139,6 +139,8 @@ test('an unrelated local edit that would break the tests stays in the worktree w
   config.worldModel.grounding = 'off';
   config.approvalSecurity = { profile: 'poc' };
   for (const authority of Object.values(config.approvalAuthorities)) authority.allowAnyGitIdentity = true;
+  // The review clone attaches through the state ledger, never a branch scan (5be0d63e).
+  config.ledger = { ...(config.ledger ?? {}), enabled: true };
   await writeFile(configPath, YAML.stringify(config));
   run('git', ['add', '.'], root);
   run('git', ['commit', '-m', 'Initialize the isolation fixture'], root);

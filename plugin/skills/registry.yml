@@ -108,6 +108,7 @@ skills:
   sflow-scenario-check: { class: generative, maximumTokenOverride: 811, exception: "It ends with `phase prepublish --publish-if-ready`, which publishes and returns the review in the same command instead of three Copilot round trips, so it names when not to run `commands.publish` itself." }
   sflow-scenario-repair: { class: delegation, executionBoundary: machine, delegatesTo: sflow-code }
   sflow-code-docs: { class: repair }
+  sflow-confirm: { class: mutation, executionBoundary: repository }
   sflow-continue: { class: mutation }
   sflow-configuration: { class: mutation, executionBoundary: repository }
   sflow-constitution: { class: mutation, executionBoundary: repository }

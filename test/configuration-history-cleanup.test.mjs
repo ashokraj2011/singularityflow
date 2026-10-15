@@ -50,7 +50,7 @@ test('preview preserves remote refs and exact dirty worktree; confirmed cleanup 
   assert.equal(preview.retained[0].reason, 'current-approved-configuration');
   assert.equal(item.refs(), beforeRefs);
   assert.equal(item.state(), beforeState);
-  assert.match(preview.commandGuidance.next.copilotCommand, /^\/sf-configuration/u);
+  assert.match(preview.commandGuidance.next.copilotCommand, /^\/sf-confirm configuration cleanup-history .*--confirm sha256:/u);
   const result = await item.cleanup({ apply: true, confirm: preview.confirmation });
   assert.equal(result.status, 'cleaned', JSON.stringify(result));
   assert.equal(result.archived.length, 3);

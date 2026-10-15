@@ -83,12 +83,14 @@ test('a reviewed Convergence digest travels with its Copilot route instead of a 
   const confirm = safeCommandGuidance({ command: `singularity-flow story advance --work-id after-fix --confirm ${digest}`, skill: '/sf-submit' });
   assert.equal(confirm.copilotCommand, `/sf-submit --work-id after-fix --confirm ${digest}`);
   assert.equal(confirm.command, `singularity-flow story advance --work-id after-fix --confirm ${digest}`);
-  // The preview, a malformed digest and an extra argument keep the plain review route.
+  // The preview and a malformed digest keep the plain review route; any other form that carries the
+  // digest still carries it, through the exact command.
   for (const command of ['singularity-flow story advance --work-id after-fix',
-    'singularity-flow story advance --work-id after-fix --confirm sha256:abc',
-    `singularity-flow story advance --work-id after-fix --confirm ${digest} --json`]) {
+    'singularity-flow story advance --work-id after-fix --confirm sha256:abc']) {
     assert.equal(copilotCommandForCommand(command, '/sf-submit'), '/sf-submit', command);
   }
+  assert.equal(copilotCommandForCommand(`singularity-flow story advance --work-id after-fix --confirm ${digest} --json`, '/sf-submit'),
+    `/sf-confirm story advance --work-id after-fix --confirm ${digest} --json`);
 });
 
 test('approval guidance preserves exact phase and Story selectors without execution authority', () => {

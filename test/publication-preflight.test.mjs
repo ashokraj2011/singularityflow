@@ -1424,7 +1424,7 @@ test('reviewed recovery commits code and README without publishing, for built-in
     const plan = JSON.parse(flow(context.root, ['recover', 'DELIVERY-1', '--phase', phaseId, '--json']).stdout);
     const commitAction = plan.actions.find(entry => entry.id === 'commit-reviewed-worktree');
     assert.deepEqual(commitAction.paths, ['README.md', 'src/app.java']);
-    assert.equal(safeCommandGuidance(commitAction)?.copilotCommand, '/sf-recover');
+    assert.equal(safeCommandGuidance(commitAction)?.copilotCommand, `/sf-confirm ${commitAction.command.replace(/^singularity-flow /u, '')}`);
     assert.match(commitAction.command, /--commit-reviewed --confirm sha256:/u);
     // A regenerated report is transport, not a changed authoring consent.
     await writeFile(report, '{"passed":32}\n');
@@ -2657,8 +2657,8 @@ test('a code phase publishes source and acceptance-mapped tests with a delivery 
   assert.equal(renewal.skill, '/sf-recover');
   const recoveryRoute = safeCommandGuidance(renewal);
   assert.ok(recoveryRoute, 'the phase-scoped rollover must have a validated Shell/Copilot pair');
-  assert.equal(recoveryRoute.copilotCommand, '/sf-recover');
-  assert.match(recoveryText(recovery), /Copilot: \/sf-recover/);
+  assert.equal(recoveryRoute.copilotCommand, `/sf-confirm ${renewal.command.replace(/^singularity-flow /u, '')}`);
+  assert.match(recoveryText(recovery), /Copilot: \/sf-confirm phase rollover implementation --confirm sha256:/);
   assert.equal(recovery.blockers.find((entry) => entry.code === 'generation.intent.consumed-changed')
     .details.riskAcceptance.eligible, false);
 
@@ -3037,7 +3037,7 @@ test('an in-scope README edit after code publication routes through recovery, th
   assert.equal(recovery.requiresRecovery, true);
   assert.equal(rollover?.mode, 'guided');
   assert.equal(rollover?.skill, '/sf-recover');
-  assert.equal(safeCommandGuidance(rollover)?.copilotCommand, '/sf-recover');
+  assert.equal(safeCommandGuidance(rollover)?.copilotCommand, `/sf-confirm ${rollover.command.replace(/^singularity-flow /u, '')}`);
   const workingTree = recovery.actions.find((entry) => entry.id === 'working-tree');
   assert.equal(workingTree?.mode, 'guided');
   assert.equal(workingTree.classification, 'successor-generation-review-required');
@@ -3065,13 +3065,13 @@ test('an in-scope README edit after code publication routes through recovery, th
   assert.equal(preview.mutates, false);
   assert.equal(preview.command, rollover.command);
   assert.equal(preview.skill, '/sf-recover');
-  assert.equal(preview.copilotCommand, '/sf-recover');
+  assert.equal(preview.copilotCommand, `/sf-confirm ${preview.command.replace(/^singularity-flow /u, '')}`);
   assert.deepEqual(preview.argv,
     ['phase', 'rollover', 'implementation', '--confirm', preview.confirmation]);
   assert.match(preview.platformCommands.win32, /phase.*rollover.*implementation/);
   const humanPreview = flow(context.root, ['phase', 'rollover', 'implementation']).stdout;
   assert.match(humanPreview, /Shell: singularity-flow phase rollover implementation --confirm sha256:/);
-  assert.match(humanPreview, /Copilot: \/sf-recover/);
+  assert.match(humanPreview, /Copilot: \/sf-confirm phase rollover implementation --confirm sha256:[a-f0-9]{64}\n/);
   const stale = flow(context.root, [
     'phase', 'rollover', 'implementation', '--confirm', `sha256:${'0'.repeat(64)}`
   ], { allowFailure: true });

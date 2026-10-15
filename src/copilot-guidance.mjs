@@ -61,8 +61,23 @@ function approvalSelectors(command) {
  * direct id is the complete invocation. Approval retains only literal phase and Story selectors;
  * execution flags and private receipts are never transferred into its human review invocation.
  * Exact relay skills receive the command arguments required by their individual contracts.
+ *
+ * A route never drops a reviewed digest. A command that confirms `--confirm sha256:<DIGEST>` (or a
+ * reviewed plan id such as `grb-<hex>`) came
+ * from a preview the person reviewed; a skill route without that value only previews it again, so
+ * a person who followed it looped (`/sf-submit` on a Convergence advance). Such a route carries
+ * the exact command through `/sf-confirm`, which runs it once; the CLI refuses a stale digest.
  */
 export function copilotCommandForCommand(command, skill = null, fallback = '/sf-next') {
+  const route = skillRouteForCommand(command, skill, fallback);
+  const value = String(command ?? '').trim();
+  const digest = value.match(/\s--confirm(?:-plan)?\s+(sha256:[a-f0-9]{64}|[a-z]{2,12}-[a-f0-9]{16,64})(?:\s|$)/u)?.[1];
+  if (!digest || route.includes(digest) || /[<>|;&`$\u0000-\u001f\u007f]/u.test(value)) return route;
+  const operation = value.match(/^(?:singularity-flow|sflow)\s+(.+)$/u)?.[1];
+  return operation ? `/sf-confirm ${operation}` : route;
+}
+
+function skillRouteForCommand(command, skill, fallback) {
   const explicit = directCopilotSkill(skill);
   if (explicit && /\s/u.test(explicit)
       && !['/sf-approve', '/sf-worldmodel', '/sf-review-source', '/sf-appeal', '/sf-publish'].includes(directCopilotSkillId(explicit))) return explicit;

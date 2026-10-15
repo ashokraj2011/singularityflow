@@ -351,9 +351,11 @@ export function safeCommandGuidance(value) {
   // /sf-submit begins with exactly this read and follows the source-review route it returns, so a
   // step that owes a review is routed to the skill through it (src/submit-route.mjs).
   if (safe.argv[0] === 'status' && safe.argv.includes('--submission-readiness')) allowedSkills.add('/sf-submit');
+  // A `/sf-confirm` route names the runner of a reviewed digest, not the command's owning skill; the
+  // skill comes from the command, and the supplied route must still equal the canonical one below.
   const assertedSkill = input.skill != null
     ? normalizedSkill(input.skill)
-    : input.copilotCommand != null
+    : input.copilotCommand != null && directCopilotSkillId(input.copilotCommand) !== '/sf-confirm'
       ? directCopilotSkillId(input.copilotCommand)
       : null;
   if (phaseId && !(safe.argv[0] === 'phase' && safe.argv[1] === 'show')

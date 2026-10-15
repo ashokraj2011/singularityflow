@@ -156,7 +156,9 @@ export function phaseRequiresCodeDelivery(phase) {
  * composition and refuses source edits; a deterministic code step keeps its summary engine-built.
  */
 export function phaseKernelOwned(phase) {
-  return phaseUsesDeterministicGeneration(phase) && !phaseRequiresCodeDelivery(phase);
+  // Story state pins `generationPolicy`; a resolved definition or raw configuration carries `generation`.
+  const deterministic = phase?.generationPolicy ? phaseUsesDeterministicGeneration(phase) : deterministicOnlyGeneration(phase);
+  return Boolean(deterministic) && !phaseRequiresCodeDelivery(phase);
 }
 
 /**

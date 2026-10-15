@@ -71,8 +71,22 @@ test('a quick-fix implement step is coded by its agent and published with an eng
   assert.ok(entry.context?.text?.length > 0, 'with the composed context');
   assert.match(entry.mutationContract.summary, /summary is built by `singularity-flow prepare` from what changed/u);
 
-  // The agent's planned change; the engine builds the summary and publication runs the tests.
+  // Preparing before any code says the code is still to write, and routes back to /sf-code.
+  const prepared = JSON.parse(sflow('prepare', 'implement', '--json'));
+  assert.equal(prepared.data.preparation.authoringRequired, true);
+  assert.match(prepared.data.preparation.instruction, /the code is not written yet/u);
+  assert.equal(prepared.next[0].skill, '/sf-code');
+
+  // A missing test tag is the agent's repair, never a summary regeneration ("owner-review" stopped it).
   await writeFile(path.join(root, 'src/value.mjs'), '// @clause:QF-1:AC-001 the exported value is the approved 2\nexport const value = 2;\n');
+  await writeFile(path.join(root, 'test/value.test.mjs'), "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { value } from '../src/value.mjs';\ntest('value', () => assert.equal(value, 2));\n");
+  sflow('prepare', 'implement');
+  const untagged = JSON.parse(sflow('phase', 'prepublish', 'implement', '--for-agent', '--json'));
+  assert.equal(untagged.status, 'correction-required');
+  assert.equal(untagged.correction.class, 'agent-authoring');
+  assert.equal(untagged.traceabilityRepair?.sameTurn, true, JSON.stringify(untagged.traceabilityRepair?.status));
+
+  // The agent's repair; the engine rebuilds the summary and publication runs the tests.
   await writeFile(path.join(root, 'test/value.test.mjs'), "import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { value } from '../src/value.mjs';\n// @ac:QF-1:AC-001\ntest('value', () => assert.equal(value, 2));\n");
   sflow('prepare', 'implement');
   const published = JSON.parse(sflow('phase', 'prepublish', 'implement', '--for-agent', '--json', '--publish-if-ready'));

@@ -1,7 +1,7 @@
 /** Extracted command implementation; governance remains in the existing kernel APIs. */
 import { action as narrationAction } from '../../narration/command-result.mjs';
 import { convergencePreparationState } from './convergence-preparation-state.mjs';
-import { generationSkillForPhase } from '../../code-delivery-policy.mjs';
+import { generationSkillForPhase, phaseKernelOwned } from '../../code-delivery-policy.mjs';
 import { phasePublicationCommandForProducer, phasePublicationContract } from '../../manual-authorship.mjs';
 
 /** Exact post-preparation actions; deterministic convergence cannot be published before review. */
@@ -18,13 +18,16 @@ export function preparedPhaseNextActions(workflow, phase, prepared) {
       id: 'prepare.author',
       // After preparation the next step is authoring, never preparation again: the Copilot route is
       // the step's authoring skill, and the terminal route checks the draft once it is written.
-      label: prepared.publicationProducer === 'deterministic'
+      // A deterministic code step still has its code to write; only its summary is kernel-built.
+      label: prepared.publicationProducer === 'deterministic' && !phaseKernelOwned(phase)
+        ? 'Write the planned code and tests in the open generation; prepare then rebuilds the summary from what changed'
+        : prepared.publicationProducer === 'deterministic'
         ? 'Check the prepared deterministic artifact before publication'
         : 'Author the prepared draft (preparation is not completed authoring), then check it with prepublish',
       command: prepared.publicationProducer === 'deterministic'
         ? `singularity-flow phase prepublish ${phase.id} --for-agent --json`
         : `singularity-flow phase prepublish ${phase.id}`,
-      skill: prepared.publicationProducer === 'deterministic'
+      skill: prepared.publicationProducer === 'deterministic' && phaseKernelOwned(phase)
         ? '/sf-publish'
         : generationSkillForPhase(phase, workflow)
     }),

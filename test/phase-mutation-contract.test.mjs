@@ -700,3 +700,20 @@ test('a deterministic code step lets its author write code; only its summary is 
   f.phase.generationPolicy.task = 'analyze';
   assert.equal(mutationPathDecision(f.contract('authoring'), 'src/App.jsx').allowed, false);
 });
+
+test('the rule follows the step\'s pinned policy, never its name: a custom deterministic code step is coded too', async t => {
+  const f = await fixture(t, { id: 'ship-fix', writeScope: 'source-and-artifact', generationIntent: { status: 'open', generation: 1 },
+    generationPolicy: { task: 'code', requirement: 'required', producer: 'deterministic', allowedProducers: ['deterministic'] } });
+  const { phaseKernelOwned } = await import('../src/code-delivery-policy.mjs');
+  assert.equal(phaseKernelOwned(f.phase), false);
+  assert.equal(mutationPathDecision(f.contract('authoring'), 'src/App.jsx').allowed, true);
+  // Every starter workflow's deterministic step that delivers code is coded by its agent as well.
+  const YAML = (await import('yaml')).default;
+  const starter = YAML.parse(await readFile(new URL('../templates/workflow.yml', import.meta.url), 'utf8'));
+  const deterministicCode = Object.entries(starter.phases ?? {}).filter(([, phase]) =>
+    phase?.generation?.producer === 'deterministic' && phase.generation.task === 'code').map(([id]) => id);
+  assert.ok(deterministicCode.includes('implement'), deterministicCode.join(','));
+  for (const id of deterministicCode) {
+    assert.equal(phaseKernelOwned({ id, generationPolicy: { task: 'code', producer: 'deterministic', allowedProducers: ['deterministic'] } }), false, id);
+  }
+});

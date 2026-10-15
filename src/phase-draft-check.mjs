@@ -33,7 +33,10 @@ function correctionClass(producer) {
   return 'human-input';
 }
 
-function correctionGuidance(kind, phase) {
+function correctionGuidance(kind, phase, { deterministicCode = false } = {}) {
+  if (kind === 'agent-authoring' && deterministicCode) {
+    return `Repair the listed code and tests in this open generation, then run singularity-flow prepare ${phase.id} again to rebuild the summary from what changed; never hand-edit the summary.`;
+  }
   if (kind === 'kernel-regenerate') {
     return `Run singularity-flow prepare ${phase.id} again; never hand-edit a deterministic artifact.`;
   }
@@ -102,6 +105,11 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   const retained = hasPublishedPhaseGeneration(phase) && !prospective;
   const ownership = draftOwnership(configuredProducer, workflow, phase, session);
   const producer = ownership.producer;
+  // A deterministic code step's code is written by its governed agent; only its summary is
+  // kernel-built (phaseKernelOwned). Its code findings are that agent's repairs: regenerating the
+  // summary cannot add a missing tag or test, so "kernel-regenerate" stopped the author.
+  const deterministicCode = configuredProducer === 'deterministic' && phaseRequiresCodeDelivery(phase);
+  const codeOwnership = deterministicCode ? draftOwnership('governed-agent', workflow, phase, session) : ownership;
   const reviewDraft = await phaseAuthoredReviewArtifacts(root, config, workflow, phase);
   const artifact = reviewDraft.artifacts.find((entry) => entry.scope === 'primary');
   let findings = [];
@@ -191,7 +199,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       }
       traceabilityRepair = await traceabilityRepairProjection(root, error.details?.traceabilityRepair, {
         workId: workflow.workItem.id, phase,
-        sameTurn: verifiedCodeIntent && ownership.proven && producer === 'governed-agent'
+        sameTurn: verifiedCodeIntent && codeOwnership.proven && (producer === 'governed-agent' || deterministicCode)
       });
       if (traceabilityRepair?.status === 'manual-review') findings.push({
         code: 'code.delivery.traceability-repair-unavailable', category: 'traceability',
@@ -280,7 +288,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       class: 'phase-recovery', command: `singularity-flow recover ${workflow.workItem.id} --phase ${phase.id} --json`,
       skill: '/sf-recover', guidance: 'Preserve the published bytes. Restore the exact reviewed content or use an authorized return/successor generation; do not re-author this publication in place.'
     } : route ?? clarificationRoute;
-  const repairClass = nextRoute?.class ?? correctionClass(producer);
+  const repairClass = nextRoute?.class ?? (deterministicCode ? 'agent-authoring' : correctionClass(producer));
   const generationSkill = directCopilotSkill(generationSkillForPhase(phase, workflow));
   const awaitingApproval = phase.status === 'awaiting_approval';
   const clean = findings.length === 0;
@@ -328,7 +336,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       requiresNewGeneration: (awaitingApproval || retained) && !clean,
       maximumChangedFingerprints: 3,
       guidance: clean ? null : nextRoute?.guidance
-        ?? (traceabilityRepair?.sameTurn ? traceabilityRepair.guidance : correctionGuidance(repairClass, phase)),
+        ?? (traceabilityRepair?.sameTurn ? traceabilityRepair.guidance : correctionGuidance(repairClass, phase, { deterministicCode })),
       skill: nextRoute ? nextRoute.skill : (repairClass === 'agent-authoring' ? generationSkill : null)
     }),
     commands,

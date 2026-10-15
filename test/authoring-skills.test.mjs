@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { authoringSkillCatalog, parseAuthoringSkills } from '../src/authoring-skills.mjs';
-import { authoringRoute, deterministicOnlyGeneration, generationSkillForPhase, legacyAuthoringSkill, stepOutputKind } from '../src/code-delivery-policy.mjs';
+import { authoringRoute, deterministicOnlyGeneration, generationSkillForPhase, legacyAuthoringSkill, phaseKernelOwned, stepOutputKind } from '../src/code-delivery-policy.mjs';
 import { phaseAuthoringSummary, preparedPhaseNextActions } from '../src/cli.mjs';
 import { attachContinuation } from '../src/narration/continuation.mjs';
 import { plannedAction } from '../src/narration/command-result.mjs';
@@ -224,7 +224,13 @@ test('prepared seeded phases route to authoring, not premature publication; dete
       const producer = deterministicOnlyGeneration(phase) ? 'deterministic' : 'governed-agent';
       // The convergence projection has its own adjudication handoff, checked separately below.
       const [next] = preparedPhaseNextActions(workflow, phase, { publicationProducer: producer });
-      if (producer === 'deterministic') {
+      if (producer === 'deterministic' && !phaseKernelOwned(phase)) {
+        // A deterministic code step (quick-fix's implement): its code is still to write; only its
+        // summary is kernel-built, so the route goes back to the code author, not to publication.
+        assert.equal(next.command, `singularity-flow phase prepublish ${phase.id} --for-agent --json`);
+        assert.equal(next.copilotCommand, '/sf-code', `${workType}/${phase.id}`);
+        assert.match(next.label, /Write the planned code and tests/);
+      } else if (producer === 'deterministic') {
         assert.equal(next.command, `singularity-flow phase prepublish ${phase.id} --for-agent --json`);
         assert.equal(next.copilotCommand, `/sf-publish ${phase.id}`);
       } else {

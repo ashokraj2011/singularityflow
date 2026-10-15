@@ -25,6 +25,16 @@ export const REFUSAL_HANDLING_CONTRACT = 'On a refusal read `remediationPlan`: r
  */
 export const APPLICABILITY_CONTRACT = 'Run a check only when a returned field or command asks for it; never decide from a step\'s name, kind or route that it applies. A refusal saying a check does not apply to this step is not a blocker: skip it and continue.';
 
+/**
+ * A command's result is complete even when the host saves it to a file. `[large-output]`
+ *
+ * Copilot keeps a long tool result in a file and shows the model only its start. Agents read that
+ * start, missed the fields that said what to do next, and stopped (a source review ended with
+ * "the review instructions need to be followed") or treated the result as truncated. Engine-owned
+ * like the contracts above, on the same Story skills as the applicability contract.
+ */
+export const COMPLETE_OUTPUT_CONTRACT = 'A command\'s JSON is complete even when long: if your tool saved it to a file, read that file to its end before acting; never treat a saved or long result as truncated or stop because of its size.';
+
 export function applicabilityContractApplies(rule) {
   return (rule?.executionBoundary ?? 'story') === 'story' && rule?.class !== 'delegation';
 }
@@ -380,7 +390,7 @@ function withOutputContract(text, contract, kernelModelPolicy, file, executionBo
   // all maintained boundaries first so repeated generation never appends a second lookup.
   const sourceBody = skill.body.replace(/<!-- sflow-execution-boundary -->\r?\n\*\*(?:Execution boundary|Boundary):\*\*[^\n]*\r?\n?/gu, '');
   const marker = `<!-- sflow-output-contract: ${contract} -->`;
-  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalHandling ? ` ${REFUSAL_HANDLING_CONTRACT}` : ''}${applicability ? ` ${APPLICABILITY_CONTRACT}` : ''}`;
+  const contractText = `**Output contract:** ${CONTRACT_TEXT_BY_SKILL[path.basename(path.dirname(file))] ?? CONTRACT_TEXT[contract]} ${ARTIFACT_PRESENTATION_CONTRACT} ${COMMAND_PRESENTATION_CONTRACT}${refusalHandling ? ` ${REFUSAL_HANDLING_CONTRACT}` : ''}${applicability ? ` ${APPLICABILITY_CONTRACT} ${COMPLETE_OUTPUT_CONTRACT}` : ''}`;
   const boundaryMarker = '<!-- sflow-execution-boundary -->';
   const boundaryText = executionBoundary(executionBoundaryKind, path.basename(path.dirname(file)));
   if (!CONTRACT_TEXT[contract]) throw new Error(`${file}: unknown output contract '${contract}'`);
@@ -601,7 +611,7 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     const refusalHandling = refusalHandlingApplies(rule);
     const refusalHandlingTokens = refusalHandling ? estimatedTokens(` ${REFUSAL_HANDLING_CONTRACT}`) : 0;
     const applicability = applicabilityContractApplies(rule);
-    const applicabilityTokens = applicability ? estimatedTokens(` ${APPLICABILITY_CONTRACT}`) : 0;
+    const applicabilityTokens = applicability ? estimatedTokens(` ${APPLICABILITY_CONTRACT} ${COMPLETE_OUTPUT_CONTRACT}`) : 0;
     const pauseGuard = copilotPauseGuardForSkill(name, executionBoundaryKind);
     const pauseGuardTokens = pauseGuardRequired ? estimatedTokens(`${COPILOT_PAUSE_MARKER}\n${pauseGuard}\n\n`) : 0;
     const maximum = (rule.maximumTokenOverride ?? classPolicy.maximumTokens) + commandPresentationTokens + artifactPresentationTokens + refusalHandlingTokens + applicabilityTokens + pauseGuardTokens;
@@ -635,6 +645,9 @@ export async function auditSkillPolicy(repositoryRoot, { write = false } = {}) {
     }
     if (applicability !== skill.body.includes(APPLICABILITY_CONTRACT)) {
       errors.push(`${name}: ${applicability ? 'missing' : 'unexpected'} engine applicability contract`);
+    }
+    if (applicability !== skill.body.includes(COMPLETE_OUTPUT_CONTRACT)) {
+      errors.push(`${name}: ${applicability ? 'missing' : 'unexpected'} engine complete-output contract`);
     }
     for (const message of artifactPresentationContractErrors(skill.body)) errors.push(`${name}: ${message}`);
     if (!skill.body.includes(boundaryMarker) || !skill.body.includes(boundaryText)) errors.push(`${name}: missing generated execution boundary`);

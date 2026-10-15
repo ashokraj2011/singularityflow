@@ -188,8 +188,9 @@ export function phaseResolutionChoices(workflow, phase, finding) {
   }
   // When the author has delivered everything and the check still misreads it, the step's approvers
   // can accept the exact finding as an exception on evidence [recoverable-findings M2].
-  const dispute = DISPUTABLE_GATES.includes(phaseFindingCode(finding)) ? route('dispute', 'phase-approval-authority',
-    ['appeal', 'risk-prepare', '--work-id', workId, '--phase', phase.id, '--finding', phaseFindingCode(finding),
+  const disputedGate = DISPUTABLE_GATES.find((gate) => gate === phaseFindingCode(finding).toUpperCase()) ?? null;
+  const dispute = disputedGate ? route('dispute', 'phase-approval-authority',
+    ['appeal', 'risk-prepare', '--work-id', workId, '--phase', phase.id, '--finding', disputedGate,
       '--evidence-file', '<PATH>', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
     'When every listed item is delivered and the finding still returns unchanged, the check is misreading the work: stop repairing and prepare a dispute with the evidence (test output, the test file). One of the step\'s approvers reviews it live and may accept it as an exception for this exact candidate; it is recorded as an exception, never a pass, and tests still run.',
     '/sf-appeal') : null;
@@ -198,6 +199,12 @@ export function phaseResolutionChoices(workflow, phase, finding) {
     ['appeal', 'risk-prepare', '--work-id', workId, '--phase', phase.id, '--finding', phaseFindingCode(finding),
       '--gate-mode', 'soft', '--expires', '<YYYY-MM-DD>', '--reason', '<why>', '--json'],
     'An authorized human may carry this exact document-quality shortfall through the selected transitions. It remains unmet, not passed; tests, trust and phase approval remain required.', '/sf-appeal'));
+  // No finding may route only back to its own author [recoverable-findings M4]: when the author
+  // cannot fix it because the check misreads correct work, someone else must be named.
+  if (!choices.some((choice) => choice.owner !== phase.id)) choices.push(route('maintainer-escalation', 'workflow-maintainer',
+    ['doctor', '--json'],
+    `If the author cannot fix this because the check misreads correct work, give the workflow maintainer the exact finding, its entry (${findingDocumentation(finding).command}) and this output; the check is then the defect. Nothing is waived and the work is preserved.`,
+    '/sf-doctor'));
   choices.push(preserve);
   return { code: finding.code ?? 'unknown', path: finding.path ?? null, policy,
     // What the finding means, its usual causes, the fix, and who else can act.

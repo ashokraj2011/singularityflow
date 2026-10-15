@@ -1262,12 +1262,18 @@ function resolvedCommittedPathRows(root, names, refs, env, resolve) {
  * `requireCompleteRead` refuses resolver/size failures instead of silently omitting known files,
  * for callers with an independent-copy fallback. Missing refs/files can still be absent.
  */
+/** A name the line-based batch reader would split, truncate or alias; it is read exactly instead. */
+const BATCH_UNSAFE_NAME = /[\u0000-\u001f\u007f]/u;
+
 export function committedFilesAtRevisions(root, requests, {
   env = process.env, maximumObjectBytes = 4 * 1024 * 1024, maximumBytes = 32 * 1024 * 1024,
   requireCompleteRead = false
 } = {}) {
+  // `cat-file --batch-check` reads one name per line and drops a trailing carriage return, so
+  // "a.js\r" resolved to a.js: a different file than the one asked for. A name with any control
+  // character is left out (absent here); a caller that must know reads it exactly.
   const wanted = (requests ?? []).filter((request) => request?.ref && request?.path
-    && !/[\n\0]/u.test(`${request.ref}:${request.path}`));
+    && !BATCH_UNSAFE_NAME.test(`${request.ref}:${request.path}`));
   if (!wanted.length) return new Map();
   const resolution = resolvedCommittedPathRows(root,
     wanted.map((request) => `${request.ref}:${request.path}`), wanted.map((request) => request.ref), env,
@@ -1581,7 +1587,7 @@ export function prefetchExactObjectFiles(root, objectId, files, {
       || ISOLATED_GIT_OBJECT_REPOSITORIES.has(root)
       || OBJECT_RELOCATING_ENV.some((name) => process.env[name])) return new Map();
   const wanted = [...new Set(files)].filter((file) => typeof file === 'string' && file.length > 0
-    && file.length <= 4096 && !/[\n\0]/u.test(file)).slice(0, 512);
+    && file.length <= 4096 && !BATCH_UNSAFE_NAME.test(file)).slice(0, 512);
   const prefetched = new Map();
   let remainingBytes = maximumBytes;
   const scope = path.resolve(root);

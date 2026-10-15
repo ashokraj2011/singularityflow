@@ -112,6 +112,20 @@ test('prefetched symlink content cannot satisfy a retained regular-file evidence
   ]);
 });
 
+test('an obligation on a name with a trailing carriage return is refused, as the exact read refuses it', async t => {
+  // The line-based batch dropped the carriage return and read src/part-0.js instead, so this
+  // receipt passed where the exact per-file read refuses it. A Windows (CRLF) document can carry one.
+  const { root, receipt } = await fixture(t);
+  const { readFile } = await import('node:fs/promises');
+  const content = await readFile(path.join(root, 'src/part-0.js'), 'utf8');
+  receipt.fulfillment = { obligations: [
+    { clauseId: 'REPLAY:REQ-001', fulfillment: 'existing', paths: [{ path: 'src/part-0.js\r', state: 'present', sha256: sha256(content) }] }
+  ] };
+  const result = await verify(root, receipt);
+  assert.ok(result.errors.includes('existing evidence of REPLAY:REQ-001 is not at src/part-0.js\r in the generation'),
+    JSON.stringify(result.errors));
+});
+
 test('malformed binding collections keep their validation errors instead of failing in prefetch', async t => {
   const { root, receipt } = await fixture(t);
   receipt.implementationBindings.bindings = {};

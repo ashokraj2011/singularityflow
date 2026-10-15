@@ -234,3 +234,20 @@ test('receipt replay prefetch replaces per-file Git processes with a bounded bat
   assert.equal(alreadyRead, individual, 'a warm exact-file memo must not gain new Git calls');
   t.diagnostic(`${files.length} immutable file reads: ${individual} individual vs ${batched} batched Git processes`);
 });
+
+test('a batch never reads one name as another: control-character names are left for the exact read', async (t) => {
+  const { committedFilesAtRevisions, exactFileAtObject, prefetchExactObjectFiles } = await import('../src/git.mjs');
+  const root = await repository(t);
+  const files = Array.from({ length: 4 }, (_, index) => `source-${index}.js`);
+  for (const [index, file] of files.entries()) await writeFile(path.join(root, file), `export const value = ${index};\n`);
+  git(root, ['add', '.']);
+  git(root, ['commit', '-q', '-m', 'exact names']);
+  const commit = git(root, ['rev-parse', 'HEAD']);
+  // `cat-file --batch-check` drops a trailing carriage return, so "source-0.js\r" resolved to
+  // source-0.js and an evidence obligation on a path that does not exist was satisfied.
+  const aliased = files.map((file) => `${file}\r`);
+  assert.deepEqual([...prefetchExactObjectFiles(root, commit, aliased).keys()], []);
+  assert.equal(exactFileAtObject(root, commit, aliased[0]), null, 'the exact read says it is absent');
+  assert.deepEqual([...committedFilesAtRevisions(root, [{ key: 'cr', ref: commit, path: aliased[0] },
+    { key: 'tab', ref: commit, path: 'source-1.js\t' }, { key: 'exact', ref: commit, path: files[1] }]).keys()], ['exact']);
+});

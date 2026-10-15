@@ -366,6 +366,45 @@ test('CLI recording retries preserve the receipt and re-entry does not restart c
   });
 });
 
+test('a question that arises after the checkpoint joins the same record until the step\'s limit', async t => {
+  const item = await fixture(t, { clarificationActor: true });
+  const invokeJson = (...args) => {
+    const result = item.invoke(...args, '--json');
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    return JSON.parse(result.stdout);
+  };
+  const entry = invokeJson('phase', 'enter', '--compose', '--for-agent');
+  const staging = entry.clarification.responseStagingPath;
+  const stage = async (question) => {
+    await mkdir(path.dirname(staging), { recursive: true });
+    await writeFile(staging, JSON.stringify({ responses: [{ question, answer: `Answered: ${question}` }] }));
+  };
+  assert.equal(entry.clarification.checkpoint.newQuestionAction, null, 'the first questions use the checkpoint itself');
+  await stage('Is this interpretation complete?');
+  invokeJson(...entry.clarification.checkpoint.recordAction.commandGuidance.argv.filter(arg => arg !== '--json'));
+
+  let resumed = invokeJson('phase', 'enter', '--compose', '--for-agent');
+  const { maxQuestions } = resumed.clarification.checkpoint;
+  assert.ok(maxQuestions >= 2, 'the fixture step allows a later question');
+  for (let recorded = 1; recorded < maxQuestions; recorded += 1) {
+    const checkpoint = resumed.clarification.checkpoint;
+    assert.equal(checkpoint.stage, 'complete');
+    assert.equal(checkpoint.questioningAllowed, false, 'settled questions are not asked again');
+    assert.equal(checkpoint.recordAction, null);
+    assert.equal(checkpoint.remainingQuestions, maxQuestions - recorded);
+    assert.equal(checkpoint.newQuestionAction.requiresActualHumanReplies, true);
+    assert.deepEqual(checkpoint.newQuestionAction.commandGuidance.argv,
+      ['clarification', 'record', 'specification', '--response-file', staging, '--json']);
+    await stage(`Later question ${recorded}?`);
+    const added = invokeJson(...checkpoint.newQuestionAction.commandGuidance.argv.filter(arg => arg !== '--json'));
+    assert.equal(added.outcome.slots.responses, recorded + 1, 'earlier answers are kept');
+    resumed = invokeJson('phase', 'enter', '--compose', '--for-agent');
+  }
+  assert.equal(resumed.authoringAllowed, true, 'a later question never reopens the checkpoint');
+  assert.equal(resumed.clarification.checkpoint.remainingQuestions, 0);
+  assert.equal(resumed.clarification.checkpoint.newQuestionAction, null, 'at the limit the route is upstream, not another question');
+});
+
 test('session agent entry retains the verified custom-root binding with no Story mutation', async t => {
   const item = await fixture(t);
   const original = await readFile(path.join(item.root, 'team/stories/ENTRY-1/workflow.json'), 'utf8');

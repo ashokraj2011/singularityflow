@@ -184,6 +184,18 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     ...safeCommandGuidance({ argv: ['clarification', 'record', phase.id,
       '--response-file', clarification.responseStagingPath, '--json'] })
   }) : null;
+  // A question can arise after the checkpoint was recorded, while the step is being authored
+  // (coding found a case nobody asked about). The record is append-only and keeps every earlier
+  // answer, so a new one joins it while the step still allows questions; settled ones stay settled.
+  const recordedQuestions = clarification.record?.responses?.length ?? 0;
+  checkpoint.remainingQuestions = checkpoint.stage === 'complete' ? Math.max(0, checkpoint.maxQuestions - recordedQuestions) : null;
+  checkpoint.newQuestionAction = checkpoint.stage === 'complete' && canCompose && checkpoint.remainingQuestions > 0 ? recoveryActionGuidance({
+    id: `add-clarification:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
+    scope: 'clarification-only', requiresActualHumanReplies: true,
+    detail: 'Only for a new question that arose while authoring and that the person here can answer; never re-ask a recorded one. Stage only the new reply as {"responses":[...]} with a file-edit tool and run this command alone.',
+    ...safeCommandGuidance({ argv: ['clarification', 'record', phase.id,
+      '--response-file', clarification.responseStagingPath, '--json'] })
+  }) : null;
   // A missing answer blocks drafting, not loading the evidence needed to ask a question.
   // Do not offer another status lookup or a record command with invented Q/A placeholders.
   const clarificationAction = checkpoint.questioningAllowed ? {

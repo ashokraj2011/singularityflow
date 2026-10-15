@@ -206,7 +206,9 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
       /Consumed intent requires `\/sf-recover`/,
       /Untracked `\.sflow\/results\/\*\*` need no cleaning/,
       /proven runtime repair permits retry without source changes/i,
-      /Nonzero exit fails despite passing JUnit/
+      /Nonzero exit fails despite passing JUnit/,
+      /run `checkpoint\.newQuestionAction` alone/,
+      /singularity-flow upstream-issue raise --from-artifact/
     ]
   },
   'sflow-code-docs': {

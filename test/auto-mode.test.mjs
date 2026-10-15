@@ -1531,6 +1531,10 @@ test('phase pacing accepts only one governed transition and external approval re
   configured.approvalAuthorities['quality-reviewers'].members = [{
     name: 'Auto Tester', email: 'auto.tester@example.com'
   }];
+  // The fixture omits scope and plan; an engineering reviewer records that before the Story ends.
+  configured.approvalAuthorities['engineering-reviewers'].members = [{
+    name: 'Auto Tester', email: 'auto.tester@example.com'
+  }];
   await writeFile(workflowPath, YAML.stringify(configured));
   run('git', ['add', 'singularity/workflow.yml'], root);
   run('git', ['commit', '-m', 'authorize deterministic verification reviewer'], root);
@@ -1552,7 +1556,28 @@ test('phase pacing accepts only one governed transition and external approval re
   assert.equal(phaseBoundary.stopReason, 'phase-boundary-reached');
   assert.equal(phaseBoundary.counters.phasesCompleted, 1);
   assert.equal(phaseBoundary.counters.modelInvocations, 1);
+  // The final step's submission now checks the Story's ending first (gate parity). Auto cannot make
+  // these human decisions, so the person records them at the phase boundary: why the omitted scope
+  // and plan do not apply, and a disposition for each requirement statement no scope step clauses.
+  const decide = (...args) => run(process.execPath, [cli, 'decision', ...args, '--work-id', workId], phaseBoundary.worktree);
+  for (const responsibility of ['scope', 'plan']) {
+    decide('applicability', '--responsibility', responsibility,
+      '--reason', `This quick fix has no ${responsibility} step; the confirmed Auto Plan carries its requirement.`);
+  }
+  const scope = JSON.parse(run(process.execPath, [cli, 'evidence', 'scope', workId, '--json'], phaseBoundary.worktree).stdout).data.scope;
+  for (const item of scope.items.filter((entry) => entry.disposition === 'unresolved')) {
+    decide('scope', '--item', item.id, '--as', 'informative',
+      '--reason', 'The confirmed Auto Plan carries this statement; this fixture has no scope step to clause it.');
+  }
+  // Only those decisions are adopted: any other commit since the checkpoint still stops Auto.
+  await writeFile(path.join(phaseBoundary.worktree, 'unreviewed.txt'), 'not a governance decision\n');
+  run('git', ['add', 'unreviewed.txt'], phaseBoundary.worktree);
+  run('git', ['commit', '-q', '--no-verify', '-m', 'an unreviewed change'], phaseBoundary.worktree);
+  await assert.rejects(() => resumeAutoFlight(root, phaseBoundary.flightId, phaseBoundary.checkpointSha256),
+    (error) => error.code === 'AUTO_CHECKPOINT_STALE');
+  run('git', ['reset', '-q', '--hard', 'HEAD~1'], phaseBoundary.worktree);
   let running = await resumeAutoFlight(root, phaseBoundary.flightId, phaseBoundary.checkpointSha256);
+  assert.deepEqual(running.operations.at(-1).operation, 'adopt-human-decisions');
   const waiting = await runFlightStep(root, running);
   assert.equal(waiting.status, 'waiting-human',
     `${waiting.status}/${waiting.stopReason}: ${waiting.lastError?.message ?? waiting.nextAction}`);

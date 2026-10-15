@@ -115,6 +115,7 @@ export async function verifyAutoFlightContinuation(root, state) {
     );
   }
   let phaseTransition = null;
+  let humanDecisions = null;
   if (workflow.currentPhase !== state.story.phase) {
     const rail = plan.story?.phaseRail ?? [];
     const previousIndex = rail.indexOf(state.story.phase);
@@ -143,12 +144,20 @@ export async function verifyAutoFlightContinuation(root, state) {
       from: state.story.phase, to: workflow.currentPhase, currentHead
     });
   } else if (state.lastSuccessfulStoryRevision && currentHead !== state.lastSuccessfulStoryRevision) {
-    throw new SingularityFlowError('The governed Story revision changed after the last Auto checkpoint.', {
-      code: 'AUTO_CHECKPOINT_STALE',
-      details: { expected: state.lastSuccessfulStoryRevision, actual: currentHead }
-    });
+    // Auto stops for decisions only a person may make (an omitted responsibility, a scope
+    // disposition, a risk); recording them must not strand the flight. Exactly those append-only
+    // governance commits are adopted on resume; any other change still stops it.
+    const { onlyHumanDecisionCommits } = await import('../state.mjs');
+    humanDecisions = onlyHumanDecisionCommits(state.worktree, definition, workflow,
+      state.lastSuccessfulStoryRevision, currentHead);
+    if (!humanDecisions) {
+      throw new SingularityFlowError('The governed Story revision changed after the last Auto checkpoint.', {
+        code: 'AUTO_CHECKPOINT_STALE',
+        details: { expected: state.lastSuccessfulStoryRevision, actual: currentHead }
+      });
+    }
   }
-  return Object.freeze({ plan, definition, workflow, binding, currentHead, phaseTransition });
+  return Object.freeze({ plan, definition, workflow, binding, currentHead, phaseTransition, humanDecisions });
 }
 
 /**

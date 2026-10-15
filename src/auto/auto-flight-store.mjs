@@ -787,6 +787,7 @@ export async function resumeAutoFlight(root, id, confirmation, options = {}) {
         code: 'AUTO_CHECKPOINT_STALE', details: { status: state.status }
       });
     }
+    if (continuation.humanDecisions) adoptHumanDecisions(state, continuation);
     state.status = 'running'; state.stopReason = 'human-resumed'; state.stopRequested = null;
     if (state.execution?.pace?.mode === 'interval') {
       state.schedule = {
@@ -795,6 +796,16 @@ export async function resumeAutoFlight(root, id, confirmation, options = {}) {
     }
     state.nextAction = 'Run the next bounded Auto step; the next model attempt remains single-shot.';
   }, { expectedCheckpoint: current.checkpointSha256 });
+}
+
+/** Move the flight's Story revision past the human decisions its continuation proved. */
+export function adoptHumanDecisions(state, continuation) {
+  state.lastSuccessfulStoryRevision = continuation.currentHead;
+  state.story.revision = continuation.currentHead;
+  state.operations = [...(state.operations ?? []), {
+    operation: 'adopt-human-decisions', phase: state.story.phase, outcome: 'succeeded',
+    commit: continuation.currentHead, commits: [...continuation.humanDecisions]
+  }];
 }
 
 export async function haltAutoFlight(root, id, reason = 'human-halted', options = {}) {

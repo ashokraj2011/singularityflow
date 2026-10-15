@@ -46,6 +46,7 @@ import {
   authorizeAutomaticAutoRepair, planAutoRepair
 } from './auto-p1-control.mjs';
 import {
+  adoptHumanDecisions,
   alignAutoIntervalBoundary, armAutoIntervalBoundary, authorizeAutoAuthoringAttempt, mutateAutoFlightState,
   persistAutoFlightReport, readAutoFlightState
 } from './auto-flight-store.mjs';
@@ -776,6 +777,13 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
     });
     continuation = await verifyAutoFlightContinuation(root, state);
     ({ plan } = continuation);
+  }
+
+  // A person may record a governance decision Auto stopped for while it was running; adopt
+  // exactly those commits (verifyAutoFlightContinuation proved each) before the next step.
+  if (continuation.humanDecisions) {
+    state = await mutateAutoExecutorState(root, flightId, (draft) => adoptHumanDecisions(draft, continuation),
+      { expectedCheckpoint: state.checkpointSha256 });
   }
 
   // A human may approve the submitted phase between Auto invocations. That is an authorized

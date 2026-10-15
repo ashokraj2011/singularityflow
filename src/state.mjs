@@ -645,6 +645,32 @@ function applicabilityDecisionCommit(root, config, workflow, commit) {
     && identity.eventSha256 === `sha256:${recordSha256(event)}`;
 }
 
+/**
+ * The commits after `from` up to `to` when each is one human governance decision, else null.
+ *
+ * Auto stops where a person must decide: why an omitted responsibility does not apply, a scope
+ * disposition, a risk. Each such decision is one append-only commit that changes nothing Auto
+ * authored or a reviewer saw (`applicabilityDecisionCommit`), so a flight may resume over exactly
+ * those. The range must be a straight line from `from`; anything else, or any other commit,
+ * returns null and the flight stays stopped.
+ */
+export function onlyHumanDecisionCommits(root, config, workflow, from, to) {
+  if (!from || !to || from === to) return null;
+  let commits;
+  try {
+    commits = storyHistoryCommits(root, ['rev-list', '--reverse', '--topo-order', `${from}..${to}`], 'Auto decision range');
+  } catch { return null; }
+  if (!commits.length) return null;
+  let parent = from;
+  for (const commit of commits) {
+    const identity = governedCommitIdentity(root, commit);
+    if (identity?.parents.length !== 1 || identity.parents[0] !== parent) return null;
+    if (!applicabilityDecisionCommit(root, config, workflow, commit)) return null;
+    parent = commit;
+  }
+  return parent === to ? commits : null;
+}
+
 function initialWorkflowRecord(root, config, workId) {
   const relative = workDirRelative(config, workId);
   const workflowRelative = `${relative}/workflow.json`;

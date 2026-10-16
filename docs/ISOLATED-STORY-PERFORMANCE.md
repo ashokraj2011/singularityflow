@@ -92,7 +92,9 @@ unrelated staged/unstaged work, branch-switch races and recovery after durable c
 bundled CLI parity, installed VS Code staging and the unchanged bundle limits are checked too.
 
 The benchmark exercises the CLI transaction backing VS Code, not native Copilot/UI round trips.
-Native Windows, antivirus/OneDrive, enterprise Git transport and spinning/network-disk performance
-remain unqualified. Parallel checkout can have different results on those hosts; explicit Git
+Native Windows was not qualified in this earlier parallel-checkout comparison. The later
+[first-request study](FIRST-REQUEST-STORY-PERFORMANCE.md) includes a hosted Windows 1,000-file
+qualification; antivirus/OneDrive, enterprise transport and spinning/network-disk behavior remain
+unqualified. Parallel checkout can have different results on those hosts; explicit Git
 worker policy is retained. Do not claim that this proves a reported six-minute Windows start is
 fixed without capturing that laptop's `--timings` and subprocess profile.

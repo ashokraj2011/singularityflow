@@ -134,9 +134,13 @@ The timing baseline remains `ec2a7921` and the Windows candidate is `aed2bb5a`; 
 those revisions. Main subsequently advanced to `3568c1af`. Its five commits (skills-audit and
 step-owned-artifact recovery fixes plus gateway budgets) were inspected and merged, not overwritten.
 The combined build passes the newer upstream gateway budget without raising it again, and the
-86 affected Mac phase-entry, recovery and polyglot tests pass. The final merged source receives a
-separate native Windows exact-tip creation smoke; do not relabel the earlier distributions as
-measurements of the later merged revision.
+86 affected Mac phase-entry, recovery and polyglot tests pass. The merged source also passed a
+separate native Windows run (CI `38933205030`): Git/configuration/recovery/prewarming tests,
+the default-cache policy test, type checking, bundle limits and one fresh approved-configuration
+isolated creation with exact local/remote tip verification. Its
+[raw smoke record](../benchmarks/story-creation/first-request-windows-merged-smoke.json) has zero
+application files and one sample: it verifies integration, not a performance distribution.
+Do not relabel the earlier timing distributions as measurements of this later merged revision.
 
 ## Reproduce on either operating system
 

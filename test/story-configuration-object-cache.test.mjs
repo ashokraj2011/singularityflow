@@ -303,7 +303,7 @@ for (const signal of ['SIGTERM', 'SIGKILL']) {
     const checkpoint = path.join(f.base, `fetch-${signal}-started`);
     const actualGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
     const wrapper = path.join(bin, 'git');
-    await writeFile(wrapper, `#!${process.execPath}\nconst { spawnSync } = require('node:child_process'); const { writeFileSync, readFileSync } = require('node:fs'); const a = process.argv.slice(2); if (a.includes('fetch')) { writeFileSync(${JSON.stringify(checkpoint)}, JSON.stringify({ pid: process.pid })); setTimeout(() => { process.exitCode = 1; }, 500); } else { const r = spawnSync(${JSON.stringify(actualGit)}, a, { env: process.env, encoding: null, ...(a.includes('cat-file') ? { input: readFileSync(0) } : {}) }); if (r.stdout) process.stdout.write(r.stdout); if (r.stderr) process.stderr.write(r.stderr); process.exitCode = r.status ?? 1; }\n`);
+    await writeFile(wrapper, `#!${process.execPath}\nconst { spawnSync } = require('node:child_process'); const { writeFileSync, readFileSync } = require('node:fs'); const a = process.argv.slice(2); if (a.includes('fetch')) { writeFileSync(${JSON.stringify(checkpoint)}, JSON.stringify({ pid: process.pid })); setTimeout(() => { process.exitCode = 1; }, 500); } else { const r = spawnSync(${JSON.stringify(actualGit)}, a, { env: process.env, encoding: null, ...((a.includes('cat-file')||a.includes('sparse-checkout')) ? { input: readFileSync(0) } : {}) }); if (r.stdout) process.stdout.write(r.stdout); if (r.stderr) process.stderr.write(r.stderr); process.exitCode = r.status ?? 1; }\n`);
     await chmod(wrapper, 0o755);
     const configuration = new URL('../src/configuration-branch.mjs', import.meta.url).href;
     const leases = new URL('../src/file-lease.mjs', import.meta.url).href;
@@ -343,7 +343,7 @@ test('a slow fetch holds only its entry lease and another key can fill independe
   const checkpoint = path.join(f.base, 'fetch-started');
   const actualGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
   const wrapper = path.join(bin, 'git');
-  await writeFile(wrapper, `#!${process.execPath}\nconst { spawnSync } = require('node:child_process'); const { writeFileSync, readFileSync } = require('node:fs'); const a = process.argv.slice(2); const exec = () => { const r = spawnSync(${JSON.stringify(actualGit)}, a, { env: process.env, encoding: null, ...(a.includes('cat-file') ? { input: readFileSync(0) } : {}) }); if (r.stdout) process.stdout.write(r.stdout); if (r.stderr) process.stderr.write(r.stderr); process.exitCode = r.status ?? 1; }; if (a.includes('fetch')) { writeFileSync(${JSON.stringify(checkpoint)}, 'ready'); setTimeout(exec, 2_000); } else exec();\n`);
+  await writeFile(wrapper, `#!${process.execPath}\nconst { spawnSync } = require('node:child_process'); const { writeFileSync, readFileSync } = require('node:fs'); const a = process.argv.slice(2); const exec = () => { const r = spawnSync(${JSON.stringify(actualGit)}, a, { env: process.env, encoding: null, ...((a.includes('cat-file')||a.includes('sparse-checkout')) ? { input: readFileSync(0) } : {}) }); if (r.stdout) process.stdout.write(r.stdout); if (r.stderr) process.stderr.write(r.stderr); process.exitCode = r.status ?? 1; }; if (a.includes('fetch')) { writeFileSync(${JSON.stringify(checkpoint)}, 'ready'); setTimeout(exec, 2_000); } else exec();\n`);
   await chmod(wrapper, 0o755);
   let firstFinished = false;
   const first = read(f, { env: { ...f.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } })
@@ -667,7 +667,7 @@ test('actual native cache-only output overflow preserves the quarantined store a
   const f = await fixture(t); const bin = path.join(f.base, 'probe-bin'); await mkdir(bin);
   const actualGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim(); assert.ok(path.isAbsolute(actualGit));
   const wrapper = path.join(bin, 'git');
-  await writeFile(wrapper, `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');\nconst {readFileSync}=require('node:fs');\nconst a=process.argv.slice(2);\nif(a.includes('fsck')){process.stdout.write('X'.repeat(128*1024));}else{const r=spawnSync(${JSON.stringify(actualGit)},a,{env:process.env,encoding:null,...(a.includes('cat-file')?{input:readFileSync(0)}:{})});if(r.stdout)process.stdout.write(r.stdout);if(r.stderr)process.stderr.write(r.stderr);process.exitCode=r.status??1;}\n`);
+  await writeFile(wrapper, `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');\nconst {readFileSync}=require('node:fs');\nconst a=process.argv.slice(2);\nif(a.includes('fsck')){process.stdout.write('X'.repeat(128*1024));}else{const r=spawnSync(${JSON.stringify(actualGit)},a,{env:process.env,encoding:null,...((a.includes('cat-file')||a.includes('sparse-checkout'))?{input:readFileSync(0)}:{})});if(r.stdout)process.stdout.write(r.stdout);if(r.stderr)process.stderr.write(r.stderr);process.exitCode=r.status??1;}\n`);
   await chmod(wrapper, 0o755);
   const result = await read(f, { env: { ...f.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
   assert.equal(result.snapshot.observedCommit, f.commit);
@@ -685,7 +685,7 @@ test('actual async cache fetch overflow preserves quarantine and falls back thro
   const f = await fixture(t); const bin = path.join(f.base, 'fetch-probe-bin'); await mkdir(bin);
   const actualGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim(); assert.ok(path.isAbsolute(actualGit));
   const wrapper = path.join(bin, 'git');
-  await writeFile(wrapper, `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');\nconst {readFileSync}=require('node:fs');\nconst a=process.argv.slice(2);\nif(a.includes('fetch')){process.stdout.write('X'.repeat(128*1024));setInterval(()=>{},1000);}else{const r=spawnSync(${JSON.stringify(actualGit)},a,{env:process.env,encoding:null,...(a.includes('cat-file')?{input:readFileSync(0)}:{})});if(r.stdout)process.stdout.write(r.stdout);if(r.stderr)process.stderr.write(r.stderr);process.exitCode=r.status??1;}\n`);
+  await writeFile(wrapper, `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');\nconst {readFileSync}=require('node:fs');\nconst a=process.argv.slice(2);\nif(a.includes('fetch')){process.stdout.write('X'.repeat(128*1024));setInterval(()=>{},1000);}else{const r=spawnSync(${JSON.stringify(actualGit)},a,{env:process.env,encoding:null,...((a.includes('cat-file')||a.includes('sparse-checkout'))?{input:readFileSync(0)}:{})});if(r.stdout)process.stdout.write(r.stdout);if(r.stderr)process.stderr.write(r.stderr);process.exitCode=r.status??1;}\n`);
   await chmod(wrapper, 0o755);
   const before = await f.before();
   const result = await read(f, { env: { ...f.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } });
@@ -704,7 +704,7 @@ test('opaque snapshot-tree signal refusal conservatively retains quarantine and 
   t.after(() => { if (priorTemporaryRoot == null) delete process.env.TMPDIR; else process.env.TMPDIR = priorTemporaryRoot; });
   const actualGit = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim(); assert.ok(path.isAbsolute(actualGit));
   const wrapper = path.join(bin, 'git');
-  await writeFile(wrapper, `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');\nconst {readFileSync}=require('node:fs');\nconst a=process.argv.slice(2);\nif(a.includes('ls-tree')&&a.some(x=>x.startsWith('--format='))&&!a.includes('--full-tree')){process.kill(process.pid,'SIGTERM');}else{const r=spawnSync(${JSON.stringify(actualGit)},a,{env:process.env,encoding:null,...(a.includes('cat-file')?{input:readFileSync(0)}:{})});if(r.stdout)process.stdout.write(r.stdout);if(r.stderr)process.stderr.write(r.stderr);process.exitCode=r.status??1;}\n`);
+  await writeFile(wrapper, `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');\nconst {readFileSync}=require('node:fs');\nconst a=process.argv.slice(2);\nif(a.includes('ls-tree')&&a.some(x=>x.startsWith('--format='))&&!a.includes('--full-tree')){process.kill(process.pid,'SIGTERM');}else{const r=spawnSync(${JSON.stringify(actualGit)},a,{env:process.env,encoding:null,...((a.includes('cat-file')||a.includes('sparse-checkout'))?{input:readFileSync(0)}:{})});if(r.stdout)process.stdout.write(r.stdout);if(r.stderr)process.stderr.write(r.stderr);process.exitCode=r.status??1;}\n`);
   await chmod(wrapper, 0o755);
   await assert.rejects(read(f, { env: { ...f.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } }),
     (error) => /no canonical Git blob identity/u.test(error.message));

@@ -1097,6 +1097,10 @@ test('the extension package contains every explicit lazy runtime used by the act
   assert.match(bundle, /lazy-panels-runtime\.cjs/);
   assert.match(bundle, /gateway-status-worker\.cjs/);
   assert.match(bundle, /support-runtime\.cjs/);
+  assert.match(bundle, /runtime-prewarm\.cjs/);
+  assert.match(panels, /runtime-prewarm\.cjs/);
+  const runtimePrewarm = await readFile(path.join(extension, 'dist', 'runtime-prewarm.cjs'), 'utf8');
+  assert.match(runtimePrewarm, /prewarmCliRuntime/);
   assert.match(panels, /workflow-markup-runtime\.cjs/);
   const markupRuntime = await readFile(path.join(extension, 'dist', 'workflow-markup-runtime.cjs'), 'utf8');
   assert.match(markupRuntime, /WorkflowMarkupPanel/);
@@ -1127,6 +1131,8 @@ test('the extension package contains every explicit lazy runtime used by the act
   const extensionSources = JSON.parse(extensionSourceMap).sources;
   const helpSources = JSON.parse(helpSourceMap).sources;
   const panelSources = JSON.parse(panelSourceMap).sources;
+  assert.ok(![...extensionSources, ...panelSources].some(source => source.endsWith('/cli/prewarm.ts')),
+    'optional prewarming must not grow activation or the ordinary panel module closure');
   assert.ok(helpSources.some((source) => source.endsWith('/src/help-service.mjs')),
     'the Help runtime serves both the Help Center and @sflow');
   assert.ok(!extensionSources.some((source) => source.endsWith('/src/help-service.mjs')

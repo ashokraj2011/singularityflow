@@ -214,6 +214,8 @@ async function proposeAmendment(root, config, workflow, options) {
   if (!target?.requiredArtifact?.path) refused(`${phaseId} is not a step with one document to amend.`);
   const expected = nextForwardAmendmentProposal(workDirRelative(config, workflow.workItem.id), workflow,
     `${workDirRelative(config, workflow.workItem.id)}/${target.requiredArtifact.path}`);
+  // The amended step's document is reset to its approved bytes in the same transaction; listing it in
+  // exactWorkItemPaths lets a refused transaction restore the person's edit instead of leaving it reset.
   const { value: proposal } = await transactStory(root, config, workflow, {
     type: LIFECYCLE_EVENT.DECISION_MADE, phaseId: workflow.currentPhase ?? null, generation: null,
     actor, agent, authorityGroup: null, payload: { decision: 'forward-amendment', stage: 'proposed' }
@@ -221,7 +223,7 @@ async function proposeAmendment(root, config, workflow, options) {
     await assertNoPendingPublication(root, config, aggregate, 'propose a forward amendment');
     return proposeForwardAmendment(root, config, aggregate, { phaseId, reason: optionString(options, 'reason'),
       file: optionString(options, 'file') ?? null, actor, agent, upstreamIssue: issue });
-  }, { exactWorkItemPaths: [expected.proposedPath],
+  }, { exactWorkItemPaths: [expected.proposedPath, `${workDirRelative(config, workflow.workItem.id)}/${target.requiredArtifact.path}`],
     eventFromResult: (result) => ({ payload: { decision: 'forward-amendment', stage: 'proposed', amendment: result.id, reviewPacketSha256: null } }) });
   const decide = `singularity-flow upstream-issue decide-amendment ${proposal.id} --work-id ${workflow.workItem.id} --decision approve|reject --reason "<why>" --confirm ${proposal.id}`;
   if (!optionBoolean(options, 'json')) {

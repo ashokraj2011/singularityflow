@@ -2734,7 +2734,8 @@ async function specCommand(positionals, options) {
   const phaseId = optionString(options, 'phase') ?? workflow.currentPhase;
   const phase = workflow.phases[phaseId];
   if (!phase) throw new SingularityFlowError(`Unknown Story phase '${phaseId}'.`);
-  const generation = Math.max(1, Number(phase.generation ?? 0));
+  // The open step's records are for the generation being drafted, which prepublish reads; others' for their published one.
+  const generation = phase.id === workflow.currentPhase && phase.status === 'in_progress' ? nextPhaseGeneration(phase) : Math.max(1, Number(phase.generation ?? 0));
   const policy = workflow.resolution?.spec ?? config.spec;
 
   if (subcommand === 'index') {

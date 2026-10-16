@@ -3,7 +3,7 @@
   "baselineRef": "ec2a79213f1729f6170265cbb4c737faf213e011",
   "candidateRef": "9ad23f33b613b1f8bca2de2607b3f3d4ca9267a9",
   "ciRef": "aecdac8dde493a41c45888572cddab04c4feac50",
-  "ciRun": "https://github.com/ashokraj2011/singularityflow/actions/runs/38929944003",
+  "ciRunId": 38929944003,
   "status": "cold completed; redundant prewarmed comparison intentionally cancelled",
   "cold": {
     "schemaVersion": 1,

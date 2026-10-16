@@ -36,9 +36,10 @@ It is an accelerator, never a readiness witness. It preserves Node/Electron exec
 compile-cache opt-out, explicitly selected bundle paths and the normal installed-build checks.
 
 The activation module limit and total JavaScript budget are unchanged. The new lazy preparation
-entry is bounded to 110,000 bytes / 24 modules. Two existing lazy runtimes have explicitly reviewed
-1,000-byte increases for the verified-configuration helper and panel lifecycle calls; no broad
-bundle-budget relaxation was used.
+entry is bounded to 110,000 bytes / 24 modules. The intake panels have a reviewed 1,000-byte increase.
+At final merge the gateway retains newer main's 7,505,000-byte limit; its combined measured size is
+7,502,063 bytes. This replaces this branch's earlier 1,000-byte adjustment, not an additional
+relaxation of the upstream limit.
 
 ## macOS qualification
 
@@ -95,7 +96,7 @@ uses fresh parsing plus the verified in-memory definition sharing by default; au
 caching remains available with an explicit `on`. No permissions are skipped when that cache is used.
 The intermediate prewarmed comparison was intentionally cancelled after the cold report completed;
 its status is not presented as a successful full qualification. Its completed cold data and
-[run record](https://github.com/ashokraj2011/singularityflow/actions/runs/38929944003) are retained.
+run record (CI run `38929944003` in the source repository) are retained.
 
 ## Reproduce on either operating system
 

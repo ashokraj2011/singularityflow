@@ -1994,6 +1994,181 @@ test('a new agent started from an existing one carries "from", and the engine co
   assert.equal(logic.changeSetFrom(model, draft).changes.find((change) => change.op === 'agent.create').from, undefined);
 });
 
+function agentDuplicationPage() {
+  const element = (tag) => ({ tag, attributes: {}, children: [], style: { setProperty() {} }, textContent: '',
+    setAttribute(name, value) { this.attributes[name] = value; },
+    appendChild(child) { this.children.push(child); return child; },
+    addEventListener(event, fn) { (this.listeners ??= {})[event] = fn; } });
+  const model = {
+    agents: [
+      { id: 'qa', label: 'QA', description: 'Checks approved behavior.', scope: 'packaged', tools: ['read', 'search'], views: ['testing'],
+        instructions: '# QA agent\n\nShared rules.\n\nCheck approved behavior.', starter: 'Check approved behavior.',
+        skills: [{ id: 'regression', phases: ['verification'], use: 'When checking a repaired behavior' }],
+        resources: [{ id: 'remote-checks', type: 'skill', url: 'https://example.com/SKILL.md' }] },
+      { id: 'custom-qa', label: 'Custom QA', description: 'Checks custom behavior.', scope: 'repository', tools: ['read'], views: [], instructions: 'Check custom behavior.', skills: [] }
+    ],
+    phases: [{ id: 'verification', label: 'Verification', agent: 'qa', inputs: [], views: [] }],
+    skills: [{ id: 'regression', label: 'Regression', instructions: 'Test repaired behavior.', instructionRefs: ['testing-standard'] }],
+    instructions: [{ id: 'testing-standard', label: 'Testing standard', instructions: 'Retain evidence.' }],
+    protection: { agents: ['qa'] },
+    choices: { roles: [{ id: 'blank', label: 'Blank', hint: 'Define a role', tools: ['read'], views: [], instructions: '' }], tools: [{ id: 'read', label: 'Read' }, { id: 'search', label: 'Search' }] }
+  };
+  const page = loadedStudio(model, { getElementById: () => null, createElement: element, createTextNode: (value) => ({ text: value }) });
+  const all = (node) => [node, ...(node.children ?? []).flatMap(all)];
+  const text = (node) => [node.textContent ?? node.text ?? '', ...(node.children ?? []).map(text)].join(' ');
+  return { page, model, element, all, text };
+}
+
+test('Duplicate agent is available for built-in and custom agents and opens an editable copy without changing assignments', () => {
+  const { page, model, element, all, text } = agentDuplicationPage();
+  const state = page.state();
+  const before = structuredClone(state.draft);
+  const main = element('main');
+  page.renderAgents(main);
+  for (const agent of model.agents) {
+    const duplicate = all(main).find((node) => node.attributes?.['aria-label'] === 'Duplicate ' + agent.label);
+    assert.ok(duplicate, agent.label + ' offers Duplicate agent');
+    duplicate.listeners.click();
+    assert.equal(state.agentForm.from, agent.id);
+    assert.equal(state.agentForm.label, agent.label + ' copy');
+    assert.equal(state.agentForm.mode, 'create');
+    assert.deepEqual(state.agentForm.defaults, [], 'no phase is preselected');
+  }
+  assert.ok(!all(main).some((node) => node.attributes?.['aria-label'] === 'Edit QA'), 'protected agents offer a copy, not a refused edit');
+  assert.ok(all(main).some((node) => node.attributes?.['aria-label'] === 'Edit Custom QA'));
+  assert.deepEqual(state.draft, before, 'opening a form stages no mutation');
+
+  page.duplicateAgent('qa');
+  assert.equal(state.view, 'agents');
+  assert.equal(state.focusKey, 'agent-name', 'the copy editor is revealed even from a scrolled catalog');
+  assert.equal(state.agentForm.instructions, model.agents[0].starter, 'shared rules and title are added only once by the engine');
+  assert.deepEqual(state.agentForm.tools, model.agents[0].tools);
+  assert.deepEqual(state.agentForm.views, model.agents[0].views);
+  assert.match(text(page.renderAgentForm()), /Shared skills and instructions stay linked, not duplicated/u);
+  assert.match(text(page.renderAgentForm()), /No step assignments or remote resources are copied/u);
+  state.agentForm.instructions += '\nCheck one more boundary.';
+  page.saveAgentForm();
+  const copy = state.draft.agents['qa-copy'];
+  assert.equal(copy.from, 'qa');
+  assert.equal(copy.scope, 'repository');
+  assert.equal(copy.isNew, true);
+  assert.deepEqual(copy.skills, model.agents[0].skills);
+  assert.equal(copy.resources, undefined, 'remote-resource authority is not inherited');
+  assert.deepEqual(state.draft.agents.qa, before.agents.qa);
+  assert.deepEqual(state.draft.phases, before.phases);
+  assert.notEqual(copy.tools, state.draft.agents.qa.tools);
+  assert.notEqual(copy.views, state.draft.agents.qa.views);
+  assert.notEqual(copy.skills[0].phases, state.draft.agents.qa.skills[0].phases);
+
+  const changes = page.changeSetFrom(model, state.draft).changes;
+  assert.deepEqual(changes.map((change) => change.op), ['agent.create'], 'source inheritance does not create duplicate skill or instruction objects');
+  assert.equal(changes[0].from, 'qa');
+  assert.deepEqual(changes[0].views, ['testing']);
+  page.editAgent('qa-copy');
+  assert.equal(state.agentForm.mode, 'edit', 'the new copy can be edited');
+  state.agentForm.label = 'My QA';
+  page.saveAgentForm();
+  assert.equal(state.draft.agents['qa-copy'].label, 'My QA');
+  page.editAgent('qa');
+  assert.equal(state.agentForm, null, 'the protected original remains read-only');
+});
+
+test('Duplicate agent names stay unique for collisions, long labels and non-ASCII labels', () => {
+  const { page } = agentDuplicationPage();
+  const state = page.state();
+  for (let index = 1; index <= 3; index += 1) {
+    page.duplicateAgent('qa');
+    assert.equal(state.agentForm.label, 'QA copy' + (index === 1 ? '' : ' ' + index));
+    page.saveAgentForm();
+  }
+  state.draft.agents.qa.label = 'Quality reviewer '.repeat(7);
+  for (let index = 0; index < 2; index += 1) {
+    page.duplicateAgent('qa');
+    const id = page.kebab(state.agentForm.label);
+    assert.ok(id.length <= 60);
+    assert.match(id, /^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
+    assert.equal(state.draft.agents[id], undefined);
+    page.saveAgentForm();
+  }
+  state.draft.agents.qa.label = '品質';
+  page.duplicateAgent('qa');
+  assert.equal(state.agentForm.label, 'qa copy 4', 'a source ID is a portable fallback');
+});
+
+test('Duplicate agent uses current draft edits and snapshots unsaved sources without inheriting assignments', () => {
+  const { page, model } = agentDuplicationPage();
+  const state = page.state();
+  state.draft.agents['custom-qa'].instructions = 'Use these unsaved instructions.';
+  state.draft.agents['custom-qa'].views = ['development'];
+  page.duplicateAgent('custom-qa', { returnTo: 'step', phase: 'verification' });
+  assert.equal(state.agentForm.instructions, 'Use these unsaved instructions.');
+  assert.deepEqual(state.agentForm.defaults, [], 'a canvas copy must not reassign its phase implicitly');
+  page.saveAgentForm();
+  assert.equal(state.view, 'board');
+  assert.equal(state.draft.phases.verification.agent, 'qa');
+
+  page.duplicateAgent('qa');
+  page.saveAgentForm();
+  page.duplicateAgent('qa-copy');
+  assert.equal(state.agentForm.from, 'qa-copy');
+  page.saveAgentForm();
+  const snapshot = state.draft.agents['qa-copy-copy'];
+  assert.equal(snapshot.from, null, 'the copy can survive removal of its unsaved source');
+  assert.deepEqual(snapshot.skills, model.agents[0].skills);
+  delete state.draft.agents['qa-copy'];
+  const changes = page.changeSetFrom(model, state.draft).changes;
+  assert.ok(!changes.some((change) => change.from === 'qa-copy'));
+  assert.ok(changes.some((change) => change.op === 'skill.attach' && change.agent === 'qa-copy-copy' && change.skill === 'regression'));
+});
+
+test('Duplicate agent skill edits override inherited attachments, including removal', () => {
+  const { page, model } = agentDuplicationPage();
+  const state = page.state();
+  page.duplicateAgent('qa');
+  page.saveAgentForm();
+  state.draft.agents['qa-copy'].skills[0].use = 'Only for repaired payment behavior';
+  let changes = page.changeSetFrom(model, state.draft).changes;
+  assert.ok(changes.some((change) => change.op === 'skill.attach' && change.agent === 'qa-copy' && change.use === 'Only for repaired payment behavior'));
+  state.draft.agents['qa-copy'].skills = [];
+  changes = page.changeSetFrom(model, state.draft).changes;
+  assert.ok(changes.some((change) => change.op === 'skill.detach' && change.agent === 'qa-copy' && change.skill === 'regression'));
+  assert.deepEqual(state.draft.agents.qa.skills, model.agents[0].skills);
+});
+
+test('Duplicate agent source selector copies views and current instructions and restores the role when cleared', () => {
+  const { page, all } = agentDuplicationPage();
+  const state = page.state();
+  page.duplicateAgent('custom-qa');
+  const sourceSelect = () => all(page.renderAgentForm()).find((node) => node.attributes?.id === 'agent-from');
+  sourceSelect().listeners.change({ target: { value: 'qa' } });
+  assert.deepEqual(state.agentForm.views, ['testing']);
+  assert.equal(state.agentForm.instructions, 'Check approved behavior.');
+  sourceSelect().listeners.change({ target: { value: '' } });
+  assert.equal(state.agentForm.from, '');
+  assert.deepEqual(state.agentForm.views, []);
+  assert.deepEqual(state.agentForm.tools, ['read']);
+  assert.equal(state.agentForm.instructions, '');
+});
+
+test('Duplicate agent validates the copy and Cancel leaves the catalog and phase assignments untouched', () => {
+  const { page, all, text } = agentDuplicationPage();
+  const state = page.state();
+  const before = structuredClone(state.draft);
+  page.duplicateAgent('qa', { returnTo: 'step', phase: 'verification' });
+  state.agentForm.label = 'QA';
+  page.saveAgentForm();
+  assert.deepEqual(state.draft, before, 'an existing agent cannot be overwritten');
+  assert.ok(state.agentForm);
+  state.agentForm.label = 'QA copy';
+  state.agentForm.description = '';
+  page.saveAgentForm();
+  assert.deepEqual(state.draft, before, 'a description is required');
+  all(page.renderAgentForm()).find((node) => node.tag === 'button' && text(node).trim() === 'Cancel').listeners.click();
+  assert.equal(state.agentForm, null);
+  assert.equal(state.view, 'board');
+  assert.deepEqual(state.draft, before);
+});
+
 test('imported and proposed workflows appear in Workflows and Epic workflows with Review and activate, and Changes keeps revision choices across re-renders', async () => {
   const { buildStudioModel } = await import('../src/workflow-studio.mjs');
   const { proposalSummaries } = await import(path.join(packageRoot, 'apps/vscode/src/views/workflow-studio-page.ts'));

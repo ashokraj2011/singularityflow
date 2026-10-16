@@ -629,7 +629,11 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     });
     Object.keys(base.skills).sort().forEach(function (id) { if (!skillsNow[id]) changes.push({ op: 'skill.remove', id: id }); });
     Object.keys(draft.agents).sort().forEach(function (id) {
-      var now = draft.agents[id].skills || []; var then = (base.agents[id] && base.agents[id].skills) || [];
+      var agent = draft.agents[id];
+      // agent.create inherits the saved source's attachments before the explicit skill changes.
+      // Compare with that baseline so removing a copied skill really detaches it on publication.
+      var inherited = !base.agents[id] && agent.from ? base.agents[agent.from] : null;
+      var now = agent.skills || []; var then = ((base.agents[id] || inherited) || {}).skills || [];
       now.forEach(function (entry) {
         var prior = then.find(function (item) { return item.id === entry.id; });
         if (!prior || !same(prior.phases, entry.phases) || (prior.use || '') !== (entry.use || '')) changes.push({ op: 'skill.attach', skill: entry.id, agent: id, phases: entry.phases.slice(), use: entry.use || '' });
@@ -890,6 +894,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   window.__workflowStudio = { initialDraft: initialDraft, changeSetFrom: changeSetFrom, copiedPhaseDraft: copiedPhaseDraft, describe: describe, kebab: kebab,
     catalogSearch: catalogSearch, agentPromptPreview: agentPromptPreview, renderHome: renderHome, renderAgents: renderAgents, renderSkills: renderSkills, renderInstructions: renderInstructions, renderInspector: renderInspector,
+    duplicateAgent: duplicateAgent, editAgent: editAgent, renderAgentForm: renderAgentForm, saveAgentForm: saveAgentForm,
     renderConstitution: renderConstitution, openConstitutionForm: openConstitutionForm, saveConstitutionArticle: saveConstitutionArticle,
     renderEpicStep: renderEpicStep, renderSeededWorkflow: renderSeededWorkflow,
     insertSkillInstruction: insertSkillInstruction,
@@ -3309,7 +3314,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       })),
       agent && agent.tools.length ? el('div', { class: 'rail', 'aria-label': 'What ' + agent.label + ' may use' }, agent.tools.map(function (tool) { return el('span', { class: 'pill', text: toolLabel(tool) }); })) : null,
       el('div', { class: 'studio-row' },
-        agent ? button('Edit agent', function () { editAgent(agent.id, { returnTo: 'step', phase: phaseId }); }, { class: 'secondary' }) : null,
+        agent && !protectedObject('agents', agent.id) ? button('Edit agent', function () { editAgent(agent.id, { returnTo: 'step', phase: phaseId }); }, { class: 'secondary' }) : null,
+        agent ? button('Duplicate agent', function () { duplicateAgent(agent.id, { returnTo: 'step', phase: phaseId }); }, { class: 'secondary' }) : null,
         button('Create an agent', function () { openAgentForm({ returnTo: 'step', phase: phaseId }); }, { class: 'secondary' }))
     ], null, agent ? agent.label : 'none'));
     if (agent) aside.appendChild(section('agent-prompt', 'Agent prompt & instructions', agentPromptPreview(phase.agent, phaseId, workflowId), null, agent.label));
@@ -3952,8 +3958,36 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     render();
   }
 
+  /** Copy the draft's editable content, not its phase assignments or remote-resource authority. */
+  function agentFormSource(form, id) {
+    var source = state.draft.agents[id];
+    form.from = source ? id : '';
+    if (!source) return;
+    var saved = (state.model.agents || []).find(function (entry) { return entry.id === id; });
+    form.tools = source.tools.slice();
+    form.views = source.views.slice();
+    form.instructions = saved && saved.instructions === source.instructions && saved.starter != null ? saved.starter : source.instructions;
+  }
+
+  function duplicateAgent(id, context) {
+    var source = state.draft.agents[id];
+    if (!source) return;
+    // Leave room for the suffix before kebab() truncates the generated ID.
+    var base = String(source.label || id).trim().slice(0, 48).trim();
+    if (!kebab(base)) base = id.slice(0, 48);
+    var number = 1; var label;
+    do { label = base + ' copy' + (number > 1 ? ' ' + number : ''); number += 1; }
+    while (state.draft.agents[kebab(label)]);
+    var form = { mode: 'create', duplicate: true, role: 'blank', label: label, description: source.description, defaults: [], context: context || null };
+    agentFormSource(form, id);
+    state.agentForm = form;
+    state.view = 'agents';
+    state.focusKey = 'agent-name';
+    render();
+  }
+
   function editAgent(id, context) {
-    if (protectedObject('agents', id)) { setStatus('This agent is used by a seeded workflow. Duplicate the workflow before editing its agent.'); return; }
+    if (protectedObject('agents', id)) { setStatus('This agent is used by a seeded workflow. Duplicate the agent to customize it. To change a seeded workflow, duplicate that workflow first.'); return; }
     var agent = state.draft.agents[id];
     state.agentForm = { mode: 'edit', id: id, role: null, label: agent.label, description: agent.description, tools: agent.tools.slice(), views: agent.views.slice(), instructions: agent.instructions, defaults: [], context: context || null };
     state.view = 'agents';
@@ -3962,7 +3996,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 
   function renderAgents(main) {
     backLink(main);
-    main.appendChild(el('div', { class: 'studio-row spread' }, el('div', null, el('h1', { text: 'Agents' }), el('p', { class: 'studio-lede', text: 'An agent drafts the work in the steps it is the default for. Start a new one from a role; no files to edit.' })),
+    main.appendChild(el('div', { class: 'studio-row spread' }, el('div', null, el('h1', { text: 'Agents' }), el('p', { class: 'studio-lede', text: 'An agent drafts the work in the steps it is the default for. Create one from a role or duplicate an existing agent to customize it.' })),
       button('New agent', function () { openAgentForm(null); }, { class: 'primary' })));
     if (state.agentForm) main.appendChild(renderAgentForm());
     var search = catalogSearch(main, 'agents', 'Search agents');
@@ -3981,7 +4015,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         agentPromptPreview(id),
         button('Attach a skill', function () { openAttachForm(null, id); }, { class: 'secondary', 'aria-label': 'Attach a skill to ' + agent.label }),
         button('Add a skill from a link', function () { var lib = library(); lib.as = 'skill'; lib.attachTo = null; lib.pendingAgent = id; lib.preview = null; lib.target = null; lib.replace = false; state.returnTo = { view: 'agents' }; state.view = 'library'; render(); }, { class: 'secondary', 'aria-label': 'Add a skill from a link to ' + agent.label }),
-        button('Edit', function () { editAgent(id, null); }, { class: 'secondary', 'aria-label': 'Edit ' + agent.label }),
+        protectedObject('agents', id) ? el('span', { class: 'hint', text: 'Built-in agent: read-only. Duplicate it to make an editable copy; seeded workflows keep their original agent.' }) : button('Edit', function () { editAgent(id, null); }, { class: 'secondary', 'aria-label': 'Edit ' + agent.label }),
+        button('Duplicate agent', function () { duplicateAgent(id, null); }, { class: 'secondary', 'aria-label': 'Duplicate ' + agent.label }),
         agent.isNew ? button('Remove', function () { askRemoveNewAgent(id); }, { class: 'secondary', 'aria-label': 'Remove ' + agent.label }) : null);
       grid.appendChild(card);
       search.add(card, [id, agent.label, agent.description, agent.instructions, agent.scope, drafts.join(' '), agent.tools.join(' '), (agent.skills || []).map(function (entry) { return skillLabel(entry.id); }).join(' ')]);
@@ -4008,27 +4043,29 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function renderAgentForm() {
     var form = state.agentForm;
     var roles = state.model.choices.roles || [];
-    var card = el('section', { class: 'studio-card', 'aria-label': form.mode === 'create' ? 'Create an agent' : 'Edit agent' });
-    card.appendChild(el('h2', { text: form.mode === 'create' ? 'Create an agent' : 'Edit ' + form.label }));
+    var card = el('section', { class: 'studio-card', 'aria-label': form.mode === 'create' ? (form.duplicate ? 'Duplicate agent' : 'Create an agent') : 'Edit agent' });
+    card.appendChild(el('h2', { text: form.mode === 'create' ? (form.duplicate ? 'Duplicate agent' : 'Create an agent') : 'Edit ' + form.label }));
     if (form.mode === 'create') {
       card.appendChild(field('agent-role', 'Start from a role', select('agent-role', roles.map(function (role) { return { value: role.id, label: role.label + ': ' + role.hint }; }), form.role, function (value) {
         var role = roles.find(function (entry) { return entry.id === value; });
         form.role = value; form.from = ''; if (role) { form.tools = role.tools.slice(); form.views = role.views.slice(); form.instructions = role.instructions; }
         render();
       })));
-      // Or copy an existing agent: its instructions, tools and skills; never the steps it drafts.
-      var sources = Object.keys(state.draft.agents).filter(function (agentId) { return !state.draft.agents[agentId].isNew; })
+      // Or copy an existing agent, including a new draft: never the steps it drafts.
+      var sources = Object.keys(state.draft.agents)
         .sort(function (a, b) { return state.draft.agents[a].label.localeCompare(state.draft.agents[b].label); });
       card.appendChild(field('agent-from', 'Or start from an existing agent', select('agent-from', [{ value: '', label: 'No, use the role above' }].concat(sources.map(function (agentId) {
         var agent = state.draft.agents[agentId];
         return { value: agentId, label: agent.label + (agent.scope === 'repository' ? ' (this repository)' : ' (packaged)') };
       })), form.from || '', function (value) {
-        form.from = value;
-        var source = value ? state.draft.agents[value] : null;
-        var model = value ? (state.model.agents || []).find(function (entry) { return entry.id === value; }) : null;
-        if (source) { form.tools = source.tools.slice(); form.instructions = (model && model.starter) || source.instructions; }
+        if (value) agentFormSource(form, value);
+        else {
+          form.from = '';
+          var role = roles.find(function (entry) { return entry.id === form.role; });
+          if (role) { form.tools = role.tools.slice(); form.views = role.views.slice(); form.instructions = role.instructions; }
+        }
         render();
-      }), form.from ? 'Copies its instructions, tools and skills. It drafts no step until you choose one below, and copies no remote resources.' : null));
+      }), form.from ? 'Copies its instructions, tools and skill attachments, including their conditions. Shared skills and instructions stay linked, not duplicated. No step assignments or remote resources are copied; assign it only to editable workflows.' : null));
     }
     var id = form.mode === 'create' ? kebab(form.label) : form.id;
     card.appendChild(el('div', { class: 'grid-2' },
@@ -4064,7 +4101,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       var id = kebab(label);
       if (!id || state.draft.agents[id]) { setStatus('Choose a different name; that agent ID is taken.'); return; }
       var source = form.from ? state.draft.agents[form.from] : null;
-      state.draft.agents[id] = { id: id, label: label, description: description, tools: form.tools.slice(), views: form.views.slice(), instructions: form.instructions, scope: 'repository', isNew: true, role: form.role, from: source ? form.from : null, skills: source ? clone(source.skills || []) : [] };
+      // Unsaved sources are snapshots: no backend dependency on an agent that may be removed.
+      state.draft.agents[id] = { id: id, label: label, description: description, tools: form.tools.slice(), views: form.views.slice(), instructions: form.instructions, scope: 'repository', isNew: true, role: form.role, from: source && !source.isNew ? form.from : null, skills: source ? clone(source.skills || []) : [] };
       form.defaults.forEach(function (phaseId) { if (state.draft.phases[phaseId]) state.draft.phases[phaseId].agent = id; });
       if (form.context && form.context.returnTo === 'board-add' && state.adding) state.adding.agent = id;
       var context = form.context;

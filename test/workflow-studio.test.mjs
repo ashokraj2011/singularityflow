@@ -2,7 +2,7 @@ import { repositoryOwnedWorkflows } from './helpers/repository-owned-workflows.m
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,12 +22,12 @@ function run(command, args, cwd, { input = '', allowFailure = false, env: extra 
 const flow = (root, args, options) => run(process.execPath, [bin, ...args], root, options);
 const json = (root, args, options) => JSON.parse(flow(root, [...args, '--json'], options).stdout);
 
-async function repository({ dropWorkflow = null, edit = null } = {}) {
+async function repository({ dropWorkflow = null, edit = null, preserveSeeded = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-studio-'));
   run('git', ['init', '-b', 'main'], root); run('git', ['config', 'user.name', 'Studio Tester'], root); run('git', ['config', 'user.email', 'studio@example.com'], root);
   await writeFile(path.join(root, 'README.md'), '# Studio\n');
   flow(root, ['init']);
-  await repositoryOwnedWorkflows(root);
+  if (!preserveSeeded) await repositoryOwnedWorkflows(root);
   if (dropWorkflow || edit) {
     const file = path.join(root, 'singularity/workflow.yml');
     const document = YAML.parseDocument(await readFile(file, 'utf8'));
@@ -1104,4 +1104,61 @@ test('a new agent can start from an existing one: its instructions, tools and sk
   assert.match(text, /sflow-default-for: ""/u);
   const created = json(root, ['workflow', 'studio']).agents.find((agent) => agent.id === 'payments-qa');
   assert.deepEqual([created.tools, created.defaultFor], [qa.tools, []]);
+});
+
+test('duplicating a protected agent keeps conditional skill links and leaves the original and seeded workflows unchanged', async (t) => {
+  const { buildStudioModel, planStudioChangeSet } = await import('../src/workflow-studio.mjs');
+  const { WORKFLOW_STUDIO_SCRIPT } = await import('../apps/vscode/src/views/workflow-studio-page.ts');
+  const root = await repository({ preserveSeeded: true });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const apply = (changes, write = true) => planStudioChangeSet(root, { schema: 'sflow-studio-change-set@1', changes }, { write });
+  await apply([
+    { op: 'instruction.create', id: 'testing-standard', label: 'Testing standard', description: 'Defines how to test.', instructions: 'Check behavior through observable outputs.' },
+    { op: 'instruction.create', id: 'evidence-standard', label: 'Evidence standard', description: 'Defines how to retain evidence.', instructions: 'Retain fresh evidence for each claimed result.' },
+    { op: 'skill.create', id: 'conditional-check', label: 'Conditional check', description: 'Checks the repaired behavior.', instructions: 'Check the repaired behavior against retained evidence.', instructionRefs: ['testing-standard', 'evidence-standard'] },
+    { op: 'skill.attach', skill: 'conditional-check', agent: 'qa', phases: ['verification'], use: 'When behavior has been repaired' }
+  ]);
+  const model = await buildStudioModel(root);
+  assert.ok(model.protection.agents.includes('qa'), 'the actual seed protection is active');
+  const original = model.agents.find((agent) => agent.id === 'qa');
+  const files = ['singularity/workflow.yml', 'singularity/portfolio.yml', 'singularity/skill-library/attachments.yml', original.path].filter(Boolean);
+  const retained = await Promise.all(files.map((file) => readFile(path.join(root, file), 'utf8')));
+  const listeners = {};
+  const window = { __sfVscode: { postMessage() {} }, addEventListener(event, fn) { listeners[event] = fn; } };
+  new Function('window', 'document', WORKFLOW_STUDIO_SCRIPT)(window, { getElementById: () => null });
+  listeners.message({ data: { type: 'studio.model', model } });
+  const page = window.__workflowStudio;
+  page.duplicateAgent('qa');
+  page.state().agentForm.label = 'Team QA';
+  page.saveAgentForm();
+  const changes = page.changeSetFrom(model, page.state().draft).changes;
+  const preview = await apply(changes, false);
+  assert.equal(preview.valid, true, JSON.stringify(preview.problems));
+  assert.deepEqual(preview.files.map((file) => file.path), ['.github/agents/team-qa.agent.md']);
+  await apply(changes);
+  assert.deepEqual(await Promise.all(files.map((file) => readFile(path.join(root, file), 'utf8'))), retained, 'source files and seeded workflow assignments remain byte-identical');
+  const after = await buildStudioModel(root);
+  const copied = after.agents.find((agent) => agent.id === 'team-qa');
+  assert.equal(copied.scope, 'repository');
+  assert.deepEqual(copied.tools, original.tools);
+  assert.deepEqual(copied.defaultFor, []);
+  assert.deepEqual(copied.phases, []);
+  assert.deepEqual(copied.skills.map(({ id, phases, use }) => ({ id, phases, use })), original.skills.map(({ id, phases, use }) => ({ id, phases, use })));
+  assert.deepEqual(copied.resources, []);
+  assert.deepEqual(after.skills.find((skill) => skill.id === 'conditional-check').instructionRefs, ['testing-standard', 'evidence-standard'], 'both reusable instruction dependencies remain linked');
+  assert.ok(!after.protection.agents.includes('team-qa'), 'the copy is editable');
+  await apply([{ op: 'agent.update', id: 'team-qa', description: 'Checks team-specific behavior.' }]);
+  const refused = await apply([{ op: 'agent.update', id: 'qa', instructions: 'Must not change the original instructions.' }], false);
+  assert.equal(refused.valid, false);
+  assert.equal(refused.problems[0].code, 'SEEDED_WORKFLOW_READ_ONLY');
+
+  // Editing the copy's inherited skills before its first publication must be respected too.
+  const fresh = await buildStudioModel(root);
+  listeners.message({ data: { type: 'studio.model', model: fresh, reset: true } });
+  page.duplicateAgent('team-qa');
+  page.saveAgentForm();
+  page.state().draft.agents['team-qa-copy'].skills = [];
+  await apply(page.changeSetFrom(fresh, page.state().draft).changes);
+  const withoutSkills = (await buildStudioModel(root)).agents.find((agent) => agent.id === 'team-qa-copy');
+  assert.deepEqual(withoutSkills.skills, [], 'a removed inherited attachment is not restored by agent.create');
 });

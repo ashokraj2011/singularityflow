@@ -14,7 +14,7 @@ related:
   - model-independence
   - assignments-and-watchlists
   - skill-master
-version: 5
+version: 6
 ---
 Phase activation selects a governed agent from pinned policy. Human approval authority remains separate from agent selection, and explicit overrides are local and audited.
 
@@ -37,6 +37,24 @@ An agent can attach skills from the skill master, each for some of its steps and
 when to use it; in those steps the skills' instructions are part of its prompt. Any agent, a
 seeded workflow's included, can be attached skills in `singularity/skill-library/attachments.yml`
 without changing the agent (`sflow explain skill-master`).
+
+## Duplicate and customize an agent
+
+In **Workflow Studio → Agents**, choose **Duplicate agent** on a built-in or custom agent.
+You can also duplicate the drafting agent from an editable workflow's canvas. The editor opens
+with an available copy name; rename it, change its description, tools or instructions, then choose
+**Add agent to changes**. Check the changes and publish them through the normal configuration review.
+The original agent is unchanged, and built-in agents remain read-only.
+
+The copy keeps the source's instructions, tools and skill attachments, including phase filters
+and usage conditions. Referenced skills and reusable instructions stay
+linked to the same catalog objects; they are not independent copies. Remote-resource bindings and
+trust are not copied: add and review any remote resources separately for the new agent.
+World Model context is selected by the phase policy; retired view bindings are not re-enabled.
+
+No step is reassigned automatically. Select the copy as the drafting agent in an editable workflow,
+or explicitly select default steps in the creation form. To customize a seeded workflow, duplicate
+that workflow first. Duplicating an agent does not change running Stories or their pinned configuration.
 
 ## Purpose and prerequisites
 

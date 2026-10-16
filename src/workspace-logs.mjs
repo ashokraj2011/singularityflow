@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { readFile, stat } from 'node:fs/promises';
+import { open, readFile, stat } from 'node:fs/promises';
 import { gitCommonDir, gitDir } from './git.mjs';
 import { logFilePath, parseLogLines } from './logging.mjs';
 import { parseCopilotTelemetry } from './telemetry.mjs';
@@ -34,10 +34,25 @@ function safeDetails(value) {
   return output;
 }
 
-async function textIfFile(file) {
+// The view lists recent entries. Copilot telemetry and prompt logs only grow, and a whole read of
+// one passed Node's 512 MB string limit (ERR_STRING_TOO_LONG); read only their most recent part.
+const MAXIMUM_LOG_READ_BYTES = 8 * 1024 * 1024;
+
+async function textIfFile(file, warnings = []) {
   const info = await stat(file).catch(() => null);
   if (!info?.isFile()) return null;
-  return readFile(file, 'utf8');
+  if (info.size <= MAXIMUM_LOG_READ_BYTES) return readFile(file, 'utf8');
+  const handle = await open(file, 'r');
+  try {
+    const buffer = Buffer.alloc(MAXIMUM_LOG_READ_BYTES);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, info.size - MAXIMUM_LOG_READ_BYTES);
+    const text = buffer.subarray(0, bytesRead).toString('utf8');
+    warnings.push(`Showing the most recent ${MAXIMUM_LOG_READ_BYTES / (1024 * 1024)} MiB of ${path.basename(file)} (${Math.ceil(info.size / (1024 * 1024))} MiB).`);
+    // The window starts mid-record; begin at the first whole line.
+    return text.slice(text.indexOf('\n') + 1);
+  } finally {
+    await handle.close();
+  }
 }
 
 function entry(input, sequence) {
@@ -258,7 +273,7 @@ export async function collectWorkspaceLogs({
       if (source === 'all' || source === 'activity') {
         const file = logFilePath(directory); sources.push({ source: 'activity', repositoryId: item.id, path: file });
         try {
-          const content = await textIfFile(file);
+          const content = await textIfFile(file, warnings);
           if (content != null) {
             const parsed = activityEntries(content, file, item.id, warnings, sequence);
             entries.push(...parsed.entries); sequence = parsed.sequence;
@@ -277,7 +292,7 @@ export async function collectWorkspaceLogs({
           }
           sources.push({ source: 'telemetry', repositoryId: item.id, launchId: launch.launchId, path: file });
           try {
-            const content = await textIfFile(file);
+            const content = await textIfFile(file, warnings);
             if (content != null) {
               const parsed = telemetryEntries(content, file, item.id, warnings, sequence, launch);
               entries.push(...parsed.entries); sequence = parsed.sequence;
@@ -289,7 +304,7 @@ export async function collectWorkspaceLogs({
         const file = path.join(directory, 'singularity-flow', 'copilot-otel.jsonl');
         sources.push({ source: 'telemetry', repositoryId: item.id, legacy: true, path: file });
         try {
-          const content = await textIfFile(file);
+          const content = await textIfFile(file, warnings);
           if (content != null) {
             const parsed = telemetryEntries(content, file, item.id, warnings, sequence);
             entries.push(...parsed.entries); sequence = parsed.sequence;
@@ -303,7 +318,7 @@ export async function collectWorkspaceLogs({
     const file = path.join(workspace.path, '.singularity-flow', 'prompt-audit', 'prompts.jsonl');
     sources.push({ source: 'prompt', repositoryId: null, path: file });
     try {
-      const content = await textIfFile(file);
+      const content = await textIfFile(file, warnings);
       if (content != null) {
         const parsed = promptEntries(content, file, repositoryByPath, warnings, sequence);
         entries.push(...parsed.entries); sequence = parsed.sequence;
@@ -315,7 +330,7 @@ export async function collectWorkspaceLogs({
     const file = path.join(workspace.path, workspace.directories?.logs ?? 'logs', 'workspace-materialization.json');
     sources.push({ source: 'workspace', repositoryId: null, path: file });
     try {
-      const content = await textIfFile(file);
+      const content = await textIfFile(file, warnings);
       if (content != null) {
         try {
           const parsed = workspaceEntries(JSON.parse(content), file, warnings, sequence);

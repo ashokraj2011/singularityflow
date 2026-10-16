@@ -261,3 +261,21 @@ test('the VS Code logs surface is top-level and legacy log commands route to sou
   assert.match(panel, /watchFile\(source\.path/);
   assert.doesNotMatch(panel, /acquireVsCodeApi\(/);
 });
+
+test('an ever-growing telemetry log is read from its end, never whole', async () => {
+  // Copilot appends to the repository telemetry stream on every turn; read whole, a busy one passed
+  // Node's 512 MB string limit (ERR_STRING_TOO_LONG). The view shows recent entries anyway.
+  const { first, env } = await fixture();
+  const telemetryFile = path.join(gitDir(first), 'singularity-flow', 'copilot-otel.jsonl');
+  await mkdir(path.dirname(telemetryFile), { recursive: true });
+  const span = (minute, model) => JSON.stringify({ name: `chat ${model}`, startTime: `2026-08-11T12:${minute}:00.000Z`, endTime: `2026-08-11T12:${minute}:01.000Z`,
+    attributes: { 'gen_ai.operation.name': 'chat', 'gen_ai.response.model': model, 'gen_ai.usage.input_tokens': 1, 'gen_ai.usage.output_tokens': 1, filler: 'x'.repeat(4000) } });
+  const old = Array.from({ length: 2400 }, () => span('00', 'old-model')).join('\n');
+  await writeFile(telemetryFile, `${old}\n${span('30', 'recent-model')}\n`);
+  const report = await collectWorkspaceLogs({ env, source: 'telemetry', limit: 5000 });
+  const models = new Set(report.entries.map((item) => item.details?.model));
+  assert.ok(models.has('recent-model'), 'the newest record is read');
+  assert.ok(report.entries.length < 2400, `${report.entries.length} entries: only the recent window was read`);
+  assert.match(report.warnings.join('\n'), /Showing the most recent 8 MiB of copilot-otel\.jsonl \(10 MiB\)/);
+  assert.doesNotMatch(report.warnings.join('\n'), /unreadable record/, 'the window starts at a whole line');
+});

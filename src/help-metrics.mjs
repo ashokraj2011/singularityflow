@@ -18,6 +18,8 @@ const SETTINGS = 'settings.json';
 const LOCK = 'write.lock';
 const DEFAULT_RETENTION_DAYS = 30;
 const DEFAULT_MAXIMUM_BYTES = 4 * 1024 * 1024;
+// Its reader loads the whole file as text: a configured ceiling never approaches Node's 512 MB limit.
+const MAXIMUM_CONFIGURED_BYTES = 256 * 1024 * 1024;
 const LOCK_RETRIES = 250;
 const LOCK_RETRY_MS = 20;
 const LOCK_STALE_MS = 5 * 60_000;
@@ -102,7 +104,7 @@ async function readSettings(file) {
       retentionDays: Number.isInteger(value.retentionDays) && value.retentionDays >= 1 && value.retentionDays <= 365
         ? value.retentionDays : DEFAULT_RETENTION_DAYS,
       maximumBytes: Number.isSafeInteger(value.maximumBytes) && value.maximumBytes >= 1024
-        ? value.maximumBytes : DEFAULT_MAXIMUM_BYTES,
+        ? Math.min(value.maximumBytes, MAXIMUM_CONFIGURED_BYTES) : DEFAULT_MAXIMUM_BYTES,
       updatedAt: value.updatedAt ?? null,
       lastPrunedAt: value.lastPrunedAt ?? null
     };

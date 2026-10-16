@@ -23,6 +23,8 @@ const RECOVERY_DIRECTORY = 'recovery';
 const DEFAULT_RETENTION_DAYS = 30;
 const MAXIMUM_RETENTION_DAYS = 365;
 const DEFAULT_MAXIMUM_BYTES = 64 * 1024 * 1024;
+// Its reader loads the whole file as text: a configured ceiling never approaches Node's 512 MB limit.
+const MAXIMUM_CONFIGURED_BYTES = 256 * 1024 * 1024;
 const LOCK_STALE_MS = 5 * 60_000;
 const LOCK_RETRIES = 250;
 const LOCK_RETRY_MS = 20;
@@ -221,7 +223,7 @@ async function settings(file) {
       logBytes: Number.isInteger(value?.logBytes) ? value.logBytes : null,
       logMtimeMs: Number.isFinite(value?.logMtimeMs) ? value.logMtimeMs : null,
       maximumBytes: Number.isSafeInteger(value?.maximumBytes) && value.maximumBytes >= 1024
-        ? value.maximumBytes : DEFAULT_MAXIMUM_BYTES
+        ? Math.min(value.maximumBytes, MAXIMUM_CONFIGURED_BYTES) : DEFAULT_MAXIMUM_BYTES
     };
   } catch (error) {
     if (error?.code === 'ENOENT') return {
@@ -755,7 +757,7 @@ async function writeSettings(target, config) {
     logBytes: Number.isInteger(config.logBytes) ? config.logBytes : null,
     logMtimeMs: Number.isFinite(config.logMtimeMs) ? config.logMtimeMs : null,
     maximumBytes: Number.isSafeInteger(config.maximumBytes) && config.maximumBytes >= 1024
-      ? config.maximumBytes : DEFAULT_MAXIMUM_BYTES
+      ? Math.min(config.maximumBytes, MAXIMUM_CONFIGURED_BYTES) : DEFAULT_MAXIMUM_BYTES
   };
   await writeAtomic(target.settingsFile, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   await chmod(target.settingsFile, 0o600).catch(() => {});

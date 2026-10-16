@@ -1,4 +1,4 @@
-import { branch, governedCommitIdentity, head } from './git.mjs';
+import { headAndBranch, governedCommitIdentity, head } from './git.mjs';
 import {
   beginPublicationJournal, clearPublicationJournal, updatePublicationJournal
 } from './publication-journal.mjs';
@@ -83,8 +83,7 @@ export class DraftUnitOfWork {
     if (!operation) throw new SingularityFlowError('Draft transaction requires an operation name.');
     if (typeof write !== 'function') throw new SingularityFlowError('Draft transaction requires a write function.');
     return withSubjectLock(root, subject, async (lockOwner) => {
-      const transactionBranch = branch(root);
-      const expectedHead = head(root);
+      const { branch: transactionBranch, head: expectedHead } = headAndBranch(root);
       if (transactionBranch !== subject.branch) {
         throw new SingularityFlowError(`Current branch ${transactionBranch} must match ${subject.kind} branch ${subject.branch}.`);
       }

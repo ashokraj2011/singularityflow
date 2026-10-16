@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { rm } from 'node:fs/promises';
 import {
-  admitGovernedPublication, branch, commitIsAncestor, commitIsolated, head, publicationPushOutcome,
+  admitGovernedPublication, headAndBranch, commitIsAncestor, commitIsolated, head, publicationPushOutcome,
   pushCommitToBranchAsync
 } from './git.mjs';
 import {
@@ -130,8 +130,7 @@ export class GitPublicationUnitOfWork {
       );
     }
   return withSubjectLock(root, subject, async (lockOwner) => {
-    const transactionBranch = branch(root);
-    const publicationHead = head(root);
+    const { branch: transactionBranch, head: publicationHead } = headAndBranch(root);
     if (transactionBranch !== publication.branch) {
       throw new SingularityFlowError(`Current branch ${transactionBranch} must match ${subject.kind} branch ${publication.branch}.`);
     }

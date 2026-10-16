@@ -9,6 +9,7 @@
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { isDeepStrictEqual, types } from 'node:util';
 import YAML from 'yaml';
 import { parseYamlText } from './yaml-parse-cache.mjs';
@@ -74,6 +75,72 @@ export const STATE_CONFIGURATION_HISTORY_PREFIX = 'sflow/config-history';
 
 const STORY_CONFIGURATION_SNAPSHOT = Symbol('story-configuration-snapshot');
 const STORY_CONFIGURATION_AUTHORITY_SNAPSHOT = Symbol('story-configuration-authority-snapshot');
+const STORY_CONFIGURATION_TRANSACTIONS = new AsyncLocalStorage();
+
+/** Disposable checkout ownership lasts one start only; no persisted path is a reuse capability. */
+export async function withStoryConfigurationTransaction(action) {
+  if (STORY_CONFIGURATION_TRANSACTIONS.getStore()?.active) return action();
+  const owner = { active: true, directories: new Set(), snapshots: new WeakMap() };
+  return STORY_CONFIGURATION_TRANSACTIONS.run(owner, async () => {
+    try { return await action(); }
+    finally {
+      owner.active = false;
+      await Promise.all([...owner.directories].map(directory => removeTemporaryTree(directory)));
+    }
+  });
+}
+
+/** Consume only the checkout this transaction itself cloned and verified, once. */
+export async function takeStoryConfigurationCheckout(snapshot, remote, expectedCommit) {
+  const owner = STORY_CONFIGURATION_TRANSACTIONS.getStore();
+  const lease = owner?.active && snapshot && owner.snapshots.get(snapshot);
+  if (!lease || lease.taken || snapshot.authority.branch !== CONFIGURATION_BRANCH
+      || snapshot.authority.remote !== remote || snapshot.sourceCommit !== expectedCommit) return null;
+  verifiedStoryDefinition(snapshot);
+  lease.taken = true;
+  const env = enterpriseGitEnvironment();
+  const current = configurationRepositoryHead(lease.directory, env);
+  const status = gitReadOutput(run('git', ['status', '--porcelain=v1', '--untracked-files=all'], {
+    cwd: lease.directory, env, allowFailure: true
+  }), 'Retained configuration checkout');
+  if (current !== expectedCommit || status.trim()) throw new SingularityFlowError(
+    'The transaction-owned configuration checkout changed before enrollment.',
+    { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
+  );
+  incrementCommandCounter('configuration.checkout-reused');
+  return lease.directory;
+}
+
+/** Capture the committed successor before its disposable enrollment checkout is removed. */
+export async function captureEnrolledConfigurationSnapshot(directory, remote, previousCommit, commit) {
+  const owner = STORY_CONFIGURATION_TRANSACTIONS.getStore();
+  if (!owner?.active) return null;
+  const ancestry = gitReadOutput(run('git', ['log', '-1', '--format=%H%n%P', 'HEAD'], {
+    cwd: directory, env: enterpriseGitEnvironment(), allowFailure: true
+  }), 'Enrolled configuration ancestry').trim().split(/\r?\n/u);
+  if (ancestry[0] !== commit || ancestry[1] !== previousCommit) throw new SingularityFlowError(
+    'Enrollment snapshot does not extend the exact reviewed configuration parent.',
+    { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
+  );
+  const authority = { remote, branch: CONFIGURATION_BRANCH, commit, source: 'configuration-branch' };
+  const snapshot = await storyConfigurationSnapshotFromDirectory(authority, directory, {
+    observedCommit: commit, sourceCommit: commit
+  });
+  incrementCommandCounter('configuration.enrollment-snapshot-captured');
+  return snapshot;
+}
+
+/** Attach a private snapshot only after the caller has freshly resolved the same authority. */
+export function withRetainedConfigurationSnapshot(authority, snapshot) {
+  if (!snapshot) return authority;
+  verifiedStoryDefinition(snapshot);
+  if (authority?.remote !== snapshot.authority.remote || authority.branch !== snapshot.authority.branch
+      || authority.commit !== snapshot.observedCommit) throw new SingularityFlowError(
+    'Enrolled snapshot differs from current approved configuration.',
+    { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
+  );
+  return Object.freeze({ ...authority, [STORY_CONFIGURATION_AUTHORITY_SNAPSHOT]: snapshot });
+}
 // The public snapshot projection is convenient for ordinary readers but nested objects remain
 // mutable. Keep the verified definition in a private slot so later Story policy/authority reads
 // cannot be widened by changing snapshot.definition after the approved bytes were loaded.
@@ -2642,6 +2709,7 @@ export async function loadStoryConfigurationSnapshot(authority, {
   // invitation to consume whichever revision happened to win the race.
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-config-read-'));
+    let retainedCheckout = false;
     incrementCommandCounter('configuration.snapshot-read');
     try {
       let observedCommit;
@@ -2680,7 +2748,7 @@ export async function loadStoryConfigurationSnapshot(authority, {
           }
         );
       }
-      return await storyConfigurationSnapshotFromDirectory(authority, scratch, {
+      const snapshot = await storyConfigurationSnapshotFromDirectory(authority, scratch, {
         observedCommit,
         sourceCommit,
         mirror,
@@ -2688,6 +2756,13 @@ export async function loadStoryConfigurationSnapshot(authority, {
         env,
         captureAuthoringBytes
       });
+      const owner = STORY_CONFIGURATION_TRANSACTIONS.getStore();
+      if (owner?.active && !mirror && authority.branch === CONFIGURATION_BRANCH) {
+        owner.directories.add(scratch);
+        owner.snapshots.set(snapshot, { directory: scratch, taken: false });
+        retainedCheckout = true;
+      }
+      return snapshot;
     } catch (error) {
       if (error?.code !== 'STORY_CONFIGURATION_AUTHORITY_STALE') throw error;
       lastMoved = error;
@@ -2696,7 +2771,7 @@ export async function loadStoryConfigurationSnapshot(authority, {
         throw error;
       }
     } finally {
-      await removeTemporaryTree(scratch);
+      if (!retainedCheckout) await removeTemporaryTree(scratch);
     }
   }
   throw lastMoved;

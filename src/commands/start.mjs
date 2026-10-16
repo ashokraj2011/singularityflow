@@ -29,7 +29,7 @@ import { loadCopilotSession, loadSession, recordStartedWorkItemSelection, select
 import { documentSetLifecycleBinding } from '../document-publication.mjs';
 import { loadManualStory, promptManualStory } from '../intake.mjs';
 import { normalizeMcpTargetOrigin } from '../mcp-target.mjs';
-import { automaticEnrollmentMayPublish, publishCurrentIdentityToConfiguration } from '../configuration-people.mjs';
+import { automaticEnrollmentMayPublish, publishCurrentIdentityToConfiguration, enrolledConfigurationAuthority } from '../configuration-people.mjs';
 import { GitRemoteSession } from '../git-execution.mjs';
 import { configuredRemoteAuthority, configuredRemoteIdentity } from '../git-remote-diagnostics.mjs';
 import { capabilityLines } from '../verification/capability.mjs';
@@ -38,7 +38,7 @@ import { consumeSelectionReceipt, readStartSelectionReceipt, resolveHandedOffSta
 import { writeReturnLocator } from '../return-locator.mjs';
 import { getGitHubIssue, normalizeWorkSource, workflowSourceIdentity } from '../work-source.mjs';
 import { workspaceRepositoryPath } from '../workspace.mjs';
-import { captureConfigurationState, CONFIGURATION_BRANCH, configurationBranchHead, materializeConfigurationSnapshot, loadStoryConfigurationSnapshot, resolveNewStoryConfigurationAuthority, withStoryConfigurationSnapshotRead } from '../configuration-branch.mjs';
+import { captureConfigurationState, CONFIGURATION_BRANCH, configurationBranchHead, materializeConfigurationSnapshot, loadStoryConfigurationSnapshot, resolveNewStoryConfigurationAuthority, withStoryConfigurationSnapshotRead, withStoryConfigurationTransaction } from '../configuration-branch.mjs';
 import { fosStoryConfigurationAuthority } from '../onboard.mjs';
 import { beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart, serializeConfigurationRestorePoint, updateStoryStartJournal } from '../story-start-journal.mjs';
 import { assertStartDocuments, preflightInitialStoryDocuments, stageInitialStoryDocuments } from '../story-start-documents.mjs';
@@ -412,7 +412,7 @@ export async function startCommand(positionals, options) {
   // unrelated files from an earlier Story can never become a global Story-start lock.
   if (!managedStoryWorktree && (optionBoolean(options, 'isolated-worktree')
       || (!optionBoolean(options, 'allow-dirty') && changes(root).trim()))) {
-    return startCommandInIsolatedWorktree(root, id, positionals, options);
+    return withStoryConfigurationTransaction(() => startCommandInIsolatedWorktree(root, id, positionals, options));
   }
   // The synchronous launch check above already proved this checkout clean. Only a managed child
   // skipped it and needs its own check. Never retain status across an await, checkout or mutation;
@@ -1520,9 +1520,11 @@ export async function startCommand(positionals, options) {
           { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' }
         );
       }
-      approvedConfigurationSnapshot = await loadStoryConfigurationSnapshot(configurationAuthority, {
-        session: storyRemoteSession, useObjectCache: true
-      });
+      configurationAuthority = enrolledConfigurationAuthority(enrollment, configurationAuthority);
+      approvedConfigurationSnapshot = await measureCommandSpan('start.enrollment-refresh', () =>
+        loadStoryConfigurationSnapshot(configurationAuthority, {
+          session: storyRemoteSession, useObjectCache: true
+        }));
       config = approvedConfigurationSnapshot.definition;
       validateConfigurationSnapshotCapabilities(approvedConfigurationSnapshot, {
         capabilityId: workflowCapabilityId
@@ -1639,23 +1641,23 @@ export async function startCommand(positionals, options) {
   // this is still first creation and carries the exact approved snapshot sealed in the launch
   // checkout. Materialize it under the same journal/restore guards as a newly-created branch.
   if ((createdBranch || configurationHandoff) && configurationAuthority) {
-    configurationRestorePoint = await captureConfigurationState(root);
+    configurationRestorePoint = await measureCommandSpan('start.configuration-capture', () => captureConfigurationState(root));
     await updateStoryStartJournal(root, id, startJournal.transactionId, {
       stage: 'configuration-captured',
       configurationRestorePoint: serializeConfigurationRestorePoint(configurationRestorePoint)
     });
-    configurationSnapshot = await materializeConfigurationSnapshot(root, {
+    configurationSnapshot = await measureCommandSpan('start.configuration-materialize', () => materializeConfigurationSnapshot(root, {
       authority: configurationAuthority,
       snapshot: approvedConfigurationSnapshot,
       remoteName: remote
-    });
+    }));
   }
   // The selected lifecycle branch, not the checkout the user happened to start from, owns the
   // workflow definition. Reload after materialization so a newly fetched phase graph, agent,
   // template, or world-model policy is what gets pinned into the Story.
-  config = configurationSnapshot
+  config = await measureCommandSpan('start.configuration-bind', async () => configurationSnapshot
     ? await (await import('./start-configuration.mjs')).loadMaterializedConfigurationDefinition(root, approvedConfigurationSnapshot)
-    : await loadConfig(root);
+    : await loadConfig(root));
   validateId(config, id);
   await updateStoryStartJournal(root, id, startJournal.transactionId, {
     stage: 'configuration-ready', workItemRelative: workDirRelative(config, id)

@@ -17,7 +17,7 @@ import {
   resolveRemoteStoryConfigurationAuthority, resolveStoryConfigurationAuthority,
   retainStateConfigurationHistory, stateConfigurationHistoryBranch,
   STATE_CONFIGURATION_BRANCH, STATE_CONFIGURATION_MANIFEST,
-  withStoryConfigurationSnapshotRead
+  withStoryConfigurationSnapshotRead, withStoryConfigurationTransaction, takeStoryConfigurationCheckout
 } from '../src/configuration-branch.mjs';
 import { GitRemoteSession } from '../src/git-execution.mjs';
 import { gitRepositoryComparisonKey } from '../src/git-repository-identity.mjs';
@@ -31,7 +31,7 @@ import {
 import { approvedConfigurationMaterializations } from '../src/configuration-materialization.mjs';
 import { buildRepositoryChangeSet } from '../src/repository-change-set.mjs';
 import {
-  automaticEnrollmentMayPublish, publishCurrentIdentityToConfiguration
+  automaticEnrollmentMayPublish, publishCurrentIdentityToConfiguration, enrolledConfigurationAuthority
 } from '../src/configuration-people.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { run } from '../src/util.mjs';
@@ -1760,6 +1760,67 @@ test('CLI Story start never substitutes a base workflow for an unreadable author
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
+});
+
+test('isolated enrollment reuses one owned clone and hands off only the exact published successor', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const checkout = path.join(fixture.root, 'transaction-consumer');
+    run('git', ['clone', '-q', fixture.remote, checkout], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Transaction Developer'], { cwd: checkout });
+    run('git', ['config', 'user.email', 'transaction@example.invalid'], { cwd: checkout });
+    const index = await readFile(path.join(checkout, '.git', 'index'));
+    const head = run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim();
+    const timer = commandTimer('enrollment-transaction', { commandClass: 'write' });
+    await withCommandTiming(timer, () => withStoryConfigurationTransaction(async () => {
+      const authority = await resolveRemoteStoryConfigurationAuthority(fixture.remote);
+      const before = await loadStoryConfigurationSnapshot(authority);
+      const enrollment = await publishCurrentIdentityToConfiguration(checkout, {
+        automatic: true, configurationSnapshot: before, expectedSourceCommit: before.sourceCommit
+      });
+      assert.equal(enrollment.changed, true);
+      assert.equal(enrollment.pushed, true);
+      assert.doesNotMatch(JSON.stringify(enrollment), /assets|contents|definition|scratch/);
+      const fresh = await resolveRemoteStoryConfigurationAuthority(fixture.remote);
+      const after = await loadStoryConfigurationSnapshot(enrolledConfigurationAuthority(enrollment, fresh));
+      assert.equal(after.sourceCommit, enrollment.commit);
+      assert.notEqual(after.sourceCommit, before.sourceCommit);
+      assert.equal(automaticEnrollmentMayPublish(checkout, after), false);
+      assert.throws(() => enrolledConfigurationAuthority(enrollment, {
+        ...fresh, commit: before.sourceCommit
+      }), { code: 'STORY_CONFIGURATION_AUTHORITY_STALE' });
+      const forged = structuredClone(enrollment);
+      assert.equal(enrolledConfigurationAuthority(forged, fresh), fresh, 'JSON data cannot forge the handoff');
+    }));
+    const observed = timer.finish().counters;
+    assert.equal(observed['git.remote.command.clone'], 1, 'one remote clone, not read/enroll/read clones');
+    assert.equal(observed['configuration.checkout-reused'], 1);
+    assert.equal(observed['configuration.enrollment-snapshot-captured'], 1);
+    assert.equal(observed['configuration.snapshot-reused'], 1);
+    assert.deepEqual(await readFile(path.join(checkout, '.git', 'index')), index);
+    assert.equal(run('git', ['rev-parse', 'HEAD'], { cwd: checkout }).stdout.trim(), head);
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});
+
+test('configuration checkout leases are one-use, transaction-local and cleaned on failure', async () => {
+  const fixture = await repositoryFixture();
+  let directory, retained;
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const authority = await resolveRemoteStoryConfigurationAuthority(fixture.remote);
+    await assert.rejects(withStoryConfigurationTransaction(async () => {
+      retained = await loadStoryConfigurationSnapshot(authority);
+      assert.equal(await takeStoryConfigurationCheckout({ ...retained }, fixture.remote, retained.sourceCommit), null);
+      assert.equal(await takeStoryConfigurationCheckout(retained, 'different-remote', retained.sourceCommit), null);
+      directory = await takeStoryConfigurationCheckout(retained, fixture.remote, retained.sourceCommit);
+      assert.ok(directory);
+      assert.equal(await takeStoryConfigurationCheckout(retained, fixture.remote, retained.sourceCommit), null);
+      throw new Error('cancelled start');
+    }), /cancelled start/);
+    await assert.rejects(readFile(path.join(directory, 'singularity/workflow.yml')), { code: 'ENOENT' });
+    assert.equal(await takeStoryConfigurationCheckout(retained, fixture.remote, retained.sourceCommit), null);
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });
 
 test('automatic identity enrollment obeys the approved configuration switch', async () => {

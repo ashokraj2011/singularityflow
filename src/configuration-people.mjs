@@ -8,7 +8,8 @@ import YAML from 'yaml';
 import { validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { normalizeApprovalSecurity } from './approval-authority.mjs';
 import {
-  CONFIGURATION_BRANCH, configurationBranchHead, resolveConfigurationRemote
+  CONFIGURATION_BRANCH, configurationBranchHead, resolveConfigurationRemote,
+  takeStoryConfigurationCheckout, captureEnrolledConfigurationSnapshot, withRetainedConfigurationSnapshot
 } from './configuration-branch.mjs';
 import { PORTFOLIO_PATH, validatePortfolio } from './initiative-config.mjs';
 import { identity } from './git.mjs';
@@ -19,6 +20,12 @@ import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 import { renderPreservingFormatting } from './yaml-formatting.mjs';
 
 const TARGETS = new Set(['*', 'story:*', 'initiative:*']);
+const ENROLLMENT_SNAPSHOTS = new WeakMap();
+
+/** Machine-local handoff; never serialized into the public enrollment result. */
+export function enrolledConfigurationAuthority(result, authority) {
+  return withRetainedConfigurationSnapshot(authority, ENROLLMENT_SNAPSHOTS.get(result));
+}
 const INDIVIDUAL_TARGET = /^(story|initiative):([a-z0-9]+(?:-[a-z0-9]+)*)$/;
 
 function parseDocument(text, label) {
@@ -288,10 +295,11 @@ export async function publishCurrentIdentityToConfiguration(root, {
     };
   }
 
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-configuration-people-'));
+  const reused = await takeStoryConfigurationCheckout(configurationSnapshot, remoteUrl, expectedSourceCommit);
+  const scratch = reused ?? await mkdtemp(path.join(os.tmpdir(), 'sflow-configuration-people-'));
   try {
-    const clone = await runRemoteGitAsync([
-      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
+    const clone = reused ? { status: 0 } : await runRemoteGitAsync([
+      '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
       '--branch', CONFIGURATION_BRANCH, remoteUrl, scratch
     ], { operation: 'remote-configuration' });
     if (clone.status !== 0) {
@@ -407,7 +415,7 @@ export async function publishCurrentIdentityToConfiguration(root, {
         automatic: Boolean(automatic)
       }
     }, transport);
-    return {
+    const result = {
       changed: true,
       pushed: publication.status === 'succeeded',
       branch: CONFIGURATION_BRANCH,
@@ -421,7 +429,12 @@ export async function publishCurrentIdentityToConfiguration(root, {
       transportStatus: publication.status,
       nextAction: publication.nextAction ?? null
     };
+    if (result.pushed) {
+      const snapshot = await captureEnrolledConfigurationSnapshot(scratch, remoteUrl, previousCommit, commit);
+      if (snapshot) ENROLLMENT_SNAPSHOTS.set(result, snapshot);
+    }
+    return result;
   } finally {
-    await removeTemporaryTree(scratch);
+    if (!reused) await removeTemporaryTree(scratch);
   }
 }

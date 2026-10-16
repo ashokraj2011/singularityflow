@@ -13,7 +13,7 @@ import { gitEmptyConfigPath, gitDisabledHooksPath } from './git-isolation-paths.
 import { readLocalGitBlobs, repositoryObjectFormat } from './git-blob-batch.mjs';
 import { repositoryGitPath } from './git-directory.mjs';
 import {
-  branch, gitCommonDir, gitDir, head, localGitDisplayName, refHead, repoRoot, resetGitDirCache,
+  branch, gitCommonDir, gitDir, head, headAndBranch, localGitDisplayName, refHead, repoRoot, resetGitDirCache,
   runRemoteGitAsync
 } from './git-execution.mjs';
 import { probeStoryBranchPublication } from './story-publication-preflight.mjs';
@@ -70,7 +70,7 @@ function immutableLocalGitEnvironment(source = process.env, { indexFile = null }
 
 // The basic local reads (root, Git directories, branch, HEAD, display name) live in
 // git-execution.mjs so light surfaces need not load this module; they are re-exported here.
-export { branch, gitCommonDir, head, repoRoot };
+export { branch, gitCommonDir, head, headAndBranch, repoRoot };
 
 /** Branch names that are an application integration target in essentially every repository. */
 export const RESERVED_APPLICATION_BRANCHES = Object.freeze(['main', 'master']);
@@ -2791,14 +2791,14 @@ export function admitExactProspectiveTree(root, {
     return result;
   };
   const env = immutableLocalGitEnvironment();
-  const resolvedBaseline = git(['rev-parse', '--verify', `${baselineCommit}^{tree}`], {
-    cwd: root, env, allowFailure: true
+  const resolved = git(['cat-file', '--batch-check=%(objectname) %(objecttype)'], {
+    cwd: root, env, allowFailure: true,
+    input: `${baselineCommit}^{tree}\n${candidateTree}^{tree}\n`, maxBuffer: 1024
   });
-  const resolvedCandidate = git(['rev-parse', '--verify', `${candidateTree}^{tree}`], {
-    cwd: root, env, allowFailure: true
-  });
-  if (resolvedBaseline.status !== 0 || resolvedCandidate.status !== 0
-      || resolvedCandidate.stdout.trim() !== candidateTree) {
+  const trees = resolved.stdout.trim().split(/\r?\n/u);
+  if (!processResultSucceeded(resolved) || trees.length !== 2
+      || !/^(?:[0-9a-f]{40}|[0-9a-f]{64}) tree$/u.test(trees[0])
+      || trees[1] !== `${candidateTree} tree`) {
     throw new SingularityFlowError('Exact prospective-tree admission could not resolve its bound Git trees.', {
       code: 'PROSPECTIVE_TREE_INVALID'
     });

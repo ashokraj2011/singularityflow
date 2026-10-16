@@ -17,7 +17,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { initializeDefinition } from '../src/config.mjs';
-import { changes, commitIsolated } from '../src/git.mjs';
+import { changes, commitIsolated, headAndBranch, admitExactProspectiveTree } from '../src/git.mjs';
 import { setAgentSession } from '../src/session.mjs';
 import { freezeSgosCandidate } from '../src/sgos/candidate-lifecycle.mjs';
 import { createWorkflow, loadConfig, loadWorkflow, validateWorkflow } from '../src/state.mjs';
@@ -55,6 +55,32 @@ function probe(root, expression) {
   }
   return { status: result.status, stderr: result.stderr, counts };
 }
+
+test('publication HEAD and branch are batched but never stale across commits, switches or detachment', async t => {
+  const root = await repository(t, 'sflow-publication-head-');
+  const before = git(root, 'rev-parse', 'HEAD');
+  assert.deepEqual(headAndBranch(root), { head: before, branch: 'main' });
+  git(root, 'switch', '-qc', 'successor');
+  await writeFile(path.join(root, 'new.txt'), 'new bytes\n');
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'successor');
+  const after = git(root, 'rev-parse', 'HEAD');
+  assert.notEqual(after, before);
+  assert.deepEqual(headAndBranch(root), { head: after, branch: 'successor' });
+  git(root, 'checkout', '--detach', '-q', before);
+  assert.throws(() => headAndBranch(root), /Detached HEAD/);
+});
+
+test('batched tree admission refuses absent objects and a commit masquerading as a tree', async t => {
+  const root = await repository(t, 'sflow-tree-observation-');
+  const baselineCommit = git(root, 'rev-parse', 'HEAD');
+  const candidateTree = git(root, 'rev-parse', 'HEAD^{tree}');
+  assert.ok(admitExactProspectiveTree(root, { baselineCommit, candidateTree }));
+  for (const ids of [
+    { baselineCommit: 'f'.repeat(40), candidateTree },
+    { baselineCommit, candidateTree: 'f'.repeat(40) },
+    { baselineCommit, candidateTree: baselineCommit }
+  ]) assert.throws(() => admitExactProspectiveTree(root, ids), { code: 'PROSPECTIVE_TREE_INVALID' });
+});
 
 test('an isolated commit builds its tree once and still admits exactly the bytes it commits', async (t) => {
   const root = await repository(t, 'sflow-commit-once-');

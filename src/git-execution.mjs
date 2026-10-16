@@ -140,6 +140,18 @@ export function head(root) {
   return run('git', ['rev-parse', 'HEAD'], { cwd: root }).stdout.trim();
 }
 
+/** One fresh publication-boundary observation; never memoize mutable HEAD or branch here. */
+export function headAndBranch(root) {
+  const output = gitReadOutput(run('git', ['rev-parse', 'HEAD', '--symbolic-full-name', 'HEAD'], {
+    cwd: root, allowFailure: true
+  }), 'Publication HEAD and branch').trim().split(/\r?\n/u);
+  if (output.length !== 2 || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(output[0])) {
+    throw new SingularityFlowError('Git returned an invalid publication HEAD.', { code: 'GIT_READ_UNAVAILABLE' });
+  }
+  invariant(output[1].startsWith('refs/heads/'), 'Detached HEAD is not supported.');
+  return { head: output[0], branch: output[1].slice('refs/heads/'.length) };
+}
+
 /**
  * Repository-wide Git storage shared by the main checkout and every linked worktree.
  *

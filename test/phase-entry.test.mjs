@@ -18,6 +18,7 @@ import { validateAgentEntryRequest } from '../src/agent-entry-options.mjs';
 import { phaseContextAdmission, phaseAdmissionActions } from '../src/phase-entry-admission.mjs';
 import { agentPacketPresentation } from '../src/agent-packet-presentation.mjs';
 import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
+import { librarySkillText } from '../src/skill-library.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -26,7 +27,7 @@ function git(root, ...args) {
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
-async function fixture(t, { planningInputs = false, customPhase = null, clarificationActor = false } = {}) {
+async function fixture(t, { planningInputs = false, customPhase = null, clarificationActor = false, attachedSkill = null } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-phase-entry-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   git(root, 'init', '-qb', 'main');
@@ -57,7 +58,13 @@ async function fixture(t, { planningInputs = false, customPhase = null, clarific
     const agentFile = path.join(root, '.github/agents/product-owner.agent.md');
     await writeFile(agentFile, (await readFile(agentFile, 'utf8'))
       .replace('sflow-phases: "intake,', `sflow-phases: "${customPhase},intake,`)
-      .replace('sflow-default-for: "intake,', `sflow-default-for: "${customPhase},intake,`));
+      .replace('sflow-default-for: "intake,', `sflow-default-for: "${customPhase},intake,`)
+      + (attachedSkill ? `\n## Attached skills\n\n| Skill | Phases | When to use it |\n|---|---|---|\n| ${attachedSkill} | ${customPhase} | Before drafting the step |\n` : ''));
+    if (attachedSkill) {
+      await mkdir(path.join(root, 'singularity/skill-library', attachedSkill), { recursive: true });
+      await writeFile(path.join(root, 'singularity/skill-library', attachedSkill, 'SKILL.md'), librarySkillText({ id: attachedSkill,
+        description: 'Lists what a QA intake must settle before drafting.', instructions: '1. Name the system under test.\n2. List the risks.' }));
+    }
   }
   await writeFile(file, YAML.stringify(source));
   git(root, 'add', '.');
@@ -677,6 +684,32 @@ test('explicit entry composition returns the governed prompt once and reuses imm
   assert.equal(workflow.phases[entry.phase].generation, 0);
   assert.equal(workflow.phases[entry.phase].status, 'in_progress');
   assert.equal(reused.effects.testsRun, false);
+});
+
+// Composing for an agent that attaches a skill also writes the skills audit (context/agents-<step>-gen<N>.json).
+// Re-entry read it as somebody else's work and held the step for human review before any authoring.
+test('a step whose agent attaches a skill re-enters its own composed context without a review hold', async t => {
+  const item = await fixture(t, { customPhase: 'qa-intake', attachedSkill: 'qa-checklist' });
+  const composed = completeAgentResult(item.invoke('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
+  assert.equal(composed.contextComposition, 'delivered', JSON.stringify(composed.contextAdmission));
+  assert.match(composed.context.text, /qa-checklist/);
+  const audit = 'team/stories/ENTRY-1/context/agents-qa-intake-gen1.json';
+  assert.match(git(item.root, 'status', '--porcelain=v1', '--untracked-files=all'), new RegExp(audit.replaceAll('.', '\\.')));
+  for (const args of [['phase', 'enter', '--for-agent', '--json'], ['phase', 'enter', '--compose', '--for-agent', '--json']]) {
+    const result = item.invoke(...args);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const entry = completeAgentResult(result.stdout);
+    assert.deepEqual(entry.contextAdmission.blockers, [], args.join(' '));
+    const worktree = entry.recovery.actions.find(action => action.id === 'working-tree');
+    assert.deepEqual(worktree?.unexpectedPaths ?? [], []);
+    assert.ok(worktree.expectedPaths.includes(audit));
+  }
+  // An audit that does not belong to this composition stays with a person.
+  const record = JSON.parse(await readFile(path.join(item.root, audit), 'utf8'));
+  await writeFile(path.join(item.root, audit), `${JSON.stringify({ ...record, agent: 'developer' }, null, 2)}\n`);
+  const held = completeAgentResult(item.invoke('phase', 'enter', '--for-agent', '--json').stdout);
+  assert.deepEqual(held.contextAdmission.blockers.map(entry => entry.code), ['PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED']);
+  assert.deepEqual(held.contextAdmission.blockers[0].paths, [audit]);
 });
 
 test('compact checks preserve every finding, risk choice, command guard and fresh-test requirement', () => {

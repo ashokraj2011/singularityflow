@@ -1,10 +1,13 @@
 /** Recognize current-generation preparation bytes, never publication or adoption authority. */
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { readPromptGeneration } from './inject.mjs';
 import { clarificationRecordRelative, verifyClarificationRecord } from './clarifications.mjs';
 import { resolveRepositoryManifest } from './repository-manifest.mjs';
 import { readBoundSpecificationClaimMap } from './specifications.mjs';
+import { readRecord } from './schema-migrations.mjs';
+import { snapshot } from './util.mjs';
 
 const MAX_CONTEXT_BYTES = 32 * 1024 * 1024;
 
@@ -52,6 +55,36 @@ export async function expectedPhaseEvidencePaths(root, config, workflow, phase, 
 }
 
 /**
+ * Composing for an agent that attaches skills also writes the skills audit,
+ * `context/agents-<step>-gen<N>.json`, and any skill copies it lists under
+ * `context/agent-snapshots/`. Publication commits them with the generation. They belong to this
+ * composition only when the audit names this Story, step, generation and the prompt record's agent,
+ * and every changed copy it lists still has its recorded hash; otherwise a person reviews them.
+ */
+async function agentContextPaths(root, workflow, phase, { itemRoot, generation, changedPaths, agent }) {
+  const auditPath = `${itemRoot}/context/agents-${phase.id}-gen${generation}.json`;
+  if (!changedPaths.includes(auditPath)) return [];
+  try {
+    if (!await regularContextFile(root, auditPath)) return [];
+    const audit = readRecord('agent-context-audit', await readFile(path.join(root, auditPath))).record;
+    if (audit?.workId !== workflow.workItem?.id || audit.phase !== phase.id
+        || audit.generation !== generation || !agent || audit.agent !== agent) return [];
+    const copies = [];
+    for (const entry of audit.files ?? []) {
+      const relative = String(entry?.path ?? '');
+      if (!relative.startsWith(`${itemRoot}/context/agent-snapshots/`) || !changedPaths.includes(relative)) continue;
+      if (relative.split('/').includes('..') || !await regularContextFile(root, relative)) return [];
+      if ((await snapshot(path.join(root, relative))).sha256 !== String(entry.sha256)) return [];
+      copies.push(relative);
+    }
+    return [auditPath, ...copies];
+  } catch {
+    // A malformed, linked or oversized audit stays manual.
+    return [];
+  }
+}
+
+/**
  * Inspect only the exact paths written by prompt composition and clarification recording.
  * The existing validators own identity and hash checks. Do not run another World Model scan,
  * fetch, compose, record, or commit just to classify a dirty worktree for recovery routing.
@@ -81,6 +114,9 @@ export async function expectedPreparationContextPaths(root, config, workflow, ph
     // Missing, unsupported, malformed, interrupted, or hash-mismatched pairs remain manual.
     return expected;
   }
+  expected.push(...await agentContextPaths(root, workflow, phase, {
+    itemRoot, generation, changedPaths, agent: composed.record.agent
+  }));
 
   if (changedPaths.includes(clarificationPath)) {
     try {

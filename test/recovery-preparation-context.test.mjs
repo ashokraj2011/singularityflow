@@ -6,6 +6,9 @@ import path from 'node:path';
 import { recordInjection } from '../src/inject.mjs';
 import { recordClarificationResponses } from '../src/clarifications.mjs';
 import { expectedPreparationContextPaths } from '../src/recovery-preparation-context.mjs';
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
+import { createHash } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
 import { run } from '../src/util.mjs';
 
 async function fixture(t, phaseId = 'custom-specification') {
@@ -94,6 +97,41 @@ test('invalid clarification does not acquire authority from a valid composed pro
     await writeFile(path.join(value.root, value.clarification.path), JSON.stringify(record));
     assert.deepEqual(await value.inspect(), [value.recorded.file, value.recorded.promptFile]);
   });
+});
+
+test('the skills audit and skill copies of the same composition are preparation, anything else stays manual', async t => {
+  const value = await fixture(t);
+  const copy = `${value.itemRoot}/context/agent-snapshots/architect/qa-checklist-abc.md`;
+  const audit = `${value.itemRoot}/context/agents-${value.phase.id}-gen1.json`;
+  const text = '# QA checklist\n';
+  await mkdir(path.dirname(path.join(value.root, copy)), { recursive: true });
+  await writeFile(path.join(value.root, copy), text);
+  const record = { schemaVersion: currentSchemaVersion('agent-context-audit'), workId: 'CTX-1', phase: value.phase.id, generation: 1,
+    agent: 'architect', nativeCopilotAgent: null, agentSourceSha256: '0'.repeat(64), recordedAt: '2026-10-16T00:00:00.000Z',
+    files: [{ id: 'qa-checklist', type: 'skill', url: 'library:qa-checklist', size: text.length, path: copy,
+      sha256: createHash('sha256').update(text).digest('hex') }] };
+  const write = async (changes = {}) => writeFile(path.join(value.root, audit), JSON.stringify({ ...record, ...changes }));
+  const changedPaths = [...value.changedPaths, audit, copy];
+  const admitted = async overrides => new Set(await value.inspect(overrides));
+  await write();
+  assert.deepEqual(await admitted({ changedPaths }), new Set([...value.changedPaths, audit, copy]));
+  assert.deepEqual(await admitted({ changedPaths: [...value.changedPaths, audit] }), new Set([...value.changedPaths, audit]),
+    'a copy committed earlier is not this check\'s concern');
+  for (const [label, changes] of [['Story', { workId: 'OTHER' }], ['phase', { phase: 'other-phase' }],
+    ['generation', { generation: 2 }], ['agent', { agent: 'developer' }]]) {
+    await write(changes);
+    assert.deepEqual(await value.inspect({ changedPaths }), value.changedPaths, label);
+  }
+  await write();
+  await writeFile(path.join(value.root, copy), '# Edited checklist\n');
+  assert.deepEqual(await value.inspect({ changedPaths }), value.changedPaths, 'an edited copy is not the composed bytes');
+  await writeFile(path.join(value.root, audit), '{invalid JSON');
+  assert.deepEqual(await value.inspect({ changedPaths }), value.changedPaths);
+  // Without a valid prompt pair of its own, an audit acquires nothing.
+  await write();
+  await writeFile(path.join(value.root, copy), text);
+  await writeFile(path.join(value.root, value.recorded.promptFile), '# Tampered prompt\n');
+  assert.deepEqual(await value.inspect({ changedPaths }), []);
 });
 
 test('recovery never sweeps in older generations, another Story, or arbitrary context files', async t => {

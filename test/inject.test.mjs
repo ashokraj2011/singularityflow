@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, symlink, unlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, symlink, unlink, writeFile, readdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -633,7 +633,7 @@ test('prompt-generation reuse refuses a corrupt snapshot instead of replacing it
   assert.equal(await readFile(path.join(root, first.promptFile), 'utf8'), '# Locally changed prompt\n');
 });
 
-test('prompt-generation persistence repairs an exact interrupted pair and refuses changed orphan bytes', async () => {
+test('prompt-generation persistence repairs an exact interrupted pair and moves a changed orphan aside', async () => {
   const renderedText = '# Pair prompt\n';
 
   const promptOnlyRoot = await fixtureRoot();
@@ -688,16 +688,19 @@ test('prompt-generation persistence repairs an exact interrupted pair and refuse
   const corruptReceipt = JSON.parse(await readFile(corruptReceiptPath, 'utf8'));
   corruptReceipt.compositionCache.promptSha256 = 'd'.repeat(64);
   await writeFile(corruptReceiptPath, `${JSON.stringify(corruptReceipt, null, 2)}\n`);
-  await assert.rejects(
-    () => recordInjection(corruptReceiptRoot, corruptReceiptWorkflow, phase, {
-      ...corruptRendered,
-      agent: 'architect',
-      renderedText,
-      compositionCache: { key: 'c'.repeat(64) }
-    }, { workDir: corruptReceiptWorkDir }),
-    (error) => error.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED'
-  );
-  await assert.rejects(readFile(path.join(corruptReceiptRoot, corruptRecorded.promptFile), 'utf8'), /ENOENT/);
+  const freshAfterCorrupt = await recordInjection(corruptReceiptRoot, corruptReceiptWorkflow, phase, {
+    ...corruptRendered,
+    agent: 'architect',
+    renderedText,
+    compositionCache: { key: 'c'.repeat(64) }
+  }, { workDir: corruptReceiptWorkDir });
+  assert.equal(await readFile(path.join(corruptReceiptRoot, freshAfterCorrupt.promptFile), 'utf8'), renderedText);
+  const corruptAside = path.join(corruptReceiptWorkDir, 'context/superseded');
+  const [corruptDirectory] = await readdir(corruptAside);
+  assert.match(corruptDirectory, /^design-gen1-interrupted-/);
+  assert.deepEqual(JSON.parse(await readFile(path.join(corruptAside, corruptDirectory, 'design-gen1.json'), 'utf8')).compositionCache.promptSha256, 'd'.repeat(64),
+    'the corrupt receipt is kept, beside its reason');
+  assert.equal(JSON.parse(await readFile(path.join(corruptAside, corruptDirectory, 'reason.json'), 'utf8')).generation, 1);
 
   const changedRoot = await fixtureRoot();
   const changedWorkflow = { workItem: { id: 'ENG-CHANGED-ORPHAN' } };
@@ -706,12 +709,13 @@ test('prompt-generation persistence repairs an exact interrupted pair and refuse
   await mkdir(path.dirname(changedPath), { recursive: true });
   await writeFile(changedPath, '# Different orphan prompt\n');
   const changedRendered = await composedInjection(changedRoot);
-  await assert.rejects(
-    () => recordInjection(changedRoot, changedWorkflow, phase, {
-      ...changedRendered, agent: 'architect', renderedText
-    }, { workDir: changedWorkDir }),
-    (error) => error.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED'
-  );
+  const freshAfterChanged = await recordInjection(changedRoot, changedWorkflow, phase, {
+    ...changedRendered, agent: 'architect', renderedText
+  }, { workDir: changedWorkDir });
+  assert.equal(await readFile(path.join(changedRoot, freshAfterChanged.promptFile), 'utf8'), renderedText);
+  const changedAside = path.join(changedWorkDir, 'context/superseded');
+  const [changedDirectory] = await readdir(changedAside);
+  assert.equal(await readFile(path.join(changedAside, changedDirectory, 'design-gen1.md'), 'utf8'), '# Different orphan prompt\n');
 });
 
 test('concurrent first composers cannot overwrite one prompt-generation slot', async () => {

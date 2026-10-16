@@ -578,9 +578,28 @@ export async function readPromptGeneration(root, workflow, phase, { workDir, ...
 }
 
 /**
+ * Move a lone half that a fresh composition does not reproduce out of the generation slot, with the
+ * reason first, so composition can write a complete pair. Its bytes stay in context/superseded/ and
+ * are committed with the step for its approvers. Refusing instead held the step forever: every later
+ * composition met the same half and the same refusal.
+ */
+async function supersedeInterruptedHalf(workDir, phase, location, file, renderedSha256) {
+  const tag = /^[0-9a-f]{64}$/u.test(String(renderedSha256 ?? '')) ? renderedSha256.slice(0, 12) : 'unverified';
+  const base = path.join(workDir, 'context', 'superseded', `${phase.id}-gen${location.generation}-interrupted-${tag}`);
+  let directory = base;
+  for (let attempt = 2; existsSync(directory); attempt += 1) directory = `${base}-${attempt}`;
+  await mkdir(directory, { recursive: true });
+  await writeAtomic(path.join(directory, 'reason.json'), `${JSON.stringify({
+    phase: phase.id, generation: location.generation, renderedSha256: tag === 'unverified' ? null : renderedSha256,
+    reason: 'interrupted prompt pair: the surviving half did not match a fresh composition'
+  }, null, 2)}\n`);
+  await rename(file, path.join(directory, path.basename(file)));
+}
+
+/**
  * Complete the one missing half of a generation pair only when the surviving bytes and the newly
- * composed candidate are exact matches. This is crash recovery, not overwrite authority: any
- * disagreement remains an integrity refusal.
+ * composed candidate are exact matches. This is crash recovery, not overwrite authority: a half that
+ * disagrees is moved aside (supersedeInterruptedHalf) and the caller composes a fresh pair.
  */
 async function repairInterruptedPromptGeneration(
   root, workflow, phase, location, record, renderedText, workDir, beforePersist = null
@@ -599,11 +618,8 @@ async function repairInterruptedPromptGeneration(
     const survivingText = await readFile(promptTarget.absolute, 'utf8');
     if (promptSha256(survivingText) !== record.renderedSha256
         || survivingText !== renderedText) {
-      throw promptGenerationFailure(
-        `Prompt generation ${location.label} has a snapshot without a receipt, but its bytes do not match the exact recovery candidate.`,
-        'PROMPT_SNAPSHOT_INTEGRITY_FAILED',
-        { recordPath: location.recordPath, promptPath: location.promptPath }
-      );
+      await supersedeInterruptedHalf(workDir, phase, location, location.promptFile, promptSha256(survivingText));
+      return null;
     }
     if (beforePersist) await beforePersist({ ...location, half: 'receipt', recovery: true });
     await publishPromptHalfExclusively(
@@ -619,28 +635,20 @@ async function repairInterruptedPromptGeneration(
 
   let survivingRecord;
   try {
-    const decoded = readRecord(
-      'prompt-injection', await readFile(recordTarget.absolute, 'utf8')
-    );
-    survivingRecord = decoded.record;
-  } catch (error) {
-    throw promptGenerationFailure(
-      `Prompt generation ${location.label} has a receipt without a snapshot, and the receipt is unreadable: ${error.message}`,
-      'PROMPT_SNAPSHOT_INTEGRITY_FAILED',
-      { recordPath: location.recordPath, promptPath: location.promptPath }
-    );
+    survivingRecord = readRecord('prompt-injection', await readFile(recordTarget.absolute, 'utf8')).record;
+    assertExpectedPromptIdentity(survivingRecord, workflow, phase, location, {
+      agent: record.agent, task: record.task
+    });
+  } catch {
+    // Unreadable, or composed for another agent or task: it cannot complete this pair.
+    await supersedeInterruptedHalf(workDir, phase, location, location.recordFile, survivingRecord?.renderedSha256);
+    return null;
   }
-  assertExpectedPromptIdentity(survivingRecord, workflow, phase, location, {
-    agent: record.agent, task: record.task
-  });
   if (survivingRecord.compositionCache != null
       && (!/^[0-9a-f]{64}$/.test(survivingRecord.compositionCache.key ?? '')
         || survivingRecord.compositionCache.promptSha256 !== survivingRecord.renderedSha256)) {
-    throw promptGenerationFailure(
-      `Prompt generation ${location.label} has a receipt without a snapshot, but its composition-cache digest is invalid.`,
-      'PROMPT_SNAPSHOT_INTEGRITY_FAILED',
-      { recordPath: location.recordPath, promptPath: location.promptPath }
-    );
+    await supersedeInterruptedHalf(workDir, phase, location, location.recordFile, survivingRecord.renderedSha256);
+    return null;
   }
   const [comparableSurvivor, comparableCandidate] = comparablePromptRecordPair(
     survivingRecord, record, {
@@ -653,11 +661,8 @@ async function repairInterruptedPromptGeneration(
   if (survivingRecord.renderedSha256 !== record.renderedSha256
       || !sameRecord
       || (existingCacheKey != null && existingCacheKey !== candidateCacheKey)) {
-    throw promptGenerationFailure(
-      `Prompt generation ${location.label} has a receipt without a snapshot, but it does not match the exact recovery candidate.`,
-      'PROMPT_SNAPSHOT_INTEGRITY_FAILED',
-      { recordPath: location.recordPath, promptPath: location.promptPath }
-    );
+    await supersedeInterruptedHalf(workDir, phase, location, location.recordFile, survivingRecord.renderedSha256);
+    return null;
   }
   if (beforePersist) await beforePersist({ ...location, half: 'snapshot', recovery: true });
   await publishPromptHalfExclusively(location.promptFile, renderedText, location, 'snapshot');

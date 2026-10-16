@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, writeFile, rm, unlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, writeFile, rm, unlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -869,6 +869,30 @@ test('changes held while a step awaits approval can be set aside by the person',
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.deepEqual(JSON.parse(result.stdout).setAside.removed, ['notes.txt']);
   assert.equal(git(item.root, 'status', '--porcelain=v1', '--untracked-files=all'), '');
+});
+
+// A half left by an interrupted composition, and then the Story changed before the next one: the fresh
+// candidate can never match the half, and composition refused it on every attempt.
+test('a lone prompt half the Story has since outgrown is moved aside and composition continues', async t => {
+  const item = await fixture(t, { customPhase: 'qa-intake' });
+  assert.equal(completeAgentResult(item.invoke('phase', 'enter', '--compose', '--for-agent', '--json').stdout).contextComposition, 'delivered');
+  const context = 'team/stories/ENTRY-1/context';
+  await unlink(path.join(item.root, context, 'prompts/qa-intake-gen1.md'));
+  const statePath = path.join(item.root, 'team/stories/ENTRY-1/workflow.json');
+  const state = JSON.parse(await readFile(statePath, 'utf8'));
+  state.changeRequests = [...(state.changeRequests ?? []), { id: 'CR-1', status: 'open', targetPhase: 'qa-intake',
+    comment: 'Also cover the empty category.', clauseIds: [], requestedAt: '2026-10-16T00:00:00.000Z' }];
+  await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+  const entry = completeAgentResult(item.invoke('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
+  assert.deepEqual(entry.contextAdmission.blockers, []);
+  assert.equal(entry.contextComposition, 'delivered');
+  assert.match(entry.context.text, /Also cover the empty category/);
+  const aside = path.join(item.root, context, 'superseded');
+  const [directory] = (await readdir(aside)).filter(name => name.includes('-interrupted-'));
+  assert.ok(directory, 'the outgrown receipt is kept with its reason');
+  assert.match(JSON.parse(await readFile(path.join(aside, directory, 'reason.json'), 'utf8')).reason, /did not match a fresh composition/);
+  const again = completeAgentResult(item.invoke('phase', 'enter', '--for-agent', '--json').stdout);
+  assert.deepEqual(again.contextAdmission.blockers, [], 'the moved half and its reason are this step\'s own');
 });
 
 // A step writes more than its primary artifact: the other members of its artifact set (review notes,

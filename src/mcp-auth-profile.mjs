@@ -33,13 +33,13 @@ const WINDOWS_ACL_SCRIPT = [
   '})',
   '[pscustomobject]@{protected=$acl.AreAccessRulesProtected;rules=$rules} | ConvertTo-Json -Compress -Depth 4'
 ].join(';');
-const WINDOWS_RECURSIVE_ACL_SCRIPT = [
+const windowsApplyAclScript = recursive => [
   "$ErrorActionPreference='Stop'",
   '$target=[System.IO.Path]::GetFullPath($args[0])',
   '$sid=New-Object System.Security.Principal.SecurityIdentifier($args[1])',
   "$apply=$args[2] -eq 'apply'",
   '$root=Get-Item -LiteralPath $target -Force',
-  '$items=@($root)+@(Get-ChildItem -LiteralPath $target -Force -Recurse)',
+  '$items=@($root)' + (recursive ? '+@(Get-ChildItem -LiteralPath $target -Force -Recurse)' : ''),
   "if($items.Count -gt 50001){throw 'private MCP tree exceeds its entry ceiling'}",
   '$unsafe=0',
   'foreach($item in $items){',
@@ -79,7 +79,6 @@ function windowsAclExecutables(environment) {
     const system32 = path.win32.dirname(cmd);
     return Object.freeze({
       whoami: resolveWindowsSystemTool(environment, 'whoami.exe'),
-      icacls: resolveWindowsSystemTool(environment, 'icacls.exe'),
       powershell: path.win32.join(system32, 'WindowsPowerShell', 'v1.0', 'powershell.exe')
     });
   } catch (error) {
@@ -116,11 +115,11 @@ export async function secureWindowsAuthAcl(target, {
       code: 'MCP_AUTH_WINDOWS_ACL_FAILED'
     });
   }
-  if (recursive) {
+  if (recursive || apply) {
     let observed;
     try {
       const result = await execFileCommand(executables.powershell,
-        windowsAclCommand(WINDOWS_RECURSIVE_ACL_SCRIPT, [target, sid, apply ? 'apply' : 'verify']), {
+        windowsAclCommand(windowsApplyAclScript(recursive), [target, sid, apply ? 'apply' : 'verify']), {
         shell: false, windowsHide: true, timeout: 120_000, maxBuffer: 64 * 1024,
         env: environment
       });
@@ -131,30 +130,15 @@ export async function secureWindowsAuthAcl(target, {
       });
     }
     if (observed?.protected !== true || !Number.isSafeInteger(observed?.entries)
-        || observed.entries < 1 || observed.entries > 50_001 || observed?.unsafe !== 0) {
+        || observed.entries < 1 || observed.entries > (recursive ? 50_001 : 1) || observed?.unsafe !== 0) {
       throw new SingularityFlowError('Private MCP state does not have a recursively verified current-user-only Windows ACL.', {
         code: 'MCP_AUTH_WINDOWS_ACL_UNSAFE'
       });
     }
     return {
       protected: true, principal: 'current-user', access: 'full-control',
-      recursive: true, entries: observed.entries
+      ...(recursive ? { recursive: true, entries: observed.entries } : {})
     };
-  }
-  if (apply) {
-    try {
-      await execFileCommand(executables.icacls, [
-        target, '/inheritance:r', '/grant:r',
-        `*${sid}:${directory ? '(OI)(CI)' : ''}(F)`
-      ], {
-        shell: false, windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024,
-        env: environment
-      });
-    } catch (error) {
-      throw new SingularityFlowError('Windows could not apply a user-only ACL to private MCP state.', {
-        code: 'MCP_AUTH_WINDOWS_ACL_FAILED', cause: error
-      });
-    }
   }
   let observed;
   try {

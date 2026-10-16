@@ -173,9 +173,11 @@ test('Windows auth ACL applies and verifies one current-user principal and fails
       const executableName = path.win32.basename(command).toLowerCase();
       if (executableName === failCommand) throw new Error('fixture command failed');
       if (executableName === 'whoami.exe') return { stdout: `"OFFICE\\user","${sid}"\r\n`, stderr: '' };
-      if (executableName === 'icacls.exe') return { stdout: 'Successfully processed 1 files\r\n', stderr: '' };
       if (executableName === 'powershell.exe') {
-        return { stdout: JSON.stringify({ protected: true, rules }), stderr: '' };
+        const script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
+        assert.equal(args.at(-2), '-EncodedCommand');
+        assert.ok(!script.includes('Get-ChildItem'), 'single-target ACL application never traverses children');
+        return { stdout: JSON.stringify({ protected: true, rules, entries: 1, unsafe: 0 }), stderr: '' };
       }
       throw new Error(`unexpected fixture command ${command}`);
     };
@@ -188,10 +190,12 @@ test('Windows auth ACL applies and verifies one current-user principal and fails
     });
     assert.deepEqual(result, { protected: true, principal: 'current-user', access: 'full-control' });
     assert.deepEqual(calls.map((call) => path.win32.basename(call.command).toLowerCase()), [
-      'whoami.exe', 'icacls.exe', 'powershell.exe'
+      'whoami.exe', 'powershell.exe'
     ]);
     assert.ok(calls.every((call) => path.win32.isAbsolute(call.command)));
-    assert.ok(calls[1].args.includes(`*${sid}:(F)`));
+    const script = Buffer.from(calls[1].args.at(-1), 'base64').toString('utf16le');
+    assert.ok(script.includes("'" + sid + "','apply'"));
+    assert.ok(script.includes('$acl.SetAccessRuleProtection($true,$false)'));
     assert.ok(calls.every((call) => call.options.shell === false));
   });
 
@@ -211,7 +215,7 @@ test('Windows auth ACL applies and verifies one current-user principal and fails
 
   await context.test('refuses ACL command failure without disclosing its target', async () => {
     await assert.rejects(() => secureWindowsAuthAcl('C:\\private\\secret-state.json', {
-      execFileCommand: executor({ failCommand: 'icacls.exe' }), environment
+      execFileCommand: executor({ failCommand: 'powershell.exe' }), environment
     }), (error) => {
       assert.equal(error.code, 'MCP_AUTH_WINDOWS_ACL_FAILED');
       assert.equal(error.message.includes('secret-state.json'), false);

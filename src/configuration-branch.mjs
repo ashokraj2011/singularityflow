@@ -1489,7 +1489,8 @@ async function cloneConfiguration(remote, target, { env = process.env, configura
   // exact configuration blobs into a second negotiation, so fetch them in the single clone.
   const clone = await runRemoteGitAsync([
     '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
-    ...(configurationOnly ? ['--no-checkout'] : []),
+    ...(configurationOnly ? ['--no-checkout', '--config', 'core.sparseCheckout=true',
+      '--config', 'core.sparseCheckoutCone=false'] : []),
     '--branch', CONFIGURATION_BRANCH, frozen.remote, target
   ], { cwd: path.dirname(target), operation: 'remote-configuration', env: frozen.env });
   if (clone.status !== 0) {
@@ -1529,10 +1530,21 @@ async function cloneConfiguration(remote, target, { env = process.env, configura
     }
     const patterns = [...selected].sort().map(relative =>
       `/${relative.replace(/[\\*?\[\]]/gu, '\\$&')}`).join('\n') + '\n';
-    run('git', ['sparse-checkout', 'set', '--no-cone', '--stdin'], {
-      cwd: target, env: frozen.env, input: patterns
-    });
-    // clone --no-checkout has no index yet; set records the patterns but does not populate it.
+    // Use the longstanding read-tree protocol, not newer sparse-checkout set flags. This also
+    // avoids an extra Git launch. Only this fresh clone's own real metadata directory is writable;
+    // exclusive creation refuses an existing/template-provided file instead of following it.
+    const metadata = path.join(target, '.git'), info = path.join(metadata, 'info');
+    for (const directory of [metadata, info]) {
+      if (directory === info) await mkdir(info, { mode: 0o700 }).catch(error => {
+        if (error.code !== 'EEXIST') throw error;
+      });
+      const entry = await lstat(directory);
+      if (!entry.isDirectory() || entry.isSymbolicLink()) throw new SingularityFlowError(
+        'Configuration projection metadata must be a real directory.',
+        { code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID' }
+      );
+    }
+    await writeFile(path.join(info, 'sparse-checkout'), patterns, { flag: 'wx', mode: 0o600 });
     run('git', ['read-tree', '-mu', commit], { cwd: target, env: frozen.env });
     incrementCommandCounter('configuration.projected-checkouts');
     incrementCommandCounter('configuration.projected-assets', paths.length);

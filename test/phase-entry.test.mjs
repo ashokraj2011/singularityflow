@@ -718,6 +718,34 @@ test('a step whose agent attaches a skill re-enters its own composed context wit
   });
 });
 
+// A step writes more than its primary artifact: the other members of its artifact set (review notes,
+// task maps, evidence folders) and files below its own artifact directory, which publication
+// registers and commits. Entry read them as somebody else's work and held the step for a person.
+test('a step\'s own artifact-set files are its draft, another step\'s artifacts still need a person', async t => {
+  const item = await fixture(t);
+  const composed = completeAgentResult(item.invoke('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
+  assert.equal(composed.phase, 'specification');
+  const own = 'team/stories/ENTRY-1/artifacts/specification/checklists/requirements.md';
+  await mkdir(path.dirname(path.join(item.root, own)), { recursive: true });
+  await writeFile(path.join(item.root, own), '# Review notes\n\nThe reviewer checks each article.\n');
+  const entry = completeAgentResult(item.invoke('phase', 'enter', '--for-agent', '--json').stdout);
+  assert.deepEqual(entry.contextAdmission.blockers, []);
+  assert.ok(entry.recovery.actions.find(action => action.id === 'working-tree').expectedPaths.includes(own));
+  // Not a declared member, but below the step's own artifact directory: publication registers it.
+  const notes = 'team/stories/ENTRY-1/artifacts/specification/notes/interview.md';
+  await mkdir(path.dirname(path.join(item.root, notes)), { recursive: true });
+  await writeFile(path.join(item.root, notes), '# Interview notes\n');
+  const noted = completeAgentResult(item.invoke('phase', 'enter', '--for-agent', '--json').stdout);
+  assert.deepEqual(noted.contextAdmission.blockers, []);
+  assert.ok(noted.recovery.actions.find(action => action.id === 'working-tree').expectedPaths.includes(notes));
+  const other = 'team/stories/ENTRY-1/artifacts/planning/plan.md';
+  await mkdir(path.dirname(path.join(item.root, other)), { recursive: true });
+  await writeFile(path.join(item.root, other), '# A plan nobody prepared\n');
+  const held = completeAgentResult(item.invoke('phase', 'enter', '--for-agent', '--json').stdout);
+  assert.deepEqual(held.contextAdmission.blockers.map(blocker => blocker.code), ['PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED']);
+  assert.deepEqual(held.contextAdmission.blockers[0].paths, [other]);
+});
+
 test('compact checks preserve every finding, risk choice, command guard and fresh-test requirement', () => {
   const full = { resultType: 'sflow-phase-prepublish', phase: 'custom-code', status: 'correction-required',
     artifact: { path: 'team/stories/E/artifacts/code.md', sha256: 'abc', preview: 'x'.repeat(16_000) },

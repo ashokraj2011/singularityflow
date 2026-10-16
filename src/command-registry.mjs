@@ -387,7 +387,9 @@ const STORY_READ_SUBCOMMANDS = Object.freeze(['inbox', 'status', 'return']);
 const STORY_MUTATION_SUBCOMMANDS = Object.freeze(['start', 'fetch', 'submit', 'finalize', 'checks', 'adjudicate', 'rework', 'advance']);
 const STORY_INTERVAL_ACTIONS = Object.freeze(['status', 'checkpoint', 'reconcile', 'escalate', 'acknowledge']);
 const STORY_BRANCH_ACTIONS = Object.freeze(['status', 'create', 'attach', 'promote']);
-const STORY_INTENT_AMENDMENT_ACTIONS = Object.freeze(['status', 'propose', 'decide', 'acknowledge']);
+const STORY_INTENT_AMENDMENT_ACTIONS = Object.freeze(['status', 'draft', 'propose', 'decide', 'acknowledge']);
+// A draft is written beside the checkout's Git data, never into the Story; reading what to amend changes nothing governed.
+const STORY_INTENT_AMENDMENT_READS = Object.freeze(['status', 'draft']);
 const STORY_SKILL_VERSION_ACTIONS = Object.freeze(['status', 'preview', 'propose', 'decide']);
 const STORY_WORKFLOW_ACTIONS = Object.freeze(['show', 'verify', 'drift']);
 const STORY_REFERENCE_ACTIONS = Object.freeze(['list', 'verify', 'materialize', 'inspect']);
@@ -908,7 +910,7 @@ function resolveStoryOperation(definition, positionals, options) {
     if (!STORY_INTENT_AMENDMENT_ACTIONS.includes(action)) {
       return unknownSubcommand('story intent-amendment', action, STORY_INTENT_AMENDMENT_ACTIONS, 'action');
     }
-    return never(`story.intent-amendment.${action}`, definition, action === 'status' ? 'read' : 'mutation');
+    return never(`story.intent-amendment.${action}`, definition, STORY_INTENT_AMENDMENT_READS.includes(action) ? 'read' : 'mutation');
   }
   if (subcommand === 'skill-version') {
     const action = positionals[2] ?? 'status';
@@ -1917,7 +1919,7 @@ export function operationCatalog() {
     ...STORY_BRANCH_ACTIONS
       .map((name) => never(`story.branch.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
     ...STORY_INTENT_AMENDMENT_ACTIONS
-      .map((name) => never(`story.intent-amendment.${name}`, storyDefinition, name === 'status' ? 'read' : 'mutation')),
+      .map((name) => never(`story.intent-amendment.${name}`, storyDefinition, STORY_INTENT_AMENDMENT_READS.includes(name) ? 'read' : 'mutation')),
     ...STORY_SKILL_VERSION_ACTIONS.flatMap((name) => (
       ['propose', 'decide'].includes(name)
         ? [never(`story.skill-version.${name}.preview`, storyDefinition, 'read'),

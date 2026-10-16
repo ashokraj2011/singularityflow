@@ -47,7 +47,7 @@ import { convergenceReviewRoute } from '../convergence-review-route.mjs';
 import { runDraftTransaction } from '../draft-unit-of-work.mjs';
 import {
   admitGovernedPublication, assertClean, branch, changedFiles, changes, checkout, commit, head,
-  identity, refHead, remoteNames, repoRoot
+  exactTreePathsAtObject, fileAtRef, gitDir, identity, refHead, remoteNames, repoRoot
 } from '../git.mjs';
 import { runAndRecordStoryChecks } from '../github-evidence.mjs';
 import { loadPortfolio } from '../initiative-config.mjs';
@@ -1619,6 +1619,7 @@ export async function storyConvergeCommand(positionals, options) {
     printCommandRoutes('singularity-flow story rework --confirm', { indent: '  ', label: 'Create rework' });
   }
   if (projection.allowedNext.includes('propose-intent-amendment')) {
+    printCommandRoutes(`singularity-flow story intent-amendment draft --work-id ${workflow.workItem.id}`, { indent: '  ', label: 'Draft the amendment from these decisions' });
     printCommandRoutes(
       'singularity-flow story intent-amendment propose --file <AMENDED-SPEC.md> --reason <TEXT>',
       { indent: '  ', label: 'Propose intent amendment' }
@@ -1777,6 +1778,125 @@ export function intentAmendmentClauses(diff, supplied = []) {
   return required;
 }
 
+/**
+ * `story intent-amendment draft [--clause ID]... [--adopt CLAUSE-ID]... [--out FILE] [--json]`: the
+ * approved scope drafted where it must catch up with the code (src/intent-amendment-draft.mjs), from
+ * convergence `update-intent` decisions, closed Stories' clauses this Story takes over (--adopt, or
+ * a recorded `spec drift decide --adopt --story`) and any --clause named. Writes only the draft,
+ * beside the checkout's Git data unless --out says where.
+ */
+async function draftIntentAmendment(root, config, workflow, options) {
+  await phaseIntentAmendmentSource(root, config, workflow, workflow.currentPhase);
+  const specification = scopeStepOf(workflow);
+  if (!specification?.requiredArtifact?.path) {
+    throw new SingularityFlowError(`Work type '${workflow.workItem.workType}' has no scope artifact to amend.`, { code: 'INTENT_AMENDMENT_UNSUPPORTED' });
+  }
+  const workId = workflow.workItem.id;
+  const specificationPath = posix(path.join(path.relative(root, workDir(root, config, workId)), specification.requiredArtifact.path));
+  const text = await readFile(path.join(root, specificationPath), 'utf8');
+  const clauses = extractClauses(text, { sourcePath: specificationPath });
+  const revisions = new Map();
+  const revise = (clauseId, why = null) => {
+    const id = String(clauseId).toUpperCase();
+    if (!revisions.has(id)) revisions.set(id, []);
+    if (why) revisions.get(id).push(why);
+  };
+  for (const clauseId of optionStrings(options, 'clause')) revise(clauseId);
+  if (convergencePhaseOf(workflow)) {
+    let projection = null;
+    try {
+      const subject = await convergenceSubject(root, config, workflow);
+      projection = await readConvergence(root, subject.itemRelative, subject.iteration);
+    } catch { projection = null; }
+    const items = new Map([...(projection?.facts ?? []), ...(projection?.candidates ?? [])].map((item) => [item.id, item]));
+    for (const finding of (projection?.findings ?? []).filter((entry) => entry.disposition === 'update-intent')) {
+      const item = items.get(finding.itemId);
+      const where = item?.path ? ` at ${item.path}` : '';
+      for (const clauseId of finding.clauseIds ?? []) {
+        revise(clauseId, `Convergence ${finding.itemId} (${finding.kind ?? item?.kind ?? 'finding'}${where}) was dispositioned update-intent: ${finding.decision?.reason ?? 'no reason recorded'}.`);
+      }
+    }
+  }
+  const unknown = [...revisions.keys()].filter((id) => !clauses.some((clause) => clause.id === id));
+  if (unknown.length) {
+    throw new SingularityFlowError(`The approved specification has no clause ${unknown.join(', ')}.`, { code: 'INTENT_AMENDMENT_DRAFT_CLAUSE_UNKNOWN' });
+  }
+  // Clauses of closed Stories a person adopted into this Story (`spec drift decide --adopt --story`).
+  const { activeDriftDecision, evaluateSpecDrift, readDriftDecisions, recordedStories } = await import('../spec-drift.mjs');
+  const additions = [];
+  // Decisions are recorded on the default branch, so an in-flight Story reads them from there too;
+  // the longer of two copies of one append-only file is the newer.
+  const sources = new Map();
+  const keep = (name, bytes) => {
+    if (!/^[A-Za-z0-9._-]+\.json$/u.test(name)) return;
+    const decisions = readDriftDecisions(bytes);
+    if ((sources.get(name)?.length ?? -1) < decisions.length) sources.set(name, decisions);
+  };
+  const driftDirectory = path.join(root, 'singularity', 'spec-drift');
+  for (const name of await readdir(driftDirectory).catch(() => [])) keep(name, await readFile(path.join(driftDirectory, name)).catch(() => null));
+  const defaultBase = refHead(root, `${config.git?.remote ?? 'origin'}/${config.defaultBaseBranch ?? 'main'}`);
+  for (const relative of (defaultBase ? exactTreePathsAtObject(root, defaultBase, ['singularity/spec-drift']) : null) ?? []) {
+    keep(path.posix.basename(relative), fileAtRef(root, defaultBase, relative));
+  }
+  const workItemRoot = config.workItemRoot ?? 'singularity/work-items';
+  // What to adopt: --adopt names a closed Story's clause this Story's change took over; a recorded
+  // `spec drift decide --adopt --story` names this Story after the fact.
+  const adoptions = new Map();
+  const adopt = (fromWorkId, clauseId) => {
+    if (!adoptions.has(fromWorkId)) adoptions.set(fromWorkId, new Set());
+    adoptions.get(fromWorkId).add(clauseId);
+  };
+  for (const [name, decisions] of sources) {
+    for (const clauseId of new Set(decisions.filter((entry) => !entry.revokes).map((entry) => entry.clauseId))) {
+      const active = activeDriftDecision(decisions, clauseId);
+      if (active?.outcome === 'adopt' && active.story === workId) adopt(name.replace(/\.json$/u, ''), clauseId);
+    }
+  }
+  const named = optionStrings(options, 'adopt').map((entry) => String(entry).toUpperCase());
+  const everyStory = named.length || sources.size ? recordedStories(root, workItemRoot) : [];
+  for (const clauseId of named) {
+    const owner = everyStory.find((story) => !story.unreadable && story.status === 'closed'
+      && String(story.workItem?.id ?? '').toUpperCase() === clauseId.split(':')[0]);
+    if (!owner || owner.workItem.id === workId) {
+      throw new SingularityFlowError(`--adopt names a clause of a closed Story; no closed Story recorded here owns ${clauseId}.`, { code: 'INTENT_AMENDMENT_DRAFT_CLAUSE_UNKNOWN' });
+    }
+    adopt(owner.workItem.id, clauseId);
+  }
+  for (const [fromWorkId, clauseIds] of [...adoptions].sort(([left], [right]) => left.localeCompare(right))) {
+    const adopted = [...clauseIds].sort();
+    const from = everyStory.find((story) => story.workItem?.id === fromWorkId && !story.unreadable) ?? null;
+    const report = from ? evaluateSpecDrift(root, { workItemRoot, workId: fromWorkId, stories: everyStory }) : null;
+    const statements = new Map();
+    if (from) {
+      try {
+        for (const index of (await loadActiveSpecRecords(workDir(root, config, fromWorkId), from)).indexes ?? []) {
+          for (const clause of index.clauses ?? []) statements.set(clause.id, clause.body);
+        }
+      } catch { /* the statement is optional evidence */ }
+    }
+    for (const clauseId of adopted) {
+      const drifted = report?.stories[0]?.clauses.find((entry) => entry.clauseId === clauseId) ?? null;
+      additions.push({ fromWorkId, fromClauseId: clauseId, type: clauseId.split(':')[1]?.split('-')[0] ?? 'REQ',
+        statement: statements.get(clauseId) ?? null, evidence: (drifted?.findings ?? []).map((finding) => finding.message).slice(0, 6),
+        productPaths: drifted?.productPaths ?? [], testPaths: drifted?.testPaths ?? [] });
+    }
+  }
+  if (!revisions.size && !additions.length) {
+    throw new SingularityFlowError('Nothing to draft: no convergence finding was dispositioned update-intent, no closed Story\'s clause was adopted into '
+      + `${workId} (--adopt CLAUSE-ID, or spec drift decide --adopt --story ${workId}), and no --clause was named.`, { code: 'INTENT_AMENDMENT_DRAFT_EMPTY' });
+  }
+  const out = optionString(options, 'out') ? path.resolve(optionString(options, 'out'))
+    : path.join(gitDir(root), 'singularity-flow', 'intent-amendment-drafts', `${workId}.md`);
+  const proposeCommand = `singularity-flow story intent-amendment propose --work-id ${workId} --file "${out}" --reason "<why the specification changes>"`;
+  const { buildIntentAmendmentDraft } = await import('../intent-amendment-draft.mjs');
+  const draft = buildIntentAmendmentDraft({ text, clauses, namespace: workId.toUpperCase(),
+    revisions: [...revisions].map(([clauseId, why]) => ({ clauseId, why })), additions, proposeCommand });
+  await mkdir(path.dirname(out), { recursive: true });
+  await writeText(out, draft.text);
+  return { resultType: 'intent-amendment-draft', workId, specification: specificationPath, path: out, slots: draft.slots,
+    next: { command: proposeCommand, detail: 'Replace every sflow-draft slot with the clause wording, then propose; nothing is proposed until then.' } };
+}
+
 async function proposeIntentAmendment(root, config, workflow, options) {
   // All workflows use the same phase-bound proposal. Existing convergence-backed proposals remain
   // readable/decidable, but a new intent change never needs an artificial convergence finding.
@@ -1824,6 +1944,10 @@ async function proposeIntentAmendment(root, config, workflow, options) {
     throw new SingularityFlowError('An intent-amendment specification may not exceed 2 MiB.', {
       code: 'INTENT_AMENDMENT_INVALID'
     });
+  }
+  if (proposedText.includes('sflow-draft:')) {
+    throw new SingularityFlowError('The proposed specification still has sflow-draft slots. Replace each with the clause wording (and delete the closing instruction line), then propose it.', {
+      code: 'INTENT_AMENDMENT_DRAFT_UNFINISHED' });
   }
   const beforeClauses = extractClauses(currentText, { sourcePath: specificationPath });
   const afterClauses = extractClauses(proposedText, { sourcePath: specificationPath });
@@ -2127,6 +2251,15 @@ export async function storyIntentAmendmentCommand(positionals, options) {
       console.log(`${amendment.id}\t${amendment.status}\t${amendment.changedClauses?.join(', ') || 'no clauses'}`
         + `${amendment.acknowledgementRequired ? '\tacknowledgement required' : ''}`);
     }
+    return;
+  }
+  if (action === 'draft') {
+    const result = await draftIntentAmendment(root, config, workflow, options);
+    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
+    console.log(`Drafted ${result.slots.length} change(s) to ${result.specification} at ${result.path}:`);
+    for (const slot of result.slots) console.log(`  ${slot.kind === 'revise' ? 'revise' : 'add   '} ${slot.clauseId}${slot.from ? ` (adopting ${slot.from})` : ''}`);
+    console.log('Replace every sflow-draft slot with the clause wording; nothing is proposed until you run:');
+    printCommandRoutes(result.next.command, { label: 'Propose intent amendment' });
     return;
   }
   if (action === 'propose') {

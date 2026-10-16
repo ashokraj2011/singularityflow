@@ -917,6 +917,7 @@ Usage:
     --disposition rework|update-intent|accepted-deviation|dismissed|deferred [--reason TEXT]
     [--classification missing|partial|contradicts|unplanned] [--clause ID]... [--json]
   singularity-flow story intent-amendment status [--work-id ID] [--json]
+  singularity-flow story intent-amendment draft [--clause ID]... [--adopt CLAUSE-ID]... [--out FILE] [--work-id ID] [--json]
   singularity-flow story intent-amendment propose --file AMENDED-SPEC.md --reason TEXT [--work-id ID]
     [--authored human|governed-agent|external-tool] [--channel CHANNEL]
     [--external-ai none|assisted] [--change-origin ORIGIN...]

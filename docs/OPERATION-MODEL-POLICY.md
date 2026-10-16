@@ -648,6 +648,7 @@ Every public operation is classified before its implementation module is importe
 | story.inbox | read | never | — | — |
 | story.intent-amendment.acknowledge | mutation | never | — | — |
 | story.intent-amendment.decide | mutation | never | — | — |
+| story.intent-amendment.draft | read | never | — | — |
 | story.intent-amendment.propose | mutation | never | — | — |
 | story.intent-amendment.status | read | never | — | — |
 | story.interval.acknowledge | mutation | never | — | — |

@@ -264,6 +264,8 @@ function evaluateClause(clause, { phaseId, changes, content, commits }) {
     status: orphaned ? 'orphaned' : findings.length ? 'drifted' : 'in-sync',
     paths: [...new Set([...clause.tags.map((entry) => entry.path), ...clause.deletions.map((entry) => entry.path),
       ...clause.regions.map((entry) => entry.path), ...clause.witnesses.map((entry) => entry.testSource)])].sort(),
+    productPaths: [...new Set([...clause.tags.map((entry) => entry.path), ...clause.regions.map((entry) => entry.path)])].sort(),
+    testPaths: [...new Set(clause.witnesses.map((entry) => entry.testSource))].sort(),
     anchors: { tags: clause.tags.length, regions: clause.regions.length, witnesses: clause.witnesses.length, deletions: clause.deletions.length },
     findings
   };
@@ -350,7 +352,7 @@ export function foreignClauseAdvisories(root, { workItemRoot = 'singularity/work
           code: 'spec.drift.foreign-clause', category: 'coverage', blocking: false, requiredBefore: null,
           path: finding.path ?? null, line: finding.lines?.from ?? null, value: clause.clauseId,
           workId: story.workId, clauseId: clause.clauseId, drift: clause.status,
-          message: `This change touches ${clause.clauseId} of closed Story ${story.workId}: ${finding.message} That clause will read ${clause.status} until a person adopts it (amends that Story's clause) or restores the code. Advisory only.`
+          message: `This change touches ${clause.clauseId} of closed Story ${story.workId}: ${finding.message} That clause will read ${clause.status} until a person adopts it or restores the code. If this Story's specification should take it over, draft that: singularity-flow story intent-amendment draft --adopt ${clause.clauseId}. Advisory only.`
         }));
       }
     }

@@ -112,6 +112,26 @@ test('a closed Story reads in sync, drifted or orphaned as its code changes, and
   assert.match(foreign[0].message, /This change touches TOY-001:AC-001 of closed Story TOY-001: .*Advisory only\./u);
   assert.equal(foreign.every((advisory) => advisory.blocking === false), true);
 
+  assert.match(foreign[0].message, /story intent-amendment draft --adopt TOY-001:AC-001/u);
+
+  // TOY-002's specification takes the behaviour over: a draft adds a clause adopting TOY-001's.
+  const drafted = JSON.parse(sflow('story', 'intent-amendment', 'draft', '--adopt', 'TOY-001:AC-001', '--json'));
+  assert.deepEqual(drafted.slots, [{ kind: 'add', clauseId: 'TOY-002:AC-002', from: 'TOY-001:AC-001' }]);
+  const draftText = await readFile(drafted.path, 'utf8');
+  assert.match(draftText, /\| \[TOY-002:AC-002\] \| <!-- sflow-draft: state the behaviour that replaces TOY-001:AC-001 of closed Story TOY-001 \("The greeting says Hello, Singularity Flow!"\) as the code now has it\. .*Lines 1-\d+ of greeting\.mjs/u);
+  assert.match(draftText, /\| `TOY-002:AC-002` \| `greeting\.mjs` \| `tests\/greeting\.test\.mjs` \|/u);
+  assert.ok(!drafted.path.startsWith(path.join(root, 'singularity')), 'the draft is not written into the Story');
+  const unfinished = JSON.parse(run(['story', 'intent-amendment', 'propose', '--file', drafted.path, '--reason', 'Take over the greeting clause.', '--json']).stdout);
+  assert.equal(unfinished.error.code, 'INTENT_AMENDMENT_DRAFT_UNFINISHED');
+  // The wording is a person's (or the agent's); once written, it is an ordinary proposal.
+  const filled = draftText.split('\n').filter((line) => !line.startsWith('<!-- sflow-draft: drafted from'))
+    .map((line) => line.includes('[TOY-002:AC-002]') ? line.replace(/<!-- sflow-draft: .*? -->/u, 'The greeting ends with two exclamation marks, which replaces TOY-001\'s greeting.') : line)
+    .join('\n');
+  await writeFile(drafted.path, filled);
+  const proposed = JSON.parse(sflow('story', 'intent-amendment', 'propose', '--file', drafted.path, '--reason', 'Take over the greeting clause.', '--json'));
+  assert.deepEqual(proposed.proposal.diff.changed, ['TOY-002:AC-002']);
+  sflow('story', 'intent-amendment', 'decide', proposed.proposal.id, '--decision', 'reject', '--confirm', proposed.proposal.id);
+
   // Drift decisions are refused on an open Story's branch: its own gates do not expect the file.
   assert.equal(JSON.parse(run(['spec', 'drift', 'decide', 'TOY-001:AC-001', '--accept', '--reason', 'The louder greeting is intended.', '--json']).stdout).error.code,
     'SPEC_DRIFT_DECISION_BRANCH');

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, rm, unlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -715,6 +715,30 @@ test('a step whose agent attaches a skill re-enters its own composed context wit
     const held = completeAgentResult(item.invoke('phase', 'enter', '--for-agent', '--json').stdout);
     assert.deepEqual(held.contextAdmission.blockers.map(entry => entry.code), ['PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED']);
     assert.deepEqual(held.contextAdmission.blockers[0].paths, [audit]);
+  });
+});
+
+// Reported from real use after 5a271098: only the skills audit was untracked. Its prompt pair had been
+// committed, or composition stopped after the audit and before the prompt; the hold then refused the
+// composition that would have rewritten them, so the Story could not continue on its own.
+test('a skills audit left alone does not hold its step, whether its prompt was committed or never written', async t => {
+  for (const scenario of ['prompt committed', 'prompt never written']) await t.test(scenario, async t => {
+    const item = await fixture(t, { customPhase: 'qa-intake', attachedSkill: 'qa-checklist' });
+    assert.equal(completeAgentResult(item.invoke('phase', 'enter', '--compose', '--for-agent', '--json').stdout).contextComposition, 'delivered');
+    const context = 'team/stories/ENTRY-1/context';
+    const pair = [`${context}/qa-intake-gen1.json`, `${context}/prompts/qa-intake-gen1.md`];
+    if (scenario === 'prompt committed') {
+      git(item.root, 'add', '--', ...pair);
+      git(item.root, 'commit', '-qm', 'prompt pair only');
+    } else {
+      for (const relative of pair) await unlink(path.join(item.root, relative));
+    }
+    const audit = `${context}/agents-qa-intake-gen1.json`;
+    assert.equal(git(item.root, 'status', '--porcelain=v1', '--untracked-files=all'), `?? ${audit}`);
+    const entry = completeAgentResult(item.invoke('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
+    assert.deepEqual(entry.contextAdmission.blockers, []);
+    assert.equal(entry.contextComposition, 'delivered');
+    assert.match(entry.context.text, /qa-checklist/);
   });
 });
 

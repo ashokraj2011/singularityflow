@@ -99,8 +99,9 @@ test('invalid clarification does not acquire authority from a valid composed pro
   });
 });
 
-test('the skills audit and skill copies of the same composition are preparation, anything else stays manual', async t => {
+test('the skills audit and its skill copies are the step\'s own record, judged on their own identity', async t => {
   const value = await fixture(t);
+  value.config.agents = value.workflow.resolution.agents = { architect: {}, reviewer: {} };
   const copy = `${value.itemRoot}/context/agent-snapshots/architect/qa-checklist-abc.md`;
   const audit = `${value.itemRoot}/context/agents-${value.phase.id}-gen1.json`;
   const text = '# QA checklist\n';
@@ -111,27 +112,31 @@ test('the skills audit and skill copies of the same composition are preparation,
     files: [{ id: 'qa-checklist', type: 'skill', url: 'library:qa-checklist', size: text.length, path: copy,
       sha256: createHash('sha256').update(text).digest('hex') }] };
   const write = async (changes = {}) => writeFile(path.join(value.root, audit), JSON.stringify({ ...record, ...changes }));
-  const changedPaths = [...value.changedPaths, audit, copy];
-  const admitted = async overrides => new Set(await value.inspect(overrides));
+  const owned = async (changedPaths = [audit, copy]) => new Set(await expectedStepOwnedPaths(value.root, value.config, value.workflow,
+    value.phase, { itemRoot: value.itemRoot, generation: 1, changedPaths }));
   await write();
-  assert.deepEqual(await admitted({ changedPaths }), new Set([...value.changedPaths, audit, copy]));
-  assert.deepEqual(await admitted({ changedPaths: [...value.changedPaths, audit] }), new Set([...value.changedPaths, audit]),
-    'a copy committed earlier is not this check\'s concern');
+  assert.deepEqual(await owned(), new Set([audit, copy]));
+  assert.deepEqual(await owned([audit]), new Set([audit]), 'a copy committed earlier is not this check\'s concern');
   for (const [label, changes] of [['Story', { workId: 'OTHER' }], ['phase', { phase: 'other-phase' }],
-    ['generation', { generation: 2 }], ['agent', { agent: 'developer' }]]) {
+    ['generation', { generation: 2 }], ['unconfigured agent', { agent: 'developer' }],
+    ['another agent than the prompt record names', { agent: 'reviewer' }]]) {
     await write(changes);
-    assert.deepEqual(await value.inspect({ changedPaths }), value.changedPaths, label);
+    assert.deepEqual(await owned(), new Set(), label);
   }
   await write();
   await writeFile(path.join(value.root, copy), '# Edited checklist\n');
-  assert.deepEqual(await value.inspect({ changedPaths }), value.changedPaths, 'an edited copy is not the composed bytes');
-  await writeFile(path.join(value.root, audit), '{invalid JSON');
-  assert.deepEqual(await value.inspect({ changedPaths }), value.changedPaths);
-  // Without a valid prompt pair of its own, an audit acquires nothing.
-  await write();
+  assert.deepEqual(await owned(), new Set(), 'an edited copy is not the composed bytes');
   await writeFile(path.join(value.root, copy), text);
-  await writeFile(path.join(value.root, value.recorded.promptFile), '# Tampered prompt\n');
-  assert.deepEqual(await value.inspect({ changedPaths }), []);
+  await writeFile(path.join(value.root, audit), '{invalid JSON');
+  assert.deepEqual(await owned(), new Set());
+  // Left alone: its prompt pair committed (not among the changed paths), or never written.
+  await write();
+  assert.deepEqual(await owned(), new Set([audit, copy]), 'the committed prompt record still names the agent');
+  await unlink(path.join(value.root, value.recorded.file));
+  await unlink(path.join(value.root, value.recorded.promptFile));
+  assert.deepEqual(await owned(), new Set([audit, copy]), 'composition stopped before writing the prompt');
+  await write({ agent: 'reviewer' });
+  assert.deepEqual(await owned(), new Set([audit, copy]), 'without a prompt record, any agent the Story configures');
 });
 
 test('records the open step writes are its own only when they name this Story, step and generation', async t => {

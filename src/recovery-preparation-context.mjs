@@ -58,18 +58,22 @@ export async function expectedPhaseEvidencePaths(root, config, workflow, phase, 
 /**
  * Composing for an agent that attaches skills also writes the skills audit,
  * `context/agents-<step>-gen<N>.json`, and any skill copies it lists under
- * `context/agent-snapshots/`. Publication commits them with the generation. They belong to this
- * composition only when the audit names this Story, step, generation and the prompt record's agent,
- * and every changed copy it lists still has its recorded hash; otherwise a person reviews them.
+ * `context/agent-snapshots/`. Publication commits them with the generation. They are this step's
+ * own record when the audit names this Story, step and generation and an agent the Story configures
+ * (the prompt record's agent, when this generation has one), and every changed copy it lists still
+ * has its recorded hash; otherwise a person reviews them. The audit is judged on its own: it can be
+ * left alone when its prompt was already committed, or when composition stopped before writing the
+ * prompt, and holding it then refused the very composition that would have rewritten it.
  */
-async function agentContextPaths(root, workflow, phase, { itemRoot, generation, changedPaths, agent }) {
+async function agentContextPaths(root, workflow, phase, { itemRoot, generation, changedPaths, agents, promptAgent }) {
   const auditPath = `${itemRoot}/context/agents-${phase.id}-gen${generation}.json`;
   if (!changedPaths.includes(auditPath)) return [];
   try {
     if (!await regularContextFile(root, auditPath)) return [];
     const audit = readRecord('agent-context-audit', await readFile(path.join(root, auditPath))).record;
     if (audit?.workId !== workflow.workItem?.id || audit.phase !== phase.id
-        || audit.generation !== generation || !agent || audit.agent !== agent) return [];
+        || audit.generation !== generation || !Object.hasOwn(agents, String(audit.agent ?? ''))
+        || (promptAgent !== undefined && audit.agent !== promptAgent)) return [];
     const copies = [];
     for (const entry of audit.files ?? []) {
       const relative = String(entry?.path ?? '');
@@ -115,9 +119,6 @@ export async function expectedPreparationContextPaths(root, config, workflow, ph
     // Missing, unsupported, malformed, interrupted, or hash-mismatched pairs remain manual.
     return expected;
   }
-  expected.push(...await agentContextPaths(root, workflow, phase, {
-    itemRoot, generation, changedPaths, agent: composed.record.agent
-  }));
 
   if (changedPaths.includes(clarificationPath)) {
     try {
@@ -197,6 +198,13 @@ export async function expectedStepOwnedPaths(root, config, workflow, phase, {
       // A recomposed prompt moves the earlier pair aside with the reason it was replaced.
       const reason = await contextJson(root, `${context}superseded/${match[1]}/reason.json`);
       if (reason?.phase === phase.id && reason.generation === generation) await admit(relative);
+    } else if (name === `agents-${step}.json`) {
+      // The prompt record of this generation, committed or not, names the agent the audit must name.
+      const prompt = await contextJson(root, `${context}${step}.json`);
+      const present = await safeContextFile(root, `${context}${step}.json`);
+      if (present && !prompt?.agent) continue;
+      for (const owned of await agentContextPaths(root, workflow, phase, { itemRoot, generation, changedPaths: candidates,
+        agents: workflow.resolution?.agents ?? config.agents ?? {}, promptAgent: present ? prompt.agent : undefined })) admitted.add(owned);
     } else if (name === `design-sources-${step}.json`) {
       if (bound(await contextJson(root, relative))) await admit(relative);
     } else if ((match = /^work-intervals\/[^/]+-gen\d+-baseline\.json$/u.exec(name))) {

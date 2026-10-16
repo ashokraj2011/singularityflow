@@ -39,7 +39,7 @@ Copilot Story run was automated by this benchmark. Native Windows qualification 
 ## Packaging budget
 
 The worker transport remains in the selected CLI package rather than entering the extension's
-static module graph. The new client-sharing/adapter code adds about 2.2 KiB to the lazy panels
+static module graph. The new client-sharing/adapter code adds about 2.7 KiB to the lazy panels
 bundle (module count unchanged, 249). Its byte ceiling moves from 3,030,000 to 3,033,000; all other
 bundle ceilings remain unchanged. This small explicit allowance does not admit the engine into
 the extension bundle. The read-worker entry ships in the stamped CLI bundle manifest.

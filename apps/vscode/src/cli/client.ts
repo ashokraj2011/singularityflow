@@ -291,9 +291,6 @@ function cacheableRead(args: string[]): boolean {
   return !args.includes('--for-agent') && !['review-source', 'choices', 'phase'].includes(args[0] ?? '')
     && !args.includes('--submission-readiness') && !args.includes('--submit-if-ready')
     && !(args[0] === 'configuration' && args[1] === 'validate')
-    // Publication uses current authored bytes. A 250 ms cached preflight could approve a draft
-    // that changed after the previous check; the kernel will still recheck inside publication.
-    && !(args[0] === 'phase' && args[1] === 'prepublish')
     // An explicit test-setup inspection must reread the selected module manifests, including
     // edits made since the previous click; suggestions are not a cached readiness receipt.
     && !(args[0] === 'capability' && args[1] === 'test-setup')

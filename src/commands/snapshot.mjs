@@ -104,15 +104,16 @@ export async function readSnapshot(root, {
 }
 
 export async function run(_argv, { positionals, options }) {
+  const included = optionStrings(options, 'include');
   const result = await readSnapshot(repoRoot(), {
-    included: optionStrings(options, 'include'),
+    included,
     ifRevision: optionString(options, 'if-revision'),
     gitShadow: optionBoolean(options, 'git-shadow'),
     timings: optionBoolean(options, 'timings'),
     workId: positionals[1], initiativeId: optionString(options, 'initiative')
   });
   console.log(JSON.stringify(result, null, 2));
-  if (!optionBoolean(options, 'json')) {
+  if (!optionBoolean(options, 'json') && !(included.length === 1 && included[0] === 'repository')) {
     const { writeHumanTimings } = await import('../dx-timings.mjs');
     writeHumanTimings(result.timings);
   }

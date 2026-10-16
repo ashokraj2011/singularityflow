@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 
@@ -192,39 +192,44 @@ test('Story start refuses a remote retarget between destination inspection and f
   const priorTrackingCommit = git(root, 'rev-parse', `refs/remotes/origin/${id}`).stdout.trim();
   const alternate = path.join(base, 'alternate.git');
   git(base, 'init', '--bare', '--initial-branch=main', alternate);
-  const realGit = run('which', ['git'], base).stdout.trim();
   const wrapperDirectory = path.join(base, 'retarget-wrapper');
-  const wrapper = path.join(wrapperDirectory, 'git');
+  const loader = path.join(wrapperDirectory, 'retarget-loader.mjs');
   const retargeted = path.join(wrapperDirectory, 'retargeted');
   await mkdir(wrapperDirectory);
-  await writeFile(wrapper, `#!/usr/bin/env node
-const fs = require('node:fs');
-const { spawnSync } = require('node:child_process');
-const args = process.argv.slice(2);
-const result = spawnSync(${JSON.stringify(realGit)}, args, {
-  cwd: process.cwd(), env: process.env, encoding: 'utf8'
-});
-if (args[0] === 'ls-remote' && args.includes(${JSON.stringify(`refs/heads/${id}`)})
-    && !fs.existsSync(${JSON.stringify(retargeted)})) {
-  const changed = spawnSync(${JSON.stringify(realGit)}, [
-    'remote', 'set-url', 'origin', ${JSON.stringify(alternate)}
-  ], { cwd: process.cwd(), env: process.env, encoding: 'utf8' });
-  if (changed.status !== 0) {
-    process.stderr.write(changed.stderr || 'Could not set test remote');
-    process.exit(changed.status || 1);
+  // Native Windows Git resolution does not execute a POSIX PATH shim named `git`. Intercept the
+  // completed transport in this test process instead; the actual observation and refusal stay real.
+  const execution = new URL('../src/git-execution.mjs', import.meta.url).href;
+  const wrapper = `
+import { existsSync as fixtureExists, writeFileSync as fixtureWrite } from 'node:fs';
+import { spawnSync as fixtureGit } from 'node:child_process';
+function fixtureRetarget(args, result) {
+  if (result.status === 0 && args.includes('ls-remote')
+      && args.includes(${JSON.stringify(`refs/heads/${id}`)})
+      && !fixtureExists(${JSON.stringify(retargeted)})) {
+    const changed = fixtureGit('git', ['remote', 'set-url', 'origin', ${JSON.stringify(alternate)}],
+      { cwd: ${JSON.stringify(root)}, env: process.env, encoding: 'utf8' });
+    if (changed.status !== 0) throw new Error(changed.stderr || 'Could not set test remote');
+    fixtureWrite(${JSON.stringify(retargeted)}, 'yes');
   }
-  fs.writeFileSync(${JSON.stringify(retargeted)}, 'yes');
+  return result;
 }
-if (result.stdout) process.stdout.write(result.stdout);
-if (result.stderr) process.stderr.write(result.stderr);
-process.exit(result.status == null ? 1 : result.status);
-`);
-  await chmod(wrapper, 0o755);
+export function runRemoteGit(args, options) { return fixtureRetarget(args, fixtureOriginalRemote(args, options)); }
+export async function runRemoteGitAsync(args, options) { return fixtureRetarget(args, await fixtureOriginalRemoteAsync(args, options)); }
+`;
+  await writeFile(loader, `export async function load(url, context, nextLoad) {
+    const result = await nextLoad(url, context); if (url !== ${JSON.stringify(execution)}) return result;
+    const source = String(result.source);
+    if (!source.includes('export function runRemoteGit(args, {') || !source.includes('export async function runRemoteGitAsync(args, {')) throw new Error('Fixture transport signature changed');
+    return { ...result, source: source.replace('export function runRemoteGit(args, {', 'function fixtureOriginalRemote(args, {')
+      .replace('export async function runRemoteGitAsync(args, {', 'async function fixtureOriginalRemoteAsync(args, {') + ${JSON.stringify(wrapper)} };
+  }`);
 
   const refused = flow(root, ['start', id, '--json'], {
     allowFailure: true,
-    env: { PATH: `${wrapperDirectory}${path.delimiter}${process.env.PATH}` }
+    env: { NODE_OPTIONS: `--experimental-loader=${pathToFileURL(loader).href}`,
+      NODE_NO_WARNINGS: '1', SINGULARITY_FLOW_BUNDLE: 'off' }
   });
+  assert.equal(await readFile(retargeted, 'utf8'), 'yes', 'the race must actually be injected');
   assert.equal(refused.status, 1);
   assert.match(`${refused.stdout}\n${refused.stderr}`, /GIT_REMOTE_AUTHORITY_CHANGED/u);
   assert.equal(git(root, 'branch', '--show-current').stdout.trim(), 'main');
@@ -959,7 +964,12 @@ test('the intake catalog says whether its workflows depend on the chosen base, a
   flow(root, ['workspace', 'branches', '--json', '--intake']);
   const warm = flow(root, ['workspace', 'branches', '--json', '--intake', '--timings']);
   assert.equal(JSON.parse(warm.stdout).intake.workflowCatalogScope, 'approved-configuration');
-  assert.match(warm.stderr, /configuration\.object-cache-hit=1(?:\s|$)/);
+  if (process.platform === 'win32') {
+    assert.match(warm.stderr, /configuration\.object-cache-declined=1(?:\s|$)/,
+      'Windows deliberately keeps the persistent configuration cache disabled');
+    assert.match(warm.stderr, /configuration\.snapshot-read=1(?:\s|$)/,
+      'the fresh independent read still verifies approved configuration');
+  } else assert.match(warm.stderr, /configuration\.object-cache-hit=1(?:\s|$)/);
   assert.match(warm.stderr, /git\.remote\.command\.ls-remote=1(?:\s|$)/,
     'one listing of every head selects approved configuration, admits its cached copy and is the inventory');
   assert.match(warm.stderr, /git\.remote-inventory-shared=1(?:\s|$)/);

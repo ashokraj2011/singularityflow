@@ -6,6 +6,21 @@ import { mkdtemp, rm, readFile, writeFile, mkdir, symlink } from 'node:fs/promis
 import { createHash } from 'node:crypto';
 import { compiledConfiguration, configurationEngineIdentity, copyCompiledDefinition } from '../src/configuration-definition-cache.mjs';
 import { run } from '../src/util.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
+
+const cacheOn = { env: { ...process.env, SINGULARITY_FLOW_COMPILED_CONFIGURATION_CACHE: 'on' } };
+
+test('disabled and Windows-default disk caches compile without Git or private-store work', async () => {
+  for (const env of [{ SINGULARITY_FLOW_COMPILED_CONFIGURATION_CACHE: 'off' },
+    ...(process.platform === 'win32' ? [{}] : [])]) {
+    let calls = 0;
+    const timer = commandTimer('cache-policy', { commandClass: 'read' });
+    await withCommandTiming(timer, () => compiledConfiguration(path.join(os.tmpdir(), 'not-a-repository'),
+      'unused', [], async () => { calls++; return {}; }, { env }));
+    assert.equal(calls, 1);
+    assert.equal(timer.finish().counters['git.requests'] ?? 0, 0);
+  }
+});
 
 async function fixture(t) {
   // These tests require a usable engine identity; expose that failure instead of only seeing
@@ -32,42 +47,42 @@ async function fixture(t) {
 
 test('compiled closure is reused, roots rebound and every caller owns independent values', async t => {
   const f = await fixture(t);
-  await compiledConfiguration(f.root, f.root, f.assets, f.compile);
+  await compiledConfiguration(f.root, f.root, f.assets, f.compile, cacheOn);
   const other = path.join(f.root, 'overlay');
-  const value = await compiledConfiguration(f.root, other, f.assets, f.compile);
+  const value = await compiledConfiguration(f.root, other, f.assets, f.compile, cacheOn);
   assert.equal(f.count(), 1);
   assert.equal(value.agents.custom.file, path.join(other, '.github/agents/custom.agent.md'));
   assert.equal(value.initiativeRoot, 'custom/initiatives');
   assert.deepEqual(value.governedRoots, ['custom/templates']);
   assert.equal(Object.keys(value).includes('governedRoots'), false);
   value.phases.custom.changed = true;
-  assert.equal((await compiledConfiguration(f.root, f.root, f.assets, f.compile)).phases.custom.changed, undefined);
+  assert.equal((await compiledConfiguration(f.root, f.root, f.assets, f.compile, cacheOn)).phases.custom.changed, undefined);
   const copy = copyCompiledDefinition(value, other, f.root);
   assert.equal(copy.initiativeRoot, value.initiativeRoot);
 });
 
 test('each dependency changes the closure key; dependency deletion and A-B-A cannot reuse B', async t => {
   const f = await fixture(t);
-  await compiledConfiguration(f.root, f.root, f.assets, f.compile);
+  await compiledConfiguration(f.root, f.root, f.assets, f.compile, cacheOn);
   for (let index = 0; index < f.assets.length; index++) {
     const changed = f.assets.map((asset, position) => position === index ? { ...asset, sha256: 'a'.repeat(64) } : asset);
-    await compiledConfiguration(f.root, f.root, changed, f.compile);
+    await compiledConfiguration(f.root, f.root, changed, f.compile, cacheOn);
   }
-  await compiledConfiguration(f.root, f.root, f.assets.slice(1), f.compile);
-  await compiledConfiguration(f.root, f.root, f.assets, f.compile);
+  await compiledConfiguration(f.root, f.root, f.assets.slice(1), f.compile, cacheOn);
+  await compiledConfiguration(f.root, f.root, f.assets, f.compile, cacheOn);
   assert.equal(f.count(), f.assets.length + 3);
 });
 
 test('tampering, an oversized receipt, and disabled caching compile without trusting cached policy', async t => {
   const f = await fixture(t);
-  await compiledConfiguration(f.root, f.root, f.assets, f.compile);
+  await compiledConfiguration(f.root, f.root, f.assets, f.compile, cacheOn);
   const file = path.join(f.cache, 'definition.v8');
   const bytes = await readFile(file); bytes[bytes.length - 1] ^= 1;
   await writeFile(file, bytes);
-  await compiledConfiguration(f.root, f.root, f.assets, f.compile);
+  await compiledConfiguration(f.root, f.root, f.assets, f.compile, cacheOn);
   assert.equal(f.count(), 2);
   await writeFile(file, Buffer.alloc(8 * 1024 * 1024 + 1));
-  await compiledConfiguration(f.root, f.root, f.assets, f.compile);
+  await compiledConfiguration(f.root, f.root, f.assets, f.compile, cacheOn);
   await compiledConfiguration(f.root, f.root, f.assets, f.compile, { env: { SINGULARITY_FLOW_COMPILED_CONFIGURATION_CACHE: 'off' } });
   assert.equal(f.count(), 4);
 });
@@ -76,7 +91,7 @@ test('unsafe cache ancestors decline caching without following the link', { skip
   const f = await fixture(t);
   const outside = path.join(f.root, 'outside'); await mkdir(outside);
   await symlink(outside, path.join(f.root, '.git/singularity-flow'), 'dir');
-  await compiledConfiguration(f.root, f.root, f.assets, f.compile);
+  await compiledConfiguration(f.root, f.root, f.assets, f.compile, cacheOn);
   assert.equal(f.count(), 1);
   assert.deepEqual(await import('node:fs/promises').then(fs => fs.readdir(outside)), []);
 });

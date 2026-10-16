@@ -92,7 +92,10 @@ export function copyCompiledDefinition(definition, from, to) {
 
 /** One replaceable receipt per exact object store: build upgrades cannot grow an unbounded cache. */
 export async function compiledConfiguration(root, configurationRoot, assets, compile, { env = process.env } = {}) {
-  if (!root || env.SINGULARITY_FLOW_COMPILED_CONFIGURATION_CACHE === 'off') return compile();
+  // Native ACL qualification costs more than a fresh parse on the Windows first-request path.
+  // Keep owner-verified in-memory reuse; the optional authenticated disk cache is explicit opt-in.
+  const mode = env.SINGULARITY_FLOW_COMPILED_CONFIGURATION_CACHE;
+  if (!root || mode === 'off' || (process.platform === 'win32' && mode !== 'on')) return compile();
   let directory, key;
   try {
     directory = path.join(gitCommonDir(root), 'singularity-flow', 'compiled-configuration-v1');

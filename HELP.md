@@ -2965,6 +2965,10 @@ For diagnostics, disable each layer independently with
 `SINGULARITY_FLOW_CONFIGURATION_READ_WORKER=off`.
 `SINGULARITY_FLOW_CONFIGURATION_BACKGROUND_SYNC=off` leaves queued uploads for explicit retry.
 Windows accelerators require qualified private ACLs; unsupported hosts use the original read path.
+On Windows the optional persistent compiled-definition cache is disabled by default because its
+native ACL setup/verification is expensive on first requests. Fresh parsing and verified in-memory
+definition sharing remain enabled. Set `SINGULARITY_FLOW_COMPILED_CONFIGURATION_CACHE=on` only
+to opt into that authenticated disk cache; its privacy checks are still mandatory.
 The resident worker targets repeated proposal reads; its first cold read includes startup cost.
 These layers do not make approval, remote synchronization or Story publication asynchronous.
 

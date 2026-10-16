@@ -19,7 +19,7 @@ import {
 import { recordRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
 import { captureMutationTurn, mutationToolGuard } from '../src/copilot-mutation-guard.mjs';
 import { renderPlatformCommand } from '../src/safe-command-guidance.mjs';
-import { completeAgentResult } from '../src/agent-output.mjs';
+import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const executable = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -385,7 +385,8 @@ test('compact review entry binds once and preserves every exact review material 
   assert.deepEqual(compact.reportTemplate.binding, full.binding);
   for (const key of ['sources', 'clarifications', 'clarificationGuidance', 'artifact', 'upstreamSpec',
     'reviewer', 'reportTemplate', 'reportSchema', 'stagingPath', 'continuation']) {
-    assert.deepEqual(compact[key], full[key], `compact entry lost ${key}`);
+    // The same review material; the continuation routes an agent runs carry --for-agent.
+    assert.deepEqual(compact[key], await withAgentRoutes(full[key]), `compact entry lost ${key}`);
   }
   assert.equal(compact.reviewer.setupRequired, false);
   assert.equal(compact.canReview, true);

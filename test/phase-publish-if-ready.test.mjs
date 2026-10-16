@@ -10,7 +10,7 @@ import YAML from 'yaml';
 import { resolveOperation } from '../src/command-registry.mjs';
 import { publicationArguments } from '../src/commands/phase-publish-if-ready.mjs';
 import { submitArguments } from '../src/commands/submit-if-ready.mjs';
-import { completeAgentResult } from '../src/agent-output.mjs';
+import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -174,6 +174,6 @@ test('a refused step is relayed with its own recovery plan, not one rebuilt from
   process.exitCode = previousExitCode;
   // The agent's copy leads with `act` from the step's own plan; the rest is the step's refusal unchanged.
   const { act, ...relayed } = JSON.parse(printed.join('\n'));
-  assert.deepEqual(relayed, refusal, 'the step\'s refusal, field for field');
-  assert.deepEqual([act.state, act.do.shell], ['refused', 'singularity-flow recover A-1 --phase code --json']);
+  assert.deepEqual(relayed, await withAgentRoutes(refusal), 'the step\'s refusal, field for field, with agent routes');
+  assert.deepEqual([act.state, act.do.shell], ['refused', 'singularity-flow recover A-1 --phase code --for-agent --json']);
 });

@@ -47,15 +47,17 @@ export function storyCheckoutOptions(root, { runCommand = run, parallelism = ava
   if (workers === 1) return [];
   let configured;
   try {
-    configured = runCommand('git', ['config', '--get', 'checkout.workers'], {
+    configured = runCommand('git', ['config', '--get-regexp', '^checkout\\.(workers|thresholdforparallelism)$'], {
       cwd: root, allowFailure: true
     });
   } catch { return []; }
-  // Only positive absence permits a default. An explicit 0/1/value, failed config read or old
-  // host keeps ordinary Git behavior; this optional optimization never becomes a new gate.
-  return configured.status === 1 && !configured.error && !configured.signal && !configured.timedOut
-    && !configured.blocked && !String(configured.stdout ?? '').trim() && !String(configured.stderr ?? '').trim()
-    ? ['-c', `checkout.workers=${workers}`] : [];
+  // Only positive absence permits defaults. Explicit worker policy wins; a lone threshold keeps
+  // its own value. Small checkouts stay serial unless the operator deliberately chose otherwise.
+  if (!configured || configured.error || configured.signal || configured.timedOut || configured.blocked
+      || String(configured.stderr ?? '').trim()) return [];
+  const output = String(configured.stdout ?? '').trimEnd(), options = ['-c', `checkout.workers=${workers}`];
+  if (configured.status === 0 && /^checkout\.thresholdforparallelism(?:[ \t][^\r\n]*)?$/.test(output)) return options;
+  return configured.status === 1 && !output ? [...options, '-c', 'checkout.thresholdForParallelism=2000'] : [];
 }
 
 /**

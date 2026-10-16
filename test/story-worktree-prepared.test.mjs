@@ -51,6 +51,7 @@ test('bounded checkout retains exact serial bytes, line endings, modes, hooks an
   const serial = await prepareStoryWorktree(root, 'SERIAL-CONTENTS', { base: baseCommit });
   assert.equal(git(root, 'config', '--get', 'checkout.workers'), '1');
   git(root, 'config', '--unset', 'checkout.workers');
+  git(root, 'config', 'checkout.thresholdForParallelism', '1');
   await writeFile(path.join(root, 'README.md'), 'preserve dirty launch file\n');
   const sourceStatus = git(root, 'status', '--porcelain');
   const parallel = await prepareStoryWorktree(root, 'PARALLEL-CONTENTS', { base: baseCommit });

@@ -128,6 +128,13 @@ test('owned checkout can retain fresh stat metadata while read snapshots and exp
     const retained = await readFile(index);
     assert.equal(changes(root, { refreshIndex: true }), '');
     assert.deepEqual(await readFile(index), retained, 'explicit host policy wins');
+    delete process.env.GIT_OPTIONAL_LOCKS;
+    const lock = path.join(root, '.git', 'index.lock');
+    await writeFile(lock, 'another Git reader');
+    try {
+      assert.equal(changes(root, { refreshIndex: true }), '', 'an optional stat-cache lock is not a new gate');
+      assert.deepEqual(await readFile(index), retained);
+    } finally { await rm(lock); }
   } finally {
     if (previous === undefined) delete process.env.GIT_OPTIONAL_LOCKS;
     else process.env.GIT_OPTIONAL_LOCKS = previous;

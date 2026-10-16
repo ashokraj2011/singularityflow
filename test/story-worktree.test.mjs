@@ -27,13 +27,14 @@ test('parallel Story checkout is bounded and never overrides explicit Git policy
   for (const parallelism of [2, 4, 64]) {
     assert.deepEqual(storyCheckoutOptions('/fixture', {
       parallelism, runCommand: read({ status: 1, stdout: '', stderr: '' })
-    }), ['-c', `checkout.workers=${Math.min(4, parallelism)}`]);
+    }), ['-c', `checkout.workers=${Math.min(4, parallelism)}`, '-c', 'checkout.thresholdForParallelism=2000']);
   }
-  assert.deepEqual(calls[0].slice(0, 2), ['git', ['config', '--get', 'checkout.workers']]);
+  assert.deepEqual(calls[0].slice(0, 2), ['git', ['config', '--get-regexp', '^checkout\\.(workers|thresholdforparallelism)$']]);
   assert.equal(calls[0][2].cwd, '/fixture');
   for (const result of [
-    { status: 0, stdout: '1\n' }, { status: 0, stdout: '0\n' },
-    { status: 0, stdout: '8\n' }, { status: 0, stdout: '' },
+    { status: 0, stdout: 'checkout.workers 1\n' }, { status: 0, stdout: 'checkout.workers 0\n' },
+    { status: 0, stdout: 'checkout.workers 8\n' }, { status: 0, stdout: '' },
+    { status: 0, stdout: 'checkout.workers 1\ncheckout.thresholdforparallelism 1\n' },
     { status: 128, stderr: 'bad configuration' }, { status: 1, stderr: 'unavailable' },
     { status: 1, error: new Error('unavailable') }, { status: 1, signal: 'SIGTERM' },
     { status: 1, timedOut: true }, { status: 1, blocked: true }, { status: 1, stdout: 'unexpected' }
@@ -44,6 +45,8 @@ test('parallel Story checkout is bounded and never overrides explicit Git policy
     runCommand: () => assert.fail('single-core checkout needs no configuration probe') }), []);
   assert.deepEqual(storyCheckoutOptions('/fixture', { parallelism: 8,
     runCommand: () => { throw new Error('failed optional probe'); } }), []);
+  assert.deepEqual(storyCheckoutOptions('/fixture', { parallelism: 8,
+    runCommand: read({ status: 0, stdout: 'checkout.thresholdforparallelism 50\n' }) }), ['-c', 'checkout.workers=4']);
 });
 
 function run(command, args, cwd, { allowFailure = false, env = {} } = {}) {

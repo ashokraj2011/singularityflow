@@ -672,6 +672,40 @@
         "additionalProperties": false
       }
     },
+    "testRunRisks": {
+      "description": "Append-only decisions by a step's approvers that one of its test commands cannot run in this environment, and their revocations. A decision lets through only a run of the same command in which no test executed, until it expires or is revoked.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["phase", "commandId", "reason", "actor", "authorityGroup", "at"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^TRR-[0-9]{3,}$" },
+          "revokes": { "type": "string", "pattern": "^TRR-[0-9]{3,}$" },
+          "phase": { "type": "string", "minLength": 1 },
+          "commandId": { "type": "string", "minLength": 1 },
+          "argvSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "cause": { "type": "string", "minLength": 10, "maxLength": 300 },
+          "expiresAt": { "type": "string", "format": "date-time" },
+          "observation": {
+            "type": "object",
+            "required": ["attemptId", "status", "testsExecuted"],
+            "properties": {
+              "attemptId": { "type": "string", "pattern": "^TA-[a-f0-9]{20}$" },
+              "status": { "enum": ["failed", "blocked"] },
+              "exitCode": { "type": ["integer", "null"] },
+              "testsExecuted": { "const": 0 }
+            },
+            "additionalProperties": false
+          },
+          "reason": { "type": "string", "minLength": 20, "maxLength": 1000 },
+          "actor": { "type": "string", "minLength": 1 },
+          "authorityGroup": { "type": "string", "minLength": 1 },
+          "identityAssurance": { "type": ["string", "null"] },
+          "at": { "type": "string", "format": "date-time" }
+        },
+        "additionalProperties": false
+      }
+    },
     "testPolicy": {
       "description": "The digest of the Story's sealed test policy and test capability record, written once at creation.",
       "type": "object",

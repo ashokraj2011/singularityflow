@@ -315,6 +315,20 @@ test('an authoring turn may raise an upstream issue but never decide one', async
   assert.equal(kernelDecide.permissionDecision, 'deny');
 });
 
+test('no agent turn accepts that a step\'s tests cannot run here; the refusal says whose decision it is', async t => {
+  const f = await fixture(t);
+  const accept = 'singularity-flow decision test-risk PMC-1 --phase custom-step --command module-tests --cause "The Maven repository is unreachable." --reason "CI runs these tests before merge." --expires 2026-11-01';
+  const revoke = 'singularity-flow decision test-risk PMC-1 --revoke TRR-001 --reason "The repository is reachable again from here."';
+  for (const [skill, mode] of [['/sf-phase', null], ['/sf-recover', 'kernel'], ['/sf-decide PMC-1', 'decider-3']]) {
+    const payload = await f.enter(skill, mode ?? undefined);
+    for (const command of [accept, revoke]) {
+      const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
+      assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
+      assert.match(denied.permissionDecisionReason, /decided by a person who approves that step, in their own terminal, not by this turn/u, skill);
+    }
+  }
+});
+
 test('publish-only permits one bound publication, never authoring or lifecycle decisions', async t => {
   const f = await fixture(t); const payload = await f.enter('/sf-publish custom-step');
   assert.equal(mutationTurnMode('sf-publish'), 'publish-only');

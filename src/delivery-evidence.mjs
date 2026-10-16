@@ -1633,7 +1633,8 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
   sourceBindingPolicy = 'off',
   evidenceCommit = null,
   pathContext = null,
-  testRecovery = null
+  testRecovery = null,
+  testRunRisks = null
 } = {}) {
   const errors = [];
   const fail = (message) => errors.push(message);
@@ -2003,6 +2004,18 @@ export async function verifyCodeDeliveryReceipt(root, receipt, {
       } catch (error) {
         fail(`test receipt ${execution.commandId} raw report replay failed: ${error.message}`);
       }
+    }
+    if (execution.testRunRisk) {
+      // A run a step approver accepted could not execute any test: it covers its command's modules
+      // while that decision is active, and never a run in which tests executed [test-run risk].
+      const { testRunRiskCoverageProblem } = await import('./test-run-risk.mjs');
+      const problem = testRunRisks?.workflow
+        ? testRunRiskCoverageProblem(testRunRisks.workflow, execution.testRunRisk,
+          { phaseId: receipt.phase, attempt: testReceipt, at: testRunRisks.at })
+        : `test-run risk ${execution.testRunRisk.id ?? '?'} cannot be verified without its Story`;
+      if (problem) fail(`test receipt ${execution.commandId}: ${problem}`);
+      executions.set(execution.commandId, testReceipt);
+      continue;
     }
     if (!testReceiptPassing(testReceipt, minimumDiscovered, minimumPassed)) fail(`test receipt ${execution.commandId} is not passing`);
     executions.set(execution.commandId, testReceipt);

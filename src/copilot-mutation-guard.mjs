@@ -252,6 +252,8 @@ function shellAllowed(call, mode, value) {
   // Deciding an upstream issue is the earlier step's approvers' call, like approve and reject; an
   // agent may raise one and keep working, never decide it.
   if (positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1])) return false;
+  // Accepting that a step's tests cannot run here is its approvers' call too; the refusal names it.
+  if (positionals[0] === 'decision' && positionals[1] === 'test-risk') return false;
   return !['approve', 'reject'].includes(positionals[0]);
 }
 
@@ -261,6 +263,14 @@ function upstreamIssueDecision(call, value) {
   if (!safe) return false;
   const { positionals } = parseArgs(safe.argv);
   return positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1]);
+}
+
+/** A verified `decision test-risk`: the step approvers' decision that its tests cannot run here. */
+function testRunRiskDecision(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals } = parseArgs(safe.argv);
+  return positionals[0] === 'decision' && positionals[1] === 'test-risk';
 }
 
 function mentionsKernelExecution(call, value) {
@@ -380,6 +390,8 @@ export async function mutationToolGuard(payload = {}) {
       const kernel = shellAllowed(call, contract.turnMode, value);
       if (!kernel && value.findings.length) return mutationDenial({ ...contract, next: recoveryRoutes(contract) }, 'PHASE_MUTATION_REPAIR_REQUIRED');
       if (!kernel) {
+        if (testRunRiskDecision(call, value)) return mutationDenial(contract,
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the decision test-risk command and stop; do not retry it');
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {
           return mutationDenial(contract, value.decisionEnded
             ? 'PHASE_MUTATION_DECISION_TURN_ENDED: the decision turn has ended. Preserve work and inspect the returned next action in a new turn; correcting command syntax cannot reopen approval'

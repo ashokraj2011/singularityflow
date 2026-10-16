@@ -23,7 +23,7 @@ related:
   - story-lifecycle
   - workflow-decisions
   - rejection-and-rework
-version: 27
+version: 28
 ---
 The evidence matrix shows every requirement and acceptance criterion of a Story as one row: whether the approved plan names it, whether a delivered change implements it, which tagged test verifies it and what that test's run proved. It reads committed records only, so it runs no test and makes no network call.
 
@@ -95,6 +95,8 @@ A passing test proves only what it asserts, so the reviewer decides whether each
 When an obligation failed, is missing or is inconclusive and the Story must close anyway, someone in the group that approves the step owning it records `singularity-flow decision risk --obligation <OBL-ID> --category <category> --expires YYYY-MM-DD --reason TEXT`. The category is one of external-dependency, known-failure, assurance-shortfall, deferred-verification or accepted-deviation, and the expiry is at most 90 days ahead. The obligation then reads excepted, and what was observed stays visible: a failed test still reads failed.
 
 A decision covers only what it accepted. It counts for nothing once it expires, is revoked with `decision risk --revoke <RISK-ID> --reason TEXT`, does not permit the transition at hand, or the evidence it accepted changes, including a rerun of the criterion's test, which is a new attempt; the matrix then says to renew it. Closing a Story re-evaluates decisions at that moment, so one that expired after approval blocks completion. Some failures are never accepted: stale evidence is run again, records that do not verify are repaired, a review is given by approving the step, and the scope has its own decisions.
+
+A step whose test command could not run in its environment is shown the same way once a person who approves that step accepts it with `decision test-risk` (see the test-recovery topic): its criteria read satisfied with an exception, and the run itself stays failed or blocked.
 
 ### Plan amendments
 

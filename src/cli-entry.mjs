@@ -20,7 +20,7 @@ import { abandonRemoteBranchObservations } from './remote-observation-prefetch.m
 import { installFileLeaseSignalHandlers } from './file-lease.mjs';
 import { configurationReviewRetryDue, firstRunPassDue } from './product-alignment-gate.mjs';
 import { productRequirementDue } from './product-requirement-gate.mjs';
-import { agentViewRequested, withCliJsonOutput } from './cli-json-output.mjs';
+import { agentViewRequested, interpretsForAgent, withCliJsonOutput, withoutAgentFlag } from './cli-json-output.mjs';
 import { copilotModeFile, copilotModePresentation, readCopilotMode } from './copilot-mode.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
@@ -561,8 +561,22 @@ export async function main(argv) {
   // Git answers earlier commands in this session already proved; see git-fact-store.mjs.
   installGitFactStore();
   const uninstall = installFileLeaseSignalHandlers();
-  const { options } = parseArgs(argv);
-  try { return await withCliJsonOutput(optionBoolean(options, 'json'), () => runMain(argv), { forAgent: agentViewRequested(options) }); }
+  const { positionals, options } = parseArgs(argv);
+  try {
+    // Every command accepts --for-agent. The compact entries read it (and check a pause) themselves;
+    // for the others it shapes the output only, and a paused SFlow answers before any Git or lookup.
+    const agentFlag = options['for-agent'] !== undefined;
+    const ownsFlag = interpretsForAgent(positionals);
+    if (agentFlag && !ownsFlag && !['pause', 'hook'].includes(positionals[0])) {
+      const mode = readCopilotMode();
+      if (mode.paused) {
+        const result = copilotModePresentation(mode);
+        return console.log(optionBoolean(options, 'json') ? JSON.stringify(result, null, 2) : result.message);
+      }
+    }
+    return await withCliJsonOutput(optionBoolean(options, 'json'), () => runMain(agentFlag && !ownsFlag ? withoutAgentFlag(argv) : argv),
+      { forAgent: agentViewRequested(options), kind: positionals[0] });
+  }
   finally { uninstall(); }
 }
 

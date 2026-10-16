@@ -23,6 +23,7 @@ import { observeFindingStreak } from './finding-escalation.mjs';
 import { gitDir } from './git-execution.mjs';
 import { safeCommandGuidance, validateSafeSflowCommand } from './safe-command-guidance.mjs';
 import { validateAgentEntryRequest } from './agent-entry-options.mjs';
+import { interpretsForAgent } from './cli-json-output.mjs';
 import { parseArgs, writeAtomic } from './util.mjs';
 
 // Copilot CLI shows a shell result inline only below 8,192 characters. From there it saves the result
@@ -38,13 +39,6 @@ const LARGE_TEXT_BYTES = 4_000;
 const FIELD_BYTES = 6_000;
 const SMALL_FIELD_BYTES = 300;
 const KEPT_RESULTS = 40;
-// Commands whose every listed form takes --for-agent as an output option. The others validate their
-// own entry form, and appeal, inputs restore and most session/review-source forms refuse it, so they
-// are left exactly as returned. test/agent-output.test.mjs runs each accepted form for real.
-const AGENT_VIEW_FORMS = Object.freeze({
-  status: null, recover: null, choices: null, pause: ['status'], revision: ['status'], documents: ['list'],
-  phase: ['prepublish', 'begin', 'show']
-});
 const bytes = (text) => Buffer.byteLength(text, 'utf8');
 const sha256 = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
 const oneLine = (text, limit = 400) => {
@@ -224,29 +218,29 @@ function repositoryOf(result, cwd) {
   catch { return null; }
 }
 
-/** True only when this exact command accepts --for-agent; any other route stays as returned. */
+/** True when this exact command accepts --for-agent; a compact entry keeps its own option rules. */
 async function acceptsAgentView(argv) {
   const { positionals, options } = parseArgs(argv);
   const [command, subcommand] = positionals;
   // An exact confirmation is replayed exactly; a read without --json has no agent view.
   if (options.confirm !== undefined || options.json !== true) return false;
+  // For every other command it is an output option the CLI removes before the command reads options.
+  if (!interpretsForAgent(positionals)) return true;
   const withFlag = { ...options, 'for-agent': true };
   try {
     if (command === 'phase' && subcommand === 'enter') {
       (await import('./commands/phase.mjs')).validatePhaseEntryRequest({ positionals, options: withFlag });
-      return true;
-    }
-    if (command === 'session') {
+    } else if (command === 'session') {
+      if (subcommand === 'current') {
+        return positionals.length === 2 && Object.keys(withFlag).every((key) => ['for-agent', 'json', 'no-model', 'timings', 'timing'].includes(key));
+      }
       if (subcommand !== 'open') return false;
       (await import('./commands/session-open.mjs')).validateSessionOpenRequest({ positionals, options: withFlag });
-      return true;
-    }
-    if (['nextsteps', 'inputs', 'review-source'].includes(command)) {
+    } else if (['nextsteps', 'inputs', 'review-source'].includes(command)) {
       validateAgentEntryRequest(command, { positionals, options: withFlag });
-      return true;
     }
+    return true;
   } catch { return false; }
-  return Object.hasOwn(AGENT_VIEW_FORMS, command) && (!AGENT_VIEW_FORMS[command] || AGENT_VIEW_FORMS[command].includes(subcommand));
 }
 
 /**
@@ -342,6 +336,31 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
     view = render(kept);
   }
   return `${view}\n`;
+}
+
+/**
+ * Text an agent reads: whole when it fits; otherwise the lines that fit and the file, inside the
+ * repository, that holds all of it. Copilot saves a larger result outside the workspace instead.
+ */
+export async function boundedAgentText(text, { cwd = process.cwd(), budget = agentOutputBudget(), now = new Date(), kind = 'text' } = {}) {
+  if (bytes(text) <= budget) return text;
+  const target = repositoryOf({}, cwd);
+  if (!target) return text;
+  const name = String(kind || 'text').replace(/[^A-Za-z0-9-]/gu, '-').slice(0, 48) || 'text';
+  const file = path.join(target.directory, `${name}-${now.toISOString().replace(/[:.]/gu, '-')}-${sha256(text).slice(7, 15)}.txt`);
+  await writeAtomic(file, text, { mode: 0o600 });
+  await prune(target.directory);
+  const lines = text.split('\n');
+  if (lines.at(-1) === '') lines.pop();
+  const relative = path.relative(target.root, file).split(path.sep).join('/');
+  const footer = (shown) => `\n[Output continues] Lines 1-${shown} of ${lines.length} are above. The complete output is `
+    + `${file} (${relative}); read lines ${shown + 1}-${lines.length} there with your file-reading tool, not shell tools. `
+    + 'Nothing was truncated.\n';
+  const reserve = bytes(footer(lines.length));
+  let shown = 0;
+  let size = 0;
+  while (shown < lines.length && size + bytes(lines[shown]) + 1 + reserve <= budget) size += bytes(lines[shown++]) + 1;
+  return `${lines.slice(0, shown).join('\n')}${shown ? '\n' : ''}${footer(shown)}`;
 }
 
 const isTextReference = (value) => value && typeof value === 'object' && !Array.isArray(value) && typeof value.textFile === 'string'

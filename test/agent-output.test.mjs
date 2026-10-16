@@ -194,7 +194,7 @@ test('the default view fits inline in the host, which saves 8,192 characters and
   assert.ok(DEFAULT_AGENT_OUTPUT_BYTES <= 7_500, `${DEFAULT_AGENT_OUTPUT_BYTES} bytes`);
 });
 
-test('routes an agent view returns carry --for-agent only where the command takes it', async () => {
+test('routes an agent view returns carry --for-agent unless a strict agent entry would refuse it', async () => {
   // Copilot's shell is not a terminal: a route the agent runs as given printed its whole result,
   // and the host saved anything from 8,192 characters outside the workspace.
   const confirm = `singularity-flow story advance --work-id W --confirm ${digest} --json`;
@@ -211,15 +211,17 @@ test('routes an agent view returns carry --for-agent only where the command take
   assert.deepEqual(routed.next.map((entry) => entry.command), [
     'singularity-flow nextsteps QF-1 --for-agent --json',
     'singularity-flow status QF-1 --submission-readiness --for-agent --json --submit-if-ready',
-    // These forms refuse --for-agent, and an exact confirmation is replayed exactly.
-    'singularity-flow appeal list --json', 'singularity-flow review-source status --json',
+    // Any other command takes it as an output option (appeal used to refuse it).
+    'singularity-flow appeal list --for-agent --json',
+    // The strict agent entries refuse it outside their compact forms; a confirmation is replayed exactly.
+    'singularity-flow review-source status --json',
     'singularity-flow session status --json', 'singularity-flow inputs restore intake --json', confirm,
     'singularity-flow phase enter --compose --for-agent --json']);
   assert.deepEqual(routed.next[0].argv, ['nextsteps', 'QF-1', '--for-agent', '--json'], 'argv stays the same command');
   assert.equal(routed.prose, 'Run singularity-flow status --json when ready.', 'prose is never rewritten');
 });
 
-test('every route form given --for-agent is one its command really accepts', { timeout: 300_000 }, async (t) => {
+test('every route form given --for-agent is accepted, fits the host, and a paused SFlow answers first', { timeout: 300_000 }, async (t) => {
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-routes-'));
   t.after(() => rm(base, { recursive: true, force: true }));
   const root = path.join(base, 'repo');
@@ -249,11 +251,31 @@ test('every route form given --for-agent is one its command really accepts', { t
   const forms = ['status QF-1 --submission-readiness --json', 'recover --phase intake --json', 'choices begin approve QF-1 --fetch --json --review-packet',
     'pause status --json', 'revision status --json', 'documents list --json', 'phase prepublish intake --json', 'phase begin intake --json',
     'phase show intake --json', 'phase enter --compose --json', 'nextsteps QF-1 --json', 'inputs intake --dry-run --json',
-    'review-source context --json', 'session open QF-1 --json'];
+    'review-source context --json', 'session open QF-1 --json', 'session current --json', 'appeal list --json', 'workspace current --json'];
   const routed = await withAgentRoutes(forms.map((form) => `singularity-flow ${form}`));
   for (const [index, command] of routed.entries()) {
     assert.match(command, / --for-agent --json/u, forms[index]);
     const result = run(command.split(' ').slice(1));
     assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /OPTIONS?_(?:INVALID|UNSUPPORTED)|Unsupported [^\n]*option|has no option/iu, command);
+    // Copilot shows a result inline below 8,192 characters and saves a larger one outside the workspace.
+    assert.ok(Buffer.byteLength(result.stdout) <= DEFAULT_AGENT_OUTPUT_BYTES + 1, `${command}: ${Buffer.byteLength(result.stdout)} bytes`);
   }
+  // Plain text is bounded the same way; the complete text is in the file it names, inside the repository.
+  const whole = run(['explain', 'workflow-markup']).stdout;
+  assert.ok(Buffer.byteLength(whole) > DEFAULT_AGENT_OUTPUT_BYTES, 'the fixture text is larger than the host shows');
+  const bounded = run(['explain', 'workflow-markup', '--for-agent']).stdout;
+  assert.ok(Buffer.byteLength(bounded) <= DEFAULT_AGENT_OUTPUT_BYTES, `${Buffer.byteLength(bounded)} bytes`);
+  const [, file, relative] = /The complete output is (\S+) \(([^)]+)\)/u.exec(bounded);
+  assert.match(relative, /^\.git\/singularity-flow\/agent-results\/explain-/u);
+  assert.equal(await readFile(file, 'utf8'), whole, 'nothing was truncated');
+  assert.ok(whole.startsWith(bounded.slice(0, bounded.indexOf('\n[Output continues]'))), 'the view is the start of the text');
+  // A paused SFlow answers an agent command before any Git or lookup; pause itself still runs.
+  await writeFile(env.SINGULARITY_FLOW_COPILOT_MODE_FILE, JSON.stringify({ schemaVersion: 1, paused: true, changedAt: '2026-10-16T00:00:00.000Z' }));
+  for (const args of [['appeal', 'list', '--for-agent', '--json'], ['status', 'QF-1', '--for-agent', '--json']]) {
+    const paused = run(args);
+    assert.equal(paused.status, 0, paused.stderr);
+    assert.equal(JSON.parse(paused.stdout).nativeCopilot, true, args.join(' '));
+  }
+  assert.equal(JSON.parse(run(['pause', 'status', '--for-agent', '--json']).stdout).resultType, 'command-result');
+  assert.match(run(['status', 'QF-1', '--for-agent']).stdout, /paused/iu, 'text mode answers too');
 });

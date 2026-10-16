@@ -13,8 +13,24 @@ export function agentViewRequested(options, { stream = process.stdout, env = pro
   return json && stream?.isTTY === true && env.SINGULARITY_FLOW_AGENT_OUTPUT !== 'full';
 }
 
-export async function withCliJsonOutput(json, execute, { forAgent = false } = {}) {
-  if (!json) return execute();
+/**
+ * Commands that read `--for-agent` themselves. Their compact agent entries are deliberately strict
+ * (`session attach` or `review-source submit` with it is refused), so they keep their own rules. For
+ * every other command it only shapes the output, and the CLI removes it before the command sees its
+ * options: appeal, environment, sgos and others refuse an option they do not know.
+ */
+export function interpretsForAgent([command] = []) {
+  return ['phase', 'approve', 'nextsteps', 'inputs', 'review-source', 'session'].includes(command);
+}
+
+/** The argv a command sees when --for-agent only shapes its output; tokens after `--` are data. */
+export function withoutAgentFlag(argv) {
+  const end = argv.indexOf('--');
+  return argv.filter((token, index) => (end >= 0 && index > end) || !/^--for-agent(?:=.*)?$/u.test(token));
+}
+
+export async function withCliJsonOutput(json, execute, { forAgent = false, kind = 'text' } = {}) {
+  if (!json) return forAgent ? withAgentText(execute, kind) : execute();
   const stream = process.stdout;
   const write = stream.write;
   const chunks = [];
@@ -44,5 +60,32 @@ export async function withCliJsonOutput(json, execute, { forAgent = false } = {}
   const { agentOutputGoverned, boundedAgentOutput } = forAgent ? await import('./agent-output.mjs') : {};
   if (forAgent && agentOutputGoverned()) write.call(stream, await boundedAgentOutput(Buffer.concat(chunks).toString('utf8')));
   else for (const chunk of chunks) write.call(stream, chunk);
+  return value;
+}
+
+/** Plain text an agent reads: whole when it fits the host, otherwise its start and the file holding it all. */
+async function withAgentText(execute, kind) {
+  const { agentOutputGoverned, boundedAgentText } = await import('./agent-output.mjs');
+  if (!agentOutputGoverned()) return execute();
+  const stream = process.stdout;
+  const write = stream.write;
+  const chunks = [];
+  let bytes = 0;
+  stream.write = function (chunk, encoding, callback) {
+    const buffer = Buffer.isBuffer(chunk) ? Buffer.from(chunk) : Buffer.from(chunk, typeof encoding === 'string' ? encoding : 'utf8');
+    if ((bytes += buffer.length) <= MAX_OUTPUT_BYTES) chunks.push(buffer);
+    const done = typeof encoding === 'function' ? encoding : callback;
+    if (done) queueMicrotask(done);
+    return true;
+  };
+  // A refusal still prints what came before it, bounded the same way, ahead of the error.
+  const flush = async () => {
+    stream.write = write;
+    write.call(stream, await boundedAgentText(Buffer.concat(chunks).toString('utf8'), { kind }));
+  };
+  let value;
+  try { value = await execute(); }
+  catch (error) { await flush(); throw error; }
+  await flush();
   return value;
 }

@@ -688,7 +688,13 @@ test('the read model does not shell out to the network, or ask git the same ques
   // The basic location reads live in git-execution.mjs, so light modules can import them without git.mjs.
   const execution = await readFile(path.join(root, 'src/git-execution.mjs'), 'utf8');
   assert.match(execution, /repoRootCache\.has\(cwd\)/, 'repoRoot() re-asks git where the repository is');
-  assert.match(execution, /gitDirCache\.has\(root\)/, 'gitDir() re-asks git where the Git directory is');
+  // gitDir() and gitCommonDir() share one cache filled by a single `rev-parse` for both answers
+  // (test/git-repository-batching.test.mjs counts that process), so each must read through it.
+  assert.match(execution, /gitDirectoriesCache\.has\(root\)/, 'gitDir() re-asks git where the Git directory is');
+  assert.match(execution, /export function gitDir\(root\) \{\s*return gitDirectories\(root\)\[0\];/,
+    'gitDir() re-asks git where the Git directory is');
+  assert.match(execution, /export function gitCommonDir\(root\) \{\s*return gitDirectories\(root\)\[1\];/,
+    'gitCommonDir() re-asks git where the common Git directory is');
   assert.match(git, /GITHUB_ACCOUNT_TTL_MS/, 'the gh account lookup is not cached across processes');
 
   /**

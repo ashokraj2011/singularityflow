@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "candidateRef": "05cc524483f1afc5831a9d7c7fc452cf7c63c0ef",
+  "ciRef": "7457729a2ae49fba625c987d97ae90a38fe7c1bc",
+  "ciRunId": 38958491802,
+  "status": "fixture-setup-failed",
+  "performance": {
+    "status": "not-qualified",
+    "operation": "git add .",
+    "stage": "createRepository before the failed sample's start invocation",
+    "code": "ETIMEDOUT",
+    "timeoutMs": 120000,
+    "retainedTimingReport": false
+  },
+  "regression": {
+    "status": "passed",
+    "configurationTests": 8,
+    "publicationTests": 9,
+    "typecheck": "passed",
+    "bundleBudget": "passed"
+  },
+  "notes": [
+    "No timing distribution is inferred from this failed setup. Product command deadlines were not changed.",
+    "The final exact-source 10000-file smoke is retained separately from successful CI run 38958685028."
+  ]
+}

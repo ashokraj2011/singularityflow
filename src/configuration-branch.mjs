@@ -3100,8 +3100,15 @@ export async function resolveStoryConfigurationSnapshotCapability(
   }
 }
 
+/** Copy the owner-verified definition, rebinding only repository-local paths for its consumer. */
+export function copyVerifiedStoryConfigurationDefinition(snapshot, root) {
+  const definition = verifiedStoryDefinition(snapshot);
+  const retained = STORY_CONFIGURATION_VERIFIED_DEFINITIONS.get(snapshot);
+  return copyCompiledDefinition(definition, retained.root, root);
+}
+
 /** Read and optionally verify the provenance record carried by a lifecycle branch. */
-export async function readConfigurationSource(root, { verify = false } = {}) {
+export async function readConfigurationSource(root, { verify = false, exactBytes = false } = {}) {
   const file = path.join(root, CONFIGURATION_SOURCE_PATH);
   const info = await lstat(file).catch(() => null);
   if (!info) return null;
@@ -3144,7 +3151,7 @@ export async function readConfigurationSource(root, { verify = false } = {}) {
     }
     const actual = createHash('sha256').update(await readFile(asset)).digest('hex');
     let canonicalMatch = actual === expected;
-    if (!canonicalMatch && descriptor?.object) {
+    if (!canonicalMatch && !exactBytes && descriptor?.object) {
       const indexed = configurationGitRead(root, undefined, ['ls-files', '--stage', '-z', '--', relative],
         `Pinned configuration asset '${relative}' index entry`).split('\0').find(Boolean)
         ?.match(/^(\d{6}) ([0-9a-f]{40,64}) \d\t/);

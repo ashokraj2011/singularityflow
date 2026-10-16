@@ -235,6 +235,7 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       }
     }
     let requestedBaseRef = null;
+    let launchBaseCommit = null;
     let requestedBaseFetchAuthority = null;
     if (requestedBase && !durableLocalStory) {
       const fetchAuthority = configuredRemoteAuthority(sourceRoot, requestedRemote, {
@@ -267,14 +268,15 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
       }
       requestedBaseFetchAuthority = fetchAuthority;
       requestedBaseRef = `refs/remotes/${requestedRemote}/${requestedBase}`;
-      if (!refExists(sourceRoot, requestedBaseRef)) {
+      launchBaseCommit = localRefHeads(sourceRoot, [requestedBaseRef]).get(requestedBaseRef) ?? null;
+      if (!launchBaseCommit) {
         throw new SingularityFlowError(
           `Selected base branch '${requestedBase}' is not published by remote '${requestedRemote}'. Nothing was changed.`,
           { code: 'STORY_BASE_INVALID' }
         );
       }
     }
-    const launchBaseCommit = requestedBaseRef ? refHead(sourceRoot, requestedBaseRef) : head(sourceRoot);
+    launchBaseCommit ??= head(sourceRoot);
     let baselineTarget = null;
     if (!durableLocalStory && optionStrings(options, 'test-baseline-record').length) {
       const { preparedStoryWorktreePath } = await import('../story-worktree.mjs');
@@ -1651,7 +1653,9 @@ export async function startCommand(positionals, options) {
   // The selected lifecycle branch, not the checkout the user happened to start from, owns the
   // workflow definition. Reload after materialization so a newly fetched phase graph, agent,
   // template, or world-model policy is what gets pinned into the Story.
-  config = await loadConfig(root);
+  config = configurationSnapshot
+    ? await (await import('./start-configuration.mjs')).loadMaterializedConfigurationDefinition(root, approvedConfigurationSnapshot)
+    : await loadConfig(root);
   validateId(config, id);
   await updateStoryStartJournal(root, id, startJournal.transactionId, {
     stage: 'configuration-ready', workItemRelative: workDirRelative(config, id)

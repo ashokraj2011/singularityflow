@@ -11,9 +11,14 @@ const option = (key, fallback) => process.argv.find(arg => arg.startsWith(`--${k
 const samples = Number(option('samples', '3')), files = Number(option('files', '1000'));
 const controlRef = option('control-ref', null), workType = option('work-type', 'feature');
 const selectedMode = option('mode', 'both');
+const fresh = option('fresh', 'false'), configuration = option('configuration', 'legacy');
+const prewarm = option('prewarm', 'none');
+const outputFile = option('out', null);
 if (!Number.isSafeInteger(samples) || samples < 1 || samples > 20
     || !Number.isSafeInteger(files) || files < 0 || files > 20000
     || !/^[a-z0-9-]{1,64}$/.test(workType) || !['both', 'isolated', 'working'].includes(selectedMode)
+    || !['true', 'false'].includes(fresh) || !['legacy', 'approved'].includes(configuration)
+    || !['none', 'candidate'].includes(prewarm)
     || (controlRef && !/^[a-f0-9]{40}$/.test(controlRef))) throw new Error('Invalid benchmark bounds.');
 const summary = values => ({ medianMs: [...values].sort((a,b) => a-b)[Math.floor(values.length/2)],
   minMs: Math.min(...values), maxMs: Math.max(...values) });
@@ -46,6 +51,7 @@ try {
   }
   const env = { ...fixture.env, SINGULARITY_FLOW_BUNDLE: sourceMode ? 'off' : 'on', SINGULARITY_FLOW_BUNDLE_DIR: outdir,
     NODE_COMPILE_CACHE: path.join(fixture.directory, 'code-cache'), SINGULARITY_FLOW_PROGRESS: 'stderr-v1' };
+  env.SINGULARITY_FLOW_STORY_CONFIGURATION_CACHE = path.join(fixture.directory, 'configuration-objects');
   delete env.NODE_DISABLE_COMPILE_CACHE;
   const invoke = (args, cwd, extraEnv = {}) => {
     const started = performance.now();
@@ -59,26 +65,41 @@ try {
   for (const isolated of [false, true]) {
     if ((selectedMode === 'isolated' && !isolated) || (selectedMode === 'working' && isolated)) continue;
     const mode = isolated ? 'isolatedWorktree' : 'workingCheckout';
-    const repository = path.join(fixture.directory, mode), remote = path.join(fixture.directory, `${mode}.git`);
-    await mkdir(repository);
-    await cp(path.join(fixture.repository, 'src'), path.join(repository, 'src'), { recursive: true });
-    const git = args => fixture.git(args, { cwd: repository });
-    git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Creation Tester']);
-    git(['config', 'user.email', 'creation@example.invalid']);
-    invoke(['init'], repository);
-    git(['add', '.']); git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'creation fixture']);
-    git(['init', '--bare', remote]); git(['remote', 'add', 'origin', remote]); git(['push', '-u', 'origin', 'main']);
+    const createRepository = async suffix => {
+      const repository = path.join(fixture.directory, `${mode}${suffix}`);
+      const remote = `${repository}.git`;
+      await mkdir(repository);
+      await cp(path.join(fixture.repository, 'src'), path.join(repository, 'src'), { recursive: true });
+      const git = args => fixture.git(args, { cwd: repository });
+      git(['init', '-q', '-b', 'main']); git(['config', 'user.name', 'Creation Tester']);
+      git(['config', 'user.email', 'creation@example.invalid']);
+      invoke(['init'], repository);
+      git(['add', '.']); git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'creation fixture']);
+      git(['init', '--bare', remote]); git(['remote', 'add', 'origin', remote]); git(['push', '-u', 'origin', 'main']);
+      if (configuration === 'approved') {
+        git(['branch', 'sflow/config']); git(['push', 'origin', 'sflow/config']);
+      }
+      return { repository, git };
+    };
+    const shared = fresh === 'true' ? null : await createRepository('');
     const measured = Object.fromEntries(Object.keys(variants).map(variant => [variant, []]));
     for (let index=0;index<samples;index++) {
       for (const variant of index % 2 ? Object.keys(variants).reverse() : Object.keys(variants)) {
+      const { repository, git } = shared ?? await createRepository(`-${variant}-${index}`);
       git(['switch', '-q', 'main']);
       const id = `CREATE-${variant.toUpperCase()}-${isolated ? 'ISO' : 'LOCAL'}-${index}`;
       const traceFile = path.join(fixture.directory, `${id}.jsonl`);
+      const variantEnv = { SINGULARITY_FLOW_BUNDLE_DIR: variants[variant],
+        NODE_COMPILE_CACHE: path.join(fixture.directory, 'code-cache', variant, ...(fresh === 'true' ? [String(index)] : [])) };
+      let preparation = null;
+      if (prewarm === 'candidate' && variant === 'candidate') {
+        const prepared = invoke(['--warm-runtime'], fixture.directory, variantEnv);
+        preparation = { durationMs: prepared.durationMs, prepared: JSON.parse(prepared.value).prepared === true };
+      }
       const result = invoke(['start', id, '--from-branch', 'main', '--work-type', workType,
         '--title', 'Creation performance qualification', '--json', '--timings',
         ...(isolated ? ['--isolated-worktree'] : [])], repository, { GIT_TRACE2_EVENT: traceFile,
-          SINGULARITY_FLOW_BUNDLE_DIR: variants[variant],
-          NODE_COMPILE_CACHE: path.join(fixture.directory, 'code-cache', variant),
+          ...variantEnv,
           ...(process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? { SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' } : {}) });
       if (process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE) process.stderr.write(result.stderr);
       const publishedTip = git(['ls-remote', '--heads', 'origin', `refs/heads/${id}`]).split(/\s/)[0];
@@ -99,19 +120,27 @@ try {
         const command = argv.slice(1).find(arg => /^[a-z][a-z-]+$/.test(arg)) ?? 'other';
         commands[command] = (commands[command] ?? 0) + 1;
       }
-      measured[variant].push({ durationMs: result.durationMs, timings, counters, localTraceGitProcessCounts: commands,
+      measured[variant].push({ durationMs: result.durationMs, preparation,
+        totalWithPreparationMs: result.durationMs + (preparation?.durationMs ?? 0),
+        timings, counters, localTraceGitProcessCounts: commands,
         localTraceGitProcesses: Object.values(commands).reduce((a,b) => a+b, 0), exactRemoteTip: true });
       }
     }
     results[mode] = Object.fromEntries(Object.entries(measured).map(([variant, runs]) =>
       [variant, { ...summary(runs.map(run => run.durationMs)), runs }]));
   }
-  console.log(JSON.stringify({ schemaVersion: 1,
-    runtime: { platform: process.platform, arch: process.arch, node: process.version },
-    protocol: { samples, files, workType, mode: selectedMode, remote: 'local bare only', modelCalls: 0,
+  const report = { schemaVersion: 1,
+    runtime: { platform: process.platform, arch: process.arch, node: process.version,
+      git: fixture.git(['--version']) },
+    protocol: { samples, files, workType, mode: selectedMode, configuration, freshRepositoryPerSample: fresh === 'true',
+      prewarm, remote: 'local bare only', modelCalls: 0,
       controlRef, controlModules, comparison: 'same packaging and fixtures; alternating candidate/control samples',
-      compileCache: 'separate per variant, initially empty; shared across samples', osFileCache: 'not flushed',
+      compileCache: fresh === 'true' ? 'fresh private directory for every sample' : 'separate per variant, initially empty; shared across samples',
+      osFileCache: 'not flushed',
       publication: 'fresh validation and exact remote tip asserted for every sample' }, results,
     limitations: ['Windows latency is unmeasured unless runtime.platform is win32.',
-      'No native Copilot tool, enterprise network or antivirus timings are included.'] }, null, 2));
+      'No native Copilot tool, enterprise network or antivirus timings are included.'] };
+  const serialized = JSON.stringify(report, null, 2) + '\n';
+  if (outputFile) await writeFile(path.resolve(outputFile), serialized, { mode: 0o600 });
+  process.stdout.write(serialized);
 } finally { await fixture.cleanup(); }

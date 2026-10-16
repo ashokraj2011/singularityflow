@@ -80,8 +80,7 @@ export function gitRemoteProbeTimeout(remote, env = process.env) {
  * revalidates it before returning; the branch is memoized per read scope.
  */
 const repoRootCache = new Map();
-const gitDirCache = new Map();
-const gitCommonDirCache = new Map();
+const gitDirectoriesCache = new Map();
 const verifiedReadHeads = new AsyncLocalStorage();
 
 /** Kernel-only read projection: the owner must prove this HEAD before/after its bounded snapshot.
@@ -95,13 +94,16 @@ export function withVerifiedReadHead(root, observedHead, action) {
 
 export function repoRoot(cwd = process.cwd()) {
   if (repoRootCache.has(cwd)) return repoRootCache.get(cwd);
-  const result = run('git', ['rev-parse', '--show-toplevel'], { cwd, allowFailure: true });
+  const result = run('git', ['rev-parse', '--path-format=absolute', '--show-toplevel', '--absolute-git-dir', '--git-common-dir'], { cwd, allowFailure: true });
   if (gitDeveloperToolsUnavailable(result)) gitReadOutput(result, 'Repository root');
   // Only a success is cached: a failure is a thrown error, and a later call from a different cwd
   // inside a repository must still be able to succeed.
   if (result.status !== 0) throw new SingularityFlowError('Run Singularity Flow from inside a Git repository.');
-  const resolved = path.resolve(result.stdout.trim());
+  const [resolved, ...directories] = parseGitPaths(result.stdout, 3);
+  gitDirectoriesCache.set(cwd, directories);
+  gitDirectoriesCache.set(resolved, directories);
   repoRootCache.set(cwd, resolved);
+  repoRootCache.set(resolved, resolved);
   return resolved;
 }
 
@@ -145,12 +147,20 @@ export function head(root) {
  * relative answers absolute against the caller's checkout.
  */
 export function gitCommonDir(root) {
-  if (gitCommonDirCache.has(root)) return gitCommonDirCache.get(root);
-  const value = run('git', ['rev-parse', '--git-common-dir'], { cwd: root }).stdout.trim();
-  invariant(value, 'Unable to resolve the repository common Git directory.');
-  const resolved = path.resolve(root, value);
-  gitCommonDirCache.set(root, resolved);
-  return resolved;
+  return gitDirectories(root)[1];
+}
+
+function parseGitPaths(output, count) {
+  const values = output.trimEnd().split(/\r?\n/u);
+  invariant(values.length === count && values.every(value => path.isAbsolute(value)), 'Unable to resolve repository Git paths.');
+  return values.map(value => path.resolve(value));
+}
+
+function gitDirectories(root) {
+  if (!gitDirectoriesCache.has(root)) gitDirectoriesCache.set(root, parseGitPaths(run('git', [
+    'rev-parse', '--path-format=absolute', '--absolute-git-dir', '--git-common-dir'
+  ], { cwd: root }).stdout, 2));
+  return gitDirectoriesCache.get(root);
 }
 
 /** The commit a ref resolves to, or null when it resolves to none. */
@@ -161,18 +171,13 @@ export function refHead(root, ref, { env = process.env } = {}) {
 
 /** The repository's own Git directory (`--absolute-git-dir`, worktree-private). */
 export function gitDir(root) {
-  if (gitDirCache.has(root)) return gitDirCache.get(root);
-  const value = run('git', ['rev-parse', '--absolute-git-dir'], { cwd: root }).stdout.trim();
-  invariant(value, 'Unable to resolve the repository Git directory.');
-  const resolved = path.resolve(value);
-  gitDirCache.set(root, resolved);
-  return resolved;
+  return gitDirectories(root)[0];
 }
 
 /** Tests recreate repositories at the same temporary path; see resetGitProcessCaches in git.mjs. */
 export function resetGitDirCache() {
   repoRootCache.clear();
-  gitDirCache.clear();
+  gitDirectoriesCache.clear();
 }
 
 /**

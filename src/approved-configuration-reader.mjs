@@ -16,6 +16,7 @@ import {
 } from './git-remote-diagnostics.mjs';
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
+import { withFreshReadScope } from './read-scope.mjs';
 
 const WORKFLOW_PATH = 'singularity/workflow.yml';
 const CONFIGURATION_BRANCH = 'sflow/config';
@@ -403,7 +404,7 @@ export async function withRepositoryConfigurationCommitRead(root, {
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-base-config-read-'));
   try {
     const assetPolicy = await extractConfiguration(root, authority, temporaryRoot);
-    return await withConfigurationReadRoot(root, temporaryRoot, authority, () => fn(authority), {
+    return await withConfigurationReadRoot(root, temporaryRoot, authority, () => withFreshReadScope(() => fn(authority)), {
       assetPolicy,
       // Branch-local governance is compatibility input, not shared approved authority.
       configurationSnapshot: null

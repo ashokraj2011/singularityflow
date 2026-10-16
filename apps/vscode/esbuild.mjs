@@ -70,6 +70,7 @@ const options = {
     'gateway-runtime': 'src/gateway-runtime.ts',
     'gateway-status-worker': 'src/gateway-status-worker.ts',
     'help-runtime': 'src/help-runtime.ts',
+    'runtime-prewarm': 'src/runtime-prewarm.ts',
     'lazy-panels-runtime': 'src/lazy-panels-runtime.ts',
     'support-runtime': 'src/support-runtime.ts',
     'workflow-markup-runtime': 'src/workflow-markup-runtime.ts',

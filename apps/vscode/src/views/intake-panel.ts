@@ -251,6 +251,7 @@ export class IntakePanel {
   private webviewReady = false;
   private renderSequence = 0;
   private favouriteWrite: Promise<void> = Promise.resolve();
+  private readonly runtimeWarmup = new AbortController();
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -302,7 +303,9 @@ export class IntakePanel {
       null, this.disposables);
     this.holdWhileVisible(this.panel.visible);
     this.render();
-    void this.load();
+    void this.load().finally(() => {
+      if (!this.disposed) void this.client.prewarmRuntime(this.runtimeWarmup.signal);
+    });
   }
 
   /** Optional background work waits while this form is on screen, and resumes once it is not. */
@@ -1349,6 +1352,7 @@ export class IntakePanel {
   }
 
   private async start(): Promise<void> {
+    this.runtimeWarmup.abort();
     const startRepository = this.client.repository;
     // Re-checked here rather than trusted from the page: the disabled button is a courtesy.
     if (intakeProblems(this.form).length || this.form.busy || this.form.enhancing || this.form.baselineRunning) return;
@@ -1458,6 +1462,7 @@ export class IntakePanel {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.runtimeWarmup.abort();
     this.holdWhileVisible(false);
     for (const timer of this.referencePrefetchTimers.values()) clearTimeout(timer);
     this.referencePrefetchTimers.clear();

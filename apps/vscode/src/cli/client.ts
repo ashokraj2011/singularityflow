@@ -635,6 +635,17 @@ export class SingularityFlowClient {
   get mutating(): boolean { return Boolean(repositoryMutations.get(mutationKey(this.repository))?.size); }
   waitForMutations(signal?: AbortSignal): Promise<void> { return awaitRepositoryMutations(this.repository, signal); }
 
+  /** Intake calls this after its interactive catalog read; Start/disposal can cancel it. */
+  async prewarmRuntime(signal?: AbortSignal): Promise<void> {
+    const env = { ...((typeof this.options.environment === 'function'
+      ? this.options.environment() : this.options.environment) ?? process.env) };
+    try {
+      const { prewarmCliRuntime } = require(path.join(__dirname, 'runtime-prewarm.cjs')) as typeof import('./prewarm.ts');
+      const result = await prewarmCliRuntime(this.location, env, { signal });
+      this.options.onOutput?.(`[Singularity Flow runtime] ${JSON.stringify(result)}\n`, 'stderr');
+    } catch { /* Optional acceleration must never deny opening intake or starting work. */ }
+  }
+
   /**
    * Point every later command at a different repository.
    *

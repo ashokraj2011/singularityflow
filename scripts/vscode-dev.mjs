@@ -27,8 +27,9 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolvePlatformProcess } from '../src/platform-process.mjs';
+import { buildCliBundle } from './build-cli-bundle.mjs';
 import {
   exactGitRoot, reproducibleBuildEnvironment, verifiedPackagingProvenance, vscodeBuildIdentity
 } from './reproducible-build.mjs';
@@ -1138,6 +1139,36 @@ async function installLockedProductionClosure({ rootDir, staged, exact, environm
   }
 }
 
+/**
+ * The bundled CLI for the staged engine, built from the staged bytes themselves. `[perf]`
+ *
+ * VS Code runs the CLI shipped in the VSIX (`<extension>/cli`), not the global install, so without
+ * a bundle every command it starts loads about 500 module files: about 6 s on a Windows laptop
+ * where the bundled global CLI loads 5. The inputs are the staged sources and the lock-installed
+ * production closure, never the checkout's ignored `bundle/` or `node_modules/`; only esbuild
+ * comes from the checkout, as the build tool. An unstamped stage gets no bundle, because
+ * src/bundled-cli.mjs would never run it, and a failed build only warns: the engine then runs from
+ * its sources, as install.sh does for the global CLI.
+ */
+export async function stageCliBundle({
+  rootDir = root,
+  staged,
+  build = buildCliBundle,
+  warn = (message) => console.warn(message)
+} = {}) {
+  const buildInfo = pathToFileURL(path.join(staged, 'src', 'build-info.mjs')).href;
+  const { BUILD_INFO } = await import(`${buildInfo}?stage=${randomUUID()}`);
+  if (!BUILD_INFO?.commit && !BUILD_INFO?.sourceSha256) return null;
+  try {
+    const { manifest } = await build({ root: staged, outdir: path.join(staged, 'bundle'), esbuildRoot: rootDir });
+    return manifest;
+  } catch (error) {
+    await rm(path.join(staged, 'bundle'), { recursive: true, force: true });
+    warn(`Warning: the staged CLI bundle could not be built; the extension's CLI will run from its sources. ${error.message}`);
+    return null;
+  }
+}
+
 export async function stageCli({
   rootDir = root,
   extensionDir = extension,
@@ -1168,6 +1199,7 @@ export async function stageCli({
     // node_modules bytes. The preceding full npm ci primes the configured registry/cache, so this
     // bounded production-only install is normally local and closes an otherwise unverifiable leak.
     await installLockedProductionClosure({ rootDir, staged, exact, environment });
+    await stageCliBundle({ rootDir, staged });
     return staged;
   } catch (error) {
     await rm(staged, { recursive: true, force: true });

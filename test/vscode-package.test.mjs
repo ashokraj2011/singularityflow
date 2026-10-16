@@ -11,7 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   CLI_PAYLOAD, PACKAGING_NPM_CLI_ENV, VSCE_TOOLCHAIN, assertPortablePackageCheckout, assertVscePackageInputs,
-  configureLocalDemoWorkflow, isExecutedVscodeDevModule, resolveVsce, stageCli, vscodePackagingEnvironment,
+  configureLocalDemoWorkflow, isExecutedVscodeDevModule, resolveVsce, stageCli, stageCliBundle, vscodePackagingEnvironment,
   vscePackageArguments, vsceToolManifest
 } from '../scripts/vscode-dev.mjs';
 import {
@@ -19,6 +19,7 @@ import {
   reproducibleBuildEnvironment, resolveSourceDateEpoch, vscodeBuildIdentity
 } from '../scripts/reproducible-build.mjs';
 import { stampBuildInfo } from '../src/build-info-stamp.mjs';
+import { bundledCliUrl } from '../src/bundled-cli.mjs';
 import {
   VSIX_SOURCE_MANIFEST_ENV,
   VSIX_SOURCE_MANIFEST_SHA256_ENV,
@@ -164,6 +165,62 @@ test('the installed VS Code CLI carries the canonical Help manual and intent-aut
     'platform-specific npm command shims must not enter the staged closure');
   assert.deepEqual(await descendantsNamed(path.join(staged, 'node_modules'), '.package-lock.json'), [],
     'npm-version-specific hidden locks must not enter the staged closure');
+  assert.equal(existsSync(path.join(staged, 'bundle')), false,
+    'an unstamped stage carries no bundle: src/bundled-cli.mjs would never run it');
+
+  // A stamped stage builds its bundle from the staged sources and their locked closure, and the
+  // staged CLI then runs it with the same output as its sources.
+  const buildInfo = path.join(staged, 'src', 'build-info.mjs');
+  await writeFile(buildInfo, stampBuildInfo(await readFile(buildInfo, 'utf8'), {
+    commit: '1'.repeat(40), sourceSha256: null, branch: null, dirty: false, builtAt: '2000-01-01T00:00:00.000Z'
+  }));
+  const manifest = await stageCliBundle({ rootDir: root, staged });
+  assert.equal(manifest?.stamped, true);
+  assert.ok(bundledCliUrl(staged, {}), 'the staged CLI selects its own bundle');
+  assert.deepEqual((await readdir(staged)).filter((name) => name.startsWith('bundle')), ['bundle'],
+    'no partial build directory is left in the stage');
+  const fromSources = spawnSync(process.execPath, [path.join(staged, 'bin', 'singularity-flow.mjs'), 'help', '--json'],
+    { cwd: extension, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_BUNDLE: 'off' } });
+  const fromBundle = spawnSync(process.execPath, [path.join(staged, 'bin', 'singularity-flow.mjs'), 'help', '--json'],
+    { cwd: extension, encoding: 'utf8', env: { ...process.env, SINGULARITY_FLOW_BUNDLE: '' } });
+  assert.equal(fromBundle.status, 0, fromBundle.stderr);
+  assert.equal(fromBundle.stdout, fromSources.stdout);
+});
+
+test('the staged CLI bundle is built only for a stamped stage, from the stage, and a failed build only warns', async (t) => {
+  const staged = await mkdtemp(path.join(os.tmpdir(), 'sflow-vscode-stage-bundle-'));
+  t.after(() => rm(staged, { recursive: true, force: true }));
+  await mkdir(path.join(staged, 'src'), { recursive: true });
+  await copyFile(path.join(root, 'src', 'version.mjs'), path.join(staged, 'src', 'version.mjs'));
+  const unstamped = await readFile(path.join(root, 'src', 'build-info.mjs'), 'utf8');
+  const builds = [];
+  const warnings = [];
+  const build = async (options) => {
+    builds.push(options);
+    await mkdir(path.join(options.outdir), { recursive: true });
+    return { manifest: { stamped: true } };
+  };
+  await writeFile(path.join(staged, 'src', 'build-info.mjs'), stampBuildInfo(unstamped, {
+    commit: null, sourceSha256: null, branch: null, dirty: false, builtAt: '2000-01-01T00:00:00.000Z'
+  }));
+  assert.equal(await stageCliBundle({ rootDir: '/checkout', staged, build, warn: (m) => warnings.push(m) }), null);
+  assert.deepEqual(builds, [], 'an unstamped stage is not built');
+
+  await writeFile(path.join(staged, 'src', 'build-info.mjs'), stampBuildInfo(unstamped, {
+    commit: '2'.repeat(40), sourceSha256: null, branch: null, dirty: false, builtAt: '2000-01-01T00:00:00.000Z'
+  }));
+  assert.deepEqual(await stageCliBundle({ rootDir: '/checkout', staged, build, warn: (m) => warnings.push(m) }), { stamped: true });
+  assert.deepEqual(builds, [{ root: staged, outdir: path.join(staged, 'bundle'), esbuildRoot: '/checkout' }],
+    'the stage is the input; the checkout only supplies esbuild');
+
+  const failing = async (options) => {
+    await mkdir(options.outdir, { recursive: true });
+    throw new Error('esbuild is not installed');
+  };
+  assert.equal(await stageCliBundle({ rootDir: '/checkout', staged, build: failing, warn: (m) => warnings.push(m) }), null);
+  assert.equal(existsSync(path.join(staged, 'bundle')), false, 'a failed build leaves no bundle to ship');
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /will run from its sources\. esbuild is not installed/u);
 });
 
 test('failed CLI staging removes its partial package tree', async (t) => {

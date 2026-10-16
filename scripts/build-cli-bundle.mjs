@@ -38,26 +38,32 @@ export const CLI_BUNDLE_ENTRIES = Object.freeze({
 const EXTERNAL = ['typescript', 'pyright', 'sql.js', 'sql.js/*', '@agentclientprotocol/sdk', '@agentclientprotocol/sdk/*'];
 
 /** Keep the install stamp live: the bundle imports `src/build-info.mjs` and `src/version.mjs`. */
-const liveStamp = {
+const liveStamp = (root) => ({
   name: 'live-build-stamp',
   setup(build) {
     build.onResolve({ filter: /(?:^|\/)(?:build-info|version)\.mjs$/ }, (args) => {
-      if (!args.importer.startsWith(path.join(ROOT, 'src'))) return null;
+      if (!args.importer.startsWith(path.join(root, 'src'))) return null;
       const target = path.resolve(path.dirname(args.importer), args.path);
-      if (![path.join(ROOT, 'src', 'build-info.mjs'), path.join(ROOT, 'src', 'version.mjs')].includes(target)) return null;
+      if (![path.join(root, 'src', 'build-info.mjs'), path.join(root, 'src', 'version.mjs')].includes(target)) return null;
       return { path: `../src/${path.basename(target)}`, external: true };
     });
   }
-};
+});
 
 function sha256(file) {
   return `sha256:${createHash('sha256').update(readFileSync(file)).digest('hex')}`;
 }
 
-export async function buildCliBundle({ root = ROOT, outdir = path.join(root, 'bundle') } = {}) {
-  const { build } = await import(pathToFileURL(path.join(root, 'node_modules', 'esbuild', 'lib', 'main.js')).href);
+/**
+ * `root` is the package the bundle is built from and for; `esbuildRoot` only supplies the build
+ * tool. The VS Code package builds its staged CLI this way: the inputs are the staged sources and
+ * their lock-installed production closure, which has no esbuild of its own.
+ */
+export async function buildCliBundle({ root = ROOT, outdir = path.join(root, 'bundle'), esbuildRoot = root } = {}) {
+  const { build } = await import(pathToFileURL(path.join(esbuildRoot, 'node_modules', 'esbuild', 'lib', 'main.js')).href);
   const staging = `${outdir}.building-${process.pid}`;
   rmSync(staging, { recursive: true, force: true });
+  // A failed build must not leave its partial output behind: inside a VSIX stage it would ship.
   const result = await build({
     absWorkingDir: root,
     entryPoints: CLI_BUNDLE_ENTRIES,
@@ -70,11 +76,14 @@ export async function buildCliBundle({ root = ROOT, outdir = path.join(root, 'bu
     minifyWhitespace: true,
     legalComments: 'none',
     external: EXTERNAL,
-    plugins: [liveStamp],
+    plugins: [liveStamp(root)],
     // Bundled CommonJS packages (yaml's Node build) call require(); an ES module has none of its own.
     banner: { js: 'import { createRequire as __sflowCreateRequire } from "node:module"; const require = __sflowCreateRequire(import.meta.url);' },
     metafile: true,
     logLevel: 'error'
+  }).catch((error) => {
+    rmSync(staging, { recursive: true, force: true });
+    throw error;
   });
   const { BUILD_INFO } = await import(`${pathToFileURL(path.join(root, 'src', 'build-info.mjs')).href}?bundle=${Date.now()}`);
   const outputs = Object.entries(result.metafile.outputs).map(([file, output]) => ({

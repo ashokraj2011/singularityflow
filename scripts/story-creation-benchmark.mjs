@@ -148,6 +148,7 @@ try {
       osFileCache: 'not flushed',
       publication: 'fresh validation and exact remote tip asserted for every sample' }, results,
     limitations: ['Windows latency is unmeasured unless runtime.platform is win32.',
+      'Git elapsed totals are inclusive per process; parent/child times overlap. Isolated remote transports may omit trace events.',
       'No native Copilot tool, enterprise network or antivirus timings are included.'] };
   const serialized = JSON.stringify(report, null, 2) + '\n';
   if (outputFile) await writeFile(path.resolve(outputFile), serialized, { mode: 0o600 });

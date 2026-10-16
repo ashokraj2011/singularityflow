@@ -293,3 +293,47 @@ test('a prepublish correction names each finding to fix in act itself', () => {
   assert.equal(act.fix.at(-1), '+2 more in findings');
   assert.equal(agentAct({ resultType: 'sflow-phase-prepublish', status: 'correction-required', findings: [] }).fix, undefined);
 });
+
+test('an opened session keeps its commit, path and every next action in view, however large the workflow', async (t) => {
+  const { agentSessionView } = await import('../src/commands/session-open.mjs');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-session-view-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  assert.equal(spawnSync('git', ['init', '-q', root]).status, 0);
+  // A workflow with many steps: verbose open and status records, twelve actions with full guidance.
+  const guidance = (index) => ({ command: `singularity-flow phase prepublish step-${index} --json`, copilotCommand: '/sf-code', modelFreeCommand: null,
+    executable: 'singularity-flow', argv: ['phase', 'prepublish', `step-${index}`, '--json'], copyable: true,
+    platformCommands: { posix: `singularity-flow phase prepublish step-${index} --json`, powershell: `singularity-flow phase prepublish step-${index} --json` } });
+  const raw = {
+    schemaVersion: 1, resultType: 'session-open', status: 'ready', workId: 'BIG-1', repositoryPath: root, localOnly: true, attachedFromRemote: false,
+    open: { workId: 'BIG-1', branch: 'BIG-1', head: 'a'.repeat(40), repositoryPath: root, phase: 'step-3', status: 'in_progress', agent: 'developer',
+      phases: Array.from({ length: 30 }, (_, index) => ({ id: `step-${index}`, label: `Step ${index}`, status: 'not_started', detail: 'x'.repeat(200) })) },
+    session: { ready: true, workId: 'BIG-1', activeAgent: 'developer', phase: 'step-3', personalization: { replyName: 'Sam' }, phases: 'y'.repeat(9000) },
+    context: { text: 'Brief line.\n'.repeat(1500) },
+    nextsteps: { resultType: 'sflow-nextsteps', state: 'active', currentPhase: 'step-3', evidence: { blob: 'z'.repeat(8000) },
+      actions: Array.from({ length: 12 }, (_, index) => ({ id: `a${index}`, timing: index ? 'later' : 'now', reason: `Do step ${index}`, skill: '/sf-code',
+        command: guidance(index).command, copilotCommand: '/sf-code', argv: guidance(index).argv, route: 'authoring', commandGuidance: guidance(index) })) }
+  };
+  const result = { ...raw, ...agentSessionView(raw), ready: true };
+  assert.deepEqual(Object.keys(result.open).sort(), ['agent', 'branch', 'head', 'phase', 'repositoryPath', 'status', 'workId']);
+  assert.equal(result.session.personalization.replyName, 'Sam');
+  assert.equal(result.nextsteps.actions.length, 12);
+  assert.deepEqual(result.nextsteps.actions[0], { id: 'a0', timing: 'now', reason: 'Do step 0', skill: '/sf-code',
+    commandGuidance: { command: 'singularity-flow phase prepublish step-0 --json', copilotCommand: '/sf-code', modelFreeCommand: null } },
+  'each action once, with its routes; PowerShell only where it differs');
+  assert.equal(result.nextsteps.evidence, undefined);
+
+  const act = agentAct(result);
+  assert.deepEqual(act.story, { workId: 'BIG-1', repositoryPath: root, commit: 'a'.repeat(12), agent: 'developer', phase: 'step-3', localOnly: true });
+  assert.equal(act.do, null, 'opening a session is never counted as a loop');
+  assert.equal(act.next.length, 5);
+  assert.deepEqual(act.next[0], { timing: 'now', reason: 'Do step 0', copilot: '/sf-code', shell: 'singularity-flow phase prepublish step-0 --json', vscode: null });
+
+  // Within the bound, the fields the session skill reports stay in view; only the brief moves out.
+  const view = JSON.parse(await boundedAgentOutput(JSON.stringify(result), { cwd: root }));
+  assert.ok(Buffer.byteLength(JSON.stringify(view)) <= DEFAULT_AGENT_OUTPUT_BYTES);
+  assert.equal(view.act.story.commit, 'a'.repeat(12));
+  assert.equal(view.repositoryPath, root);
+  assert.equal(view.open.head, 'a'.repeat(40));
+  assert.deepEqual(view.omittedFields.map((field) => field.field), ['context']);
+  assert.equal(view.nextsteps.actions.length, 12);
+});

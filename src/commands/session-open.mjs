@@ -97,7 +97,7 @@ export async function run({ positionals, options }) {
     localOnly: !attached, attachedFromRemote: attached, open: opened.value, session: status.value,
     context: context.value, nextsteps: next.value
   };
-  if (options['for-agent']) Object.assign(result, { ready: true,
+  if (options['for-agent']) Object.assign(result, agentSessionView(result), { ready: true,
     agentInstruction: 'Reuse the verified open/session binding, brief and nextsteps in this result. Do not repeat pause, workspace, session, context or nextsteps lookups merely to obtain the same fields. Selection changes and later operation-specific readiness/consent still require fresh checks.' });
   if (json) return console.log(JSON.stringify(result, null, 2));
   console.log(`${workId} is ready at ${checkout} (${attached ? 'attached from the remote' : 'local checkout, no remote sync'}).`);
@@ -108,4 +108,39 @@ export async function run({ positionals, options }) {
     console.log('Next:');
     actions.forEach((action, index) => console.log(`  ${index + 1}. ${action.label ?? action.reason ?? action.id}${action.command ? ` — ${action.command}` : ''}`));
   }
+}
+
+const pick = (value, keys) => (value && typeof value === 'object' && !Array.isArray(value)
+  ? Object.fromEntries(keys.filter((key) => value[key] !== undefined).map((key) => [key, value[key]])) : value ?? null);
+
+/**
+ * What an agent reads from an opened session: the binding facts /sf-session reports and every next
+ * action with its routes, not the whole open, status and next-steps records. Those ran to tens of
+ * kilobytes on a workflow with many steps, and VS Code's terminal tool shows only the first 500
+ * characters and the tail of anything over 20,000, so the commit, path and next actions fell in the
+ * middle it dropped. The brief (`context`) is unchanged.
+ */
+export function agentSessionView(result) {
+  // Each action once: its routes as commandGuidance gives them (the shell form, and PowerShell's
+  // only where it differs), never repeated beside it.
+  const action = (entry) => {
+    const given = entry?.commandGuidance && typeof entry.commandGuidance === 'object' ? entry.commandGuidance : entry ?? {};
+    const command = given.command ?? entry?.command ?? null;
+    const powershell = given.platformCommands?.powershell;
+    return { ...pick(entry, ['id', 'timing', 'reason', 'label', 'skill']),
+      commandGuidance: { command, copilotCommand: given.copilotCommand ?? entry?.copilotCommand ?? null,
+        modelFreeCommand: given.modelFreeCommand ?? entry?.modelFreeCommand ?? null,
+        ...(powershell && powershell !== command ? { powershell } : {}) } };
+  };
+  const next = result.nextsteps;
+  return {
+    open: pick(result.open, ['workId', 'branch', 'head', 'repositoryPath', 'phase', 'status', 'agent', 'localOnly', 'attachedFromRemote', 'warnings']),
+    session: pick(result.session, ['ready', 'workId', 'activeAgent', 'phase', 'status', 'repositoryPath', 'personalization', 'paused']),
+    nextsteps: next && typeof next === 'object' ? {
+      ...pick(next, ['resultType', 'state', 'currentPhase', 'subject']),
+      actions: (Array.isArray(next.actions) ? next.actions : next.data?.actions ?? []).map(action),
+      ...(next.preparation ? { preparation: { ...pick(next.preparation, ['compositionRequired', 'fulfilledBy', 'automaticAdvance']),
+        actions: (next.preparation.actions ?? []).map(action) } } : {})
+    } : next ?? null
+  };
 }

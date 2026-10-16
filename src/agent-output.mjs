@@ -114,8 +114,19 @@ export function agentAct(result) {
   if (result.resultType === 'session-open') {
     if (result.status === 'choose') return { state: 'ask-person', do: null, read: ['table', 'selectors'],
       said: 'Show the returned candidates and ask for the exact Story ID. Reuse this packet; do not list them again without a selection change.' };
-    if (result.status === 'ready') return { state: 'next', do: null, read: ['open', 'session', 'nextsteps'],
-      said: 'The exact session is attached and verified. Relay its next actions and end the session-only turn; do not repeat context or nextsteps lookups.' };
+    if (result.status === 'ready') {
+      // The facts and actions to relay, here at the start, whatever a host shows of the rest.
+      // No `do`: opening a session again is never a loop to count.
+      const open = result.open ?? {};
+      const actions = Array.isArray(result.nextsteps?.actions) ? result.nextsteps.actions : result.nextsteps?.data?.actions ?? [];
+      const next = actions.map((entry) => routes(entry) && { timing: entry.timing ?? null, ...routes(entry) }).filter(Boolean).slice(0, 5);
+      return { state: 'next', do: null,
+        story: { workId: result.workId ?? open.workId ?? null, repositoryPath: result.repositoryPath ?? open.repositoryPath ?? null,
+          commit: typeof open.head === 'string' ? open.head.slice(0, 12) : null, agent: open.agent ?? result.session?.activeAgent ?? null,
+          phase: open.phase ?? result.session?.phase ?? null, localOnly: result.localOnly ?? null },
+        ...(next.length ? { next } : {}), read: ['nextsteps', 'context'],
+        said: 'The exact session is attached and verified. Report story, relay its next actions in order and end the session-only turn; do not repeat context or nextsteps lookups.' };
+    }
   }
   if (result.error && result.remediationPlan) {
     const plan = result.remediationPlan;

@@ -139,9 +139,17 @@ test('every generated skill boundary forbids home search and uses only its decla
       assert.doesNotMatch(declared, /session current|ready.*workId/, name);
       assert.doesNotMatch(content, /singularity-flow session current|git rev-parse --show-toplevel/, `${name} must not discover a repository or Story`);
     } else if (executionBoundary === 'repository') {
-      assert.match(declared, /no Story required; cwd=opened Git root or verified `repositoryPath`/, name);
-      assert.match(declared, /from `singularity-flow workspace current --json`/, name);
-      assert.match(declared, /refuse if neither resolves/, name);
+      if (name === 'sflow-start') {
+        // Start reuses its one intake entry, which resolves the selected repository or opened Git root
+        // and checks workspace readiness and a clean tree before any choice.
+        assert.match(declared, /no Story required; reuse entry `repositoryPath` after its workspace\/clean-tree checks/, name);
+        assert.match(declared, /Refuse absent\/unready selections/, name);
+        assert.match(content, /singularity-flow workspace branches --entry --intake --work-id <WORK-ID> --for-agent --json/, `${name} resolves its repository through the intake entry`);
+      } else {
+        assert.match(declared, /no Story required; cwd=opened Git root or verified `repositoryPath`/, name);
+        assert.match(declared, /from `singularity-flow workspace current --json`/, name);
+        assert.match(declared, /refuse if neither resolves/, name);
+      }
       if (name === 'sflow-session') assert.match(declared, /exact selected workspace\/repository is also valid before checkout exists/, name);
       assert.doesNotMatch(declared, /session current|ready.*workId/, name);
     } else if (executionBoundary === 'organisation') {

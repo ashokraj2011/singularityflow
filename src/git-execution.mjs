@@ -94,14 +94,16 @@ export function withVerifiedReadHead(root, observedHead, action) {
 
 export function repoRoot(cwd = process.cwd()) {
   if (repoRootCache.has(cwd)) return repoRootCache.get(cwd);
-  const result = run('git', ['rev-parse', '--path-format=absolute', '--show-toplevel', '--absolute-git-dir', '--git-common-dir'], { cwd, allowFailure: true });
+  const result = run('git', ['rev-parse', '--show-toplevel', '--absolute-git-dir', '--git-common-dir'], { cwd, allowFailure: true });
   if (gitDeveloperToolsUnavailable(result)) gitReadOutput(result, 'Repository root');
   // Only a success is cached: a failure is a thrown error, and a later call from a different cwd
   // inside a repository must still be able to succeed.
   if (result.status !== 0) throw new SingularityFlowError('Run Singularity Flow from inside a Git repository.');
-  const [resolved, ...directories] = parseGitPaths(result.stdout, 3);
+  const { paths: [resolved, ...directories], relativeCommon } = parseGitPaths(result.stdout, 3, cwd);
   gitDirectoriesCache.set(cwd, directories);
-  gitDirectoriesCache.set(resolved, directories);
+  // Git's ordinary-checkout common dir is cwd-relative; keep that public spelling for alias
+  // callers, but prime the canonical root with its canonical private/common directory.
+  gitDirectoriesCache.set(resolved, [directories[0], relativeCommon ? directories[0] : directories[1]]);
   repoRootCache.set(cwd, resolved);
   repoRootCache.set(resolved, resolved);
   return resolved;
@@ -150,16 +152,17 @@ export function gitCommonDir(root) {
   return gitDirectories(root)[1];
 }
 
-function parseGitPaths(output, count) {
+function parseGitPaths(output, count, cwd) {
   const values = output.trimEnd().split(/\r?\n/u);
-  invariant(values.length === count && values.every(value => path.isAbsolute(value)), 'Unable to resolve repository Git paths.');
-  return values.map(value => path.resolve(value));
+  invariant(values.length === count && values.every(value => value.length > 0)
+    && values.slice(0, -1).every(value => path.isAbsolute(value)), 'Unable to resolve repository Git paths.');
+  return { paths: values.map(value => path.resolve(cwd, value)), relativeCommon: !path.isAbsolute(values.at(-1)) };
 }
 
 function gitDirectories(root) {
   if (!gitDirectoriesCache.has(root)) gitDirectoriesCache.set(root, parseGitPaths(run('git', [
-    'rev-parse', '--path-format=absolute', '--absolute-git-dir', '--git-common-dir'
-  ], { cwd: root }).stdout, 2));
+    'rev-parse', '--absolute-git-dir', '--git-common-dir'
+  ], { cwd: root }).stdout, 2, root).paths);
   return gitDirectoriesCache.get(root);
 }
 

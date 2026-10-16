@@ -3,7 +3,7 @@
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { lstat, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -78,8 +78,7 @@ test('Windows uses a separate private key and qualified ACLs without changing pu
   } };
   const minted = await mint(root, { storageOptions });
   assert.equal((await readFile(path.join(directory, 'integrity.key'))).length, 32);
-  const canonicalDirectory = await realpath(directory);
-  assert.ok(checks.some(({ target, apply, directory: dir, recursive }) => target === canonicalDirectory && apply && dir && recursive));
+  assert.ok(checks.some(({ target, apply, directory: dir, recursive }) => target === directory && apply && dir && recursive));
   assert.ok(checks.some(({ target, apply }) => target.endsWith('integrity.key') && apply));
   assert.ok(checks.some(({ target, apply }) => target.endsWith(`${minted.id}.json`) && apply));
   await assert.rejects(lstat(path.join(root, '.git/singularity-flow/pending-publication-integrity.key')), { code: 'ENOENT' });

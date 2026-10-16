@@ -17,7 +17,7 @@ import { validatePhaseEntryRequest } from '../src/commands/phase.mjs';
 import { validateAgentEntryRequest } from '../src/agent-entry-options.mjs';
 import { phaseContextAdmission, phaseAdmissionActions } from '../src/phase-entry-admission.mjs';
 import { agentPacketPresentation } from '../src/agent-packet-presentation.mjs';
-import { completeAgentResult } from '../src/agent-output.mjs';
+import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -714,10 +714,11 @@ test('CLI compact prepublish keeps the kernel findings and next actions; full JS
   assert.equal(agentResult.status, 0, agentResult.stderr || agentResult.stdout);
   const compact = completeAgentResult(agentResult.stdout);
   assert.equal(compact.projection.kind, 'agent');
+  // The same kernel results; the routes an agent runs carry --for-agent.
   for (const key of ['status', 'findings', 'advisories', 'commands', 'commandGuidance', 'testExecution', 'correction']) {
-    assert.deepEqual(compact[key], agentPacketPresentation(full[key]), key);
+    assert.deepEqual(compact[key], await withAgentRoutes(agentPacketPresentation(full[key])), key);
   }
-  assert.deepEqual(compact.resolution, agentPacketPresentation(full.resolution));
+  assert.deepEqual(compact.resolution, await withAgentRoutes(agentPacketPresentation(full.resolution)));
   assert.equal(git(item.root, 'status', '--porcelain=v1'), '');
 });
 

@@ -14,7 +14,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
-import { agentAct, agentOutputGoverned, boundedAgentOutput, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop } from '../src/agent-output.mjs';
+import { agentAct, agentOutputGoverned, boundedAgentOutput, DEFAULT_AGENT_OUTPUT_BYTES, LOOP_THRESHOLD, observeAgentLoop, withAgentRoutes } from '../src/agent-output.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 const digest = `sha256:${'e'.repeat(64)}`;
@@ -192,4 +192,68 @@ test('the default view fits inline in the host, which saves 8,192 characters and
   // Copilot CLI saves a shell result of 8,192+ characters outside the workspace with a 500-character
   // preview; a session turn may not read that copy. Leave room for the stderr lines in the same result.
   assert.ok(DEFAULT_AGENT_OUTPUT_BYTES <= 7_500, `${DEFAULT_AGENT_OUTPUT_BYTES} bytes`);
+});
+
+test('routes an agent view returns carry --for-agent only where the command takes it', async () => {
+  // Copilot's shell is not a terminal: a route the agent runs as given printed its whole result,
+  // and the host saved anything from 8,192 characters outside the workspace.
+  const confirm = `singularity-flow story advance --work-id W --confirm ${digest} --json`;
+  const routed = await withAgentRoutes({
+    act: { do: { shell: 'singularity-flow recover --phase intake --json', copilot: '/sf-recover' } },
+    next: [{ command: 'singularity-flow nextsteps QF-1 --json', argv: ['nextsteps', 'QF-1', '--json'] },
+      { command: 'singularity-flow status QF-1 --submission-readiness --json --submit-if-ready' },
+      { command: 'singularity-flow appeal list --json' }, { command: 'singularity-flow review-source status --json' },
+      { command: 'singularity-flow session status --json' }, { command: 'singularity-flow inputs restore intake --json' },
+      { command: confirm }, { command: 'singularity-flow phase enter --compose --json' }],
+    prose: 'Run singularity-flow status --json when ready.' });
+  assert.equal(routed.act.do.shell, 'singularity-flow recover --phase intake --for-agent --json');
+  assert.equal(routed.act.do.copilot, '/sf-recover');
+  assert.deepEqual(routed.next.map((entry) => entry.command), [
+    'singularity-flow nextsteps QF-1 --for-agent --json',
+    'singularity-flow status QF-1 --submission-readiness --for-agent --json --submit-if-ready',
+    // These forms refuse --for-agent, and an exact confirmation is replayed exactly.
+    'singularity-flow appeal list --json', 'singularity-flow review-source status --json',
+    'singularity-flow session status --json', 'singularity-flow inputs restore intake --json', confirm,
+    'singularity-flow phase enter --compose --for-agent --json']);
+  assert.deepEqual(routed.next[0].argv, ['nextsteps', 'QF-1', '--for-agent', '--json'], 'argv stays the same command');
+  assert.equal(routed.prose, 'Run singularity-flow status --json when ready.', 'prose is never rewritten');
+});
+
+test('every route form given --for-agent is one its command really accepts', { timeout: 300_000 }, async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-agent-routes-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'repo');
+  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_TEST_IDENTITY: 'Agent Tester',
+    SINGULARITY_FLOW_FINDING_STREAKS: 'off',
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'workspaces.json'), SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'active.json'),
+    SINGULARITY_FLOW_LEAD_REGISTRY: path.join(base, 'leads.json'), SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(base, 'copilot-mode.json'),
+    GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'Agent Tester',
+    GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'agent.tester@example.invalid' };
+  const run = (args, cwd = root) => spawnSync(process.execPath, [cli, '--no-model', ...args], { cwd, env, encoding: 'utf8', timeout: 180_000 });
+  const must = (command, args, cwd = root) => {
+    const result = spawnSync(command, args, { cwd, env, encoding: 'utf8', timeout: 180_000 });
+    assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+  };
+  must('git', ['init', '-q', '-b', 'main', root], base);
+  await writeFile(path.join(root, 'package.json'), '{"type":"module","private":true}\n');
+  must(process.execPath, [cli, '--no-model', 'init']);
+  const configPath = path.join(root, 'singularity/workflow.yml');
+  const config = YAML.parse(await readFile(configPath, 'utf8'));
+  config.worldModel.grounding = 'off';
+  await writeFile(configPath, YAML.stringify(config));
+  must('git', ['add', '.']); must('git', ['commit', '-q', '-m', 'Route fixture']);
+  must('git', ['init', '-q', '--bare', '-b', 'main', path.join(base, 'remote.git')], base);
+  must('git', ['remote', 'add', 'origin', path.join(base, 'remote.git')]); must('git', ['push', '-q', '-u', 'origin', 'main']);
+  must(process.execPath, [cli, '--no-model', 'start', 'QF-1', '--from-branch', 'main', '--work-type', 'quick-fix', '--title', 'Routes', '--description', 'Agent routes.']);
+  // One route per accepted form; each must gain the flag and the command must not refuse it.
+  const forms = ['status QF-1 --submission-readiness --json', 'recover --phase intake --json', 'choices begin approve QF-1 --fetch --json --review-packet',
+    'pause status --json', 'revision status --json', 'documents list --json', 'phase prepublish intake --json', 'phase begin intake --json',
+    'phase show intake --json', 'phase enter --compose --json', 'nextsteps QF-1 --json', 'inputs intake --dry-run --json',
+    'review-source context --json', 'session open QF-1 --json'];
+  const routed = await withAgentRoutes(forms.map((form) => `singularity-flow ${form}`));
+  for (const [index, command] of routed.entries()) {
+    assert.match(command, / --for-agent --json/u, forms[index]);
+    const result = run(command.split(' ').slice(1));
+    assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /OPTIONS?_(?:INVALID|UNSUPPORTED)|Unsupported [^\n]*option|has no option/iu, command);
+  }
 });

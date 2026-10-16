@@ -21,8 +21,9 @@ import { readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { observeFindingStreak } from './finding-escalation.mjs';
 import { gitDir } from './git-execution.mjs';
-import { safeCommandGuidance } from './safe-command-guidance.mjs';
-import { writeAtomic } from './util.mjs';
+import { safeCommandGuidance, validateSafeSflowCommand } from './safe-command-guidance.mjs';
+import { validateAgentEntryRequest } from './agent-entry-options.mjs';
+import { parseArgs, writeAtomic } from './util.mjs';
 
 // Copilot CLI shows a shell result inline only below 8,192 characters. From there it saves the result
 // outside the workspace, shows its first 500 characters and suggests rg/head/tail/jq on that file,
@@ -37,6 +38,13 @@ const LARGE_TEXT_BYTES = 4_000;
 const FIELD_BYTES = 6_000;
 const SMALL_FIELD_BYTES = 300;
 const KEPT_RESULTS = 40;
+// Commands whose every listed form takes --for-agent as an output option. The others validate their
+// own entry form, and appeal, inputs restore and most session/review-source forms refuse it, so they
+// are left exactly as returned. test/agent-output.test.mjs runs each accepted form for real.
+const AGENT_VIEW_FORMS = Object.freeze({
+  status: null, recover: null, choices: null, pause: ['status'], revision: ['status'], documents: ['list'],
+  phase: ['prepublish', 'begin', 'show']
+});
 const bytes = (text) => Buffer.byteLength(text, 'utf8');
 const sha256 = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
 const oneLine = (text, limit = 400) => {
@@ -216,6 +224,64 @@ function repositoryOf(result, cwd) {
   catch { return null; }
 }
 
+/** True only when this exact command accepts --for-agent; any other route stays as returned. */
+async function acceptsAgentView(argv) {
+  const { positionals, options } = parseArgs(argv);
+  const [command, subcommand] = positionals;
+  // An exact confirmation is replayed exactly; a read without --json has no agent view.
+  if (options.confirm !== undefined || options.json !== true) return false;
+  const withFlag = { ...options, 'for-agent': true };
+  try {
+    if (command === 'phase' && subcommand === 'enter') {
+      (await import('./commands/phase.mjs')).validatePhaseEntryRequest({ positionals, options: withFlag });
+      return true;
+    }
+    if (command === 'session') {
+      if (subcommand !== 'open') return false;
+      (await import('./commands/session-open.mjs')).validateSessionOpenRequest({ positionals, options: withFlag });
+      return true;
+    }
+    if (['nextsteps', 'inputs', 'review-source'].includes(command)) {
+      validateAgentEntryRequest(command, { positionals, options: withFlag });
+      return true;
+    }
+  } catch { return false; }
+  return Object.hasOwn(AGENT_VIEW_FORMS, command) && (!AGENT_VIEW_FORMS[command] || AGENT_VIEW_FORMS[command].includes(subcommand));
+}
+
+/**
+ * Every exact SFlow route an agent view returns carries --for-agent where its command accepts it.
+ * Copilot's shell is not a terminal, so a route the agent runs as given (`recover --phase X --json`)
+ * otherwise printed its whole result and the host saved it outside the workspace. Only a string that
+ * is one complete SFlow command changes; prose, Copilot routes and confirmations never do.
+ */
+export async function withAgentRoutes(value) {
+  const routed = new Map();
+  const route = (text) => {
+    if (!/^(?:singularity-flow|sflow) /u.test(text) || text.includes('--for-agent')
+        || (text.match(/ --json(?=\s|$)/gu) ?? []).length !== 1) return text;
+    if (!routed.has(text)) routed.set(text, (async () => {
+      const safe = validateSafeSflowCommand(text);
+      if (!safe || safe.argv.filter((value) => value === '--json').length !== 1) return text;
+      return await acceptsAgentView(safe.argv) ? text.replace(/ --json(?=\s|$)/u, ' --for-agent --json') : text;
+    })());
+    return routed.get(text);
+  };
+  const walk = async (node) => {
+    if (typeof node === 'string') return route(node);
+    if (Array.isArray(node)) return Promise.all(node.map(walk));
+    if (!node || typeof node !== 'object') return node;
+    const entries = await Promise.all(Object.entries(node).map(async ([key, child]) => [key, await walk(child)]));
+    const next = Object.fromEntries(entries);
+    // A route's argv stays the same command as its text.
+    if (typeof node.command === 'string' && next.command !== node.command && Array.isArray(node.argv) && node.argv.includes('--json')) {
+      next.argv = node.argv.flatMap((value) => value === '--json' ? ['--for-agent', '--json'] : [value]);
+    }
+    return next;
+  };
+  return walk(value);
+}
+
 /**
  * The agent view of one command's JSON stdout. Small results keep every field, with `act` first;
  * larger ones are written whole and stdout keeps what fits. Text that is not one JSON object is
@@ -233,7 +299,7 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
   const derived = result.act ?? agentAct(result);
   const counted = derived && !UNCOUNTED_STATES.has(derived.state) && (derived.do || derived.ask);
   const act = counted && locate() ? observeAgentLoop(locate().root, result, derived, { now: now.getTime() }) : derived;
-  const ordered = act ? { act, ...Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'act')) } : result;
+  const ordered = await withAgentRoutes(act ? { act, ...Object.fromEntries(Object.entries(result).filter(([key]) => key !== 'act')) } : result);
   const whole = agentJson(ordered);
   if (bytes(whole) <= budget || !locate()) return `${whole}\n`;
   const target = locate();

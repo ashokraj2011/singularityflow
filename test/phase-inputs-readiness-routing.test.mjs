@@ -15,7 +15,7 @@ import { inputReadinessFindings, phaseInputsNotReadyError } from '../src/inputs.
 import { refusalEnvelope, refusalRemediationPlan, renderRefusalPlan } from '../src/refusal-remediation.mjs';
 import { phaseContextAdmission, phaseAdmissionActions } from '../src/phase-entry-admission.mjs';
 import { phaseResolutionChoices } from '../src/phase-resolution.mjs';
-import { completeAgentResult } from '../src/agent-output.mjs';
+import { completeAgentResult, withAgentRoutes } from '../src/agent-output.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(packageRoot, 'bin/singularity-flow.mjs');
@@ -265,7 +265,7 @@ test('a drifted approved input is reported by the dry run, coded at preparation,
   assert.equal(packet.context, null);
   assert.ok(packet.contextAdmission.blockers.some(blocker => blocker.code === 'PHASE_CONTEXT_INPUTS_NOT_READY'),
     JSON.stringify(packet.contextAdmission));
-  assert.equal(packet.next[0].command, 'singularity-flow inputs planning --dry-run --json');
+  assert.equal(packet.next[0].command, 'singularity-flow inputs planning --dry-run --for-agent --json', 'the agent runs the dry run bounded');
 
   const composed = item.invoke('wm', 'compose', '--phase', 'planning', '--work-id', 'ROUTE-1', '--json');
   assert.notEqual(composed.status, 0);

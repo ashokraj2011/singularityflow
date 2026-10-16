@@ -98,6 +98,46 @@ The intermediate prewarmed comparison was intentionally cancelled after the cold
 its status is not presented as a successful full qualification. Its completed cold data and
 run record (CI run `38929944003` in the source repository) are retained.
 
+## Final native Windows qualification
+
+The [final Windows results](../benchmarks/story-creation/first-request-windows.json) use the same
+protocol and runtime as the intermediate exploration, with the final Windows cache default.
+CI run `38930959716` passed both native test groups (38 passed, two pre-existing platform-specific
+skips), type checking, bundle limits, and the cold and prewarmed comparisons. No model was called.
+
+| Three matched samples per variant | Main control median | Final candidate median |
+| --- | ---: | ---: |
+| Cold complete creation/publication | 21,568 ms | 18,313 ms |
+| Cold first feedback | 1,347.3 ms | 1,268.2 ms |
+| First feedback after optional preparation (separate comparison) | 1,458.1 ms | 1,225.4 ms |
+| Creation/publication after preparation (separate comparison) | 29,745 ms | 24,330 ms |
+| Preparation plus creation, counted together | 29,745 ms | 25,005 ms |
+
+Cold complete creation improves about 15.1% in this fixture. Candidate samples range from
+18,180–18,595 ms; control samples range from 20,728–30,069 ms. Each matched candidate is faster,
+but three hosted-runner pairs are not an office-laptop latency guarantee.
+
+In the independent prewarmed comparison, first feedback improves about 16.0%; preparation itself
+costs a median 509 ms. Its complete-creation improvement is about 18.2% (15.9% when counting
+preparation too). Both variants in this second batch are slower than in the cold batch; do not
+compare the two candidate medians as though they were a controlled warm-versus-cold experiment.
+The candidate ranges 20,946–35,078 ms and control 23,828–36,937 ms, so host variability remains material.
+
+The final Windows traces show 166 Git processes versus 170, five full definition loads versus six,
+and retained verified materialized-definition reuse. The additional reduction versus the Mac
+counts comes from avoiding the optional private disk-cache path. All local/remote Story tips
+match exactly. This is a real Windows CLI measurement, not native VS Code UI or Copilot timing.
+
+### Latest-main integration
+
+The timing baseline remains `ec2a7921` and the Windows candidate is `aed2bb5a`; raw records bind
+those revisions. Main subsequently advanced to `3568c1af`. Its five commits (skills-audit and
+step-owned-artifact recovery fixes plus gateway budgets) were inspected and merged, not overwritten.
+The combined build passes the newer upstream gateway budget without raising it again, and the
+86 affected Mac phase-entry, recovery and polyglot tests pass. The final merged source receives a
+separate native Windows exact-tip creation smoke; do not relabel the earlier distributions as
+measurements of the later merged revision.
+
 ## Reproduce on either operating system
 
 The Windows exploration below explains why the persistent compiled cache is opt-in there.

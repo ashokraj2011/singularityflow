@@ -4,6 +4,19 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { secureWindowsAuthAcl } from '../src/mcp-auth-profile.mjs';
+import { readPrivateSidecar, writeImmutablePrivateSidecar } from '../src/private-sidecar.mjs';
+import { run } from '../src/util.mjs';
+
+test('native Windows can publish and verify an ACL-qualified immutable sidecar',
+  { skip: process.platform !== 'win32' }, async t => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-native-sidecar-'));
+    t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+    run('git', ['init', '--quiet', '--template=', root]);
+    const target = path.join(root, '.git', 'singularity-flow', 'private', 'fixture-key');
+    const bytes = Buffer.alloc(32, 7), options = { maximumBytes: 32, enforceWindowsAcl: true };
+    await writeImmutablePrivateSidecar(root, target, bytes, options);
+    assert.deepEqual(await readPrivateSidecar(root, target, options), bytes);
+  });
 
 test('native Windows ACL arguments retain spaces, quotes, metacharacters and Unicode as data',
   { skip: process.platform !== 'win32' }, async t => {

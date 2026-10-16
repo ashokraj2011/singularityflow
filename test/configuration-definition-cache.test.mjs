@@ -4,10 +4,13 @@ import path from 'node:path';
 import os from 'node:os';
 import { mkdtemp, rm, readFile, writeFile, mkdir, symlink } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
-import { compiledConfiguration, copyCompiledDefinition } from '../src/configuration-definition-cache.mjs';
+import { compiledConfiguration, configurationEngineIdentity, copyCompiledDefinition } from '../src/configuration-definition-cache.mjs';
 import { run } from '../src/util.mjs';
 
 async function fixture(t) {
+  // These tests require a usable engine identity; expose that failure instead of only seeing
+  // the optional cache's intentional fallback to compilation.
+  await configurationEngineIdentity();
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-compiled-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   run('git', ['init', '--quiet', '--template=', root]);

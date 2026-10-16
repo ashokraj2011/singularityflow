@@ -2570,6 +2570,7 @@ export async function applyLocalReinstall(plan, {
       });
       if (prewarmed?.status !== 0) console.warn('Warning: optional runtime-cache preparation was unavailable.');
     } catch { console.warn('Warning: optional runtime-cache preparation was unavailable.'); }
+    refuseInterrupted();
     if (!plan.cliOnly) {
       executeOrThrow(boundedExecute, 'singularity-flow', ['plugin', 'verify', '--json'], {
         env,

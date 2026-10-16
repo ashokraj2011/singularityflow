@@ -126,7 +126,8 @@ export async function load(url, context, next) {
   };
   for (const args of [['--version'], ['help'], ['snapshot', '--include', 'repository', '--json'], ['nextsteps', '--json'],
     ['start', 'BUNDLE-NEW-STORY', '--json'],
-    ['workflow', 'intent', 'preflight', '--source', 'installed', '--json']]) {
+    ['workflow', 'intent', 'preflight', '--source', 'installed', '--json'],
+    ['workflow', 'markup', 'example', '--json']]) {
     const source = await runWith(args, false);
     const bundled = await runWith(args, true);
     assert.equal(bundled.status, source.status, args.join(' '));

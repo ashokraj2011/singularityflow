@@ -5,6 +5,8 @@ import { TextDecoder } from 'node:util';
 import { WORKFLOW_MARKUP_LIMITS, markupError } from '../workflow-markup-parser.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { parseWorkflowMarkup } from '../workflow-markup-parser.mjs';
+import path from 'node:path';
+import { PACKAGE_ROOT } from '../package-root.mjs';
 
 async function capture(file) {
   let bytes;
@@ -45,7 +47,7 @@ export async function run(argv, { positionals, options }) {
     if (['json', 'design-review'].includes(key) && (key === 'json' || action === 'compile') ? value !== true : ['out', 'inspect-phase'].includes(key) && action === 'compile' ? typeof value !== 'string' || !value.trim() : true) markupError('Unsupported or repeated markup command option.');
   }
   if (action === 'example') {
-    const source = await readFile(new URL('../../examples/demo-tagged-workflow.xml', import.meta.url), 'utf8');
+    const source = await readFile(path.join(PACKAGE_ROOT, 'examples/demo-tagged-workflow.xml'), 'utf8');
     const commandGuidance = safeCommandGuidance({ executable: 'singularity-flow', argv: ['workflow', 'markup', 'compile', '<FILE>', '--out', '<BUNDLE.json>', '--json'] });
     return console.log(options.json ? JSON.stringify({ schemaVersion: 1, resultType: 'workflow-markup-example', source, commandGuidance }) : source);
   }

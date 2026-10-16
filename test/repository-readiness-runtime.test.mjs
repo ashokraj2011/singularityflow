@@ -12,17 +12,116 @@ import {
   inspectRepositoryReadinessReceipt,
   loadRepositoryTestBaseline,
   loadRepositoryReadinessReceipt,
+  observeRepositoryReadinessRecords,
   resolveRepositoryReadinessCommandLaunch
 } from '../src/initialization/runtime-readiness.mjs';
 import { smartInitPrecheck } from '../src/initialization/precheck.mjs';
 import { resolvePlatformProcess } from '../src/platform-process.mjs';
-import { collectRepositoryReadinessEvidence } from '../src/repository-readiness-evidence.mjs';
+import { collectRepositoryReadinessEvidence, inspectRepositoryPrerequisitePresence } from '../src/repository-readiness-evidence.mjs';
 import { recordSha256 } from '../src/records.mjs';
 import {
   assessPreStoryTestBaseline, createPreStoryTestRiskAcceptance,
   storePreStoryTestRiskAcceptance
 } from '../src/test-baseline-risk.mjs';
 import { run } from '../src/util.mjs';
+import { commandTimer } from '../src/dx-command-timing.mjs';
+import { withCommandTiming } from '../src/dx-timing-context.mjs';
+
+async function measuredReadiness(action) {
+  const timer = commandTimer('readiness-test');
+  const value = await withCommandTiming(timer, action);
+  return { value, ...timer.finish() };
+}
+
+test('readiness evidence observes each exact-base record once without rebuilding a passing plan', async () => {
+  for (const [scope, oldReads, newReads] of [['dependency-test', 3, 2], ['full', 5, 3]]) {
+    await withRepository(async root => {
+      const plan = await buildRepositoryReadinessPlan(root, { scope });
+      await executeRepositoryReadinessPlan(root, { scope, confirmation: plan.planId, runCommand: async () => passingResult() });
+      const before = await measuredReadiness(async () => {
+        // The previous collector inspected the passing receipt, then loaded the same baselines again.
+        const inspection = await inspectRepositoryReadinessReceipt(root, { commit: plan.sourceCommit, scope, recompute: false });
+        const scopes = scope === 'full' ? ['full', 'dependency-test'] : ['dependency-test'];
+        await Promise.all(scopes.map(candidateScope => loadRepositoryTestBaseline(root, { commit: plan.sourceCommit, scope: candidateScope })));
+        return inspection;
+      });
+      const after = await measuredReadiness(() => collectRepositoryReadinessEvidence([
+        { id: 'app', root, baseCommit: plan.sourceCommit }
+      ], { scope }));
+      assert.equal(before.value.status, 'pass');
+      assert.equal(after.value.repositories.app.status, 'pass');
+      assert.equal(before.counters['readiness.record-reads'], oldReads);
+      assert.equal(after.counters['readiness.record-reads'], newReads);
+      assert.equal(after.counters['readiness.evidence-collections'], 1);
+      assert.equal(after.counters['readiness.plan-builds'] ?? 0, 0, 'a saved pass is metadata, not another source scan');
+      if (process.env.SINGULARITY_FLOW_READINESS_BENCHMARK === '1') console.error(JSON.stringify({
+        scope, before: { durationMs: before.durationMs, counters: before.counters },
+        after: { durationMs: after.durationMs, counters: after.counters }
+      }));
+    });
+  }
+});
+
+test('readiness record observations are fresh, runtime-bound, and fail closed after integrity changes', async () => {
+  await withRepository(async root => {
+    const plan = await buildRepositoryReadinessPlan(root, { scope: 'dependency-test' });
+    await executeRepositoryReadinessPlan(root, { scope: 'dependency-test', confirmation: plan.planId, runCommand: async () => passingResult() });
+    const options = { commit: plan.sourceCommit, scope: 'dependency-test' };
+    const first = await observeRepositoryReadinessRecords(root, options);
+    assert.equal(first.inspection.status, 'pass');
+    assert.equal((await observeRepositoryReadinessRecords(root, { ...options, platform: 'another-host' })).inspection.status, 'missing');
+    assert.equal((await observeRepositoryReadinessRecords(root, { ...options, arch: 'another-arch' })).inspection.status, 'missing');
+    assert.equal((await observeRepositoryReadinessRecords(root, { ...options, commit: 'b'.repeat(40) })).inspection.status, 'missing');
+    assert.ok((await observeRepositoryReadinessRecords(root, { ...options, testRuntime: { nodeOptions: ['--no-experimental-webstorage'] } })).inspection.reasons.includes('test-runtime-mismatch'));
+    const saved = await readFile(first.inspection.file);
+    await writeFile(first.inspection.file, JSON.stringify({ ...JSON.parse(saved), sourceManifestSha256: `sha256:${'0'.repeat(64)}` }));
+    await assert.rejects(observeRepositoryReadinessRecords(root, options), error => error.code === 'REPOSITORY_READINESS_RECEIPT_INVALID');
+    await writeFile(first.inspection.file, saved);
+    await assert.rejects(executeRepositoryReadinessPlan(root, {
+      scope: 'dependency-test', confirmation: plan.planId,
+      runCommand: async command => command.purpose === 'test' ? failingTapResult() : passingResult()
+    }), error => error.code === 'REPOSITORY_READINESS_COMMAND_FAILED');
+    // A crash could retain an older pass beside the newly durable failed baseline.
+    await writeFile(first.inspection.file, saved);
+    const failed = await observeRepositoryReadinessRecords(root, options);
+    assert.equal(failed.inspection.status, 'stale');
+    assert.ok(failed.inspection.reasons.includes('failed-baseline-supersedes-receipt'));
+    assert.ok(failed.baseline);
+    const advisory = await measuredReadiness(() => collectRepositoryReadinessEvidence([
+      { id: 'app', root, baseCommit: plan.sourceCommit }
+    ], { advisory: true }));
+    assert.equal(advisory.value.repositories.app.status, 'failing-tests');
+    assert.equal(advisory.counters['readiness.plan-builds'] ?? 0, 0, 'a failure is disclosed without rescanning source in advisory mode');
+    await writeFile(failed.baseline.file, JSON.stringify({ ...failed.baseline.baseline, baselineSha256: `sha256:${'0'.repeat(64)}` }));
+    await assert.rejects(observeRepositoryReadinessRecords(root, options), error => error.code === 'REPOSITORY_TEST_BASELINE_INVALID');
+  });
+});
+
+test('mandatory prerequisite presence is metadata-only and cannot replace final source-plan validation', async () => {
+  await withRepository(async root => {
+    const plan = await buildRepositoryReadinessPlan(root, { scope: 'full' });
+    await assert.rejects(executeRepositoryReadinessPlan(root, {
+      scope: 'full', confirmation: plan.planId,
+      runCommand: async command => command.purpose === 'test' ? failingTapResult() : passingResult()
+    }), error => error.code === 'REPOSITORY_READINESS_COMMAND_FAILED');
+    const options = { commit: plan.sourceCommit, scope: 'full', purposes: ['dependency', 'build'] };
+    const early = await measuredReadiness(() => inspectRepositoryPrerequisitePresence(root, options));
+    assert.equal(early.value.candidate, true, 'passing prerequisites are not erased by failing tests');
+    assert.equal(early.counters['readiness.prerequisite-preflights'], 1);
+    assert.equal(early.counters['readiness.plan-builds'] ?? 0, 0);
+    const collect = () => collectRepositoryReadinessEvidence([{ id: 'app', root, baseCommit: plan.sourceCommit }], { scope: 'full' });
+    const final = await measuredReadiness(collect);
+    assert.equal(final.counters['readiness.evidence-collections'], 1);
+    assert.equal(final.counters['readiness.plan-builds'], 1, 'only the final required-prerequisite evaluation rebuilds its plan');
+    assert.equal(final.value.repositories.app.prerequisitesCurrent, true);
+    assert.notEqual(final.value.repositories.app.status, 'pass', 'the failed tests stay failed');
+    await writeFile(path.join(root, 'server.mjs'), 'throw new Error("source changed after the baseline");\n');
+    assert.equal((await inspectRepositoryPrerequisitePresence(root, options)).candidate, true, 'presence is intentionally not source validation');
+    const changed = await measuredReadiness(collect);
+    assert.equal(changed.value.repositories.app.prerequisitesCurrent, false, 'the final evaluator does not trust the early presence result');
+    assert.equal(changed.counters['readiness.plan-builds'], 1);
+  });
+});
 
 async function repository() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-readiness-'));

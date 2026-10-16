@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import { onboardRepository } from '../src/onboard.mjs';
 import { storyWorktreePath } from '../src/story-worktree.mjs';
+import { buildRepositoryReadinessPlan, executeRepositoryReadinessPlan, loadRepositoryReadinessReceipt } from '../src/initialization/runtime-readiness.mjs';
 
 const bin = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'singularity-flow.mjs');
 const intakePlatforms = {}; // Windows receipts require qualified private ACLs; otherwise start falls back.
@@ -163,6 +164,61 @@ const data = (result) => {
 const counter = (stderr, name) =>
   Number(new RegExp(`(?:^|\\s)${name.replaceAll('.', '\\.')}=(\\d+)(?:\\s|$)`).exec(stderr)?.[1] ?? 0);
 
+test('isolated start observes mandatory readiness once and rejects missing or changed prerequisite proof before publication', intakePlatforms, async t => {
+  const { root } = await repository(t);
+  git(root, 'fetch', '-q', 'origin');
+  git(root, 'merge', '--ff-only', 'origin/sflow/config');
+  const file = path.join(root, 'singularity/workflow.yml');
+  const definition = YAML.parse(await readFile(file, 'utf8'));
+  definition.repositoryReadiness = { ...definition.repositoryReadiness,
+    requiredBeforeStory: true, dependencyHydration: 'off', build: 'required',
+    structuredTests: 'off', applicationStart: 'off' };
+  await writeFile(file, YAML.stringify(definition));
+  await writeFile(path.join(root, 'package.json'), JSON.stringify({ private: true,
+    scripts: { build: 'node -e "require(\'fs\').writeFileSync(\'unexpected-build.txt\',\'ran\')"' } }));
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'Require a reviewed build prerequisite');
+  git(root, 'push', '-q', 'origin', 'main', 'main:refs/heads/sflow/config');
+  const before = git(root, 'worktree', 'list', '--porcelain');
+  const configurationBefore = git(root, 'ls-remote', 'origin', 'refs/heads/sflow/config');
+  const missing = start(root, 'READINESS-MISSING', [], { allowFailure: true });
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stdout + missing.stderr, /STORY_REPOSITORY_READINESS_REQUIRED/u);
+  assert.equal(counter(missing.stderr, 'readiness.evidence-collections'), 0);
+  assert.equal(counter(missing.stderr, 'readiness.prerequisite-preflights'), 1);
+  assert.equal(counter(missing.stderr, 'readiness.plan-builds'), 0, 'a missing prerequisite needs no source scan');
+  assert.equal(git(root, 'worktree', 'list', '--porcelain'), before, 'missing prerequisites are refused before allocating a checkout');
+  assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/READINESS-MISSING'), '');
+  assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/sflow/config'), configurationBefore);
+
+  const plan = await buildRepositoryReadinessPlan(root, { scope: 'full', requireStructuredTest: false });
+  await executeRepositoryReadinessPlan(root, { scope: 'full', requireStructuredTest: false, confirmation: plan.planId,
+    runCommand: async () => ({ status: 'pass', exitCode: 0, signal: null, durationMs: 1,
+      stdoutBytes: 0, stderrBytes: 0, stdoutSha256: null, stderrSha256: null }) });
+  const passing = await loadRepositoryReadinessReceipt(root, { commit: plan.sourceCommit, scope: 'full' });
+  assert.ok(passing);
+  const preview = preflight(root, 'READINESS-CHANGED');
+  assert.equal(preview.issued, true);
+  const saved = await readFile(passing.file);
+  await writeFile(passing.file, JSON.stringify({ ...passing.receipt, sourceManifestSha256: `sha256:${'0'.repeat(64)}` }));
+  const changed = start(root, 'READINESS-CHANGED', ['--intake-receipt', preview.id], { allowFailure: true });
+  assert.notEqual(changed.status, 0);
+  assert.match(changed.stdout + changed.stderr, /REPOSITORY_READINESS_RECEIPT_INVALID/u);
+  assert.equal(counter(changed.stderr, 'readiness.prerequisite-preflights'), 1, 'a signed preview cannot hide changed readiness bytes');
+  assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/READINESS-CHANGED'), '');
+  assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/sflow/config'), configurationBefore);
+  await writeFile(passing.file, saved);
+
+  const readyPreview = preflight(root, 'READINESS-ONCE');
+  const ready = start(root, 'READINESS-ONCE', ['--intake-receipt', readyPreview.id]);
+  const started = data(ready);
+  assert.equal(started.readiness.ready, true);
+  assert.equal(counter(ready.stderr, 'readiness.evidence-collections'), 1);
+  assert.equal(counter(ready.stderr, 'readiness.prerequisite-preflights'), 1);
+  assert.equal(counter(ready.stderr, 'readiness.plan-builds'), 0);
+  assert.ok(!(await readdir(started.repositoryPath)).includes('unexpected-build.txt'), 'start only observes the existing prerequisite result');
+  assert.equal(git(root, 'status', '--porcelain'), '');
+});
+
 test('a passing preview\'s receipt lets start verify every input in one wave, once', intakePlatforms, async (t) => {
   const { root } = await repository(t);
   const receipt = preflight(root, 'STORY-FAST');
@@ -182,6 +238,8 @@ test('a passing preview\'s receipt lets start verify every input in one wave, on
     'configuration, base, destination and state are observed together once');
   assert.equal(counter(started.stderr, 'git.remote.command.push'), 2, 'one fresh dry run, then the publication');
   assert.ok(counter(started.stderr, 'git.spawns') > 0);
+  assert.equal(counter(started.stderr, 'readiness.evidence-collections'), 1, 'start makes one fresh readiness decision, not a launch-check plus a child check');
+  assert.equal(counter(started.stderr, 'readiness.plan-builds'), 0, 'ordinary intake does not rescan source for advisory test setup');
   assert.ok(counter(started.stderr, 'git.spawns') <= 260,
     'intake Git-process ratchet: archive checks must batch live refs instead of spawning per ref');
   assert.match(started.stderr, /@@sflow-progress\/v1 start\.authority/);

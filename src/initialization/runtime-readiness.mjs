@@ -13,6 +13,7 @@ import { exactChangedPathsBetweenObjects, gitCommonDir, head } from '../git.mjs'
 import { resolvePlatformProcess } from '../platform-process.mjs';
 import { recordSha256 } from '../records.mjs';
 import { currentSchemaVersion, readRecord } from '../schema-migrations.mjs';
+import { incrementCommandCounter } from '../dx-timing-context.mjs';
 import {
   assessPreStoryRiskForStoryStart, assessPreStoryTestBaseline,
   listPreStoryTestRiskAcceptances
@@ -401,6 +402,7 @@ function generatedReadinessReportPaths(commands) {
  * Nothing is executed and no model is involved.
  */
 export async function buildRepositoryReadinessPlan(root, options = {}) {
+  incrementCommandCounter('readiness.plan-builds');
   const scope = readinessScope(options.scope);
   assertCleanTrackedTree(root);
   const platform = options.platform ?? process.platform;
@@ -759,6 +761,10 @@ function receiptDirectory(root) {
 }
 
 function receiptFile(root, commit, platform = process.platform, arch = process.arch, scope = 'full') {
+  return receiptFileInDirectory(receiptDirectory(root), commit, platform, arch, scope);
+}
+
+function receiptFileInDirectory(directory, commit, platform, arch, scope) {
   if (!/^[0-9a-f]{40,64}$/iu.test(String(commit ?? ''))) {
     throw new SingularityFlowError('Repository readiness receipt requires an exact commit.', {
       code: 'REPOSITORY_READINESS_COMMIT_INVALID'
@@ -766,7 +772,7 @@ function receiptFile(root, commit, platform = process.platform, arch = process.a
   }
   const normalizedScope = readinessScope(scope);
   const suffix = normalizedScope === 'full' ? '' : `-${safeId(normalizedScope)}`;
-  return path.join(receiptDirectory(root), `${String(commit).toLowerCase()}-${safeId(platform)}-${safeId(arch)}${suffix}.json`);
+  return path.join(directory, `${String(commit).toLowerCase()}-${safeId(platform)}-${safeId(arch)}${suffix}.json`);
 }
 
 function testBaselineFile(root, commit, platform = process.platform, arch = process.arch, scope = 'full') {
@@ -966,8 +972,13 @@ async function observeTestResult(root, command, startedAt, processResult) {
 export async function loadRepositoryTestBaseline(root, {
   commit = head(root), platform = process.platform, arch = process.arch, scope = 'dependency-test'
 } = {}) {
-  const file = testBaselineFile(root, commit, platform, arch, scope);
+  return loadTestBaselineInDirectory(receiptDirectory(root), { commit, platform, arch, scope });
+}
+
+async function loadTestBaselineInDirectory(directory, { commit, platform, arch, scope }) {
+  const file = receiptFileInDirectory(directory, commit, platform, arch, scope).replace(/\.json$/u, '.test-baseline.json');
   try {
+    incrementCommandCounter('readiness.record-reads');
     const baseline = readRecord('repository-test-baseline', await readFile(file, 'utf8')).record;
     const core = structuredClone(baseline);
     const supplied = core.baselineSha256;
@@ -1261,12 +1272,17 @@ export async function loadRepositoryReadinessReceipt(root, {
   commit = head(root), platform = process.platform, arch = process.arch, scope = 'full',
   allowFullFallback = true
 } = {}) {
+  return loadReadinessReceiptInDirectory(receiptDirectory(root), { commit, platform, arch, scope, allowFullFallback });
+}
+
+async function loadReadinessReceiptInDirectory(directory, { commit, platform, arch, scope, allowFullFallback }) {
   const requestedScope = readinessScope(scope);
   const candidateScopes = [requestedScope];
   if (requestedScope === 'dependency-test' && allowFullFallback) candidateScopes.push('full');
   for (const candidateScope of candidateScopes) {
-    const file = receiptFile(root, commit, platform, arch, candidateScope);
+    const file = receiptFileInDirectory(directory, commit, platform, arch, candidateScope);
     try {
+      incrementCommandCounter('readiness.record-reads');
       const receipt = readRecord(RECEIPT_FAMILY, await readFile(file)).record;
       const receiptScope = recordedReceiptScope(receipt);
       if (!receiptIntegrity(receipt)
@@ -1304,6 +1320,49 @@ export async function inspectRepositoryReadinessReceipt(root, {
   const loaded = await loadRepositoryReadinessReceipt(root, {
     commit, platform, arch, scope: requestedScope, allowFullFallback
   });
+  const baseline = loaded ? await loadSupersedingTestBaseline(root, {
+    commit, platform, arch, scope: requestedScope
+  }) : null;
+  return inspectLoadedReadinessReceipt(root, loaded, baseline, {
+    commit, sourceManifestSha256, platform, arch, recompute, testRuntime, environment
+  });
+}
+
+/**
+ * One bounded observation of the shared Git-private records for an exact base. Baselines are read
+ * once and also used to invalidate an older passing receipt. No process-global cache, caller-supplied
+ * receipt, repository scan, or command execution is admitted here. Every call observes current bytes.
+ */
+export async function observeRepositoryReadinessRecords(root, {
+  commit = head(root), platform = process.platform, arch = process.arch, scope = 'dependency-test',
+  allowFullFallback = true, testRuntime = {}, environment = process.env
+} = {}) {
+  const requestedScope = readinessScope(scope);
+  const directory = receiptDirectory(root);
+  const scopes = requestedScope === 'full' ? ['full', 'dependency-test'] : ['dependency-test'];
+  const loaded = await loadReadinessReceiptInDirectory(directory, {
+    commit, platform, arch, scope: requestedScope, allowFullFallback
+  });
+  // Failure publication writes its baseline before retiring the old pass. Observe baselines after
+  // the receipt, retaining that supersession order rather than racing their reads against it.
+  const results = await Promise.allSettled(scopes.map(candidateScope => loadTestBaselineInDirectory(directory, {
+      commit, platform, arch, scope: candidateScope
+    })));
+  // Keep full-before-narrow failure priority independent of I/O completion.
+  const baselines = results.map(result => {
+    if (result.status === 'rejected') throw result.reason;
+    return result.value;
+  });
+  const baseline = baselines.find(Boolean) ?? null;
+  const inspection = await inspectLoadedReadinessReceipt(root, loaded, baseline, {
+    commit, platform, arch, recompute: false, testRuntime, environment
+  });
+  return { inspection, baseline };
+}
+
+async function inspectLoadedReadinessReceipt(root, loaded, baseline, {
+  commit, sourceManifestSha256 = null, platform, arch, recompute, testRuntime, environment
+}) {
   if (!loaded) return { status: 'missing', receipt: null, reasons: ['receipt-missing'] };
   const reasons = [];
   const { receipt } = loaded;
@@ -1312,9 +1371,7 @@ export async function inspectRepositoryReadinessReceipt(root, {
   if (receipt.sourceCommit !== commit) reasons.push('commit-mismatch');
   if (receipt.platform !== platform || receipt.arch !== arch) reasons.push('runtime-mismatch');
   if (receipt.testRuntime?.sha256 !== testRuntimeIdentity(testRuntime, environment).sha256) reasons.push('test-runtime-mismatch');
-  if (await loadSupersedingTestBaseline(root, {
-    commit, platform, arch, scope: requestedScope
-  })) reasons.push('failed-baseline-supersedes-receipt');
+  if (baseline) reasons.push('failed-baseline-supersedes-receipt');
   let expectedManifest = sourceManifestSha256;
   let expectedPlanId = null;
   if (recompute) {

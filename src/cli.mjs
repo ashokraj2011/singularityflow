@@ -156,8 +156,8 @@ import { fosStoryConfigurationAuthority, readFosAttachment } from './onboard.mjs
 import { beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart, serializeConfigurationRestorePoint, updateStoryStartJournal } from './story-start-journal.mjs';
 import { assertStartDocuments, preflightInitialStoryDocuments, stageInitialStoryDocuments } from './story-start-documents.mjs';
 import { assertStoryStartReady, inspectStoryStartReadiness, requiredRepositoryReadinessScope, repositoryReadinessRequired } from './story-start-readiness.mjs';
-import { collectRepositoryReadinessEvidence, preflightTestReadiness } from './repository-readiness-evidence.mjs';
-import { baselineDeferralAllowed, intakeBaselineChoice } from './intake-baseline.mjs';
+import { collectRepositoryReadinessEvidence, inspectRepositoryPrerequisitePresence, preflightTestReadiness } from './repository-readiness-evidence.mjs';
+import { intakeBaselineChoice, requiredIntakePrerequisites } from './intake-baseline.mjs';
 import { storyBaseRequired, assertStoryStartChoices } from './story-start-inputs.mjs';
 import { markCliFailureLogged } from './cli-failure.mjs';
 import { loadLegacyMaterializedStoryDefinition, loadLegacyStoryBaseContext, storyConfigurationUnavailableError } from './story-start-base-configuration.mjs';
@@ -1403,25 +1403,19 @@ async function assertLaunchCheckoutRepositoryReady(sourceRoot, definition, sourc
   intakeBaselineChoice(baselineChoice);
   if (!repositoryReadinessRequired(definition)) return null;
   const scope = requiredRepositoryReadinessScope(definition);
-  const evidence = await collectRepositoryReadinessEvidence([{
-    id: 'lifecycle', root: sourceRoot, baseCommit: sourceCommit
-  }], { scope, testRuntime: definition.repositoryReadiness?.testRuntime });
-  const receipt = evidence.repositories.lifecycle;
-  if (baselineDeferralAllowed(definition, baselineChoice,
-    receipt?.sourceCommit === sourceCommit ? receipt : null)) return evidence;
+  const presence = await inspectRepositoryPrerequisitePresence(sourceRoot, {
+    commit: sourceCommit, scope, testRuntime: definition.repositoryReadiness?.testRuntime,
+    purposes: requiredIntakePrerequisites(definition)
+  });
+  if (presence.candidate) return presence;
   throw new SingularityFlowError(
     'Required non-test prerequisites lack current exact-base proof. Review the readiness plan or approved prerequisite policy. Test setup and results do not block Story creation.',
-    {
-      code: 'STORY_REPOSITORY_READINESS_REQUIRED',
-      details: {
-        sourceCommit,
-        reasons: receipt?.reasons ?? ['receipt-missing'],
-        baselinePolicy: 'choice',
-        nextAction: `singularity-flow precheck --run --base-commit ${sourceCommit} --scope ${scope} --json`,
-        nextSkill: scope === 'full' ? '/sf-ready --full' : '/sf-ready',
-        recoveryCommands: [`singularity-flow precheck --run --base-commit ${sourceCommit} --scope ${scope} --json`]
-      }
-    }
+    { code: 'STORY_REPOSITORY_READINESS_REQUIRED', details: {
+      sourceCommit, reasons: presence.reasons, baselinePolicy: 'choice',
+      nextAction: `singularity-flow precheck --run --base-commit ${sourceCommit} --scope ${scope} --json`,
+      nextSkill: scope === 'full' ? '/sf-ready --full' : '/sf-ready',
+      recoveryCommands: [`singularity-flow precheck --run --base-commit ${sourceCommit} --scope ${scope} --json`]
+    } }
   );
 }
 
@@ -1624,11 +1618,9 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
         { code: 'TRP_INTAKE_BASELINE_INVALID' }
       );
     }
-    // This checkout already exists because the operator explicitly ran its native baseline.
-    // Defer the legacy composite readiness gate to the child's exact TRP checks and live review.
-    // The child separately authenticates required dependency/build/start results before creating
-    // the Story. No missing non-test prerequisite is waived, and rehydrating here would mutate
-    // the already captured execution environment before that validation.
+    // Fail fast on missing mandatory observations without scanning the launch checkout. Only the
+    // child evaluates plan currency against its clean selected base before governed mutation.
+    // A separately reviewed native baseline keeps its existing exact-worktree admission route.
     const preparedBaselineReview = Boolean(baselineTarget)
       && launchDefinition?.testRecovery?.enabled === true
       && launchDefinition.testRecovery.enabledRiskCategories?.includes('known-test-failure')

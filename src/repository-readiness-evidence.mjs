@@ -6,11 +6,12 @@
  * Story readiness evaluator; machine paths and command argv never cross that boundary.
  */
 import {
-  buildRepositoryReadinessPlan, inspectRepositoryReadinessReceipt, loadRepositoryTestBaseline,
+  buildRepositoryReadinessPlan, inspectRepositoryReadinessReceipt, observeRepositoryReadinessRecords,
   recordEmptyRepositoryReadiness, buildEmptyRepositoryReadinessPlan
 } from './initialization/runtime-readiness.mjs';
 import { head } from './git.mjs';
 import { testRuntimeIdentity } from './test-runtime.mjs';
+import { incrementCommandCounter } from './dx-timing-context.mjs';
 import {
   assessPreStoryRiskForStoryStart, assessPreStoryTestBaseline,
   listPreStoryTestRiskAcceptances
@@ -46,6 +47,24 @@ function publicReceipt(inspection) {
       status: entry.status
     })))
   });
+}
+
+/**
+ * Cheap fail-fast admission before allocating a checkout. This only proves that prerequisite
+ * observations exist for the base/runtime, never that their source plan is current. The final
+ * collector still validates that plan before any governed mutation. Tests are never prerequisites.
+ */
+export async function inspectRepositoryPrerequisitePresence(root, { commit, scope, testRuntime = {}, purposes = [] }) {
+  incrementCommandCounter('readiness.prerequisite-preflights');
+  const { inspection, baseline } = await observeRepositoryReadinessRecords(root, { commit, scope, testRuntime });
+  const candidate = baseline ? baseline.baseline : inspection.status === 'pass' ? inspection.receipt : null;
+  const current = candidate?.sourceCommit === commit
+    && candidate?.testRuntime?.sha256 === testRuntimeIdentity(testRuntime).sha256;
+  const results = current && Array.isArray(candidate.commandResults) ? candidate.commandResults : [];
+  const passed = new Set(results.filter(entry => entry?.status === 'pass').map(entry => entry.purpose));
+  const missingPurposes = purposes.filter(purpose => !passed.has(purpose));
+  return { candidate: missingPurposes.length === 0, missingPurposes,
+    reasons: missingPurposes.length ? ['prerequisite-observation-missing'] : [] };
 }
 
 function publicFailedBaseline(baseline, assessment, acceptance = null, planCurrent = false, runtimeCurrent = false) {
@@ -113,26 +132,21 @@ function publicFailedBaseline(baseline, assessment, acceptance = null, planCurre
 export async function collectRepositoryReadinessEvidence(repositories = [], {
   scope = 'dependency-test', recordEmpty = false, previewEmpty = false, testRuntime = {}, advisory = false
 } = {}) {
+  incrementCommandCounter('readiness.evidence-collections');
   const collectEntry = async (entry) => {
     const selectedScope = entry.scope ?? scope;
-    let inspection = await inspectRepositoryReadinessReceipt(entry.root, {
+    // A selected remote base need not be this checkout. Inspect exact commit/platform/runtime
+    // records once; only required prerequisite evaluation below may rebuild a source plan.
+    const observation = await observeRepositoryReadinessRecords(entry.root, {
       commit: entry.baseCommit,
       scope: selectedScope,
-      testRuntime,
-      // A selected remote base need not be the current checkout. The immutable receipt already
-      // seals its source-manifest and plan; exact commit/platform/architecture lookup is enough.
-      recompute: false
+      testRuntime
     });
+    let inspection = observation.inspection;
     // A failed rerun on the same Git commit does not erase an earlier passing receipt. The
     // baseline takes precedence until a successful rerun durably writes its receipt and clears
     // the obsolete baseline. A narrow failure also supersedes an older full-scope pass.
-    const baselineScopes = selectedScope === 'full'
-      ? ['full', 'dependency-test'] : ['dependency-test'];
-    const candidates = await Promise.all(baselineScopes.map((candidateScope) =>
-      loadRepositoryTestBaseline(entry.root, {
-        commit: entry.baseCommit, scope: candidateScope
-      })));
-    const loaded = candidates.find(Boolean);
+    const loaded = observation.baseline;
     // Only Story start opts in. Preview/status remain read-only, failed baselines are preserved,
     // and no command can run implicitly. Cross-branch no-ops require proven detector equivalence.
     if (!advisory && recordEmpty && !loaded && inspection.status !== 'pass') {

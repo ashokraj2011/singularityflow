@@ -14,7 +14,7 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 25
+version: 26
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -183,7 +183,7 @@ risk rationale remains in the machine-local Git-private decision.
 
 Story creation also seals the Story's test policy in `context/test-policy.json`: which tests run (the affected modules, or every configured test under the Story test policy pilot), what happens to failures the base already has, that each acceptance criterion is verified by an automated test unless its verification contract says otherwise, the risk categories and the longest risk acceptance, and the repository's test capability at the base. The capability names every build module with the test command that would run it, whether that runner reads each test case or only counts tests, the strongest assurance it can reach, and any module with no supported runner, two build systems, or a missing launcher. Start prints it, `singularity-flow story test-policy show` repeats it, and a plan whose planned tests could not run is refused before any code is written. Failures on the base are repaired inside the Story by default; pass `--baseline-failures resolve-outside` to require that the base passes before the Story starts. Start then refuses, naming every failing test the confirmed readiness probe found, or asks for that probe when the base has not been observed.
 
-Story start includes one shared, read-only readiness check in the CLI, Copilot flow, and VS Code preview. Workflow choices come from the exact selected base (or the approved shared configuration), not from whichever branch happened to launch the form. Selecting another base refreshes the workflow catalog; a workflow absent from that base is cleared and must be chosen again. After the operator selects a base and workflow, readiness proves all of the following before a Story branch, approval-membership change, checkout, commit, or push is allowed:
+Story start includes one shared, read-only readiness check in the CLI, Copilot flow, and VS Code preview. Workflow choices come from the exact selected base (or the approved shared configuration), not from whichever branch happened to launch the form. Selecting another base refreshes the workflow catalog; a workflow absent from that base is cleared and must be chosen again. After the operator selects a base and workflow, readiness proves all of the following before governed Story state, approval-membership changes, commits or pushes are recorded:
 
 - the approved configuration is pinned to one exact authority revision, or the selected base carries a validated legacy configuration;
 - the chosen workflow resolves, its planned-claim policy is operational, and every phase has one installed default governed agent;
@@ -191,6 +191,26 @@ Story start includes one shared, read-only readiness check in the CLI, Copilot f
 - optional intelligence remains optional: a missing World Model, AST pack, model provider, telemetry span, or Copilot plugin does not block Story creation.
 
 The preview is provisional. `sflow start` recomputes it immediately before mutation so a configuration or remote change between preview and Start cannot reuse stale evidence. The successful result includes the readiness checks and a digest-bound receipt for the selected configuration commit, base commits, and destination refs.
+
+An isolated Start makes one authoritative repository-readiness evidence collection in its selected-base
+checkout. When policy requires non-test prerequisites, a bounded metadata-only presence check rejects
+missing observations before allocating that checkout; it does not rebuild the launch checkout's
+readiness plan or accept a risk. The final collector still verifies any required baseline-plan
+currency before enrollment or governed writes. A changed base, runtime, policy, corrupt record or
+new failed baseline cannot reuse an old passing result. No process-global readiness cache or preview
+approval is introduced, and every observation reads current Git-private record bytes.
+
+Each collection reads its receipt and possible failed baselines in one bounded batch, without
+loading the same baseline twice. `--timings` reports `readiness.evidence-collections`,
+`readiness.prerequisite-preflights`, `readiness.record-reads` and `readiness.plan-builds` when those
+operations occur. These count readiness work, not whole-repository scans. Ordinary advisory intake
+and a valid saved pass do not rebuild source plans; fresh tests and dependency installation remain
+separate, explicitly reviewed operations.
+
+Default intake is optimistic: missing, stale or failing test observations are retained as pending
+or warnings so the Story can start and repair them. No passing evidence is invented. Only an
+explicitly required non-test prerequisite retains its pre-start gate; phase publication still owns
+the configured fresh execution checks.
 
 A passing preview can also hand Start what it observed. Add `--mint-intake-receipt` to a preview that names its workflow and `preflight.intakeReceipt` returns a receipt ID; pass it to Start as `--intake-receipt <ID>`. The receipt authorizes nothing. Start still observes approved configuration, the base, the Story destination and the state tip again, all at once, dry-runs publication afresh and recomputes readiness; it only skips fetching and observing what the preview already proved unchanged. An expired (15 minutes), edited, already used or foreign receipt, a different request, or anything that moved runs the ordinary start, and `data.intakeReceipt` says which and why. Receipts are single-use and machine-local, issued for one-repository Stories with approved shared configuration on macOS and Linux, and `SINGULARITY_FLOW_STORY_INTAKE_RECEIPTS=off` switches them off. VS Code and `/sf-start` use them automatically.
 

@@ -694,6 +694,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const mode = vscode.workspace.getConfiguration('singularityFlow').get<'auto' | 'disabled'>('modelMode', 'auto');
     if (mode === 'disabled') environment.SINGULARITY_FLOW_NO_MODEL = '1';
     else delete environment.SINGULARITY_FLOW_NO_MODEL;
+    if (!vscode.workspace.getConfiguration('singularityFlow').get<boolean>('warmReads', true)) {
+      environment.SINGULARITY_FLOW_READ_WORKER = 'off';
+    }
     return environment;
   };
   const resetMarker = path.resolve(process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER
@@ -708,7 +711,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   if (pendingFreshReset) {
     const settings = vscode.workspace.getConfiguration('singularityFlow');
-    const globalSettingKeys = ['cliPath', 'nodePath', 'modelMode', 'userName', 'role'];
+    const globalSettingKeys = ['cliPath', 'nodePath', 'modelMode', 'userName', 'role', 'warmReads'];
     const globalKeys = typeof context.globalState.keys === 'function'
       ? context.globalState.keys()
       : ['onboardingComplete', START_WIZARD_KEY];
@@ -736,7 +739,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let refreshPersonaMenus = (): void => {};
   const configurationListener = vscode.workspace.onDidChangeConfiguration?.(async (event) => {
     if (event.affectsConfiguration('singularityFlow.modelMode')
-      || event.affectsConfiguration('singularityFlow.userName')) cliEnvironment = await resolvedCliEnvironment();
+      || event.affectsConfiguration('singularityFlow.userName')
+      || event.affectsConfiguration('singularityFlow.warmReads')) cliEnvironment = await resolvedCliEnvironment();
     if (event.affectsConfiguration('singularityFlow.role')
       || event.affectsConfiguration('singularityFlow.userName')) refreshPersonaMenus();
   });
@@ -4564,6 +4568,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         extensionPath: context.extensionPath
       }),
       repository,
+      warmReads: settings.get<boolean>('warmReads', true),
       environment: () => cliEnvironment,
       onOutput: (text) => output.append(text)
     });
@@ -4581,6 +4586,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onOutput: (text) => output.append(text)
   });
   output.appendLine(`Using CLI (${client.location.source}): ${client.location.cli}`);
+  context.subscriptions.push({ dispose: () => { client.dispose(); activeSelectionClient.dispose(); } });
 
   const expandReference = async (seed?: string): Promise<void> => {
     const handle = seed?.startsWith('sfref:') ? seed : await vscode.window.showInputBox({
@@ -4837,6 +4843,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const REPOSITORY_REFRESH_DEBOUNCE_MS = 750;
   let repositoryWatcher: vscode.FileSystemWatcher | null = null;
   let autoPrivateWatcher: vscode.FileSystemWatcher | null = null;
+  let gitStateWatcher: vscode.FileSystemWatcher | null = null;
   let repositoryRefreshTimer: ReturnType<typeof setTimeout> | null = null;
   const repositoryWatcherFence = new RevisionSliceWatcherFence(() => repository);
   let mutationRefreshDeferred = false;
@@ -4874,7 +4881,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           resetGatewaySession();
           lastHome = null;
         }
-        await store.refresh();
+        await store.refresh({ changed: true });
         if (refreshCurrentHome && repositoryEpoch.isCurrent(scope)) {
           await vscode.commands.executeCommand('singularityFlow.myWork', { reveal: false });
         }
@@ -4882,23 +4889,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }, REPOSITORY_REFRESH_DEBOUNCE_MS);
   };
   const scheduleRepositoryRefresh = (uri?: vscode.Uri): void => {
+    client.invalidateReads();
     repositoryWatcherFence.observe(uri?.fsPath);
     armRepositoryRefresh();
   };
   const scheduleAutoPrivateRefresh = (uri?: vscode.Uri): void => {
+    client.invalidateReads();
     repositoryWatcherFence.observe(uri?.fsPath, 'auto-private');
     armRepositoryRefresh();
   };
 
   /** One explicit mutation refresh, with an exact fence around already-observed watcher echoes. */
   const refreshAfterKnownMutation = async (): Promise<void> => {
+    client.invalidateReads();
     if (repositoryRefreshTimer) {
       clearTimeout(repositoryRefreshTimer);
       repositoryRefreshTimer = null;
     }
     await repositoryWatcherFence.reconcileExplicitRefresh(
       () => store.current.snapshot,
-      () => store.refresh()
+      () => store.refresh({ changed: true })
     );
     // A mismatched captured event, or any event delivered during the refresh, is still owed its own
     // read. Never let the fence for one mutation consume somebody else's later repository change.
@@ -4915,6 +4925,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     intakeCatalogScope = gitCommonDirectory ? { repository: target, commonDirectory: gitCommonDirectory } : null;
     repositoryWatcher?.dispose();
     autoPrivateWatcher?.dispose();
+    gitStateWatcher?.dispose();
     if (repositoryRefreshTimer) {
       clearTimeout(repositoryRefreshTimer);
       repositoryRefreshTimer = null;
@@ -4948,6 +4959,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         autoPrivateWatcher.onDidDelete(scheduleAutoForCurrentRepository)
       );
     }
+    gitStateWatcher = gitCommonDirectory ? vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(
+      vscode.Uri.file(gitCommonDirectory), '{HEAD,index,config,packed-refs,refs/**/*,worktrees/*/{HEAD,index}}'
+    )) : null;
+    if (gitStateWatcher) context.subscriptions.push(
+      gitStateWatcher.onDidCreate(scheduleGovernedForCurrentRepository),
+      gitStateWatcher.onDidChange(scheduleGovernedForCurrentRepository),
+      gitStateWatcher.onDidDelete(scheduleGovernedForCurrentRepository)
+    );
   };
   const initialGitCommonDirectory = await validatedRepositoryGitCommonDirectory(repository, {
     signal: extensionLifetime.signal
@@ -4960,6 +4979,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     dispose: () => {
       repositoryWatcher?.dispose();
       autoPrivateWatcher?.dispose();
+      gitStateWatcher?.dispose();
       if (repositoryRefreshTimer) clearTimeout(repositoryRefreshTimer);
     }
   });

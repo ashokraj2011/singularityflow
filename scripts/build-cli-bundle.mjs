@@ -32,6 +32,7 @@ export const CLI_BUNDLE_ENTRIES = Object.freeze({
   'copilot-hook-runtime': 'src/copilot-hook-runtime.mjs',
   'history-index-worker': 'src/history-index-worker.mjs',
   'configuration-read-worker': 'src/configuration-read-worker.mjs',
+  'read-worker': 'src/read-worker.mjs',
   'configuration-proposal-sync-worker': 'src/configuration-proposal-sync-worker.mjs'
 });
 // Rarely used, large, or needing their own files: loaded from node_modules as before.

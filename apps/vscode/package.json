@@ -91,6 +91,11 @@
     "configuration": {
       "title": "Singularity Flow",
       "properties": {
+        "singularityFlow.warmReads": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reuse a bounded private worker for compatible read-only UI requests in stamped SFlow builds. Mutations, authoring and reviews always use their normal CLI route. Reload the window after changing this setting."
+        },
         "singularityFlow.cliPath": {
           "type": "string",
           "default": "",

@@ -490,6 +490,8 @@ function yamlAtRef(root, ref, relative, { env = process.env } = {}) {
  * object store) derive it once; a separate clone keeps its own entry and its own presence proof.
  */
 const ASSET_POLICY_BY_COMMIT = new Map();
+/** Re-prove commit presence between requests in a long-lived read process. */
+export function resetConfigurationAssetPolicyCache() { ASSET_POLICY_BY_COMMIT.clear(); }
 
 async function yamlInDirectory(root, relative) {
   const target = path.join(root, relative);

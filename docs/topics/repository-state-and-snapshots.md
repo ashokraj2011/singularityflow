@@ -13,9 +13,36 @@ related:
   - recovery
   - workspaces-and-sessions
   - pins
-version: 1
+version: 2
 ---
 Repository snapshots are read models of governed and Git state. Refresh uses safe fast-forward behavior and never hides dirty, diverged, or ambiguous work.
+
+## Faster VS Code reads
+
+Installed, stamped builds can reuse a private Node worker for selected UI snapshot slices and plain
+JSON `status`/`nextsteps` reads. Only loaded code survives: every request opens fresh read and policy
+scopes and clears command-local Git/object observations. No authoring or reviewer session is reused.
+Full/heavy snapshots, agent packets, readiness receipts, publication, repairs and approvals keep
+their normal CLI route. Editable, unstamped development checkouts also keep the CLI route so source
+edits cannot be hidden behind old loaded code.
+
+Identical in-flight reads share work across panels and clients, with independent cancellation.
+Observed Git/configuration changes and mutations invalidate reuse; changed environment or installed
+build starts a new worker. Ordinary overlapping Refresh requests join the current read; an actual
+change or added data slice requests one follow-up. Workers are private parent-owned IPC children,
+serial per repository, capped at two per adapter, 16 queued requests, 64 reads, five minutes of age,
+and one minute idle. There is no listening server or persisted worker endpoint.
+
+If the worker fails, that read falls back once to the existing CLI. Cancellation never retries.
+The first worker read includes startup and can be slower than a single CLI call; later reads avoid
+reloading the engine. Disable `singularityFlow.warmReads` and reload VS Code to compare or diagnose;
+`SINGULARITY_FLOW_READ_WORKER=off` also disables the transport. Output records identify worker start
+versus reuse without logging arguments, credentials, repository contents, or environment values.
+
+For reproducible local qualification, run `node scripts/warm-read-benchmark.mjs --samples=5` from
+the source checkout. It measures cold CLI, first worker and warm reads in a stamped bundled fixture,
+then complete Story intake against a local bare remote, without a model. It cleans up that fixture
+afterward. These measurements are not native Copilot token savings or Windows latency evidence.
 
 ## Purpose and prerequisites
 

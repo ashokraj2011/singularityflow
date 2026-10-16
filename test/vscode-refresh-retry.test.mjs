@@ -162,7 +162,7 @@ test('the store owns the retry policy, so no view has to know about it', async (
   assert.deepEqual(offenders, [], 'a view is handling the disturbance itself');
 });
 
-test('overlapping refreshes coalesce without aborting paid work or fanning out stale results', () => {
+test('observed changes during a refresh receive one follow-up without aborting paid work or fanning out stale results', () => {
   const source = `
     import { WorkspaceStore } from ${JSON.stringify(storeModule)};
     let calls = 0;
@@ -186,7 +186,7 @@ test('overlapping refreshes coalesce without aborting paid work or fanning out s
     store.onDidChange((state, change) => events.push({ kind: change.kind, marker: state.snapshot?.marker ?? null }));
     const first = store.refresh();
     await new Promise((resolve) => setTimeout(resolve, 10));
-    const second = store.refresh();
+    const second = store.refresh({ changed: true });
     await Promise.all([first, second]);
     process.stdout.write(JSON.stringify({ calls, aborted, events, marker: store.current.snapshot?.marker }));
   `;

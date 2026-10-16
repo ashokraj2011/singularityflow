@@ -8560,7 +8560,7 @@ test('a schema-v2 local reset marker clears all extension-owned global state but
     'singularityFlow.storage.index', 'singularityFlow.storage.design'
   ]) assert.equal(values.get(`secret:${key}`), undefined, `${key} is cleared from SecretStorage`);
   assert.deepEqual(updates.map(({ key, target }) => ({ key, target })), [
-    'cliPath', 'nodePath', 'modelMode', 'userName', 'role'
+    'cliPath', 'nodePath', 'modelMode', 'userName', 'role', 'warmReads'
   ].map((key) => ({ key, target: api.ConfigurationTarget.Global })));
   assert.equal(await readFile(process.env.SINGULARITY_FLOW_VSCODE_RESET_MARKER, 'utf8').catch(() => null), null);
   assert.ok(registered.output.some((line) => String(line).includes('cleared Singularity Flow credentials, personalization')));
@@ -8586,8 +8586,10 @@ test('a future reset marker refuses safely and preserves extension-owned state',
 test('terminal lifecycle and Git-common Auto writes refresh VS Code through bounded watchers', async (t) => {
   if (!requireBundle(t)) return;
   const { root, registered } = await activated();
-  assert.equal(registered.watchers.length, 3,
-    'governed state, repository-private Auto state, and active Story selection are each watched once');
+  assert.equal(registered.watchers.length, 4,
+    'governed state, narrow Git state, repository-private Auto state, and active Story selection are each watched once');
+  assert.ok(registered.watchers.some(watcher => watcher.pattern.pattern
+    === '{HEAD,index,config,packed-refs,refs/**/*,worktrees/*/{HEAD,index}}'), 'Git/config changes invalidate read reuse');
   const repositoryWatcher = registered.watchers.find((watcher) =>
     watcher.pattern.pattern === 'singularity/**/*');
   const autoWatcher = registered.watchers.find((watcher) =>

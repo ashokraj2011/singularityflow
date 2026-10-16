@@ -200,6 +200,8 @@ function isSubjectRecord(file, roots) {
 }
 const REF_SUBJECT_CACHE_LIMIT = 128;
 const refSubjectCache = new Map();
+/** Summary cache lifetime is one read request, not the lifetime of its worker process. */
+export function resetRefSubjectCache() { refSubjectCache.clear(); }
 
 function cachedRefSubjects(key, load) {
   if (refSubjectCache.has(key)) {

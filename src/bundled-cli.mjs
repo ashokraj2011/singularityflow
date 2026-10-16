@@ -43,3 +43,8 @@ export function bundledCliUrl(installRoot, env = process.env) {
 export function bundledCopilotHookUrl(installRoot, env = process.env) {
   return bundledEntryUrl(installRoot, 'copilot-hook-runtime.mjs', env);
 }
+
+/** Read workers use the same immutable package/bundle binding as the CLI. */
+export function bundledReadWorkerUrl(installRoot, env = process.env) {
+  return bundledEntryUrl(installRoot, 'read-worker.mjs', env);
+}

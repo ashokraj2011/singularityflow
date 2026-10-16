@@ -12,6 +12,18 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "src/read-worker-client.mjs": {
+      "counts": { "process-import": 1, "process-launch": 1 },
+      "digest": "75514e5515c7c64f2b409927ccdc2c69c836fef92a86b5919430320746486676"
+    },
+    "scripts/warm-read-fixture.mjs": {
+      "counts": { "command-git": 7, "process-import": 1, "process-launch": 2 },
+      "digest": "a85b139cd9afaeadb6b78ce02d5e8b78ac11f164a7244a3e94d444a460a0d13d"
+    },
+    "scripts/warm-read-benchmark.mjs": {
+      "counts": { "command-git": 12 },
+      "digest": "20428da7622990cd122b57bfa1b698c657d2e75c58da91fb61791a3b680150d1"
+    },
     "scripts/native-story-pairs.mjs": {
       "counts": {
         "process-import": 1,

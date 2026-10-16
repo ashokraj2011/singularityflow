@@ -63,6 +63,15 @@ export async function galStatusSelection(cwd = process.cwd(), options = {}) {
   return Object.freeze({ root, branch: await galStatusBranch(root, options) });
 }
 
+/** Ordinary JSON status only; submission readiness and author/reviewer packets stay on the CLI. */
+export async function readStatus(root, workId = null) {
+  const reference = workId ?? await galStatusBranch(root);
+  const selected = resolveContext(await buildRepositorySubjectIndex(root), {
+    reference, kind: 'story', required: true
+  });
+  return { ...selected.state, authoringRoutes: workflowAuthoringRoutes(selected.state) };
+}
+
 export async function run(_argv, { positionals, options }) {
   const root = galStatusRepositoryRoot();
   if (optionBoolean(options, 'submission-readiness') && optionBoolean(options, 'submit-if-ready')) {
@@ -86,6 +95,9 @@ export async function run(_argv, { positionals, options }) {
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(readiness, null, 2));
     else console.log(submissionReadinessText(readiness));
     return;
+  }
+  if (optionBoolean(options, 'json') && !optionBoolean(options, 'git-shadow')) {
+    return console.log(JSON.stringify(await readStatus(root, positionals[1]), null, 2));
   }
   const gitShadow = optionBoolean(options, 'git-shadow');
   const gitShadowObservations = [];

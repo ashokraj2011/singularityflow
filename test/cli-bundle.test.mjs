@@ -59,7 +59,7 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
   const outdir = path.join(root, `.bundle-test-${process.pid}`);
   t.after(() => rm(outdir, { recursive: true, force: true }));
   const { manifest } = await buildCliBundle({ outdir });
-  assert.deepEqual(manifest.entries, ['cli.mjs', 'copilot-hook-runtime.mjs', 'history-index-worker.mjs', 'configuration-read-worker.mjs', 'configuration-proposal-sync-worker.mjs']);
+  assert.deepEqual(manifest.entries, ['cli.mjs', 'copilot-hook-runtime.mjs', 'history-index-worker.mjs', 'configuration-read-worker.mjs', 'read-worker.mjs', 'configuration-proposal-sync-worker.mjs']);
   const hookOutput = manifest.outputs.find(output => output.file === 'copilot-hook-runtime.mjs');
   assert.ok(hookOutput.bytes <= 8 * 1024 * 1024, `hook bundle: ${hookOutput.bytes} bytes`);
   assert.ok(hookOutput.modules <= 650, `hook bundle: ${hookOutput.modules} modules`);

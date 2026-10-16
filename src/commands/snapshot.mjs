@@ -18,10 +18,11 @@ async function lightweightRepositorySlice(root, revision) {
   };
 }
 
-export async function run(argv, { positionals, options }) {
-  const root = repoRoot();
-  const included = optionStrings(options, 'include');
-  const gitShadow = optionBoolean(options, 'git-shadow');
+/** Canonical typed read shared by the CLI and the private warm read worker. */
+export async function readSnapshot(root, {
+  included = [], ifRevision = null, gitShadow = false, timings = false,
+  workId = null, initiativeId = null
+} = {}) {
   const gitShadowObservations = [];
   const coordinator = new SnapshotCoordinator(root, gitShadow ? {
     gitReadMode: 'shadow',
@@ -32,8 +33,8 @@ export async function run(argv, { positionals, options }) {
       async ({ revision }) => ({ repository: await lightweightRepositorySlice(root, revision) }),
       {
         included,
-        ifRevision: optionString(options, 'if-revision'),
-        timings: optionBoolean(options, 'timings'),
+        ifRevision,
+        timings,
         // A read model. Nothing here writes, so an edit arriving mid-read makes the answer slightly
         // old, not wrong — and refusing to answer leaves every view in the extension blank.
         consistency: 'best-effort'
@@ -43,7 +44,7 @@ export async function run(argv, { positionals, options }) {
       const { summarizeFosGitShadowObservations } = await import('../fos-git-shadow.mjs');
       result.gitShadow = summarizeFosGitShadowObservations(gitShadowObservations);
     }
-    return console.log(JSON.stringify(result, null, 2));
+    return result;
   }
   /**
    * Every other shape of `snapshot`, assembled without `src/cli.mjs`. `[perf]`
@@ -71,12 +72,10 @@ export async function run(argv, { positionals, options }) {
    * ~324 ms of its ~485 in 48 subprocesses, nine of them the same `git branch --show-current`,
    * and that is where the next real saving is.
    */
-  const [{ repositorySnapshot }, { withDefinitionCache }, { writeHumanTimings }] = await Promise.all([
+  const [{ repositorySnapshot }, { withDefinitionCache }] = await Promise.all([
     import('../editor.mjs'),
-    import('../config.mjs'),
-    import('../dx-timings.mjs')
+    import('../config.mjs')
   ]);
-  const timings = optionBoolean(options, 'timings');
   /**
    * One parsed definition for the whole read. Every slice loads it, and re-reading and
    * re-validating the same file for each was measured at seven parses for a single snapshot.
@@ -85,13 +84,13 @@ export async function run(argv, { positionals, options }) {
     const result = await coordinator.capture(
       ({ included: requested, revision }) => repositorySnapshot(
         root,
-        positionals[1],
-        optionString(options, 'initiative'),
+        workId,
+        initiativeId,
         { included: requested, revision }
       ),
       {
         included: included.length ? included : undefined,
-        ifRevision: optionString(options, 'if-revision'),
+        ifRevision,
         timings,
         consistency: 'best-effort'
       }
@@ -100,9 +99,21 @@ export async function run(argv, { positionals, options }) {
       const { summarizeFosGitShadowObservations } = await import('../fos-git-shadow.mjs');
       result.gitShadow = summarizeFosGitShadowObservations(gitShadowObservations);
     }
-    console.log(JSON.stringify(result, null, 2));
-    // Timings go to stderr, so the JSON on stdout is the same either way. Preserved exactly as the
-    // legacy handler had it: the human form adds the timing line, it does not replace the payload.
-    if (!optionBoolean(options, 'json')) writeHumanTimings(result.timings);
+    return result;
   });
+}
+
+export async function run(_argv, { positionals, options }) {
+  const result = await readSnapshot(repoRoot(), {
+    included: optionStrings(options, 'include'),
+    ifRevision: optionString(options, 'if-revision'),
+    gitShadow: optionBoolean(options, 'git-shadow'),
+    timings: optionBoolean(options, 'timings'),
+    workId: positionals[1], initiativeId: optionString(options, 'initiative')
+  });
+  console.log(JSON.stringify(result, null, 2));
+  if (!optionBoolean(options, 'json')) {
+    const { writeHumanTimings } = await import('../dx-timings.mjs');
+    writeHumanTimings(result.timings);
+  }
 }

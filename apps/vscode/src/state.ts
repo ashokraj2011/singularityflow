@@ -8,7 +8,7 @@
  * "awaiting approval" is worse than either being briefly stale.
  *
  * So there is exactly one in-flight refresh per selected repository and everyone waits on it. A
- * refresh requested while one is running is coalesced into one follow-up; paid work is not aborted
+ * duplicate refresh joins the running read; an observed change is coalesced into one follow-up. Paid work is not aborted
  * unless the selected repository changes, and an older answer is never published over the newer
  * request.
  */
@@ -315,7 +315,7 @@ export class WorkspaceStore {
       return false;
     }
     if (added || !this.state.snapshot) {
-      await this.refresh();
+      await this.refresh({ changed: added });
       return true;
     }
     return false;
@@ -442,7 +442,7 @@ export class WorkspaceStore {
   /**
    * One refresh loop for every overlapping request.
    *
-   * A request arriving mid-read increments the generation. The older result is discarded and the
+   * An observed change arriving mid-read increments the generation. The older result is discarded and the
    * loop performs exactly one follow-up against the settled repository; it is never aborted after
    * paying most of the snapshot cost, and callers awaiting either request wait for the latest one.
    */
@@ -578,10 +578,11 @@ export class WorkspaceStore {
    * Refresh from the engine. `priority` applies to the next snapshot read only: a new window's first
    * read is the one somebody is waiting on, ahead of discovery and product checks.
    */
-  async refresh({ priority }: { priority?: ReadPriority } = {}): Promise<void> {
+  async refresh({ priority, changed = false }: { priority?: ReadPriority; changed?: boolean } = {}): Promise<void> {
     if (this.disposed) return;
     if (priority) this.nextRefreshPriority = priority;
-    this.refreshGeneration += 1;
+    // Identical consumers join the current read. Only observed changes/new slices owe a follow-up.
+    if (!this.inFlight || changed) this.refreshGeneration += 1;
     if (!this.inFlight) {
       const controller = new AbortController();
       this.controller = controller;

@@ -7,8 +7,10 @@
  * about a resolution's meaning. Whichever is chosen is reported, so a mismatch is diagnosable
  * instead of mysterious.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   CAPABILITY_AUTHORITY_TIMEOUT_MS, CLI_TIMEOUT_MS, SNAPSHOT_TIMEOUT_MS, VALIDATION_TIMEOUT_MS,
   FACTORY_RESET_TRANSACTION_TIMEOUT_MS, WORKSPACE_MUTATION_TIMEOUT_MS, WORK_START_TIMEOUT_MS,
@@ -16,6 +18,7 @@ import {
   invokeCli, cliInvocationTimeoutError, type OutputStream, type CliCommandTiming
 } from './runner.ts';
 import type { RepositorySnapshot, SnapshotSlice } from './snapshot.ts';
+import { recordHostBackgroundProcessStarted, recordHostBackgroundProcessCompleted } from '../host-performance.ts';
 
 export const CORE_SNAPSHOT_SLICES: readonly SnapshotSlice[] = Object.freeze([
   'repository', 'lifecycle', 'capabilities'
@@ -28,8 +31,29 @@ export const CLI_READ_CONCURRENCY = 4;
 const repositoryMutations = new Map<string, Set<Promise<unknown>>>();
 // A write made through another client also invalidates this checkout's reusable read results.
 const repositoryMutationEpochs = new Map<string, number>();
-const mutationKey = (repository: string): string => process.platform === 'win32'
-  ? path.resolve(repository).toLowerCase() : path.resolve(repository);
+// Share work across panels/clients, but never persist a second global result cache.
+const sharedReads = new Map<string, ClientRead>();
+interface WarmReader {
+  readWithWorker(options: Record<string, unknown>): Promise<{ kind: 'value'; value: unknown; transport: string; durationMs: number } | null>;
+  invalidateReadWorkers(repository: string): void;
+}
+const warmReaders = new Map<string, Promise<WarmReader | null>>();
+function warmReader(cli: string): Promise<WarmReader | null> {
+  const entry = path.resolve(path.dirname(cli), '..', 'src', 'read-worker-client.mjs');
+  let module = warmReaders.get(entry);
+  if (!module) {
+    // Remain external to the extension bundle: load only the selected engine's private adapter.
+    module = import(pathToFileURL(entry).href).catch(() => null) as Promise<WarmReader | null>;
+    warmReaders.set(entry, module);
+    if (warmReaders.size > 8) warmReaders.delete(warmReaders.keys().next().value!);
+  }
+  return module;
+}
+const mutationKey = (repository: string): string => {
+  let resolved = path.resolve(repository);
+  try { resolved = realpathSync.native(resolved); } catch { /* Missing contexts retain their exact path. */ }
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+};
 
 async function awaitRepositoryMutations(repository: string, signal?: AbortSignal): Promise<void> {
   const key = mutationKey(repository);
@@ -140,6 +164,7 @@ export function defaultReadPriority(args: readonly string[]): ReadPriority {
 }
 
 interface ReadSubscriber {
+  owner: SingularityFlowClient;
   resolve(value: unknown): void;
   reject(error: Error): void;
   signal?: AbortSignal;
@@ -149,7 +174,6 @@ interface ReadSubscriber {
 
 interface ClientRead {
   key: string | null;
-  epoch: number;
   controller: AbortController;
   subscribers: Set<ReadSubscriber>;
   ticket: { cancel(): void; raise(priority: ReadPriority): void } | null;
@@ -264,7 +288,9 @@ function enabledBooleanOption(args: string[], name: string): boolean {
  * policy; only result reuse is forbidden.
  */
 function cacheableRead(args: string[]): boolean {
-  return !(args[0] === 'configuration' && args[1] === 'validate')
+  return !args.includes('--for-agent') && !['review-source', 'choices', 'phase'].includes(args[0] ?? '')
+    && !args.includes('--submission-readiness') && !args.includes('--submit-if-ready')
+    && !(args[0] === 'configuration' && args[1] === 'validate')
     // Publication uses current authored bytes. A 250 ms cached preflight could approve a draft
     // that changed after the previous check; the kernel will still recheck inside publication.
     && !(args[0] === 'phase' && args[1] === 'prepublish')
@@ -582,6 +608,8 @@ export interface ClientOptions {
   onOutput?: (text: string, stream: OutputStream) => void;
   /** Sanitized completion diagnostics independent of whether child output is displayed. */
   onTiming?: (event: CliCommandTiming) => void;
+  /** A bounded private worker for compatible read-only routes; never used for mutations. */
+  warmReads?: boolean;
 }
 
 /** Per-call options. Priority only orders reads in the shared pool; writes never queue. */
@@ -601,7 +629,6 @@ export interface RunOptions {
 export class SingularityFlowClient {
   private readonly options: ClientOptions;
   private readonly readResults = new Map<string, { expiresAt: number; value: unknown }>();
-  private readonly readInFlight = new Map<string, ClientRead>();
   private readonly readJobs = new Set<ClientRead>();
   private readEpoch = 0;
   constructor(options: ClientOptions) { this.options = options; }
@@ -623,20 +650,35 @@ export class SingularityFlowClient {
    * results cannot enter the new repository's cache or in-flight set.
    */
   useRepository(repository: string): void {
-    if (repository !== this.options.repository) this.invalidateReadResults(true);
+    if (repository !== this.options.repository) {
+      this.invalidateReads();
+      this.invalidateReadResults(true);
+    }
     this.options.repository = repository;
   }
+
+  /** External Git/config changes and writes invalidate cross-panel reuse as well as local bytes. */
+  invalidateReads(): void {
+    const repository = this.repository;
+    const key = mutationKey(repository);
+    repositoryMutationEpochs.set(key, (repositoryMutationEpochs.get(key) ?? 0) + 1);
+    this.invalidateReadResults();
+    const loaded = warmReaders.get(path.resolve(path.dirname(this.location.cli), '..', 'src', 'read-worker-client.mjs'));
+    if (loaded) void loaded.then(reader => reader?.invalidateReadWorkers(repository));
+  }
+
+  dispose(): void { this.invalidateReads(); this.invalidateReadResults(true); }
 
   private invalidateReadResults(cancelExisting = false): void {
     this.readEpoch += 1;
     this.readResults.clear();
-    this.readInFlight.clear();
-    // A write invalidates reuse, not the subscribers who already paid for this read. Clearing the
-    // sharing map makes every post-write request fresh; the epoch prevents old results being cached.
+    // A write invalidates reuse, not the subscribers who already paid for this read. The shared
+    // repository epoch makes post-write keys fresh and prevents old results being cached.
     // Only changing the repository makes those subscribers' context unusable and cancels them.
     if (!cancelExisting) return;
     for (const job of this.readJobs) {
       for (const subscriber of [...job.subscribers]) {
+        if (subscriber.owner !== this) continue;
         this.leaveRead(job, subscriber, Object.assign(
           new Error('The Singularity Flow read was superseded.'), { code: 'CLI_READ_SUPERSEDED' }
         ));
@@ -644,19 +686,14 @@ export class SingularityFlowClient {
     }
   }
 
-  private readResultKey(args: string[]): string {
-    return JSON.stringify([this.readEpoch, this.options.repository,
-      repositoryMutationEpochs.get(mutationKey(this.repository)) ?? 0, args]);
-  }
-
   private leaveRead(job: ClientRead, subscriber: ReadSubscriber, error: Error): void {
     if (!job.subscribers.delete(subscriber)) return;
     if (subscriber.timer) clearTimeout(subscriber.timer);
     subscriber.signal?.removeEventListener('abort', subscriber.onAbort);
     subscriber.reject(error);
+    if (![...job.subscribers].some(value => value.owner === this)) this.readJobs.delete(job);
     if (job.subscribers.size || job.finished) return;
-    if (job.key && this.readInFlight.get(job.key) === job) this.readInFlight.delete(job.key);
-    this.readJobs.delete(job);
+    if (job.key && sharedReads.get(job.key) === job) sharedReads.delete(job.key);
     job.controller.abort(error);
     if (!job.started) {
       job.ticket?.cancel();
@@ -667,20 +704,9 @@ export class SingularityFlowClient {
   private finishRead(job: ClientRead, value: unknown, error: Error | null): void {
     if (job.finished) return;
     job.finished = true;
-    this.readJobs.delete(job);
-    if (job.key && this.readInFlight.get(job.key) === job) this.readInFlight.delete(job.key);
-    if (!error && job.key && job.subscribers.size && job.epoch === this.readEpoch) {
-      const now = Date.now();
-      for (const [key, cached] of this.readResults) {
-        if (cached.expiresAt < now) this.readResults.delete(key);
-      }
-      this.readResults.set(job.key, {
-        expiresAt: now + READ_RESULT_CACHE_TTL_MS, value: structuredClone(value)
-      });
-      // A long-lived extension host must not retain every expired distinct result indefinitely.
-      if (this.readResults.size > 32) this.readResults.delete(this.readResults.keys().next().value!);
-    }
+    if (job.key && sharedReads.get(job.key) === job) sharedReads.delete(job.key);
     for (const subscriber of job.subscribers) {
+      subscriber.owner.readJobs.delete(job);
       if (subscriber.timer) clearTimeout(subscriber.timer);
       subscriber.signal?.removeEventListener('abort', subscriber.onAbort);
       if (error) subscriber.reject(error);
@@ -708,7 +734,15 @@ export class SingularityFlowClient {
     const classification = commandClass(args);
     if (classification !== 'read') this.invalidateReadResults();
     const cacheable = json && input == null && classification === 'read' && cacheableRead(args);
-    const cacheKey = cacheable ? this.readResultKey(args) : null;
+    const env = { ...((typeof this.options.environment === 'function' ? this.options.environment() : this.options.environment) ?? process.env) };
+    const environmentDigest = createHash('sha256').update(JSON.stringify(
+      Object.entries(env).filter(([, value]) => value !== undefined).sort(([a], [b]) => a.localeCompare(b))
+    )).digest('hex');
+    const readEpoch = this.readEpoch;
+    const mutationEpoch = repositoryMutationEpochs.get(mutationKey(repository)) ?? 0;
+    const sharedKey = cacheable ? JSON.stringify([mutationKey(repository), this.location.executable,
+      this.location.cli, environmentDigest, mutationEpoch, this.options.warmReads !== false, args]) : null;
+    const cacheKey = sharedKey ? JSON.stringify([readEpoch, sharedKey]) : null;
     if (classification === 'read' && signal?.aborted) {
       return Promise.reject(new Error('The Singularity Flow command was cancelled.'));
     }
@@ -726,7 +760,7 @@ export class SingularityFlowClient {
       args,
       json,
       input,
-      env: { ...((typeof this.options.environment === 'function' ? this.options.environment() : this.options.environment) ?? process.env) },
+      env,
       timeoutMs,
       commandClass: classification,
       onOutput: visibleOutput,
@@ -743,6 +777,7 @@ export class SingularityFlowClient {
     };
     // Writes keep the original runner deadline/rollback contract and never wait in the read pool.
     if (classification !== 'read') {
+      this.invalidateReads();
       const key = mutationKey(repository);
       repositoryMutationEpochs.set(key, (repositoryMutationEpochs.get(key) ?? 0) + 1);
       const active = repositoryMutations.get(key) ?? new Set<Promise<unknown>>();
@@ -756,22 +791,32 @@ export class SingularityFlowClient {
         this.invalidateReadResults();
       });
     }
-    let job = cacheKey ? this.readInFlight.get(cacheKey) : undefined;
+    let job = sharedKey ? sharedReads.get(sharedKey) : undefined;
     const fresh = !job;
     if (job && !job.started && READ_PRIORITY_RANK[priority] < READ_PRIORITY_RANK[job.priority]) {
       job.priority = priority;
       job.ticket?.raise(priority);
     }
     if (!job) {
-      job = { key: cacheKey, epoch: this.readEpoch, controller: new AbortController(),
+      job = { key: sharedKey, controller: new AbortController(),
         subscribers: new Set(), ticket: null, started: false, finished: false, priority };
-      this.readJobs.add(job);
-      if (cacheKey) this.readInFlight.set(cacheKey, job);
+      if (sharedKey) sharedReads.set(sharedKey, job);
     }
     const current = job;
+    this.readJobs.add(current);
     const result = new Promise<T>((resolve, reject) => {
       const subscriber: ReadSubscriber = {
-        resolve: (value) => resolve(value as T), reject, signal,
+        owner: this,
+        resolve: (value) => {
+          if (cacheKey && readEpoch === this.readEpoch
+              && mutationEpoch === (repositoryMutationEpochs.get(mutationKey(repository)) ?? 0)) {
+            const now = Date.now();
+            for (const [key, cached] of this.readResults) if (cached.expiresAt < now) this.readResults.delete(key);
+            this.readResults.set(cacheKey, { expiresAt: now + READ_RESULT_CACHE_TTL_MS, value: structuredClone(value) });
+            if (this.readResults.size > 32) this.readResults.delete(this.readResults.keys().next().value!);
+          }
+          resolve(value as T);
+        }, reject, signal,
         onAbort: () => this.leaveRead(current, subscriber, new Error('The Singularity Flow command was cancelled.'))
       };
       current.subscribers.add(subscriber);
@@ -796,9 +841,19 @@ export class SingularityFlowClient {
         try {
           // Subscribers own deadlines across waiting+execution; the last departure supervises
           // native cleanup. Include mutation waiting in the observable queue duration.
-          const value = await invokeCli({ ...invocation,
+          const queueMs = Math.max(queuedMs, Date.now() - requestedAt);
+          const warm = this.options.warmReads === false || !cacheable ? null
+            : await (await warmReader(invocation.cli))?.readWithWorker({ ...invocation, signal: current.controller.signal,
+              onWorkerStarted: recordHostBackgroundProcessStarted, onWorkerExited: recordHostBackgroundProcessCompleted });
+          if (current.controller.signal.aborted) throw new Error('The Singularity Flow command was cancelled.');
+          if (!warm) await awaitRepositoryMutations(repository, current.controller.signal);
+          const value = warm ? warm.value : await invokeCli({ ...invocation,
             timeoutMs: null, signal: current.controller.signal,
-            queuedMs: Math.max(queuedMs, Date.now() - requestedAt), priority: queuedPriority });
+            queuedMs: queueMs, priority: queuedPriority });
+          if (warm) try { this.options.onOutput?.(`[Singularity Flow read] ${JSON.stringify({
+            transport: warm.transport, command: args[0], durationMs: Date.now() - requestedAt,
+            queueMs, workerMs: warm.durationMs
+          })}\n`, 'stderr'); } catch { /* Diagnostic only. */ }
           this.finishRead(current, value, null);
         } catch (error) {
           this.finishRead(current, undefined, error instanceof Error ? error : new Error(String(error)));

@@ -747,12 +747,16 @@ export function identity(root, { offline = false, env = process.env } = {}) {
 /**
  * Drop every per-process Git memo.
  *
- * Only tests need this. A real process never outlives a change of signed-in account or a repository
- * moving, but a test suite creates, deletes and recreates repositories at the same temporary path,
- * where a path-keyed memo would hand back the previous repository's answer.
+ * Ordinary CLI lifetimes are one command. A warm read worker resets before and after every request
+ * so account changes, pruned objects and a recreated repository cannot reuse an earlier command's
+ * observations. Tests also create, delete and recreate repositories at the same temporary path.
  */
 export function resetGitProcessCaches() {
   resetGitDirCache();
+  // Long-lived read workers must re-prove local object presence and account configuration.
+  githubLookupFailures.clear();
+  exactObjectFiles.clear();
+  resolvedCommittedPaths.clear();
 }
 
 export function validBranch(root, name) {

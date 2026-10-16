@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "runtime": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "node": "v25.5.0"
+  },
+  "protocol": {
+    "files": 1000,
+    "unrelatedBranches": 20,
+    "samples": 5,
+    "network": "local bare remote only",
+    "modelCalls": 0,
+    "resultCache": false,
+    "build": "stamped bundled fixture",
+    "firstWorkerIncludesStartup": true
+  },
+  "commands": {
+    "repository": {
+      "cold": {
+        "samples": 5,
+        "medianMs": 226,
+        "minMs": 214,
+        "maxMs": 367
+      },
+      "firstWorkerMs": 331,
+      "warm": {
+        "samples": 5,
+        "medianMs": 67,
+        "minMs": 58,
+        "maxMs": 109
+      },
+      "medianReductionPercent": 70
+    },
+    "coreUi": {
+      "cold": {
+        "samples": 5,
+        "medianMs": 394,
+        "minMs": 359,
+        "maxMs": 433
+      },
+      "firstWorkerMs": 457,
+      "warm": {
+        "samples": 5,
+        "medianMs": 176,
+        "minMs": 156,
+        "maxMs": 177
+      },
+      "medianReductionPercent": 55
+    },
+    "status": {
+      "cold": {
+        "samples": 5,
+        "medianMs": 183,
+        "minMs": 159,
+        "maxMs": 293
+      },
+      "firstWorkerMs": 324,
+      "warm": {
+        "samples": 5,
+        "medianMs": 4,
+        "minMs": 3,
+        "maxMs": 5
+      },
+      "medianReductionPercent": 98
+    },
+    "nextsteps": {
+      "cold": {
+        "samples": 5,
+        "medianMs": 264,
+        "minMs": 227,
+        "maxMs": 279
+      },
+      "firstWorkerMs": 320,
+      "warm": {
+        "samples": 5,
+        "medianMs": 25,
+        "minMs": 24,
+        "maxMs": 26
+      },
+      "medianReductionPercent": 91
+    }
+  },
+  "completeStoryIntake": {
+    "samples": 5,
+    "medianMs": 1924,
+    "minMs": 1517,
+    "maxMs": 2229,
+    "optimizedByReadWorker": false
+  },
+  "limitations": [
+    "Synthetic local fixture, not a native Copilot conversation.",
+    "No native Windows timing was measured unless runtime.platform is win32.",
+    "No change to publication, test, approval, remote fetch or push semantics."
+  ],
+  "recordedAt": "2026-10-16",
+  "qualification": "Local macOS measurement; not a cross-platform release qualification"
+}

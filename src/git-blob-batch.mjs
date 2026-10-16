@@ -65,6 +65,12 @@ function objectFormatKey(root, env, runCommand) {
 const rememberedBlobs = new Map();
 const REMEMBERED_BLOB_BYTES = 32 * 1024 * 1024;
 let rememberedBlobBytes = 0;
+/** A warm read retains code, never command-local object-presence observations. */
+export function resetGitBlobReadCaches() {
+  objectFormats.clear();
+  rememberedBlobs.clear();
+  rememberedBlobBytes = 0;
+}
 const OBJECT_RELOCATING = [...RELOCATING, 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES'];
 
 function blobMemoScope(root, env, runCommand) {

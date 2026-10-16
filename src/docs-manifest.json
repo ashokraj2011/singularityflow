@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "cb82036a8c95861de5fbdaea3c3d522d33eef0d1",
+  "sourceCommit": "1484b0bee54162fbc2166faaac7778e62ca048c0",
   "topicCount": 84,
-  "contentSha256": "a0d0ed44cf535c5bc25ca8206fc7e4f59d14365d92613d99b4ed2a506c1cd1d0",
+  "contentSha256": "a3a206db2be619c11c594e2745e945baf8319f55ab4d4cb77b8e8d0486eedd81",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -464,8 +464,8 @@
     {
       "id": "repository-state-and-snapshots",
       "title": "Repository state, snapshots, and branch refresh",
-      "version": 1,
-      "sha256": "0af8dc5337579d6ce04e173aabc76d8817eb5d621bbe85887722aa4eac5a6010",
+      "version": 2,
+      "sha256": "b2b328652933dcc86e3aeec126c4aaffa22b8b5fe2e316fa430a737ba38390c7",
       "routingSha256": "4c8f6678320f217c5fdcb21d495c5be1507fc1bf1636c87ae7638d9b0b49720e",
       "file": "repository-state-and-snapshots.md"
     },

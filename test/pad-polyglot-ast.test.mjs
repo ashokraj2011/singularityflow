@@ -22,6 +22,7 @@ import { extractPolyglotSyntax } from '../src/ast-packs/polyglot-syntax-core.mjs
 import { astSymbolPlanner } from '../src/gateway/planners/ast-intelligence.mjs';
 import { initializeDefinition } from '../src/config.mjs';
 import { createAstDerivation, persistAstDerivation } from '../src/ast-evidence.mjs';
+import { expectedStepOwnedPaths } from '../src/recovery-preparation-context.mjs';
 import { replayAstEvidence } from '../src/ast-replay.mjs';
 
 function git(root, args) {
@@ -470,6 +471,10 @@ test('a reviewed semantic pack overlays syntax by syntaxId and degrades without 
   await persistAstDerivation(root, derivation);
   const reproduced = await replayAstEvidence(root, { receipt: derivation.relative });
   assert.equal(reproduced.result, 'identical', JSON.stringify(reproduced, null, 2));
+  // A composed step leaves the derivation uncommitted; recovery knows it as that step's own record.
+  assert.deepEqual(await expectedStepOwnedPaths(root, { workItemRoot: 'singularity/work-items' }, { workItem: { id: 'SEMANTIC-1' }, phases: {} },
+    { id: 'intake', generation: 0 }, { itemRoot: 'singularity/work-items/SEMANTIC-1', generation: 1, changedPaths: [derivation.relative] }),
+  [derivation.relative]);
 
   delete process.env.SINGULARITY_FLOW_AST_ADAPTER_MANIFESTS;
   const syntaxOnly = await astCommand(root, ['context'], { paths: 'src', 'max-facts': 1000 });

@@ -17,7 +17,7 @@ import { currentSchemaVersion } from './schema-migrations.mjs';
 import { nowIso, SingularityFlowError } from './util.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
-import { expectedPhaseEvidencePaths, expectedPreparationContextPaths } from './recovery-preparation-context.mjs';
+import { expectedPhaseEvidencePaths, expectedPreparationContextPaths, expectedStepOwnedPaths } from './recovery-preparation-context.mjs';
 import { inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
 import { reviewedWorktreeCommitAction } from './recovery-worktree-commit.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
@@ -100,6 +100,9 @@ export async function workingTreeAction(root, config, workflow, phase, status, p
       itemRoot, generation, changedPaths: relevantPaths
     })) expected.add(relative);
     for (const relative of await expectedPhaseEvidencePaths(root, config, workflow, phase, {
+      itemRoot, generation, changedPaths: relevantPaths
+    })) expected.add(relative);
+    for (const relative of await expectedStepOwnedPaths(root, config, workflow, phase, {
       itemRoot, generation, changedPaths: relevantPaths
     })) expected.add(relative);
   }

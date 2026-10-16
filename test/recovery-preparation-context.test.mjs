@@ -5,7 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { recordInjection } from '../src/inject.mjs';
 import { recordClarificationResponses } from '../src/clarifications.mjs';
-import { expectedPreparationContextPaths } from '../src/recovery-preparation-context.mjs';
+import { expectedPreparationContextPaths, expectedStepOwnedPaths } from '../src/recovery-preparation-context.mjs';
+import { currentSchemaVersion } from '../src/schema-migrations.mjs';
+import { createHash } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
 import { run } from '../src/util.mjs';
 
 async function fixture(t, phaseId = 'custom-specification') {
@@ -94,6 +97,120 @@ test('invalid clarification does not acquire authority from a valid composed pro
     await writeFile(path.join(value.root, value.clarification.path), JSON.stringify(record));
     assert.deepEqual(await value.inspect(), [value.recorded.file, value.recorded.promptFile]);
   });
+});
+
+test('the skills audit and skill copies of the same composition are preparation, anything else stays manual', async t => {
+  const value = await fixture(t);
+  const copy = `${value.itemRoot}/context/agent-snapshots/architect/qa-checklist-abc.md`;
+  const audit = `${value.itemRoot}/context/agents-${value.phase.id}-gen1.json`;
+  const text = '# QA checklist\n';
+  await mkdir(path.dirname(path.join(value.root, copy)), { recursive: true });
+  await writeFile(path.join(value.root, copy), text);
+  const record = { schemaVersion: currentSchemaVersion('agent-context-audit'), workId: 'CTX-1', phase: value.phase.id, generation: 1,
+    agent: 'architect', nativeCopilotAgent: null, agentSourceSha256: '0'.repeat(64), recordedAt: '2026-10-16T00:00:00.000Z',
+    files: [{ id: 'qa-checklist', type: 'skill', url: 'library:qa-checklist', size: text.length, path: copy,
+      sha256: createHash('sha256').update(text).digest('hex') }] };
+  const write = async (changes = {}) => writeFile(path.join(value.root, audit), JSON.stringify({ ...record, ...changes }));
+  const changedPaths = [...value.changedPaths, audit, copy];
+  const admitted = async overrides => new Set(await value.inspect(overrides));
+  await write();
+  assert.deepEqual(await admitted({ changedPaths }), new Set([...value.changedPaths, audit, copy]));
+  assert.deepEqual(await admitted({ changedPaths: [...value.changedPaths, audit] }), new Set([...value.changedPaths, audit]),
+    'a copy committed earlier is not this check\'s concern');
+  for (const [label, changes] of [['Story', { workId: 'OTHER' }], ['phase', { phase: 'other-phase' }],
+    ['generation', { generation: 2 }], ['agent', { agent: 'developer' }]]) {
+    await write(changes);
+    assert.deepEqual(await value.inspect({ changedPaths }), value.changedPaths, label);
+  }
+  await write();
+  await writeFile(path.join(value.root, copy), '# Edited checklist\n');
+  assert.deepEqual(await value.inspect({ changedPaths }), value.changedPaths, 'an edited copy is not the composed bytes');
+  await writeFile(path.join(value.root, audit), '{invalid JSON');
+  assert.deepEqual(await value.inspect({ changedPaths }), value.changedPaths);
+  // Without a valid prompt pair of its own, an audit acquires nothing.
+  await write();
+  await writeFile(path.join(value.root, copy), text);
+  await writeFile(path.join(value.root, value.recorded.promptFile), '# Tampered prompt\n');
+  assert.deepEqual(await value.inspect({ changedPaths }), []);
+});
+
+test('records the open step writes are its own only when they name this Story, step and generation', async t => {
+  const value = await fixture(t);
+  const step = `${value.phase.id}-gen1`;
+  const context = `${value.itemRoot}/context`;
+  const put = async (relative, content) => {
+    await mkdir(path.dirname(path.join(value.root, relative)), { recursive: true });
+    await writeFile(path.join(value.root, relative), typeof content === 'string' ? content : JSON.stringify(content));
+    return relative;
+  };
+  const identity = { workId: 'CTX-1', phase: value.phase.id, generation: 1 };
+  const png = 'PNG bytes';
+  value.phase.remoteOutputs = [{ agent: 'architect', resource: 'brief', generation: 1 }];
+  const owned = [
+    await put(`${value.itemRoot}/STATUS.md`, '# Status\n'),
+    await put(`${context}/superseded/${step}-0123456789ab/${step}.json`, {}),
+    await put(`${context}/superseded/${step}-0123456789ab/${step}.md`, '# Earlier prompt\n'),
+    await put(`${context}/superseded/${step}-0123456789ab/reason.json`, { phase: value.phase.id, generation: 1, reason: 'inputs changed' }),
+    await put(`${context}/design-sources-${step}.json`, { kind: 'design-source-provenance', ...identity }),
+    await put(`${context}/work-intervals/${step}-baseline.json`, { kind: 'work-interval-baseline', workId: 'CTX-1', phaseId: value.phase.id, generation: 1 }),
+    await put(`${context}/spec-indexes/${step}.json`, identity),
+    await put(`${context}/claims/${step}-planned.json`, identity),
+    await put(`${context}/remote-output-architect-brief-${step}.json`, {}),
+    await put(`${context}/mcp/records/mcp-1.json`, { id: 'mcp-1', workId: 'CTX-1', phase: value.phase.id, targetGeneration: 1,
+      output: { path: 'context/mcp/outputs/mcp-1/screen.png', sha256: createHash('sha256').update(png).digest('hex') } }),
+    await put(`${context}/mcp/outputs/mcp-1/screen.png`, png),
+    await put(`${context}/design-inventory/${'a'.repeat(64)}/digest.json`, { kind: 'design-inventory-digest', workId: 'CTX-1', sourceSetSha256: 'a'.repeat(64) }),
+    await put(`${context}/design-inventory/${'a'.repeat(64)}/digest.md`, '# Design inventory digest\n')
+  ];
+  const foreign = [
+    await put(`${context}/superseded/${value.phase.id}-gen2-0123456789ab/reason.json`, { phase: value.phase.id, generation: 2 }),
+    await put(`${context}/design-sources-other-gen1.json`, { kind: 'design-source-provenance', ...identity, phase: 'other' }),
+    await put(`${context}/work-intervals/other-gen1-baseline.json`, { kind: 'work-interval-baseline', workId: 'CTX-1', phaseId: 'other', generation: 1 }),
+    await put(`${context}/remote-output-architect-unlisted-${step}.json`, {}),
+    await put(`${context}/mcp/records/mcp-2.json`, { id: 'mcp-2', workId: 'OTHER', phase: value.phase.id, targetGeneration: 1 }),
+    await put(`${context}/mcp/records/mcp-3.json`, { id: 'mcp-3', workId: 'CTX-1', phase: value.phase.id, targetGeneration: 1,
+      output: { path: 'context/mcp/outputs/mcp-3/screen.png', sha256: '0'.repeat(64) } }),
+    await put(`${context}/mcp/outputs/mcp-3/screen.png`, 'edited after it was recorded'),
+    await put(`${context}/design-inventory/${'b'.repeat(64)}/digest.json`, { kind: 'design-inventory-digest', workId: 'OTHER', sourceSetSha256: 'b'.repeat(64) }),
+    await put(`${context}/ast/derivations/${'c'.repeat(64)}.json`, { integritySha256: 'c'.repeat(64) }),
+    await put(`${context}/notes.json`, identity),
+    await put(`${value.itemRoot}/artifacts/elsewhere.md`, '# Not this step\n')
+  ];
+  const admitted = await expectedStepOwnedPaths(value.root, value.config, value.workflow, value.phase, {
+    itemRoot: value.itemRoot, generation: 1, changedPaths: [...owned, ...foreign] });
+  // mcp-3's record names this step; only its edited output copy stays for review.
+  assert.deepEqual(new Set(admitted), new Set([...owned, `${context}/mcp/records/mcp-3.json`]));
+  assert.deepEqual(await expectedStepOwnedPaths(value.root, value.config, value.workflow, value.phase, {
+    itemRoot: value.itemRoot, generation: 2, changedPaths: owned }), [], 'another generation owns nothing here');
+});
+
+test('a step owns its artifact directory only when no other step keeps artifacts there', async t => {
+  const value = await fixture(t);
+  const artifact = relative => ({ requiredArtifact: { path: relative } });
+  const at = relative => `${value.itemRoot}/${relative}`;
+  for (const relative of ['artifacts/review/review.md', 'artifacts/review/notes.md', 'artifacts/review/evidence/screen.png',
+    'artifacts/plan/plan.md', 'artifacts/review/tasks.md']) {
+    await mkdir(path.dirname(path.join(value.root, at(relative))), { recursive: true });
+    await writeFile(path.join(value.root, at(relative)), `# ${relative}\n`);
+  }
+  const phase = { id: 'review', generation: 0, ...artifact('artifacts/review/review.md') };
+  const inspect = workflow => expectedStepOwnedPaths(value.root, value.config, workflow, phase, {
+    itemRoot: value.itemRoot, generation: 1, changedPaths: ['artifacts/review/notes.md', 'artifacts/review/evidence/screen.png',
+      'artifacts/plan/plan.md', 'artifacts/review/tasks.md'].map(at) });
+  const workflow = { workItem: { id: 'CTX-1' }, phases: { review: phase, plan: { id: 'plan', ...artifact('artifacts/plan/plan.md') } } };
+  assert.deepEqual(new Set(await inspect(workflow)), new Set(['artifacts/review/notes.md', 'artifacts/review/evidence/screen.png', 'artifacts/review/tasks.md'].map(at)));
+  // A step whose artifact sits one level up shares the directory: only declared members count.
+  const shared = { ...workflow, phases: { ...workflow.phases, summary: { id: 'summary', ...artifact('artifacts/summary.md') } },
+    resolution: { phases: [{ id: 'review', artifactSet: 'review-set' }], artifactSets: { 'review-set': { primary: 'review.md',
+      members: [{ path: 'review.md', role: 'review', required: true }, { path: 'tasks.md', role: 'tasks', authority: 'advisory' }] } } } };
+  assert.deepEqual(await inspect(shared), [at('artifacts/review/tasks.md')]);
+  // A folder member covers the files below it.
+  const folder = { ...shared, resolution: { ...shared.resolution, artifactSets: { 'review-set': { primary: 'review.md',
+    members: [{ path: 'review.md', role: 'review', required: true }, { path: 'evidence/', role: 'evidence', required: true }] } } } };
+  assert.deepEqual(await inspect(folder), [at('artifacts/review/evidence/screen.png')]);
+  // A step that keeps no artifact (a sign-off) shares no directory with anybody.
+  const signOff = { ...workflow, phases: { ...workflow.phases, approval: { id: 'approval' } } };
+  assert.deepEqual(new Set(await inspect(signOff)), new Set(await inspect(workflow)));
 });
 
 test('recovery never sweeps in older generations, another Story, or arbitrary context files', async t => {

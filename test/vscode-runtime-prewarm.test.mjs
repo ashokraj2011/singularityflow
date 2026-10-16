@@ -40,11 +40,26 @@ test('failed and unsupported warmups are optional and retryable; disabled cachin
   assert.equal((await prewarmCliRuntime(f.location, {}, { invoke })).status, 'failed');
   assert.equal((await prewarmCliRuntime(f.location, {}, { invoke })).status, 'unavailable');
   assert.equal(calls, 2);
+  assert.equal((await prewarmCliRuntime(f.location, { SINGULARITY_FLOW_BUNDLE: 'off' }, { invoke })).status, 'unavailable');
+  assert.equal(calls, 2, 'an explicit source-runtime selection is not overridden');
   assert.equal((await prewarmCliRuntime(f.location, { NODE_DISABLE_COMPILE_CACHE: '1' }, { invoke })).status, 'unavailable');
   assert.equal(calls, 2);
   await writeFile(path.join(f.root, 'src/build-info.mjs'), 'changed build');
   assert.equal((await prewarmCliRuntime(f.location, {}, { invoke })).status, 'unavailable');
   assert.equal(calls, 2, 'stamp mismatch falls back without running source or old CLI code');
+});
+test('prewarming binds the actually selected bundle, not a different installation manifest', async t => {
+  const f = await fixture(t), selected = path.join(f.root, 'selected bundle'); await mkdir(selected);
+  await writeFile(path.join(selected, 'manifest.json'), JSON.stringify(f.manifest));
+  await rm(path.join(f.root, 'bundle'), { recursive: true });
+  let calls = 0;
+  const env = { SINGULARITY_FLOW_BUNDLE_DIR: selected };
+  assert.equal((await prewarmCliRuntime(f.location, env,
+    { invoke: async () => { calls++; return { prepared: true }; } })).status, 'prepared');
+  assert.equal(calls, 1);
+  await writeFile(path.join(selected, 'manifest.json'), JSON.stringify({ ...f.manifest, stamped: false }));
+  assert.equal((await prewarmCliRuntime(f.location, env,
+    { invoke: () => assert.fail('changed selected manifest must not reuse a prepared result') })).status, 'unavailable');
 });
 test('cancellation cannot become a cached success and a later panel may retry', async t => {
   const f = await fixture(t), controller = new AbortController();

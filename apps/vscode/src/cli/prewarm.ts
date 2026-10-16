@@ -14,11 +14,13 @@ export async function prewarmCliRuntime(location: Location, env: NodeJS.ProcessE
   signal, invoke = invokeCli
 }: { signal?: AbortSignal; invoke?: typeof invokeCli } = {}): Promise<Result> {
   if (signal?.aborted) return { status: 'cancelled' };
-  if (env.NODE_DISABLE_COMPILE_CACHE === '1') return { status: 'unavailable' };
+  if (env.NODE_DISABLE_COMPILE_CACHE === '1' || String(env.SINGULARITY_FLOW_BUNDLE).toLowerCase() === 'off') return { status: 'unavailable' };
   try {
     const root = path.resolve(path.dirname(location.cli), '..');
+    const bundle = env.SINGULARITY_FLOW_BUNDLE_DIR?.trim()
+      ? path.resolve(env.SINGULARITY_FLOW_BUNDLE_DIR) : path.join(root, 'bundle');
     const [manifestBytes, stamp] = await Promise.all([
-      readFile(path.join(root, 'bundle', 'manifest.json')), readFile(path.join(root, 'src', 'build-info.mjs'))
+      readFile(path.join(bundle, 'manifest.json')), readFile(path.join(root, 'src', 'build-info.mjs'))
     ]);
     if (manifestBytes.length > 64 * 1024 || stamp.length > 64 * 1024) return { status: 'unavailable' };
     const manifest = JSON.parse(manifestBytes.toString('utf8'));

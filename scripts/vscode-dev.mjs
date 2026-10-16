@@ -58,18 +58,19 @@ export function isExecutedVscodeDevModule(
     return path.resolve(entry) === path.resolve(moduleFile);
   }
 }
-const VSCODE_GENERATED_FILES = new Set([
+/** Exactly the esbuild entries; test/vscode-bundle-budget.test.mjs holds it to the reviewed budget list. */
+export const VSCODE_GENERATED_FILES = new Set([
   'dist/extension.cjs',
   'dist/gateway-context-runtime.cjs',
   'dist/gateway-runtime.cjs',
   'dist/gateway-status-worker.cjs',
   'dist/help-runtime.cjs',
+  'dist/runtime-prewarm.cjs',
   'dist/lazy-panels-runtime.cjs',
   'dist/support-runtime.cjs',
   'dist/workflow-markup-runtime.cjs',
   'dist/workflow-intent-runtime.cjs',
-  'dist/workflow-authoring-ui-runtime.cjs',
-  'dist/world-model-build.cjs'
+  'dist/workflow-authoring-ui-runtime.cjs'
 ]);
 
 const argv = process.argv.slice(2);

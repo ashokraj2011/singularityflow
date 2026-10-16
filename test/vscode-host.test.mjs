@@ -59,6 +59,9 @@ const bundle = path.join(packageRoot, 'apps', 'vscode', 'dist', 'extension.cjs')
 const participantCommands = JSON.parse(readFileSync(
   path.join(packageRoot, 'apps', 'vscode', 'src', 'participant-commands.json'), 'utf8'
 ));
+const bundledEntries = Object.keys(JSON.parse(readFileSync(
+  path.join(packageRoot, 'benchmarks', 'dx', 'vscode-bundle-budgets.json'), 'utf8'
+)).entries);
 
 /*
  * The extension deliberately loads heavyweight webview modules only when their command runs. Those
@@ -513,10 +516,9 @@ function loadExtension(api) {
   // Each call represents a fresh extension host. Explicit lazy CommonJS entries are sibling
   // modules rather than chunks owned by extension.cjs, so clear them with the activation entry;
   // otherwise static panel state and the intercepted `vscode` API leak from the preceding host.
-  for (const name of [
-    'extension.cjs', 'gateway-context-runtime.cjs', 'gateway-runtime.cjs', 'gateway-status-worker.cjs',
-    'help-runtime.cjs', 'lazy-panels-runtime.cjs', 'support-runtime.cjs', 'workflow-markup-runtime.cjs', 'workflow-intent-runtime.cjs', 'workflow-authoring-ui-runtime.cjs'
-  ]) {
+  // The budget list names every esbuild entry (test/vscode-bundle-budget.test.mjs), so a new one
+  // cannot be left out here.
+  for (const name of bundledEntries) {
     const target = path.join(packageRoot, 'apps', 'vscode', 'dist', name);
     if (existsSync(target)) delete hostRequire.cache[hostRequire.resolve(target)];
   }

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 import { buildVsCodeBundleBudgetReport } from '../src/vscode-bundle-budget.mjs';
+import { VSCODE_GENERATED_FILES } from '../scripts/vscode-dev.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const runFile = promisify(execFile);
@@ -26,6 +27,14 @@ test('every shipped VS Code runtime has a reviewed byte and module ceiling', () 
     }])
   ), policy);
   assert.equal(pass.status, 'passed');
+});
+
+test('VSIX packaging admits exactly the budgeted runtimes, no more and no fewer', () => {
+  // The packaging allowlist is a second, hand-kept list of the same esbuild entries. A new entry
+  // missing from it fails `--package` only ("VSCE selected an unexpected generated file"), and a
+  // removed one left on it would admit a stale bundle; the build test below binds the budget list.
+  assert.deepEqual([...VSCODE_GENERATED_FILES].sort(),
+    Object.keys(policy.entries).map((name) => `dist/${name}`).sort());
 });
 
 test('bundle budgets refuse oversized, missing, and unreviewed runtime graphs', () => {

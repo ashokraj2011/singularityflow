@@ -6,6 +6,7 @@ import { prepareConfiguredPhase } from './shared/prepare-configured-phase.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { commandResult, succeeded, effects } from '../narration/command-result.mjs';
 import { preparedPhaseNextActions } from './shared/prepared-phase-next-actions.mjs';
+import { phaseKernelOwned } from '../code-delivery-policy.mjs';
 import { convergencePreparationState } from './shared/convergence-preparation-state.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
@@ -40,8 +41,10 @@ export async function prepareCommand(positionals, options) {
         path: artifact,
         stage: 'prepared',
         producer: prepared.publicationProducer,
-        authoringRequired: prepared.publicationProducer !== 'deterministic',
-        instruction: prepared.publicationProducer === 'deterministic'
+        authoringRequired: prepared.publicationProducer !== 'deterministic' || !phaseKernelOwned(phaseContract),
+        instruction: prepared.publicationProducer === 'deterministic' && !phaseKernelOwned(phaseContract)
+          ? 'The kernel builds this summary from what changed; the code is not written yet. Write the planned code and tests in the open generation, run prepare again to rebuild the summary, then check readiness. Never hand-edit the summary.'
+          : prepared.publicationProducer === 'deterministic'
           ? 'The kernel owns this artifact. Check readiness; do not hand-edit deterministic output.'
           : prepared.publicationProducer === 'governed-agent'
             ? 'Preparation preserves the draft and captures inputs; it does not author it. Use the composed prompt and native file-edit tool to complete the existing artifact, then check readiness. Do not stop merely because the prepared template has TODOs.'

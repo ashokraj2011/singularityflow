@@ -1,0 +1,550 @@
+{
+  "schemaVersion": 1,
+  "runtime": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "node": "v25.5.0"
+  },
+  "protocol": {
+    "samples": 5,
+    "files": 1000,
+    "unrelatedBranches": 20,
+    "modelCalls": 0,
+    "remote": "local bare repository only",
+    "osFileCache": "not flushed",
+    "compileCache": "fresh private directory per first sample",
+    "layouts": "same source and policies; monolithic is the packaging control",
+    "order": "alternating paired layouts for CLI and intake samples",
+    "intakeEntry": "four prior CLI launches and one Git status versus one composed CLI launch"
+  },
+  "layouts": {
+    "monolithic": {
+      "format": 1,
+      "buildInfoSha256": "sha256:9a492429e3c1754c350fd1c45f22eb74a1e5e77a3a5654de7aaa3197b6df4157",
+      "stamped": true,
+      "entries": [
+        "cli.mjs",
+        "copilot-hook-runtime.mjs",
+        "history-index-worker.mjs",
+        "configuration-read-worker.mjs",
+        "read-worker.mjs",
+        "configuration-proposal-sync-worker.mjs"
+      ],
+      "outputs": [
+        {
+          "file": "cli.mjs",
+          "bytes": 16486114,
+          "modules": 1176
+        },
+        {
+          "file": "copilot-hook-runtime.mjs",
+          "bytes": 6486438,
+          "modules": 601
+        },
+        {
+          "file": "history-index-worker.mjs",
+          "bytes": 54575,
+          "modules": 12
+        },
+        {
+          "file": "configuration-read-worker.mjs",
+          "bytes": 7744692,
+          "modules": 687
+        },
+        {
+          "file": "read-worker.mjs",
+          "bytes": 16492530,
+          "modules": 1178
+        },
+        {
+          "file": "configuration-proposal-sync-worker.mjs",
+          "bytes": 486404,
+          "modules": 108
+        }
+      ]
+    },
+    "cold": {
+      "format": 2,
+      "layout": "coarse-esm",
+      "buildInfoSha256": "sha256:9a492429e3c1754c350fd1c45f22eb74a1e5e77a3a5654de7aaa3197b6df4157",
+      "stamped": true,
+      "entries": [
+        "cli.mjs",
+        "copilot-hook-runtime.mjs",
+        "history-index-worker.mjs",
+        "configuration-read-worker.mjs",
+        "read-worker.mjs",
+        "configuration-proposal-sync-worker.mjs"
+      ],
+      "outputs": [
+        {
+          "file": "cli.mjs",
+          "bytes": 78,
+          "modules": 1,
+          "imports": [
+            "cold-core.mjs"
+          ],
+          "sha256": "sha256:2431dbc656b033762556cd6f97150cd9504b04221cc740ce01ac40e25403239f"
+        },
+        {
+          "file": "configuration-proposal-sync-worker.mjs",
+          "bytes": 349,
+          "modules": 1,
+          "imports": [
+            "cold-configuration-sync.mjs"
+          ],
+          "sha256": "sha256:36919ab9d553c329f158b74b99679304ff50a483dcc0c9d573ee6a0abfc7d629"
+        },
+        {
+          "file": "configuration-read-worker.mjs",
+          "bytes": 5251,
+          "modules": 1,
+          "imports": [
+            "cold-worker-protocol.mjs",
+            "cold-core.mjs"
+          ],
+          "sha256": "sha256:da3bb6db5898fa1bd596003235b78308707dccd84b9bf90cbb22c2f74e2b786f"
+        },
+        {
+          "file": "copilot-hook-runtime.mjs",
+          "bytes": 1850,
+          "modules": 1,
+          "imports": [
+            "cold-hooks.mjs",
+            "cold-core.mjs"
+          ],
+          "sha256": "sha256:ffa077f5e6e64160afadd85c10ff8555242d5f1278bcff0f6ac932ead160bf44"
+        },
+        {
+          "file": "history-index-worker.mjs",
+          "bytes": 219,
+          "modules": 1,
+          "imports": [
+            "cold-worker-protocol.mjs",
+            "cold-core.mjs"
+          ],
+          "sha256": "sha256:144c0a3669fa504b8384bf43d71f743bcbe293e51cf0c8ec61b19b5b9c59af03"
+        },
+        {
+          "file": "read-worker.mjs",
+          "bytes": 2253,
+          "modules": 1,
+          "imports": [
+            "cold-worker-protocol.mjs"
+          ],
+          "sha256": "sha256:299962ae713b49d39188c8b2cf54bfdd993b3edbd0743d98fea3c1e5c544cf1a"
+        },
+        {
+          "file": "cold-core.mjs",
+          "bytes": 1327667,
+          "modules": 171,
+          "imports": [],
+          "sha256": "sha256:bff631e2b7540bf410d90bd098e690a24b5468c2c5101d853492ec6b4a50bf95"
+        },
+        {
+          "file": "cold-configuration-sync.mjs",
+          "bytes": 126876,
+          "modules": 8,
+          "imports": [
+            "cold-core.mjs"
+          ],
+          "sha256": "sha256:a50289eccd4691efc03ccebdde34079a83d2fa346ee4b46dad51052e47ec8eff"
+        },
+        {
+          "file": "cold-light.mjs",
+          "bytes": 264381,
+          "modules": 105,
+          "imports": [
+            "cold-core.mjs",
+            "cold-worker-protocol.mjs",
+            "cold-configuration-sync.mjs"
+          ],
+          "sha256": "sha256:094a52b49c14cfbaa29828ae98cb682f9b081ad5b042b17fa8cad58382dcef72"
+        },
+        {
+          "file": "cold-hook-context.mjs",
+          "bytes": 4719303,
+          "modules": 283,
+          "imports": [
+            "cold-core.mjs",
+            "cold-worker-protocol.mjs",
+            "cold-hooks.mjs",
+            "cold-light.mjs",
+            "cold-configuration-sync.mjs"
+          ],
+          "sha256": "sha256:b76474453dda9f999e49adbaa2039bda43dfb587709c1bc4a199ad9234053ac6"
+        },
+        {
+          "file": "cold-compatibility.mjs",
+          "bytes": 5955651,
+          "modules": 337,
+          "imports": [
+            "cold-core.mjs",
+            "cold-hook-context.mjs",
+            "cold-intake.mjs",
+            "cold-phases.mjs",
+            "cold-session.mjs",
+            "cold-reads.mjs",
+            "cold-configuration-sync.mjs",
+            "cold-worker-protocol.mjs",
+            "cold-hooks.mjs",
+            "cold-maintenance.mjs",
+            "cold-models.mjs",
+            "cold-light.mjs",
+            "cold-status.mjs"
+          ],
+          "sha256": "sha256:357f87f8c2a50d174daa24261138a1dff174e1cf49eae7e6427530a94a7940c1"
+        },
+        {
+          "file": "cold-session.mjs",
+          "bytes": 217260,
+          "modules": 27,
+          "imports": [
+            "cold-core.mjs",
+            "cold-hook-context.mjs",
+            "cold-configuration-sync.mjs",
+            "cold-worker-protocol.mjs",
+            "cold-light.mjs",
+            "cold-hooks.mjs"
+          ],
+          "sha256": "sha256:f27dbb09d5ae71c3b7c838bf9823f819bb4f1862f4376c08e62b8736e8c7db25"
+        },
+        {
+          "file": "cold-hooks.mjs",
+          "bytes": 69984,
+          "modules": 10,
+          "imports": [
+            "cold-core.mjs"
+          ],
+          "sha256": "sha256:713dc546e07f22d489c263898958f9bc4e18c53eaae148c2949a4b868b60c5a7"
+        },
+        {
+          "file": "cold-phases.mjs",
+          "bytes": 183624,
+          "modules": 35,
+          "imports": [
+            "cold-core.mjs",
+            "cold-status.mjs",
+            "cold-hook-context.mjs",
+            "cold-configuration-sync.mjs",
+            "cold-intake.mjs",
+            "cold-session.mjs",
+            "cold-hooks.mjs",
+            "cold-light.mjs",
+            "cold-reads.mjs"
+          ],
+          "sha256": "sha256:29aa7abea166de263e787a52c0f9b8773644f2c7f134f66434046bc13cb257f0"
+        },
+        {
+          "file": "cold-maintenance.mjs",
+          "bytes": 316206,
+          "modules": 16,
+          "imports": [
+            "cold-core.mjs",
+            "cold-hook-context.mjs",
+            "cold-worker-protocol.mjs",
+            "cold-configuration-sync.mjs"
+          ],
+          "sha256": "sha256:de895395f78a27b01b06e33f75c7653a72cde1a12b31a3736bdd3aa0be2317c1"
+        },
+        {
+          "file": "cold-intake.mjs",
+          "bytes": 514303,
+          "modules": 34,
+          "imports": [
+            "cold-core.mjs",
+            "cold-light.mjs",
+            "cold-hook-context.mjs",
+            "cold-configuration-sync.mjs",
+            "cold-session.mjs",
+            "cold-worker-protocol.mjs",
+            "cold-hooks.mjs"
+          ],
+          "sha256": "sha256:66fefbe6c010a1adca46009040d170e70c61d1d16575faada51854bf84f673ff"
+        },
+        {
+          "file": "cold-worker-protocol.mjs",
+          "bytes": 24669,
+          "modules": 6,
+          "imports": [
+            "cold-core.mjs"
+          ],
+          "sha256": "sha256:f143c1f6ea1aca2b69590c994ab85f95e1d56eadfca8f1978d68cf7b0c195e4c"
+        },
+        {
+          "file": "cold-models.mjs",
+          "bytes": 225901,
+          "modules": 22,
+          "imports": [
+            "cold-core.mjs",
+            "cold-configuration-sync.mjs",
+            "cold-hooks.mjs",
+            "cold-hook-context.mjs",
+            "cold-reads.mjs",
+            "cold-light.mjs",
+            "cold-phases.mjs",
+            "cold-worker-protocol.mjs"
+          ],
+          "sha256": "sha256:81cbd6fbbeb0afff0f263813b00b4396ce3d339c68c62d25953f1c5c2b919eaa"
+        },
+        {
+          "file": "cold-reads.mjs",
+          "bytes": 1646835,
+          "modules": 115,
+          "imports": [
+            "cold-hook-context.mjs",
+            "cold-core.mjs",
+            "cold-configuration-sync.mjs",
+            "cold-intake.mjs",
+            "cold-worker-protocol.mjs",
+            "cold-light.mjs",
+            "cold-hooks.mjs",
+            "cold-status.mjs",
+            "cold-session.mjs",
+            "cold-maintenance.mjs"
+          ],
+          "sha256": "sha256:6bac8487fcf912af68d0cec9cb1d65ce517596f0f69953fffc5d84b489294887"
+        },
+        {
+          "file": "cold-status.mjs",
+          "bytes": 38430,
+          "modules": 7,
+          "imports": [
+            "cold-worker-protocol.mjs",
+            "cold-core.mjs",
+            "cold-configuration-sync.mjs",
+            "cold-hook-context.mjs",
+            "cold-light.mjs"
+          ],
+          "sha256": "sha256:d935beb8a769606b7b75e6394f8e10c9304bc43dda3836b2810f343744a60c3b"
+        }
+      ]
+    }
+  },
+  "results": {
+    "version": {
+      "monolithic": {
+        "emptyCompileCache": {
+          "samples": 5,
+          "medianMs": 263,
+          "minMs": 259,
+          "maxMs": 272
+        },
+        "subsequentProcess": {
+          "samples": 5,
+          "medianMs": 131,
+          "minMs": 131,
+          "maxMs": 132
+        }
+      },
+      "cold": {
+        "emptyCompileCache": {
+          "samples": 5,
+          "medianMs": 82,
+          "minMs": 81,
+          "maxMs": 85
+        },
+        "subsequentProcess": {
+          "samples": 5,
+          "medianMs": 66,
+          "minMs": 66,
+          "maxMs": 69
+        }
+      }
+    },
+    "pause": {
+      "monolithic": {
+        "emptyCompileCache": {
+          "samples": 5,
+          "medianMs": 267,
+          "minMs": 266,
+          "maxMs": 275
+        },
+        "subsequentProcess": {
+          "samples": 5,
+          "medianMs": 139,
+          "minMs": 138,
+          "maxMs": 143
+        }
+      },
+      "cold": {
+        "emptyCompileCache": {
+          "samples": 5,
+          "medianMs": 105,
+          "minMs": 104,
+          "maxMs": 107
+        },
+        "subsequentProcess": {
+          "samples": 5,
+          "medianMs": 85,
+          "minMs": 82,
+          "maxMs": 120
+        }
+      }
+    },
+    "repository": {
+      "monolithic": {
+        "emptyCompileCache": {
+          "samples": 5,
+          "medianMs": 317,
+          "minMs": 314,
+          "maxMs": 331
+        },
+        "subsequentProcess": {
+          "samples": 5,
+          "medianMs": 192,
+          "minMs": 188,
+          "maxMs": 193
+        }
+      },
+      "cold": {
+        "emptyCompileCache": {
+          "samples": 5,
+          "medianMs": 156,
+          "minMs": 153,
+          "maxMs": 159
+        },
+        "subsequentProcess": {
+          "samples": 5,
+          "medianMs": 137,
+          "minMs": 132,
+          "maxMs": 139
+        }
+      }
+    },
+    "status": {
+      "monolithic": {
+        "emptyCompileCache": {
+          "samples": 5,
+          "medianMs": 285,
+          "minMs": 282,
+          "maxMs": 307
+        },
+        "subsequentProcess": {
+          "samples": 5,
+          "medianMs": 156,
+          "minMs": 152,
+          "maxMs": 157
+        }
+      },
+      "cold": {
+        "emptyCompileCache": {
+          "samples": 5,
+          "medianMs": 189,
+          "minMs": 186,
+          "maxMs": 195
+        },
+        "subsequentProcess": {
+          "samples": 5,
+          "medianMs": 129,
+          "minMs": 127,
+          "maxMs": 132
+        }
+      }
+    },
+    "nextsteps": {
+      "monolithic": {
+        "emptyCompileCache": {
+          "samples": 5,
+          "medianMs": 343,
+          "minMs": 339,
+          "maxMs": 347
+        },
+        "subsequentProcess": {
+          "samples": 5,
+          "medianMs": 214,
+          "minMs": 212,
+          "maxMs": 218
+        }
+      },
+      "cold": {
+        "emptyCompileCache": {
+          "samples": 5,
+          "medianMs": 267,
+          "minMs": 263,
+          "maxMs": 277
+        },
+        "subsequentProcess": {
+          "samples": 5,
+          "medianMs": 184,
+          "minMs": 180,
+          "maxMs": 188
+        }
+      }
+    },
+    "hook": {
+      "monolithic": {
+        "emptyCompileCache": {
+          "samples": 5,
+          "medianMs": 155,
+          "minMs": 154,
+          "maxMs": 158
+        }
+      },
+      "cold": {
+        "emptyCompileCache": {
+          "samples": 5,
+          "medianMs": 84,
+          "minMs": 83,
+          "maxMs": 86
+        }
+      }
+    },
+    "intakeEntry": {
+      "monolithic": {
+        "samples": 5,
+        "medianMs": 895,
+        "minMs": 889,
+        "maxMs": 916
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 391,
+        "minMs": 378,
+        "maxMs": 624
+      }
+    },
+    "completeStoryCreation": {
+      "monolithic": {
+        "samples": 5,
+        "medianMs": 1412,
+        "minMs": 1394,
+        "maxMs": 1428
+      },
+      "cold": {
+        "samples": 5,
+        "medianMs": 1493,
+        "minMs": 1426,
+        "maxMs": 1504
+      }
+    },
+    "sessionCurrent": {
+      "monolithic": {
+        "emptyCompileCache": {
+          "samples": 5,
+          "medianMs": 538,
+          "minMs": 532,
+          "maxMs": 553
+        }
+      },
+      "cold": {
+        "emptyCompileCache": {
+          "samples": 5,
+          "medianMs": 547,
+          "minMs": 534,
+          "maxMs": 552
+        }
+      }
+    }
+  },
+  "limitations": [
+    "Native Copilot tool latency and PowerShell startup are not included.",
+    "Native Windows performance is unqualified unless runtime.platform is win32.",
+    "Creation still performs live mutation-bound validation and exact publication."
+  ],
+  "source": {
+    "performanceCommit": "e741a24e460a1feb9c93b02858e97c744cec6d86",
+    "comparison": "Paired layouts built from the same source; not a checkout-to-checkout claim.",
+    "followup": "930eaba5 retains reply-name guidance only."
+  }
+}

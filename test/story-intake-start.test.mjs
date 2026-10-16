@@ -181,8 +181,9 @@ test('background intake preparation creates no Story or publication and Start re
   assert.deepEqual(await readFile(path.join(root, '.git/index')), index);
   assert.notEqual(run('git', ['show-ref', '--verify', `refs/heads/${id}`], root, { allowFailure: true }).status, 0);
   const started = start(root, id, ['--intake-receipt', receipt.id, '--prepared-base', prepared.baseCommit]);
-  assert.equal(counter(started.stderr, 'configuration.definition-load'), 2,
-    'only accounting and the verified approved snapshot compile; pin hints and capability resolution do not');
+  assert.ok(counter(started.stderr, 'configuration.definition-load') <= 3,
+    'at most accounting, approved snapshot and a changed enrollment compile; Windows does not use the persistent compiled cache');
+  assert.equal(counter(started.stderr, 'configuration.compiled-materialized-reuse'), 2);
   assert.equal(data(started).publication.pushed, true);
   assert.equal(git(root, 'ls-remote', '--heads', 'origin', id).split(/\s/)[0], git(data(started).repositoryPath, 'rev-parse', 'HEAD'));
   assert.equal(data(discard(root, id, prepared.baseCommit)).preparation.status, 'retained');
@@ -194,11 +195,13 @@ test('background intake preparation refuses missing receipts and cleanup retains
   const receipt = preflight(root, id);
   const prepared = data(prepare(root, id, ['--intake-receipt', receipt.id])).preparation;
   const target = await storyWorktreePath(root, id);
+  const original = await readFile(path.join(target, 'README.md'));
   await writeFile(path.join(target, 'README.md'), 'preserve user edit\n');
   assert.equal(data(discard(root, id, prepared.baseCommit)).preparation.status, 'retained');
   assert.equal(await readFile(path.join(target, 'README.md'), 'utf8'), 'preserve user edit\n');
-  await writeFile(path.join(target, 'README.md'), await readFile(path.join(root, 'README.md')));
-  assert.equal(data(discard(root, id, prepared.baseCommit)).preparation.status, 'removed');
+  await writeFile(path.join(target, 'README.md'), original);
+  const cleaned = data(discard(root, id, prepared.baseCommit)).preparation;
+  assert.equal(cleaned.status, 'removed', JSON.stringify(cleaned));
   assert.equal(git(root, 'worktree', 'list', '--porcelain').includes(target), false);
 });
 
@@ -210,7 +213,7 @@ test('background intake preparation rebases only by replacing a clean unstarted 
   git(root, 'add', '.'); git(root, 'commit', '-qm', 'advance base'); git(root, 'push', '-q', 'origin', 'main');
   const tip = git(root, 'rev-parse', 'HEAD');
   const started = data(start(root, id, ['--intake-receipt', receipt.id, '--prepared-base', prepared.baseCommit]));
-  assert.equal(await readFile(path.join(started.repositoryPath, 'new-base.txt'), 'utf8'), 'new base\n');
+  assert.equal((await readFile(path.join(started.repositoryPath, 'new-base.txt'), 'utf8')).replaceAll('\r\n', '\n'), 'new base\n');
   const workflow = JSON.parse(await readFile(path.join(started.repositoryPath, `singularity/work-items/${id}/workflow.json`), 'utf8'));
   assert.equal(workflow.workItem.baseCommit, tip);
 });

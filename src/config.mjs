@@ -79,6 +79,7 @@ import {
   loadEnvironmentDeclaration, withEnvironmentWorldModelExclusions
 } from './environment-declaration.mjs';
 import { gateRefusal } from './evidence/gate-refusal.mjs';
+import { renderClauseNamespaces } from './traceability-ids.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
@@ -2137,7 +2138,7 @@ export const ARTIFACT_TEMPLATE_TOKENS = Object.freeze({
 
 /** Render legacy packaged tokens in already-created repositories without permitting new use. */
 export function normalizeArtifactTemplateCompatibility(text, variables) {
-  return text.replaceAll('{{WORK_ID}}', variables.id ?? '');
+  return renderClauseNamespaces(text, '{{WORK_ID}}', variables.id).replaceAll('{{WORK_ID}}', variables.id ?? '');
 }
 
 /** Exact same token admission as the renderer, usable before any artifact is written. */
@@ -2190,7 +2191,7 @@ export async function renderArtifactTemplate(root, definition, resolvedPhase, va
     }
     sourceText = await readFile(file.absolute, 'utf8');
   }
-  let text = validateArtifactTemplateText(sourceText, variables, resolvedPhase.id);
+  let text = renderClauseNamespaces(validateArtifactTemplateText(sourceText, variables, resolvedPhase.id), ARTIFACT_TEMPLATE_TOKENS.workId, variables.id);
   const replacements = {
     [ARTIFACT_TEMPLATE_TOKENS.workId]: variables.id,
     [ARTIFACT_TEMPLATE_TOKENS.workTitle]: variables.title,

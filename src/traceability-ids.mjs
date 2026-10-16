@@ -40,3 +40,14 @@ export function clauseTagsInComment(text, { legacy = false } = {}) {
   }
   return result;
 }
+
+/**
+ * A template opens clause IDs with the Work ID (`[{{work.id}}:REQ-001]`). Clause IDs are compared in
+ * capitals, so a Work ID written `code-hex` must render there as `CODE-HEX`, or every later step that
+ * copies the anchor writes an ID its checks do not know. Titles and paths keep the Work ID as written.
+ */
+export function renderClauseNamespaces(text, token, workId) {
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  const namespace = String(workId ?? '').toUpperCase();
+  return String(text).replace(new RegExp(`${escaped}(?=:(?:${GOVERNED_CLAUSE_TYPE_PATTERN})-)`, 'gu'), () => namespace);
+}

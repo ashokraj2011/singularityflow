@@ -369,7 +369,7 @@ const ADHOC_SUBCOMMANDS = Object.freeze([
 const CONSTITUTION_READ_SUBCOMMANDS = Object.freeze(['check', 'show']);
 const CONSTITUTION_MUTATION_SUBCOMMANDS = Object.freeze(['generate', 'except']);
 const CONSTITUTION_SUBCOMMANDS = Object.freeze([...CONSTITUTION_READ_SUBCOMMANDS, ...CONSTITUTION_MUTATION_SUBCOMMANDS]);
-const SPEC_READ_SUBCOMMANDS = Object.freeze(['coverage', 'trace']);
+const SPEC_READ_SUBCOMMANDS = Object.freeze(['coverage', 'trace', 'drift']);
 const SPEC_INDEX_SUBCOMMANDS = Object.freeze(['index', 'acceptance', 'tasks']);
 const SPEC_SUBCOMMANDS = Object.freeze(['analyze', 'claims', ...SPEC_READ_SUBCOMMANDS, ...SPEC_INDEX_SUBCOMMANDS]);
 const COMPREHENSION_SUBCOMMANDS = Object.freeze([
@@ -1818,6 +1818,7 @@ export function operationCatalog() {
     never('spec.tasks', specDefinition, 'mutation'),
     never('spec.tasks.dry-run', specDefinition, 'read'),
     never('spec.trace', specDefinition, 'read'),
+    never('spec.drift', specDefinition, 'read'),
     never('explain', explainDefinition, 'read'),
     never('explain.code', explainDefinition, 'read'),
     optional('explain.code.narrate', 'explain.code', explainDefinition),

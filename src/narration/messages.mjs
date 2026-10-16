@@ -693,6 +693,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `Token Ledger for ${slot(s.date)} covers ${slot(s.modelInvocations, '0')} model invocation(s) and ${slot(s.contextPackets, '0')} context packet(s).`,
     preserves: true
   },
+  'spec.drift.reported': {
+    headline: (s) => `${slot(s.clauses, '0')} approved clause(s) in ${slot(s.stories, '0')} closed Story(ies): ${slot(s.drifted, '0')} drifted, ${slot(s.orphaned, '0')} orphaned. Advisory; nothing was refused.`,
+    preserves: true
+  },
   'evidence.matrix.reported': {
     headline: (s) => `${slot(s.workId)}: ${slot(s.satisfied, '0')} of ${slot(s.rows, '0')} requirement and criterion row(s) satisfied; ${slot(s.label)}.`,
     preserves: true
@@ -1050,6 +1054,9 @@ export const MESSAGES = Object.freeze({
  * the rail this Story pinned at start" is a reason.
  */
 export const REASONS = Object.freeze({
+  'spec.drift.from-approved-receipts': {
+    render: () => "each closed Story's approved code-delivery receipt was compared with the code and tests now; nothing ran and nothing changed"
+  },
   'evidence.from-committed-records': {
     render: () => "each row was evaluated from the Story's committed plan, delivery receipts, test receipts and approvals; no test or network call ran"
   },

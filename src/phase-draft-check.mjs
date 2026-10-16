@@ -271,6 +271,9 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   const { coverage, advisories: coverageAdvisories } = phase.generationIntent?.status === 'open'
     ? await inspectUnclaimedChangedPaths(root, config, workflow, phase)
     : { coverage: { status: 'not-applicable', unclaimed: 0, blocking: false }, advisories: [] };
+  // Code this Story changes that another closed Story's approved clause is bound to [spec-code sync].
+  const driftAdvisories = phase.generationIntent?.status === 'open' && phaseRequiresCodeDelivery(phase)
+    ? await foreignClauseDrift(root, config, workflow) : [];
 
   const route = draftCorrectionRoute(codeEvidenceRepair, convergenceReview);
   const clarificationRoute = prospective && findings.some(finding => finding.category === 'clarification') ? {
@@ -323,7 +326,7 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
       ...finding,
       message: finding.message ?? artifactFindingMessage(finding)
     }))),
-    advisories: Object.freeze([...advisories, ...coverageAdvisories, ...specificationAdvisories]),
+    advisories: Object.freeze([...advisories, ...coverageAdvisories, ...driftAdvisories, ...specificationAdvisories]),
     documentation,
     coverage,
     traceabilityRepair,
@@ -344,4 +347,17 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
     mutates: false,
     modelInvocations: 0
   });
+}
+
+/** Advisories for other closed Stories' clauses this change makes drift; never a finding or a blocker. */
+async function foreignClauseDrift(root, config, workflow) {
+  try {
+    const { foreignClauseAdvisories } = await import('./spec-drift.mjs');
+    return foreignClauseAdvisories(root, {
+      workItemRoot: config.workItemRoot ?? 'singularity/work-items', workflow,
+      baseCommit: workflow.workItem?.baseCommit ?? workflow.phases?.[workflow.phaseOrder?.[0]]?.sourceCommit ?? null
+    });
+  } catch {
+    return [];
+  }
 }

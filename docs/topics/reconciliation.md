@@ -5,13 +5,15 @@ aliases:
   - reconcile
   - dispositions
   - update-intent
+  - spec-drift
 commands:
   - story
+  - spec
 related:
   - work-intervals
   - escalation
   - sequence-gates
-version: 6
+version: 7
 ---
 `sflow story interval reconcile` deterministically compares reality against the starting contract: claimed vs. changed paths, protected paths, required checks bound to the exact commit, and clause coverage. Verdicts are clear · attention · blocked · incomplete, and `clear` explicitly does not claim semantic correctness. Convergence findings are facts; a human dispositions each one as `rework`, `update-intent`, `accepted-deviation`, `dismissed`, or `deferred`. Final submission requires a clean reconciliation bound to the submitted commit.
 
@@ -35,6 +37,19 @@ Use this topic when the current goal matches **reconciliation**. Start in a gove
 5. An authorized specification reviewer runs `sflow story intent-amendment decide AMD-NNN --decision approve|reject --confirm AMD-NNN`. Approval creates a new specification generation and a new scope revision, invalidates downstream approvals, and labels existing evidence as affected when it cites a changed clause by its exact ID. In the evidence matrix only the clauses the revision added or revised, and the clauses depending on them, are stale; every other clause keeps its evidence.
 6. The developer reads the recorded clause and blast-radius summary, then runs `sflow story intent-amendment acknowledge AMD-NNN`. Submission remains blocked until this acknowledgement.
 7. Replay the downstream phases. Existing unaffected evidence remains in place; affected evidence must be regenerated or revalidated through the normal publication and approval gates.
+
+## After a Story closes: spec drift
+
+Reconciliation stops when a Story closes, but its code keeps changing. `sflow spec drift` checks every closed Story recorded in this checkout: for each approved clause it compares the source lines tagged `@clause`, the hunks the delivery changed and the acceptance test that witnessed it, from the generation commit the approval bound, to the working tree (or `--ref REV`).
+
+- **in sync:** the tags are there and the bound lines and tests are unchanged.
+- **drifted:** a bound line, the acceptance test or a planned deletion changed since approval. The report names the lines and the commits that changed them.
+- **orphaned:** every tag, or every acceptance test, of the clause is gone.
+- **unverifiable:** the approved commit is not in this clone (fetch the Story branch) or the receipt cannot be read.
+
+It also says when an approved specification or plan document changed after approval. Use `--work-id ID` for one Story, `--all` to list in-sync clauses too, and `--json` for the full report. A Story whose code step changes code another closed Story's clause is bound to gets an advisory at prepublish naming that clause.
+
+Drift is advice. Nothing refuses because of it, and nothing is stored: it is computed each time. A person resolves a drifted clause: adopt it (the specification follows the code, through a new or reopened Story that amends it) or restore it (the code follows the specification, through a fix Story).
 
 ## State and safety
 

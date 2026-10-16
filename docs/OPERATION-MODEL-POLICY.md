@@ -620,6 +620,7 @@ Every public operation is classified before its implementation module is importe
 | spec.analyze.assisted | mutation | optional | spec.analyze | copilot-cli |
 | spec.claims | mutation | never | — | — |
 | spec.coverage | read | never | — | — |
+| spec.drift | read | never | — | — |
 | spec.index | mutation | never | — | — |
 | spec.index.dry-run | read | never | — | — |
 | spec.tasks | mutation | never | — | — |

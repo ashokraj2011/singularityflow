@@ -2079,6 +2079,38 @@ export function worktreePatchMatching(root, base, pattern, { maximumBytes = 64 *
 }
 
 /**
+ * The zero-context patch of exactly `paths` from `base` to `target` (a commit) or to the working
+ * tree when `target` is null, without rename detection, so every line range is in `base`'s
+ * coordinates. Null when Git cannot answer, for example when `base` is not in this clone.
+ */
+export function pathPatchSince(root, base, target, paths, { maximumBytes = 64 * 1024 * 1024 } = {}) {
+  if (!paths.length) return '';
+  const result = git(['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv',
+    '--unified=0', '--no-renames', '--src-prefix=a/', '--dst-prefix=b/', base, ...(target ? [target] : []), '--',
+    ...paths.map((relative) => `:(literal)${relative}`)], { cwd: root, allowFailure: true, maxBuffer: maximumBytes });
+  return result.status === 0 ? String(result.stdout ?? '') : null;
+}
+
+/** Whether `commit` names a commit present in this clone, without fetching. */
+export function commitPresent(root, commit) {
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(String(commit ?? ''))) return false;
+  return git(['cat-file', '-e', `${commit}^{commit}`], { cwd: root, allowFailure: true,
+    env: { ...process.env, GIT_NO_LAZY_FETCH: '1' } }).status === 0;
+}
+
+/** The latest commits after `base` up to `target` (HEAD by default) that changed `paths`, newest first. */
+export function commitsChangingSince(root, base, paths, { target = 'HEAD', limit = 3 } = {}) {
+  if (!paths.length) return [];
+  const result = git(['log', `--max-count=${limit}`, '--no-merges', '--format=%H%x09%s', `${base}..${target}`, '--',
+    ...paths.map((relative) => `:(literal)${relative}`)], { cwd: root, allowFailure: true });
+  if (result.status !== 0) return [];
+  return String(result.stdout ?? '').split('\n').filter(Boolean).map((line) => {
+    const [commit, ...subject] = line.split('\t');
+    return { commit, subject: subject.join('\t') };
+  }).filter((entry) => /^[0-9a-f]{40,64}$/u.test(entry.commit));
+}
+
+/**
  * Every path Git tracks under `prefix` (the whole repository when null), and whether the listing
  * fit in `maximumBytes`. A listing that does not fit is reported as incomplete with no paths, never
  * cut short into a wrong count: a caller deciding whether a repository is small enough to index

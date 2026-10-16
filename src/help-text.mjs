@@ -586,6 +586,7 @@ Usage:
   singularity-flow spec acceptance [--command ID]... [--phase PHASE] [--dry-run] [--json]
   singularity-flow spec tasks [--phase PHASE] [--work-id ID] [--dry-run] [--json]
   singularity-flow spec trace [CLAUSE-ID] [--format human|json|csv]
+  singularity-flow spec drift [--work-id WORK-ID] [--ref REV] [--all] [--json]
   singularity-flow evidence matrix [WORK-ID] [--row ID] [--result RESULT] [--facet NAME[=VALUE]]
     [--page N] [--page-size N] [--format human|json|csv]
     one row per requirement and acceptance criterion with its plan, implementation, verification,

@@ -2701,6 +2701,8 @@ async function runAssistedAnalysis(root, config, workflow, phase, { report, item
 }
 
 async function specCommand(positionals, options) {
+  // Drift spans every closed Story, so it needs no active one.
+  if (positionals[1] === 'drift') return (await import('./commands/spec-drift.mjs')).specDriftCommand(positionals, options);
   const root = repoRoot();
   const subcommand = positionals[1] ?? 'trace';
   const supplied = subcommand === 'index' ? positionals[2] : null;

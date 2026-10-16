@@ -60,19 +60,8 @@ import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 
 export async function run(argv, { positionals, options }) {
-  if (optionBoolean(options, 'prepare-only') || optionBoolean(options, 'discard-prepared')) {
-    if (optionBoolean(options, 'prepare-only') && optionBoolean(options, 'discard-prepared')) {
-      throw new SingularityFlowError('Choose preparation or discard, not both.');
-    }
-    const id = requirePositional(positionals, 1, 'work ID');
-    validatePortableWorkId(id);
-    const root = repoRoot();
-    const preparation = await import('../story-worktree-preparation.mjs');
-    const result = optionBoolean(options, 'prepare-only')
-      ? await preparation.prepareIntakeWorktree(root, id, options)
-      : await preparation.discardIntakeWorktree(root, id, options);
-    console.log(JSON.stringify({ preparation: result }));
-    return { preparation: result };
+  if (Object.hasOwn(options, 'prepare-only') || Object.hasOwn(options, 'discard-prepared')) {
+    throw new SingularityFlowError('Use the dedicated story prepare-worktree or story discard-worktree operation.');
   }
   return withCommandObservability('start', argv, options,
     () => withCommandConfirmation(options, () => startCommand(positionals, options)));

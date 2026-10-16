@@ -121,7 +121,7 @@ try {
           ...(receipt?.issued ? {} : { receiptDeclined: receipt?.reason }) };
         intakeArgs = receipt?.issued ? ['--intake-receipt', receipt.id] : [];
         if (variant === 'candidate') {
-          const result = invoke(['start', id, '--prepare-only', '--json', '--isolated-worktree', '--from-branch', 'main',
+          const result = invoke(['story', 'prepare-worktree', '--work-id', id, '--json', '--isolated-worktree', '--from-branch', 'main',
             '--work-type', workType, ...intakeArgs], repository, variantEnv);
           if (result.value.preparation?.status !== 'prepared') throw new Error('Worktree preparation was unavailable.');
           worktreePreparation = { durationMs: result.durationMs };

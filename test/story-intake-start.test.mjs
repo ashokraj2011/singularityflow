@@ -163,6 +163,10 @@ const data = (result) => {
 };
 const counter = (stderr, name) =>
   Number(new RegExp(`(?:^|\\s)${name.replaceAll('.', '\\.')}=(\\d+)(?:\\s|$)`).exec(stderr)?.[1] ?? 0);
+const prepare = (root, id, extra = []) => flow(root, ['story', 'prepare-worktree', '--work-id', id,
+  '--json', '--from-branch', 'main', '--work-type', 'feature', ...extra]);
+const discard = (root, id, commit) => flow(root, ['story', 'discard-worktree', '--work-id', id,
+  '--prepared-base', commit, '--json']);
 
 test('background intake preparation creates no Story or publication and Start reuses its exact checkout', intakePlatforms, async t => {
   const { root } = await repository(t), id = 'PREPARED-STORY';
@@ -170,7 +174,7 @@ test('background intake preparation creates no Story or publication and Start re
   assert.equal(receipt.issued, true);
   const before = git(root, 'ls-remote', '--heads', 'origin');
   const index = await readFile(path.join(root, '.git/index'));
-  const prepared = data(start(root, id, ['--prepare-only', '--intake-receipt', receipt.id])).preparation;
+  const prepared = data(prepare(root, id, ['--intake-receipt', receipt.id])).preparation;
   assert.equal(prepared.status, 'prepared'); assert.equal(prepared.owned, true);
   assert.equal(git(root, 'ls-remote', '--heads', 'origin'), before);
   assert.equal(git(root, 'branch', '--show-current'), 'main');
@@ -181,27 +185,27 @@ test('background intake preparation creates no Story or publication and Start re
     'only accounting and the verified approved snapshot compile; pin hints and capability resolution do not');
   assert.equal(data(started).publication.pushed, true);
   assert.equal(git(root, 'ls-remote', '--heads', 'origin', id).split(/\s/)[0], git(data(started).repositoryPath, 'rev-parse', 'HEAD'));
-  assert.equal(data(start(root, id, ['--discard-prepared', '--prepared-base', prepared.baseCommit])).preparation.status, 'retained');
+  assert.equal(data(discard(root, id, prepared.baseCommit)).preparation.status, 'retained');
 });
 
 test('background intake preparation refuses missing receipts and cleanup retains edits but removes a clean cancelled launch', intakePlatforms, async t => {
   const { root } = await repository(t), id = 'CANCEL-PREPARED';
-  assert.equal(data(start(root, id, ['--prepare-only'])).preparation.status, 'unavailable');
+  assert.equal(data(prepare(root, id)).preparation.status, 'unavailable');
   const receipt = preflight(root, id);
-  const prepared = data(start(root, id, ['--prepare-only', '--intake-receipt', receipt.id])).preparation;
+  const prepared = data(prepare(root, id, ['--intake-receipt', receipt.id])).preparation;
   const target = await storyWorktreePath(root, id);
   await writeFile(path.join(target, 'README.md'), 'preserve user edit\n');
-  assert.equal(data(start(root, id, ['--discard-prepared', '--prepared-base', prepared.baseCommit])).preparation.status, 'retained');
+  assert.equal(data(discard(root, id, prepared.baseCommit)).preparation.status, 'retained');
   assert.equal(await readFile(path.join(target, 'README.md'), 'utf8'), 'preserve user edit\n');
   await writeFile(path.join(target, 'README.md'), await readFile(path.join(root, 'README.md')));
-  assert.equal(data(start(root, id, ['--discard-prepared', '--prepared-base', prepared.baseCommit])).preparation.status, 'removed');
+  assert.equal(data(discard(root, id, prepared.baseCommit)).preparation.status, 'removed');
   assert.equal(git(root, 'worktree', 'list', '--porcelain').includes(target), false);
 });
 
 test('background intake preparation rebases only by replacing a clean unstarted checkout when the base moves', intakePlatforms, async t => {
   const { root } = await repository(t), id = 'STALE-PREPARED';
   const receipt = preflight(root, id);
-  const prepared = data(start(root, id, ['--prepare-only', '--intake-receipt', receipt.id])).preparation;
+  const prepared = data(prepare(root, id, ['--intake-receipt', receipt.id])).preparation;
   await writeFile(path.join(root, 'new-base.txt'), 'new base\n');
   git(root, 'add', '.'); git(root, 'commit', '-qm', 'advance base'); git(root, 'push', '-q', 'origin', 'main');
   const tip = git(root, 'rev-parse', 'HEAD');

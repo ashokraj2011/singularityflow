@@ -16,7 +16,8 @@ export class IntakeWorktreePreparation {
       await this.cleanup();
       if (generation !== this.generation) return;
       try {
-        const value = (await this.run([...args, ...(remote ? ['--remote', remote] : []), '--prepare-only'])).preparation;
+        const value = (await this.run(['story', 'prepare-worktree', '--work-id', args[1],
+          ...args.slice(2), ...(remote ? ['--remote', remote] : [])])).preparation;
         if (value?.status === 'prepared' && typeof value.workId === 'string'
             && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.baseCommit ?? '')) {
           this.held = { key, workId: value.workId, baseCommit: value.baseCommit!, owned: value.owned === true };
@@ -45,7 +46,7 @@ export class IntakeWorktreePreparation {
     this.held = null;
     if (!held?.owned) return;
     try {
-      await this.run(['start', held.workId, '--discard-prepared', '--prepared-base', held.baseCommit, '--json']);
+      await this.run(['story', 'discard-worktree', '--work-id', held.workId, '--prepared-base', held.baseCommit, '--json']);
     } catch { /* Native code preserves dirty, changed, published or otherwise unverified work. */ }
   }
 }

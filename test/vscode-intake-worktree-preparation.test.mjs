@@ -11,25 +11,25 @@ test('Start takes a finished exact-key preparation without discarding it', async
   helper.schedule('key', ['start', 'story', '--json']);
   const held = await helper.take('key'); helper.cancel(); await tick();
   assert.equal(held.baseCommit, baseCommit);
-  assert.deepEqual(calls, [['start', 'story', '--json', '--prepare-only']]);
+  assert.deepEqual(calls, [['story', 'prepare-worktree', '--work-id', 'story', '--json']]);
 });
 test('dispose during native checkout settles Git first and then discards only the owned checkout', async () => {
   let finish;
   const calls = [], helper = new IntakeWorktreePreparation(async args => {
-    calls.push(args); if (args.includes('--prepare-only')) return new Promise(resolve => { finish = resolve; });
+    calls.push(args); if (args.includes('prepare-worktree')) return new Promise(resolve => { finish = resolve; });
     return { preparation: { status: 'removed' } };
   });
   helper.schedule('key', ['start', 'story']); await tick(); helper.cancel();
   assert.equal(calls.length, 1, 'does not kill a running Git checkout');
   finish(prepared()); await tick(); await tick();
-  assert.deepEqual(calls[1], ['start', 'story', '--discard-prepared', '--prepared-base', baseCommit, '--json']);
+  assert.deepEqual(calls[1], ['story', 'discard-worktree', '--work-id', 'story', '--prepared-base', baseCommit, '--json']);
 });
 test('rapid selection edits skip queued obsolete requests and serialize their cleanup', async () => {
-  const calls = [], helper = new IntakeWorktreePreparation(async args => { calls.push(args); return prepared(args[1]); });
+  const calls = [], helper = new IntakeWorktreePreparation(async args => { calls.push(args); return prepared(args[3]); });
   helper.schedule('old', ['start', 'old']);
   helper.schedule('new', ['start', 'new']);
   assert.equal((await helper.take('new')).workId, 'new');
-  assert.deepEqual(calls, [['start', 'new', '--prepare-only']]);
+  assert.deepEqual(calls, [['story', 'prepare-worktree', '--work-id', 'new']]);
 });
 test('a preexisting baseline checkout is never claimed for cancellation cleanup', async () => {
   const calls = [], helper = new IntakeWorktreePreparation(async args => { calls.push(args); return prepared('story', false); });
@@ -45,5 +45,5 @@ test('preparation uses the exact preflight remote instead of assuming origin', a
   const calls = [], helper = new IntakeWorktreePreparation(async args => { calls.push(args); return prepared(); });
   helper.schedule('company', ['start', 'story'], 'company');
   await helper.take('company');
-  assert.deepEqual(calls, [['start', 'story', '--remote', 'company', '--prepare-only']]);
+  assert.deepEqual(calls, [['story', 'prepare-worktree', '--work-id', 'story', '--remote', 'company']]);
 });

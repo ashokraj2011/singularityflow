@@ -116,7 +116,7 @@ const LAZY_MODULES = Object.freeze({
   tokens: './commands/context.mjs',
   wm: './commands/wm.mjs',
   secrets: './commands/secrets.mjs',
-  story: './commands/story.mjs'
+  story: './commands/story-entry.mjs'
 });
 
 function operation(id, modelPolicy = 'never', overrides = {}) {
@@ -384,7 +384,7 @@ const DELIVERY_SUBCOMMANDS = Object.freeze([
   'local-runner-run', 'local-runner-verify', 'readiness'
 ]);
 const STORY_READ_SUBCOMMANDS = Object.freeze(['inbox', 'status', 'return']);
-const STORY_MUTATION_SUBCOMMANDS = Object.freeze(['start', 'fetch', 'submit', 'finalize', 'checks', 'adjudicate', 'rework', 'advance']);
+const STORY_MUTATION_SUBCOMMANDS = Object.freeze(['start', 'fetch', 'submit', 'finalize', 'checks', 'adjudicate', 'rework', 'advance', 'prepare-worktree', 'discard-worktree']);
 const STORY_INTERVAL_ACTIONS = Object.freeze(['status', 'checkpoint', 'reconcile', 'escalate', 'acknowledge']);
 const STORY_BRANCH_ACTIONS = Object.freeze(['status', 'create', 'attach', 'promote']);
 const STORY_INTENT_AMENDMENT_ACTIONS = Object.freeze(['status', 'draft', 'propose', 'decide', 'acknowledge']);

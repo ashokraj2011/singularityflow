@@ -26,7 +26,9 @@ export async function createWarmReadFixture({ files = 0, branches = 0 } = {}) {
       SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'chore', agent: 'developer' }) };
     const git = (args, { cwd = repository } = {}) => {
       try {
-        return execFileSync('git', args, {
+        // The generated files are known LF text. Suppress setup-only round-trip warnings that
+        // otherwise flood Windows pipes; keep autocrlf and every measured checkout unchanged.
+        return execFileSync('git', args[0] === 'add' ? ['-c', 'core.safecrlf=false', ...args] : args, {
           cwd, env, encoding: 'utf8', timeout: process.platform === 'win32' ? 120_000 : 30_000,
           maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe']
         }).trim();

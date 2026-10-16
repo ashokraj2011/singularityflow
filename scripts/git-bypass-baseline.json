@@ -26,7 +26,7 @@
     },
     "scripts/warm-read-fixture.mjs": {
       "counts": { "command-git": 7, "process-import": 1, "process-launch": 2 },
-      "digest": "2e41fd94be762d853762e5975d83a2a9d7cc018269281101f5d130addf98c447"
+      "digest": "fc3de41a4345205938f793857358e8f2e78e9a2a7df69c9ae73e2b39ea3d30e9"
     },
     "scripts/warm-read-benchmark.mjs": {
       "counts": { "command-git": 12 },

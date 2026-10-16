@@ -1,9 +1,22 @@
 /** Optional intake acceleration. A prepared checkout is not a Story, readiness or authority. */
 import { optionString, optionStrings, SingularityFlowError } from './util.mjs';
+import { repoRoot } from './git.mjs';
+import { validatePortableWorkId } from './work-id.mjs';
 import { normalizeQualityGateMode } from './phase-quality-risk.mjs';
 import { parseReferenceRepositoryOptions } from './reference-repositories.mjs';
 import { admitStoryIntakeReceipt } from './story-intake-verification.mjs';
 import { prepareStoryWorktree, preparedStoryWorktreePath, discardPreparedStoryWorktree } from './story-worktree.mjs';
+
+/** Dedicated verbs fail closed in older CLIs; never disguise speculative work as Story Start. */
+export async function run(_argv, { positionals, options }) {
+  const id = optionString(options, 'work-id');
+  validatePortableWorkId(id);
+  const root = repoRoot();
+  const preparation = positionals[1] === 'prepare-worktree'
+    ? await prepareIntakeWorktree(root, id, options) : await discardIntakeWorktree(root, id, options);
+  console.log(JSON.stringify({ preparation }));
+  return { preparation };
+}
 
 /** Only a passing, exact-request receipt may trigger speculative local checkout work. */
 export async function prepareIntakeWorktree(root, workId, options) {

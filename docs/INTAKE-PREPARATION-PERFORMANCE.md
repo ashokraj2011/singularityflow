@@ -25,11 +25,13 @@ the full application checkout while the person finishes intake. It uses the same
 and a client pinned to the launch repository, even if the window later changes repositories.
 The optional coordinator is loaded from the existing lazy runtime, not the activation graph.
 
-`start ID --prepare-only ... --intake-receipt RECEIPT` claims and validates that exact request,
+`story prepare-worktree --work-id ID ... --intake-receipt RECEIPT` claims and validates that exact request,
 checks its local base/remote bindings, creates only the ordinary managed staging worktree, then
 releases the receipt. It does not create a workflow, enroll an identity, run SFlow tests, or publish.
 It returns the exact base and whether it created the checkout. A receipt is still not authority.
 The optimization is disabled with `SINGULARITY_FLOW_INTAKE_WORKTREE_PREPARATION=off`.
+Preparation and cleanup use dedicated `story prepare-worktree` and `story discard-worktree` verbs;
+older engines refuse these unknown operations instead of interpreting preparation as normal Start.
 
 Start waits for an in-flight preparation rather than killing Git. Its normal authority, base,
 readiness, dirty-tree, Candidate and exact-tip publication checks all remain required. If the base

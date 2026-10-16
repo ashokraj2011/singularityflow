@@ -36,7 +36,7 @@ export async function readIntakeEntry(options = {}) {
         : catalog.preflight?.passed === true ? 'preflight-ready' : 'choices-ready',
     ready: (!catalog.existingWork || catalog.existingWork.status === 'new') && catalog.preflight?.passed !== false,
     repositoryPath: root, creationAuthorized: false,
-    agentInstruction: 'Reuse this packet for pause, workspace, build, clean-tree and catalog facts. Ask for explicit base/workflow and policy choices. Do not repeat those lookups. Run selected-base preflight once; Story creation revalidates live authority and repository deltas.' };
+    agentInstruction: 'Reuse this packet for pause, workspace, build, clean-tree and catalog facts. Use personalization.replyName literally in replies, never artifacts or approval identity. Ask for explicit base/workflow and policy choices. Do not repeat those lookups. Run selected-base preflight once; Story creation revalidates live authority and repository deltas.' };
 }
 
 export async function run(options) { console.log(JSON.stringify(await readIntakeEntry(options), null, 2)); }

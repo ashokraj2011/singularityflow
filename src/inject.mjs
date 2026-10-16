@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { exists, nowIso, posix, secureRepositoryPath, SingularityFlowError, writeAtomicExclusive } from './util.mjs';
+import { exists, nowIso, posix, secureRepositoryPath, SingularityFlowError, writeAtomicExclusive, writeAtomic } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { canonicalJson } from './records.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
@@ -191,11 +191,13 @@ export async function supersedePromptGeneration(root, workflow, phase, { workDir
   let directory = base;
   for (let attempt = 2; existsSync(directory); attempt += 1) directory = `${base}-${attempt}`;
   await mkdir(directory, { recursive: true });
-  await rename(location.recordFile, path.join(directory, path.basename(location.recordFile)));
-  await rename(location.promptFile, path.join(directory, path.basename(location.promptFile)));
-  await writeFile(path.join(directory, 'reason.json'), `${JSON.stringify({
+  // The reason lands first and whole: an interruption between the moves then leaves files recovery
+  // can attribute, instead of a moved receipt with nothing saying why.
+  await writeAtomic(path.join(directory, 'reason.json'), `${JSON.stringify({
     phase: phase.id, generation: location.generation, renderedSha256: record.renderedSha256 ?? null, reason
   }, null, 2)}\n`);
+  await rename(location.promptFile, path.join(directory, path.basename(location.promptFile)));
+  await rename(location.recordFile, path.join(directory, path.basename(location.recordFile)));
   return { directory: posix(path.relative(root, directory)) };
 }
 

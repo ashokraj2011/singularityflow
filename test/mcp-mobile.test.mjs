@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -45,6 +45,21 @@ async function fixture() {
   };
   return { root, itemDirectory, workflow };
 }
+
+// The output was copied before the record was built; a refused record left that copy in the Story,
+// bound to nothing, and recovery held the step for it.
+test('a refused MCP record leaves no copied output behind', async () => {
+  const { root, itemDirectory, workflow } = await fixture();
+  await writeFile(path.join(root, 'figma-metadata.xml'), '<frame id="1:3" name="Checkout" />\n');
+  await assert.rejects(() => recordMcpEvidence(root, workflow, {
+    kind: 'design-source', server: 'figma', tool: 'get_metadata', phase: 'design-intake',
+    outputPath: 'figma-metadata.xml', fileKey: 'checkout-file', fileVersion: 'v17',
+    fileVersionCreatedAt: '2026-08-06T00:00:00.000Z', nodes: ['not-a-node'],
+    agent: 'product-designer', actor: { name: 'Designer', email: 'designer@example.test' },
+    itemDirectory
+  }), (error) => error.code === 'MCP_EVIDENCE_INVALID');
+  assert.deepEqual(await readdir(path.join(itemDirectory, 'context/mcp/outputs')).catch(() => []), []);
+});
 
 test('design-source-pin-round-trip: Figma XML becomes an approval-bound source set and downstream provenance', async () => {
   const { root, itemDirectory, workflow } = await fixture();

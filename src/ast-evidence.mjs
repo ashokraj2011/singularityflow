@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { bundledAstAdapters, discoverAstAdapters } from './ast-adapter-contract.mjs';
@@ -11,7 +11,7 @@ import { retainAstEvidenceBundle } from './ast-evidence-store.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { SingularityFlowError } from './util.mjs';
+import { SingularityFlowError, writeAtomicExclusive } from './util.mjs';
 
 const ENGINE_FILES = Object.freeze([
   'src/ast-intelligence.mjs', 'src/ast-builtin-extractor.mjs', 'src/ast-evidence.mjs',
@@ -332,7 +332,8 @@ export async function persistAstDerivation(root, derivation) {
     if (error?.code !== 'ENOENT') throw error;
     await mkdir(path.dirname(target), { recursive: true });
     try {
-      await writeFile(target, canonicalJson(derivation.manifest), { flag: 'wx', mode: 0o600 });
+      // Whole or absent: an interrupted plain write left a truncated record no later write repaired.
+      await writeAtomicExclusive(target, canonicalJson(derivation.manifest), { mode: 0o600 });
     } catch (writeError) {
       if (writeError?.code !== 'EEXIST') throw writeError;
     }

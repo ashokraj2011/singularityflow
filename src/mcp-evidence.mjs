@@ -1,7 +1,7 @@
 import { isVisualVerificationPhase } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { randomUUID } from 'node:crypto';
-import { lstat, mkdir, readFile, readdir } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { withSubjectLock } from './subject-lock.mjs';
 import { authorizedMcpOrigins, safeMcpTargetUrl } from './mcp-target.mjs';
@@ -222,65 +222,72 @@ async function writeMcpEvidence(root, workflow, {
   const id = `mcp-${randomUUID()}`;
   return withSubjectLock(root, { kind: 'story', id: workflow.workItem.id }, async () => {
     if (await recordCount(recordsDirectory) >= MAX_RECORDS) throw new SingularityFlowError(`MCP evidence limit reached (${MAX_RECORDS} records).`, { code: 'MCP_EVIDENCE_LIMIT' });
-    let output = null;
-    if (outputPath) {
-      const source = await secureRepositoryPath(root, outputPath, { label: 'MCP evidence source', mustExist: true, type: 'file' });
-      const sourceInfo = await lstat(source.absolute);
-      if (!sourceInfo.isFile() || sourceInfo.isSymbolicLink()) throw new SingularityFlowError('MCP evidence source must be a regular, non-symbolic-link file.', { code: 'MCP_EVIDENCE_UNSAFE_PATH' });
-      if (sourceInfo.size > MAX_OUTPUT_BYTES) throw new SingularityFlowError(`MCP evidence output exceeds ${MAX_OUTPUT_BYTES} bytes.`, { code: 'MCP_EVIDENCE_LIMIT' });
-      const bytes = await readFile(source.absolute);
-      const relative = posix(path.join('context', 'mcp', 'outputs', id, sanitizeName(source.relative)));
-      const target = await secureRepositoryPath(itemRoot, relative, { label: 'Managed MCP evidence output' });
-      await writeAtomic(target.absolute, bytes);
-      const captured = await snapshot(target.absolute);
-      output = { path: relative, sha256: captured.sha256, bytes: captured.size, mediaType: mediaType(source.relative), sourceDisposition: 'local-copy' };
-      if (kind === 'visual-artifact' && output.mediaType !== 'image/png') throw new SingularityFlowError('Visual-artifact evidence must be a PNG file.', { code: 'MCP_EVIDENCE_INVALID' });
+    // An output copied for a record that is then refused would sit in the Story bound to nothing.
+    const outputsDirectory = path.join(itemRoot, 'context', 'mcp', 'outputs', id);
+    try {
+      let output = null;
+      if (outputPath) {
+        const source = await secureRepositoryPath(root, outputPath, { label: 'MCP evidence source', mustExist: true, type: 'file' });
+        const sourceInfo = await lstat(source.absolute);
+        if (!sourceInfo.isFile() || sourceInfo.isSymbolicLink()) throw new SingularityFlowError('MCP evidence source must be a regular, non-symbolic-link file.', { code: 'MCP_EVIDENCE_UNSAFE_PATH' });
+        if (sourceInfo.size > MAX_OUTPUT_BYTES) throw new SingularityFlowError(`MCP evidence output exceeds ${MAX_OUTPUT_BYTES} bytes.`, { code: 'MCP_EVIDENCE_LIMIT' });
+        if (kind === 'visual-artifact' && mediaType(source.relative) !== 'image/png') throw new SingularityFlowError('Visual-artifact evidence must be a PNG file.', { code: 'MCP_EVIDENCE_INVALID' });
+        const bytes = await readFile(source.absolute);
+        const relative = posix(path.join('context', 'mcp', 'outputs', id, sanitizeName(source.relative)));
+        const target = await secureRepositoryPath(itemRoot, relative, { label: 'Managed MCP evidence output' });
+        await writeAtomic(target.absolute, bytes);
+        const captured = await snapshot(target.absolute);
+        output = { path: relative, sha256: captured.sha256, bytes: captured.size, mediaType: mediaType(source.relative), sourceDisposition: 'local-copy' };
+      }
+      if (outputUrl) {
+        const downloaded = await downloadOutput(outputUrl);
+        if (kind === 'visual-artifact' && downloaded.mediaType !== 'image/png') throw new SingularityFlowError('Visual-artifact evidence must be a PNG file.', { code: 'MCP_EVIDENCE_INVALID' });
+        const relative = posix(path.join('context', 'mcp', 'outputs', id, downloaded.name));
+        const target = await secureRepositoryPath(itemRoot, relative, { label: 'Managed MCP evidence output' });
+        await writeAtomic(target.absolute, downloaded.bytes);
+        const captured = await snapshot(target.absolute);
+        output = { path: relative, sha256: captured.sha256, bytes: captured.size, mediaType: downloaded.mediaType, sourceDisposition: 'remote-copy', sourceUrl: downloaded.sourceUrl, redirects: downloaded.redirects };
+      }
+      const generation = nextPhaseGeneration(workflow.phases[activePhase]);
+      const record = {
+        schemaVersion: MCP_EVIDENCE_SCHEMA_VERSION,
+        id,
+        kind,
+        workId: workflow.workItem.id,
+        phase: activePhase,
+        targetGeneration: generation,
+        server,
+        hostReference: configured.hostReference,
+        tool,
+        agent,
+        actor,
+        recordedAt: nowIso(),
+        captureSource: originReceipt ? 'observed-by-mcp-host' : 'declared-by-agent',
+        note: note ?? null,
+        targetOrigin,
+        observedFinalUrlSha256: originReceipt?.observedFinalUrlSha256 ?? null,
+        observedFinalOrigin: originReceipt?.observedFinalOrigin ?? null,
+        originReceipt,
+        output,
+        ...(kind === 'design-source' ? {
+          fileKey: String(fileKey).trim(),
+          fileVersion: String(fileVersion).trim(),
+          fileVersionCreatedAt: fileVersionCreatedAt ?? null,
+          nodes: normalizeNodes(nodes),
+          format: format ?? 'figma-mcp-metadata-xml',
+          outputSha256: output.sha256
+        } : {}),
+        ...(kind === 'visual-artifact' ? {
+          profileId, screenId, stateId, outputSha256: output.sha256
+        } : {})
+      };
+      const file = path.join(recordsDirectory, `${id}.json`);
+      await writeJson(file, record);
+      return { file: posix(path.relative(root, file)), record };
+    } catch (error) {
+      await rm(outputsDirectory, { recursive: true, force: true }).catch(() => {});
+      throw error;
     }
-    if (outputUrl) {
-      const downloaded = await downloadOutput(outputUrl);
-      const relative = posix(path.join('context', 'mcp', 'outputs', id, downloaded.name));
-      const target = await secureRepositoryPath(itemRoot, relative, { label: 'Managed MCP evidence output' });
-      await writeAtomic(target.absolute, downloaded.bytes);
-      const captured = await snapshot(target.absolute);
-      output = { path: relative, sha256: captured.sha256, bytes: captured.size, mediaType: downloaded.mediaType, sourceDisposition: 'remote-copy', sourceUrl: downloaded.sourceUrl, redirects: downloaded.redirects };
-      if (kind === 'visual-artifact' && output.mediaType !== 'image/png') throw new SingularityFlowError('Visual-artifact evidence must be a PNG file.', { code: 'MCP_EVIDENCE_INVALID' });
-    }
-    const generation = nextPhaseGeneration(workflow.phases[activePhase]);
-    const record = {
-      schemaVersion: MCP_EVIDENCE_SCHEMA_VERSION,
-      id,
-      kind,
-      workId: workflow.workItem.id,
-      phase: activePhase,
-      targetGeneration: generation,
-      server,
-      hostReference: configured.hostReference,
-      tool,
-      agent,
-      actor,
-      recordedAt: nowIso(),
-      captureSource: originReceipt ? 'observed-by-mcp-host' : 'declared-by-agent',
-      note: note ?? null,
-      targetOrigin,
-      observedFinalUrlSha256: originReceipt?.observedFinalUrlSha256 ?? null,
-      observedFinalOrigin: originReceipt?.observedFinalOrigin ?? null,
-      originReceipt,
-      output,
-      ...(kind === 'design-source' ? {
-        fileKey: String(fileKey).trim(),
-        fileVersion: String(fileVersion).trim(),
-        fileVersionCreatedAt: fileVersionCreatedAt ?? null,
-        nodes: normalizeNodes(nodes),
-        format: format ?? 'figma-mcp-metadata-xml',
-        outputSha256: output.sha256
-      } : {}),
-      ...(kind === 'visual-artifact' ? {
-        profileId, screenId, stateId, outputSha256: output.sha256
-      } : {})
-    };
-    const file = path.join(recordsDirectory, `${id}.json`);
-    await writeJson(file, record);
-    return { file: posix(path.relative(root, file)), record };
   });
 }
 
@@ -407,8 +414,15 @@ export async function recordObservedMcpBrowserCapture(root, workflow, {
     };
     const navigation = { ...common, id: `${captureId}-navigate`, tool: 'browser_navigate', output: null };
     const snapshotRecord = { ...common, id: `${captureId}-snapshot`, tool: 'browser_snapshot', output };
-    await writeJson(path.join(recordsDirectory, `${navigation.id}.json`), navigation);
-    await writeJson(path.join(recordsDirectory, `${snapshotRecord.id}.json`), snapshotRecord);
+    // The snapshot record binds the output, so it lands first; a failure removes what was written.
+    try {
+      await writeJson(path.join(recordsDirectory, `${snapshotRecord.id}.json`), snapshotRecord);
+      await writeJson(path.join(recordsDirectory, `${navigation.id}.json`), navigation);
+    } catch (error) {
+      await rm(path.join(recordsDirectory, `${snapshotRecord.id}.json`), { force: true }).catch(() => {});
+      await rm(path.dirname(outputTarget.absolute), { recursive: true, force: true }).catch(() => {});
+      throw error;
+    }
     return Object.freeze({ captureId, navigation, snapshot: snapshotRecord });
   });
 }

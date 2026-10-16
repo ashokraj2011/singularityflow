@@ -85,7 +85,10 @@ export async function withStoryConfigurationTransaction(action) {
     try { return await action(); }
     finally {
       owner.active = false;
-      await Promise.all([...owner.directories].map(directory => removeTemporaryTree(directory)));
+      const cleaned = await Promise.allSettled([...owner.directories].map(directory => removeTemporaryTree(directory)));
+      if (cleaned.some(result => result.status === 'rejected')) console.warn(
+        'Warning: a disposable configuration checkout could not be removed. The Story result is unchanged.'
+      );
     }
   });
 }
@@ -132,7 +135,7 @@ export async function captureEnrolledConfigurationSnapshot(directory, remote, pr
 
 /** Attach a private snapshot only after the caller has freshly resolved the same authority. */
 export function withRetainedConfigurationSnapshot(authority, snapshot) {
-  if (!snapshot) return authority;
+  if (!snapshot || !STORY_CONFIGURATION_TRANSACTIONS.getStore()?.active) return authority;
   verifiedStoryDefinition(snapshot);
   if (authority?.remote !== snapshot.authority.remote || authority.branch !== snapshot.authority.branch
       || authority.commit !== snapshot.observedCommit) throw new SingularityFlowError(

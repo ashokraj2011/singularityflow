@@ -1823,6 +1823,41 @@ test('configuration checkout leases are one-use, transaction-local and cleaned o
   } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });
 
+test('configuration checkout leases refuse changed retained bytes before enrollment', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const authority = await resolveRemoteStoryConfigurationAuthority(fixture.remote);
+    await withStoryConfigurationTransaction(async () => {
+      const snapshot = await loadStoryConfigurationSnapshot(authority);
+      const bytes = snapshot.assets.find(asset => asset.relative === 'singularity/workflow.yml').contents;
+      bytes[0] ^= 1;
+      await assert.rejects(takeStoryConfigurationCheckout(snapshot, fixture.remote, snapshot.sourceCommit), {
+        code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+      });
+    });
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});
+
+test('configuration checkout leases never cross concurrent start transactions', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const authority = await resolveRemoteStoryConfigurationAuthority(fixture.remote);
+    const snapshots = [];
+    let release;
+    const ready = new Promise(resolve => { release = resolve; });
+    await Promise.all([0, 1].map(index => withStoryConfigurationTransaction(async () => {
+      snapshots[index] = await loadStoryConfigurationSnapshot(authority);
+      if (snapshots.filter(Boolean).length === 2) release();
+      await ready;
+      const other = snapshots[1 - index];
+      assert.equal(await takeStoryConfigurationCheckout(other, fixture.remote, other.sourceCommit), null);
+      assert.ok(await takeStoryConfigurationCheckout(snapshots[index], fixture.remote, snapshots[index].sourceCommit));
+    })));
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});
+
 test('automatic identity enrollment obeys the approved configuration switch', async () => {
   const fixture = await repositoryFixture();
   try {

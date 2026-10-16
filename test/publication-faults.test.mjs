@@ -754,7 +754,9 @@ test('a hard crash after the root push retains the complete authenticated siblin
   assert.equal(await readPendingPublication(fixture.root, fixture.subject), null);
 });
 
-test('a post-receive hard crash recovers only the exact in-flight sibling ref', async () => {
+test('a post-receive hard crash recovers only the exact in-flight sibling ref', {
+  skip: process.platform === 'win32' ? 'requires POSIX process-kill fixture hooks' : false
+}, async () => {
   const fixture = await capabilityTailFixture('STORY-TAIL-SIBLING-CRASH');
   const publication = await publishCapabilityTailRoot(fixture);
   const hook = path.join(fixture.siblingRemote, 'hooks/post-receive');
@@ -1018,7 +1020,9 @@ test('a retargeted root or sibling remote receives no pending Story commit', asy
     ]).status, 1);
   });
 
-  await t.test('literal local-path suffix', async () => {
+  await t.test('literal local-path suffix', {
+    skip: process.platform === 'win32' ? 'Windows filenames cannot contain the literal question mark under test' : false
+  }, async () => {
     const root = await repository('sflow-root-retarget-literal-suffix-');
     const authorities = await mkdtemp(path.join(os.tmpdir(), 'sflow-literal-authorities-'));
     const original = path.join(authorities, 'authority?blue.git');
@@ -1757,7 +1761,9 @@ test('a corrupt durable preimage is refused before restoration', async () => {
   assert.equal(await readFile(path.join(root, target), 'utf8'), '{"status":"interrupted"}\n');
 });
 
-test('durable preimages restore executable modes as well as file bytes', async () => {
+test('durable preimages restore executable modes as well as file bytes', {
+  skip: process.platform === 'win32' ? 'POSIX executable permission bits are unavailable on Windows' : false
+}, async () => {
   const root = await repository('sflow-mode-rollback-');
   const target = path.join(root, 'governed.sh');
   await writeFile(target, '#!/bin/sh\necho before\n');
@@ -2754,8 +2760,10 @@ test('recovery restores directory modes and bounds rescue retention per subject'
     await writeFile(path.join(directory, 'nested', 'state.txt'), `interrupted ${index}\n`);
     await restorePublicationPreimage(root, snapshot, { subject, preserveCurrent: true });
   }
-  assert.equal((await stat(directory)).mode & 0o777, 0o750);
-  assert.equal((await stat(path.join(directory, 'nested'))).mode & 0o777, 0o710);
+  if (process.platform !== 'win32') {
+    assert.equal((await stat(directory)).mode & 0o777, 0o750);
+    assert.equal((await stat(path.join(directory, 'nested'))).mode & 0o777, 0o710);
+  }
 
   const rescueRoot = path.join(gitDir(root), 'singularity-flow', 'publication-rescues');
   const retained = (await readdir(rescueRoot)).filter((name) => name.startsWith('story--RESCUE-BOUNDS--'));

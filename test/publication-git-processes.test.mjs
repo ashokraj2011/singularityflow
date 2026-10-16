@@ -14,7 +14,7 @@ import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { initializeDefinition } from '../src/config.mjs';
 import { changes, commitIsolated, headAndBranch, admitExactProspectiveTree } from '../src/git.mjs';
@@ -44,7 +44,7 @@ async function repository(t, prefix) {
 
 /** Run `expression` in a fresh process with the subprocess probe; Git process counts by verb. */
 function probe(root, expression) {
-  const script = `const git = await import(${JSON.stringify(source('git.mjs'))}); ${expression};`;
+  const script = `const git = await import(${JSON.stringify(pathToFileURL(source('git.mjs')).href)}); ${expression};`;
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
     cwd: root, encoding: 'utf8',
     env: { ...process.env, SINGULARITY_FLOW_SUBPROCESS_PROBE: '1', SINGULARITY_FLOW_GIT_FACT_STORE: 'off' }

@@ -7,6 +7,11 @@ environment, bounded fixed arguments, and the existing checked-result boundary. 
 transport, arbitrary shell, caller-supplied checkout, or mutation owner. Their frozen call-site
 digests are updated with the regression tests; the registered-owner list is unchanged.
 
+The existing local warm-read fixture keeps the same two bounded process launchers. Its Git
+setup deadline is 120 seconds on Windows (30 elsewhere) with a 4 MiB output bound, after the
+10,000-file Windows setup timed out while staging CRLF-converted fixture files. This changes
+qualification setup only, not product command deadlines, Git policy or measured workload timing.
+
 `npm run check` runs `scripts/git-bypass-audit.mjs` as part of the release checks. The gate scans production JavaScript/TypeScript in `src/`, `bin/`, `apps/vscode/src/`, `plugin/extensions/`, and `scripts/`, plus installer/distribution shell wrappers and root/workspace npm script commands. Test fixtures are intentionally out of scope. The audit and aggregate check scripts themselves are excluded because they are check infrastructure, not production execution paths.
 
 The nine registered process/compatibility owners are listed in the audit script and recorded in `scripts/git-bypass-baseline.json`. Other observed sites are frozen by file, category count, and a digest of their normalized call expression and enclosing function. The 2026-09-18 snapshot contains 1,522 legacy sites in 194 files and 93 sites in registered owners. These are conservative **process/Git candidates**, not 1,615 actual Git spawns or a compliance claim; legacy `run(...)` sites include non-Git commands. Shell-wrapper candidates also include broad launcher keywords. The local-only `scripts/gal-read-benchmark.mjs` is explicitly excluded because its sole child-process site creates a temporary fixture, not a production Git path; its bounded behavior has a separate focused test. The registered `scripts/gal-matrix-cell.mjs` is qualification infrastructure, not an application Git-mutation owner.

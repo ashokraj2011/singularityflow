@@ -24,7 +24,10 @@ export async function createWarmReadFixture({ files = 0, branches = 0 } = {}) {
       SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(directory, 'mode.json'),
       SINGULARITY_FLOW_TEST_IDENTITY: 'Warm Read Tester',
       SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'chore', agent: 'developer' }) };
-    const git = (args, { cwd = repository } = {}) => execFileSync('git', args, { cwd, env, encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    const git = (args, { cwd = repository } = {}) => execFileSync('git', args, {
+      cwd, env, encoding: 'utf8', timeout: process.platform === 'win32' ? 120_000 : 30_000,
+      maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe']
+    }).trim();
     git(['init', '-q', '-b', 'main']);
     git(['config', 'user.name', 'Warm Read Tester']); git(['config', 'user.email', 'warm@example.invalid']);
     await mkdir(path.join(repository, 'singularity/templates/chore'), { recursive: true });

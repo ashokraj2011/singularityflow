@@ -28,6 +28,7 @@ export function printPhaseReview(review, { showArtifact = false } = {}) {
   if (review.testEvidence) {
     console.log(`Test evidence: ${review.testEvidence.status} · ${review.testEvidence.executions} module execution(s) · ${review.testEvidence.attempts} attempt(s)`);
     console.log(`  ${review.testEvidence.notice}`);
+    for (const risk of review.testEvidence.acceptedRisks ?? []) console.warn(`  Accepted risk: ${risk.words}`);
     if (review.testEvidence.acceptance) {
       console.log(`Acceptance evidence: ${review.testEvidence.acceptance.statement}`);
       for (const criterion of review.testEvidence.acceptance.criteria) {

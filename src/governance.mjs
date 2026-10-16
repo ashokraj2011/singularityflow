@@ -480,6 +480,8 @@ export async function runGovernanceGate(root, config, workflow, { terminal = fal
                 && phase.sourceBoundary !== 'test-automation'
                 ? workflow.resolution?.codeDelivery?.traceability?.sourceBindings ?? 'off' : 'off',
               pathContext: applicationPathContext(config, workflow),
+              // A run a step approver accepted could not execute any test, judged as of the Story's end.
+              testRunRisks: { workflow, at: terminalTransitionAt(workflow) },
               ...riskReplay
             });
             refuseEach('gate.code-delivery.replay', replay.errors.map((message) => `${phaseId} generation ${generation}: ${message}`), { phase: phaseId });

@@ -4065,8 +4065,9 @@ async function decisionCommand(positionals, options) {
   if (action === 'completeness') return decisionCompletenessCommand(positionals, options);
   if (action === 'plan') return decisionPlanCommand(positionals, options);
   if (action === 'risk') return decisionRiskCommand(positionals, options);
+  if (action === 'test-risk') return (await import('./commands/decision-test-risk.mjs')).decisionTestRiskCommand(positionals, options);
   if (action === 'witness') return decisionWitnessCommand(positionals, options);
-  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability, decision scope, decision completeness, decision plan, decision risk or decision witness.`,
+  throw new SingularityFlowError(`Unknown decision action '${action}'. Use decision show, decision choose, decision applicability, decision scope, decision completeness, decision plan, decision risk, decision test-risk or decision witness.`,
     { code: 'COMMAND_UNKNOWN' });
 }
 

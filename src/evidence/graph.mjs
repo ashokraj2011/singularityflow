@@ -61,8 +61,23 @@ async function loadAttempt(root, entry, phase, findings, label) {
   }
 }
 
+/**
+ * A delivery whose runs a step approver accepted could not execute any test reads as an accepted
+ * risk while every such decision is active, judged as of the Story's end once it has one.
+ */
+async function testRunRiskDisposition(workflow, evidence) {
+  const runs = ((evidence.status === 'ready' ? evidence.testExecutions : evidence.testRunRisks) ?? []).filter((entry) => entry?.testRunRisk);
+  if (!runs.length || !workflow) return null;
+  const [{ boundTestRunRiskActive }, { terminalTransitionAt }] = await Promise.all([
+    import('../test-run-risk.mjs'), import('../workflow-terminal-time.mjs')]);
+  const at = terminalTransitionAt(workflow);
+  if (!runs.every((entry) => boundTestRunRiskActive(workflow, entry.testRunRisk, { at }))) return null;
+  return { disposition: 'accepted-risk', observedOutcome: 'unavailable', source: 'test-run-risk',
+    decisions: [...new Set(runs.map((entry) => entry.testRunRisk.id))] };
+}
+
 /** The committed delivery evidence of one code phase: receipt, test receipts and dispositions. */
-async function loadDelivery(root, phase, findings) {
+async function loadDelivery(root, phase, findings, workflow = null) {
   const evidence = phase.deliveryEvidence;
   let receipt = null;
   if (evidence.receiptPath) {
@@ -98,7 +113,8 @@ async function loadDelivery(root, phase, findings) {
     generation: phase.generation,
     status: evidence.status ?? null,
     validation: evidence.validation ? { status: evidence.validation.status } : null,
-    testRecovery: evidence.testRecovery ? { disposition: evidence.testRecovery.disposition, observedOutcome: evidence.testRecovery.observedOutcome } : null,
+    testRecovery: evidence.testRecovery ? { disposition: evidence.testRecovery.disposition, observedOutcome: evidence.testRecovery.observedOutcome }
+      : await testRunRiskDisposition(workflow, evidence),
     acceptanceCriteria: evidence.acceptanceCriteria
       ? {
         bindings: (evidence.acceptanceCriteria.bindings ?? []).map((binding) => ({ clauseId: binding.clauseId, testSource: binding.testSource })),
@@ -331,7 +347,7 @@ export async function evidenceGraphFromAggregate(root, definition, workflow) {
   const deliveries = [];
   for (const id of workflow.phaseOrder ?? Object.keys(workflow.phases ?? {})) {
     const phase = workflow.phases[id];
-    if (phase?.deliveryEvidence) deliveries.push(await loadDelivery(root, phase, findings));
+    if (phase?.deliveryEvidence) deliveries.push(await loadDelivery(root, phase, findings, workflow));
   }
   const inspections = await loadInspections(root, directory, workflow, findings);
   const witnessRecords = await loadWitnessRecords(root, workflow);

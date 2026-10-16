@@ -3456,7 +3456,8 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
   if (!source || source.status !== 'approved' || source.deliveryEvidence?.status !== 'ready'
       || (source.deliveryEvidence?.validation?.status !== 'passed'
         && !(riskReference && ['unavailable', 'failed'].includes(source.deliveryEvidence.validation?.status)
-          && source.deliveryEvidence.validation.status === riskReference.observedOutcome))) {
+          && source.deliveryEvidence.validation.status === riskReference.observedOutcome)
+        && !await validationCarriedByTestRunRisk(workflow, source.deliveryEvidence?.validation))) {
     throw refuse('finish and approve the Code phase with passing structured tests first.');
   }
   const entry = [...(workflow.lineage?.submissions ?? [])].reverse().find((item) =>
@@ -3496,11 +3497,12 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
   } catch (error) {
     throw refuse(`the committed test receipt is invalid: ${error.message}.`);
   }
+  const carriedRuns = await testRunRiskCarried(workflow, receipt.testExecutions);
   if (receipt.status !== 'ready' || receipt.workId !== workflow.workItem.id || receipt.phase !== sourceId
       || Number(receipt.generation) !== Number(source.generation)
       || receipt.tree?.generationCommit !== source.generationCommit
       || !Array.isArray(receipt.testExecutions) || !receipt.testExecutions.length
-      || receipt.testExecutions.some((execution) => execution.status !== 'passed'
+      || receipt.testExecutions.some((execution) => execution.status !== 'passed' && !carriedRuns.has(execution)
         && !(riskReference && execution.kind === 'phase-validation-observation'
           && execution.status === riskReference.observedOutcome && ['unavailable', 'failed'].includes(execution.status)))) {
     throw refuse('the receipt does not describe the approved generation and passing executions.');
@@ -3531,6 +3533,7 @@ export async function assertPassedCodeDeliveryInput(root, config, workflow, phas
       ? workflow.resolution?.codeDelivery?.traceability?.sourceBindings ?? 'off' : 'off',
     evidenceCommit: packet.evidenceCommit,
     testRecovery: riskReference ? { config, workflow, operation: 'downstream' } : null,
+    testRunRisks: { workflow, at: nowIso() },
     pathContext: applicationPathContext(config, workflow)
   });
   if (!replay.valid || !replay.executions.length) {
@@ -3696,6 +3699,7 @@ export async function publishGeneration(root, config, workflow, {
     const testedSelection = deliveryPreflight.trpSelection ?? null;
     const testedRisk = deliveryPreflight.testRecovery ?? null;
     const testedAttempts = deliveryPreflight.preflightAttempts ?? [];
+    const testedRunRisks = deliveryPreflight.testRunRisks ?? null;
     // Tests are repository-owned programs and may generate or rewrite files. Rebind delivery
     // evidence after they finish so publication never commits bytes that were absent from the
     // preflight change set or retains hashes for bytes the test command changed.
@@ -3714,6 +3718,7 @@ export async function publishGeneration(root, config, workflow, {
       deliveryPreflight.trpSelection = testedSelection;
     }
     if (testedRisk) deliveryPreflight.testRecovery = testedRisk;
+    if (testedRunRisks) deliveryPreflight.testRunRisks = testedRunRisks;
     deliveryPreflight.preflightAttempts = testedAttempts;
   }
   // Auto adds an exact constraint to the ordinary Story transaction; it never owns a second
@@ -4332,7 +4337,8 @@ async function attachRequiredTestExecution(error, root, command, check) {
       : check?.status === 'passed' ? 'did not produce passing test evidence' : 'failed';
     const exit = Number.isInteger(check?.exitCode) ? ` (exit ${check.exitCode})` : '';
     refusal.message = `Required test command '${command.id}' ${outcome}${stage}${exit}. `
-      + 'See error.requiredTestExecution in --json for the command and bounded output.';
+      + 'See error.requiredTestExecution in --json for the command and bounded output.'
+      + (refusal.details?.testRunRisk?.guidance ? ` ${refusal.details.testRunRisk.guidance}` : '');
   }
   return refusal;
 }
@@ -4942,6 +4948,7 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
   });
   const passing = [];
   const attempts = [];
+  const runRisks = [];
   deliveryEvidence.preflightAttempts = attempts;
   try {
     for (const command of commands) {
@@ -4981,7 +4988,15 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
             await admitTestAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id);
             return { commands, checks: [], testRecovery: { observation, evaluation: accepted.evaluation } };
           }
-          throw new SingularityFlowError(`Required test command '${command.id}' was blocked before publication.`, { code: 'CODE_TEST_FAILED' });
+          // A step approver may have accepted that this command cannot run here [test-run risk].
+          const runRisk = await testRunRiskCover(workflow, phase, recorded?.attempt);
+          if (runRisk) {
+            runRisks.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, testRunRisk: runRisk });
+            passing.push(command);
+            continue;
+          }
+          throw await testRunRiskRefusal(workflow, phase, recorded?.attempt,
+            new SingularityFlowError(`Required test command '${command.id}' was blocked before publication.`, { code: 'CODE_TEST_FAILED' }));
         }
         if (check.status !== 'passed' || check.exitCode !== 0) {
           throw new SingularityFlowError(`Required test command '${command.id}' failed before publication.`, { code: 'CODE_TEST_FAILED' });
@@ -5020,9 +5035,47 @@ async function preflightCodeDeliveryTests(root, config, workflow, phase, deliver
       throw new SingularityFlowError(`No passing test command covers affected paths before publication: ${uncovered.join(', ')}`, { code: 'TEST_MODULE_UNCOVERED' });
     }
   }
+  if (runRisks.length) deliveryEvidence.testRunRisks = runRisks;
   // The publication commits this preflight and every earlier kept attempt of the step [E2G-016].
   await admitTestAttempts(root, workDirRelative(config, workflow.workItem.id), workflow.workItem.id, phase.id);
   return { commands, checks };
+}
+
+/** The binding of the active test-run risk decision that lets this attempt through, or null. */
+async function testRunRiskCover(workflow, phase, attempt) {
+  if (!attempt) return null;
+  const { coveringTestRunRisk, testRunRiskBinding } = await import('./test-run-risk.mjs');
+  const decision = coveringTestRunRisk(workflow, { phaseId: phase.id, attempt, at: nowIso() });
+  return decision ? testRunRiskBinding(decision) : null;
+}
+
+/** A refused run in which no test executed names the environment and the step approvers' route. */
+async function testRunRiskRefusal(workflow, phase, attempt, error) {
+  if (!attempt) return error;
+  const { testRunRiskRoute } = await import('./test-run-risk.mjs');
+  const route = testRunRiskRoute(workflow, { phaseId: phase.id, attempt, at: nowIso() });
+  if (route) error.details = { ...(error.details ?? {}), testRunRisk: route };
+  return error;
+}
+
+/** Whether a check or execution was let through by a test-run risk decision still active at `at`. */
+async function testRunRiskCarries(workflow, entry, at = nowIso()) {
+  if (!entry?.testRunRisk) return false;
+  const { boundTestRunRiskActive } = await import('./test-run-risk.mjs');
+  return boundTestRunRiskActive(workflow, entry.testRunRisk, { at });
+}
+
+/** The entries an active test-run risk decision carries at `at`, so synchronous checks can ask. */
+async function testRunRiskCarried(workflow, entries, at = nowIso()) {
+  const carried = new Set();
+  for (const entry of entries ?? []) if (await testRunRiskCarries(workflow, entry, at)) carried.add(entry);
+  return carried;
+}
+
+/** A validation that did not pass only because of runs an active test-run risk decision carries. */
+async function validationCarriedByTestRunRisk(workflow, validation, at = nowIso()) {
+  const open = (validation?.checks ?? []).filter((check) => check.status !== 'passed');
+  return open.length > 0 && (await testRunRiskCarried(workflow, open, at)).size === open.length;
 }
 
 async function submitPhaseTransition(root, config, workflow, {
@@ -5357,6 +5410,7 @@ async function submitPhaseTransition(root, config, workflow, {
           phaseId: phase.id, generation: phase.generation, epoch: testCommandEpochRun?.suffix ?? null
         }) : null;
         if (recorded) attemptHistory.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, status: recorded.attempt.status });
+        let runRisk = null;
         try {
           if (!check || check.status === 'skipped-warning') {
             throw new SingularityFlowError(`Required test command '${command.id}' was skipped.`, { code: 'CODE_TEST_SKIPPED' });
@@ -5366,31 +5420,45 @@ async function submitPhaseTransition(root, config, workflow, {
               { run: riskRun, check, result: qualityCommandResults.get(check) }) : null;
             if (observation) await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
               operation: 'submit', generation: phase.generation, observationSha256: observation.recordSha256 });
-            throw new SingularityFlowError(`Required test command '${command.id}' was blocked.`, { code: 'CODE_TEST_FAILED' });
+            // A step approver may have accepted that this command cannot run here [test-run risk].
+            runRisk = observation ? null : await testRunRiskCover(workflow, phase, recorded?.attempt);
+            if (!runRisk) throw await testRunRiskRefusal(workflow, phase, recorded?.attempt,
+              new SingularityFlowError(`Required test command '${command.id}' was blocked.`, { code: 'CODE_TEST_FAILED' }));
           }
-          if (check.status !== 'passed' || check.exitCode !== 0) {
-            throw new SingularityFlowError(`Required test command '${command.id}' failed.`, { code: 'CODE_TEST_FAILED' });
-          }
-          parsed = recorded.parsed ?? await parseTestResult(root, command, { startedAt: check.startedAt });
-          if (parsed.tests.skipped > 0 && riskRun && workflow.resolution.testRecovery.enabledRiskCategories.includes('reduced-coverage')) {
-            const observation = await captureStoryTestRiskObservation(root, config, workflow, phase,
-              { run: riskRun, check, result: qualityCommandResults.get(check) });
-            if (observation) await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
-              operation: 'submit', generation: phase.generation, observationSha256: observation.recordSha256 });
-          }
-          receipt = recorded.attempt;
-          const minimumPassed = Math.max(
-            parsed.minimumPassed,
-            workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1
-          );
-          if (receipt.tests.discovered < parsed.minimumDiscovered) {
-            throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
-          }
-          if (!testReceiptPassing(receipt, parsed.minimumDiscovered, minimumPassed)) {
-            throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence.`, { code: 'CODE_TEST_FAILED' });
+          if (runRisk) {
+            check.testRunRisk = runRisk;
+          } else {
+            if (check.status !== 'passed' || check.exitCode !== 0) {
+              throw new SingularityFlowError(`Required test command '${command.id}' failed.`, { code: 'CODE_TEST_FAILED' });
+            }
+            parsed = recorded.parsed ?? await parseTestResult(root, command, { startedAt: check.startedAt });
+            if (parsed.tests.skipped > 0 && riskRun && workflow.resolution.testRecovery.enabledRiskCategories.includes('reduced-coverage')) {
+              const observation = await captureStoryTestRiskObservation(root, config, workflow, phase,
+                { run: riskRun, check, result: qualityCommandResults.get(check) });
+              if (observation) await assertStoryTestRiskGate(root, config, workflow, { phaseId: phase.id,
+                operation: 'submit', generation: phase.generation, observationSha256: observation.recordSha256 });
+            }
+            receipt = recorded.attempt;
+            const minimumPassed = Math.max(
+              parsed.minimumPassed,
+              workflow.resolution?.codeDelivery?.tests?.minimumPassed ?? 1
+            );
+            if (receipt.tests.discovered < parsed.minimumDiscovered) {
+              throw new SingularityFlowError(`Required test command '${command.id}' discovered zero or too few tests.`, { code: 'CODE_TEST_ZERO_DISCOVERED' });
+            }
+            if (!testReceiptPassing(receipt, parsed.minimumDiscovered, minimumPassed)) {
+              throw new SingularityFlowError(`Required test command '${command.id}' did not produce passing executable-test evidence.`, { code: 'CODE_TEST_FAILED' });
+            }
           }
         } catch (error) {
           throw isolatedRunHint(await attachRequiredTestExecution(error, root, command, check), check);
+        }
+        if (runRisk) {
+          // The attempt is bound like a passing one, with the decision that let it through.
+          testExecutions.push({ commandId: command.id, attemptId: recorded.attempt.attemptId, receiptPath: recorded.path,
+            receiptSha256: recorded.sha256, status: recorded.attempt.status, affectedRoots: command.affectedRoots,
+            testRunRisk: runRisk });
+          continue;
         }
         testExecutions.push({
           commandId: command.id, attemptId: receipt.attemptId, receiptPath: recorded.path,
@@ -5430,12 +5498,12 @@ async function submitPhaseTransition(root, config, workflow, {
   });
   const validation = qualityValidationVerdict(phase.checks);
   const { failed, unavailable, unavailableRequired } = validation;
-  const unacceptedFailed = failed.filter(check => !retainedRisk
-    || check.trpObservationSha256 !== retainedRisk.observation.recordSha256);
+  const unacceptedFailed = failed.filter(check => (!retainedRisk
+    || check.trpObservationSha256 !== retainedRisk.observation.recordSha256) && !check.testRunRisk);
   const reviewableFailure = Boolean(phase.repairBudget && unacceptedFailed.length);
   if (unacceptedFailed.length && !reviewableFailure) errors.push(`Quality command failed: ${unacceptedFailed.map((check) => check.command).join(', ')}`);
-  const unacceptedUnavailable = unavailableRequired.filter(check => !retainedRisk
-    || check.trpObservationSha256 !== retainedRisk.observation.recordSha256);
+  const unacceptedUnavailable = unavailableRequired.filter(check => (!retainedRisk
+    || check.trpObservationSha256 !== retainedRisk.observation.recordSha256) && !check.testRunRisk);
   if (unacceptedUnavailable.length) {
     errors.push(`Required quality command was unavailable: ${unacceptedUnavailable.map((check) => check.command).join(', ')}`);
   }
@@ -5474,6 +5542,7 @@ async function submitPhaseTransition(root, config, workflow, {
       })),
       checks: phase.checks.map((check) => ({ id: check.id, status: check.status,
         ...(check.testRuntime ? { testRuntime: check.testRuntime } : {}),
+        ...(check.testRunRisk ? { testRunRisk: check.testRunRisk } : {}),
         sourceTreeSha256: check.sourceTreeSha256,
         ...(check.testInputSha256 ? { testInputSha256: check.testInputSha256 } : {}) })),
       status: failed.length ? 'failed' : unavailableRequired.length ? 'unavailable' : 'passed',
@@ -6005,11 +6074,13 @@ export async function approvePhase(root, config, workflow, {
     required: (phase.qualityCommands ?? []).some((check) => (check.requirement ?? 'required') === 'required')
   });
   const failedChecks = validation.failed;
-  const unacceptedFailed = failedChecks.filter(check => !approvalRisk
-    || check.trpObservationSha256 !== riskReference.observationSha256);
+  // Runs a step approver accepted could not execute any test stay visible and carry the step [test-run risk].
+  const carriedChecks = await testRunRiskCarried(workflow, submittedReview.checks);
+  const unacceptedFailed = failedChecks.filter(check => (!approvalRisk
+    || check.trpObservationSha256 !== riskReference.observationSha256) && !carriedChecks.has(check));
   const unavailableRequiredChecks = validation.unavailableRequired;
-  const unacceptedUnavailable = unavailableRequiredChecks.filter(check => !approvalRisk
-    || check.trpObservationSha256 !== riskReference.observationSha256);
+  const unacceptedUnavailable = unavailableRequiredChecks.filter(check => (!approvalRisk
+    || check.trpObservationSha256 !== riskReference.observationSha256) && !carriedChecks.has(check));
   if (unacceptedFailed.length || unacceptedUnavailable.length) {
     throw new SingularityFlowError(
       `Phase '${phase.id}' cannot be approved because ${failedChecks.length} quality command(s) failed and ${unavailableRequiredChecks.length} required command(s) were unavailable. Reject it to an allowed repair phase.`,
@@ -6021,7 +6092,8 @@ export async function approvePhase(root, config, workflow, {
     const validation = phase.deliveryEvidence?.validation;
     const currentTree = currentSourceTreeSha256;
     if (!validation || (validation.status !== 'passed' && !(approvalRisk
-      && validation.status === riskReference.observedOutcome && ['unavailable', 'failed'].includes(validation.status)))) {
+      && validation.status === riskReference.observedOutcome && ['unavailable', 'failed'].includes(validation.status))
+      && !await validationCarriedByTestRunRisk(workflow, validation))) {
       throw new SingularityFlowError(
         `Phase '${phase.id}' cannot be approved without a passing code-delivery validation receipt.`,
         { code: 'CODE_DELIVERY_VALIDATION_REQUIRED' }
@@ -6041,6 +6113,7 @@ export async function approvePhase(root, config, workflow, {
     if (submittedReview.sourceTreeSha256 !== currentTree
         || submittedReview.submissionEvidence?.checksSha256 !== submittedChecksSha256
         || (submittedReview.checks ?? []).some((check) => ['failed', 'blocked'].includes(check.status)
+          && !carriedChecks.has(check)
           && !(approvalRisk && check.trpObservationSha256 === riskReference.observationSha256))) {
       throw new SingularityFlowError(
         `Phase '${phase.id}' immutable review packet does not bind the currently validated source tree and passing checks.`,
@@ -6067,10 +6140,11 @@ export async function approvePhase(root, config, workflow, {
       console.warn(`Warning: phase '${phase.id}' uses legacy inline code-delivery validation; regenerate to obtain v2 assurance.`);
     } else {
       const receiptSha256 = createHash('sha256').update(canonicalJson(receipt)).digest('hex');
+      const carriedRuns = await testRunRiskCarried(workflow, receipt.testExecutions);
       if (receipt.status !== 'ready'
         || receiptSha256 !== submittedReview.submissionEvidence?.codeDelivery?.sha256
         || receipt.tree?.generationCommit !== phase.generationCommit
-        || (receipt.testExecutions ?? []).some((execution) => execution.status !== 'passed'
+        || (receipt.testExecutions ?? []).some((execution) => execution.status !== 'passed' && !carriedRuns.has(execution)
           && !(approvalRisk && execution.kind === 'phase-validation-observation'
             && execution.status === riskReference.observedOutcome && ['unavailable', 'failed'].includes(execution.status)))) {
         throw new SingularityFlowError(
@@ -6104,6 +6178,7 @@ export async function approvePhase(root, config, workflow, {
           ? workflow.resolution?.codeDelivery?.traceability?.sourceBindings ?? 'off' : 'off',
         evidenceCommit: submittedReview.evidenceCommit,
         testRecovery: approvalRisk ? { config, workflow, operation: 'approve' } : null,
+        testRunRisks: { workflow, at: nowIso() },
         pathContext: applicationPathContext(config, workflow)
       });
       if (!replay.valid) {
@@ -6620,8 +6695,11 @@ export async function previewTestingRepair(root, config, workflow) {
   const riskReference = evidence?.testRecovery;
   const retainedRiskOutcome = riskReference && ['unavailable', 'failed'].includes(evidence.validation?.status)
     && evidence.validation.status === riskReference.observedOutcome;
+  // A run a step approver accepted could not execute any test counts as it stood when it was validated.
+  const runRiskAt = evidence?.validation?.validatedAt ?? nowIso();
+  const runRiskOutcome = await validationCarriedByTestRunRisk(workflow, evidence?.validation, runRiskAt);
   if (code?.status !== 'approved' || (!approval && !approvalNotRequired && !approvalWaived) || !submission || !evidence
-      || evidence.status !== 'ready' || (evidence.validation?.status !== 'passed' && !retainedRiskOutcome)
+      || evidence.status !== 'ready' || (evidence.validation?.status !== 'passed' && !retainedRiskOutcome && !runRiskOutcome)
       || !code.generationCommit || !evidence.receiptPath || !evidence.receiptSha256) {
     throw new SingularityFlowError(
       'Review repair needs an approved Code generation with committed passing or historically authorized risk evidence.',
@@ -6654,13 +6732,14 @@ export async function previewTestingRepair(root, config, workflow) {
       throw new Error('receipt digest differs');
     }
     receipt = readRecord('code-delivery', stored).record;
+    const carriedRuns = await testRunRiskCarried(workflow, receipt.testExecutions, runRiskAt);
     if (receipt.status !== 'ready' || receipt.workId !== workflow.workItem.id
         || receipt.phase !== code.id
         || (riskReference && canonicalJson(receipt.testRecovery) !== canonicalJson(riskReference))
         || Number(receipt.generation) !== Number(code.generation)
         || receipt.tree?.generationCommit !== code.generationCommit
         || !Array.isArray(receipt.testExecutions) || !receipt.testExecutions.length
-        || receipt.testExecutions.some((execution) => execution.status !== 'passed'
+        || receipt.testExecutions.some((execution) => execution.status !== 'passed' && !carriedRuns.has(execution)
           && !(retainedRiskOutcome && execution.kind === 'phase-validation-observation'
             && execution.status === riskReference.observedOutcome))) {
       throw new Error('receipt does not describe the approved Code generation and passing or historically authorized risk evidence');

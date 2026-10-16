@@ -13,7 +13,7 @@ related:
   - recovery
   - approvals
   - configuration
-version: 17
+version: 18
 ---
 Test and Recovery (TRP) is an explicitly enabled pilot for a Story's test policy, baseline repair and phase issues. It keeps what a check observed separate from the decision about whether work may continue. A failed test remains failed even when a current, authorized exception permits a named transition. Normal phase approval remains separate.
 
@@ -190,6 +190,23 @@ Enable `nonessential-document` and declare `documentObligations`, for example `{
 Inspect with `story test-policy risks --work-id <ID> --phase <PHASE> --obligation release-notes --operation publish --json`. Pass the same `--obligation` when reviewing the returned exact issue. Each transition requires its own current decision. Missing/incomplete documents stay failed in the immutable review packet, with their observation and decision references; changing the document or candidate invalidates the old exception. Correcting the document clears its content finding but does not bypass normal generation freshness. Inspection writes only a bounded local diagnostic receipt; it neither edits the document nor accepts risk.
 
 Use the same inspection, delegated terminal review, revocation and transition-specific commands below. The decision records exact failed IDs, semantics, cause, candidate, expiry, owner and remediation. The original observation keeps `observedOutcome: failed` and `executionOrigin: executed`; later consumers label its use `reused`, never a fresh passing run. Its raw report is retained in the governed review transaction. Passing WEL witnesses are not fabricated from accepted failures. Command amendments still require their own fresh validation.
+
+### When the environment cannot run the tests
+
+Sometimes a required test command cannot run on the machine doing the work: Maven or Gradle cannot reach the dependency repository, the JDK is missing, a proxy refuses the connection, or Docker is not available for Testcontainers. The run fails or is blocked before a single test executes. Publication and submission refuse it with `CODE_TEST_FAILED`, and when no test executed the refusal says so and names the way out in `error.details.testRunRisk`.
+
+Fix the environment and run it again where you can. Where you cannot, a person who approves the step accepts the risk in their own terminal:
+
+```text
+singularity-flow decision test-risk <WORK-ID> --phase <PHASE> --command <COMMAND-ID> --cause "<what in the environment stops it>" --reason "<why the risk is acceptable>" --expires YYYY-MM-DD
+```
+
+- **Who:** someone in an approval group of that step. A step nobody approves (quick-fix's implement) is answered for by the next step on the route that has approvers. An agent turn is refused; it shows the command and stops.
+- **What it needs:** a recorded run of that command that failed or was blocked with no test executed. The cause is 10 to 300 characters, the reason 20 to 1000, and the expiry at most 90 days ahead.
+- **What it allows:** the tests still run at every publication and submission. Only a run of the same command in which no test executed is let through. A run in which tests execute and fail is never covered, and a changed command needs a new decision.
+- **How long:** the step then carries through approval, later steps and Story completion while the decision is active. The evidence matrix shows its criteria as satisfied with an exception, never as passed. Once the decision expires or is revoked (`decision test-risk --revoke TRR-001 --reason TEXT`), the next gate refuses again; a new decision on the same command carries the runs an earlier one let through.
+
+This needs no test-policy agreement at intake and works on any Story. The test-policy exception below is narrower and stricter: it covers only a missing executable, needs an agreement and named risk reviewers, and takes a decision for each transition.
 
 ### Review an unavailable runner without declaring tests passed
 

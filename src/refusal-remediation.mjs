@@ -229,8 +229,23 @@ function requiredTestFailureSteps(argv, error) {
       'diagnostic', '/sf-logs'),
     step('repair-required-test',
       failure?.guidance ?? 'Repair the reported test failure or runtime condition before retrying. Do not repeat an unchanged failing run.',
-      null, 'remediation')
-  ];
+      null, 'remediation'),
+    testRunRiskStep(error)
+  ].filter(Boolean);
+}
+
+/**
+ * A run in which no test executed may be the environment's doing. Only a person who approves the
+ * step can accept that risk, in their own terminal; the agent is refused, so it shows the command.
+ */
+function testRunRiskStep(error) {
+  const route = error?.details?.testRunRisk;
+  const phase = lowerKebab(route?.phase);
+  if (!route?.eligible || !phase || typeof route.command !== 'string') return null;
+  return step('accept-test-run-risk',
+    `If this environment cannot run the tests (no test executed), a person who approves ${phase} can accept the risk in their own terminal; an agent cannot. `
+      + `They name the cause, why it is acceptable and an expiry; the tests still run every time and only a run in which no test executed is let through: ${redactDiagnosticText(route.command).slice(0, 600)}`,
+    null, 'remediation');
 }
 
 function skillHostPrerequisiteSteps(error, context) {
@@ -1082,6 +1097,12 @@ export function refusalDetails(details) {
   if (obligations.length) projected.obligations = obligations;
   const gate = projectGateRefusal(details.gate);
   if (gate) projected.gate = gate;
+  // A run in which no test executed: the step approvers' risk route, so every surface can name it.
+  const runRisk = details.testRunRisk;
+  if (runRisk?.eligible === true && text(runRisk.phase) && text(runRisk.commandId)) {
+    projected.testRunRisk = compact({ eligible: true, phase: text(runRisk.phase), commandId: text(runRisk.commandId),
+      decision: text(runRisk.decision), lapsed: text(runRisk.lapsed), command: text(runRisk.command) });
+  }
   // Located workflow.yml problems, so every surface can point at the exact line and its fix.
   const position = (value) => (Number.isSafeInteger(value) && value > 0 ? value : null);
   const configurationProblems = list(details.configurationProblems, (problem) => (problem && typeof problem === 'object' ? compact({

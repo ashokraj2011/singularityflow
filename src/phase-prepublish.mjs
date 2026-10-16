@@ -300,7 +300,10 @@ async function staticPublicationBlockers(root, config, workflow, phase, { retain
   if (sourceId) {
     const source = workflow.phases?.[sourceId];
     let acceptedUnavailable = false;
-    if (source?.deliveryEvidence?.testRecovery) {
+    // A Code step carried by an accepted risk (TRP, or runs its approvers accepted could not
+    // execute any test) is judged by the same gate the step itself will meet.
+    if (source?.deliveryEvidence?.testRecovery
+        || (source?.deliveryEvidence?.validation?.checks ?? []).some((check) => check?.testRunRisk)) {
       try {
         const { assertPassedCodeDeliveryInput } = await import('./state.mjs');
         await assertPassedCodeDeliveryInput(root, config, workflow, phase);

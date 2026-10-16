@@ -742,6 +742,25 @@ test('a skills audit left alone does not hold its step, whether its prompt was c
   });
 });
 
+// Composition writes the prompt record and its snapshot as a pair. A session stopped between the two
+// leaves one half; composition is the repair (it keeps the half only when its fresh candidate matches),
+// but the half was held for a person and that hold refused the composition.
+test('an interrupted prompt pair goes back to composition instead of a person', async t => {
+  for (const missing of ['snapshot', 'receipt']) await t.test(missing, async t => {
+    const item = await fixture(t, { customPhase: 'qa-intake' });
+    assert.equal(completeAgentResult(item.invoke('phase', 'enter', '--compose', '--for-agent', '--json').stdout).contextComposition, 'delivered');
+    const record = 'team/stories/ENTRY-1/context/qa-intake-gen1.json';
+    const prompt = 'team/stories/ENTRY-1/context/prompts/qa-intake-gen1.md';
+    const before = { record: await readFile(path.join(item.root, record), 'utf8'), prompt: await readFile(path.join(item.root, prompt), 'utf8') };
+    await unlink(path.join(item.root, missing === 'snapshot' ? prompt : record));
+    const entry = completeAgentResult(item.invoke('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
+    assert.deepEqual(entry.contextAdmission.blockers, []);
+    assert.equal(entry.contextComposition, 'delivered');
+    assert.equal(await readFile(path.join(item.root, prompt), 'utf8'), before.prompt, 'the repaired snapshot is the composed bytes');
+    assert.equal(JSON.parse(await readFile(path.join(item.root, record), 'utf8')).renderedSha256, JSON.parse(before.record).renderedSha256);
+  });
+});
+
 // A step writes more than its primary artifact: the other members of its artifact set (review notes,
 // task maps, evidence folders) and files below its own artifact directory, which publication
 // registers and commits. Entry read them as somebody else's work and held the step for a person.

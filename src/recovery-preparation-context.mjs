@@ -1,5 +1,5 @@
 /** Recognize current-generation preparation bytes, never publication or adoption authority. */
-import { readFile } from 'node:fs/promises';
+import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { readPromptGeneration } from './inject.mjs';
@@ -108,15 +108,25 @@ export async function expectedPreparationContextPaths(root, config, workflow, ph
 
   let composed;
   try {
-    if (!await regularContextFile(root, recordPath) || !await regularContextFile(root, promptPath)) return expected;
+    // No links and no unbounded reads, checked before the pair is read; a missing half is reported below.
+    for (const relative of [recordPath, promptPath]) {
+      if (await lstat(path.join(root, relative)).then(() => true, () => false) && !await regularContextFile(root, relative)) return expected;
+    }
     composed = await readPromptGeneration(root, workflow, phase, {
       workDir: path.join(root, itemRoot)
     });
     const agents = workflow.resolution?.agents ?? config.agents ?? {};
     if (!composed?.record.agent || !Object.hasOwn(agents, composed.record.agent)) return expected;
     expected.push(recordPath, promptPath);
-  } catch {
-    // Missing, unsupported, malformed, interrupted, or hash-mismatched pairs remain manual.
+  } catch (error) {
+    // One half of an interrupted pair is composition's to repair: it recomposes and keeps the half
+    // only when the fresh candidate matches it exactly, and refuses otherwise. Holding the half for a
+    // person refused that composition, so the step could never continue. Unsupported, malformed or
+    // hash-mismatched pairs remain manual.
+    const { hasRecord, hasPrompt } = error?.details ?? {};
+    const half = error?.code === 'PROMPT_SNAPSHOT_INTEGRITY_FAILED' && typeof hasRecord === 'boolean'
+      && typeof hasPrompt === 'boolean' && hasRecord !== hasPrompt ? (hasRecord ? recordPath : promptPath) : null;
+    if (half && changedPaths.includes(half) && await safeContextFile(root, half)) expected.push(half);
     return expected;
   }
 

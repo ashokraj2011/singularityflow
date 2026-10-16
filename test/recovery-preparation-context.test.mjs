@@ -67,12 +67,19 @@ test('recovery never admits wrong Story, phase, generation, agent, schema, or sn
   });
 });
 
-test('recovery leaves a tampered or incomplete prompt pair manual', async t => {
+test('recovery leaves a tampered prompt pair manual and hands an interrupted half to composition', async t => {
   const value = await fixture(t);
   await writeFile(path.join(value.root, value.recorded.promptFile), '# Tampered prompt\n');
   assert.deepEqual(await value.inspect(), []);
+  // Composition repairs an interrupted pair only when its fresh candidate matches the surviving half
+  // byte for byte; holding the half for a person refused that composition.
   await unlink(path.join(value.root, value.recorded.promptFile));
-  assert.deepEqual(await value.inspect(), []);
+  assert.deepEqual(await value.inspect(), [value.recorded.file]);
+  const record = await readFile(path.join(value.root, value.recorded.file));
+  await unlink(path.join(value.root, value.recorded.file));
+  await writeFile(path.join(value.root, value.recorded.promptFile), value.recorded.text);
+  assert.deepEqual(await value.inspect(), [value.recorded.promptFile]);
+  await writeFile(path.join(value.root, value.recorded.file), record);
   await writeFile(path.join(value.root, value.recorded.promptFile), value.recorded.text);
   await writeFile(path.join(value.root, value.recorded.file), '{invalid JSON');
   assert.deepEqual(await value.inspect(), []);

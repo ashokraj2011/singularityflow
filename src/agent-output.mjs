@@ -133,12 +133,29 @@ export function agentAct(result) {
       { command: result.commands.publish, ...(result.commandGuidance?.publish ? { commandGuidance: result.commandGuidance.publish } : {}), reason: 'Publish this draft.' });
     const count = Array.isArray(result.findings) ? result.findings.length : null;
     return { state: 'correct', do: null, read: ['findings', 'correction', 'traceabilityRepair', 'repairLoop'],
-      said: oneLine(`${result.status}${count == null ? '' : ` with ${count} finding${count === 1 ? '' : 's'}`}: ${result.correction?.guidance ?? 'fix the listed findings in this draft, then recheck once.'}`) };
+      said: oneLine(`${result.status}${count == null ? '' : ` with ${count} finding${count === 1 ? '' : 's'}`}: ${result.correction?.guidance ?? 'fix the listed findings in this draft, then recheck once.'}`),
+      ...correctionList(result.findings) };
   }
   const action = genericAction(result);
   const state = result.classification === 'convergence-advance-required' ? 'confirm-review' : 'next';
   const said = oneLine(result.reason ?? result.agentInstruction ?? (result.classification ? `Classification: ${result.classification}.` : '')) || null;
   return withRoute({ state: action ? state : 'read', said, do: null }, action);
+}
+
+/**
+ * The findings to fix, in `act` itself. A correction said only "correct the cited findings": an
+ * agent whose host showed the start of the result never saw which, edited blind and reran
+ * prepublish ten times while the count went 1, 3, 2, 4. Each line names the place and the fix.
+ */
+function correctionList(findings) {
+  if (!Array.isArray(findings) || !findings.length) return {};
+  const MAXIMUM = 6;
+  const fix = findings.slice(0, MAXIMUM).map((finding) => {
+    const where = finding?.path ? ` at ${finding.path}${finding.line ? `:${finding.line}` : ''}` : '';
+    return oneLine(`${finding?.code ?? 'finding'}${where}: ${finding?.message ?? ''}`, 320);
+  });
+  if (findings.length > MAXIMUM) fix.push(`+${findings.length - MAXIMUM} more in findings`);
+  return { fix };
 }
 
 /**

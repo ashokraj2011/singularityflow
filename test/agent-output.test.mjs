@@ -279,3 +279,17 @@ test('every route form given --for-agent is accepted, fits the host, and a pause
   assert.equal(JSON.parse(run(['pause', 'status', '--for-agent', '--json']).stdout).resultType, 'command-result');
   assert.match(run(['status', 'QF-1', '--for-agent']).stdout, /paused/iu, 'text mode answers too');
 });
+
+test('a prepublish correction names each finding to fix in act itself', () => {
+  // The correction once said only "correct the cited findings": an agent whose host showed the start
+  // of the result edited blind and reran prepublish ten times while the count went 1, 3, 2, 4.
+  const findings = Array.from({ length: 8 }, (_, index) => ({ code: `specification.example-${index}`,
+    path: 'singularity/work-items/W/artifacts/intake/intake.md', line: index + 10, message: `Row ${index + 1} names an unknown clause.` }));
+  const act = agentAct({ resultType: 'sflow-phase-prepublish', status: 'correction-required', workId: 'W', phase: 'intake', findings,
+    correction: { guidance: 'Correct the cited findings, then rerun prepublish.' } });
+  assert.equal(act.state, 'correct');
+  assert.equal(act.fix.length, 7);
+  assert.equal(act.fix[0], 'specification.example-0 at singularity/work-items/W/artifacts/intake/intake.md:10: Row 1 names an unknown clause.');
+  assert.equal(act.fix.at(-1), '+2 more in findings');
+  assert.equal(agentAct({ resultType: 'sflow-phase-prepublish', status: 'correction-required', findings: [] }).fix, undefined);
+});

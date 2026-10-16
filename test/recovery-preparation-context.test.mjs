@@ -196,6 +196,49 @@ test('records the open step writes are its own only when they name this Story, s
     itemRoot: value.itemRoot, generation: 2, changedPaths: owned }), [], 'another generation owns nothing here');
 });
 
+test('convergence, spec, skill-copy and repository records SFlow commands write are recognised by identity', async t => {
+  const value = await fixture(t);
+  const context = `${value.itemRoot}/context`;
+  const put = async (relative, content) => {
+    await mkdir(path.dirname(path.join(value.root, relative)), { recursive: true });
+    await writeFile(path.join(value.root, relative), typeof content === 'string' ? content : JSON.stringify(content));
+    return relative;
+  };
+  const skill = '# Skill text\n';
+  const skillSha = createHash('sha256').update(skill).digest('hex');
+  // A published scope step in rework: spec commands write at its published generation, 2.
+  const workflow = { ...value.workflow, phases: { [value.phase.id]: value.phase,
+    scope: { id: 'scope', generation: 2, status: 'in_progress' } } };
+  const convergence = { ...value.phase, requiredArtifact: { path: 'artifacts/convergence/convergence.md', kind: 'convergence-report' } };
+  const owned = [
+    await put(`${context}/spec-indexes/scope-gen2.json`, { workId: 'CTX-1', phase: 'scope', generation: 2 }),
+    await put(`${context}/claims/scope-gen2-planned.json`, { workId: 'CTX-1', phase: 'scope', generation: 2 }),
+    await put(`${context}/spec-quality/scope-gen2-assisted.json`, { workId: 'CTX-1' }),
+    await put(`${context}/acceptance/${value.phase.id}-gen1.json`, { workId: 'CTX-1', phase: value.phase.id, generation: 1 }),
+    await put(`${context}/agent-snapshots/architect/qa-checklist-${skillSha}.md`, skill),
+    await put('.vscode/mcp.json', '{"servers":{}}\n'),
+    await put('docs/knowledge/confirmations.yml', 'reviews:\n  - id: k1\n    status: confirmed\n')
+  ];
+  const foreign = [
+    await put(`${context}/spec-indexes/scope-gen1.json`, { workId: 'CTX-1', phase: 'scope', generation: 1 }),
+    await put(`${context}/spec-indexes/unknown-gen1.json`, { workId: 'CTX-1', phase: 'unknown', generation: 1 }),
+    await put(`${context}/acceptance/scope-gen2.json`, { workId: 'OTHER', phase: 'scope', generation: 2 }),
+    await put(`${context}/spec-quality/scope-gen2.json`, { workId: 'CTX-1' }),
+    await put(`${context}/agent-snapshots/architect/edited-${skillSha}.md`, '# Edited\n'),
+    await put(`${context}/agent-snapshots/stranger/qa-checklist-${skillSha}.md`, skill),
+    await put(`${context}/convergence/iteration-1.json`, { workId: 'CTX-1', iteration: 1 }),
+    await put('docs/knowledge/notes.yml', 'reviews: []\n'),
+    await put('README.md', '# Changed\n')
+  ];
+  const changedPaths = [...owned, ...foreign];
+  const inspect = (phase, flow = workflow) => expectedStepOwnedPaths(value.root, value.config, flow, phase, {
+    itemRoot: value.itemRoot, generation: 1, changedPaths });
+  assert.deepEqual(new Set(await inspect(value.phase)), new Set(owned), 'a convergence record outside a convergence step stays manual');
+  assert.ok((await inspect(convergence)).includes(`${context}/convergence/iteration-1.json`));
+  await put('docs/knowledge/confirmations.yml', 'reviews:\n  - id: k1\n    status: guessed\n');
+  assert.ok(!(await inspect(value.phase)).includes('docs/knowledge/confirmations.yml'), 'not a confirmations file');
+});
+
 test('a step owns its artifact directory only when no other step keeps artifacts there', async t => {
   const value = await fixture(t);
   const artifact = relative => ({ requiredArtifact: { path: relative } });

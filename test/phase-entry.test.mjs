@@ -804,6 +804,18 @@ test('answers recorded before a recomposition are re-bound by the person, not he
   assert.equal(resumed.authoringAllowed, true);
 });
 
+// The POC intake template tells the person to run mcp scaffold before approving intake. It writes
+// .vscode/mcp.json, which publication never registers, so the hold it caused would last for every step.
+test('editor configuration written by mcp scaffold does not hold a document step', async t => {
+  const item = await fixture(t, { customPhase: 'qa-intake' });
+  const scaffold = item.invoke('mcp', 'scaffold', 'playwright');
+  assert.equal(scaffold.status, 0, scaffold.stderr || scaffold.stdout);
+  assert.match(git(item.root, 'status', '--porcelain=v1', '--untracked-files=all'), /\.vscode\/mcp\.json/);
+  const entry = completeAgentResult(item.invoke('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
+  assert.deepEqual(entry.contextAdmission.blockers, []);
+  assert.equal(entry.contextComposition, 'delivered');
+});
+
 // A step writes more than its primary artifact: the other members of its artifact set (review notes,
 // task maps, evidence folders) and files below its own artifact directory, which publication
 // registers and commits. Entry read them as somebody else's work and held the step for a person.

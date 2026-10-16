@@ -9,6 +9,11 @@ import { readBoundSpecificationClaimMap } from './specifications.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { snapshot } from './util.mjs';
 import { memberRoot, resolvedArtifactSet } from './artifact-sets.mjs';
+import { isConvergencePhase } from './phase-roles.mjs';
+import YAML from 'yaml';
+
+/** knowledge/confirm.mjs CONFIRMATIONS_PATH, kept here so recovery does not load the knowledge model. */
+const KNOWLEDGE_CONFIRMATIONS_PATH = 'docs/knowledge/confirmations.yml';
 
 const MAX_CONTEXT_BYTES = 32 * 1024 * 1024;
 
@@ -205,9 +210,10 @@ export async function expectedStepOwnedPaths(root, config, workflow, phase, {
   itemRoot, generation, changedPaths
 }) {
   if (generation !== nextPhaseGeneration(phase)) return [];
-  const candidates = changedPaths.filter(relative => relative.startsWith(`${itemRoot}/`)
-    && !relative.split('/').includes('..'));
-  if (!candidates.length) return [];
+  const safePath = relative => !relative.split('/').includes('..');
+  const candidates = changedPaths.filter(relative => relative.startsWith(`${itemRoot}/`) && safePath(relative));
+  const outside = changedPaths.filter(relative => !relative.startsWith(`${itemRoot}/`) && safePath(relative));
+  if (!candidates.length && !outside.length) return [];
   const workId = workflow.workItem?.id;
   const admitted = new Set();
   const admit = async relative => { if (await safeContextFile(root, relative)) admitted.add(relative); };
@@ -238,9 +244,24 @@ export async function expectedStepOwnedPaths(root, config, workflow, phase, {
       const record = await contextJson(root, relative);
       if (record?.kind === 'work-interval-baseline' && record.workId === workId && record.phaseId === phase.id
           && record.generation === generation) await admit(relative);
-    } else if ([`spec-indexes/${step}.json`, `claims/${step}-planned.json`].includes(name)) {
-      const record = await contextJson(root, relative);
-      if (record?.phase === phase.id && record.generation === generation && (record.workId ?? workId) === workId) await admit(relative);
+    } else if ((match = /^(spec-indexes|claims|spec-quality|acceptance)\/(.+)-gen(\d+)(-planned|-assisted)?\.json$/u.exec(name))
+        && ({ 'spec-indexes': '', claims: '-planned', 'spec-quality': '-assisted', acceptance: '' })[match[1]] === (match[4] ?? '')) {
+      // spec index, spec claims planned, spec analyze --assisted and spec acceptance write these for any
+      // step of the Story, at its published generation (or this step's next one).
+      const [, , stepId, number] = match;
+      const target = stepId === phase.id ? phase : workflow.phases?.[stepId];
+      const at = Number(number);
+      const record = target && (at === Math.max(1, Number(target.generation ?? 0)) || (stepId === phase.id && at === generation))
+        ? await contextJson(root, relative) : null;
+      if (record && (record.workId ?? workId) === workId && (record.phase ?? stepId) === stepId
+          && (record.generation ?? at) === at) await admit(relative);
+    } else if (/^convergence\/(?:legacy\/)?[^/]+\.json$/u.test(name)) {
+      // Convergence iterations, assisted candidates and legacy archives, written by prepare on this step.
+      if (isConvergencePhase(phase) && (await contextJson(root, relative))?.workId === workId) await admit(relative);
+    } else if ((match = /^agent-snapshots\/([^/]+)\/[^/]+-(?:sha256:)?([0-9a-f]{64})\.md$/u.exec(name))) {
+      // A skill copy is named by the hash of its exact text: valid on its own, with or without its audit.
+      if (Object.hasOwn(workflow.resolution?.agents ?? config.agents ?? {}, match[1]) && await safeContextFile(root, relative)
+          && (await snapshot(path.join(root, relative))).sha256 === match[2]) admitted.add(relative);
     } else if (name.startsWith('remote-output-') && name.endsWith(`-${step}.json`)) {
       if ((phase.remoteOutputs ?? []).some(output => output.generation === generation
         && name === `remote-output-${output.agent}-${output.resource}-${step}.json`)) await admit(relative);
@@ -264,6 +285,20 @@ export async function expectedStepOwnedPaths(root, config, workflow, phase, {
         validateAstDerivationManifest(await contextJson(root, relative));
         await admit(relative);
       } catch { /* An invalid derivation stays for review. */ }
+    }
+  }
+  for (const relative of outside) {
+    if (/^\.(?:vscode|idea)\//u.test(relative)) {
+      // Editor configuration (mcp scaffold writes .vscode/mcp.json): publication never registers it, so
+      // holding a step for it would hold every later step too.
+      await admit(relative);
+    } else if (relative === KNOWLEDGE_CONFIRMATIONS_PATH) {
+      // wm knowledge confirm|correct|reject: the person's review of repository knowledge (guidance only).
+      try {
+        const parsed = YAML.parse(await readFile(path.join(root, relative), 'utf8'));
+        if (parsed && Object.keys(parsed).every(key => key === 'reviews') && Array.isArray(parsed.reviews)
+            && parsed.reviews.every(entry => ['confirmed', 'corrected', 'rejected'].includes(entry?.status))) await admit(relative);
+      } catch { /* Not a confirmations file: it stays for review. */ }
     }
   }
   return [...admitted];

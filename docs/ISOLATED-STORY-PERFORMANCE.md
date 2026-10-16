@@ -1,5 +1,9 @@
 # Isolated Story creation performance
 
+For the later fresh-request Git batching, shared configuration and VS Code preparation work, see
+[First-request isolated Story performance](FIRST-REQUEST-STORY-PERFORMANCE.md). The measurements
+below remain the earlier parallel-checkout comparison.
+
 This follow-up profiles the isolated `start --isolated-worktree` transaction used by VS Code.
 The control is `main` at `35fb9efaf046acf8dcd52401b6a0932ab7fb44cf`; the implementation is
 `4b98d7309b9af48bdf983b8530d9ea1a49d58b8c`. No workflow gates or approval policies change.

@@ -37,6 +37,10 @@ from continuing after a passing selected-base preview, avoiding a new preview lo
 
 ## Optional bytecode preparation
 
+VS Code can also prepare the exact selected runtime after its interactive intake catalog loads;
+see [First-request isolated Story performance](FIRST-REQUEST-STORY-PERFORMANCE.md) for its
+separate preparation cost, cancellation behavior and fresh-request measurements.
+
 Hooks now enable Node's compile cache where its APIs are available, as the CLI already did.
 The installer and reinstall transaction run `singularity-flow --warm-runtime` after verifying the
 final installed build. This imports an allowlist of pure startup-definition chunks; it does not

@@ -3066,9 +3066,20 @@ function deferIndexRefresh(root, commit, result) {
  * the index.
  */
 export function storyIndexDrift(root, prefix) {
-  for (const marker of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply']) {
-    const relative = git(['rev-parse', '--git-path', marker], { cwd: root, allowFailure: true }).stdout.trim();
-    if (relative && existsSync(path.resolve(root, relative))) return [];
+  const markers = ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply'];
+  // Git remains the owner of private/worktree/override path semantics. Batch these independent
+  // path questions, not the mutable marker contents or the subsequent index/HEAD evidence.
+  const observed = git(['rev-parse', '--path-format=absolute', ...markers.flatMap(marker => ['--git-path', marker])],
+    { cwd: root, allowFailure: true });
+  const paths = observed.stdout.trimEnd().split(/\r?\n/u);
+  if (observed.status === 0 && paths.length === markers.length && paths.every(value => path.isAbsolute(value))) {
+    if (paths.some(value => existsSync(value))) return [];
+  } else {
+    // Older Git or unusual newline-containing paths keep the exact individual reference route.
+    for (const marker of markers) {
+      const relative = git(['rev-parse', '--git-path', marker], { cwd: root, allowFailure: true }).stdout.trim();
+      if (relative && existsSync(path.resolve(root, relative))) return [];
+    }
   }
   return laggingIndexEntries(root, head(root), prefix);
 }

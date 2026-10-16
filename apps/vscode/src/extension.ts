@@ -48,7 +48,7 @@ import { storyRiskPreviewArgs, storyRiskChoices, storyRiskObligationChoices, sto
 import type { ApprovalsMessage } from './views/approvals.ts';
 import type { InboxMessage } from './views/inbox.ts';
 import { buildInbox, buildInboxTree, type InboxRepositoryBinding, type WorkspaceStoryCatalogRow } from './views/inbox-model.ts';
-import { discoverWorkspaceStoryRows, StoryRefreshGate, type StoryRepository } from './story-discovery.ts';
+import { discoverWorkspaceStoryRows, settleIndependentStoryRead, StoryRefreshGate, type StoryRepository } from './story-discovery.ts';
 import { sameStoryAttachPath, selectedCatalogStory, verifiedInboxRepositoryBinding, verifiedWorkspaceStoryRepository } from './story-attach.ts';
 import {
   storyCheckoutNeedsWindowSwitch, storyStartHandoffFromResult, storyStartHandoffMatches,
@@ -5043,6 +5043,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return storyRefreshGate.run(scope.epoch, async (): Promise<void> => {
       let issue: string | null = null;
       let repositoryBinding: InboxRepositoryBinding | null = null;
+      let snapshotRead: ReturnType<typeof settleIndependentStoryRead> | null = null;
       try {
         const current = await activeSelectionClient.run<{
           active?: boolean; workspaceId?: string; workspacePath?: string; repositoryId?: string; repositoryPath?: string;
@@ -5055,6 +5056,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (current.active && !selectedHere) {
           throw new Error('Workspace selection changed in another window. Refresh after this window follows the new selection.');
         }
+        if (!repositoryEpoch.isCurrent(scope)) return;
+        // The exact local lifecycle and the remote Inbox roster are independent read projections.
+        // Start only after validating this window's selection; the store retains its own epoch and
+        // cancellation guards. Neither result supplies authority to the other or to a mutation.
+        if (refreshSnapshot) snapshotRead = settleIndependentStoryRead(() => store.refresh());
         let repositories: StoryRepository[];
         let workspaceStatus: WorkspaceStatus | null = null;
         if (current.active && current.workspacePath) {
@@ -5134,7 +5140,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Explicit Refresh must re-read the local lifecycle even when remote discovery is offline.
       // Initial discovery follows a just-confirmed snapshot, so reading that same snapshot again
       // only adds a CLI process. The remote Story catalog is a separate Inbox projection.
-      if (refreshSnapshot) await store.refresh();
+      if (refreshSnapshot) {
+        const result = await (snapshotRead ?? settleIndependentStoryRead(() => store.refresh()));
+        if (!result.ok) throw result.error;
+      }
       if (!repositoryEpoch.isCurrent(scope)) return;
       if (!refreshSnapshot) {
         inboxTree.refresh();

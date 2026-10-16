@@ -239,3 +239,94 @@ the model-boundary audit and the registered Git-process audit also passed.
 - AC-018, AC-024: bounded snapshot fallback and existing worker protections; expanded workers stay off.
 - AC-021–022: only local source component cohorts are available here; complete scale, native Story
   and installed-platform acceptance is not marked passed.
+
+## Additional Mac observations (16 October)
+
+See [`mac-additional-report.json`](../benchmarks/performance-v2/mac-additional-report.json) for
+the complete additional cohorts, including failures. These measurements used reference main
+`ee4ba18b3d256380041e2d62484ca98e3361eb66`. Main changed again after measurement; the older
+cohort is not relabeled as qualification of that later integration.
+
+### Retained engineering changes
+
+- Sequence refusals attach their structured result through the existing data contract instead of
+  importing rendering and continuation machinery. The local-opening static closure falls from
+  394 to 379 modules. The import ceiling is tightened, not increased. The output-boundary exports
+  remain compatible, including the original non-enumerable error property.
+- Recovery asks Git for its five merge/rebase bookkeeping paths in one invocation. It still checks
+  marker presence fresh and retains individual Git lookups for unsupported/ambiguous output. Git
+  still resolves linked-worktree and environment override semantics. Normal and linked-worktree
+  drift guards are regression-tested; no index, HEAD, approval or publication evidence is cached.
+- Phase entry exposes separate binding, authoring, recovery, reference, execution-evidence,
+  upstream and clarification spans. These are diagnostics, not additional gate checks.
+- VS Code explicit refresh overlaps the independent local lifecycle read with remote Inbox
+  discovery, only after validating the selected repository and current window epoch. Each owner
+  keeps its cancellation/freshness checks. A rejection is handled immediately and joined before
+  success; stale results never become authority, and no test or mutation is parallelized.
+- The real-host fixture now initializes its canonical empty state index before timing. Earlier
+  fast failed discovery calls remain recorded as incomplete, not accepted as a speed improvement.
+- Source-only native qualification and paired phase/publication fixtures were added. Native
+  launch is explicit, restricted to the fixture and uses the provider's soft credit cap, not a
+  guaranteed spending ceiling. It never approves or installs.
+  DX reports can be saved with `--out=PATH` without changing the fixture or accepted baseline.
+- Two tests now decode file URLs correctly in paths containing spaces; their original failure
+  and successful reruns were retained. No production permission was relaxed to fix a test.
+
+An attempted first-use split of several state mutation dependencies passed functional tests but
+grew the bundled gateway to 7,650,974 bytes. It was removed. The retained gateway is 7,464,431
+bytes / 681 modules, within the unchanged 7,470,000-byte / 691-module limits. Refactoring the
+larger state read gateway remains necessary; adding dynamic imports indiscriminately is not a fix.
+
+### Native CLI: three pairs reached Intake, not complete Stories
+
+The user authorized the quota-consuming runs, then explicitly requested: **stop at Intake and
+report partial results**. All six final runs published Intake generation 1 with
+`governed-agent/copilot-host` authorship. No benchmark Story was submitted, approved, implemented
+or closed. Existing human checkpoints were not bypassed. No further provider turn is authorized
+by this qualification runner after that stop instruction.
+
+The same quick-fix definition, model (`gpt-6.1-sol`), CLI host and tool allowlist were used with
+alternating pair order. The two-file fixture changes a numeric export from 1 to 2 and its existing
+test. This is intentionally a small fixture, not evidence for all workflows or large repositories.
+
+| Observed Intake measure | Before | After |
+| --- | ---: | ---: |
+| Median CLI session wall time, 3 runs each | 89.4 s | 77.6 s |
+| Total tool calls, 3 runs each | 51 | 43 |
+| Total provider-reported AI credits | 44.11228 | 37.59477 |
+
+Two exploratory provider turns used a further 20.03613 credits and are excluded from the table:
+one lacked GPT's `apply_patch` tool, and one inherited the deterministic fixture's no-model setting,
+which mislabeled publication as manual authorship. Fresh final fixtures corrected both. Earlier
+argument/model rejections made no provider call. Total observed native use, including exploration,
+was 101.74318 AI credits. Raw prompts, sessions and logs remain private, not committed here.
+
+The approximately 13% lower observed median is **not a proven saving**: three pairs, different
+authored prose, provider caching and model variability do not establish causation, Story p95,
+universal token savings or billed savings. SFlow's kernel correctly reported no kernel-owned model
+invocation; the native provider's separate export supplies the usage above. These are CLI-guided
+authoring runs, not VS Code Copilot plugin or complete-Story qualification.
+
+### Remaining failures are not waived
+
+The 30-pair / five-warmup source cohort observed phase-entry medians of 502.2 to 480.9 ms (about
+4.2%), below the proposed 25% improvement. Publication total medians were 1,000.4 to 983.7 ms;
+its p95 increased from 1,445.4 to 1,701.2 ms. That noisy tail is retained. Total publication includes
+local commit and transport; an orchestration-only improvement is not certified.
+
+The real VS Code development-extension probe observed changed-refresh median latency decrease
+from 1,299.6 to 830.6 ms, with p95 from 1,396.1 to 959.1 ms after overlapping the independent reads.
+It meets that component's 1,000 ms tail budget in this run. However, the enforced three-pair report
+still fails its 30-pair minimum and activation, cached-paint, confirmed-paint and unchanged-refresh
+tail budgets. It is not an overall host qualification pass. Other workloads on this shared Mac
+and concurrent probes can affect the tails; no slow observation was removed.
+
+The unchanged 500-file / 10,000-file DX protocol ran. Large-repository subprocess counts stayed
+constant, but several reference-fixture latency budgets failed; its pinned Linux baseline is not
+comparable to this Mac. The report retains those failures and the dirty-tree, ignored-tree,
+submodule and linked-worktree observations. The expanded worker remains disabled.
+
+Still outstanding: receipt-backed intake/start percentage qualification, the larger state-read
+split, full native Stories, installed macOS and Windows qualification, and all required targets
+and adjacent-tail budgets. This branch is engineering progress, **not completion of every milestone
+or a general-release performance certificate**.

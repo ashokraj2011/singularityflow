@@ -29,6 +29,7 @@ import { phaseAuthoringContract } from './phase-authoring-contract.mjs';
 import { phaseExecutionEvidence } from './phase-execution-evidence.mjs';
 import { phaseAuthoringProgress, readPhaseDraftEvidence } from './phase-authoring-progress.mjs';
 import { endsStory, upstreamEntrySummary } from './upstream-entry-summary.mjs';
+import { measureCommandSpan } from './dx-timing-context.mjs';
 
 /** Verified per-invocation binding shared by phase entry, nextsteps and inputs. */
 export async function phaseEntryContext({ cwd = process.cwd(), phaseId = null, workId = null,
@@ -114,7 +115,7 @@ async function composedPromptFile(root, workItemRoot, workId, phaseId, generatio
 /** One model-free entry packet; no tests, begin, prepare, commit, push or lifecycle decisions. */
 export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId = null,
   compose = false, modelEnabled = true } = {}) {
-  const entry = await phaseEntryContext({ cwd, phaseId, workId });
+  const entry = await measureCommandSpan('phase-entry.binding', () => phaseEntryContext({ cwd, phaseId, workId }));
   if (entry.packet.paused) return entry.packet;
   const { root, definition, workflow, phase, session } = entry;
   const actualId = workflow.workItem.id;
@@ -124,19 +125,19 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
   if (!base.ready) return { ...base, status: 'binding-required', context: null,
     contextAdmission: phaseContextAdmission({ ready: false }),
     next: session.phaseAgent?.handoff ? [recoveryActionGuidance(session.phaseAgent.handoff)] : [], authoringAllowed: false };
-  const authoring = await phaseAuthoringSummary(root, definition, workflow, phase, { includeEntry: true });
-  const recovery = await recoveryPlan(root, definition, workflow, {
+  const authoring = await measureCommandSpan('phase-entry.authoring', () => phaseAuthoringSummary(root, definition, workflow, phase, { includeEntry: true }));
+  const recovery = await measureCommandSpan('phase-entry.recovery', () => recoveryPlan(root, definition, workflow, {
     phaseId: phase.id, inspectActivePhase: true, modelEnabled
-  });
-  const references = await verifyReferenceRepositories(root,
-    await storyReferenceRepositories(root, definition, workflow));
-  const retainedExecutionEvidence = await phaseExecutionEvidence(root, definition, workflow, phase);
+  }));
+  const references = await measureCommandSpan('phase-entry.references', async () => verifyReferenceRepositories(root,
+    await storyReferenceRepositories(root, definition, workflow)));
+  const retainedExecutionEvidence = await measureCommandSpan('phase-entry.execution-evidence', () => phaseExecutionEvidence(root, definition, workflow, phase));
   // What earlier steps left open, and at the closing step the final evaluation's preview [A7, B5].
-  const upstream = await upstreamEntrySummary(root, definition, workflow, phase, {
+  const upstream = await measureCommandSpan('phase-entry.upstream', async () => upstreamEntrySummary(root, definition, workflow, phase, {
     evaluateTerminalReadiness: endsStory(workflow, phase)
       ? (await import('./evidence/terminal.mjs')).evaluateTerminalReadiness : null,
     owedDecisions: (await import('./owed-decisions.mjs')).owedDecisions
-  });
+  }));
   const requiresDecision = recovery.actions.some(action => action.id === 'working-tree'
     && action.confirmation !== 'none');
   const contextAdmission = phaseContextAdmission({ authoring, recovery, references,
@@ -154,9 +155,9 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     context = { text, deliveredSha256: createHash('sha256').update(text).digest('hex'),
       renderedSha256: file?.sha256 ?? null, generation, ...(file ? { file } : {}) };
   }
-  const clarification = await verifyClarificationRecord(root, definition, workflow, phase, {
+  const clarification = await measureCommandSpan('phase-entry.clarification', () => verifyClarificationRecord(root, definition, workflow, phase, {
     generation: base.inspectionGeneration
-  });
+  }));
   if (clarification.mode !== 'off') {
     clarification.responseStagingPath = path.join(gitDir(root), 'singularity-flow', 'clarification-responses',
       `${phase.id}-gen${base.inspectionGeneration}.json`);

@@ -1,6 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { discoverWorkspaceStoryRows, StoryRefreshGate } from '../apps/vscode/src/story-discovery.ts';
+import { discoverWorkspaceStoryRows, settleIndependentStoryRead, StoryRefreshGate } from '../apps/vscode/src/story-discovery.ts';
+
+test('an independent local read starts once and joins without serializing remote discovery', async () => {
+  const seen = [];
+  let finish;
+  const local = settleIndependentStoryRead(async () => {
+    seen.push('local-start');
+    await new Promise(resolve => { finish = resolve; });
+    seen.push('local-complete');
+  });
+  assert.deepEqual(seen, ['local-start']);
+  const remote = Promise.resolve().then(() => seen.push('remote-complete'));
+  await remote;
+  assert.deepEqual(seen, ['local-start', 'remote-complete']);
+  finish();
+  assert.deepEqual(await local, { ok: true });
+  assert.deepEqual(seen, ['local-start', 'remote-complete', 'local-complete']);
+});
+
+test('a rejected or superseded local read is retained, not retried or reported as success', async () => {
+  const failure = new Error('superseded repository read');
+  let calls = 0;
+  const result = settleIndependentStoryRead(() => { calls++; throw failure; });
+  await new Promise(resolve => setImmediate(resolve)); // rejection is handled even before the join
+  assert.deepEqual(await result, { ok: false, error: failure });
+  assert.equal(calls, 1);
+});
 
 test('Story discovery reads every ready workspace repository without hiding partial failures', async () => {
   const called = [];

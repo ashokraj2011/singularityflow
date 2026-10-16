@@ -5,7 +5,7 @@
     { "entry": "src/commands/workspace.mjs", "maximumModules": 27 },
     { "entry": "src/commands/capability.mjs", "maximumModules": 12 },
     { "entry": "src/commands/logs.mjs", "maximumModules": 30 },
-    { "entry": "src/commands/session-open-local.mjs", "maximumModules": 394,
+    { "entry": "src/commands/session-open-local.mjs", "maximumModules": 379,
       "forbidden": ["src/cli.mjs", "src/commands/legacy.mjs", "src/commands/session.mjs", "src/context-broker.mjs", "src/model-runner.mjs", "src/session-remote-url-discovery.mjs", "src/session-story-discovery.mjs"] },
     { "entry": "src/copilot-mutation-guard.mjs", "maximumModules": 60 }
   ],

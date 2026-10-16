@@ -21,6 +21,17 @@ export interface StoryDiscoveryResult {
   issues: StoryDiscoveryIssue[];
 }
 
+/** Start an independent read after binding its repository; join its error before reporting success.
+ * Settling immediately also prevents a fast rejection becoming unhandled while discovery awaits Git.
+ * This stores neither observations nor permission and never retries the read.
+ */
+export async function settleIndependentStoryRead(read: () => Promise<void>): Promise<
+  { ok: true } | { ok: false; error: unknown }
+> {
+  try { await read(); return { ok: true }; }
+  catch (error) { return { ok: false, error }; }
+}
+
 /** Coalesce duplicate reads, but schedule a new read after a changed workspace membership. */
 export class StoryRefreshGate {
   private active: { epoch: number; promise: Promise<void> } | null = null;

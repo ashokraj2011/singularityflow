@@ -20,6 +20,7 @@ const writeBaseline = process.argv.includes('--write-baseline');
 const skipConnected = process.argv.includes('--skip-connected');
 const skipTailFixtures = process.argv.includes('--skip-tail-fixtures');
 const acceptedReportPath = option('accept-report');
+const outputReportPath = option('out');
 
 function runnerIdentity() {
   const declared = process.env.SINGULARITY_FLOW_DX_RUNNER_LABEL;
@@ -966,6 +967,7 @@ try {
     failures,
     passed: failures.length === 0
   };
+  if (outputReportPath) await writeFile(path.resolve(outputReportPath), `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
   if (writeBaseline) {
     const candidate = assertBaselineCandidate(report);
     await writeFile(baselinePath, `${JSON.stringify(candidate, null, 2)}\n`, 'utf8');

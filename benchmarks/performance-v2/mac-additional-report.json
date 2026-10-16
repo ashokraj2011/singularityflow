@@ -1,0 +1,1691 @@
+{
+  "schemaVersion": 1,
+  "resultType": "sflow-performance-v2-additional-observations",
+  "referenceCommit": "ee4ba18b3d256380041e2d62484ca98e3361eb66",
+  "candidateParentCommit": "5d6b04e",
+  "finalSourceObservation": {
+    "sha256": "0fd047d6aaf206478ace9199f63b41b50ff3d77b44455d70f40ec896248d60a8",
+    "scope": "sorted paths + NUL + complete mjs/ts/json bytes under src and apps/vscode/src",
+    "timing": "after the measurements; includes the later UI refresh overlap, not a turn-start attestation"
+  },
+  "generalReleaseQualified": false,
+  "native": {
+    "schemaVersion": 1,
+    "resultType": "sflow-native-cli-intake-pairs",
+    "host": "copilot-cli",
+    "model": "gpt-6.1-sol",
+    "platform": "darwin",
+    "pairCount": 3,
+    "completeStoryQualification": false,
+    "policyChanged": false,
+    "humanApprovalsAutomated": false,
+    "stoppedByUser": true,
+    "stoppedAt": "intake",
+    "runs": [
+      {
+        "pair": 1,
+        "mode": "before",
+        "exitCode": 0,
+        "wallClockMs": 76129.928916,
+        "apiDurationMs": 65473,
+        "aiCredits": 12.8721,
+        "tokens": {
+          "inputTokens": 239775,
+          "outputTokens": 3510,
+          "cacheReadTokens": 210750,
+          "cacheWriteTokens": 28992,
+          "reasoningTokens": 1030
+        },
+        "toolCalls": {
+          "bash": 4,
+          "view": 9,
+          "apply_patch": 2
+        },
+        "publicationObserved": true,
+        "phaseStatus": "in_progress",
+        "approvals": 0,
+        "storyStatus": "in_progress"
+      },
+      {
+        "pair": 1,
+        "mode": "after",
+        "exitCode": 0,
+        "wallClockMs": 82562.58958300001,
+        "apiDurationMs": 72922,
+        "aiCredits": 14.22171,
+        "tokens": {
+          "inputTokens": 280583,
+          "outputTokens": 3850,
+          "cacheReadTokens": 249051,
+          "cacheWriteTokens": 31496,
+          "reasoningTokens": 796
+        },
+        "toolCalls": {
+          "bash": 4,
+          "view": 9,
+          "apply_patch": 3
+        },
+        "publicationObserved": true,
+        "phaseStatus": "in_progress",
+        "approvals": 0,
+        "storyStatus": "in_progress"
+      },
+      {
+        "pair": 2,
+        "mode": "after",
+        "exitCode": 0,
+        "wallClockMs": 72447.635583,
+        "apiDurationMs": 63356,
+        "aiCredits": 11.42073,
+        "tokens": {
+          "inputTokens": 184896,
+          "outputTokens": 3102,
+          "cacheReadTokens": 157933,
+          "cacheWriteTokens": 26936,
+          "reasoningTokens": 622
+        },
+        "toolCalls": {
+          "bash": 3,
+          "view": 8,
+          "apply_patch": 2
+        },
+        "publicationObserved": true,
+        "phaseStatus": "in_progress",
+        "approvals": 0,
+        "storyStatus": "in_progress"
+      },
+      {
+        "pair": 2,
+        "mode": "before",
+        "exitCode": 0,
+        "wallClockMs": 89398.562667,
+        "apiDurationMs": 78299,
+        "aiCredits": 15.1043,
+        "tokens": {
+          "inputTokens": 313253,
+          "outputTokens": 4041,
+          "cacheReadTokens": 280200,
+          "cacheWriteTokens": 33014,
+          "reasoningTokens": 780
+        },
+        "toolCalls": {
+          "bash": 5,
+          "view": 9,
+          "apply_patch": 3
+        },
+        "publicationObserved": true,
+        "phaseStatus": "in_progress",
+        "approvals": 0,
+        "storyStatus": "in_progress"
+      },
+      {
+        "pair": 3,
+        "mode": "before",
+        "exitCode": 0,
+        "wallClockMs": 102589.842083,
+        "apiDurationMs": 92038,
+        "aiCredits": 16.13588,
+        "tokens": {
+          "inputTokens": 348506,
+          "outputTokens": 4395,
+          "cacheReadTokens": 314098,
+          "cacheWriteTokens": 34366,
+          "reasoningTokens": 1257
+        },
+        "toolCalls": {
+          "bash": 6,
+          "view": 9,
+          "apply_patch": 4
+        },
+        "publicationObserved": true,
+        "phaseStatus": "in_progress",
+        "approvals": 0,
+        "storyStatus": "in_progress"
+      },
+      {
+        "pair": 3,
+        "mode": "after",
+        "exitCode": 0,
+        "wallClockMs": 77597.835792,
+        "apiDurationMs": 66520,
+        "aiCredits": 11.95233,
+        "tokens": {
+          "inputTokens": 208451,
+          "outputTokens": 3319,
+          "cacheReadTokens": 181158,
+          "cacheWriteTokens": 27263,
+          "reasoningTokens": 655
+        },
+        "toolCalls": {
+          "bash": 4,
+          "view": 8,
+          "apply_patch": 2
+        },
+        "publicationObserved": true,
+        "phaseStatus": "in_progress",
+        "approvals": 0,
+        "storyStatus": "in_progress"
+      }
+    ],
+    "limitations": [
+      "Only Intake authoring/publication reached; not complete Stories or VS Code plugin qualification.",
+      "Small fixture and three pairs do not establish causal speedup, p95 or billed savings.",
+      "Publication observations are from retained local workflow records; they do not replace fresh gate checks.",
+      "SFlow-owned kernel model calls remain zero; usage here is exported from the actual native CLI provider."
+    ],
+    "userDecision": "Stop the native runs at Intake and report partial results"
+  },
+  "phasePublication": {
+    "schemaVersion": 1,
+    "resultType": "sflow-performance-v2-journeys",
+    "platform": "darwin",
+    "node": "v25.5.0",
+    "samples": 30,
+    "warmups": 5,
+    "referenceCommit": "ee4ba18b3d256380041e2d62484ca98e3361eb66",
+    "fixture": "quick-fix-authored-intake",
+    "mode": "source",
+    "modelsInvoked": 0,
+    "limitations": [
+      "Total publication includes local-remote push and commit; not orchestration-only or network qualification.",
+      "This is a deterministic fixture, not a native Copilot Story or human approval."
+    ],
+    "summaries": {
+      "baseline": {
+        "phaseEntry": {
+          "samples": 30,
+          "minMs": 479.48099999999977,
+          "maxMs": 1132.1389580000105,
+          "p50Ms": 502.16920799999207,
+          "p95Ms": 744.8340840000019,
+          "coefficientOfVariation": 0.23356569504315614
+        },
+        "publication": {
+          "samples": 30,
+          "minMs": 962.1032500000001,
+          "maxMs": 1771.4607499999838,
+          "p50Ms": 1000.4207919999899,
+          "p95Ms": 1445.437208000003,
+          "coefficientOfVariation": 0.15510085457196832
+        }
+      },
+      "candidate": {
+        "phaseEntry": {
+          "samples": 30,
+          "minMs": 466.2960829999938,
+          "maxMs": 708.2590829999972,
+          "p50Ms": 480.8632919999982,
+          "p95Ms": 693.9426670000103,
+          "coefficientOfVariation": 0.1297603050876794
+        },
+        "publication": {
+          "samples": 30,
+          "minMs": 958.8275839999842,
+          "maxMs": 2425.5100419999944,
+          "p50Ms": 983.7152920000008,
+          "p95Ms": 1701.2410419999942,
+          "coefficientOfVariation": 0.2779663128037567
+        }
+      }
+    },
+    "observations": {
+      "baseline": [
+        {
+          "phaseEntryMs": 529.2089580000029,
+          "publicationMs": 1187.5499999999993,
+          "entryBytes": 20105,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=478.3ms first-feedback=478.3ms root-dispatch=31.7ms module-load=0.3ms execute=446.3ms spans:configuration.definition-load=19.3ms git.requests=55 git.spawns=45 git.service-ms=261 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=1101.5ms first-feedback=1099.5ms root-dispatch=93.1ms module-load=227.5ms execute=778.9ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=75.5ms publication.preflight=0.9ms publication.discovery=27.8ms publication.validation=165.6ms publication.commit=73.0ms publication.push=102.4ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=521 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 492.9143330000006,
+          "publicationMs": 985.7551249999997,
+          "entryBytes": 20105,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=442.2ms first-feedback=442.1ms root-dispatch=31.6ms module-load=0.3ms execute=410.2ms spans:configuration.definition-load=21.4ms git.requests=55 git.spawns=45 git.service-ms=231 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=935.8ms first-feedback=934.0ms root-dispatch=29.2ms module-load=133.5ms execute=771.3ms journal=1.6ms history-index=0.2ms spans:configuration.definition-load=75.7ms publication.preflight=1.0ms publication.discovery=30.5ms publication.validation=165.6ms publication.commit=71.4ms publication.push=100.1ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=514 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 484.56787500000064,
+          "publicationMs": 968.6523749999978,
+          "entryBytes": 20105,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=434.9ms first-feedback=434.8ms root-dispatch=31.2ms module-load=0.2ms execute=403.4ms spans:configuration.definition-load=26.7ms git.requests=55 git.spawns=45 git.service-ms=226 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=920.4ms first-feedback=918.5ms root-dispatch=29.1ms module-load=133.0ms execute=756.4ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=71.2ms publication.preflight=1.0ms publication.discovery=28.7ms publication.validation=163.9ms publication.commit=72.5ms publication.push=99.5ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=504 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 503.92587500000445,
+          "publicationMs": 981.151042000005,
+          "entryBytes": 20105,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=453.1ms first-feedback=453.0ms root-dispatch=31.9ms module-load=0.3ms execute=420.8ms spans:configuration.definition-load=19.7ms git.requests=55 git.spawns=45 git.service-ms=239 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=932.4ms first-feedback=930.5ms root-dispatch=29.4ms module-load=135.6ms execute=765.5ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=73.0ms publication.preflight=1.0ms publication.discovery=29.9ms publication.validation=164.5ms publication.commit=68.5ms publication.push=99.9ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=508 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 483.69766700000037,
+          "publicationMs": 964.0279159999991,
+          "entryBytes": 20105,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=434.8ms first-feedback=434.8ms root-dispatch=31.3ms module-load=0.3ms execute=403.2ms spans:configuration.definition-load=21.4ms git.requests=55 git.spawns=45 git.service-ms=227 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=913.9ms first-feedback=911.9ms root-dispatch=28.9ms module-load=133.6ms execute=749.4ms journal=1.7ms history-index=0.3ms spans:configuration.definition-load=71.8ms publication.preflight=0.9ms publication.discovery=27.7ms publication.validation=162.7ms publication.commit=69.0ms publication.push=99.0ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=495 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 504.1149160000059,
+          "publicationMs": 996.4199999999983,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=454.1ms first-feedback=454.1ms root-dispatch=31.4ms module-load=0.3ms execute=422.4ms spans:configuration.definition-load=20.2ms git.requests=55 git.spawns=45 git.service-ms=240 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=948.2ms first-feedback=946.3ms root-dispatch=29.7ms module-load=137.5ms execute=779.1ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=72.3ms publication.preflight=1.0ms publication.discovery=29.4ms publication.validation=170.2ms publication.commit=72.3ms publication.push=98.9ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=517 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 487.11204200000066,
+          "publicationMs": 1013.364708000001,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=436.5ms first-feedback=436.4ms root-dispatch=31.1ms module-load=0.3ms execute=405.0ms spans:configuration.definition-load=20.3ms git.requests=55 git.spawns=45 git.service-ms=228 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=965.2ms first-feedback=963.2ms root-dispatch=28.9ms module-load=133.1ms execute=801.1ms journal=1.7ms history-index=0.3ms spans:configuration.definition-load=71.9ms publication.preflight=0.9ms publication.discovery=29.0ms publication.validation=166.2ms publication.commit=71.5ms publication.push=107.8ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=534 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 483.7494999999981,
+          "publicationMs": 991.8914579999982,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=435.1ms first-feedback=435.0ms root-dispatch=31.0ms module-load=0.3ms execute=403.7ms spans:configuration.definition-load=19.4ms git.requests=55 git.spawns=45 git.service-ms=228 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=943.6ms first-feedback=941.6ms root-dispatch=29.8ms module-load=142.0ms execute=769.8ms journal=1.7ms history-index=0.3ms spans:configuration.definition-load=72.7ms publication.preflight=0.9ms publication.discovery=27.6ms publication.validation=161.2ms publication.commit=71.4ms publication.push=103.0ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=505 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 498.7598330000037,
+          "publicationMs": 969.2886670000007,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=449.3ms first-feedback=449.2ms root-dispatch=32.2ms module-load=0.3ms execute=416.7ms spans:configuration.definition-load=27.1ms git.requests=55 git.spawns=45 git.service-ms=237 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=921.0ms first-feedback=919.2ms root-dispatch=29.7ms module-load=131.4ms execute=758.1ms journal=1.6ms history-index=0.2ms spans:configuration.definition-load=72.2ms publication.preflight=1.0ms publication.discovery=28.5ms publication.validation=161.3ms publication.commit=71.9ms publication.push=100.5ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=505 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 518.3526249999995,
+          "publicationMs": 962.1032500000001,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=470.8ms first-feedback=470.7ms root-dispatch=31.2ms module-load=0.2ms execute=439.2ms spans:configuration.definition-load=21.4ms git.requests=55 git.spawns=45 git.service-ms=258 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=915.4ms first-feedback=913.5ms root-dispatch=29.3ms module-load=133.7ms execute=750.5ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=70.9ms publication.preflight=0.9ms publication.discovery=28.3ms publication.validation=161.8ms publication.commit=70.9ms publication.push=97.8ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=503 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 509.67770900000323,
+          "publicationMs": 1013.7540829999998,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=459.4ms first-feedback=459.3ms root-dispatch=32.0ms module-load=0.3ms execute=427.0ms spans:configuration.definition-load=19.8ms git.requests=55 git.spawns=45 git.service-ms=249 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=964.7ms first-feedback=962.6ms root-dispatch=30.0ms module-load=137.4ms execute=795.1ms journal=1.7ms history-index=0.3ms spans:configuration.definition-load=76.8ms publication.preflight=1.0ms publication.discovery=30.0ms publication.validation=169.6ms publication.commit=73.9ms publication.push=105.9ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=527 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 530.3473329999979,
+          "publicationMs": 1136.1861250000002,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=479.7ms first-feedback=479.6ms root-dispatch=31.3ms module-load=0.3ms execute=448.0ms spans:configuration.definition-load=20.1ms git.requests=55 git.spawns=45 git.service-ms=261 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=1084.2ms first-feedback=1082.2ms root-dispatch=30.8ms module-load=136.9ms execute=914.5ms journal=1.7ms history-index=0.3ms spans:configuration.definition-load=83.7ms publication.preflight=1.3ms publication.discovery=36.9ms publication.validation=195.9ms publication.commit=91.2ms publication.push=119.2ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=613 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 554.5469579999917,
+          "publicationMs": 1071.1344580000004,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=499.3ms first-feedback=499.2ms root-dispatch=34.3ms module-load=0.3ms execute=464.6ms spans:configuration.definition-load=23.6ms git.requests=55 git.spawns=45 git.service-ms=270 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=1018.4ms first-feedback=1016.3ms root-dispatch=31.2ms module-load=149.0ms execute=836.0ms journal=1.8ms history-index=0.3ms spans:configuration.definition-load=85.9ms publication.preflight=1.1ms publication.discovery=31.0ms publication.validation=172.5ms publication.commit=90.3ms publication.push=105.6ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=548 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 508.9356669999979,
+          "publicationMs": 973.9095000000088,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=458.6ms first-feedback=458.5ms root-dispatch=31.8ms module-load=0.3ms execute=426.4ms spans:configuration.definition-load=25.7ms git.requests=55 git.spawns=45 git.service-ms=246 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=925.7ms first-feedback=923.8ms root-dispatch=30.5ms module-load=131.1ms execute=762.2ms journal=1.6ms history-index=0.2ms spans:configuration.definition-load=75.7ms publication.preflight=0.9ms publication.discovery=27.9ms publication.validation=162.1ms publication.commit=72.4ms publication.push=97.9ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=501 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 502.16920799999207,
+          "publicationMs": 986.5107500000013,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=452.5ms first-feedback=452.5ms root-dispatch=31.5ms module-load=0.3ms execute=420.7ms spans:configuration.definition-load=20.4ms git.requests=55 git.spawns=45 git.service-ms=236 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=937.5ms first-feedback=935.7ms root-dispatch=29.7ms module-load=135.1ms execute=770.8ms journal=1.6ms history-index=0.2ms spans:configuration.definition-load=72.7ms publication.preflight=1.1ms publication.discovery=30.1ms publication.validation=166.6ms publication.commit=69.6ms publication.push=97.3ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=511 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 488.26716699999815,
+          "publicationMs": 970.1318330000067,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=437.9ms first-feedback=437.9ms root-dispatch=31.8ms module-load=0.3ms execute=405.8ms spans:configuration.definition-load=19.9ms git.requests=55 git.spawns=45 git.service-ms=231 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=921.8ms first-feedback=919.9ms root-dispatch=29.2ms module-load=131.2ms execute=759.5ms journal=1.6ms history-index=0.2ms spans:configuration.definition-load=72.3ms publication.preflight=1.0ms publication.discovery=28.3ms publication.validation=162.0ms publication.commit=71.8ms publication.push=98.6ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=502 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 479.48099999999977,
+          "publicationMs": 1025.595709000001,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=430.8ms first-feedback=430.8ms root-dispatch=31.6ms module-load=0.3ms execute=398.9ms spans:configuration.definition-load=19.4ms git.requests=55 git.spawns=45 git.service-ms=224 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=977.2ms first-feedback=975.2ms root-dispatch=29.0ms module-load=132.6ms execute=813.6ms journal=1.8ms history-index=0.3ms spans:configuration.definition-load=76.9ms publication.preflight=1.0ms publication.discovery=28.2ms publication.validation=177.2ms publication.commit=79.0ms publication.push=105.6ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=544 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 498.8019579999964,
+          "publicationMs": 1000.04237499999,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=446.3ms first-feedback=446.2ms root-dispatch=33.2ms module-load=0.3ms execute=412.6ms spans:configuration.definition-load=19.6ms git.requests=55 git.spawns=45 git.service-ms=239 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=948.6ms first-feedback=946.7ms root-dispatch=30.5ms module-load=131.9ms execute=784.4ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=75.2ms publication.preflight=1.0ms publication.discovery=29.4ms publication.validation=168.1ms publication.commit=73.7ms publication.push=104.6ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=522 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 500.24904100000276,
+          "publicationMs": 1013.6641250000102,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=450.0ms first-feedback=449.9ms root-dispatch=31.6ms module-load=0.3ms execute=418.0ms spans:configuration.definition-load=20.2ms git.requests=55 git.spawns=45 git.service-ms=240 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=964.8ms first-feedback=962.8ms root-dispatch=29.1ms module-load=137.7ms execute=796.0ms journal=1.7ms history-index=0.3ms spans:configuration.definition-load=72.8ms publication.preflight=1.0ms publication.discovery=28.1ms publication.validation=165.4ms publication.commit=76.7ms publication.push=107.7ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=532 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 508.41045899999153,
+          "publicationMs": 1018.5801669999928,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=454.0ms first-feedback=453.9ms root-dispatch=35.2ms module-load=0.3ms execute=418.5ms spans:configuration.definition-load=19.8ms git.requests=55 git.spawns=45 git.service-ms=239 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=969.0ms first-feedback=966.9ms root-dispatch=29.3ms module-load=134.8ms execute=802.8ms journal=1.7ms history-index=0.3ms spans:configuration.definition-load=76.7ms publication.preflight=1.0ms publication.discovery=30.6ms publication.validation=172.1ms publication.commit=74.6ms publication.push=101.6ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=531 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 1132.1389580000105,
+          "publicationMs": 1445.437208000003,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=1048.1ms first-feedback=1048.0ms root-dispatch=34.5ms module-load=0.4ms execute=1013.1ms spans:configuration.definition-load=26.2ms git.requests=55 git.spawns=45 git.service-ms=757 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=1364.1ms first-feedback=1360.7ms root-dispatch=43.5ms module-load=227.8ms execute=1089.4ms journal=2.8ms history-index=0.6ms spans:configuration.definition-load=106.6ms publication.preflight=1.1ms publication.discovery=35.5ms publication.validation=227.3ms publication.commit=105.0ms publication.push=126.6ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=716 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 606.752999999997,
+          "publicationMs": 1204.664334000001,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=549.4ms first-feedback=549.4ms root-dispatch=36.3ms module-load=0.4ms execute=512.7ms spans:configuration.definition-load=21.9ms git.requests=55 git.spawns=45 git.service-ms=289 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=1146.9ms first-feedback=1145.0ms root-dispatch=35.1ms module-load=150.6ms execute=959.3ms journal=1.7ms history-index=0.3ms spans:configuration.definition-load=112.3ms publication.preflight=1.0ms publication.discovery=35.7ms publication.validation=187.0ms publication.commit=83.3ms publication.push=107.2ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=629 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 605.1848750000063,
+          "publicationMs": 1123.5475829999923,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=549.9ms first-feedback=549.8ms root-dispatch=53.9ms module-load=1.0ms execute=494.9ms spans:configuration.definition-load=21.0ms git.requests=55 git.spawns=45 git.service-ms=292 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=1072.5ms first-feedback=1070.6ms root-dispatch=33.3ms module-load=181.0ms execute=856.3ms journal=1.6ms history-index=0.2ms spans:configuration.definition-load=83.4ms publication.preflight=1.4ms publication.discovery=33.7ms publication.validation=204.5ms publication.commit=74.0ms publication.push=105.2ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=573 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 741.0246250000055,
+          "publicationMs": 1095.4178340000071,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=676.4ms first-feedback=676.3ms root-dispatch=31.9ms module-load=0.2ms execute=644.2ms spans:configuration.definition-load=142.8ms git.requests=55 git.spawns=45 git.service-ms=310 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=1039.0ms first-feedback=1037.1ms root-dispatch=32.1ms module-load=151.0ms execute=854.0ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=113.2ms publication.preflight=1.0ms publication.discovery=33.7ms publication.validation=159.6ms publication.commit=72.1ms publication.push=93.4ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=534 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 480.2150829999882,
+          "publicationMs": 1052.8412919999973,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=431.4ms first-feedback=431.3ms root-dispatch=31.3ms module-load=0.2ms execute=399.8ms spans:configuration.definition-load=19.5ms git.requests=55 git.spawns=45 git.service-ms=227 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=1003.0ms first-feedback=1001.1ms root-dispatch=29.3ms module-load=134.0ms execute=837.8ms journal=1.7ms history-index=0.2ms spans:configuration.definition-load=74.4ms publication.preflight=1.0ms publication.discovery=28.5ms publication.validation=202.3ms publication.commit=75.6ms publication.push=100.0ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=561 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 513.395875000002,
+          "publicationMs": 1005.1784590000025,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=462.4ms first-feedback=462.3ms root-dispatch=33.1ms module-load=0.3ms execute=429.0ms spans:configuration.definition-load=22.7ms git.requests=55 git.spawns=45 git.service-ms=241 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=956.0ms first-feedback=954.2ms root-dispatch=29.3ms module-load=140.6ms execute=784.3ms journal=1.6ms history-index=0.2ms spans:configuration.definition-load=76.0ms publication.preflight=1.0ms publication.discovery=29.8ms publication.validation=163.9ms publication.commit=69.8ms publication.push=94.0ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=511 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 499.7667919999949,
+          "publicationMs": 1771.4607499999838,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=448.8ms first-feedback=448.7ms root-dispatch=31.9ms module-load=0.3ms execute=416.5ms spans:configuration.definition-load=19.7ms git.requests=55 git.spawns=45 git.service-ms=234 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=1696.1ms first-feedback=1691.0ms root-dispatch=31.1ms module-load=138.6ms execute=1521.2ms journal=3.4ms history-index=1.7ms spans:configuration.definition-load=74.0ms publication.preflight=1.0ms publication.discovery=29.8ms publication.validation=402.9ms publication.commit=115.0ms publication.push=175.5ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=1151 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 744.8340840000019,
+          "publicationMs": 1000.4207919999899,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=683.8ms first-feedback=683.8ms root-dispatch=43.7ms module-load=0.3ms execute=639.7ms spans:configuration.definition-load=31.2ms git.requests=55 git.spawns=45 git.service-ms=397 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=947.5ms first-feedback=945.5ms root-dispatch=31.3ms module-load=134.3ms execute=779.9ms journal=1.7ms history-index=0.3ms spans:configuration.definition-load=71.0ms publication.preflight=1.0ms publication.discovery=28.5ms publication.validation=166.4ms publication.commit=73.5ms publication.push=102.0ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=531 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 485.9698749999807,
+          "publicationMs": 962.4740420000162,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=434.9ms first-feedback=434.8ms root-dispatch=31.4ms module-load=0.3ms execute=403.1ms spans:configuration.definition-load=19.4ms git.requests=55 git.spawns=45 git.service-ms=230 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=914.3ms first-feedback=912.4ms root-dispatch=29.2ms module-load=131.5ms execute=751.7ms journal=1.6ms history-index=0.2ms spans:configuration.definition-load=71.4ms publication.preflight=0.9ms publication.discovery=28.7ms publication.validation=164.1ms publication.commit=69.4ms publication.push=97.3ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=498 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 481.7864170000248,
+          "publicationMs": 982.8353749999951,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=430.8ms first-feedback=430.8ms root-dispatch=31.6ms module-load=0.3ms execute=398.9ms spans:configuration.definition-load=25.3ms git.requests=55 git.spawns=45 git.service-ms=221 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=929.9ms first-feedback=928.0ms root-dispatch=29.8ms module-load=132.2ms execute=766.0ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=73.0ms publication.preflight=0.9ms publication.discovery=27.7ms publication.validation=168.4ms publication.commit=71.7ms publication.push=96.5ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=505 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        }
+      ],
+      "candidate": [
+        {
+          "phaseEntryMs": 480.8632919999982,
+          "publicationMs": 970.7336660000001,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=431.5ms first-feedback=431.5ms root-dispatch=32.3ms module-load=0.3ms execute=398.9ms spans:configuration.definition-load=20.2ms phase-entry.binding=126.1ms phase-entry.authoring=0.4ms phase-entry.recovery=147.8ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.0ms phase-entry.upstream=0.4ms phase-entry.clarification=0.3ms git.requests=51 git.spawns=41 git.service-ms=221 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=923.2ms first-feedback=921.3ms root-dispatch=29.9ms module-load=139.9ms execute=751.4ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=70.5ms publication.preflight=1.0ms publication.discovery=28.6ms publication.validation=159.6ms publication.commit=68.0ms publication.push=95.9ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=490 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 470.08162500000253,
+          "publicationMs": 985.2641249999979,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=419.0ms first-feedback=418.9ms root-dispatch=31.9ms module-load=0.3ms execute=386.7ms spans:configuration.definition-load=20.6ms phase-entry.binding=118.9ms phase-entry.authoring=0.4ms phase-entry.recovery=146.1ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.1ms phase-entry.upstream=0.3ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=213 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=935.9ms first-feedback=933.8ms root-dispatch=29.5ms module-load=134.3ms execute=770.1ms journal=1.8ms history-index=0.3ms spans:configuration.definition-load=74.3ms publication.preflight=1.0ms publication.discovery=29.0ms publication.validation=160.6ms publication.commit=74.6ms publication.push=103.7ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=512 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 479.34870800000135,
+          "publicationMs": 987.4227080000019,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=427.6ms first-feedback=427.5ms root-dispatch=32.3ms module-load=0.3ms execute=395.0ms spans:configuration.definition-load=19.8ms phase-entry.binding=120.9ms phase-entry.authoring=0.4ms phase-entry.recovery=150.4ms phase-entry.references=0.1ms phase-entry.execution-evidence=5.9ms phase-entry.upstream=0.3ms phase-entry.clarification=0.3ms git.requests=51 git.spawns=41 git.service-ms=221 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=939.5ms first-feedback=937.7ms root-dispatch=29.1ms module-load=136.9ms execute=771.7ms journal=1.5ms history-index=0.3ms spans:configuration.definition-load=74.1ms publication.preflight=0.9ms publication.discovery=28.9ms publication.validation=165.6ms publication.commit=70.8ms publication.push=98.4ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=512 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 476.471749999997,
+          "publicationMs": 968.9460829999953,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=426.4ms first-feedback=426.3ms root-dispatch=32.3ms module-load=0.3ms execute=393.8ms spans:configuration.definition-load=20.8ms phase-entry.binding=124.6ms phase-entry.authoring=0.4ms phase-entry.recovery=148.0ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.0ms phase-entry.upstream=0.4ms phase-entry.clarification=0.3ms git.requests=51 git.spawns=41 git.service-ms=220 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=921.0ms first-feedback=919.0ms root-dispatch=29.5ms module-load=137.1ms execute=752.4ms journal=1.6ms history-index=0.4ms spans:configuration.definition-load=71.0ms publication.preflight=1.0ms publication.discovery=28.3ms publication.validation=158.3ms publication.commit=70.1ms publication.push=99.7ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=493 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 487.18658300000243,
+          "publicationMs": 981.0181250000023,
+          "entryBytes": 20107,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=437.0ms first-feedback=436.9ms root-dispatch=32.0ms module-load=0.3ms execute=404.7ms spans:configuration.definition-load=21.1ms phase-entry.binding=126.4ms phase-entry.authoring=0.4ms phase-entry.recovery=154.7ms phase-entry.references=0.1ms phase-entry.execution-evidence=5.9ms phase-entry.upstream=0.3ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=229 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=932.7ms first-feedback=930.7ms root-dispatch=29.5ms module-load=140.9ms execute=760.3ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=72.0ms publication.preflight=1.0ms publication.discovery=28.5ms publication.validation=165.2ms publication.commit=68.9ms publication.push=98.0ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=504 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 477.864708000001,
+          "publicationMs": 983.7152920000008,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=429.0ms first-feedback=429.0ms root-dispatch=31.4ms module-load=0.2ms execute=397.3ms spans:configuration.definition-load=20.7ms phase-entry.binding=121.7ms phase-entry.authoring=0.4ms phase-entry.recovery=151.4ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.1ms phase-entry.upstream=0.3ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=220 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=935.7ms first-feedback=933.8ms root-dispatch=29.4ms module-load=137.0ms execute=767.4ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=70.5ms publication.preflight=0.9ms publication.discovery=29.2ms publication.validation=164.7ms publication.commit=71.7ms publication.push=98.9ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=510 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 474.5490840000057,
+          "publicationMs": 1035.1319160000057,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=425.3ms first-feedback=425.2ms root-dispatch=31.5ms module-load=0.3ms execute=393.5ms spans:configuration.definition-load=24.8ms phase-entry.binding=121.9ms phase-entry.authoring=0.4ms phase-entry.recovery=150.3ms phase-entry.references=0.1ms phase-entry.execution-evidence=5.9ms phase-entry.upstream=0.3ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=222 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=987.2ms first-feedback=985.2ms root-dispatch=29.7ms module-load=138.3ms execute=817.1ms journal=1.7ms history-index=0.3ms spans:configuration.definition-load=72.3ms publication.preflight=1.0ms publication.discovery=29.5ms publication.validation=178.4ms publication.commit=74.7ms publication.push=104.9ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=550 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 478.7923330000049,
+          "publicationMs": 974.3329999999987,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=428.9ms first-feedback=428.9ms root-dispatch=31.9ms module-load=0.3ms execute=396.6ms spans:configuration.definition-load=20.7ms phase-entry.binding=122.1ms phase-entry.authoring=0.4ms phase-entry.recovery=150.6ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.0ms phase-entry.upstream=0.4ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=222 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=927.0ms first-feedback=925.1ms root-dispatch=29.5ms module-load=136.5ms execute=759.1ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=74.4ms publication.preflight=1.0ms publication.discovery=30.0ms publication.validation=160.3ms publication.commit=71.7ms publication.push=103.0ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=505 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 468.9912499999991,
+          "publicationMs": 972.2003329999934,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=419.9ms first-feedback=419.8ms root-dispatch=31.9ms module-load=0.3ms execute=387.6ms spans:configuration.definition-load=21.7ms phase-entry.binding=120.8ms phase-entry.authoring=0.4ms phase-entry.recovery=146.0ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.0ms phase-entry.upstream=0.3ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=213 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=922.8ms first-feedback=920.8ms root-dispatch=29.3ms module-load=135.2ms execute=756.4ms journal=1.6ms history-index=0.4ms spans:configuration.definition-load=76.1ms publication.preflight=0.9ms publication.discovery=27.0ms publication.validation=163.5ms publication.commit=71.9ms publication.push=96.9ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=493 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 482.95816699999705,
+          "publicationMs": 975.2815420000043,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=432.6ms first-feedback=432.5ms root-dispatch=31.3ms module-load=0.3ms execute=400.9ms spans:configuration.definition-load=19.9ms phase-entry.binding=121.9ms phase-entry.authoring=0.4ms phase-entry.recovery=153.2ms phase-entry.references=0.2ms phase-entry.execution-evidence=6.1ms phase-entry.upstream=0.3ms phase-entry.clarification=0.3ms git.requests=51 git.spawns=41 git.service-ms=225 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=926.9ms first-feedback=924.9ms root-dispatch=30.1ms module-load=141.4ms execute=753.5ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=70.5ms publication.preflight=1.0ms publication.discovery=29.2ms publication.validation=163.1ms publication.commit=68.4ms publication.push=96.0ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=504 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 481.3365829999966,
+          "publicationMs": 983.5430410000045,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=430.9ms first-feedback=430.8ms root-dispatch=32.4ms module-load=0.3ms execute=398.1ms spans:configuration.definition-load=20.5ms phase-entry.binding=119.2ms phase-entry.authoring=0.4ms phase-entry.recovery=155.3ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.8ms phase-entry.upstream=0.4ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=224 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=932.0ms first-feedback=930.1ms root-dispatch=30.3ms module-load=136.6ms execute=763.1ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=71.4ms publication.preflight=1.0ms publication.discovery=28.6ms publication.validation=161.4ms publication.commit=72.0ms publication.push=99.9ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=501 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 478.95987500000047,
+          "publicationMs": 976.1191250000047,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=429.2ms first-feedback=429.1ms root-dispatch=32.5ms module-load=0.3ms execute=396.4ms spans:configuration.definition-load=21.1ms phase-entry.binding=124.4ms phase-entry.authoring=0.4ms phase-entry.recovery=148.6ms phase-entry.references=0.1ms phase-entry.execution-evidence=5.9ms phase-entry.upstream=0.3ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=220 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=926.5ms first-feedback=924.7ms root-dispatch=29.7ms module-load=137.7ms execute=757.3ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=73.2ms publication.preflight=1.0ms publication.discovery=27.8ms publication.validation=161.1ms publication.commit=71.4ms publication.push=98.0ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=497 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 480.3671250000043,
+          "publicationMs": 974.8597080000036,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=430.3ms first-feedback=430.3ms root-dispatch=32.0ms module-load=0.3ms execute=397.9ms spans:configuration.definition-load=21.1ms phase-entry.binding=120.3ms phase-entry.authoring=0.4ms phase-entry.recovery=150.4ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.3ms phase-entry.upstream=0.4ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=220 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=925.8ms first-feedback=923.8ms root-dispatch=29.3ms module-load=134.9ms execute=759.7ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=75.5ms publication.preflight=1.0ms publication.discovery=28.2ms publication.validation=161.7ms publication.commit=70.5ms publication.push=99.6ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=501 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 490.1616250000079,
+          "publicationMs": 991.9111249999987,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=437.2ms first-feedback=437.1ms root-dispatch=32.0ms module-load=0.2ms execute=404.9ms spans:configuration.definition-load=21.2ms phase-entry.binding=127.3ms phase-entry.authoring=0.4ms phase-entry.recovery=153.3ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.0ms phase-entry.upstream=0.4ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=224 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=944.6ms first-feedback=942.7ms root-dispatch=30.3ms module-load=138.9ms execute=773.5ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=77.6ms publication.preflight=1.0ms publication.discovery=28.6ms publication.validation=169.7ms publication.commit=70.3ms publication.push=98.3ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=509 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 478.27937499999825,
+          "publicationMs": 977.7581659999996,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=427.8ms first-feedback=427.8ms root-dispatch=31.7ms module-load=0.3ms execute=395.7ms spans:configuration.definition-load=21.0ms phase-entry.binding=124.4ms phase-entry.authoring=0.4ms phase-entry.recovery=148.5ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.2ms phase-entry.upstream=0.4ms phase-entry.clarification=0.3ms git.requests=51 git.spawns=41 git.service-ms=218 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=929.0ms first-feedback=927.1ms root-dispatch=30.2ms module-load=136.9ms execute=760.1ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=74.6ms publication.preflight=1.0ms publication.discovery=28.5ms publication.validation=162.9ms publication.commit=69.2ms publication.push=96.9ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=501 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 531.0935420000023,
+          "publicationMs": 1017.2098750000005,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=481.7ms first-feedback=481.6ms root-dispatch=32.4ms module-load=0.3ms execute=448.9ms spans:configuration.definition-load=22.0ms phase-entry.binding=120.5ms phase-entry.authoring=0.4ms phase-entry.recovery=152.2ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.1ms phase-entry.upstream=0.3ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=218 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=969.0ms first-feedback=967.0ms root-dispatch=29.8ms module-load=137.9ms execute=799.3ms journal=1.7ms history-index=0.3ms spans:configuration.definition-load=72.6ms publication.preflight=1.1ms publication.discovery=29.4ms publication.validation=168.1ms publication.commit=76.5ms publication.push=102.7ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=527 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 483.45325000000594,
+          "publicationMs": 1010.0959580000053,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=434.6ms first-feedback=434.5ms root-dispatch=33.8ms module-load=0.3ms execute=400.3ms spans:configuration.definition-load=25.0ms phase-entry.binding=121.3ms phase-entry.authoring=0.4ms phase-entry.recovery=148.4ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.0ms phase-entry.upstream=0.3ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=216 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=962.5ms first-feedback=960.7ms root-dispatch=29.5ms module-load=142.7ms execute=788.4ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=71.8ms publication.preflight=1.6ms publication.discovery=36.0ms publication.validation=169.0ms publication.commit=71.6ms publication.push=97.9ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=524 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 492.6577499999985,
+          "publicationMs": 1042.8845829999918,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=438.3ms first-feedback=438.2ms root-dispatch=36.4ms module-load=0.3ms execute=401.5ms spans:configuration.definition-load=21.0ms phase-entry.binding=124.4ms phase-entry.authoring=0.4ms phase-entry.recovery=153.1ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.3ms phase-entry.upstream=0.4ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=225 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=990.5ms first-feedback=988.3ms root-dispatch=29.6ms module-load=139.1ms execute=819.6ms journal=1.8ms history-index=0.4ms spans:configuration.definition-load=75.4ms publication.preflight=1.0ms publication.discovery=30.1ms publication.validation=168.1ms publication.commit=80.3ms publication.push=106.7ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=546 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 483.71450000000186,
+          "publicationMs": 1005.4321670000063,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=433.5ms first-feedback=433.4ms root-dispatch=33.1ms module-load=0.3ms execute=400.1ms spans:configuration.definition-load=22.1ms phase-entry.binding=123.9ms phase-entry.authoring=0.4ms phase-entry.recovery=151.8ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.0ms phase-entry.upstream=0.4ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=227 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=957.4ms first-feedback=955.4ms root-dispatch=30.0ms module-load=137.1ms execute=788.3ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=75.5ms publication.preflight=1.0ms publication.discovery=28.8ms publication.validation=166.9ms publication.commit=74.4ms publication.push=101.5ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=530 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 482.4635419999977,
+          "publicationMs": 1045.6467499999999,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=432.4ms first-feedback=432.4ms root-dispatch=32.1ms module-load=0.3ms execute=400.0ms spans:configuration.definition-load=21.3ms phase-entry.binding=125.7ms phase-entry.authoring=0.4ms phase-entry.recovery=152.7ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.0ms phase-entry.upstream=0.3ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=228 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=991.9ms first-feedback=989.6ms root-dispatch=29.2ms module-load=136.9ms execute=823.5ms journal=1.8ms history-index=0.4ms spans:configuration.definition-load=71.3ms publication.preflight=0.9ms publication.discovery=28.9ms publication.validation=164.6ms publication.commit=80.3ms publication.push=128.4ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=559 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 708.2590829999972,
+          "publicationMs": 2425.5100419999944,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=614.2ms first-feedback=614.2ms root-dispatch=38.8ms module-load=0.3ms execute=575.1ms spans:configuration.definition-load=22.6ms phase-entry.binding=153.3ms phase-entry.authoring=0.4ms phase-entry.recovery=287.7ms phase-entry.references=0.1ms phase-entry.execution-evidence=7.3ms phase-entry.upstream=0.4ms phase-entry.clarification=0.5ms git.requests=51 git.spawns=41 git.service-ms=372 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=2348.7ms first-feedback=2346.2ms root-dispatch=51.0ms module-load=156.5ms execute=2138.7ms journal=2.1ms history-index=0.4ms spans:configuration.definition-load=76.6ms publication.preflight=1.1ms publication.discovery=40.1ms publication.validation=627.4ms publication.commit=227.6ms publication.push=223.8ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=1443 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 693.9426670000103,
+          "publicationMs": 1701.2410419999942,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=620.5ms first-feedback=620.4ms root-dispatch=35.5ms module-load=0.3ms execute=584.6ms spans:configuration.definition-load=25.2ms phase-entry.binding=144.0ms phase-entry.authoring=0.4ms phase-entry.recovery=283.0ms phase-entry.references=0.2ms phase-entry.execution-evidence=11.4ms phase-entry.upstream=0.8ms phase-entry.clarification=0.4ms git.requests=51 git.spawns=41 git.service-ms=360 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=1620.2ms first-feedback=1617.6ms root-dispatch=37.1ms module-load=233.9ms execute=1346.6ms journal=2.3ms history-index=0.4ms spans:configuration.definition-load=106.1ms publication.preflight=2.0ms publication.discovery=43.3ms publication.validation=468.7ms publication.commit=97.7ms publication.push=115.1ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=844 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 686.0530419999996,
+          "publicationMs": 1634.5499579999887,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=625.1ms first-feedback=625.0ms root-dispatch=36.9ms module-load=0.3ms execute=587.7ms spans:configuration.definition-load=23.7ms phase-entry.binding=226.8ms phase-entry.authoring=1.5ms phase-entry.recovery=222.1ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.5ms phase-entry.upstream=0.4ms phase-entry.clarification=0.3ms git.requests=51 git.spawns=41 git.service-ms=361 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=1571.9ms first-feedback=1568.6ms root-dispatch=33.6ms module-load=210.3ms execute=1324.7ms journal=2.8ms history-index=0.5ms spans:configuration.definition-load=77.2ms publication.preflight=1.3ms publication.discovery=37.4ms publication.validation=218.9ms publication.commit=285.8ms publication.push=252.0ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=977 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 469.77770799999416,
+          "publicationMs": 966.9024580000114,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=419.9ms first-feedback=419.8ms root-dispatch=32.6ms module-load=0.3ms execute=387.0ms spans:configuration.definition-load=21.2ms phase-entry.binding=119.6ms phase-entry.authoring=0.4ms phase-entry.recovery=146.2ms phase-entry.references=0.1ms phase-entry.execution-evidence=5.9ms phase-entry.upstream=0.3ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=213 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=918.3ms first-feedback=916.3ms root-dispatch=29.8ms module-load=135.2ms execute=751.3ms journal=1.6ms history-index=0.4ms spans:configuration.definition-load=69.3ms publication.preflight=0.9ms publication.discovery=27.7ms publication.validation=156.7ms publication.commit=69.5ms publication.push=96.7ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=492 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 467.9635419999977,
+          "publicationMs": 967.0324170000094,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=418.4ms first-feedback=418.3ms root-dispatch=31.9ms module-load=0.3ms execute=386.1ms spans:configuration.definition-load=21.5ms phase-entry.binding=120.5ms phase-entry.authoring=0.4ms phase-entry.recovery=144.5ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.1ms phase-entry.upstream=0.3ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=212 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=919.4ms first-feedback=917.4ms root-dispatch=29.5ms module-load=134.5ms execute=753.4ms journal=1.7ms history-index=0.3ms spans:configuration.definition-load=69.9ms publication.preflight=0.9ms publication.discovery=28.1ms publication.validation=157.1ms publication.commit=69.4ms publication.push=95.4ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=488 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 481.4504159999924,
+          "publicationMs": 1018.322250000012,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=430.2ms first-feedback=430.2ms root-dispatch=32.4ms module-load=0.3ms execute=397.5ms spans:configuration.definition-load=21.3ms phase-entry.binding=120.7ms phase-entry.authoring=0.4ms phase-entry.recovery=153.4ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.0ms phase-entry.upstream=0.3ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=222 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=970.4ms first-feedback=968.5ms root-dispatch=29.7ms module-load=138.0ms execute=800.8ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=74.5ms publication.preflight=1.1ms publication.discovery=31.3ms publication.validation=177.2ms publication.commit=72.6ms publication.push=98.7ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=530 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 508.3208330000052,
+          "publicationMs": 1077.9036250000063,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=457.5ms first-feedback=457.5ms root-dispatch=33.4ms module-load=0.3ms execute=423.8ms spans:configuration.definition-load=22.1ms phase-entry.binding=129.2ms phase-entry.authoring=0.4ms phase-entry.recovery=165.0ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.0ms phase-entry.upstream=0.4ms phase-entry.clarification=0.3ms git.requests=51 git.spawns=41 git.service-ms=235 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=1027.4ms first-feedback=1025.4ms root-dispatch=30.0ms module-load=141.8ms execute=853.6ms journal=1.7ms history-index=0.3ms spans:configuration.definition-load=73.1ms publication.preflight=1.2ms publication.discovery=29.3ms publication.validation=166.8ms publication.commit=104.8ms publication.push=105.9ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=569 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 471.60645799999475,
+          "publicationMs": 958.8275839999842,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=420.2ms first-feedback=420.2ms root-dispatch=32.1ms module-load=0.3ms execute=387.8ms spans:configuration.definition-load=19.6ms phase-entry.binding=118.9ms phase-entry.authoring=0.4ms phase-entry.recovery=145.3ms phase-entry.references=0.1ms phase-entry.execution-evidence=5.9ms phase-entry.upstream=0.3ms phase-entry.clarification=0.7ms git.requests=51 git.spawns=41 git.service-ms=212 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=910.6ms first-feedback=908.7ms root-dispatch=29.5ms module-load=135.7ms execute=743.5ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=69.8ms publication.preflight=0.9ms publication.discovery=28.3ms publication.validation=158.5ms publication.commit=66.7ms publication.push=95.2ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=493 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 507.43470899999375,
+          "publicationMs": 965.1490409999969,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=455.1ms first-feedback=455.1ms root-dispatch=31.4ms module-load=0.3ms execute=423.4ms spans:configuration.definition-load=20.7ms phase-entry.binding=122.0ms phase-entry.authoring=0.4ms phase-entry.recovery=180.1ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.3ms phase-entry.upstream=0.4ms phase-entry.clarification=0.3ms git.requests=51 git.spawns=41 git.service-ms=249 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=917.2ms first-feedback=915.3ms root-dispatch=29.1ms module-load=135.4ms execute=750.8ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=70.5ms publication.preflight=1.0ms publication.discovery=27.8ms publication.validation=157.4ms publication.commit=68.4ms publication.push=99.3ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=492 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        },
+        {
+          "phaseEntryMs": 466.2960829999938,
+          "publicationMs": 989.9652499999793,
+          "entryBytes": 20109,
+          "entryTimings": "[sflow timing] phase operation=phase.enter class=read outcome=success total=416.1ms first-feedback=416.1ms root-dispatch=31.5ms module-load=0.3ms execute=384.3ms spans:configuration.definition-load=20.7ms phase-entry.binding=117.9ms phase-entry.authoring=0.4ms phase-entry.recovery=145.2ms phase-entry.references=0.1ms phase-entry.execution-evidence=6.0ms phase-entry.upstream=0.3ms phase-entry.clarification=0.2ms git.requests=51 git.spawns=41 git.service-ms=213 configuration.definition-load=1 git.fact-cache-hits=10\n",
+          "publicationTimings": "[sflow timing] phase operation=phase class=mutation outcome=success total=942.6ms first-feedback=940.7ms root-dispatch=30.2ms module-load=135.7ms execute=774.8ms journal=1.6ms history-index=0.3ms spans:configuration.definition-load=76.8ms publication.preflight=1.0ms publication.discovery=31.2ms publication.validation=166.1ms publication.commit=70.8ms publication.push=97.0ms git.requests=125 git.fact-cache-hits=41 git.fact-store-hits=12 configuration.definition-load=2 catalog.reads=1 catalog.scans=1 git.spawns=84 git.service-ms=507 git.remote.total=1 git.remote.operation.push=1 git.remote.command.push=1\n"
+        }
+      ]
+    }
+  },
+  "hostInitialIncomplete": {
+    "schemaVersion": 3,
+    "kind": "sflow-vscode-extension-host-performance-report",
+    "status": "incomplete",
+    "profile": "current",
+    "platform": "darwin",
+    "vscodeVersion": "1.142.0",
+    "samplePairs": 3,
+    "protocol": {
+      "host": "real-vscode-extension-host",
+      "activation": "onView",
+      "network": "restricted-local-git",
+      "modelCalls": "disabled",
+      "questionsOrContentCaptured": false,
+      "coldAndWarmProcessPerPair": true
+    },
+    "metrics": {
+      "extensionLoadAndActivateMs": {
+        "samples": 6,
+        "minimum": 374.201292,
+        "p50": 402.060166,
+        "p95": 500.387667,
+        "maximum": 500.387667
+      },
+      "coldActivationCompleteMs": {
+        "samples": 3,
+        "minimum": 311.661708,
+        "p50": 318.423167,
+        "p95": 377.532458,
+        "maximum": 377.532458
+      },
+      "activationCompleteMs": {
+        "samples": 6,
+        "minimum": 310.99633300000005,
+        "p50": 318.423167,
+        "p95": 377.532458,
+        "maximum": 377.532458
+      },
+      "cachedFirstPaintMs": {
+        "samples": 3,
+        "minimum": 312.124375,
+        "p50": 336.839292,
+        "p95": 338.689917,
+        "maximum": 338.689917
+      },
+      "confirmedFirstPaintMs": {
+        "samples": 6,
+        "minimum": 899.766625,
+        "p50": 968.4941250000002,
+        "p95": 1416.929541,
+        "maximum": 1416.929541
+      },
+      "unchangedRefreshMs": {
+        "samples": 6,
+        "minimum": 461.5974160000003,
+        "p50": 487.66075,
+        "p95": 537.0889590000002,
+        "maximum": 537.0889590000002
+      },
+      "changedRefreshMs": {
+        "samples": 6,
+        "minimum": 1307.409291,
+        "p50": 1345.064875,
+        "p95": 1421.40175,
+        "maximum": 1421.40175
+      },
+      "webviewOpeningMs": {
+        "samples": 6,
+        "minimum": 148.9463340000002,
+        "p50": 152.7657079999999,
+        "p95": 161.9781669999993,
+        "maximum": 161.9781669999993
+      },
+      "helpRuntimeLoadMs": {
+        "samples": 6,
+        "minimum": 9.256791000000703,
+        "p50": 9.404250000000502,
+        "p95": 9.633749999999964,
+        "maximum": 9.633749999999964
+      },
+      "cachePersistenceMs": {
+        "samples": 6,
+        "minimum": 26.479874999999993,
+        "p50": 28.570082999999613,
+        "p95": 29.978791999999885,
+        "maximum": 29.978791999999885
+      },
+      "eventLoopMaxDelayMs": {
+        "samples": 6,
+        "minimum": 29.917183,
+        "p50": 31.424511,
+        "p95": 34.996223,
+        "maximum": 34.996223
+      },
+      "activationEventLoopMaxDelayMs": {
+        "samples": 6,
+        "minimum": 23.756799,
+        "p50": 26.574847,
+        "p95": 34.996223,
+        "maximum": 34.996223
+      },
+      "steadyStateEventLoopMaxDelayMs": {
+        "samples": 6,
+        "minimum": 25.591807,
+        "p50": 30.277631,
+        "p95": 32.751615,
+        "maximum": 32.751615
+      },
+      "extensionHostRssBytes": {
+        "samples": 6,
+        "minimum": 190824448,
+        "p50": 211517440,
+        "p95": 218857472,
+        "maximum": 218857472
+      },
+      "peakExtensionHostRssBytes": {
+        "samples": 6,
+        "minimum": 190824448,
+        "p50": 211517440,
+        "p95": 218824704,
+        "maximum": 218824704
+      },
+      "activationExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 178831360,
+        "p50": 179224576,
+        "p95": 181174272,
+        "maximum": 181174272
+      },
+      "unchangedRefreshExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 161284096,
+        "p50": 186302464,
+        "p95": 190496768,
+        "maximum": 190496768
+      },
+      "changedRefreshExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 163102720,
+        "p50": 191135744,
+        "p95": 192282624,
+        "maximum": 192282624
+      },
+      "watcherStormExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 162758656,
+        "p50": 191627264,
+        "p95": 192741376,
+        "maximum": 192741376
+      },
+      "webviewOpeningExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 185303040,
+        "p50": 208732160,
+        "p95": 210796544,
+        "maximum": 210796544
+      },
+      "cachePersistenceExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 190824448,
+        "p50": 211517440,
+        "p95": 218824704,
+        "maximum": 218824704
+      },
+      "peakChildRssBytes": {
+        "samples": 0,
+        "minimum": null,
+        "p50": null,
+        "p95": null,
+        "maximum": null
+      },
+      "watcherStormCliProcesses": {
+        "samples": 6,
+        "minimum": 1,
+        "p50": 1,
+        "p95": 1,
+        "maximum": 1
+      },
+      "watcherStormSidebarRenders": {
+        "samples": 6,
+        "minimum": 0,
+        "p50": 0,
+        "p95": 0,
+        "maximum": 0
+      }
+    },
+    "budgets": {
+      "coldActivationCompleteMs": {
+        "p95": 1500
+      },
+      "extensionLoadAndActivateMs": {
+        "p95": 1000
+      },
+      "activationCompleteMs": {
+        "p95": 750
+      },
+      "cachedFirstPaintMs": {
+        "p95": 250
+      },
+      "confirmedFirstPaintMs": {
+        "p95": 1200
+      },
+      "unchangedRefreshMs": {
+        "p95": 650
+      },
+      "changedRefreshMs": {
+        "p95": 1000
+      },
+      "webviewOpeningMs": {
+        "p95": 500
+      },
+      "helpRuntimeLoadMs": {
+        "p95": 150
+      },
+      "eventLoopMaxDelayMs": {
+        "p95": 50
+      },
+      "extensionHostRssBytes": {
+        "p95": 536870912
+      },
+      "peakExtensionHostRssBytes": {
+        "p95": 536870912
+      },
+      "peakChildRssBytes": {
+        "p95": 268435456,
+        "platforms": [
+          "linux"
+        ]
+      },
+      "watcherStormCliProcesses": {
+        "maximum": 2
+      },
+      "watcherStormSidebarRenders": {
+        "maximum": 4
+      }
+    },
+    "notApplicableMetrics": [],
+    "failures": [
+      "pair-1:cold-unchangedRefresh-cli-failed",
+      "pair-1:cold-changedRefresh-cli-failed",
+      "pair-1:warm-unchangedRefresh-cli-failed",
+      "pair-1:warm-changedRefresh-cli-failed",
+      "pair-2:cold-unchangedRefresh-cli-failed",
+      "pair-2:cold-changedRefresh-cli-failed",
+      "pair-2:warm-unchangedRefresh-cli-failed",
+      "pair-2:warm-changedRefresh-cli-failed",
+      "pair-3:cold-unchangedRefresh-cli-failed",
+      "pair-3:cold-changedRefresh-cli-failed",
+      "pair-3:warm-unchangedRefresh-cli-failed",
+      "pair-3:warm-changedRefresh-cli-failed"
+    ]
+  },
+  "hostCorrectedFixture": {
+    "schemaVersion": 3,
+    "kind": "sflow-vscode-extension-host-performance-report",
+    "status": "measured",
+    "profile": "current",
+    "platform": "darwin",
+    "vscodeVersion": "1.142.0",
+    "samplePairs": 3,
+    "protocol": {
+      "host": "real-vscode-extension-host",
+      "activation": "onView",
+      "network": "restricted-local-git",
+      "modelCalls": "disabled",
+      "questionsOrContentCaptured": false,
+      "coldAndWarmProcessPerPair": true
+    },
+    "metrics": {
+      "extensionLoadAndActivateMs": {
+        "samples": 6,
+        "minimum": 330.23512500000004,
+        "p50": 381.546834,
+        "p95": 441.8954590000001,
+        "maximum": 441.8954590000001
+      },
+      "coldActivationCompleteMs": {
+        "samples": 3,
+        "minimum": 298.486125,
+        "p50": 299.502583,
+        "p95": 302.7315,
+        "maximum": 302.7315
+      },
+      "activationCompleteMs": {
+        "samples": 6,
+        "minimum": 260.62125000000003,
+        "p50": 298.486125,
+        "p95": 376.808125,
+        "maximum": 376.808125
+      },
+      "cachedFirstPaintMs": {
+        "samples": 3,
+        "minimum": 261.73854099999994,
+        "p50": 278.339292,
+        "p95": 378.926834,
+        "maximum": 378.926834
+      },
+      "confirmedFirstPaintMs": {
+        "samples": 6,
+        "minimum": 855.4989999999999,
+        "p50": 966.838542,
+        "p95": 1142.990083,
+        "maximum": 1142.990083
+      },
+      "unchangedRefreshMs": {
+        "samples": 6,
+        "minimum": 423.99587500000007,
+        "p50": 483.2449159999999,
+        "p95": 1443.688917,
+        "maximum": 1443.688917
+      },
+      "changedRefreshMs": {
+        "samples": 6,
+        "minimum": 1235.5002089999998,
+        "p50": 1299.577167,
+        "p95": 1396.1153750000003,
+        "maximum": 1396.1153750000003
+      },
+      "webviewOpeningMs": {
+        "samples": 6,
+        "minimum": 143.1482079999996,
+        "p50": 146.17904199999975,
+        "p95": 149.45116700000017,
+        "maximum": 149.45116700000017
+      },
+      "helpRuntimeLoadMs": {
+        "samples": 6,
+        "minimum": 8.985500000000684,
+        "p50": 9.121291000000383,
+        "p95": 9.461542000000009,
+        "maximum": 9.461542000000009
+      },
+      "cachePersistenceMs": {
+        "samples": 6,
+        "minimum": 26.515792000000147,
+        "p50": 27.274374999999964,
+        "p95": 28.93029200000001,
+        "maximum": 28.93029200000001
+      },
+      "eventLoopMaxDelayMs": {
+        "samples": 6,
+        "minimum": 26.902527,
+        "p50": 30.359551,
+        "p95": 31.784959,
+        "maximum": 31.784959
+      },
+      "activationEventLoopMaxDelayMs": {
+        "samples": 6,
+        "minimum": 24.248319,
+        "p50": 25.575423,
+        "p95": 30.883839,
+        "maximum": 30.883839
+      },
+      "steadyStateEventLoopMaxDelayMs": {
+        "samples": 6,
+        "minimum": 23.642111,
+        "p50": 25.788415,
+        "p95": 31.784959,
+        "maximum": 31.784959
+      },
+      "extensionHostRssBytes": {
+        "samples": 6,
+        "minimum": 206340096,
+        "p50": 212008960,
+        "p95": 214269952,
+        "maximum": 214269952
+      },
+      "peakExtensionHostRssBytes": {
+        "samples": 6,
+        "minimum": 206307328,
+        "p50": 212008960,
+        "p95": 215302144,
+        "maximum": 215302144
+      },
+      "activationExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 178208768,
+        "p50": 179273728,
+        "p95": 187498496,
+        "maximum": 187498496
+      },
+      "unchangedRefreshExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 185384960,
+        "p50": 190644224,
+        "p95": 192053248,
+        "maximum": 192053248
+      },
+      "changedRefreshExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 187678720,
+        "p50": 191250432,
+        "p95": 192299008,
+        "maximum": 192299008
+      },
+      "watcherStormExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 177717248,
+        "p50": 192053248,
+        "p95": 192954368,
+        "maximum": 192954368
+      },
+      "webviewOpeningExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 193085440,
+        "p50": 208388096,
+        "p95": 209911808,
+        "maximum": 209911808
+      },
+      "cachePersistenceExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 206307328,
+        "p50": 212008960,
+        "p95": 215302144,
+        "maximum": 215302144
+      },
+      "peakChildRssBytes": {
+        "samples": 0,
+        "minimum": null,
+        "p50": null,
+        "p95": null,
+        "maximum": null
+      },
+      "watcherStormCliProcesses": {
+        "samples": 6,
+        "minimum": 1,
+        "p50": 1,
+        "p95": 1,
+        "maximum": 1
+      },
+      "watcherStormSidebarRenders": {
+        "samples": 6,
+        "minimum": 0,
+        "p50": 0,
+        "p95": 0,
+        "maximum": 0
+      }
+    },
+    "budgets": {
+      "coldActivationCompleteMs": {
+        "p95": 1500
+      },
+      "extensionLoadAndActivateMs": {
+        "p95": 1000
+      },
+      "activationCompleteMs": {
+        "p95": 750
+      },
+      "cachedFirstPaintMs": {
+        "p95": 250
+      },
+      "confirmedFirstPaintMs": {
+        "p95": 1200
+      },
+      "unchangedRefreshMs": {
+        "p95": 650
+      },
+      "changedRefreshMs": {
+        "p95": 1000
+      },
+      "webviewOpeningMs": {
+        "p95": 500
+      },
+      "helpRuntimeLoadMs": {
+        "p95": 150
+      },
+      "eventLoopMaxDelayMs": {
+        "p95": 50
+      },
+      "extensionHostRssBytes": {
+        "p95": 536870912
+      },
+      "peakExtensionHostRssBytes": {
+        "p95": 536870912
+      },
+      "peakChildRssBytes": {
+        "p95": 268435456,
+        "platforms": [
+          "linux"
+        ]
+      },
+      "watcherStormCliProcesses": {
+        "maximum": 2
+      },
+      "watcherStormSidebarRenders": {
+        "maximum": 4
+      }
+    },
+    "notApplicableMetrics": [],
+    "failures": []
+  },
+  "hostOverlapped": {
+    "schemaVersion": 3,
+    "kind": "sflow-vscode-extension-host-performance-report",
+    "status": "failed",
+    "profile": "current",
+    "platform": "darwin",
+    "vscodeVersion": "1.142.0",
+    "samplePairs": 3,
+    "protocol": {
+      "host": "real-vscode-extension-host",
+      "activation": "onView",
+      "network": "restricted-local-git",
+      "modelCalls": "disabled",
+      "questionsOrContentCaptured": false,
+      "coldAndWarmProcessPerPair": true
+    },
+    "metrics": {
+      "extensionLoadAndActivateMs": {
+        "samples": 6,
+        "minimum": 400.358709,
+        "p50": 417.50854100000004,
+        "p95": 870.2124999999999,
+        "maximum": 870.2124999999999
+      },
+      "coldActivationCompleteMs": {
+        "samples": 3,
+        "minimum": 342.357417,
+        "p50": 370.410333,
+        "p95": 770.41625,
+        "maximum": 770.41625
+      },
+      "activationCompleteMs": {
+        "samples": 6,
+        "minimum": 336.239375,
+        "p50": 352.15070799999995,
+        "p95": 770.41625,
+        "maximum": 770.41625
+      },
+      "cachedFirstPaintMs": {
+        "samples": 3,
+        "minimum": 337.502917,
+        "p50": 353.39399999999995,
+        "p95": 389.344833,
+        "maximum": 389.344833
+      },
+      "confirmedFirstPaintMs": {
+        "samples": 6,
+        "minimum": 960.870625,
+        "p50": 1047.1182909999998,
+        "p95": 4162.379999999999,
+        "maximum": 4162.379999999999
+      },
+      "unchangedRefreshMs": {
+        "samples": 6,
+        "minimum": 408.23812499999985,
+        "p50": 437.65483400000016,
+        "p95": 793.8567079999998,
+        "maximum": 793.8567079999998
+      },
+      "changedRefreshMs": {
+        "samples": 6,
+        "minimum": 804.1975419999999,
+        "p50": 830.588917,
+        "p95": 959.111625,
+        "maximum": 959.111625
+      },
+      "webviewOpeningMs": {
+        "samples": 6,
+        "minimum": 140.74633300000005,
+        "p50": 147.01479199999994,
+        "p95": 219.2992919999997,
+        "maximum": 219.2992919999997
+      },
+      "helpRuntimeLoadMs": {
+        "samples": 6,
+        "minimum": 8.984207999999853,
+        "p50": 9.591499999999542,
+        "p95": 11.111707999999453,
+        "maximum": 11.111707999999453
+      },
+      "cachePersistenceMs": {
+        "samples": 6,
+        "minimum": 9.60058299999946,
+        "p50": 26.816333999999188,
+        "p95": 47.092499999998836,
+        "maximum": 47.092499999998836
+      },
+      "eventLoopMaxDelayMs": {
+        "samples": 6,
+        "minimum": 24.231935,
+        "p50": 28.098559,
+        "p95": 36.372479,
+        "maximum": 36.372479
+      },
+      "activationEventLoopMaxDelayMs": {
+        "samples": 6,
+        "minimum": 18.202623,
+        "p50": 27.787263,
+        "p95": 36.372479,
+        "maximum": 36.372479
+      },
+      "steadyStateEventLoopMaxDelayMs": {
+        "samples": 6,
+        "minimum": 23.822335,
+        "p50": 24.608767,
+        "p95": 32.751615,
+        "maximum": 32.751615
+      },
+      "extensionHostRssBytes": {
+        "samples": 6,
+        "minimum": 186368000,
+        "p50": 189562880,
+        "p95": 213024768,
+        "maximum": 213024768
+      },
+      "peakExtensionHostRssBytes": {
+        "samples": 6,
+        "minimum": 186368000,
+        "p50": 189562880,
+        "p95": 217694208,
+        "maximum": 217694208
+      },
+      "activationExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 178061312,
+        "p50": 178946048,
+        "p95": 181108736,
+        "maximum": 181108736
+      },
+      "unchangedRefreshExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 148078592,
+        "p50": 178552832,
+        "p95": 190300160,
+        "maximum": 190300160
+      },
+      "changedRefreshExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 152027136,
+        "p50": 175915008,
+        "p95": 190251008,
+        "maximum": 190251008
+      },
+      "watcherStormExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 149340160,
+        "p50": 162070528,
+        "p95": 190808064,
+        "maximum": 190808064
+      },
+      "webviewOpeningExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 178159616,
+        "p50": 182845440,
+        "p95": 207863808,
+        "maximum": 207863808
+      },
+      "cachePersistenceExtensionHostPeakRssBytes": {
+        "samples": 6,
+        "minimum": 186368000,
+        "p50": 189562880,
+        "p95": 217694208,
+        "maximum": 217694208
+      },
+      "peakChildRssBytes": {
+        "samples": 0,
+        "minimum": null,
+        "p50": null,
+        "p95": null,
+        "maximum": null
+      },
+      "watcherStormCliProcesses": {
+        "samples": 6,
+        "minimum": 1,
+        "p50": 1,
+        "p95": 1,
+        "maximum": 1
+      },
+      "watcherStormSidebarRenders": {
+        "samples": 6,
+        "minimum": 0,
+        "p50": 0,
+        "p95": 0,
+        "maximum": 0
+      }
+    },
+    "budgets": {
+      "coldActivationCompleteMs": {
+        "p95": 1500
+      },
+      "extensionLoadAndActivateMs": {
+        "p95": 1000
+      },
+      "activationCompleteMs": {
+        "p95": 750
+      },
+      "cachedFirstPaintMs": {
+        "p95": 250
+      },
+      "confirmedFirstPaintMs": {
+        "p95": 1200
+      },
+      "unchangedRefreshMs": {
+        "p95": 650
+      },
+      "changedRefreshMs": {
+        "p95": 1000
+      },
+      "webviewOpeningMs": {
+        "p95": 500
+      },
+      "helpRuntimeLoadMs": {
+        "p95": 150
+      },
+      "eventLoopMaxDelayMs": {
+        "p95": 50
+      },
+      "extensionHostRssBytes": {
+        "p95": 536870912
+      },
+      "peakExtensionHostRssBytes": {
+        "p95": 536870912
+      },
+      "peakChildRssBytes": {
+        "p95": 268435456,
+        "platforms": [
+          "linux"
+        ]
+      },
+      "watcherStormCliProcesses": {
+        "maximum": 2
+      },
+      "watcherStormSidebarRenders": {
+        "maximum": 4
+      }
+    },
+    "notApplicableMetrics": [
+      {
+        "id": "peakChildRssBytes",
+        "reason": "platform",
+        "platforms": [
+          "linux"
+        ]
+      }
+    ],
+    "failures": [
+      "samples:3<30",
+      "activationCompleteMs:p95>750",
+      "cachedFirstPaintMs:p95>250",
+      "confirmedFirstPaintMs:p95>1200",
+      "unchangedRefreshMs:p95>650"
+    ]
+  },
+  "dx": {
+    "schemaVersion": 1,
+    "recordedAt": "2026-10-15T23:58:11.865Z",
+    "connected": null,
+    "tailFixtures": {
+      "command": "snapshotUi",
+      "coverage": {
+        "largeIgnoredBuildTree": "ignoredBuildTree",
+        "cleanSubmodule": "cleanSubmodule",
+        "linkedWorktreeAndNestedChanges": "linkedWorktree",
+        "manyStoriesAndRefs": "scale",
+        "renameBurstAndManyUntrackedFiles": "workingTree"
+      },
+      "results": {
+        "ignoredBuildTree": {
+          "topology": {
+            "ignoredFiles": 4096,
+            "directories": 64,
+            "ignoredStatusEntries": 1
+          },
+          "command": "snapshotUi",
+          "samples": 5,
+          "minMs": 335.495125,
+          "maxMs": 394.467417,
+          "p50Ms": 364.2715,
+          "p95Ms": 394.467417,
+          "coefficientOfVariation": 0.06622580393764758,
+          "subprocesses": 24,
+          "referenceSubprocesses": 24,
+          "subprocessGrowth": 1
+        },
+        "cleanSubmodule": {
+          "topology": {
+            "submodules": 1,
+            "clean": true
+          },
+          "command": "snapshotUi",
+          "samples": 5,
+          "minMs": 349.848292,
+          "maxMs": 383.429042,
+          "p50Ms": 353.201375,
+          "p95Ms": 383.429042,
+          "coefficientOfVariation": 0.03692643384783169,
+          "subprocesses": 24,
+          "referenceSubprocesses": 24,
+          "subprocessGrowth": 1
+        },
+        "linkedWorktree": {
+          "topology": {
+            "modifiedFiles": 64,
+            "renamedFiles": 64,
+            "untrackedFiles": 128,
+            "nestingDepth": 5,
+            "linkedWorktree": true,
+            "gitIndirection": true
+          },
+          "command": "snapshotUi",
+          "samples": 5,
+          "minMs": 340.972375,
+          "maxMs": 374.372959,
+          "p50Ms": 346.173708,
+          "p95Ms": 374.372959,
+          "coefficientOfVariation": 0.03537318031506259,
+          "subprocesses": 23,
+          "referenceSubprocesses": 24,
+          "subprocessGrowth": 0.9583333333333334
+        }
+      }
+    },
+    "workingTree": {
+      "topology": {
+        "modifiedFiles": 64,
+        "renamedFiles": 64,
+        "untrackedFiles": 128
+      },
+      "command": "snapshotUi",
+      "samples": 10,
+      "minMs": 336.758458,
+      "maxMs": 363.188,
+      "p50Ms": 338.188417,
+      "p95Ms": 363.188,
+      "coefficientOfVariation": 0.023710000518720426,
+      "subprocesses": 24,
+      "referenceSubprocesses": 24,
+      "subprocessGrowth": 1
+    },
+    "scale": {
+      "topology": {
+        "trackedFiles": 10000,
+        "untrackedFiles": 4,
+        "localBranches": 12,
+        "stories": 40,
+        "initiatives": 0,
+        "specifications": 0,
+        "knowledgeDocuments": 0,
+        "localSubjectIndex": "absent"
+      },
+      "commands": {
+        "status": {
+          "samples": 5,
+          "minMs": 138.548959,
+          "maxMs": 145.302417,
+          "p50Ms": 139.729042,
+          "p95Ms": 145.302417,
+          "coefficientOfVariation": 0.01787676256192368,
+          "subprocesses": 2,
+          "referenceSubprocesses": 2,
+          "subprocessGrowth": 1
+        },
+        "nextsteps": {
+          "samples": 5,
+          "minMs": 244.446,
+          "maxMs": 253.612292,
+          "p50Ms": 248.284584,
+          "p95Ms": 253.612292,
+          "coefficientOfVariation": 0.012447524137363835,
+          "subprocesses": 5,
+          "referenceSubprocesses": 5,
+          "subprocessGrowth": 1
+        },
+        "snapshot": {
+          "samples": 5,
+          "minMs": 181.140333,
+          "maxMs": 185.245625,
+          "p50Ms": 182.526042,
+          "p95Ms": 185.245625,
+          "coefficientOfVariation": 0.008185635207183354,
+          "subprocesses": 8,
+          "referenceSubprocesses": 8,
+          "subprocessGrowth": 1
+        },
+        "snapshotUi": {
+          "samples": 5,
+          "minMs": 595.268,
+          "maxMs": 610.104667,
+          "p50Ms": 605.031916,
+          "p95Ms": 610.104667,
+          "coefficientOfVariation": 0.009539161696356593,
+          "subprocesses": 24,
+          "referenceSubprocesses": 24,
+          "subprocessGrowth": 1
+        },
+        "snapshotFull": {
+          "samples": 5,
+          "minMs": 724.52375,
+          "maxMs": 729.296458,
+          "p50Ms": 725.197209,
+          "p95Ms": 729.296458,
+          "coefficientOfVariation": 0.0025315165156840377,
+          "subprocesses": 29,
+          "referenceSubprocesses": 29,
+          "subprocessGrowth": 1
+        }
+      }
+    },
+    "runtime": {
+      "node": "v25.5.0",
+      "nodeMajor": 25,
+      "git": "git version 2.54.0",
+      "platform": "darwin",
+      "architecture": "arm64",
+      "runner": "local",
+      "filesystem": {
+        "temporaryStorage": "system",
+        "caseSensitive": false
+      },
+      "vscode": null
+    },
+    "protocol": {
+      "warmupRuns": 1,
+      "samples": 30,
+      "network": "disabled",
+      "modelCalls": "disabled"
+    },
+    "topology": {
+      "trackedFiles": 500,
+      "untrackedFiles": 4,
+      "localBranches": 4,
+      "stories": 1,
+      "initiatives": 0,
+      "specifications": 0,
+      "knowledgeDocuments": 0,
+      "localSubjectIndex": "absent"
+    },
+    "commands": {
+      "about": {
+        "samples": 30,
+        "minMs": 92.935291,
+        "maxMs": 279.948833,
+        "p50Ms": 107.345959,
+        "p95Ms": 228.475,
+        "coefficientOfVariation": 0.33543359082992685
+      },
+      "status": {
+        "samples": 30,
+        "minMs": 111.414042,
+        "maxMs": 219.769459,
+        "p50Ms": 122.721166,
+        "p95Ms": 171.734584,
+        "coefficientOfVariation": 0.16884561558958366
+      },
+      "nextsteps": {
+        "samples": 30,
+        "minMs": 237.314708,
+        "maxMs": 612.918333,
+        "p50Ms": 259.772834,
+        "p95Ms": 505.646208,
+        "coefficientOfVariation": 0.2814662910627759
+      },
+      "snapshot": {
+        "samples": 30,
+        "minMs": 136.546542,
+        "maxMs": 202.943292,
+        "p50Ms": 154.932208,
+        "p95Ms": 191.092333,
+        "coefficientOfVariation": 0.09571406805088534
+      },
+      "snapshotUi": {
+        "samples": 30,
+        "minMs": 360.844416,
+        "maxMs": 714.93225,
+        "p50Ms": 420.249666,
+        "p95Ms": 698.533334,
+        "coefficientOfVariation": 0.19262780262874898
+      },
+      "snapshotFull": {
+        "samples": 30,
+        "minMs": 431.680458,
+        "maxMs": 805.132125,
+        "p50Ms": 440.926625,
+        "p95Ms": 715.90125,
+        "coefficientOfVariation": 0.17708557571984845
+      },
+      "help": {
+        "samples": 30,
+        "minMs": 154.589167,
+        "maxMs": 160.087292,
+        "p50Ms": 156.753416,
+        "p95Ms": 159.868791,
+        "coefficientOfVariation": 0.009654821496714067
+      },
+      "inbox": {
+        "samples": 30,
+        "minMs": 213.286042,
+        "maxMs": 254.330458,
+        "p50Ms": 215.081291,
+        "p95Ms": 218.875042,
+        "coefficientOfVariation": 0.03285676872981172
+      },
+      "guide": {
+        "samples": 30,
+        "minMs": 220.855459,
+        "maxMs": 233.412375,
+        "p50Ms": 224.93575,
+        "p95Ms": 231.427333,
+        "coefficientOfVariation": 0.01234457796009631
+      },
+      "logs": {
+        "samples": 30,
+        "minMs": 160.880958,
+        "maxMs": 164.907333,
+        "p50Ms": 163.848875,
+        "p95Ms": 164.896666,
+        "coefficientOfVariation": 0.007030229045043345
+      }
+    },
+    "baselineComparison": "not-comparable",
+    "failures": [
+      "nextsteps p50 259.8ms exceeds 150ms",
+      "nextsteps p95 505.6ms exceeds 250ms",
+      "snapshot p50 154.9ms exceeds 150ms",
+      "snapshotUi p50 420.2ms exceeds 400ms",
+      "snapshotUi p95 698.5ms exceeds 650ms"
+    ],
+    "passed": false
+  },
+  "limitations": [
+    "Native runs stopped at Intake at the user's request. No submission, approval, implementation or closure was performed in those six Stories.",
+    "The native quota permission did not waive human checkpoints or authorize impersonated approvals.",
+    "The three pairs use the same quick-fix definition, GPT-6.1 Sol, CLI host and tool allowlist, with alternating order. Content and provider cache behavior vary.",
+    "Two exploratory provider turns were excluded: unavailable file-edit tool, then a harness no-model setting that mislabeled authorship as manual. Their raw traces are retained privately. Four earlier launch rejections made no model call.",
+    "The excluded provider turns used 20.03613 AI credits. Accepted Intake turns used the provider-exported amounts in native.runs, not an estimate.",
+    "Local source command cohorts are not installed-binary or native VS Code Story qualification. The host probes use the real VS Code development-extension host.",
+    "Concurrent host/provider/benchmark work and other activity on this Mac can affect tail latency. Every captured slow sample and failed cohort remains in this report.",
+    "The 30-pair phase/publication cohort did not meet the proposed improvement targets. Publication total includes commit and local-file transport, not orchestration-only timing.",
+    "The optimized host cohort meets the changed-refresh component budget but has too few pairs and other failing budgets. It is not a general host qualification pass.",
+    "The DX fixture kept the 500-file and 10000-file shapes and accepted budgets unchanged. It reports failures; its pinned Linux baseline is not comparable to this Mac.",
+    "Windows and installed-build qualification, receipt-backed intake/start percentage targets, the larger state-read split and complete native Stories remain outstanding. Expanded workers remain disabled."
+  ]
+}

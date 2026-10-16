@@ -179,6 +179,8 @@ test('the benchmark launcher uses VS Code extensionTestsPath and fails closed wi
   assert.match(launcher, /'Code', 'Electron'/);
   assert.match(launcher, /activateWorkspaceContext\(/,
     'the benchmark must select a governed workspace before measuring Story discovery');
+  assert.match(launcher, /await initializeLedger\(repository/,
+    'the empty fixture must have a canonical state index; discovery must not fall back to application branches');
   assert.match(launcher, /GIT_ALLOW_PROTOCOL: 'file'/,
     'the local fixture must not permit external Git transports');
   assert.match(launcher, /HTTP_PROXY: refusedProxy/,

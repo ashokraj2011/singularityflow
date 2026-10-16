@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promis
 import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { classifyWorkflowAttachment, inspectWorkflowAttachments } from '../src/workflow-intent-attachments.mjs';
 import { WorkflowAttachmentStore } from '../apps/vscode/src/views/workflow-attachment-store.ts';
 import { withWorkflowIntentCatalog, workflowIntentExample } from '../src/workflow-intent-catalog.mjs';
@@ -79,7 +80,7 @@ test('captured local guidance becomes a dependency-complete skill/instruction pa
 });
 test('CLI capture is model-free outside a repository and returns only the requested exact body',async t=>{
   const root=await fixture(t),file=path.join(root,'guide.md');await writeFile(file,'## Steps\nCheck behavior.');
-  const cli=new URL('../bin/singularity-flow.mjs',import.meta.url);const result=spawnSync(process.execPath,[cli.pathname,'workflow','intent','attachments','--file',file,'--json'],{cwd:root,encoding:'utf8'});
+  const cli=fileURLToPath(new URL('../bin/singularity-flow.mjs',import.meta.url));const result=spawnSync(process.execPath,[cli,'workflow','intent','attachments','--file',file,'--json'],{cwd:root,encoding:'utf8'});
   assert.equal(result.status,0,result.stderr||result.stdout);assert.equal(JSON.parse(result.stdout).items[0].classification.kind,'skill');assert.equal(await readFile(file,'utf8'),'## Steps\nCheck behavior.');
   assert.match(JSON.parse(result.stdout).readGuidance.command,/--id '<CAPTURE-ID>'/u);
 });

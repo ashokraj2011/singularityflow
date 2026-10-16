@@ -12,6 +12,13 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "scripts/native-story-pairs.mjs": {
+      "counts": {
+        "process-import": 1,
+        "process-launch": 1
+      },
+      "digest": "af8de48569e1e0e298ffecb323a3e4d2c4d3a7a0dbae1def47f24c445bd0b2cb"
+    },
     "src/phase-continuation-runtime.mjs": {
       "counts": {
         "command-run": 1

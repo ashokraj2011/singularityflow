@@ -18,6 +18,16 @@ import { MESSAGES, REASONS } from './messages.mjs';
 
 export const COMMAND_RESULT_SCHEMA_VERSION = 1;
 
+/** Attach refusal data without loading any rendering, continuation or output machinery. */
+export function withCommandResult(error, result) {
+  Object.defineProperty(error, 'commandResult', { value: result, enumerable: false, configurable: true });
+  return error;
+}
+
+export function commandResultOf(error) {
+  return error?.commandResult ?? null;
+}
+
 const STATUSES = new Set(['succeeded', 'refused', 'failed', 'noop']);
 const REST_STATES = new Set(['complete', 'cancelled', 'awaiting-others', 'informational']);
 // `docs` is the documentation plane. It is its own source rather than being folded into `config` or

@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { deriveMutationContract, mutationPathDecision, mutationTurnMode } from '../src/phase-mutation-contract.mjs';
 import { recordRepositoryBoundaryTurn, endRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
@@ -286,7 +286,7 @@ test('/sf-decide turns permit only the bound decision commands its skill runs', 
   const fresh = await f.enter('/sf-decide PMC-1', 'decider-2');
   const freshChoose = () => mutationToolGuard({ ...fresh, toolName: 'bash', toolArgs: { command: choose, cwd: f.root } });
   assert.deepEqual(await freshChoose(), {});
-  const refused = spawnSync(process.execPath, [new URL('../bin/singularity-flow.mjs', import.meta.url).pathname, '--no-model',
+  const refused = spawnSync(process.execPath, [fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url)), '--no-model',
     'decision', 'choose', 'PMC-1', '--option', 'ship', '--reason', 'The person chose to ship.', '--expected', 'k1'],
   { cwd: f.root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' } });
   assert.notEqual(refused.status, 0, refused.stdout);

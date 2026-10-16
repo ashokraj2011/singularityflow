@@ -101,6 +101,8 @@ async function createFixture(parent) {
     'defaultBaseBranch: main',
     'workItemRoot: singularity/work-items',
     'templatesRoot: singularity/templates',
+    'ledger:',
+    '  enabled: true',
     'worldModel:',
     '  views: [business, architecture, development, testing, release, operations, security]',
     '  outputDir: singularity/world-model',
@@ -122,6 +124,10 @@ async function createFixture(parent) {
   git(repository, ['commit', '-q', '-m', 'Approved benchmark configuration']);
   git(repository, ['push', '-q', '-u', 'origin', 'sflow/config']);
   git(repository, ['switch', '-q', 'main']);
+  // Story discovery reads the governed state index, never application branches. An empty,
+  // correctly onboarded repository still needs its canonical empty ledger outside timing.
+  const { initializeLedger } = await import('../src/ledger.mjs');
+  await initializeLedger(repository, { enabled: true }, { env: { ...process.env, GIT_ALLOW_PROTOCOL: 'file' } });
   await writeFile(path.join(workspace, 'workspace.json'), `${JSON.stringify({
     version: 1,
     id: 'benchmark',

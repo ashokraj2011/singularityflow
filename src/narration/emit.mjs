@@ -44,11 +44,4 @@ export function emitCommandResult(result, { json = false, forAgent = false, post
  * today — effects-derived reassurance, reason codes, planner continuation — while the throw keeps
  * its exit code and its place in the control flow.
  */
-export function withCommandResult(error, result) {
-  Object.defineProperty(error, 'commandResult', { value: result, enumerable: false, configurable: true });
-  return error;
-}
-
-export function commandResultOf(error) {
-  return error?.commandResult ?? null;
-}
+export { withCommandResult, commandResultOf } from './command-result.mjs';

@@ -2070,7 +2070,7 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
   env = process.env,
   captureAuthoringBytes = false,
   gitRoot = scratch,
-  gitRef = 'HEAD'
+  gitRef = observedCommit
 }) {
   // A remote authority must use reviewed workspace repair, not repository-local init advice.
   const workflow = await lstat(path.join(scratch, 'singularity/workflow.yml')).catch((error) => {

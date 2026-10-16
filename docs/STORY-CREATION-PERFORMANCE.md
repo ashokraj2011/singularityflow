@@ -1,5 +1,9 @@
 # Story creation performance
 
+For the subsequent isolated-checkout and index-I/O improvements used by VS Code, see
+[Isolated Story creation performance](ISOLATED-STORY-PERFORMANCE.md). The results below describe
+the earlier optimization stage.
+
 This change optimizes creation, not just the intake catalog or CLI startup. It applies to the
 CLI used by Copilot and VS Code's isolated Story-start path. It does not change phase policies,
 automatically run tests, defer publication, or claim that readiness means tests passed.

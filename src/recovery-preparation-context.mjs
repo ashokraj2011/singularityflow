@@ -1,5 +1,5 @@
 /** Recognize current-generation preparation bytes, never publication or adoption authority. */
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import { readPromptGeneration } from './inject.mjs';
@@ -136,13 +136,30 @@ export async function expectedPreparationContextPaths(root, config, workflow, ph
       const checked = await verifyClarificationRecord(root, config, workflow, phase, {
         generation, groundingRecord: composed.record
       });
-      if (!checked.errors.length && checked.record?.agent === composed.record.agent
-          && checked.record.promptPath === promptPath) expected.push(clarificationPath);
+      const sameStep = checked.record?.agent === composed.record.agent && checked.record.promptPath === promptPath;
+      // Answers recorded against a prompt this generation later recomposed (its superseded pair names
+      // the hash they were bound to) are still this step's: entry asks the person to re-bind them.
+      if (sameStep && (!checked.errors.length
+          || (checked.staleOnly && await supersededPromptOf(root, itemRoot, phase, generation, checked.record.promptSha256)))) {
+        expected.push(clarificationPath);
+      }
     } catch {
       // A valid prompt pair does not waive review of an invalid clarification record.
     }
   }
   return expected;
+}
+
+/** Whether this step and generation superseded a composed prompt with exactly this rendered hash. */
+async function supersededPromptOf(root, itemRoot, phase, generation, renderedSha256) {
+  if (!/^[0-9a-f]{64}$/u.test(String(renderedSha256 ?? ''))) return false;
+  const directory = path.join(root, itemRoot, 'context', 'superseded');
+  const names = await readdir(directory).catch(() => []);
+  for (const name of names.filter(entry => entry.startsWith(`${phase.id}-gen${generation}-`))) {
+    const reason = await contextJson(root, `${itemRoot}/context/superseded/${name}/reason.json`);
+    if (reason?.phase === phase.id && reason.generation === generation && reason.renderedSha256 === renderedSha256) return true;
+  }
+  return false;
 }
 
 async function safeContextFile(root, relative) {

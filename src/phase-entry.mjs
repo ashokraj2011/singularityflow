@@ -199,6 +199,23 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     ...safeCommandGuidance({ argv: ['clarification', 'record', phase.id,
       '--response-file', clarification.responseStagingPath, '--json'] })
   }) : null;
+  // Answers recorded before this generation's prompt was recomposed (its documents, inputs or change
+  // requests changed) are bound to the old prompt. Nothing re-binds them automatically: the person
+  // confirms or changes each one against the current context, recorded with --replace. Without this
+  // route the step stopped at inspect-binding with no action.
+  checkpoint.rebindAction = checkpoint.stage === 'inspect-binding' && clarification.staleOnly && canCompose
+    ? recoveryActionGuidance(context ? {
+      id: `rebind-clarification:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
+      scope: 'clarification-only', requiresActualHumanReplies: true, skill: authoring.effectiveAuthoringSkill,
+      detail: 'The prompt was recomposed after these answers were recorded. Show the person each recorded question and answer (clarification.record.responses) against the current context; stage only the answers they confirm or change as {"responses":[...]} with a file-edit tool and run this command alone.',
+      ...safeCommandGuidance({ argv: ['clarification', 'record', phase.id,
+        '--response-file', clarification.responseStagingPath, '--replace', '--json'] })
+    } : {
+      id: `rebind-clarification:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
+      scope: 'clarification-only', agentAction: 'load-context', skill: authoring.effectiveAuthoringSkill,
+      command: `singularity-flow phase enter ${phase.id} --work-id ${actualId} --compose --for-agent --json`,
+      detail: 'The recorded answers are bound to an earlier prompt. Load the current composed context once, then re-bind them with the person.'
+    }) : null;
   // A missing answer blocks drafting, not loading the evidence needed to ask a question.
   // Do not offer another status lookup or a record command with invented Q/A placeholders.
   const clarificationAction = checkpoint.questioningAllowed ? {
@@ -259,7 +276,7 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     authoring, recovery, retainedExecutionEvidence, references, clarification, context,
     contextComposition: !compose ? 'not-requested' : context ? 'delivered' : 'not-admitted',
     next: clarificationAction ? [checkpoint.nextAction, ...nextActions.filter(action =>
-      action.id !== `resolve-clarification:${phase.id}`)] : nextActions,
+      action.id !== `resolve-clarification:${phase.id}`)] : checkpoint.rebindAction ? [checkpoint.rebindAction, ...nextActions] : nextActions,
     inspectionCommands: { recovery: `singularity-flow recover ${actualId} --phase ${phase.id} --json`,
       documents: `singularity-flow phase show ${phase.id} --json` } };
 }

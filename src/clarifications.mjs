@@ -333,9 +333,11 @@ async function inspectClarificationRecord(root, definition, workflow, phase, {
   const expectedGroundingPath = groundingRecordRelative(definition, workflow, phase, generation);
   if (record.groundingRecordPath !== expectedGroundingPath) problems.push(`clarification record points to the wrong grounding record: ${relative}`);
   const groundingInfo = await snapshot(path.join(root, expectedGroundingPath));
-  if (!groundingInfo.exists || groundingInfo.sha256 !== record.groundingRecordSha256) problems.push(`clarification record is stale because the grounding record changed: ${relative}`);
+  // Staleness alone (the prompt was recomposed after the answers) is re-bound by the person, not a bad record.
+  const stale = [];
+  if (!groundingInfo.exists || groundingInfo.sha256 !== record.groundingRecordSha256) stale.push(`clarification record is stale because the grounding record changed: ${relative}`);
   const currentGrounding = groundingRecord ?? (groundingInfo.exists ? await readJson(path.join(root, expectedGroundingPath)).catch(() => null) : null);
-  if (!currentGrounding || currentGrounding.renderedSha256 !== record.promptSha256) problems.push(`clarification record is stale because the composed prompt changed: ${relative}`);
+  if (!currentGrounding || currentGrounding.renderedSha256 !== record.promptSha256) stale.push(`clarification record is stale because the composed prompt changed: ${relative}`);
   const expectedPromptPath = posix(path.join(
     definition.workItemRoot ?? 'singularity/work-items', workflow.workItem.id, 'context',
     'prompts', `${phase.id}-gen${generation}.md`
@@ -344,11 +346,14 @@ async function inspectClarificationRecord(root, definition, workflow, phase, {
   // A record may name an arbitrary path. Never open it merely to diagnose a bad binding.
   const promptInfo = record.promptPath === expectedPromptPath
     ? await snapshot(path.join(root, expectedPromptPath)) : { exists: false, sha256: null };
-  if (!promptInfo.exists || promptInfo.sha256 !== record.promptSha256) problems.push(`clarification prompt snapshot hash differs: ${relative}`);
+  if (!promptInfo.exists || promptInfo.sha256 !== record.promptSha256) stale.push(`clarification prompt snapshot hash differs: ${relative}`);
+  const staleOnly = !problems.length && stale.length > 0;
+  problems.push(...stale);
   const info = await snapshot(path.join(root, relative));
   return {
     mode: policy.mode,
     recordState: problems.length ? 'stale-or-incomplete' : 'complete',
+    staleOnly,
     errors: problems,
     warnings: [],
     passes: problems.length ? [] : [`clarification checkpoint: ${phase.id} generation ${generation} (${record.responses.length} human response${record.responses.length === 1 ? '' : 's'})`],

@@ -761,6 +761,49 @@ test('an interrupted prompt pair goes back to composition instead of a person', 
   });
 });
 
+// A change request (or new documents or inputs) recomposes the prompt; the recorded answers stay bound to
+// the earlier one. Recovery held the record for a person, and entry stopped at inspect-binding with no
+// action. Now the record is the step's own and entry asks the person to re-bind the answers.
+test('answers recorded before a recomposition are re-bound by the person, not held', async t => {
+  const item = await fixture(t, { customPhase: 'qa-intake', clarificationActor: true });
+  const invokeJson = (...args) => {
+    const result = item.invoke(...args, '--json');
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    return completeAgentResult(result.stdout);
+  };
+  const entry = invokeJson('phase', 'enter', '--compose', '--for-agent');
+  const staging = entry.clarification.responseStagingPath;
+  const replies = [{ question: 'Which page has the filter?', answer: 'Research and Markets.' }];
+  await mkdir(path.dirname(staging), { recursive: true });
+  await writeFile(staging, JSON.stringify({ responses: replies }));
+  invokeJson(...entry.clarification.checkpoint.recordAction.commandGuidance.argv.filter(arg => arg !== '--json'));
+  const statePath = path.join(item.root, 'team/stories/ENTRY-1/workflow.json');
+  const state = JSON.parse(await readFile(statePath, 'utf8'));
+  state.changeRequests = [...(state.changeRequests ?? []), { id: 'CR-1', status: 'open', targetPhase: 'qa-intake',
+    comment: 'Also cover the empty category.', clauseIds: [], requestedAt: '2026-10-16T00:00:00.000Z' }];
+  await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+  const recomposed = item.invoke('phase', 'enter', '--compose', '--for-agent', '--json');
+  assert.match(recomposed.stderr, /Recomposing qa-intake generation 1/);
+  const stale = completeAgentResult(recomposed.stdout);
+  assert.deepEqual(stale.contextAdmission.blockers, []);
+  assert.equal(stale.clarification.checkpoint.stage, 'inspect-binding');
+  assert.equal(stale.authoringAllowed, false);
+  const rebind = stale.next[0];
+  assert.equal(rebind.id, 'rebind-clarification:qa-intake');
+  assert.equal(rebind.requiresActualHumanReplies, true);
+  assert.ok(rebind.commandGuidance.argv.includes('--replace'));
+  // A later entry, after recovery has seen the recomposed pair, holds nothing and routes the same way.
+  const again = invokeJson('phase', 'enter', '--for-agent');
+  assert.deepEqual(again.contextAdmission.blockers, []);
+  assert.equal(again.next[0].id, 'rebind-clarification:qa-intake');
+  assert.equal(again.next[0].agentAction, 'load-context');
+  await writeFile(staging, JSON.stringify({ responses: replies }));
+  invokeJson(...rebind.commandGuidance.argv.filter(arg => arg !== '--json'));
+  const resumed = invokeJson('phase', 'enter', '--for-agent');
+  assert.equal(resumed.clarification.checkpoint.stage, 'complete');
+  assert.equal(resumed.authoringAllowed, true);
+});
+
 // A step writes more than its primary artifact: the other members of its artifact set (review notes,
 // task maps, evidence folders) and files below its own artifact directory, which publication
 // registers and commits. Entry read them as somebody else's work and held the step for a person.

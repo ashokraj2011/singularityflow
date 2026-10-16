@@ -24,7 +24,12 @@ import { gitDir } from './git-execution.mjs';
 import { safeCommandGuidance } from './safe-command-guidance.mjs';
 import { writeAtomic } from './util.mjs';
 
-export const DEFAULT_AGENT_OUTPUT_BYTES = 16_000;
+// Copilot CLI shows a shell result inline only below 8,192 characters. From there it saves the result
+// outside the workspace, shows its first 500 characters and suggests rg/head/tail/jq on that file,
+// which a session turn may not run. Measured over 9,519 recorded shell results (Copilot 1.0.92 to
+// 1.0.95, 2026-10-16): the largest inline was 8,191 characters, the smallest saved 8.0 KB. A 16 KB
+// view was therefore still saved. 7,500 bytes leaves room for the stderr lines in the same result.
+export const DEFAULT_AGENT_OUTPUT_BYTES = 7_500;
 export const LOOP_THRESHOLD = 3;
 const LOOP_WINDOW_MS = 2 * 60 * 60 * 1000;
 const UNCOUNTED_STATES = new Set(['author', 'read', 'paused']);

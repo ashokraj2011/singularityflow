@@ -130,7 +130,11 @@ test('the CLI bounds a real phase entry, and the bytes it leaves out are in the 
   const view = JSON.parse(bounded.stdout);
   assert.equal(Object.keys(view)[0], 'act');
   assert.equal(view.act.state, 'ask-person');
-  assert.ok(view.clarification?.checkpoint, 'the checkpoint act points at is in the view');
+  // The checkpoint act points at is in the view, or exactly at the line range the view names.
+  const named = view.omittedFields.find((entry) => entry.field === 'clarification');
+  const clarification = view.clarification ?? JSON.parse((await readFile(view.agentOutput.path, 'utf8')).split('\n')
+    .slice(named.lines[0] - 1, named.lines[1]).join('\n').replace(/^ {2}"clarification": /u, '').replace(/,$/u, ''));
+  assert.ok(clarification.checkpoint, 'the checkpoint act points at is in the view or at its named range');
   const context = view.omittedFields.find((entry) => entry.field === 'context');
   const whole = JSON.parse(run(['phase', 'enter', '--compose', '--for-agent', '--json'], { SINGULARITY_FLOW_AGENT_OUTPUT: 'full' }).stdout);
   assert.equal(await readFile(context.textFiles[0].path, 'utf8'), whole.context.text, 'the composed context is complete in its file');
@@ -182,4 +186,10 @@ test('JSON written to a terminal is an agent view; JSON read through a pipe or f
   assert.equal(agentViewRequested({ 'for-agent': true, json: true }, { stream: pipe, env: {} }), true, '--for-agent asks for it anywhere');
   assert.equal(agentViewRequested({ json: true }, { stream: terminal, env: { SINGULARITY_FLOW_AGENT_OUTPUT: 'full' } }), false);
   assert.equal(agentViewRequested({}, { stream: terminal, env: {} }), false, 'human text output is unchanged');
+});
+
+test('the default view fits inline in the host, which saves 8,192 characters and more to a file', () => {
+  // Copilot CLI saves a shell result of 8,192+ characters outside the workspace with a 500-character
+  // preview; a session turn may not read that copy. Leave room for the stderr lines in the same result.
+  assert.ok(DEFAULT_AGENT_OUTPUT_BYTES <= 7_500, `${DEFAULT_AGENT_OUTPUT_BYTES} bytes`);
 });

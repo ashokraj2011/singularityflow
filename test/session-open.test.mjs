@@ -132,7 +132,7 @@ test('session open lists the Stories without an ID and opens one with its status
   }
 
   const compact = must(process.execPath, [cli, 'session', 'open', 'OPEN-1', '--for-agent', '--json']).stdout;
-  assert.ok(Buffer.byteLength(compact) <= 16000, 'the native host receives a bounded packet');
+  assert.ok(Buffer.byteLength(compact) < 8000, 'the native host shows the packet inline (it saves 8 KB and more to a file)');
   const packet = JSON.parse(compact);
   const compactFull = completeAgentResult(compact);
   assert.equal(compactFull.ready, true);

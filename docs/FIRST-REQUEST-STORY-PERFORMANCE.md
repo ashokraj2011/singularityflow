@@ -142,6 +142,10 @@ isolated creation with exact local/remote tip verification. Its
 application files and one sample: it verifies integration, not a performance distribution.
 Do not relabel the earlier timing distributions as measurements of this later merged revision.
 
+The final pre-push refresh also integrated `7a7ee3c8` (the Start skill's registry budget and
+boundary tests). It changes no JavaScript runtime code. The resulting source check passes 2,618
+checks and the 23 path-grounding / skill-efficiency tests pass; no upstream change was discarded.
+
 ## Reproduce on either operating system
 
 The Windows exploration below explains why the persistent compiled cache is opt-in there.

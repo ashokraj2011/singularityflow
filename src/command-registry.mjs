@@ -726,6 +726,8 @@ function resolveSpecOperation(definition, positionals, options) {
       ? optional('spec.analyze.assisted', 'spec.analyze', definition)
       : never('spec.analyze', definition, 'read');
   }
+  // A drift decision is a person's record, committed; the drift report itself only reads.
+  if (subcommand === 'drift' && positionals[2] === 'decide') return never('spec.drift.decide', definition, 'mutation');
   if (SPEC_READ_SUBCOMMANDS.includes(subcommand)) return never(`spec.${subcommand}`, definition, 'read');
   // The advisory task map is derived from the approved specification, so it lives with the other
   // clause-traceability operations rather than becoming a command of its own.
@@ -1819,6 +1821,7 @@ export function operationCatalog() {
     never('spec.tasks.dry-run', specDefinition, 'read'),
     never('spec.trace', specDefinition, 'read'),
     never('spec.drift', specDefinition, 'read'),
+    never('spec.drift.decide', specDefinition, 'mutation'),
     never('explain', explainDefinition, 'read'),
     never('explain.code', explainDefinition, 'read'),
     optional('explain.code.narrate', 'explain.code', explainDefinition),

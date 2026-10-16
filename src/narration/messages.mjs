@@ -697,6 +697,10 @@ export const MESSAGES = Object.freeze({
     headline: (s) => `${slot(s.clauses, '0')} approved clause(s) in ${slot(s.stories, '0')} closed Story(ies): ${slot(s.drifted, '0')} drifted, ${slot(s.orphaned, '0')} orphaned. Advisory; nothing was refused.`,
     preserves: true
   },
+  'spec.drift.decided': {
+    headline: (s) => `Recorded ${slot(s.record)} on ${slot(s.clause)}; spec drift reads it while the code keeps the bytes it covered.`,
+    preserves: false
+  },
   'evidence.matrix.reported': {
     headline: (s) => `${slot(s.workId)}: ${slot(s.satisfied, '0')} of ${slot(s.rows, '0')} requirement and criterion row(s) satisfied; ${slot(s.label)}.`,
     preserves: true

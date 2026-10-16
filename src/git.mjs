@@ -2091,6 +2091,17 @@ export function pathPatchSince(root, base, target, paths, { maximumBytes = 64 * 
   return result.status === 0 ? String(result.stdout ?? '') : null;
 }
 
+/**
+ * Commit exactly `paths`, already written, on the current branch: anything else staged stays
+ * staged and out of the commit. Returns the new commit.
+ */
+export function commitExactPaths(root, paths, message) {
+  const pathspecs = paths.map((relative) => `:(literal)${relative}`);
+  gitAnswer(['add', '--', ...pathspecs], { cwd: root }, 'Stage the recorded paths');
+  gitAnswer(['commit', '--quiet', '--only', '-m', message, '--', ...pathspecs], { cwd: root }, 'Commit the recorded paths');
+  return gitAnswer(['rev-parse', 'HEAD'], { cwd: root }, 'The new commit').trim();
+}
+
 /** Whether `commit` names a commit present in this clone, without fetching. */
 export function commitPresent(root, commit) {
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(String(commit ?? ''))) return false;

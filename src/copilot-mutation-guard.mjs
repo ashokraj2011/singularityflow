@@ -254,6 +254,7 @@ function shellAllowed(call, mode, value) {
   if (positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1])) return false;
   // Accepting that a step's tests cannot run here is its approvers' call too; the refusal names it.
   if (positionals[0] === 'decision' && positionals[1] === 'test-risk') return false;
+  if (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide') return false;
   return !['approve', 'reject'].includes(positionals[0]);
 }
 
@@ -265,12 +266,16 @@ function upstreamIssueDecision(call, value) {
   return positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1]);
 }
 
-/** A verified `decision test-risk`: the step approvers' decision that its tests cannot run here. */
+/**
+ * A verified `decision test-risk` or `spec drift decide`: a step approver's decision, that its tests
+ * cannot run here or how a closed Story's drifted clause is resolved.
+ */
 function testRunRiskDecision(call, value) {
   const safe = verifiedShellForm(call, value);
   if (!safe) return false;
   const { positionals } = parseArgs(safe.argv);
-  return positionals[0] === 'decision' && positionals[1] === 'test-risk';
+  return (positionals[0] === 'decision' && positionals[1] === 'test-risk')
+    || (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide');
 }
 
 function mentionsKernelExecution(call, value) {
@@ -391,7 +396,7 @@ export async function mutationToolGuard(payload = {}) {
       if (!kernel && value.findings.length) return mutationDenial({ ...contract, next: recoveryRoutes(contract) }, 'PHASE_MUTATION_REPAIR_REQUIRED');
       if (!kernel) {
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
-          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the decision test-risk command and stop; do not retry it');
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it');
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {
           return mutationDenial(contract, value.decisionEnded
             ? 'PHASE_MUTATION_DECISION_TURN_ENDED: the decision turn has ended. Preserve work and inspect the returned next action in a new turn; correcting command syntax cannot reopen approval'

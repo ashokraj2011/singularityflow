@@ -587,6 +587,8 @@ Usage:
   singularity-flow spec tasks [--phase PHASE] [--work-id ID] [--dry-run] [--json]
   singularity-flow spec trace [CLAUSE-ID] [--format human|json|csv]
   singularity-flow spec drift [--work-id WORK-ID] [--ref REV] [--all] [--json]
+  singularity-flow spec drift decide CLAUSE-ID (--accept | --adopt --story WORK-ID | --restore --story WORK-ID) --reason TEXT [--json]
+  singularity-flow spec drift decide --revoke DRD-ID --work-id WORK-ID --reason TEXT [--json]
   singularity-flow evidence matrix [WORK-ID] [--row ID] [--result RESULT] [--facet NAME[=VALUE]]
     [--page N] [--page-size N] [--format human|json|csv]
     one row per requirement and acceptance criterion with its plan, implementation, verification,

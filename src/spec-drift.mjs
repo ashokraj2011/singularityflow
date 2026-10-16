@@ -12,7 +12,12 @@
  * - `orphaned`: every tag, or every acceptance test, of the clause is gone;
  * - `unverifiable`: the approved commit is not in this clone or the receipt cannot be read.
  *
- * It is advisory. It reads and reports; it refuses nothing and writes nothing.
+ * A person resolves a drifted clause (src/commands/spec-drift.mjs `decide`): accept it, bound to the
+ * bytes accepted; adopt it, the specification following the code through a named Story; or restore
+ * it, the code following the specification through a named Story. Those decisions live in
+ * `singularity/spec-drift/<WORK-ID>.json` beside, never inside, the closed Story's records.
+ *
+ * It is advisory. The report refuses nothing and writes nothing.
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -21,9 +26,17 @@ import path from 'node:path';
 import { commitPresent, commitsChangingSince, fileAtRef, pathPatchSince } from './git.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { scanSourceClauseTags } from './source-clause-tags.mjs';
+import { SingularityFlowError } from './util.mjs';
 import { scanJavaScriptDeclarations } from './verification/javascript-declarations.mjs';
 
-export const DRIFT_STATUSES = Object.freeze(['in-sync', 'drifted', 'orphaned', 'unverifiable']);
+export const DRIFT_STATUSES = Object.freeze(['in-sync', 'drifted', 'orphaned', 'unverifiable', 'accepted', 'resolving', 'adopted', 'restored']);
+export const DRIFT_OUTCOMES = Object.freeze(['accept', 'adopt', 'restore']);
+const RESOLVED = Object.freeze({ adopt: 'adopted', restore: 'restored' });
+
+/** Where a closed Story's drift decisions are kept: beside its records, never inside them. */
+export function driftDecisionsPath(workId) {
+  return `singularity/spec-drift/${workId}.json`;
+}
 const JAVASCRIPT = /\.(?:[cm]?[jt]sx?|[cm][jt]s)$/iu;
 // Without an exact test declaration, a tagged test is taken to run from its tag to the next one.
 const FALLBACK_TEST_LINES = 60;
@@ -132,7 +145,10 @@ export function evaluateSpecDrift(root, { workItemRoot = 'singularity/work-items
     return contents.get(relative);
   };
   const report = [];
-  for (const workflow of stories ?? recordedStories(root, workItemRoot)) {
+  const recorded = stories ?? recordedStories(root, workItemRoot);
+  let everyStory = stories ? null : recorded;
+  const storyById = (id) => (everyStory ??= recordedStories(root, workItemRoot)).find((entry) => entry.workItem?.id === id) ?? null;
+  for (const workflow of recorded) {
     const id = workflow.workItem?.id;
     if (workId ? id !== workId : workflow.status !== 'closed') continue;
     if (workflow.unreadable) {
@@ -178,8 +194,10 @@ export function evaluateSpecDrift(root, { workItemRoot = 'singularity/work-items
       const changes = parseZeroContextPatch(patch);
       const commits = (relative) => commitsChangingSince(root, baseline, [relative], { target: ref ?? 'HEAD' })
         .map((entry) => ({ commit: entry.commit.slice(0, 8), subject: entry.subject }));
+      const decisions = readDriftDecisions(content(driftDecisionsPath(id)));
       for (const clause of clauses) {
-        story.clauses.push(evaluateClause(clause, { phaseId, changes, content, commits }));
+        story.clauses.push(applyDriftDecision(evaluateClause(clause, { phaseId, changes, content, commits }),
+          decisions, { root, content, storyById }));
       }
     }
     report.push(story);
@@ -191,7 +209,8 @@ export function evaluateSpecDrift(root, { workItemRoot = 'singularity/work-items
     stories: report,
     summary: {
       stories: report.length, clauses: clauses.length, 'in-sync': count('in-sync'), drifted: count('drifted'),
-      orphaned: count('orphaned'), unverifiable: count('unverifiable'),
+      orphaned: count('orphaned'), unverifiable: count('unverifiable'), accepted: count('accepted'),
+      resolving: count('resolving'), adopted: count('adopted'), restored: count('restored'),
       storyFindings: report.reduce((total, story) => total + story.findings.length, 0)
     }
   };
@@ -243,6 +262,8 @@ function evaluateClause(clause, { phaseId, changes, content, commits }) {
   return {
     clauseId: id, phase: phaseId,
     status: orphaned ? 'orphaned' : findings.length ? 'drifted' : 'in-sync',
+    paths: [...new Set([...clause.tags.map((entry) => entry.path), ...clause.deletions.map((entry) => entry.path),
+      ...clause.regions.map((entry) => entry.path), ...clause.witnesses.map((entry) => entry.testSource)])].sort(),
     anchors: { tags: clause.tags.length, regions: clause.regions.length, witnesses: clause.witnesses.length, deletions: clause.deletions.length },
     findings
   };
@@ -335,4 +356,114 @@ export function foreignClauseAdvisories(root, { workItemRoot = 'singularity/work
     }
   }
   return advisories.slice(0, maximum);
+}
+
+/** A Story's drift decisions, oldest first; an unreadable file is no decision at all. */
+export function readDriftDecisions(bytes) {
+  if (!bytes) return [];
+  try {
+    const parsed = JSON.parse(Buffer.isBuffer(bytes) ? bytes.toString('utf8') : String(bytes));
+    return Array.isArray(parsed?.decisions) ? parsed.decisions.filter((entry) => entry && typeof entry === 'object') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The latest decision on a clause that has not been revoked, or null. */
+export function activeDriftDecision(decisions, clauseId) {
+  const revoked = new Set(decisions.filter((entry) => entry.revokes).map((entry) => entry.revokes));
+  return [...decisions].reverse().find((entry) => !entry.revokes && entry.clauseId === clauseId && !revoked.has(entry.id)) ?? null;
+}
+
+/** The file digests a decision binds: null for a path that does not exist. */
+export function boundFileDigests(paths, content) {
+  return Object.fromEntries(paths.map((relative) => {
+    const bytes = content(relative);
+    return [relative, bytes ? sha256(bytes) : null];
+  }));
+}
+
+function sameDigests(recorded, paths, content) {
+  const now = boundFileDigests(paths, content);
+  return paths.length > 0 && paths.every((relative) => Object.hasOwn(recorded ?? {}, relative) && recorded[relative] === now[relative]);
+}
+
+/**
+ * The clause as a person's decision leaves it. Drift that a decision covers keeps its findings and
+ * reads accepted, resolving, adopted or restored; drift that happened after the decision does not.
+ */
+function applyDriftDecision(result, decisions, { root, content, storyById }) {
+  if (!['drifted', 'orphaned'].includes(result.status)) return result;
+  const decision = activeDriftDecision(decisions, result.clauseId);
+  if (!decision) return result;
+  const reference = { id: decision.id, outcome: decision.outcome, story: decision.story ?? null, actor: decision.actor,
+    at: decision.at, reason: decision.reason };
+  if (decision.outcome === 'accept') {
+    return sameDigests(decision.observed?.files, result.paths, content)
+      ? { ...result, rawStatus: result.status, status: 'accepted', decision: reference }
+      : { ...result, decision: { ...reference, overtaken: true }, findings: [...result.findings, { code: 'decision-overtaken',
+        message: `The code or test changed again after ${decision.id} accepted the drift.` }] };
+  }
+  const resolver = decision.story ? storyById(decision.story) : null;
+  if (!resolver || resolver.unreadable || resolver.status !== 'closed') {
+    return { ...result, rawStatus: result.status, status: 'resolving', decision: reference };
+  }
+  // Resolved: the code matches what the resolving Story last approved, until it changes again.
+  const commit = (resolver.phaseOrder ?? []).map((id) => resolver.phases?.[id])
+    .filter((phase) => phase?.status === 'approved' && phase.generationCommit).at(-1)?.generationCommit ?? null;
+  const approved = commit ? Object.fromEntries(result.paths.map((relative) => {
+    const text = fileAtRef(root, commit, relative);
+    return [relative, text == null ? null : sha256(Buffer.from(text, 'utf8'))];
+  })) : null;
+  if (approved && sameDigests(approved, result.paths, content)) {
+    return { ...result, rawStatus: result.status, status: RESOLVED[decision.outcome], decision: reference };
+  }
+  return { ...result, decision: { ...reference, overtaken: true }, findings: [...result.findings, { code: 'decision-overtaken',
+    message: `The code or test changed after ${decision.story}, which ${RESOLVED[decision.outcome]} the clause, closed.` }] };
+}
+
+/**
+ * Record a decision on one drifted clause in a Story's decision file (returned, not written).
+ * `clause` is the clause as `evaluateSpecDrift` reports it now.
+ */
+export function recordDriftDecision(file, { workId, clause, outcome, story = null, reason, actor, authorityGroup,
+  identityAssurance = null, at, content }) {
+  if (!['drifted', 'orphaned'].includes(clause?.rawStatus ?? clause?.status)) {
+    throw new SingularityFlowError(`${clause?.clauseId ?? 'This clause'} is ${clause?.status ?? 'unknown'}; only a drifted or orphaned clause is decided.`, {
+      code: 'SPEC_DRIFT_NOT_DRIFTED' });
+  }
+  if (!DRIFT_OUTCOMES.includes(outcome)) throw new SingularityFlowError(`Choose one of --${DRIFT_OUTCOMES.join(', --')}.`, { code: 'SPEC_DRIFT_DECISION_INVALID' });
+  if (outcome !== 'accept' && !/^[A-Z][A-Z0-9]*-\d+$/u.test(String(story ?? ''))) {
+    throw new SingularityFlowError(`--${outcome} names the Story that will ${outcome} it with --story WORK-ID.`, { code: 'SPEC_DRIFT_DECISION_INVALID' });
+  }
+  if (outcome === 'accept' && story) throw new SingularityFlowError('--accept takes no --story.', { code: 'SPEC_DRIFT_DECISION_INVALID' });
+  const text = String(reason ?? '').trim();
+  if (text.length < 20 || text.length > 1000) {
+    throw new SingularityFlowError('Say why in 20 to 1000 characters with --reason.', { code: 'SPEC_DRIFT_DECISION_INVALID' });
+  }
+  const decisions = [...(file?.decisions ?? [])];
+  const decision = {
+    id: `DRD-${String(decisions.filter((entry) => !entry.revokes).length + 1).padStart(3, '0')}`,
+    clauseId: clause.clauseId, phase: clause.phase, outcome, ...(story ? { story } : {}), reason: text,
+    observed: { status: clause.rawStatus ?? clause.status, findings: clause.findings.map((finding) => finding.code),
+      files: boundFileDigests(clause.paths ?? [], content) },
+    actor, authorityGroup, identityAssurance, at
+  };
+  decisions.push(decision);
+  return { file: { schemaVersion: 1, workId, decisions }, decision };
+}
+
+/** Revoke a decision; the record stays, and so does the revocation. */
+export function recordDriftRevocation(file, { workId, decisionId, reason, actor, authorityGroup, identityAssurance = null, at }) {
+  const decisions = [...(file?.decisions ?? [])];
+  const target = decisions.find((entry) => !entry.revokes && entry.id === decisionId);
+  if (!target) throw new SingularityFlowError(`${workId} has no drift decision ${decisionId}.`, { code: 'SPEC_DRIFT_DECISION_UNKNOWN' });
+  if (decisions.some((entry) => entry.revokes === decisionId)) throw new SingularityFlowError(`${decisionId} is already revoked.`, { code: 'SPEC_DRIFT_DECISION_REVOKED' });
+  const text = String(reason ?? '').trim();
+  if (text.length < 20 || text.length > 1000) {
+    throw new SingularityFlowError('Say why in 20 to 1000 characters with --reason.', { code: 'SPEC_DRIFT_DECISION_INVALID' });
+  }
+  const revocation = { revokes: decisionId, clauseId: target.clauseId, reason: text, actor, authorityGroup, identityAssurance, at };
+  decisions.push(revocation);
+  return { file: { schemaVersion: 1, workId, decisions }, decision: revocation };
 }

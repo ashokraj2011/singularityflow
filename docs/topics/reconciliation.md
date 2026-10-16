@@ -13,7 +13,7 @@ related:
   - work-intervals
   - escalation
   - sequence-gates
-version: 7
+version: 8
 ---
 `sflow story interval reconcile` deterministically compares reality against the starting contract: claimed vs. changed paths, protected paths, required checks bound to the exact commit, and clause coverage. Verdicts are clear · attention · blocked · incomplete, and `clear` explicitly does not claim semantic correctness. Convergence findings are facts; a human dispositions each one as `rework`, `update-intent`, `accepted-deviation`, `dismissed`, or `deferred`. Final submission requires a clean reconciliation bound to the submitted commit.
 
@@ -49,7 +49,14 @@ Reconciliation stops when a Story closes, but its code keeps changing. `sflow sp
 
 It also says when an approved specification or plan document changed after approval. Use `--work-id ID` for one Story, `--all` to list in-sync clauses too, and `--json` for the full report. A Story whose code step changes code another closed Story's clause is bound to gets an advisory at prepublish naming that clause.
 
-Drift is advice. Nothing refuses because of it, and nothing is stored: it is computed each time. A person resolves a drifted clause: adopt it (the specification follows the code, through a new or reopened Story that amends it) or restore it (the code follows the specification, through a fix Story).
+Drift is advice. Nothing refuses because of it, and the report is computed each time. A person who approves the step that delivered a drifted clause (or, for a step nobody approves, the next step that has approvers) records how it is resolved:
+
+- `sflow spec drift decide CLAUSE-ID --adopt --story ID --reason TEXT`: the specification follows the code, through Story ID (new or reopened) that amends the clause.
+- `sflow spec drift decide CLAUSE-ID --restore --story ID --reason TEXT`: the code follows the specification, through fix Story ID.
+- `sflow spec drift decide CLAUSE-ID --accept --reason TEXT`: the drift is acceptable as it stands.
+- `sflow spec drift decide --revoke DRD-NNN --work-id ID --reason TEXT` withdraws a decision; the record stays.
+
+The clause then reads **resolving** until the named Story closes and **adopted** or **restored** once it has, while the code still matches what that Story approved. An accepted clause reads **drift accepted** while its bound code and tests keep the bytes that were accepted. Any later change shows the drift again. Decisions are kept in `singularity/spec-drift/<WORK-ID>.json`, beside the closed Story's records and never inside them, and committed on the current branch with only that file; push it or open a pull request to share it. Record them on the default branch or a branch of their own, not on an open Story's branch. An agent is refused: it shows the command and stops.
 
 ## State and safety
 

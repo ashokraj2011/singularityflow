@@ -621,6 +621,7 @@ Every public operation is classified before its implementation module is importe
 | spec.claims | mutation | never | — | — |
 | spec.coverage | read | never | — | — |
 | spec.drift | read | never | — | — |
+| spec.drift.decide | mutation | never | — | — |
 | spec.index | mutation | never | — | — |
 | spec.index.dry-run | read | never | — | — |
 | spec.tasks | mutation | never | — | — |

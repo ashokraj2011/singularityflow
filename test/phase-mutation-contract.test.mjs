@@ -315,13 +315,16 @@ test('an authoring turn may raise an upstream issue but never decide one', async
   assert.equal(kernelDecide.permissionDecision, 'deny');
 });
 
-test('no agent turn accepts that a step\'s tests cannot run here; the refusal says whose decision it is', async t => {
+test('no agent turn accepts that a step\'s tests cannot run here or decides spec drift; the refusal says whose decision it is', async t => {
   const f = await fixture(t);
   const accept = 'singularity-flow decision test-risk PMC-1 --phase custom-step --command module-tests --cause "The Maven repository is unreachable." --reason "CI runs these tests before merge." --expires 2026-11-01';
   const revoke = 'singularity-flow decision test-risk PMC-1 --revoke TRR-001 --reason "The repository is reachable again from here."';
+  const drift = 'singularity-flow spec drift decide TOY-001:AC-001 --accept --reason "The louder greeting is intended."';
   for (const [skill, mode] of [['/sf-phase', null], ['/sf-recover', 'kernel'], ['/sf-decide PMC-1', 'decider-3']]) {
     const payload = await f.enter(skill, mode ?? undefined);
-    for (const command of [accept, revoke]) {
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: 'singularity-flow spec drift --json', cwd: f.root } }), {},
+      'reading drift is allowed');
+    for (const command of [accept, revoke, drift]) {
       const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command, cwd: f.root } });
       assert.equal(denied.permissionDecision, 'deny', `${skill}: ${command}`);
       assert.match(denied.permissionDecisionReason, /decided by a person who approves that step, in their own terminal, not by this turn/u, skill);

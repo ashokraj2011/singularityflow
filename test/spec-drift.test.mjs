@@ -111,4 +111,50 @@ test('a closed Story reads in sync, drifted or orphaned as its code changes, and
   assert.ok(foreign.length >= 1, JSON.stringify(advisories.map((advisory) => advisory.code)));
   assert.match(foreign[0].message, /This change touches TOY-001:AC-001 of closed Story TOY-001: .*Advisory only\./u);
   assert.equal(foreign.every((advisory) => advisory.blocking === false), true);
+
+  // Drift decisions are refused on an open Story's branch: its own gates do not expect the file.
+  assert.equal(JSON.parse(run(['spec', 'drift', 'decide', 'TOY-001:AC-001', '--accept', '--reason', 'The louder greeting is intended.', '--json']).stdout).error.code,
+    'SPEC_DRIFT_DECISION_BRANCH');
+
+  // TOY-002 finishes; on its branch TOY-001's clause reads drifted, and a person decides how.
+  await writeFile(testFile, approvedTest.replace(/\/\*\* @ac:TOY-001:AC-001 \*\//u, '/** @ac:TOY-002:AC-001 */')
+    .replace(/assert\.equal\(greeting, .*\);/u, "assert.equal(greeting, 'Hello, Singularity Flow!!');"));
+  sflow('prepare', 'implement');
+  sflow('phase', 'publish', 'implement', '--authored', 'deterministic');
+  sflow('submit', 'implement');
+  sflow('prepare', 'verify');
+  sflow('phase', 'publish', 'verify', '--authored', 'deterministic');
+  sflow('submit', 'verify');
+  const story2 = JSON.parse(await readFile(path.join(root, 'singularity/work-items/TOY-002/workflow.json'), 'utf8'));
+  if (story2.phases.verify.status !== 'approved') sflow('approve', 'verify', '--yes');
+  const drifted = clause(drift());
+  assert.equal(drifted.status, 'orphaned', JSON.stringify(drifted.findings.map((finding) => finding.code)));
+
+  const accepted = JSON.parse(sflow('spec', 'drift', 'decide', 'TOY-001:AC-001', '--accept', '--reason', 'TOY-002 made the greeting louder on purpose.', '--json'));
+  assert.equal(accepted.data.decision.id, 'DRD-001');
+  assert.equal(accepted.data.path, 'singularity/spec-drift/TOY-001.json');
+  const head = spawnSync('git', ['show', '--stat', '--format=%s', 'HEAD'], { cwd: root, encoding: 'utf8' }).stdout;
+  assert.match(head, /^\[TOY-001\]\[spec-drift:accept\] TOY-001:AC-001\n/u);
+  assert.match(head, /singularity\/spec-drift\/TOY-001\.json \| /u, 'only the decision file is committed');
+  const after = clause(drift());
+  assert.equal(after.status, 'accepted');
+  assert.equal(after.decision.id, 'DRD-001');
+  assert.match(sflow('spec', 'drift'), /TOY-001:AC-001\s+drift accepted \(DRD-001 by /u);
+
+  // A further change is not covered by the acceptance; the drift shows again.
+  await writeFile(source, (await readFile(source, 'utf8')).replace('!!', '!!!'));
+  const overtaken = clause(drift());
+  assert.equal(overtaken.status, 'orphaned');
+  assert.ok(overtaken.findings.some((finding) => finding.code === 'decision-overtaken'));
+  await writeFile(source, (await readFile(source, 'utf8')).replace('!!!', '!!'));
+
+  // Adopting through a closed Story: TOY-002 already carries the code the clause now reads.
+  sflow('spec', 'drift', 'decide', '--revoke', 'DRD-001', '--work-id', 'TOY-001', '--reason', 'Record it as adopted by TOY-002 instead.');
+  assert.equal(clause(drift()).status, 'orphaned');
+  sflow('spec', 'drift', 'decide', 'TOY-001:AC-001', '--adopt', '--story', 'TOY-002', '--reason', 'TOY-002 amended the greeting the clause describes.');
+  const adopted = clause(drift());
+  assert.equal(adopted.status, 'adopted', JSON.stringify(adopted));
+  assert.equal(adopted.decision.story, 'TOY-002');
+  assert.equal(drift().summary.adopted, 1);
+
 });

@@ -1,5 +1,13 @@
 # GAL Git bypass regression gate
 
+Large-Story configuration reads add two fixed local Git calls in the existing configuration
+owner: `sparse-checkout set --no-cone --stdin` and `read-tree -mu <exact-commit>`. They run only
+inside the freshly cloned disposable checkout under the frozen enterprise environment. Patterns
+are anchored, glob-escaped exact configuration paths plus ancestor attribute/ignore files, derived
+from committed policy. The full index preserves omitted application entries during scoped
+enrollment; no caller checkout or index is changed. The complete snapshot/authority validation
+still follows. Only this owner's two new call-site fingerprints are added to the frozen baseline.
+
 The isolated-start transaction reuse adds two reviewed read-only calls in the existing
 configuration owner: status of its own disposable checkout before one-use enrollment, and the
 committed successor/parent pair before retaining a snapshot. Both use the enterprise-isolated Git

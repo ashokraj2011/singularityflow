@@ -1803,6 +1803,57 @@ test('isolated enrollment reuses one owned clone and hands off only the exact pu
   } finally { await rm(fixture.root, { recursive: true, force: true }); }
 });
 
+test('configuration projection omits application/runtime files and enrollment preserves their exact tree', async () => {
+  const fixture = await repositoryFixture();
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const publisher = path.join(fixture.root, 'projection-publisher');
+    run('git', ['clone', '-q', '-b', CONFIGURATION_BRANCH, fixture.remote, publisher], { cwd: fixture.root });
+    run('git', ['config', 'user.name', 'Projection Tester'], { cwd: publisher });
+    run('git', ['config', 'user.email', 'projection@example.invalid'], { cwd: publisher });
+    const workflowFile = path.join(publisher, 'singularity/workflow.yml');
+    const workflow = YAML.parse(await readFile(workflowFile, 'utf8'));
+    workflow.worldModel.promptSource = 'team[pilot]/prompts/builder.md';
+    await writeFile(workflowFile, YAML.stringify(workflow));
+    await mkdir(path.join(publisher, 'team[pilot]/prompts'), { recursive: true });
+    await writeFile(path.join(publisher, 'team[pilot]/prompts/builder.md'), '# Exact custom prompt\n');
+    await writeFile(path.join(publisher, 'team[pilot]/.gitattributes'), '*.md text eol=lf\n');
+    await writeFile(path.join(publisher, '.gitignore'), '*.local\n');
+    await mkdir(path.join(publisher, 'src'), { recursive: true });
+    await mkdir(path.join(publisher, 'singularity/world-model'), { recursive: true });
+    await writeFile(path.join(publisher, 'src/application.txt'), 'preserve application bytes\n');
+    await writeFile(path.join(publisher, 'singularity/world-model/model.md'), '# Runtime bytes\n');
+    run('git', ['add', '-A'], { cwd: publisher });
+    run('git', ['commit', '-qm', 'historical configuration also contains application files'], { cwd: publisher });
+    run('git', ['push', '-q', 'origin', CONFIGURATION_BRANCH], { cwd: publisher });
+    const parent = run('git', ['rev-parse', 'HEAD'], { cwd: publisher }).stdout.trim();
+    const originalTree = run('git', ['ls-tree', 'HEAD', '--', 'src', 'team[pilot]', 'singularity/world-model'], { cwd: publisher }).stdout;
+    await withStoryConfigurationTransaction(async () => {
+      const authority = await resolveRemoteStoryConfigurationAuthority(fixture.remote);
+      const snapshot = await loadStoryConfigurationSnapshot(authority);
+      assert.ok(snapshot.assets.some(entry => entry.relative === 'team[pilot]/prompts/builder.md'));
+      const directory = await takeStoryConfigurationCheckout(snapshot, fixture.remote, parent);
+      assert.equal(await readFile(path.join(directory, 'team[pilot]/prompts/builder.md'), 'utf8'), '# Exact custom prompt\n');
+      assert.equal(await readFile(path.join(directory, 'team[pilot]/.gitattributes'), 'utf8'), '*.md text eol=lf\n');
+      assert.equal(await readFile(path.join(directory, '.gitignore'), 'utf8'), '*.local\n');
+      await assert.rejects(readFile(path.join(directory, 'src/application.txt')), { code: 'ENOENT' });
+      await assert.rejects(readFile(path.join(directory, 'singularity/world-model/model.md')), { code: 'ENOENT' });
+      assert.equal(run('git', ['status', '--porcelain=v1'], { cwd: directory }).stdout, '');
+      // The consumed lease is intentionally not reusable. Enrollment must obtain its own verified
+      // projection, and its scoped commit must preserve all absent skip-worktree entries.
+      const next = await loadStoryConfigurationSnapshot(authority);
+      const enrolled = await publishCurrentIdentityToConfiguration(publisher, {
+        automatic: true, configurationSnapshot: next, expectedSourceCommit: parent
+      });
+      assert.equal(enrolled.pushed, true);
+      assert.equal(run('git', ['rev-parse', `${CONFIGURATION_BRANCH}^`], { cwd: fixture.remote }).stdout.trim(), parent);
+      assert.equal(run('git', ['ls-tree', CONFIGURATION_BRANCH, '--', 'src', 'team[pilot]', 'singularity/world-model'], { cwd: fixture.remote }).stdout, originalTree);
+      assert.equal(run('git', ['diff', '--name-only', parent, CONFIGURATION_BRANCH], { cwd: fixture.remote }).stdout.trim(),
+        'singularity/portfolio.yml\nsingularity/workflow.yml');
+    });
+  } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});
+
 test('configuration checkout leases are one-use, transaction-local and cleaned on failure', async () => {
   const fixture = await repositoryFixture();
   let directory, retained;

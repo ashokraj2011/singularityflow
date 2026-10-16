@@ -1482,13 +1482,14 @@ export async function ensureConfigurationBranch(remote, {
   }
 }
 
-async function cloneConfiguration(remote, target, { env = process.env } = {}) {
+async function cloneConfiguration(remote, target, { env = process.env, configurationOnly = false } = {}) {
   const gitEnv = enterpriseGitEnvironment(env);
   const frozen = frozenRemoteTransport(remote, { env: gitEnv });
   // This checkout is mutated or copied immediately. A blobless depth-one clone only defers the
   // exact configuration blobs into a second negotiation, so fetch them in the single clone.
   const clone = await runRemoteGitAsync([
     '-c', 'core.autocrlf=false', 'clone', '--quiet', '--no-local', '--no-tags', '--single-branch', '--depth', '1',
+    ...(configurationOnly ? ['--no-checkout'] : []),
     '--branch', CONFIGURATION_BRANCH, frozen.remote, target
   ], { cwd: path.dirname(target), operation: 'remote-configuration', env: frozen.env });
   if (clone.status !== 0) {
@@ -1497,7 +1498,46 @@ async function cloneConfiguration(remote, target, { env = process.env } = {}) {
       + (clone.failure?.advice ?? 'Git remote access failed.'),
       { code: clone.failure?.code ?? 'REMOTE_UNKNOWN' });
   }
-  return configurationRepositoryHead(target, frozen.env);
+  const commit = configurationRepositoryHead(target, frozen.env);
+  if (configurationOnly) {
+    // Historical configuration branches can still contain the entire application. Keep its full
+    // parent tree in the index, but check out only exact configuration files. Enrollment's scoped
+    // git add/commit therefore preserves every omitted application blob without statting it.
+    const entries = configurationTreeEntries(target, commit, null, {
+      env: frozen.env, includeNonRegular: true
+    });
+    const paths = [...entries.keys()];
+    const nonRegular = [...entries.values()].filter(entry => !/^100(?:644|755)$/u.test(entry.mode));
+    if (nonRegular.length) throw new SingularityFlowError(
+      'Approved configuration contains non-regular asset paths.', {
+        code: 'CONFIGURATION_ASSET_NOT_REGULAR',
+        details: { paths: nonRegular.map(entry => entry.relative).sort() }
+      }
+    );
+    // Preserve checkout/ignore semantics at every ancestor, including custom asset roots. Git
+    // applies the same reviewed EOL/attribute policy; the existing byte-closure validator runs next.
+    const selected = new Set(paths);
+    for (const relative of paths) {
+      let directory = path.posix.dirname(relative);
+      for (;;) {
+        for (const name of ['.gitattributes', '.gitignore']) selected.add(
+          directory === '.' ? name : `${directory}/${name}`
+        );
+        if (directory === '.') break;
+        directory = path.posix.dirname(directory);
+      }
+    }
+    const patterns = [...selected].sort().map(relative =>
+      `/${relative.replace(/[\\*?\[\]]/gu, '\\$&')}`).join('\n') + '\n';
+    run('git', ['sparse-checkout', 'set', '--no-cone', '--stdin'], {
+      cwd: target, env: frozen.env, input: patterns
+    });
+    // clone --no-checkout has no index yet; set records the patterns but does not populate it.
+    run('git', ['read-tree', '-mu', commit], { cwd: target, env: frozen.env });
+    incrementCommandCounter('configuration.projected-checkouts');
+    incrementCommandCounter('configuration.projected-assets', paths.length);
+  }
+  return commit;
 }
 
 async function copyVerifiedStateConfiguration(remote, destination, branch = STATE_CONFIGURATION_BRANCH, {
@@ -2739,7 +2779,7 @@ export async function loadStoryConfigurationSnapshot(authority, {
           );
         }
       } else {
-        observedCommit = await cloneConfiguration(authority.remote, scratch, { env });
+        observedCommit = await cloneConfiguration(authority.remote, scratch, { env, configurationOnly: true });
         sourceCommit = observedCommit;
       }
       if (authority.commit && observedCommit !== authority.commit) {

@@ -326,11 +326,11 @@ export class GitPublicationUnitOfWork {
       // started yet is harmless: it restores the state that is already on disk.
       if (state?.write) {
         wroteState = true;
-        const writeResult = await state.write(envelope, {
+        const writeResult = await measureCommandSpan('publication.state-write', () => state.write(envelope, {
           transactionId: journal.transactionId,
           expectedHead: publicationHead,
           branch: publication.branch
-        });
+        }));
         // A transition may allocate its authoritative actor, decision, or evidence identifiers only
         // while it owns the transaction lock. In that case state.write finalizes the same envelope
         // object before returning. Re-hash and persist it before validation or commit so recovery
@@ -374,9 +374,9 @@ export class GitPublicationUnitOfWork {
     try {
       // Secret, pre-staged-overlap, optional-path, and deletion admission must precede Candidate
       // retention. `commitIsolated` repeats this exact kernel function to catch later races.
-      staged = admitGovernedPublication(
+      staged = await measureCommandSpan('publication.admission', () => admitGovernedPublication(
         root, [...allowedPaths, ledgerIntentPath].filter(Boolean), { expectedHead: publicationHead }
-      );
+      ));
       // Validate identities that are meaningful only once Git has materialized the complete
       // prospective tree. Reading the worktree here would simply open a second race: the immutable
       // tree is the admitted byte set, and commitIsolated below is required to reproduce it exactly.
@@ -400,7 +400,7 @@ export class GitPublicationUnitOfWork {
         });
       }
       if (universalCandidate) {
-        const boundary = await freezeAndVerifySgosLifecycleCandidate(root, {
+        const boundary = await measureCommandSpan('publication.candidate', () => freezeAndVerifySgosLifecycleCandidate(root, {
           event: envelope,
           paths: staged,
           createdBy: lifecycleCandidateCreator(envelope),
@@ -414,7 +414,7 @@ export class GitPublicationUnitOfWork {
             stateValidation: state?.validate ? 'passed' : 'not-required',
             beforeCommitValidation: beforeCommit ? 'passed' : 'not-required'
           }
-        });
+        }));
         candidateBinding = sgosLifecycleCandidateBinding(boundary);
         await updatePublicationJournal(root, subject, {
           stage: 'candidate-verified', candidate: candidateBinding

@@ -112,17 +112,26 @@ try {
         .map(match => [match[1], Number(match[2])]));
       const counters = Object.fromEntries([...timingLine.matchAll(/([a-z][a-z.-]+)=([0-9.]+)(?= |$)/g)]
         .map(match => [match[1], Number(match[2])]));
-      const commands = {};
+      const commands = {}, commandTimes = {}, startedGit = new Map();
       const trace = (await readFile(traceFile, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
       for (const entry of trace.filter(event => event.event === 'start')) {
         const argv = entry.argv ?? [];
         // Only fixture-owned arguments are observed. Retain operation names, never paths/URLs.
         const command = argv.slice(1).find(arg => /^[a-z][a-z-]+$/.test(arg)) ?? 'other';
         commands[command] = (commands[command] ?? 0) + 1;
+        startedGit.set(entry.sid, command);
+      }
+      for (const entry of trace.filter(event => event.event === 'exit')) {
+        const command = startedGit.get(entry.sid);
+        if (command && Number.isFinite(entry.t_abs)) {
+          commandTimes[command] = (commandTimes[command] ?? 0) + entry.t_abs * 1000;
+        }
       }
       measured[variant].push({ durationMs: result.durationMs, preparation,
         totalWithPreparationMs: result.durationMs + (preparation?.durationMs ?? 0),
         timings, counters, localTraceGitProcessCounts: commands,
+        localTraceGitElapsedMs: Object.fromEntries(Object.entries(commandTimes)
+          .map(([command, duration]) => [command, Math.round(duration)])),
         localTraceGitProcesses: Object.values(commands).reduce((a,b) => a+b, 0), exactRemoteTip: true });
       }
     }

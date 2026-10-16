@@ -72,9 +72,9 @@ local transaction body were moved, not reimplemented: the compatibility dispatch
 the same function. Remote attachment and context-composition handlers are not in its static closure.
 The local mutation still runs in a separate child, with the original fresh identity, workspace,
 managed-worktree, agent and readiness checks. The rollback switch selects the original heavyweight
-adapter as well as the original isolated reads. Shared state/configuration barrels still account for
-394 static modules in this path after generator-metadata and host-diagnostic import isolation;
-shared state/configuration barrels are an explicit remaining startup hotspot, not called solved.
+adapter as well as the original isolated reads. The first increment reached 394 static modules
+in this path; the additional data-contract extraction described below reduces it to 379.
+Shared state/configuration barrels remain a startup hotspot, not called solved.
 
 `benchmarks/performance-v2/import-budgets.json` lists source-entry module ceilings and forbidden
 heavy domains. Existing CLI source/bundle parity and VS Code bundle budgets remain separate gates.
@@ -330,3 +330,13 @@ Still outstanding: receipt-backed intake/start percentage qualification, the lar
 split, full native Stories, installed macOS and Windows qualification, and all required targets
 and adjacent-tail budgets. This branch is engineering progress, **not completion of every milestone
 or a general-release performance certificate**.
+
+### Post-measurement integration
+
+Main `624a46d50a228d757182dfc752f286d84558921a` was merged cleanly into this branch after
+measurement. The recorded cohorts above retain their original reference and candidate observations;
+they do not qualify the newly integrated source. Repository checks passed (2,582), VS Code build
+and type-check passed, and unchanged bundle ceilings passed: gateway 7,464,533 bytes / 681 modules.
+The native runner's persisted user stop is regression-tested with no provider available on PATH.
+No additional native turn, human approval, installed-build change or release qualification followed
+the stop instruction.

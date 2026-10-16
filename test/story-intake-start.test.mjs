@@ -501,7 +501,9 @@ test('whatever the wave cannot confirm runs the ordinary start, which still succ
   ], { env: { SINGULARITY_FLOW_STORY_INTAKE_RECEIPTS: 'off' } }).stdout);
   assert.deepEqual(off.preflight.intakeReceipt, { issued: false, reason: 'disabled' });
 
-  assert.deepEqual((await readdir(receiptsDirectory)).filter((name) => !/^sir_[0-9a-f]{32}\.json$/.test(name)), [],
+  // Native Windows stores its durable private-store MAC key here. It is not a claimed receipt.
+  assert.deepEqual((await readdir(receiptsDirectory)).filter((name) => name !== 'integrity.key'
+    && !/^sir_[0-9a-f]{32}\.json$/.test(name)), [],
     'no claimed receipt is left behind');
 });
 

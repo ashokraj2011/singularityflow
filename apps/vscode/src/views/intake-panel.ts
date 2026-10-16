@@ -253,7 +253,7 @@ export class IntakePanel {
   private renderSequence = 0;
   private favouriteWrite: Promise<void> = Promise.resolve();
   private readonly runtimeWarmup = new AbortController();
-  private checkout: IntakeWorktreePreparation | null = null;
+  private prep: IntakeWorktreePreparation | null = null;
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -433,7 +433,7 @@ export class IntakePanel {
   }
 
   private cancelBasePreflight(): void {
-    this.checkout?.cancel();
+    this.prep?.cancel();
     this.preflightController?.abort();
     this.preflightController = null;
     this.preflightKey = null;
@@ -1295,9 +1295,9 @@ export class IntakePanel {
       this.intakeReceipt = receipt?.issued && typeof receipt.id === 'string' && Number.isFinite(expiresAt)
         ? { id: receipt.id, expiresAt, key: JSON.stringify(command) } : null;
       if (this.intakeReceipt && this.form.readinessBaseline !== 'run') {
-        this.checkout ??= (require(path.join(__dirname, 'runtime-prewarm.cjs')) as typeof import('../runtime-prewarm.ts'))
+        this.prep ??= (require(path.join(__dirname, 'runtime-prewarm.cjs')) as typeof import('../runtime-prewarm.ts'))
           .createIntakePreparation(this.client);
-        this.checkout.schedule(this.intakeReceipt.key, [
+        this.prep.schedule(this.intakeReceipt.key, [
           ...intakeCommand(this.form), '--intake-receipt', this.intakeReceipt.id
         ], result.preflight?.remote);
       }
@@ -1393,7 +1393,7 @@ export class IntakePanel {
     this.intakeReceipt = null;
     const currentPreflight = storyPreflightCommand(this.form);
     const prepared = currentPreflight
-      ? await this.checkout?.take(JSON.stringify(currentPreflight)) : null;
+      ? await this.prep?.take(JSON.stringify(currentPreflight)) : null;
     if (this.disposed) return;
     const args = [
       ...intakeCommand(this.form),

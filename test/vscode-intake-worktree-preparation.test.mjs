@@ -1,10 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { IntakeWorktreePreparation } from '../apps/vscode/src/intake-worktree-preparation.ts';
+import { SingularityFlowClient } from '../apps/vscode/src/cli/client.ts';
 
 const baseCommit = 'a'.repeat(40);
 const prepared = (workId = 'story', owned = true) => ({ preparation: { status: 'prepared', workId, baseCommit, owned } });
 const tick = () => new Promise(resolve => setImmediate(resolve));
+
+test('large prepared checkouts share Start host budgets and retain the launch repository after navigation', () => {
+  const client = new SingularityFlowClient({ repository: '/unused-launch', location: { cli: '/unused-cli', executable: process.execPath } });
+  const pinned = client.forkForRepository(client.repository);
+  const budget = client.timeoutFor(['start'], false);
+  assert.ok(budget > client.timeoutFor(['status'], false));
+  for (const operation of ['prepare-worktree', 'discard-worktree']) {
+    assert.equal(client.timeoutFor(['story', operation], false), budget);
+  }
+  client.useRepository('/unused-other');
+  assert.equal(pinned.repository, '/unused-launch');
+});
 
 test('Start takes a finished exact-key preparation without discarding it', async () => {
   const calls = [], helper = new IntakeWorktreePreparation(async args => { calls.push(args); return prepared(); });

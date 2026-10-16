@@ -84,6 +84,42 @@ and bounded rescue retention on Windows without asserting unavailable POSIX mode
 uses the same short temporary root for both variants so deep ref-name fixtures fit Windows path
 limits. No production permission, authority or long-path policy was relaxed.
 
+### Three matched Windows first requests
+
+CI run `38938347466` passes seven native configuration tests and 148 publication/recovery tests,
+with four explicit platform skips and no test failures. Type checking and bundle limits pass.
+Its 1,000-file cold comparison also completes; the overall run subsequently fails in the separate
+10,000-file fixture setup, before that large Story creation begins. The
+[raw cold report](../benchmarks/story-creation/transaction-windows.json) preserves that distinction.
+
+| Three fresh pairs | Main baseline | Candidate |
+| --- | ---: | ---: |
+| Creation/publication median | 15,928 ms | 13,911 ms |
+| Complete-run range | 15,472–25,812 ms | 13,866–13,955 ms |
+| First-feedback median | 1,058.0 ms | 1,066.5 ms |
+| Configuration clones | 3 | 1 |
+| Git requests | 209 | 206 |
+| Git launches | 166 | 166 |
+| Full definition loads | 5 | 5 |
+
+Complete creation improves about 12.7%; every matched candidate is faster. This is not evidence of
+fewer physical Windows Git launches: retained-checkout/ancestry checks and fresh boundary reads
+offset eliminated launches. The gain is less transfer/checkout work and no second post-enrollment
+configuration read. First feedback is effectively unchanged. Three hosted-runner pairs do not
+guarantee office-laptop latency, and these numbers must not be compared directly with the earlier
+18.3-second cohort on another runner/temp layout.
+
+The large-fixture timeout was its own 30-second `git add` setup deadline amid Windows CRLF
+conversion warnings. The fixture now permits a bounded 120-second Git setup on Windows and
+4 MiB of output (30 seconds elsewhere). Product command deadlines, line-ending policies and the
+measured creation interval are unchanged. The same setup applies to both compared variants.
+
+## Large checkout coverage
+
+The [macOS 10,000-file paired smoke](../benchmarks/story-creation/transaction-macos-large.json)
+completes with exact local/remote tips for both variants: 7,353 ms baseline and 4,707 ms candidate.
+This is a single pair and establishes scale-path coverage, not a latency distribution or guarantee.
+
 ## Reproduction
 
 With dependencies installed, compare fresh repositories and fresh compile caches, alternating

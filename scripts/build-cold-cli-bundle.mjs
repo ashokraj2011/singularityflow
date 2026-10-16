@@ -19,6 +19,7 @@ const FAMILIES = Object.freeze([
   ['session', ['commands/session-entry.mjs', 'commands/session-open.mjs', 'commands/session-open-local.mjs',
     'commands/session.mjs', 'session-agent-entry.mjs', 'session-read-service.mjs']],
   ['intake', ['commands/start.mjs', 'commands/workspace-branches.mjs', 'commands/intake-entry.mjs',
+    'commands/story-entry.mjs', 'story-worktree-preparation.mjs',
     'local-work-journal.mjs', 'history-index.mjs']],
   ['maintenance', ['first-run-pass.mjs', 'product-requirement.mjs', 'configuration-review-pass.mjs']],
   ['reads', ['commands/inbox.mjs', 'commands/home.mjs', 'editor.mjs']],

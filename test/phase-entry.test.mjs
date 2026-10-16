@@ -602,9 +602,13 @@ test('manual worktree review prevents composition while preserving changes and e
   assert.equal(entry.clarification.checkpoint.recordAction, null, 'a recording route cannot override failed admission');
   assert.deepEqual(entry.contextAdmission.blockers.map(item => item.code), ['PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED']);
   assert.deepEqual(entry.contextAdmission.blockers[0].paths, ['README.md']);
-  assert.equal(entry.next[0].scope, 'read-only');
-  assert.equal(entry.next[0].copilotCommand, `/sf-appeal resolve --work-id ENTRY-1 --phase ${item.workflow.currentPhase} --json`);
-  assert.equal(entry.next[1].id, 'working-tree');
+  // The person's routes lead: what is held, then setting it aside; the read-only inspection follows.
+  assert.equal(entry.next[0].id, 'working-tree');
+  assert.equal(entry.next[1].id, 'set-aside-worktree');
+  assert.match(entry.next[1].command, /--set-aside --confirm sha256:[0-9a-f]{64}/);
+  const inspection = entry.next.at(-1);
+  assert.equal(inspection.scope, 'read-only');
+  assert.equal(inspection.copilotCommand, `/sf-appeal resolve --work-id ENTRY-1 --phase ${item.workflow.currentPhase} --json`);
   assert.ok(entry.recovery.actions.some(action => action.id === 'working-tree' && action.confirmation === 'human-authority'));
   assert.equal(await readFile(path.join(item.root, 'README.md'), 'utf8'), '# Unrelated native work\n');
 });
@@ -814,6 +818,57 @@ test('editor configuration written by mcp scaffold does not hold a document step
   const entry = completeAgentResult(item.invoke('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
   assert.deepEqual(entry.contextAdmission.blockers, []);
   assert.equal(entry.contextComposition, 'delivered');
+});
+
+// A document step held for changes recovery cannot attribute had no command a person could run: the
+// read-only inspection and a code-step-only commit. Now the person keeps them (commits them) or sets
+// them aside, after a private recovery copy, and the step continues.
+test('a person sets aside changes that hold a document step, keeping a recovery copy', async t => {
+  const item = await fixture(t, { customPhase: 'qa-intake' });
+  const stray = 'team/stories/ENTRY-1/context/notes.json';
+  await mkdir(path.dirname(path.join(item.root, stray)), { recursive: true });
+  await writeFile(path.join(item.root, stray), '{"draft":"not from SFlow"}\n');
+  await writeFile(path.join(item.root, 'README.md'), '# Edited by hand\n');
+  const held = completeAgentResult(item.invoke('phase', 'enter', '--for-agent', '--json').stdout);
+  assert.deepEqual(held.contextAdmission.blockers.map(entry => entry.code), ['PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED']);
+  const route = held.next.find(action => action.id === 'set-aside-worktree');
+  assert.ok(route, JSON.stringify(held.next.map(action => action.id)));
+  assert.equal(held.next.findIndex(action => action.id === 'set-aside-worktree') < held.next.findIndex(action => action.id === 'inspect-continuation:qa-intake'), true,
+    'the person\'s route leads the read-only inspection');
+  assert.deepEqual(new Set(route.paths), new Set([stray, 'README.md']));
+  assert.match(route.command, /^singularity-flow recover ENTRY-1 --phase qa-intake --set-aside --confirm sha256:[0-9a-f]{64} --json$/);
+  const stale = item.invoke('recover', 'ENTRY-1', '--set-aside', '--confirm', `sha256:${'0'.repeat(64)}`, '--json');
+  assert.notEqual(stale.status, 0);
+  assert.match(stale.stdout + stale.stderr, /RECOVERY_PLAN_STALE/);
+  const result = item.invoke(...route.command.split(' ').slice(1));
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const setAside = JSON.parse(result.stdout).setAside;
+  assert.deepEqual(setAside.removed, [stray]);
+  assert.deepEqual(setAside.restored, ['README.md']);
+  assert.match(setAside.checkpoint, /^PCP-[0-9a-f]{64}$/);
+  assert.equal(await readFile(path.join(item.root, 'README.md'), 'utf8'), '# Entry fixture\n');
+  assert.equal(git(item.root, 'status', '--porcelain=v1', '--untracked-files=all'), '');
+  const shown = completeAgentResult(item.invoke('appeal', 'checkpoint-show', setAside.checkpoint, '--work-id', 'ENTRY-1', '--phase', 'qa-intake', '--json').stdout);
+  assert.ok(JSON.stringify(shown).includes(stray), 'the recovery copy keeps the set-aside file');
+  const entry = completeAgentResult(item.invoke('phase', 'enter', '--compose', '--for-agent', '--json').stdout);
+  assert.deepEqual(entry.contextAdmission.blockers, []);
+});
+
+test('changes held while a step awaits approval can be set aside by the person', async t => {
+  const item = await fixture(t, { customPhase: 'qa-intake' });
+  const statePath = path.join(item.root, 'team/stories/ENTRY-1/workflow.json');
+  const state = JSON.parse(await readFile(statePath, 'utf8'));
+  state.phases['qa-intake'].status = 'awaiting_approval';
+  await writeFile(statePath, `${JSON.stringify(state, null, 2)}\n`);
+  git(item.root, 'add', '-A'); git(item.root, 'commit', '-qm', 'fixture: submitted');
+  await writeFile(path.join(item.root, 'notes.txt'), 'scratch\n');
+  const plan = JSON.parse(item.invoke('recover', 'ENTRY-1', '--json').stdout);
+  const route = plan.actions.find(action => action.id === 'set-aside-worktree');
+  assert.deepEqual(route?.paths, ['notes.txt'], JSON.stringify(plan.actions.map(action => action.id)));
+  const result = item.invoke(...route.command.split(' ').slice(1));
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(JSON.parse(result.stdout).setAside.removed, ['notes.txt']);
+  assert.equal(git(item.root, 'status', '--porcelain=v1', '--untracked-files=all'), '');
 });
 
 // A step writes more than its primary artifact: the other members of its artifact set (review notes,

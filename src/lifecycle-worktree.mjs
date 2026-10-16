@@ -39,7 +39,7 @@ export function assertLifecycleWorktreeClean(root, config = null, workflow = nul
   const id = workflow?.workItem?.id ?? workId;
   const command = `singularity-flow recover${id ? ` ${id}` : ''} --json`;
   throw new SingularityFlowError(
-    'Authored changes need review before this lifecycle decision. Preserve them; recovery offers an exact, confirmed commit for eligible code-phase changes, then revalidation. Untracked test reports alone do not block.',
+    'The checkout has changes that are not part of this lifecycle decision. A person reviews them: keep them by committing them, or set them aside with the confirmed set-aside-worktree route recovery returns (a private recovery copy is kept); eligible code-phase changes can also be committed through recovery, then revalidated. Untracked test reports alone do not block.',
     { code: 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED', details: {
       workId: id, paths: inspection.entries.map(entry => entry.path.display),
       preserved: ['working-tree bytes', 'Git index', 'test reports', 'published generations'],

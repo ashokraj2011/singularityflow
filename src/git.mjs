@@ -3162,6 +3162,22 @@ export function refreshIndexEntries(root, paths) {
   git(['reset', '-q', 'HEAD', '--', ...paths], { cwd: root, env: { ...process.env, GIT_LITERAL_PATHSPECS: '1' } });
 }
 
+/**
+ * Return exactly these paths to HEAD, in the index and on disk: a path HEAD has gets its committed
+ * bytes back, and one HEAD lacks is dropped from the index and deleted. Every other path is untouched.
+ * Callers keep a recovery copy first (recover --set-aside checkpoints before calling this).
+ */
+export function restorePathsToHead(root, paths) {
+  if (!paths.length) return { restored: [], removed: [] };
+  refreshIndexEntries(root, paths);
+  const tracked = new Set(trackedPaths(root, paths));
+  const restored = paths.filter((relative) => tracked.has(relative));
+  if (restored.length) git(['checkout', '-q', 'HEAD', '--', ...restored], { cwd: root, env: { ...process.env, GIT_LITERAL_PATHSPECS: '1' } });
+  const removed = paths.filter((relative) => !tracked.has(relative));
+  for (const relative of removed) rmSync(path.join(root, relative), { force: true });
+  return { restored, removed };
+}
+
 /** This checkout's `index.lock`, with its age, or null when there is none. */
 export function indexLockState(root) {
   const relative = git(['rev-parse', '--git-path', 'index.lock'], { cwd: root, allowFailure: true }).stdout.trim();

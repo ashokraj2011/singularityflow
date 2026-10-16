@@ -332,6 +332,19 @@ test('no agent turn accepts that a step\'s tests cannot run here or decides spec
   }
 });
 
+test('no agent turn sets held changes aside; it shows the person the command', async t => {
+  const f = await fixture(t);
+  const setAside = `singularity-flow recover PMC-1 --phase custom-step --set-aside --confirm sha256:${'a'.repeat(64)} --json`;
+  for (const [skill, mode] of [['/sf-phase', null], ['/sf-recover', 'kernel'], ['/sf-decide PMC-1', 'decider-3']]) {
+    const payload = await f.enter(skill, mode ?? undefined);
+    assert.deepEqual(await mutationToolGuard({ ...payload, toolName: 'bash',
+      toolArgs: { command: 'singularity-flow recover PMC-1 --phase custom-step --json', cwd: f.root } }), {}, 'inspecting recovery is allowed');
+    const denied = await mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command: setAside, cwd: f.root } });
+    assert.equal(denied.permissionDecision, 'deny', skill);
+    assert.match(denied.permissionDecisionReason, /the person who looked at them runs it in their own terminal/u, skill);
+  }
+});
+
 test('publish-only permits one bound publication, never authoring or lifecycle decisions', async t => {
   const f = await fixture(t); const payload = await f.enter('/sf-publish custom-step');
   assert.equal(mutationTurnMode('sf-publish'), 'publish-only');

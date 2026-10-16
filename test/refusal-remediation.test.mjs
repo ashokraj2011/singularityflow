@@ -142,6 +142,18 @@ test('approval-stage risk refusal preserves the exact inspection and ends approv
   assert.doesNotMatch(JSON.stringify(plan.steps), /accept-risk|--apply|--skip/u);
 });
 
+test('changes held before approval route the person to keep or set them aside, not to rejecting the submission', () => {
+  const error = Object.assign(new Error('The checkout has changes that are not part of this lifecycle decision.'), {
+    code: 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED',
+    details: { workId: 'Story-1', phase: 'qa-intake', operation: 'approve', paths: ['notes.txt'],
+      recoveryCommand: 'singularity-flow recover Story-1 --json' } });
+  const plan = refusalRemediationPlan(error, ['approve', 'qa-intake']);
+  assert.equal(plan.steps[0].id, 'review-held-changes');
+  assert.equal(plan.steps[0].command, 'singularity-flow recover Story-1 --json');
+  assert.match(plan.steps[0].label, /keeps them by committing them, or sets them aside/u);
+  assert.match(plan.steps[0].label, /nothing needs rejecting/u);
+});
+
 test('skill-host refusal distinguishes an external prerequisite from repairable Story content', () => {
   for (const code of ['SKP_HOST_ENFORCEMENT_UNAVAILABLE', 'SKP_HOST_DELIVERY_UNCONFIRMED']) {
     const error = Object.assign(new Error('Host unavailable'), { code,

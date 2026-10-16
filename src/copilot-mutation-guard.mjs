@@ -255,6 +255,8 @@ function shellAllowed(call, mode, value) {
   // Accepting that a step's tests cannot run here is its approvers' call too; the refusal names it.
   if (positionals[0] === 'decision' && positionals[1] === 'test-risk') return false;
   if (positionals[0] === 'spec' && positionals[1] === 'drift' && positionals[2] === 'decide') return false;
+  // Setting held changes aside drops them from the checkout: the person who looked at them decides.
+  if (positionals[0] === 'recover' && options['set-aside'] === true) return false;
   return !['approve', 'reject'].includes(positionals[0]);
 }
 
@@ -264,6 +266,14 @@ function upstreamIssueDecision(call, value) {
   if (!safe) return false;
   const { positionals } = parseArgs(safe.argv);
   return positionals[0] === 'upstream-issue' && UPSTREAM_ISSUE_DECISIONS.includes(positionals[1]);
+}
+
+/** A verified `recover --set-aside`: a person's decision about changes held for review. */
+function setAsideDecision(call, value) {
+  const safe = verifiedShellForm(call, value);
+  if (!safe) return false;
+  const { positionals, options } = parseArgs(safe.argv);
+  return positionals[0] === 'recover' && options['set-aside'] === true;
 }
 
 /**
@@ -395,6 +405,8 @@ export async function mutationToolGuard(payload = {}) {
       const kernel = shellAllowed(call, contract.turnMode, value);
       if (!kernel && value.findings.length) return mutationDenial({ ...contract, next: recoveryRoutes(contract) }, 'PHASE_MUTATION_REPAIR_REQUIRED');
       if (!kernel) {
+        if (setAsideDecision(call, value)) return mutationDenial(contract,
+          'PHASE_MUTATION_OPERATION_NOT_ALLOWED: setting held changes aside removes them from the checkout (after a private recovery copy); the person who looked at them runs it in their own terminal. Show the user the listed files and the command, and stop; do not retry it');
         if (testRunRiskDecision(call, value)) return mutationDenial(contract,
           'PHASE_MUTATION_OPERATION_NOT_ALLOWED: accepting that a step\'s tests cannot run here, or how a closed Story\'s drifted clause is resolved, is decided by a person who approves that step, in their own terminal, not by this turn. Show the user the command and stop; do not retry it');
         if (contract.turnMode !== 'authoring' && verifiedShellForm(call, value)) {

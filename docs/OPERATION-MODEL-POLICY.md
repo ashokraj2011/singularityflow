@@ -525,6 +525,7 @@ Every public operation is classified before its implementation module is importe
 | recover.apply | mutation | never | — | — |
 | recover.commit-reviewed | mutation | never | — | — |
 | recover.inspect | read | never | — | — |
+| recover.set-aside | mutation | never | — | — |
 | refresh-branch | mutation | never | — | — |
 | regression | mutation | never | — | — |
 | reinstall | mutation | never | — | — |

@@ -197,7 +197,7 @@ test('an unrelated local edit that would break the tests stays in the worktree w
   cli('submit', 'implementation');
   const dirtyApproval = run(process.execPath, [CLI, '--no-model', 'approve', 'implementation', '--yes'], root, { allowFailure: true });
   assert.notEqual(dirtyApproval.status, 0, 'unrelated authoring still needs review before a local lifecycle decision');
-  assert.match(dirtyApproval.stdout + dirtyApproval.stderr, /Authored changes need review/u);
+  assert.match(dirtyApproval.stdout + dirtyApproval.stderr, /changes that are not part of this lifecycle decision/u);
   // Review the exact published candidate in a clean clone, without committing or discarding
   // unrelated work in the original checkout. This is a reviewed alternative, not --allow-dirty.
   const reviewRoot = await mkdtemp(path.join(os.tmpdir(), 'sflow-candidate-review-'));

@@ -761,7 +761,7 @@ test('feature profile publishes generations, records tokens, approvals, and conf
       assert.notEqual(blocked.status, 0);
       // An edit to the submitted report is refused before approval by the authored-change review gate,
       // ahead of (and broader than) the conformance comparison.
-      assert.match(`${blocked.stdout}\n${blocked.stderr}`, /Authored changes need review before this lifecycle decision/);
+      assert.match(`${blocked.stdout}\n${blocked.stderr}`, /changes that are not part of this lifecycle decision/);
       assert.notEqual(JSON.parse(await readFile(workflowFile, 'utf8')).phases.conformance.status, 'approved');
       await writeFile(completedArtifact, submitted);
     }

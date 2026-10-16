@@ -6108,9 +6108,9 @@ async function watchCommand(positionals, options) {
 
 async function recoverCommand(positionals, options) {
   const root = repoRoot(); const { config, workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
-  if (optionBoolean(options, 'commit-reviewed')) {
-    const { commitReviewedRecovery } = await import('./recovery-worktree-commit.mjs');
-    const result = await commitReviewedRecovery(root, config, workflow, options);
+  if (optionBoolean(options, 'commit-reviewed') || optionBoolean(options, 'set-aside')) {
+    const result = optionBoolean(options, 'set-aside') ? await (await import('./recovery-set-aside.mjs')).setAsideRecovery(root, config, workflow, options)
+      : await (await import('./recovery-worktree-commit.mjs')).commitReviewedRecovery(root, config, workflow, options);
     if (optionBoolean(options, 'json')) console.log(JSON.stringify(result, null, 2)); else process.stdout.write(recoveryText(result));
     return;
   }

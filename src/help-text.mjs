@@ -575,7 +575,7 @@ Usage:
     private keys, secrets, credentials and tokens are never accepted in command arguments
   singularity-flow assign <PHASE> <ASSIGNEE>
   singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS] [--json]
-  singularity-flow recover [WORK-ID] [--phase PHASE] [--fetch] [--apply --confirm PLAN-HASH] [--json]
+  singularity-flow recover [WORK-ID] [--phase PHASE] [--fetch] [--apply | --commit-reviewed | --set-aside --confirm PLAN-HASH] [--json]
   singularity-flow inputs [PHASE] [--dry-run]
   singularity-flow inputs restore [PHASE] [--confirm PLAN-SHA256] [--json]
     previews, then restores, the exact approved bytes of an earlier phase's input or artifact that

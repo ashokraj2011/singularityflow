@@ -18,6 +18,7 @@ import { nowIso, SingularityFlowError } from './util.mjs';
 import { commandRouteLines, safeCommandGuidance } from './safe-command-guidance.mjs';
 import { worktreeFingerprint } from './worktree-fingerprint.mjs';
 import { expectedPhaseEvidencePaths, expectedPreparationContextPaths, expectedStepOwnedPaths } from './recovery-preparation-context.mjs';
+import { setAsideWorktreeAction } from './recovery-set-aside.mjs';
 import { inspectLifecycleWorktree } from './lifecycle-worktree.mjs';
 import { reviewedWorktreeCommitAction } from './recovery-worktree-commit.mjs';
 import { recoveryActionGuidance } from './recovery-action-guidance.mjs';
@@ -332,6 +333,8 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
       const commitAction = await reviewedWorktreeCommitAction(root, config, workflow, phase ?? activePhase,
         worktreeInspection, worktreeAction?.applicationScope);
       if (commitAction) actions.push(commitAction);
+      const setAside = setAsideWorktreeAction(worktreeAction, workflow, phase ?? activePhase);
+      if (setAside) actions.push(setAside);
     }
   }
   if (!actions.length) actions.push({
@@ -380,9 +383,10 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
       || Boolean(terminalGate?.errors.length)
   };
   const plan = { ...core, planId: `sha256:${recordSha256(core)}` };
+  const confirmed = flag => `singularity-flow recover ${plan.workId}${plan.phaseId ? ` --phase ${plan.phaseId}` : ''} --${flag} --confirm ${plan.planId} --json${plan.modelEnabled === false ? ' --no-model' : ''}`;
   return { ...plan, actions: plan.actions.map(action => action.id === 'commit-reviewed-worktree'
-    ? { ...action, command: `singularity-flow recover ${plan.workId}${plan.phaseId ? ` --phase ${plan.phaseId}` : ''} --commit-reviewed --confirm ${plan.planId} --json${plan.modelEnabled === false ? ' --no-model' : ''}` }
-    : action).map(recoveryActionGuidance), applyCommand: plan.actions.some(item => item.automatic) ? recoveryApplyCommand(plan) : null };
+    ? { ...action, command: confirmed('commit-reviewed') }
+    : action.id === 'set-aside-worktree' ? { ...action, command: confirmed('set-aside') } : action).map(recoveryActionGuidance), applyCommand: plan.actions.some(item => item.automatic) ? recoveryApplyCommand(plan) : null };
 }
 
 function recoveryApplyCommand(plan) {

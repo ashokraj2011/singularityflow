@@ -262,7 +262,9 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
     commandGuidance: authoringProgress.next, scope: 'current-draft', preserveExistingWork: true
   });
   // Input routes lead when inputs refused admission; the journey inspection follows them.
-  const inputsBlocked = contextAdmission.blockers.some(item => item.code === 'PHASE_CONTEXT_INPUTS_NOT_READY');
+  const inputsBlocked = contextAdmission.blockers.some(item => item.code === 'PHASE_CONTEXT_INPUTS_NOT_READY')
+    // A hold a person can settle (keep the files or set them aside) leads with that route, not the read-only inspection.
+    || recovery.actions.some(action => action.id === 'set-aside-worktree');
   if (!canCompose && authoring.entry?.status === 'authoring-entry' && base.continuationReview?.commandGuidance) nextActions[inputsBlocked ? 'push' : 'unshift'](recoveryActionGuidance({
     id: `inspect-continuation:${phase.id}`, safe: true, automatic: false, confirmation: 'none',
     scope: 'read-only', command: base.continuationReview.commandGuidance.command, skill: '/sf-appeal',

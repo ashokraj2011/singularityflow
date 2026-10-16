@@ -23,7 +23,7 @@ export function phaseContextAdmission({ ready = true, authoring = {}, recovery =
   if (worktree && !pendingEvidence) add('PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED',
     'The listed worktree changes require human review. A tag/artifact repair or source-only commit does not clear an unexpected evidence file.',
     { actionIds: (recovery.actions ?? []).filter(action => action.id === 'working-tree'
-      || action.id?.startsWith('review-evidence-contract:')).map(action => action.id),
+      || action.id === 'set-aside-worktree' || action.id?.startsWith('review-evidence-contract:')).map(action => action.id),
     paths: worktree.unexpectedPaths?.length ? worktree.unexpectedPaths : worktree.paths ?? [],
     confirmation: worktree.confirmation });
   if (references.status === 'blocked') add('PHASE_CONTEXT_REFERENCES_BLOCKED', 'Repair the returned reference-repository findings before composition.');
@@ -53,6 +53,6 @@ export function phaseAdmissionActions(actions, admission, { authoring, recovery 
   if (authoring?.entry?.status !== 'authoring-entry' || recovery?.requiresRecovery
       || !admission.blockers.some(item => item.code === 'PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED')) return actions;
   const rank = action => action.id?.startsWith('review-evidence-contract:') ? 0
-    : action.id === 'working-tree' ? 1 : action.id === 'commit-reviewed-worktree' ? 3 : 2;
+    : action.id === 'working-tree' ? 1 : action.id === 'set-aside-worktree' ? 2 : action.id === 'commit-reviewed-worktree' ? 4 : 3;
   return [...actions].sort((left, right) => rank(left) - rank(right));
 }

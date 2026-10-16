@@ -501,6 +501,13 @@ const KNOWN = Object.freeze({
   INPUT_RESTORE_COMMITTED_DRIFT: (argv, error) => upstreamInputSteps(argv, {
     ...error, details: { ...(error?.details ?? {}), restorable: false }
   }),
+  // Changes nobody can attribute to the decision. A person keeps them (commits them) or sets them aside
+  // through recovery's confirmed route; rejecting the submission is not the remedy.
+  LIFECYCLE_WORKTREE_REVIEW_REQUIRED: (argv, error) => [
+    step('review-held-changes',
+      'The checkout has changes that are not part of this decision (details.paths). A person looks at them and either keeps them by committing them, or sets them aside with the set-aside-worktree command recovery returns (it keeps a private recovery copy). Then run the decision again; nothing needs rejecting.',
+      error?.details?.recoveryCommand ?? null, 'remediation', '/sf-recover')
+  ],
   INPUT_RESTORE_STAGED_DRIFT: (argv, error) => [
     step('unstage-upstream-input',
       'The changed bytes of the earlier phase\'s input are staged. Unstage that file with Git (its committed copy is the approved one), then preview the restore again. This phase must not edit it.',
@@ -931,6 +938,7 @@ export function refusalRemediationPlan(error, argv = []) {
   const repositoryRunnerBlocked = code === 'CODE_DELIVERY_TEST_COMMAND_REQUIRED';
   const riskReviewBlocked = ['TRP_PHASE_GATE_BLOCKED', 'TRP_RISK_REVIEW_STALE',
     'TRP_PUBLICATION_PENDING', 'TRP_RISK_ADAPTER_UNAVAILABLE', 'TRP_AUTHORITY_REQUIRED'].includes(code);
+  const worktreeHeld = code === 'LIFECYCLE_WORKTREE_REVIEW_REQUIRED';
   // A soft gate names its own way through; generic help and diagnostics only bury it.
   const softGateBlocked = code === 'SEQUENCE_CONFIRMATION_REQUIRED';
   // Configuration drafts and approval name their own next step; generic help would only bury it.
@@ -988,7 +996,7 @@ export function refusalRemediationPlan(error, argv = []) {
     ? phaseContext.turn === 'new-turn'
       // Reserve the bounded recovery/new-turn steps before the global three-step presentation cap;
       // arbitrary producer diagnostics must never displace the instruction that ends approval.
-      ? riskReviewBlocked || upstreamInputBlocked
+      ? riskReviewBlocked || upstreamInputBlocked || worktreeHeld
         ? [known[0], ...phaseSteps.filter(entry => entry.id === 'leave-approval-turn'), ...known.slice(1)]
         : [...phaseSteps, ...known, ...nonDuplicateExplicit]
       : upstreamInputBlocked

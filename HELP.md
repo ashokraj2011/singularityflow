@@ -3124,6 +3124,15 @@ approves or waives tests. Changed published code requires successor-generation
 revalidation and a fresh approval review. In VS Code, use **Test policy and recovery**
 → **Review and commit current code-phase edits**; Copilot uses `/sf-recover`.
 
+When a step is held because the checkout has changes recovery cannot attribute to it
+(phase entry's `PHASE_CONTEXT_WORKTREE_REVIEW_REQUIRED`, or the same check before
+approval), `recover` lists them with a `set-aside-worktree` action for the person.
+Look at each file: keep it by committing it yourself, or run the returned
+`--set-aside --confirm sha256:…` command in your own terminal. It first saves every
+changed file and the Git index in a private recovery copy (`appeal checkpoint-show`
+lists it), then returns exactly the listed paths to their committed bytes and deletes
+the untracked ones. Copilot cannot run it; agents show the command and stop.
+
 The bundled Copilot plugin uses a nonblocking `sessionStart` prompt for
 guidance and a nonblocking `subagentStart` command hook for exact custom-agent
 name to agent mapping. The mapping activates only local-only packs or
@@ -3487,6 +3496,7 @@ singularity-flow assign <PHASE> <ASSIGNEE>
 singularity-flow watch [WORK-ID] [--once] [--fetch] [--interval SECONDS]
 singularity-flow recover [WORK-ID] [--phase PHASE-ID] [--fetch] [--json]
 singularity-flow recover [WORK-ID] --commit-reviewed --confirm PLAN-HASH [--phase PHASE-ID] [--json]
+singularity-flow recover [WORK-ID] --set-aside --confirm PLAN-HASH [--phase PHASE-ID] [--json]
 singularity-flow recover [WORK-ID] --apply --confirm PLAN-HASH [--phase PHASE-ID] [--fetch] [--json]
 singularity-flow appeal preflight [--phase PHASE] [--work-id WORK-ID] [--json]
 singularity-flow governance rebuild --dry-run [--remote origin] [--json]

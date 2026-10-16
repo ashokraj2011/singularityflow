@@ -1255,6 +1255,7 @@ function resolveCopilotOperation(definition, options) {
 
 function resolveRecoverOperation(definition, options) {
   if (optionBoolean(options, 'commit-reviewed')) return never('recover.commit-reviewed', definition, 'mutation');
+  if (optionBoolean(options, 'set-aside')) return never('recover.set-aside', definition, 'mutation');
   return optionBoolean(options, 'apply')
     ? never('recover.apply', definition, 'mutation')
     : never('recover.inspect', definition, 'read');
@@ -1884,6 +1885,7 @@ export function operationCatalog() {
     never('recover.inspect', recoverDefinition, 'read'),
     never('recover.apply', recoverDefinition, 'mutation'),
     never('recover.commit-reviewed', recoverDefinition, 'mutation'),
+    never('recover.set-aside', recoverDefinition, 'mutation'),
     ...GOAL_READ_SUBCOMMANDS.map((name) => never(`goal.${name}`, goalDefinition, 'read')),
     ...GOAL_MUTATION_SUBCOMMANDS.map((name) => never(`goal.${name}`, goalDefinition, 'mutation')),
     never('goal.plan.approve', goalDefinition, 'mutation'),

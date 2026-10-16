@@ -415,7 +415,7 @@ export async function startCommand(positionals, options) {
   // The synchronous launch check above already proved this checkout clean. Only a managed child
   // skipped it and needs its own check. Never retain status across an await, checkout or mutation;
   // publication still independently checks the complete candidate working tree.
-  if (managedStoryWorktree && !optionBoolean(options, 'allow-dirty')) assertClean(root);
+  if (managedStoryWorktree && !optionBoolean(options, 'allow-dirty')) assertClean(root, { refreshIndex: true });
   // The launch checkout is not configuration authority for a new Story. It may carry a stale or
   // malformed workflow while the approved sflow/config snapshot is healthy. Inspect local Story
   // refs and cheap input errors first; load the local workflow only if authority discovery later

@@ -9,6 +9,7 @@
  */
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { availableParallelism } from 'node:os';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 
 import { gitCommonDir, refExists, remoteNames } from './git.mjs';
@@ -19,6 +20,7 @@ import {
 } from './workspace-context.mjs';
 import { nowIso, run, SingularityFlowError } from './util.mjs';
 import { validatePortableWorkId } from './work-id.mjs';
+import { measureCommandSpan } from './dx-timing-context.mjs';
 import {
   DEFAULT_WORK_ITEM_ROOT, workItemRootFromDefinitionText, workItemWorkflowRelative
 } from './work-item-location.mjs';
@@ -37,6 +39,23 @@ function portableId(value) {
     });
   }
   return id;
+}
+
+/** Respect an explicit Git policy; otherwise bound Git's own checkout fan-out to four workers. */
+export function storyCheckoutOptions(root, { runCommand = run, parallelism = availableParallelism() } = {}) {
+  const workers = Math.max(1, Math.min(4, Math.trunc(parallelism) || 1));
+  if (workers === 1) return [];
+  let configured;
+  try {
+    configured = runCommand('git', ['config', '--get', 'checkout.workers'], {
+      cwd: root, allowFailure: true
+    });
+  } catch { return []; }
+  // Only positive absence permits a default. An explicit 0/1/value, failed config read or old
+  // host keeps ordinary Git behavior; this optional optimization never becomes a new gate.
+  return configured.status === 1 && !configured.error && !configured.signal && !configured.timedOut
+    && !configured.blocked && !String(configured.stdout ?? '').trim() && !String(configured.stderr ?? '').trim()
+    ? ['-c', `checkout.workers=${workers}`] : [];
 }
 
 /**
@@ -319,9 +338,9 @@ export async function prepareStoryWorktree(root, workId, { base = 'HEAD' } = {})
     );
   }
   await safeNewPath(root, target);
-  const added = run('git', ['worktree', 'add', '-b', stagingBranch, '--', target, base], {
-    cwd: root, allowFailure: true
-  });
+  const added = await measureCommandSpan('start.worktree.checkout', () => run('git', [
+    ...storyCheckoutOptions(root), 'worktree', 'add', '-b', stagingBranch, '--', target, base
+  ], { cwd: root, allowFailure: true }));
   if (added.status !== 0) {
     throw new SingularityFlowError(
       `Git could not create the isolated Story checkout: ${(added.stderr || added.stdout).trim()}`,

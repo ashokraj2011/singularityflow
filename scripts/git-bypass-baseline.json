@@ -1365,9 +1365,10 @@
     },
     "src/story-worktree.mjs": {
       "counts": {
-        "command-run": 14
+        "command-run": 14,
+        "command-runCommand": 1
       },
-      "digest": "1216c02d67fe884e95d41a73633d39dc7e9677a83bad58b83cd8f15fba5837fc"
+      "digest": "299dd65416e188ec3792c3f644e183727dbff58bb412b429f1f572f79db8c092"
     },
     "src/transport-intents.mjs": {
       "counts": {

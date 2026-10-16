@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -27,6 +27,49 @@ test('prepared lookup returns null without creating paths, branches, or a checko
   assert.equal(git(root, 'worktree', 'list', '--porcelain'), inventory); assert.equal(git(root, 'show-ref'), refs);
   await assert.rejects(() => lstat(path.join(parent, '.singularity-flow')), { code: 'ENOENT' });
   await assert.rejects(() => preparedStoryWorktreePath(root, id, { baseCommit: 'main' }), { code: 'STORY_WORKTREE_INVALID' });
+});
+
+test('bounded checkout retains exact serial bytes, line endings, modes, hooks and source edits', async t => {
+  const { root } = await fixture(t);
+  await mkdir(path.join(root, 'files'));
+  for (let index = 0; index < 128; index++) {
+    await writeFile(path.join(root, `files/file-${index}.txt`), `héllo ${index}\r\nsecond line\r\n`);
+  }
+  await writeFile(path.join(root, '.gitattributes'), '*.txt text eol=crlf\n*.bin -text\n');
+  await writeFile(path.join(root, 'opaque.bin'), Buffer.from([0, 255, 13, 10, 128]));
+  await writeFile(path.join(root, 'tool.sh'), '#!/bin/sh\nexit 0\n');
+  if (process.platform !== 'win32') await symlink('README.md', path.join(root, 'readme-link'));
+  git(root, 'add', '.'); git(root, 'update-index', '--chmod=+x', 'tool.sh');
+  git(root, 'commit', '-qm', 'mixed checkout contents');
+  const baseCommit = git(root, 'rev-parse', 'HEAD');
+  const audit = path.join(root, '.git', 'checkout-audit');
+  const hook = path.join(root, '.git', 'hooks', 'post-checkout');
+  await writeFile(hook, '#!/usr/bin/env node\nrequire("node:fs").appendFileSync('
+    + JSON.stringify(audit) + ', "checkout\\n");\n');
+  await chmod(hook, 0o755);
+  git(root, 'config', 'checkout.workers', '1');
+  const serial = await prepareStoryWorktree(root, 'SERIAL-CONTENTS', { base: baseCommit });
+  assert.equal(git(root, 'config', '--get', 'checkout.workers'), '1');
+  git(root, 'config', '--unset', 'checkout.workers');
+  await writeFile(path.join(root, 'README.md'), 'preserve dirty launch file\n');
+  const sourceStatus = git(root, 'status', '--porcelain');
+  const parallel = await prepareStoryWorktree(root, 'PARALLEL-CONTENTS', { base: baseCommit });
+  assert.equal(git(root, 'status', '--porcelain'), sourceStatus);
+  assert.equal(await readFile(path.join(root, 'README.md'), 'utf8'), 'preserve dirty launch file\n');
+  assert.equal(git(root, 'branch', '--show-current'), 'main');
+  for (const prepared of [serial, parallel]) {
+    assert.equal(git(prepared.repositoryPath, 'rev-parse', 'HEAD'), baseCommit);
+    assert.equal(git(prepared.repositoryPath, 'status', '--porcelain'), '');
+    assert.match(await readFile(path.join(prepared.repositoryPath, 'files/file-0.txt'), 'utf8'), /\r\n/);
+  }
+  for (const file of ['README.md', '.gitattributes', 'opaque.bin', 'tool.sh',
+    ...Array.from({ length: 128 }, (_, index) => `files/file-${index}.txt`)]) {
+    assert.deepEqual(await readFile(path.join(parallel.repositoryPath, file)),
+      await readFile(path.join(serial.repositoryPath, file)), file);
+  }
+  assert.equal(git(parallel.repositoryPath, 'ls-files', '--stage'), git(serial.repositoryPath, 'ls-files', '--stage'));
+  if (process.platform !== 'win32') assert.equal((await lstat(path.join(parallel.repositoryPath, 'readme-link'))).isSymbolicLink(), true);
+  assert.equal((await readFile(audit, 'utf8')).trim().split('\n').length, 2, 'one normal hook per materialization');
 });
 
 test('prepared lookup verifies exact staging ownership and preserves dirty launch and target files', async t => {

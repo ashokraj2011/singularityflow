@@ -10,9 +10,10 @@ import { createWarmReadFixture } from './warm-read-fixture.mjs';
 const option = (key, fallback) => process.argv.find(arg => arg.startsWith(`--${key}=`))?.slice(key.length + 3) ?? fallback;
 const samples = Number(option('samples', '3')), files = Number(option('files', '1000'));
 const controlRef = option('control-ref', null), workType = option('work-type', 'feature');
+const selectedMode = option('mode', 'both');
 if (!Number.isSafeInteger(samples) || samples < 1 || samples > 20
     || !Number.isSafeInteger(files) || files < 0 || files > 20000
-    || !/^[a-z0-9-]{1,64}$/.test(workType)
+    || !/^[a-z0-9-]{1,64}$/.test(workType) || !['both', 'isolated', 'working'].includes(selectedMode)
     || (controlRef && !/^[a-f0-9]{40}$/.test(controlRef))) throw new Error('Invalid benchmark bounds.');
 const summary = values => ({ medianMs: [...values].sort((a,b) => a-b)[Math.floor(values.length/2)],
   minMs: Math.min(...values), maxMs: Math.max(...values) });
@@ -56,6 +57,7 @@ try {
   };
   const results = {};
   for (const isolated of [false, true]) {
+    if ((selectedMode === 'isolated' && !isolated) || (selectedMode === 'working' && isolated)) continue;
     const mode = isolated ? 'isolatedWorktree' : 'workingCheckout';
     const repository = path.join(fixture.directory, mode), remote = path.join(fixture.directory, `${mode}.git`);
     await mkdir(repository);
@@ -106,7 +108,7 @@ try {
   }
   console.log(JSON.stringify({ schemaVersion: 1,
     runtime: { platform: process.platform, arch: process.arch, node: process.version },
-    protocol: { samples, files, workType, remote: 'local bare only', modelCalls: 0,
+    protocol: { samples, files, workType, mode: selectedMode, remote: 'local bare only', modelCalls: 0,
       controlRef, controlModules, comparison: 'same packaging and fixtures; alternating candidate/control samples',
       compileCache: 'separate per variant, initially empty; shared across samples', osFileCache: 'not flushed',
       publication: 'fresh validation and exact remote tip asserted for every sample' }, results,

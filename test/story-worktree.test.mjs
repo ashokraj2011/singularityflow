@@ -8,7 +8,7 @@ import test from 'node:test';
 import YAML from 'yaml';
 import {
   prepareStoryWorktree, rollbackFailedStoryWorktree, rollbackStoryWorktree, samePlatformPath,
-  storyWorktreeChanges, storyWorktreePath
+  storyCheckoutOptions, storyWorktreeChanges, storyWorktreePath
 } from '../src/story-worktree.mjs';
 import { gitCommonDir } from '../src/git.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
@@ -20,6 +20,31 @@ import {
 } from '../src/initialization/runtime-readiness.mjs';
 
 const cli = path.resolve('bin/singularity-flow.mjs');
+
+test('parallel Story checkout is bounded and never overrides explicit Git policy or failed reads', () => {
+  const calls = [];
+  const read = result => (...args) => { calls.push(args); return result; };
+  for (const parallelism of [2, 4, 64]) {
+    assert.deepEqual(storyCheckoutOptions('/fixture', {
+      parallelism, runCommand: read({ status: 1, stdout: '', stderr: '' })
+    }), ['-c', `checkout.workers=${Math.min(4, parallelism)}`]);
+  }
+  assert.deepEqual(calls[0].slice(0, 2), ['git', ['config', '--get', 'checkout.workers']]);
+  assert.equal(calls[0][2].cwd, '/fixture');
+  for (const result of [
+    { status: 0, stdout: '1\n' }, { status: 0, stdout: '0\n' },
+    { status: 0, stdout: '8\n' }, { status: 0, stdout: '' },
+    { status: 128, stderr: 'bad configuration' }, { status: 1, stderr: 'unavailable' },
+    { status: 1, error: new Error('unavailable') }, { status: 1, signal: 'SIGTERM' },
+    { status: 1, timedOut: true }, { status: 1, blocked: true }, { status: 1, stdout: 'unexpected' }
+  ]) {
+    assert.deepEqual(storyCheckoutOptions('/fixture', { parallelism: 8, runCommand: read(result) }), []);
+  }
+  assert.deepEqual(storyCheckoutOptions('/fixture', { parallelism: 1,
+    runCommand: () => assert.fail('single-core checkout needs no configuration probe') }), []);
+  assert.deepEqual(storyCheckoutOptions('/fixture', { parallelism: 8,
+    runCommand: () => { throw new Error('failed optional probe'); } }), []);
+});
 
 function run(command, args, cwd, { allowFailure = false, env = {} } = {}) {
   const result = spawnSync(command, args, {

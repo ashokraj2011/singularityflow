@@ -815,9 +815,14 @@ export function remoteUrl(root, remote = 'origin', { env = process.env } = {}) {
  * The working tree's status. Inside a read scope it is asked once: a full snapshot asked three
  * times, and on a large Windows checkout each one is a scan of every file.
  */
-export function changes(root) {
-  return scopedReadSync(`git.changes:${path.resolve(root)}`, () =>
-    git(['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root }).stdout);
+export function changes(root, { refreshIndex = false } = {}) {
+  // A mutation owns its new isolated checkout and may retain freshly verified stat metadata.
+  // Ordinary UI/read snapshots still avoid optional index locks. Explicit host policy wins,
+  // including differently cased Windows environment names; no file content or staged OID changes.
+  const refresh = refreshIndex && !Object.keys(process.env).some(key => key.toUpperCase() === 'GIT_OPTIONAL_LOCKS');
+  return scopedReadSync(`git.changes:${path.resolve(root)}${refreshIndex ? ':refresh' : ''}`, () =>
+    git(['status', '--porcelain=v1', '--untracked-files=all'], { cwd: root,
+      ...(refresh ? { env: { ...process.env, GIT_OPTIONAL_LOCKS: '1' } } : {}) }).stdout);
 }
 
 /** Exact local status roster for lifecycle decisions; paths are never quote/line parsed. */
@@ -853,8 +858,8 @@ export function artifactChangeInventory(root) {
   return { paths: [...paths].sort(), untracked };
 }
 
-export function assertClean(root) {
-  if (changes(root).trim()) throw new SingularityFlowError('Working tree is not clean. Commit or stash changes, or pass --allow-dirty deliberately.');
+export function assertClean(root, options) {
+  if (changes(root, options).trim()) throw new SingularityFlowError('Working tree is not clean. Commit or stash changes, or pass --allow-dirty deliberately.');
 }
 
 export function prepareRemoteBranchTracking(root, remote = 'origin', { env = process.env } = {}) {
@@ -3563,15 +3568,18 @@ export async function commitIsolated(root, message, paths, {
 
     // The real index still describes the old HEAD. Refresh only governed entries so they do not
     // appear as synthetic staged reversions; unrelated staged entries remain byte-for-byte intact.
+    // Updating these object IDs needs no repository-wide stat refresh. In particular, do not walk
+    // every monorepo file again after creating its isolated checkout. Status/read guards still
+    // inspect live files when needed; this skips neither admission nor any content verification.
     // The commit is durable from here: an index another program holds past the wait no longer
     // fails the publication. The refresh is recorded and completes on the next command.
-    const refreshed = git(['reset', '-q', sourceCommit, '--', ...scope], { cwd: root, env: localEnv, allowFailure: true });
+    const refreshed = git(['reset', '-q', '--no-refresh', sourceCommit, '--', ...scope], { cwd: root, env: localEnv, allowFailure: true });
     if (refreshed.status !== 0) deferIndexRefresh(root, sourceCommit, refreshed);
     const refAfterIndexRefresh = checkedOutRef();
     if (expectedRef !== undefined && refAfterIndexRefresh !== expectedRef) {
       // A checkout racing the index refresh may now own this worktree. Restore its index from its
       // own HEAD; the exact governed commit remains safely reachable from expectedRef.
-      git(['reset', '-q', 'HEAD', '--', ...scope], {
+      git(['reset', '-q', '--no-refresh', 'HEAD', '--', ...scope], {
         cwd: root, env: localEnv, allowFailure: true
       });
       throw new SingularityFlowError(

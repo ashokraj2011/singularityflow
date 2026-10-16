@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { fetchRemote, localRefHeads } from '../src/git.mjs';
+import { checkout, fetchRemote, localRefHeads } from '../src/git.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { prepareStoryWorktree } from '../src/story-worktree.mjs';
 
@@ -98,4 +98,35 @@ test('a Story worktree reuses the workspace sparse checkout instead of expanding
   assert.equal(git(prepared.repositoryPath, 'sparse-checkout', 'list'), 'selected');
   assert.equal(await readFile(path.join(prepared.repositoryPath, 'selected/code.txt'), 'utf8'), 'selected\n');
   await assert.rejects(readFile(path.join(prepared.repositoryPath, 'excluded/code.txt')), { code: 'ENOENT' });
+});
+
+test('checkout batches candidates but still prefers the refreshed remote base and sees new refs', async (t) => {
+  const { source } = await fixture(t);
+  const local = git(source, 'rev-parse', 'HEAD');
+  git(source, 'commit', '-q', '--allow-empty', '-m', 'new remote tip');
+  const remote = git(source, 'rev-parse', 'HEAD');
+  git(source, 'reset', '--soft', local);
+  git(source, 'update-ref', 'refs/remotes/origin/main', remote);
+  // A similarly named descendant is not the exact requested branch.
+  git(source, 'update-ref', 'refs/remotes/origin/work/child', local);
+  const timer = commandTimer('checkout');
+  const mode = await withCommandTiming(timer, () => checkout(source, 'work', {
+    base: 'main', preferRemoteBase: true
+  }));
+  assert.equal(mode, 'created-from-origin/main');
+  assert.equal(git(source, 'rev-parse', 'HEAD'), remote);
+  assert.ok(timer.finish().counters['git.spawns'] <= 4, 'one batch replaces four candidate probes');
+  git(source, 'switch', '-q', 'main');
+  git(source, 'pack-refs', '--all');
+  assert.equal(await checkout(source, 'work', { existingOnly: true }), 'checked-out-local');
+  assert.equal(git(source, 'rev-parse', 'HEAD'), remote);
+  git(source, 'switch', '-q', 'main');
+  git(source, 'update-ref', 'refs/remotes/origin/remote-only', remote);
+  assert.equal(await checkout(source, 'remote-only', { existingOnly: true }), 'tracked-remote');
+  assert.equal(git(source, 'rev-parse', 'HEAD'), remote);
+  git(source, 'switch', '-q', 'main');
+  await assert.rejects(() => checkout(source, 'remote-only', {
+    existingOnly: true, exactCommit: local
+  }), { code: 'BRANCH_CHANGED' });
+  assert.equal(git(source, 'branch', '--show-current'), 'main');
 });

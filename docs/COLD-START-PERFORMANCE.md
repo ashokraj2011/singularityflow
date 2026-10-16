@@ -50,6 +50,10 @@ trade executable validation for a blind PATH cache.
 
 ## Local qualification
 
+For the subsequent transaction-level Story creation analysis and fixes, see
+[Story creation performance](STORY-CREATION-PERFORMANCE.md). The table below remains the original
+packaging comparison, not the later before/after creation comparison.
+
 Run the portable paired fixture with:
 
 ```sh

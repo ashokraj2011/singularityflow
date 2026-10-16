@@ -412,6 +412,10 @@ export async function startCommand(positionals, options) {
       || (!optionBoolean(options, 'allow-dirty') && changes(root).trim()))) {
     return startCommandInIsolatedWorktree(root, id, positionals, options);
   }
+  // The synchronous launch check above already proved this checkout clean. Only a managed child
+  // skipped it and needs its own check. Never retain status across an await, checkout or mutation;
+  // publication still independently checks the complete candidate working tree.
+  if (managedStoryWorktree && !optionBoolean(options, 'allow-dirty')) assertClean(root);
   // The launch checkout is not configuration authority for a new Story. It may carry a stale or
   // malformed workflow while the approved sflow/config snapshot is healthy. Inspect local Story
   // refs and cheap input errors first; load the local workflow only if authority discovery later
@@ -423,7 +427,6 @@ export async function startCommand(positionals, options) {
   validatePortableWorkId(id);
   const receiptToken = optionString(options, 'selection-receipt');
   let receipt = null;
-  if (!optionBoolean(options, 'allow-dirty')) assertClean(root);
   const jira = optionBoolean(options, 'jira');
   const githubReference = optionString(options, 'github');
   const storyFile = optionString(options, 'story-file');
@@ -508,7 +511,8 @@ export async function startCommand(positionals, options) {
   // Starting is idempotent for durable Stories. A local workflow does not need a new base choice;
   // it is resumed from its own recorded branch and resolution. This check intentionally precedes
   // every remote/base prompt so an offline contributor can resume work already present locally.
-  const localStory = refExists(root, localStoryRef)
+  const localStoryExists = refExists(root, localStoryRef);
+  const localStory = localStoryExists
     ? await durableStoryAtRef(localStoryRef, canonicalBranch)
     : null;
   if (localStory) {
@@ -550,7 +554,7 @@ export async function startCommand(positionals, options) {
   // reports that a base is missing even though selecting a base could never make the occupied
   // branch safe to adopt. Reading one exact blob from the already-known local ref is local,
   // bounded, and precedes every configuration or remote lookup.
-  if (refExists(root, localStoryRef)
+  if (localStoryExists
       && fileAtRef(root, localStoryRef, storySeedRelative) === null) {
     throw new SingularityFlowError(
       `Local branch '${canonicalBranch}' exists but contains neither governed Story state nor a materialized Story seed. `
@@ -955,7 +959,8 @@ export async function startCommand(positionals, options) {
         }));
     }
     const selectedBaseRef = `refs/remotes/${remote}/${baseAtStart}`;
-    if (!refExists(root, selectedBaseRef)) {
+    const selectedBaseCommit = localRefHeads(root, [selectedBaseRef]).get(selectedBaseRef);
+    if (!selectedBaseCommit) {
       throw new SingularityFlowError(
         `Selected base branch '${baseAtStart}' is no longer published by remote '${remote}'. Nothing was changed.`,
         { code: 'STORY_BASE_INVALID' }
@@ -963,7 +968,7 @@ export async function startCommand(positionals, options) {
     }
     // Before reading the base's own configuration: an orphan base has none to read.
     assertStoryBaseSharesHistory(root, { remote, baseBranch: baseAtStart });
-    legacyBaseConfigurationCommit = refHead(root, selectedBaseRef);
+    legacyBaseConfigurationCommit = selectedBaseCommit;
     const selectedBaseConfiguration = await loadLegacyStoryBaseContext(root, {
       remote, baseBranch: baseAtStart, baseCommit: legacyBaseConfigurationCommit,
       capabilityId: workflowCapabilityId
@@ -988,7 +993,7 @@ export async function startCommand(positionals, options) {
   // A published configuration authority always governs a new Story, including when start was
   // launched from an older pinned Story or an application base still contains a legacy workflow.
   // The legacy base remains a fallback only when no usable sflow/config/state mirror exists.
-  const baseCarriesConfiguration = [
+  const baseCarriesConfiguration = legacyBaseConfigurationCommit !== null || [
     `refs/remotes/${remote}/${baseAtStart}`,
     `refs/heads/${baseAtStart}`
   ].some((ref) => fileAtRef(root, ref, WORKFLOW_PATH) !== null);
@@ -1269,7 +1274,9 @@ export async function startCommand(positionals, options) {
       throw storyPublicationPreflightError(dryRun, { branch: canonicalBranch, remote });
     }
   }
-  assertBaseCarriesGovernance(root, {
+  // The legacy loader already validated governance at this exact commit, and the live fetch
+  // comparison above refuses a moved base. Do not re-read another (potentially stale local) base.
+  if (!legacyBaseConfigurationCommit) assertBaseCarriesGovernance(root, {
     config, branchName: canonicalBranch, base: baseAtStart, remote, currentBranch: originalBranch,
     configurationRemote: configurationAuthority?.remote
       ?? (materializedSeedCommit ? remote : null)

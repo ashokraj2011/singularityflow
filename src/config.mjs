@@ -9,7 +9,7 @@ import { mergePhaseOverride } from './phase-overrides.mjs';
 import { assertDocumentStoragePolicy } from './document-storage-policy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
-  ensureSecureRepositoryDirectory, repoRelative, secureRepositoryPath, SingularityFlowError, posix, run, snapshot, writeBytes
+  ensureSecureRepositoryDirectory, mapLimit, repoRelative, secureRepositoryPath, SingularityFlowError, posix, run, snapshot, writeBytes
 } from './util.mjs';
 import { validateInjectionDefinition } from './inject.mjs';
 import { scopedRead, withReadScope } from './read-scope.mjs';
@@ -1536,6 +1536,9 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     });
     await validateDefinitionRuntimeRoots(root, definition, portfolio);
     if (!storyBootstrap) {
+      // Several workflows reuse the same phase template. Prove each exact path once during this
+      // load, not once per workflow. No proof survives this call or crosses a checkout/write.
+      const checkedTemplates = new Map();
       for (const workTypeId of Object.keys(definition.workTypes)) for (const phase of resolveWorkType(definition, workTypeId).phases) {
         if (phase.kind === 'skill') {
           if (!phase.defaultAgent) {
@@ -1547,10 +1550,25 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
           continue;
         }
         if (isAgentTemplateReference(phase.template)) continue;
-        const template = await secureRepositoryPath(root, path.join(definition.templatesRoot, phase.template), {
-          label: `Template for work type '${workTypeId}' phase '${phase.id}'`,
-          type: 'file'
-        });
+        const relativeTemplate = path.join(definition.templatesRoot, phase.template);
+        if (checkedTemplates.has(relativeTemplate)) {
+          incrementCommandCounter('configuration.template-reuses');
+          continue;
+        }
+        incrementCommandCounter('configuration.template-checks');
+        checkedTemplates.set(relativeTemplate, { workTypeId, phase, relativeTemplate });
+      }
+      // Independent read-only containment checks can overlap Windows file-open latency. Settle
+      // every reader before returning; retain original catalog order for deterministic refusals.
+      const templates = await mapLimit(checkedTemplates.values(), 4, async entry => {
+        try {
+          return { ...entry, template: await secureRepositoryPath(root, entry.relativeTemplate, {
+            label: `Template for work type '${entry.workTypeId}' phase '${entry.phase.id}'`, type: 'file'
+          }) };
+        } catch (error) { return { ...entry, error }; }
+      });
+      for (const { workTypeId, phase, template, error } of templates) {
+        if (error) throw error;
         if (!template.exists) throw await diagnosed(new SingularityFlowError(`Template missing for work type '${workTypeId}' phase '${phase.id}': ${path.posix.join(definition.templatesRoot, phase.template)}`));
       }
       await validateAgentBriefHeadingContracts(root, definition);

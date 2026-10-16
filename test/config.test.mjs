@@ -36,6 +36,38 @@ import {
 } from '../src/publication-preflight.mjs';
 import { normalizeTokenEconomy } from '../src/token-economy.mjs';
 import { run } from '../src/util.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
+
+test('shared templates are validated once per load and never reused after a filesystem change', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-template-validation-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, '.git'));
+  await initializeDefinition(root);
+  const timer = commandTimer('template-validation');
+  const definition = await withCommandTiming(timer, () => loadDefinition(root));
+  const templates = Object.keys(definition.workTypes).flatMap(id => resolveWorkType(definition, id).phases)
+    .filter(phase => phase.kind !== 'skill' && !phase.template.startsWith('agent:'))
+    .map(phase => path.join(definition.templatesRoot, phase.template));
+  const unique = new Set(templates);
+  assert.ok(templates.length > unique.size, 'the fixture must actually share templates');
+  const counters = timer.finish().counters;
+  assert.equal(counters['configuration.template-checks'], unique.size);
+  assert.equal(counters['configuration.template-reuses'], templates.length - unique.size);
+  const template = path.join(root, [...unique][0]);
+  const original = await readFile(template);
+  await unlink(template);
+  await assert.rejects(() => loadDefinition(root), /Template missing/);
+  await writeFile(template, original);
+  await loadDefinition(root);
+  // A new load must still prove containment, not just remember a formerly valid path.
+  if (process.platform !== 'win32') {
+    const outside = path.join(root, 'untrusted.md');
+    await writeFile(outside, original);
+    await unlink(template);
+    await symlink(outside, template);
+    await assert.rejects(() => loadDefinition(root), /symlink|symbolic/i);
+  }
+});
 
 test('starter YAML resolves feature, bugfix, and Figma-mobile templates and agents', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-config-')); await mkdir(path.join(root, '.git'), { recursive: true }); await initializeDefinition(root);

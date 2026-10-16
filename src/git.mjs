@@ -7,7 +7,7 @@ import {
   accessSync, constants as FS_CONSTANTS, existsSync, mkdirSync, mkdtempSync, readFileSync,
   realpathSync, rmSync, statSync, writeFileSync
 } from 'node:fs';
-import { SingularityFlowError, gitReadOutput, invariant, run, writeAtomic, removeTemporaryTree } from './util.mjs';
+import { SingularityFlowError, gitReadOutput, invariant, isGitRefName, run, writeAtomic, removeTemporaryTree } from './util.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { gitEmptyConfigPath, gitDisabledHooksPath } from './git-isolation-paths.mjs';
 import { readLocalGitBlobs, repositoryObjectFormat } from './git-blob-batch.mjs';
@@ -1049,7 +1049,13 @@ export async function checkout(root, name, {
     }
     return 'already-current';
   }
-  if (refExists(root, `refs/heads/${name}`)) {
+  // One bounded, fresh observation replaces up to four separate processes on the new-branch
+  // path. Keep it inside checkout, after any fetch: mutable refs are never cached across calls.
+  const candidates = localRefHeads(root, [
+    `refs/heads/${name}`, `refs/remotes/${remote}/${name}`,
+    ...(!existingOnly ? [`refs/remotes/${remote}/${base}`, `refs/heads/${base}`] : [])
+  ].filter(isGitRefName));
+  if (candidates.has(`refs/heads/${name}`)) {
     assertExactRef(`refs/heads/${name}`);
     git(['switch', name], { cwd: root, stdio: 'inherit' });
     if (!immutableCommit && synchronize && refExists(root, `refs/remotes/${remote}/${name}`)) {
@@ -1060,7 +1066,7 @@ export async function checkout(root, name, {
     }
     return 'checked-out-local';
   }
-  if (refExists(root, `refs/remotes/${remote}/${name}`)) {
+  if (candidates.has(`refs/remotes/${remote}/${name}`)) {
     assertExactRef(`refs/remotes/${remote}/${name}`);
     git(['switch', '--no-track', '-c', name, immutableCommit ?? `${remote}/${name}`], {
       cwd: root, stdio: 'inherit'
@@ -1072,8 +1078,8 @@ export async function checkout(root, name, {
   // A fetched start must fork from the ref that was just refreshed. Preferring a stale local
   // `main` here silently excluded configuration and world-model commits already merged upstream.
   // Callers that deliberately work offline retain the historical local-first behavior.
-  const remoteBase = refExists(root, `refs/remotes/${remote}/${base}`) ? `${remote}/${base}` : null;
-  const localBase = refExists(root, `refs/heads/${base}`) ? base : null;
+  const remoteBase = candidates.has(`refs/remotes/${remote}/${base}`) ? `${remote}/${base}` : null;
+  const localBase = candidates.has(`refs/heads/${base}`) ? base : null;
   const baseRef = preferRemoteBase
     ? remoteBase ?? localBase ?? 'HEAD'
     : localBase ?? remoteBase ?? 'HEAD';

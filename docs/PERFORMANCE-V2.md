@@ -337,6 +337,8 @@ Main `624a46d50a228d757182dfc752f286d84558921a` was merged cleanly into this bra
 measurement. The recorded cohorts above retain their original reference and candidate observations;
 they do not qualify the newly integrated source. Repository checks passed (2,582), VS Code build
 and type-check passed, and unchanged bundle ceilings passed: gateway 7,464,533 bytes / 681 modules.
+Post-merge focused regressions passed 148/148; startup, host-fixture and attachment tests passed
+23/23. These functional checks do not turn the failed performance budgets into passes.
 The native runner's persisted user stop is regression-tested with no provider available on PATH.
 No additional native turn, human approval, installed-build change or release qualification followed
 the stop instruction.

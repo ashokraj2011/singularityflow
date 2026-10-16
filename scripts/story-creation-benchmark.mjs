@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** Local-only creation profile. Includes fresh checks and synchronous exact-tip publication. */
 import { spawnSync } from 'node:child_process';
-import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildCliBundle } from './build-cli-bundle.mjs';
@@ -13,12 +13,15 @@ const controlRef = option('control-ref', null), workType = option('work-type', '
 const selectedMode = option('mode', 'both');
 const fresh = option('fresh', 'false'), configuration = option('configuration', 'legacy');
 const prewarm = option('prewarm', 'none');
+const prepareWorktree = option('prepare-worktree', 'none');
 const outputFile = option('out', null);
 if (!Number.isSafeInteger(samples) || samples < 1 || samples > 20
     || !Number.isSafeInteger(files) || files < 0 || files > 20000
     || !/^[a-z0-9-]{1,64}$/.test(workType) || !['both', 'isolated', 'working'].includes(selectedMode)
     || !['true', 'false'].includes(fresh) || !['legacy', 'approved'].includes(configuration)
     || !['none', 'candidate'].includes(prewarm)
+    || !['none', 'candidate'].includes(prepareWorktree)
+    || (prepareWorktree !== 'none' && (configuration !== 'approved' || selectedMode !== 'isolated'))
     || (controlRef && !/^[a-f0-9]{40}$/.test(controlRef))) throw new Error('Invalid benchmark bounds.');
 const summary = values => ({ medianMs: [...values].sort((a,b) => a-b)[Math.floor(values.length/2)],
   minMs: Math.min(...values), maxMs: Math.max(...values) });
@@ -30,18 +33,22 @@ try {
   if (!sourceMode) await buildCliBundle({ root: fixture.engine, outdir });
   const variants = { candidate: outdir };
   let controlModules = [];
+  let candidateOnlyModules = [];
   if (controlRef) {
     const source = fileURLToPath(new URL('..', import.meta.url));
     controlModules = fixture.git(['diff', '--name-only', controlRef, '--', 'src'], { cwd: source }).split('\n').filter(Boolean);
     if (!controlModules.length || controlModules.length > 32
         || controlModules.some(file => !/^src\/[a-zA-Z0-9_./-]+\.mjs$/.test(file) || file.includes('..'))) {
-      throw new Error('Comparison requires 1–32 modified runtime modules, with no new/deleted module.');
+      throw new Error('Comparison requires 1–32 bounded runtime modules.');
     }
+    const controlFiles = new Set(fixture.git(['ls-tree', '-r', '--name-only', controlRef, '--', ...controlModules], { cwd: source }).split('\n'));
+    candidateOnlyModules = controlModules.filter(file => !controlFiles.has(file));
     const originals = new Map();
     try {
       for (const file of controlModules) {
         originals.set(file, await readFile(path.join(fixture.engine, file)));
-        await writeFile(path.join(fixture.engine, file), fixture.git(['show', `${controlRef}:${file}`], { cwd: source }) + '\n');
+        if (controlFiles.has(file)) await writeFile(path.join(fixture.engine, file), fixture.git(['show', `${controlRef}:${file}`], { cwd: source }) + '\n');
+        else await rm(path.join(fixture.engine, file)); // only the fixture-owned, bounded candidate addition
       }
       variants.control = path.join(fixture.engine, 'control-bundle');
       await buildCliBundle({ root: fixture.engine, outdir: variants.control });
@@ -96,8 +103,25 @@ try {
         const prepared = invoke(['--warm-runtime'], fixture.directory, variantEnv);
         preparation = { durationMs: prepared.durationMs, prepared: JSON.parse(prepared.value).prepared === true };
       }
+      let intakePreview = null, worktreePreparation = null, intakeArgs = [];
+      if (prepareWorktree !== 'none') {
+        const preview = invoke(['workspace', 'branches', '--json', '--intake', '--preflight-story', id,
+          '--from-branch', 'main', '--work-type', workType, '--selected-base-only', '--isolated-worktree',
+          '--mint-intake-receipt'], repository, variantEnv);
+        const receipt = preview.value.preflight?.intakeReceipt;
+        if (!receipt?.issued) throw new Error('A matched intake preview did not issue its receipt.');
+        intakePreview = { durationMs: preview.durationMs };
+        intakeArgs = ['--intake-receipt', receipt.id];
+        if (variant === 'candidate') {
+          const result = invoke(['start', id, '--prepare-only', '--json', '--isolated-worktree', '--from-branch', 'main',
+            '--work-type', workType, ...intakeArgs], repository, variantEnv);
+          if (result.value.preparation?.status !== 'prepared') throw new Error('Worktree preparation was unavailable.');
+          worktreePreparation = { durationMs: result.durationMs };
+          intakeArgs.push('--prepared-base', result.value.preparation.baseCommit);
+        }
+      }
       const result = invoke(['start', id, '--from-branch', 'main', '--work-type', workType,
-        '--title', 'Creation performance qualification', '--json', '--timings',
+        '--title', 'Creation performance qualification', '--json', '--timings', ...intakeArgs,
         ...(isolated ? ['--isolated-worktree'] : [])], repository, { GIT_TRACE2_EVENT: traceFile,
           ...variantEnv,
           ...(process.env.SINGULARITY_FLOW_SUBPROCESS_PROBE ? { SINGULARITY_FLOW_SUBPROCESS_PROBE: '1' } : {}) });
@@ -127,8 +151,9 @@ try {
           commandTimes[command] = (commandTimes[command] ?? 0) + entry.t_abs * 1000;
         }
       }
-      measured[variant].push({ durationMs: result.durationMs, preparation,
-        totalWithPreparationMs: result.durationMs + (preparation?.durationMs ?? 0),
+      measured[variant].push({ durationMs: result.durationMs, preparation, intakePreview, worktreePreparation,
+        totalWithPreparationMs: result.durationMs + (preparation?.durationMs ?? 0)
+          + (intakePreview?.durationMs ?? 0) + (worktreePreparation?.durationMs ?? 0),
         timings, counters, localTraceGitProcessCounts: commands,
         localTraceGitElapsedMs: Object.fromEntries(Object.entries(commandTimes)
           .map(([command, duration]) => [command, Math.round(duration)])),
@@ -142,8 +167,8 @@ try {
     runtime: { platform: process.platform, arch: process.arch, node: process.version,
       git: fixture.git(['--version']) },
     protocol: { samples, files, workType, mode: selectedMode, configuration, freshRepositoryPerSample: fresh === 'true',
-      prewarm, remote: 'local bare only', modelCalls: 0,
-      controlRef, controlModules, comparison: 'same packaging and fixtures; alternating candidate/control samples',
+      prewarm, prepareWorktree, remote: 'local bare only', modelCalls: 0,
+      controlRef, controlModules, candidateOnlyModules, comparison: 'same packaging and fixtures; alternating candidate/control samples',
       compileCache: fresh === 'true' ? 'fresh private directory for every sample' : 'separate per variant, initially empty; shared across samples',
       osFileCache: 'not flushed',
       publication: 'fresh validation and exact remote tip asserted for every sample' }, results,

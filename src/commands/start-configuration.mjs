@@ -15,21 +15,31 @@ import { SingularityFlowError } from '../util.mjs';
 
 /** Reuse compilation, never live authority: prove exact bytes, then validate today's output roots. */
 export async function loadMaterializedConfigurationDefinition(root, snapshot) {
-  const definition = copyVerifiedStoryConfigurationDefinition(snapshot, root);
+  return withMaterializedConfigurationRead(root, snapshot, () => loadDefinition(root));
+}
+
+/** Reuse only exact immutable inputs for one bounded consumer; live roots stay independently checked. */
+export async function withMaterializedConfigurationRead(root, snapshot, action) {
+  copyVerifiedStoryConfigurationDefinition(snapshot, root);
   const expected = Object.fromEntries(snapshot.assets.map(entry => [entry.relative, {
     sha256: entry.sha256, object: entry.object, mode: entry.gitMode
   }]).sort(([a], [b]) => a.localeCompare(b)));
-  const source = await readConfigurationSource(root, { verify: true, exactBytes: true });
-  if (!source || source.repository !== snapshot.authority.remote || source.commit !== snapshot.sourceCommit
-      || !isDeepStrictEqual(source.assets, expected)) {
-    throw new SingularityFlowError('Materialized configuration does not match its verified owner.', {
-      code: 'STORY_CONFIGURATION_AUTHORITY_STALE'
-    });
-  }
-  return withConfigurationReadRoot(root, root, null, () => loadDefinition(root), {
-    compiledDefinition: () => {
+  const verify = async () => {
+    const source = await readConfigurationSource(root, { verify: true, exactBytes: true });
+    if (!source || source.repository !== snapshot.authority.remote || source.commit !== snapshot.sourceCommit
+        || !isDeepStrictEqual(source.assets, expected)) {
+      throw new SingularityFlowError('Materialized configuration does not match its verified owner.', {
+        code: 'STORY_CONFIGURATION_AUTHORITY_STALE'
+      });
+    }
+  };
+  await verify();
+  return withConfigurationReadRoot(root, root, null, action, {
+    compiledDefinition: async () => {
+      await verify();
       incrementCommandCounter('configuration.compiled-materialized-reuse');
-      return definition;
+      // Consumers normalize definitions in place. No caller may mutate a later consumer's copy.
+      return copyVerifiedStoryConfigurationDefinition(snapshot, root);
     }
   });
 }

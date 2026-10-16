@@ -164,6 +164,53 @@ const data = (result) => {
 const counter = (stderr, name) =>
   Number(new RegExp(`(?:^|\\s)${name.replaceAll('.', '\\.')}=(\\d+)(?:\\s|$)`).exec(stderr)?.[1] ?? 0);
 
+test('background intake preparation creates no Story or publication and Start reuses its exact checkout', intakePlatforms, async t => {
+  const { root } = await repository(t), id = 'PREPARED-STORY';
+  const receipt = preflight(root, id);
+  assert.equal(receipt.issued, true);
+  const before = git(root, 'ls-remote', '--heads', 'origin');
+  const index = await readFile(path.join(root, '.git/index'));
+  const prepared = data(start(root, id, ['--prepare-only', '--intake-receipt', receipt.id])).preparation;
+  assert.equal(prepared.status, 'prepared'); assert.equal(prepared.owned, true);
+  assert.equal(git(root, 'ls-remote', '--heads', 'origin'), before);
+  assert.equal(git(root, 'branch', '--show-current'), 'main');
+  assert.deepEqual(await readFile(path.join(root, '.git/index')), index);
+  assert.notEqual(run('git', ['show-ref', '--verify', `refs/heads/${id}`], root, { allowFailure: true }).status, 0);
+  const started = start(root, id, ['--intake-receipt', receipt.id, '--prepared-base', prepared.baseCommit]);
+  assert.equal(counter(started.stderr, 'configuration.definition-load'), 2,
+    'only accounting and the verified approved snapshot compile; pin hints and capability resolution do not');
+  assert.equal(data(started).publication.pushed, true);
+  assert.equal(git(root, 'ls-remote', '--heads', 'origin', id).split(/\s/)[0], git(data(started).repositoryPath, 'rev-parse', 'HEAD'));
+  assert.equal(data(start(root, id, ['--discard-prepared', '--prepared-base', prepared.baseCommit])).preparation.status, 'retained');
+});
+
+test('background intake preparation refuses missing receipts and cleanup retains edits but removes a clean cancelled launch', intakePlatforms, async t => {
+  const { root } = await repository(t), id = 'CANCEL-PREPARED';
+  assert.equal(data(start(root, id, ['--prepare-only'])).preparation.status, 'unavailable');
+  const receipt = preflight(root, id);
+  const prepared = data(start(root, id, ['--prepare-only', '--intake-receipt', receipt.id])).preparation;
+  const target = await storyWorktreePath(root, id);
+  await writeFile(path.join(target, 'README.md'), 'preserve user edit\n');
+  assert.equal(data(start(root, id, ['--discard-prepared', '--prepared-base', prepared.baseCommit])).preparation.status, 'retained');
+  assert.equal(await readFile(path.join(target, 'README.md'), 'utf8'), 'preserve user edit\n');
+  await writeFile(path.join(target, 'README.md'), await readFile(path.join(root, 'README.md')));
+  assert.equal(data(start(root, id, ['--discard-prepared', '--prepared-base', prepared.baseCommit])).preparation.status, 'removed');
+  assert.equal(git(root, 'worktree', 'list', '--porcelain').includes(target), false);
+});
+
+test('background intake preparation rebases only by replacing a clean unstarted checkout when the base moves', intakePlatforms, async t => {
+  const { root } = await repository(t), id = 'STALE-PREPARED';
+  const receipt = preflight(root, id);
+  const prepared = data(start(root, id, ['--prepare-only', '--intake-receipt', receipt.id])).preparation;
+  await writeFile(path.join(root, 'new-base.txt'), 'new base\n');
+  git(root, 'add', '.'); git(root, 'commit', '-qm', 'advance base'); git(root, 'push', '-q', 'origin', 'main');
+  const tip = git(root, 'rev-parse', 'HEAD');
+  const started = data(start(root, id, ['--intake-receipt', receipt.id, '--prepared-base', prepared.baseCommit]));
+  assert.equal(await readFile(path.join(started.repositoryPath, 'new-base.txt'), 'utf8'), 'new base\n');
+  const workflow = JSON.parse(await readFile(path.join(started.repositoryPath, `singularity/work-items/${id}/workflow.json`), 'utf8'));
+  assert.equal(workflow.workItem.baseCommit, tip);
+});
+
 test('isolated start observes mandatory readiness once and rejects missing or changed prerequisite proof before publication', intakePlatforms, async t => {
   const { root } = await repository(t);
   git(root, 'fetch', '-q', 'origin');

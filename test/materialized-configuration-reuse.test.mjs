@@ -8,7 +8,7 @@ import { initializeDefinition, loadDefinition, withDefinitionCache } from '../sr
 import { withRepositoryConfigurationCommitRead } from '../src/approved-configuration-reader.mjs';
 import { loadStoryConfigurationSnapshot,
   materializeConfigurationSnapshot } from '../src/configuration-branch.mjs';
-import { loadMaterializedConfigurationDefinition } from '../src/commands/start-configuration.mjs';
+import { loadMaterializedConfigurationDefinition, withMaterializedConfigurationRead } from '../src/commands/start-configuration.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 
 function git(cwd, ...args) {
@@ -74,4 +74,22 @@ test('one exact legacy commit overlay shares concurrent configuration loads with
     assert.equal(values[1], values[2]);
   });
   assert.equal(timer.finish().counters['configuration.definition-load'], 1);
+});
+
+test('bounded materialized consumers reuse compilation without hiding writes or leaking to later readers', async t => {
+  const f = await fixture(t);
+  const timer = commandTimer('bounded-materialized-reuse', { commandClass: 'mutation' });
+  await withCommandTiming(timer, () => withMaterializedConfigurationRead(f.target, f.snapshot, async () => {
+    const first = await loadDefinition(f.target);
+    first.workTypes.feature.label = 'private consumer mutation';
+    assert.notEqual((await loadDefinition(f.target)).workTypes.feature.label, first.workTypes.feature.label);
+  }));
+  assert.equal(timer.finish().counters['configuration.definition-load'] ?? 0, 0);
+  await assert.rejects(withMaterializedConfigurationRead(f.target, f.snapshot, async () => {
+    await appendFile(path.join(f.target, 'singularity/workflow.yml'), '\n# concurrent edit\n');
+    await loadDefinition(f.target);
+  }), /changed after materialization/);
+  const fresh = commandTimer('outside-bounded-reuse', { commandClass: 'read' });
+  await withCommandTiming(fresh, () => loadDefinition(f.target));
+  assert.equal(fresh.finish().counters['configuration.definition-load'], 1);
 });

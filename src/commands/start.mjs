@@ -60,6 +60,20 @@ import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 
 export async function run(argv, { positionals, options }) {
+  if (optionBoolean(options, 'prepare-only') || optionBoolean(options, 'discard-prepared')) {
+    if (optionBoolean(options, 'prepare-only') && optionBoolean(options, 'discard-prepared')) {
+      throw new SingularityFlowError('Choose preparation or discard, not both.');
+    }
+    const id = requirePositional(positionals, 1, 'work ID');
+    validatePortableWorkId(id);
+    const root = repoRoot();
+    const preparation = await import('../story-worktree-preparation.mjs');
+    const result = optionBoolean(options, 'prepare-only')
+      ? await preparation.prepareIntakeWorktree(root, id, options)
+      : await preparation.discardIntakeWorktree(root, id, options);
+    console.log(JSON.stringify({ preparation: result }));
+    return { preparation: result };
+  }
   return withCommandObservability('start', argv, options,
     () => withCommandConfirmation(options, () => startCommand(positionals, options)));
 }
@@ -301,6 +315,14 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
     const selectionToken = optionString(options, 'selection-receipt');
     const selectionHandoff = selectionToken && !durableLocalStory
       ? await readStartSelectionReceipt(sourceRoot, selectionToken, id) : null;
+    const preparedBase = optionString(options, 'prepared-base');
+    if (!durableLocalStory && preparedBase && preparedBase !== launchBaseCommit && !baselineTarget) {
+      const { discardPreparedStoryWorktree } = await import('../story-worktree.mjs');
+      const discarded = await discardPreparedStoryWorktree(sourceRoot, id, { baseCommit: preparedBase });
+      if (!['removed', 'absent'].includes(discarded.status)) throw new SingularityFlowError(
+        'The prepared checkout changed; its files are preserved. Review it before starting on the new base.',
+        { code: 'STORY_WORKTREE_RECOVERY_REQUIRED' });
+    }
     const prepared = await measureCommandSpan('start.worktree', () =>
       prepareStoryWorktree(sourceRoot, id, {
         base: durableLocalStory ? 'HEAD' : launchBaseCommit
@@ -579,12 +601,10 @@ export async function startCommand(positionals, options) {
   // Configuration has not been selected yet. A locally cached Story ref under any configured
   // remote is enough to defer the missing-base refusal until approved authority identifies the
   // one that governs this Story. This inventory remains local-only.
-  const cachedRemoteStory = remoteNames(root).some((name) =>
-    refExists(root, `refs/remotes/${name}/${canonicalBranch}`));
   if (nonInteractive && !receiptToken && !explicitBase && fromBranch.length === 0
-      && !jira && !githubReference
-      && !cachedRemoteStory) {
-    throw storyBaseRequired(id);
+      && !jira && !githubReference) {
+    const refs = remoteNames(root).map(name => `refs/remotes/${name}/${canonicalBranch}`);
+    if (!refs.length || localRefHeads(root, refs).size === 0) throw storyBaseRequired(id);
   }
 
   // Only after a local durable Story has had its network-free pinned resume path do we select policy
@@ -1737,7 +1757,7 @@ export async function startCommand(positionals, options) {
       allowedPaths: [workDirRelative(config, id)],
       operation: 'story-start',
       write: async (creationPreimage) => {
-        workflow = await measureCommandSpan('start.publication.workflow', () => createWorkflow(root, config, {
+        const create = () => createWorkflow(root, config, {
           id,
           title: optionString(options, 'title', source.title || id),
           source,
@@ -1763,7 +1783,10 @@ export async function startCommand(positionals, options) {
             ?? legacyCapabilityEvidence?.mapSha256 ?? null,
           referenceRepositories,
           baselineFailures: optionString(options, 'baseline-failures') ?? null
-        }));
+        });
+        workflow = await measureCommandSpan('start.publication.workflow', async () => configurationSnapshot
+          ? (await import('./start-configuration.mjs')).withMaterializedConfigurationRead(root, approvedConfigurationSnapshot, create)
+          : create());
         returnLocator = await writeReturnLocator(root, config, workflow);
         publication = await measureCommandSpan('start.publication.commit', () => commitAndPublish(
           root,

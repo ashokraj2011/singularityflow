@@ -632,6 +632,10 @@ export class SingularityFlowClient {
 
   get repository(): string { return this.options.repository; }
   get location(): CliLocation { return this.options.location; }
+  /** Pin optional intake work to its launch repository even if the main window navigates away. */
+  forkForRepository(repository: string): SingularityFlowClient {
+    return new SingularityFlowClient({ ...this.options, repository });
+  }
   get mutating(): boolean { return Boolean(repositoryMutations.get(mutationKey(this.repository))?.size); }
   waitForMutations(signal?: AbortSignal): Promise<void> { return awaitRepositoryMutations(this.repository, signal); }
 

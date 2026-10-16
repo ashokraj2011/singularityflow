@@ -10,6 +10,7 @@ import {
   prepareStoryWorktree, rollbackFailedStoryWorktree, rollbackStoryWorktree, samePlatformPath,
   storyCheckoutOptions, storyWorktreeChanges, storyWorktreePath
 } from '../src/story-worktree.mjs';
+import { discardPreparedStoryWorktree } from '../src/story-worktree.mjs';
 import { gitCommonDir } from '../src/git.mjs';
 import { SingularityFlowError } from '../src/util.mjs';
 import { createWorkflow, loadConfig } from '../src/state.mjs';
@@ -1855,4 +1856,23 @@ test('isolated-start recovery recognizes a published Story on a non-origin remot
 
   assert.equal(recovery.retained, true);
   assert.equal(recovery.repositoryPath, prepared.repositoryPath);
+});
+
+test('prepared cleanup preserves ignored files, changed heads and non-staging worktrees', async t => {
+  const { root } = await repository(t);
+  const base = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  const prepared = await prepareStoryWorktree(root, 'PREP-CLEANUP', { base });
+  await mkdir(path.join(prepared.repositoryPath, 'node_modules'));
+  await writeFile(path.join(prepared.repositoryPath, 'node_modules/private.txt'), 'not disposable\n');
+  assert.equal((await discardPreparedStoryWorktree(root, 'PREP-CLEANUP', { baseCommit: base })).status, 'retained');
+  assert.equal(await readFile(path.join(prepared.repositoryPath, 'node_modules/private.txt'), 'utf8'), 'not disposable\n');
+  await rm(path.join(prepared.repositoryPath, 'node_modules'), { recursive: true });
+  await writeFile(path.join(prepared.repositoryPath, 'unique.txt'), 'unique commit\n');
+  run('git', ['add', 'unique.txt'], prepared.repositoryPath);
+  run('git', ['commit', '-qm', 'keep this commit'], prepared.repositoryPath);
+  await assert.rejects(discardPreparedStoryWorktree(root, 'PREP-CLEANUP', { baseCommit: base }), /exact requested pre-feature base/);
+  await assert.rejects(prepareStoryWorktree(root, 'PREP-CLEANUP', { base }), /exact requested pre-feature base/);
+  run('git', ['switch', '-qc', 'user-owned-branch'], prepared.repositoryPath);
+  await assert.rejects(discardPreparedStoryWorktree(root, 'PREP-CLEANUP', { baseCommit: base }), /exact prepared staging branch/);
+  assert.equal(await readFile(path.join(prepared.repositoryPath, 'unique.txt'), 'utf8'), 'unique commit\n');
 });

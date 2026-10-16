@@ -1,5 +1,12 @@
 # GAL Git bypass regression gate
 
+Intake preparation adds a narrow cleanup path to the existing Story-worktree owner, not a new
+general process owner. It runs `worktree remove` without force only after exact managed-path,
+common-directory, staging-branch, initial-commit and tracked/untracked/ignored-cleanliness checks.
+The staging ref is deleted with `update-ref --no-deref -d` and the exact initial old value; a
+concurrent ref advance remains reachable. The prior per-spelling staging probes are replaced by
+one bounded ref listing. Only this owner's reviewed call-site fingerprint changes in the baseline.
+
 Large-Story configuration reads add one fixed local Git call in the existing configuration
 owner: `read-tree -mu <exact-commit>`. It runs only
 inside the freshly cloned disposable checkout under the frozen enterprise environment. Patterns

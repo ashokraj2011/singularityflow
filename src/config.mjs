@@ -1343,7 +1343,7 @@ export async function loadDefinition(root, { storyBootstrap = false } = {}) {
   const definitionRoot = configurationReadRoot(root);
   return scopedRead(`config.definition:${root}:${definitionRoot}:${storyBootstrap ? 'story-bootstrap' : 'current'}`,
     async () => {
-      const compiled = !storyBootstrap && configurationReadDefinition(root);
+      const compiled = !storyBootstrap && await configurationReadDefinition(root);
       if (compiled) {
         // The application checkout remains mutable. Never use an immutable configuration receipt
         // to skip containment of runtime output roots or today's environment-local exclusions.

@@ -171,18 +171,13 @@ export async function capabilityDoctorStoryPin(root) {
   } catch { /* A detached/non-Git checkout cannot prove canonical Story identity. */ }
   const roots = new Set(['singularity/work-items']);
   try {
-    const definition = await loadDefinition(root);
-    roots.add(definition.workItemRoot);
-  } catch {
-    // A partially corrupt definition can still disclose its custom Story root. Treat that path as
-    // a detection hint only; the exact pin and full definition are validated separately below.
-    try {
-      const raw = YAML.parse(await readFile(path.join(root, WORKFLOW_PATH), 'utf8'));
-      if (typeof raw?.workItemRoot === 'string' && raw.workItemRoot.trim()) {
-        roots.add(raw.workItemRoot.trim());
-      }
-    } catch { /* Tracked workflow discovery below still catches a custom-root Story. */ }
-  }
+    // This is a location hint, never a validated definition or policy decision. Parsing the whole
+    // agent/template catalog here duplicated the subsequent exact authority read on every start.
+    // Containment, canonical Story identity and the exact pin are still proved below; tracked
+    // discovery also finds a custom-root Story when this YAML is absent or malformed.
+    const raw = YAML.parse(await readFile(path.join(root, WORKFLOW_PATH), 'utf8'));
+    if (typeof raw?.workItemRoot === 'string' && raw.workItemRoot.trim()) roots.add(raw.workItemRoot.trim());
+  } catch { /* Tracked workflow discovery below still catches a custom-root Story. */ }
   const suffix = currentBranch ? `/${currentBranch}/workflow.json` : null;
   const tracked = run('git', ['ls-files', '-z', '--', '*workflow.json'], {
     cwd: root, allowFailure: true

@@ -1365,10 +1365,10 @@
     },
     "src/story-worktree.mjs": {
       "counts": {
-        "command-run": 14,
+        "command-run": 15,
         "command-runCommand": 1
       },
-      "digest": "9a4427e1602a9ce3e86ecdebace9c576144914cdf35a8ccad6ab63801fb32b36"
+      "digest": "64724f51edd35e41a96b24dd26efc0367a0fe06c20da1242a17285008c9e396e"
     },
     "src/transport-intents.mjs": {
       "counts": {

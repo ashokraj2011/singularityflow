@@ -12,7 +12,7 @@ import path from 'node:path';
 import { availableParallelism } from 'node:os';
 import { lstat, mkdir, realpath } from 'node:fs/promises';
 
-import { gitCommonDir, refExists, remoteNames } from './git.mjs';
+import { gitCommonDir, headAndBranch, localRefHeads, refExists, remoteNames } from './git.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { parsePorcelainV2Status } from './git-status-detail.mjs';
 import {
@@ -240,11 +240,10 @@ export async function preparedStoryWorktreePath(root, workId, { baseCommit = nul
     const registeredCommon = executeGitQuery(registered.path, 'repository.paths').commonDir;
     if (!samePlatformPath(await realpath(registeredCommon), canonicalCommon)) refuse('The prepared Story checkout belongs to a different Git common directory.');
     stagingBranches.add(`sflow-start-${digest(`${registeredCommon}\0${id}`).slice(0, 16)}`);
-    const actualBranch = executeGitQuery(registered.path, 'repository.branch');
+    const { branch: actualBranch, head: actualHead } = headAndBranch(registered.path);
     if (!stagingBranches.has(actualBranch) || actualBranch !== registered.branch) {
       refuse(`Managed checkout is not on the exact prepared staging branch for Story '${id}'.`);
     }
-    const actualHead = executeGitQuery(registered.path, 'repository.head');
     if (actualHead !== registered.head || baseCommit !== null && actualHead !== baseCommit) {
       refuse(`Prepared Story '${id}' no longer points at the exact requested pre-feature base.`);
     }
@@ -255,6 +254,27 @@ export async function preparedStoryWorktreePath(root, workId, { baseCommit = nul
       code: 'STORY_WORKTREE_RECOVERY_REQUIRED', cause: error
     });
   }
+}
+
+/** Discard only the exact, unchanged, unpublished staging checkout. Never force or clean files. */
+export async function discardPreparedStoryWorktree(root, workId, { baseCommit } = {}) {
+  const id = portableId(workId);
+  if (!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(baseCommit ?? '')) throw new SingularityFlowError(
+    'Prepared cleanup requires an exact base commit.', { code: 'STORY_WORKTREE_INVALID' });
+  // A caller-supplied commit is only a selection. Namespace, common directory, branch, actual
+  // HEAD and dirty/ignored files are independently observed. A durable Story is never cleanup.
+  if (refExists(root, `refs/heads/${id}`)) return { status: 'retained', reason: 'story-exists' };
+  const target = await preparedStoryWorktreePath(root, id, { baseCommit });
+  if (!target) return { status: 'absent' };
+  const stage = executeGitQuery(target, 'repository.branch');
+  if (!storyWorktreeChanges(target).clean) return { status: 'retained', reason: 'worktree-changes' };
+  if (pathContains(target, process.cwd())) return { status: 'retained', reason: 'current-directory' };
+  // Git's last dirty check remains in force. A concurrent ref advance is retained by the CAS
+  // deletion; even then its commit stays reachable and can be recovered, never silently erased.
+  const removed = run('git', ['worktree', 'remove', '--', target], { cwd: root, allowFailure: true });
+  if (removed.status !== 0) return { status: 'retained', reason: 'git-refused' };
+  const deleted = run('git', ['update-ref', '--no-deref', '-d', `refs/heads/${stage}`, baseCommit], { cwd: root, allowFailure: true });
+  return { status: 'removed', cleanupPending: deleted.status !== 0 };
 }
 
 /**
@@ -323,6 +343,11 @@ export async function prepareStoryWorktree(root, workId, { base = 'HEAD' } = {})
         { code: 'STORY_WORKTREE_RECOVERY_REQUIRED' }
       );
     }
+    if (registered.branch !== id && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(base)) {
+      // A prepared baseline/background checkout may outlive the selected base. Never silently
+      // create a Story whose worktree contains the old tree while recording the new base.
+      await preparedStoryWorktreePath(root, id, { baseCommit: base });
+    }
     return {
       schemaVersion: 1, workId: id, sourceRepository: path.resolve(root), repositoryPath: registered.path,
       stagingBranch: stagingBranches.includes(registered.branch) || provenOlderStage
@@ -330,9 +355,7 @@ export async function prepareStoryWorktree(root, workId, { base = 'HEAD' } = {})
       created: false, resumed: true, initialHead: registered.head, preparedAt: nowIso()
     };
   }
-  const stagingExists = stagingBranches.some((candidate) => run('git', [
-    'show-ref', '--verify', '--quiet', `refs/heads/${candidate}`
-  ], { cwd: root, allowFailure: true }).status === 0);
+  const stagingExists = localRefHeads(root, stagingBranches.map(candidate => `refs/heads/${candidate}`)).size > 0;
   if (stagingExists) {
     throw new SingularityFlowError(
       `Story '${id}' has an incomplete launch branch but no registered worktree. Run 'git worktree repair', then retry.`,

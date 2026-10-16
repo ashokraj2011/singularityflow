@@ -28,6 +28,7 @@ import { canonicalFilesystemPath } from '../repository-refresh-model.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
 import type { IntakeCatalogCacheBinding } from '../intake-catalog-cache.ts';
 import { IntakePreflightScheduler } from '../intake-preflight-scheduler.ts';
+import type { IntakeWorktreePreparation } from '../intake-worktree-preparation.ts';
 import type { BackgroundHold } from '../background-governor.ts';
 import {
   testRecoveryCanConfirm, testRecoveryChoiceSupported, testRecoveryConfirmation, testRecoveryEnabled,
@@ -252,6 +253,7 @@ export class IntakePanel {
   private renderSequence = 0;
   private favouriteWrite: Promise<void> = Promise.resolve();
   private readonly runtimeWarmup = new AbortController();
+  private preparation: IntakeWorktreePreparation | null = null;
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -431,6 +433,7 @@ export class IntakePanel {
   }
 
   private cancelBasePreflight(): void {
+    this.preparation?.cancel();
     this.preflightController?.abort();
     this.preflightController = null;
     this.preflightKey = null;
@@ -1291,6 +1294,13 @@ export class IntakePanel {
       const expiresAt = receipt?.issued ? Date.parse(receipt.expiresAt ?? '') : Number.NaN;
       this.intakeReceipt = receipt?.issued && typeof receipt.id === 'string' && Number.isFinite(expiresAt)
         ? { id: receipt.id, expiresAt, key: JSON.stringify(command) } : null;
+      if (this.intakeReceipt && this.form.readinessBaseline !== 'run') {
+        this.preparation ??= (require(path.join(__dirname, 'runtime-prewarm.cjs')) as typeof import('../runtime-prewarm.ts'))
+          .createIntakeWorktreePreparation(this.client);
+        this.preparation.schedule(this.intakeReceipt.key, [
+          ...intakeCommand(this.form), '--intake-receipt', this.intakeReceipt.id
+        ]);
+      }
     } catch (error) {
       if (version !== this.preflightVersion) return;
       this.preflightKey = null;
@@ -1382,8 +1392,12 @@ export class IntakePanel {
     const receipt = this.intakeReceipt;
     this.intakeReceipt = null;
     const currentPreflight = storyPreflightCommand(this.form);
+    const prepared = currentPreflight
+      ? await this.preparation?.take(JSON.stringify(currentPreflight)) : null;
+    if (this.disposed) return;
     const args = [
       ...intakeCommand(this.form),
+      ...(prepared?.owned ? ['--prepared-base', prepared.baseCommit] : []),
       ...(receipt && currentPreflight && JSON.stringify(currentPreflight) === receipt.key
         && receipt.expiresAt - Date.now() >= INTAKE_RECEIPT_MINIMUM_REMAINING_MS
         ? ['--intake-receipt', receipt.id] : [])

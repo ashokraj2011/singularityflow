@@ -10,6 +10,7 @@ import { initializeDefinition, loadDefinition, resolveWorkType } from '../src/co
 import { readRecord } from '../src/schema-migrations.mjs';
 import { renderStoryRoster, storyLifecycleProgress } from '../src/session-roster.mjs';
 import { discoverRemoteStoryCandidates, validatedRemoteStoryDefinition } from '../src/session-story-discovery.mjs';
+import { discoverRemoteStoryCandidatesByUrl } from '../src/session-remote-url-discovery.mjs';
 import { removeTemporaryTree } from '../src/util.mjs';
 import { appendLedgerIntent, createLedgerIntent, initializeLedger } from '../src/ledger.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
@@ -359,4 +360,39 @@ test('fresh-clone discovery projects exact mixed-profile and historical progress
   assert.ok(large.spawns <= small.spawns, 'Git process count must not grow with unrelated branches');
   assert.notEqual(spawnSync('git', ['show-ref', '--verify', 'refs/remotes/origin/unrelated-199'],
     { cwd: client, encoding: 'utf8' }).status, 0, 'session refresh fetches only state, not all heads');
+});
+
+test('a disabled ledger refuses remote discovery by naming ledger.enabled, not a failed refresh', async (t) => {
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-story-ledger-off-'));
+  t.after(() => removeTemporaryTree(base));
+  const remote = path.join(base, 'remote.git');
+  const seed = path.join(base, 'seed');
+  const client = path.join(base, 'client');
+  git(base, ['init', '--bare', remote]);
+  git(base, ['init', '-b', 'main', seed]);
+  git(seed, ['config', 'user.name', 'Roster Fixture']);
+  git(seed, ['config', 'user.email', 'roster@example.invalid']);
+  await initializeDefinition(seed);
+  const definition = await loadDefinition(seed);
+  assert.equal(definition.ledger.enabled, false, 'the starter configuration ships with the ledger disabled');
+  git(seed, ['add', '.']);
+  git(seed, ['commit', '-m', 'retain configured workflow']);
+  git(seed, ['remote', 'add', 'origin', remote]);
+  git(seed, ['push', '-u', 'origin', 'main']);
+  git(remote, ['symbolic-ref', 'HEAD', 'refs/heads/main']);
+  git(base, ['clone', remote, client]);
+  const remoteRefs = git(remote, ['show-ref']);
+  // Before this, the local refusal said the state index "could not be refreshed", which sent
+  // people back to Refresh; with the ledger disabled no refresh can ever list a Story.
+  const disabled = (error) => {
+    assert.equal(error.code, 'SESSION_STATE_INDEX_UNAVAILABLE');
+    assert.deepEqual(error.details, { ledgerEnabled: false, stateBranch: 'state' });
+    assert.match(error.message, /ledger\.enabled is false/u);
+    assert.match(error.message, /singularity-flow ledger init, then singularity-flow ledger reconcile/u);
+    assert.doesNotMatch(error.message, /could not be refreshed/u);
+    return true;
+  };
+  await assert.rejects(discoverRemoteStoryCandidates(client, definition), disabled);
+  await assert.rejects(discoverRemoteStoryCandidatesByUrl(remote, { approvedDefinition: definition }), disabled);
+  assert.equal(git(remote, ['show-ref']), remoteRefs, 'discovery never writes the remote');
 });

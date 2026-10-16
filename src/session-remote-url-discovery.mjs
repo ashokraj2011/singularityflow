@@ -34,6 +34,20 @@ export function isStoryDiscoveryBranch(branch) {
 }
 
 /**
+ * The refusal when the approved configuration never writes the state index.
+ *
+ * With `ledger.enabled: false` nothing appends Story pointers, so the index is missing by
+ * configuration, not because a refresh failed. The refresh wording sent people back to Refresh,
+ * which cannot succeed; this names the setting and the migration that makes discovery work.
+ */
+export function ledgerDisabledDiscoveryError(authority, cause = undefined) {
+  return new SingularityFlowError(
+    `Remote Story discovery reads the state ledger on branch '${authority.branch}', but ledger.enabled is false in the approved configuration, so Stories started from other clones are not indexed. Enable the ledger in approved configuration, run singularity-flow ledger init, then singularity-flow ledger reconcile. Application branches are not scanned; a Story already in this checkout opens with singularity-flow session open-local <STORY-ID>.`,
+    { code: 'SESSION_STATE_INDEX_UNAVAILABLE', details: { ledgerEnabled: false, stateBranch: authority.branch }, cause }
+  );
+}
+
+/**
  * The candidate row for a Story the ledger summarized, or null to read its committed state.
  *
  * The row is what discovery shows and offers; `session attach` still proves the Story from its
@@ -338,6 +352,7 @@ export async function discoverRemoteStoryCandidatesByUrl(url, {
 
     const authority = normalizeLedgerConfig(effectiveApprovedDefinition.ledger ?? {});
     const heads = await probeHeads(transport, 'Story state', [authority.branch]);
+    if (!heads.has(authority.branch) && !authority.enabled) throw ledgerDisabledDiscoveryError(authority);
     if (!heads.has(authority.branch)) throw new SingularityFlowError(
       `The Story remote has no '${authority.branch}' state index. Initialize or reconcile its ledger; application branches were not scanned.`,
       { code: 'SESSION_STATE_INDEX_UNAVAILABLE' }

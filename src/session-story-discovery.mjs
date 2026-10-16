@@ -8,7 +8,7 @@ import { ledgerStoryPointers } from './ledger.mjs';
 import { normalizeLedgerConfig } from './ledger-config.mjs';
 import { configuredRemoteIdentity } from './git-remote-diagnostics.mjs';
 import {
-  discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch, ledgerSummaryCandidate
+  discoverRemoteStoryCandidatesByUrl, isStoryDiscoveryBranch, ledgerDisabledDiscoveryError, ledgerSummaryCandidate
 } from './session-remote-url-discovery.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { storyLifecycleProgress } from './session-roster.mjs';
@@ -134,6 +134,7 @@ export async function discoverRemoteStoryCandidates(root, definition, {
   try {
     roster = await ledgerStoryPointers(root, authority, { offline: !fetch });
   } catch (error) {
+    if (!authority.enabled) throw ledgerDisabledDiscoveryError(authority, error);
     throw new SingularityFlowError(
       `Story discovery requires the governed '${authority.branch}' state index. Refresh or reconcile the ledger; no application branches were scanned. ${error.message}`,
       { code: error.code ?? 'SESSION_STATE_INDEX_UNAVAILABLE' }

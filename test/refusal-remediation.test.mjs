@@ -154,6 +154,16 @@ test('changes held before approval route the person to keep or set them aside, n
   assert.match(plan.steps[0].label, /nothing needs rejecting/u);
 });
 
+test('code changed before generation begin routes through set-aside, begin and reapply', () => {
+  const error = Object.assign(new Error('Code already changed before the first generation began (2 path(s)).'), {
+    code: 'GENERATION_DIRTY_START',
+    details: { workId: 'Story-1', changedPaths: ['src/a.js', 'src/b.js'], dirtyStartPolicy: 'block' } });
+  const plan = refusalRemediationPlan(error, ['phase', 'begin', 'implementation']);
+  assert.deepEqual(plan.steps.slice(0, 2).map(step => step.id), ['set-aside-before-begin', 'begin-then-reapply']);
+  assert.equal(plan.steps[0].command, 'singularity-flow recover Story-1 --json');
+  assert.match(plan.steps[0].label, /private recovery copy/u);
+});
+
 test('skill-host refusal distinguishes an external prerequisite from repairable Story content', () => {
   for (const code of ['SKP_HOST_ENFORCEMENT_UNAVAILABLE', 'SKP_HOST_DELIVERY_UNCONFIRMED']) {
     const error = Object.assign(new Error('Host unavailable'), { code,

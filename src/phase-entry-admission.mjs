@@ -11,7 +11,8 @@ export function phaseContextAdmission({ ready = true, authoring = {}, recovery =
     'Follow the returned preparation, retained-generation or authority route; composition cannot create that boundary.',
     { entryStatus: authoring.entry?.status ?? null, reason: authoring.entry?.reason ?? null });
   if (deterministic) add('PHASE_CONTEXT_DETERMINISTIC', 'This phase uses its deterministic producer, not model composition.');
-  if (!authoring.policyVerified) add('PHASE_CONTEXT_POLICY_UNVERIFIED', 'Verify the pinned phase policy before composing context.');
+  if (!authoring.policyVerified) add('PHASE_CONTEXT_POLICY_UNVERIFIED', 'Verify the pinned phase policy before composing context.',
+    authoring.policyReason ? { reason: authoring.policyReason } : {});
   if (!authoring.effectiveAuthoringSkill) add('PHASE_CONTEXT_AUTHORING_ROUTE_REQUIRED', 'No verified phase-authoring route is available.');
   if (recovery.requiresRecovery) add('PHASE_CONTEXT_RECOVERY_REQUIRED',
     'Complete the returned recovery boundary before composing. Draft quality findings are separate.',

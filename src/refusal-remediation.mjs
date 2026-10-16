@@ -501,6 +501,19 @@ const KNOWN = Object.freeze({
   INPUT_RESTORE_COMMITTED_DRIFT: (argv, error) => upstreamInputSteps(argv, {
     ...error, details: { ...(error?.details ?? {}), restorable: false }
   }),
+  // Code changed before generation begin, which this Story's policy does not adopt. The policy's remedy
+  // (preserve, return to the baseline, begin, reapply) as commands.
+  GENERATION_DIRTY_START: (argv, error) => {
+    const workId = error?.details?.workId ?? null;
+    return [
+      step('set-aside-before-begin',
+        'A person reviews the listed changes (details.changedPaths), then sets them aside with the set-aside-worktree command recovery returns: it keeps every byte in a private recovery copy (appeal checkpoint-show lists it) and returns the checkout to its baseline.',
+        `singularity-flow recover${workId ? ` ${workId}` : ''} --json`, 'remediation', '/sf-recover'),
+      step('begin-then-reapply',
+        'Begin the generation, then reapply the reviewed changes from the recovery copy; they become part of this generation and its review.',
+        null, 'remediation')
+    ];
+  },
   // Changes nobody can attribute to the decision. A person keeps them (commits them) or sets them aside
   // through recovery's confirmed route; rejecting the submission is not the remedy.
   LIFECYCLE_WORKTREE_REVIEW_REQUIRED: (argv, error) => [

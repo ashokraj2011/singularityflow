@@ -118,6 +118,7 @@ export async function beginCodeGeneration(root, config, workflow, phase, {
     }
   ).violations.map((item) => item.path))].sort();
   const dirtyDetails = {
+    workId: workflow.workItem.id,
     baselineCommit,
     generation,
     changedPaths,

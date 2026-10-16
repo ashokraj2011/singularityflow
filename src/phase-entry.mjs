@@ -124,7 +124,11 @@ export async function enterPhase({ cwd = process.cwd(), phaseId = null, workId =
       committed: false, pushed: false }, modelInvocations: 0 };
   if (!base.ready) return { ...base, status: 'binding-required', context: null,
     contextAdmission: phaseContextAdmission({ ready: false }),
-    next: session.phaseAgent?.handoff ? [recoveryActionGuidance(session.phaseAgent.handoff)] : [], authoringAllowed: false };
+    next: [recoveryActionGuidance(session.phaseAgent?.handoff ?? {
+      id: 'select-story', safe: true, automatic: false, confirmation: 'none', skill: '/sf-session',
+      command: `singularity-flow session attach ${actualId} --json`,
+      detail: 'This session has not selected a Story; attach the one this checkout holds.'
+    })], authoringAllowed: false };
   const authoring = await measureCommandSpan('phase-entry.authoring', () => phaseAuthoringSummary(root, definition, workflow, phase, { includeEntry: true }));
   const recovery = await measureCommandSpan('phase-entry.recovery', () => recoveryPlan(root, definition, workflow, {
     phaseId: phase.id, inspectActivePhase: true, modelEnabled

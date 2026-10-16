@@ -53,7 +53,7 @@ test('every public skill has a bounded class and output contract', async () => {
   // `prepublish --publish-if-ready` or `--submit-if-ready` call must say when not to act again, and
   // the skills whose JSON reads carry `--for-agent` (a bounded result with `act` first).
   const overridden = ['sflow-appeal', 'sflow-code', 'sflow-converge', 'sflow-design', 'sflow-phase',
-    'sflow-plan', 'sflow-recover', 'sflow-reject', 'sflow-release', 'sflow-requirements', 'sflow-scenario-check', 'sflow-start', 'sflow-submit'];
+    'sflow-plan', 'sflow-recover', 'sflow-reject', 'sflow-release', 'sflow-requirements', 'sflow-scenario-check', 'sflow-submit'];
   assert.deepEqual(result.rows.filter((row) => row.bodyTokens - row.commandPresentationTokens - row.artifactPresentationTokens - (row.refusalHandlingTokens ?? 0) - (row.applicabilityTokens ?? 0) - (row.approvedInputsTokens ?? 0) - row.pauseGuardTokens > 800).map((row) => row.name), overridden);
   for (const name of overridden) assert.ok(policy.skills[name].exception, `${name} explains its token override`);
   assert.ok(result.rows.every((row) => ['never', 'conditional'].includes(row.kernelModelPolicy)));

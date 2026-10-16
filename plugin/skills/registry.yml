@@ -237,7 +237,7 @@ skills:
   sflow-snapshot: { class: echo, executionBoundary: repository }
   sflow-spec: { class: mutation, kernelModelPolicy: conditional }
   sflow-stack: { class: mutation, executionBoundary: repository }
-  sflow-start: { class: interactive, maximumTokenOverride: 801, executionBoundary: repository, exception: "Its JSON reads carry --for-agent, so a long result arrives bounded with act first, not in a file the agent cannot open." }
+  sflow-start: { class: interactive, executionBoundary: repository }
   sflow-status: { class: conversational, executionBoundary: repository }
   sflow-stories: { class: interactive, executionBoundary: machine }
   sflow-story-branch: { class: interactive, executionBoundary: repository }

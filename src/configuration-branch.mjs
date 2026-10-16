@@ -2117,6 +2117,14 @@ async function storyConfigurationSnapshotFromDirectory(authority, scratch, {
     ...skillEntries.keys()
   ])].sort() : materializedPaths;
   if (!mirror) {
+    const committedPaths = [...treeEntries.keys()].sort();
+    if (JSON.stringify(assetPaths) !== JSON.stringify(committedPaths)) throw new SingularityFlowError(
+      'Approved configuration projection differs from its complete committed asset inventory.', {
+        code: 'STORY_CONFIGURATION_SNAPSHOT_INVALID',
+        details: { missing: committedPaths.filter(relative => !assetPaths.includes(relative)),
+          unexpected: assetPaths.filter(relative => !treeEntries.has(relative)) }
+      }
+    );
     const retainedSkills = assetPaths.filter((relative) =>
       relative.startsWith('singularity/skills/')).sort();
     const approvedSkills = [...skillEntries.keys()].sort();

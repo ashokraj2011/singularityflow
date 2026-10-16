@@ -5,6 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { spawnSync } from 'node:child_process';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+import { rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 import {
@@ -1852,6 +1855,33 @@ test('configuration projection omits application/runtime files and enrollment pr
         'singularity/portfolio.yml\nsingularity/workflow.yml');
     });
   } finally { await rm(fixture.root, { recursive: true, force: true }); }
+});
+
+test('configuration projection refuses an omitted non-skill policy before returning a snapshot', async () => {
+  const fixture = await repositoryFixture();
+  const original = childProcess.spawnSync;
+  let omitted = false;
+  try {
+    await ensureConfigurationBranch(fixture.remote);
+    const authority = await resolveRemoteStoryConfigurationAuthority(fixture.remote);
+    childProcess.spawnSync = (command, args, options) => {
+      const result = original(command, args, options);
+      if (result.status === 0 && args?.includes('read-tree') && args.includes('-mu')) {
+        rmSync(path.join(options.cwd, 'singularity/company-policy.md'));
+        omitted = true;
+      }
+      return result;
+    };
+    syncBuiltinESMExports();
+    await assert.rejects(loadStoryConfigurationSnapshot(authority), error =>
+      error.code === 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+        && error.details.missing.includes('singularity/company-policy.md'));
+    assert.equal(omitted, true, 'the partial projection was actually injected');
+  } finally {
+    childProcess.spawnSync = original;
+    syncBuiltinESMExports();
+    await rm(fixture.root, { recursive: true, force: true });
+  }
 });
 
 test('configuration checkout leases are one-use, transaction-local and cleaned on failure', async () => {

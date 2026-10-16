@@ -707,7 +707,8 @@ test('opaque snapshot-tree signal refusal conservatively retains quarantine and 
   await writeFile(wrapper, `#!${process.execPath}\nconst {spawnSync}=require('node:child_process');\nconst {readFileSync}=require('node:fs');\nconst a=process.argv.slice(2);\nif(a.includes('ls-tree')&&a.some(x=>x.startsWith('--format='))&&!a.includes('--full-tree')){process.kill(process.pid,'SIGTERM');}else{const r=spawnSync(${JSON.stringify(actualGit)},a,{env:process.env,encoding:null,...(a.includes('cat-file')?{input:readFileSync(0)}:{})});if(r.stdout)process.stdout.write(r.stdout);if(r.stderr)process.stderr.write(r.stderr);process.exitCode=r.status??1;}\n`);
   await chmod(wrapper, 0o755);
   await assert.rejects(read(f, { env: { ...f.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` } }),
-    (error) => /no canonical Git blob identity/u.test(error.message));
+    (error) => error.code === 'STORY_CONFIGURATION_SNAPSHOT_INVALID'
+      && /complete committed asset inventory/u.test(error.message));
   assert.ok((await readdir(f.cache)).includes(`${f.key}.incomplete`));
   assert.equal((await readdir(fixtureTemporaryRoot)).filter((entry) => entry.startsWith('sflow-story-config-cache-read-')).length, 1,
     'opaque validator outcomes cannot authorize removal of their native checkout');

@@ -120,6 +120,14 @@ The [macOS 10,000-file paired smoke](../benchmarks/story-creation/transaction-ma
 completes with exact local/remote tips for both variants: 7,353 ms baseline and 4,707 ms candidate.
 This is a single pair and establishes scale-path coverage, not a latency distribution or guarantee.
 
+The [native Windows 10,000-file pair](../benchmarks/story-creation/transaction-windows-large.json)
+completes in CI run `38939974157` after the fixture-only deadline repair: 46,313 ms baseline and
+46,147 ms candidate, both with exact published tips. This is effectively flat, not a demonstrated
+large-Windows speedup. Enrollment drops from 14,134.2 ms to 4,344.1 ms, but the candidate's authority,
+checkout and publication spans are slower in this single pair. More repeated large-host samples
+are needed to separate filesystem variability from a stable gain. Six configuration tests, seven
+publication tests, type checking and bundle limits pass again on that final-source run.
+
 ## Reproduction
 
 With dependencies installed, compare fresh repositories and fresh compile caches, alternating

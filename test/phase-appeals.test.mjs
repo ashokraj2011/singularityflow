@@ -483,6 +483,13 @@ test('rejected code successors submit fresh evidence, including old-writer histo
         assert.ok(documentRecovery.blockers.some(finding => finding.code === 'generation.document.published-changed'
           && finding.generation === 1));
         assert.ok(documentRecovery.actions.some(action => action.id === 'published-document-successor:intake'));
+        // The last commit still holds the published bytes, so the person can restore exactly them.
+        assert.ok(documentRecovery.blockers.some(finding => finding.code === 'generation.document.published-changed'
+          && finding.details.headMatchesPublication === true));
+        const documentPlan = await recoveryPlan(f.root, definition, documents, { inspectActivePhase: true });
+        const restore = documentPlan.actions.find(action => action.id === 'set-aside-worktree');
+        assert.ok(restore?.paths.includes(pathToDocument), JSON.stringify(documentPlan.actions.map(action => action.id)));
+        assert.deepEqual(restore.publishedEdits, [pathToDocument]);
         assert.equal(documentRecovery.actions.some(action => action.retry?.command?.includes('publish')), false);
         preview = await phasePrepublish(f.root, definition, documents, document);
         assert.equal(preview.status, 'correction-required'); assert.equal(preview.correction.sameTurn, false);

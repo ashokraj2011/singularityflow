@@ -328,12 +328,29 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
     if (worktreeAction) {
       actions.push(worktreeAction);
       actions.push(...await evidenceContractRecoveryActions(root, config, workflow, phase ?? activePhase, worktreeAction));
+      // The open step's own paths already staged: publication refuses to replace staged governed bytes,
+      // and recovery called them fine, so the two pointed at each other. Unstaging keeps the bytes on
+      // disk; publication stages them itself.
+      const owned = new Set(worktreeAction.expectedPaths ?? []);
+      const staged = [...new Set(worktreeInspection.entries.filter(entry => entry.xy && entry.xy.index !== '.')
+        .flatMap(entry => [entry.path, entry.originalPath])
+        .filter(value => value?.kind === 'utf8' && owned.has(value.value)).map(value => value.value))].sort();
+      if (staged.length) actions.push({
+        id: 'unstage-owned-paths', safe: true, automatic: true, mode: 'automatic', confirmation: 'plan-hash',
+        paths: staged, command: null,
+        detail: 'Unstage exactly these paths of the open step: their index entries return to the last commit and the files on disk keep their bytes. Publication stages them itself; anything else you staged stays staged.'
+      });
     }
     if (pending.status === 'absent') {
       const commitAction = await reviewedWorktreeCommitAction(root, config, workflow, phase ?? activePhase,
         worktreeInspection, worktreeAction?.applicationScope);
       if (commitAction) actions.push(commitAction);
-      const setAside = setAsideWorktreeAction(worktreeAction, workflow, phase ?? activePhase);
+      // A published document edited in place: when HEAD still holds the published bytes, setting it aside
+      // restores exactly what was reviewed.
+      const dirty = new Set(changedFiles(root));
+      const publishedEdits = (phaseRecovery.blockers ?? []).filter(blocker => blocker.code === 'generation.document.published-changed'
+        && blocker.details?.headMatchesPublication === true && dirty.has(blocker.path)).map(blocker => blocker.path);
+      const setAside = setAsideWorktreeAction(worktreeAction, workflow, phase ?? activePhase, publishedEdits);
       if (setAside) actions.push(setAside);
     }
   }
@@ -416,7 +433,7 @@ export async function applyRecovery(root, config, workflow, plan, { confirm = nu
   );
   const completed = [];
   // The lock first (everything else needs the index), then the index, then publication.
-  const order = (item) => item.id === 'remove-stale-index-lock' ? 0 : item.id === 'refresh-index' ? 1 : 2;
+  const order = (item) => item.id === 'remove-stale-index-lock' ? 0 : ['refresh-index', 'unstage-owned-paths'].includes(item.id) ? 1 : 2;
   const itemRoot = repositoryRelativePath(`${config.workItemRoot ?? 'singularity/work-items'}/${workflow.workItem.id}`);
   for (const action of [...automatic].sort((a, b) => order(a) - order(b))) {
     if (action.id === 'remove-stale-index-lock') {
@@ -433,6 +450,11 @@ export async function applyRecovery(root, config, workflow, plan, { confirm = nu
       const paths = (action.paths ?? []).filter((candidate) => still.has(candidate));
       refreshIndexEntries(root, paths);
       completed.push({ id: action.id, result: { refreshed: paths } });
+      continue;
+    }
+    if (action.id === 'unstage-owned-paths') {
+      refreshIndexEntries(root, action.paths ?? []);
+      completed.push({ id: action.id, result: { unstaged: action.paths ?? [] } });
       continue;
     }
     if (action.id === 'publish' || action.command === 'singularity-flow sync') {

@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { phasePrepublish, prepublishTestExecutionLines } from '../src/phase-prepublish.mjs';
+import { applyRecovery, recoveryPlan } from '../src/collaboration.mjs';
 import { buildSpecIndex, derivePlannedClaimMap } from '../src/specifications.mjs';
 import { coordinatePhaseRepair } from '../src/phase-repair-runtime.mjs';
 import { restoreAgentSession } from '../src/session.mjs';
@@ -161,6 +162,17 @@ test('staged owned draft paths need review before publish, while unrelated index
   assert.equal(blocked.correction.skill, '/sf-recover');
   assert.ok(blocked.findings.some(f => f.code === 'LIFECYCLE_STAGED_GOVERNED_REVIEW_REQUIRED'));
   assert.equal(git('ls-files', '--stage'), stagedIndex);
+  // Prepublish names recovery; recovery has a confirmed action for exactly the owned staged paths
+  // (it called them fine before, so the two pointed at each other). The bytes stay on disk.
+  const relative = path.relative(item.root, item.absolute).split(path.sep).join('/');
+  const plan = await recoveryPlan(item.root, item.config, item.workflow, { inspectActivePhase: true });
+  const unstage = plan.actions.find(action => action.id === 'unstage-owned-paths');
+  assert.deepEqual(unstage?.paths, [relative], JSON.stringify(plan.actions.map(action => action.id)));
+  const draft = await readFile(item.absolute, 'utf8');
+  await applyRecovery(item.root, item.config, item.workflow, plan, { confirm: plan.planId });
+  assert.equal(git('diff', '--cached', '--name-only').trim(), 'unrelated.txt', 'only the owned path was unstaged');
+  assert.equal(await readFile(item.absolute, 'utf8'), draft);
+  assert.equal((await call()).status, 'ready');
 });
 
 test('real prepublish reserves and resumes owned corrections without treating its own journal hold as a blocker', async t => {

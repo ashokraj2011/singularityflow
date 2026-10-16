@@ -18,14 +18,16 @@ import { operationContext } from './operation-context.mjs';
 import { optionString, SingularityFlowError } from './util.mjs';
 
 /** The recovery action, offered beside a working-tree hold that only a person can resolve. */
-export function setAsideWorktreeAction(worktreeAction, workflow, phase) {
-  const paths = worktreeAction?.confirmation === 'human-authority' ? worktreeAction.unexpectedPaths ?? [] : [];
+export function setAsideWorktreeAction(worktreeAction, workflow, phase, publishedEdits = []) {
+  const held = worktreeAction?.confirmation === 'human-authority' ? worktreeAction.unexpectedPaths ?? [] : [];
+  const paths = [...new Set([...held, ...publishedEdits])].sort();
   if (!paths.length || !phase || phase.id !== workflow.currentPhase
       || !['in_progress', 'awaiting_approval'].includes(phase.status)) return null;
   return {
     id: 'set-aside-worktree', safe: false, automatic: false, mode: 'guided', confirmation: 'plan-hash',
     reviewRequired: true, humanOnly: true, paths, command: null, skill: '/sf-recover',
-    detail: 'For the person, after looking at each listed file: to keep it, commit it yourself; to drop it, run this command in your own terminal. It first saves every changed file and the Git index in a private recovery copy (appeal checkpoint-show lists it), then returns exactly the listed paths to their committed bytes, deleting the untracked ones. An agent must show this command and stop.',
+    ...(publishedEdits.length ? { publishedEdits } : {}),
+    detail: 'For the person, after looking at each listed file: to keep it, commit it yourself (an edited published document is kept only through an authorized return or successor); to drop it, run this command in your own terminal. It first saves every changed file and the Git index in a private recovery copy (appeal checkpoint-show lists it), then returns exactly the listed paths to their committed bytes, deleting the untracked ones. An agent must show this command and stop.',
     preserved: ['a private recovery copy of every changed file and the Git index', 'unlisted working-tree bytes', 'published generations', 'approval history']
   };
 }

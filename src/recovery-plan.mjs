@@ -3,7 +3,7 @@ import { isConvergencePhase } from './phase-roles.mjs';
 import { nextPhaseGeneration } from './phase-generation.mjs';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { exactFileAtObject } from './git.mjs';
+import { exactFileAtObject, head } from './git.mjs';
 
 import { planAgentBriefs } from './agent-briefs.mjs';
 import {
@@ -330,9 +330,13 @@ export async function inspectPhaseRecovery(root, config, workflow, phase, {
         { code: 'GENERATION_PUBLICATION_INVALID' });
       const current = await secureRepositoryPath(root, relative, { mustExist: true, type: 'file', label: 'Published document' });
       if (authoredArtifactFingerprint(await readFile(current.absolute, 'utf8')) !== authoredArtifactFingerprint(bytes.toString('utf8'))) {
+        // When the last commit still holds the published authored text (lifecycle metadata aside),
+        // recover --set-aside restores it.
+        const headBytes = exactFileAtObject(root, head(root), relative, { maximumBytes: 16 * 1024 * 1024, regularOnly: true });
         blockers.push({ code: 'generation.document.published-changed', category: 'lifecycle', blocking: true,
           phase: phase.id, generation: phase.generation, path: relative,
-          details: { message: 'Published document content changed. Restore the exact reviewed bytes or prepare an authorized successor; the old publication remains immutable.' } });
+          details: { message: 'Published document content changed. Restore the exact reviewed bytes (recover lists set-aside-worktree for it) or prepare an authorized successor; the old publication remains immutable.',
+            headMatchesPublication: Boolean(headBytes) && authoredArtifactFingerprint(headBytes.toString('utf8')) === authoredArtifactFingerprint(bytes.toString('utf8')) } });
         actions.push(action({ id: `published-document-successor:${phase.id}`, mode: 'guided',
           command: phase.status === 'awaiting_approval'
             ? `singularity-flow reject ${phase.id} --work-id ${workflow.workItem.id} --to <phase> --reason <reason>`

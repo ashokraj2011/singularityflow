@@ -409,7 +409,7 @@ export async function phasePrepublish(root, config, workflow, phase, options = {
           path: overlap[0], message: 'Review the already staged current-phase paths before publication. Commit them through reviewed recovery or deliberately unstage them; no index changes were made.',
           details: { paths: overlap, indexPreserved: true } });
         actions.push({ command: draft.commands.recover, skill: '/sf-recover',
-          detail: 'Review the exact staged diff and use the returned scoped commit if eligible. Preserve unrelated staged bytes; publication does not replace your index.' });
+          detail: 'Recovery lists unstage-owned-paths for exactly these current-phase paths: apply it with its confirmed --apply command (their bytes stay on disk and publication stages them), or commit them yourself. Unrelated staged bytes stay untouched.' });
       }
     }
   }

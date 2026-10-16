@@ -1296,7 +1296,7 @@ export class IntakePanel {
         ? { id: receipt.id, expiresAt, key: JSON.stringify(command) } : null;
       if (this.intakeReceipt && this.form.readinessBaseline !== 'run') {
         this.prep ??= (require(path.join(__dirname, 'runtime-prewarm.cjs')) as typeof import('../runtime-prewarm.ts'))
-          .createIntakePreparation(this.client);
+          .intakePreparation(this.client);
         this.prep.schedule(this.intakeReceipt.key, [
           ...intakeCommand(this.form), '--intake-receipt', this.intakeReceipt.id
         ], result.preflight?.remote);

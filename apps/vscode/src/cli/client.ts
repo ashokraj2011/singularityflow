@@ -967,8 +967,8 @@ export class SingularityFlowClient {
       return STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS;
     }
     if (args[0] === 'start'
-        || (['story', 'epic', 'initiative'].includes(args[0])
-          && ['start', 'prepare-worktree', 'discard-worktree'].includes(args[1]))
+        || (['story', 'epic', 'initiative'].includes(args[0] ?? '')
+          && ['start', 'prepare-worktree', 'discard-worktree'].includes(args[1] ?? ''))
         || (args[0] === 'workspace' && args[1] === 'branches' && hasOption(args, 'preflight-story'))) {
       return WORK_START_TIMEOUT_MS;
     }

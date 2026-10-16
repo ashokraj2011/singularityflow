@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Latest-main integration smoke, zero application files and one unpaired sample; not a performance distribution",
+  "candidateRef": "f795ca255c72d29b01aacebe71e482b0e2f3cfda",
+  "integratedMain": "7c602f70cc8d280520d321153c0e53d3de1db30b",
+  "ciRef": "e486d49f259b553ec6ac65c580f35a9820d7d6b7",
+  "ciRunId": 38941486761,
+  "status": "success",
+  "smoke": {
+    "schemaVersion": 1,
+    "runtime": {
+      "platform": "win32",
+      "arch": "x64",
+      "node": "v24.21.0",
+      "git": "git version 2.56.0.windows.2"
+    },
+    "protocol": {
+      "samples": 1,
+      "files": 0,
+      "workType": "feature",
+      "mode": "isolated",
+      "configuration": "approved",
+      "freshRepositoryPerSample": true,
+      "prewarm": "none",
+      "remote": "local bare only",
+      "modelCalls": 0,
+      "controlRef": null,
+      "controlModules": [],
+      "comparison": "same packaging and fixtures; alternating candidate/control samples",
+      "compileCache": "fresh private directory for every sample",
+      "osFileCache": "not flushed",
+      "publication": "fresh validation and exact remote tip asserted for every sample"
+    },
+    "results": {
+      "isolatedWorktree": {
+        "candidate": {
+          "medianMs": 8831,
+          "minMs": 8831,
+          "maxMs": 8831,
+          "runs": [
+            {
+              "durationMs": 8831,
+              "preparation": null,
+              "totalWithPreparationMs": 8831,
+              "timings": {
+                "total": 8723.6,
+                "first-feedback": 685.8,
+                "root-dispatch": 89.5,
+                "module-load": 126.9,
+                "execute": 8506.4,
+                "journal": 0.4,
+                "history-index": 0.4,
+                "configuration.definition-load": 372.9,
+                "start.authority": 846.3,
+                "start.fetch": 184.6,
+                "start.worktree.checkout": 214.7,
+                "start.worktree": 309,
+                "start.destination": 135.4,
+                "start.documents": 0.7,
+                "start.readiness": 1.4,
+                "start.authority-check": 51.8,
+                "start.enrollment": 1494.7,
+                "start.enrollment-refresh": 0.1,
+                "start.configuration-capture": 33.2,
+                "start.configuration-materialize": 243.6,
+                "start.configuration-bind": 52.9,
+                "start.publication.workflow": 671.6,
+                "publication.commit": 390.3,
+                "publication.push": 724.7,
+                "start.publication.commit": 2599.4,
+                "start.publication": 3392.7
+              },
+              "counters": {
+                "git.requests": 206,
+                "git.spawns": 166,
+                "git.service-ms": 6354,
+                "configuration.definition-load": 5,
+                "catalog.reads": 5,
+                "catalog.scans": 5,
+                "configuration.template-checks": 285,
+                "configuration.template-reuses": 135,
+                "git.fact-cache-hits": 40,
+                "cache.misses": 6,
+                "git.remote.total": 14,
+                "git.remote.operation.probe": 8,
+                "git.remote.command.ls-remote": 8,
+                "configuration.object-cache-declined": 1,
+                "configuration.snapshot-read": 1,
+                "git.remote.operation.configuration": 2,
+                "git.remote.command.clone": 1,
+                "git.remote.command.fetch": 1,
+                "git.remote.operation.push": 4,
+                "git.remote.command.push": 4,
+                "readiness.evidence-collections": 1,
+                "readiness.record-reads": 3,
+                "configuration.checkout-reused": 1,
+                "configuration.enrollment-snapshot-captured": 1,
+                "configuration.snapshot-reused": 2,
+                "configuration.compiled-materialized-reuse": 1
+              },
+              "localTraceGitProcessCounts": {
+                "rev-parse": 23,
+                "branch": 5,
+                "check-ref-format": 5,
+                "show-ref": 10,
+                "ls-files": 1,
+                "remote": 6,
+                "config": 5,
+                "for-each-ref": 5,
+                "worktree": 2,
+                "reset": 1,
+                "status": 3,
+                "show": 4,
+                "symbolic-ref": 1,
+                "add": 1,
+                "commit": 1,
+                "fetch": 1,
+                "other": 1,
+                "pack-objects": 1,
+                "unpack-objects": 1,
+                "rev-list": 2,
+                "update-ref": 3,
+                "switch": 1,
+                "ls-tree": 3,
+                "log": 2,
+                "diff": 2,
+                "commit-tree": 1,
+                "read-tree": 1,
+                "write-tree": 1
+              },
+              "localTraceGitProcesses": 93,
+              "exactRemoteTip": true
+            }
+          ]
+        }
+      }
+    },
+    "limitations": [
+      "Windows latency is unmeasured unless runtime.platform is win32.",
+      "No native Copilot tool, enterprise network or antivirus timings are included."
+    ]
+  }
+}

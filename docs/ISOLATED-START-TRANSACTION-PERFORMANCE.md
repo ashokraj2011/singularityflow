@@ -128,6 +128,21 @@ checkout and publication spans are slower in this single pair. More repeated lar
 are needed to separate filesystem variability from a stable gain. Six configuration tests, seven
 publication tests, type checking and bundle limits pass again on that final-source run.
 
+## Latest-main integration
+
+The pre-merge fetch found `7c602f70cc8d280520d321153c0e53d3de1db30b`, which updates step-owned
+skills-audit recovery. It was inspected and merged without discarding upstream work. All 74
+affected Mac phase-entry/recovery/materialization tests pass. The combined source check passes
+2,618 checks, TypeScript passes and the gateway remains within the reviewed 7,508,000-byte cap
+(measured 7,506,872 bytes; activation still 141 modules).
+
+The merged source passes a separate Windows integration run, CI `38941486761`: all 45 recovery,
+materialization and publication tests, TypeScript, bundle limits and isolated creation with exact
+published-tip verification. Its [raw record](../benchmarks/story-creation/transaction-windows-merged.json)
+uses zero application files and one unpaired sample; it is integration evidence, not a new timing
+distribution. The matched timing reports retain their original exact source bindings.
+CI-only workflow files are never merged into production.
+
 ## Reproduction
 
 With dependencies installed, compare fresh repositories and fresh compile caches, alternating

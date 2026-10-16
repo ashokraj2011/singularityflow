@@ -6742,30 +6742,6 @@ async function pluginCommand(positionals, options) {
   throw new SingularityFlowError(`Unknown plugin subcommand: ${subcommand}`);
 }
 
-/**
- * What intake needs from the portfolio: the profiles, and whether an Epic or an Initiative could
- * start at all. The engine refuses one while no approval authority has a member; saying so here lets
- * the form show it before anyone fills it in, without loading configuration just to check.
- */
-/**
- * Whether a Story ID is already in use, from what the intake catalog has already read. `[perf]`
- *
- * Copilot's Start Work ran `session candidates`, a fresh fetch of every repository, only to learn
- * that a new ID was new. The catalog has already listed every required repository's heads, and the
- * local branch needs no network. It reports only what it can tell: a remote branch of that name may
- * be a started Story or a released Epic seed, which only a fetch tells apart, so it is `published`
- * and never either. A repository that could not be read makes the answer `unknown`, never `new`.
- */
-
-/**
- * Seal what a passing Story readiness preview proved, when the caller asks for it. `[perf]`
- *
- * Only a request Story start can later verify in one wave gets a receipt: approved shared
- * configuration, one repository (on its own or as a capability's only member) sharing the launch
- * checkout's Git directory, an explicit workflow, and a POSIX machine-local store. Any other
- * preview still passes; it just says why no receipt was issued. The receipt is a machine-local
- * bearer token for this repository: callers keep it private and never display it.
- */
 
 
 function initiativeProfileChoices(portfolio) {

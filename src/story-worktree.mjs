@@ -266,14 +266,18 @@ export async function discardPreparedStoryWorktree(root, workId, { baseCommit } 
   if (refExists(root, `refs/heads/${id}`)) return { status: 'retained', reason: 'story-exists' };
   const target = await preparedStoryWorktreePath(root, id, { baseCommit });
   if (!target) return { status: 'absent' };
-  const stage = executeGitQuery(target, 'repository.branch');
   if (!storyWorktreeChanges(target).clean) return { status: 'retained', reason: 'worktree-changes' };
   if (pathContains(target, process.cwd())) return { status: 'retained', reason: 'current-directory' };
+  const common = gitCommonDir(root);
+  const stages = new Set([common, await realpath(common), gitCommonDir(target)]
+    .map(value => `sflow-start-${digest(`${value}\0${id}`).slice(0, 16)}`));
+  const current = headAndBranch(target);
+  if (current.head !== baseCommit || !stages.has(current.branch)) return { status: 'retained', reason: 'checkout-changed' };
   // Git's last dirty check remains in force. A concurrent ref advance is retained by the CAS
   // deletion; even then its commit stays reachable and can be recovered, never silently erased.
   const removed = run('git', ['worktree', 'remove', '--', target], { cwd: root, allowFailure: true });
   if (removed.status !== 0) return { status: 'retained', reason: 'git-refused' };
-  const deleted = run('git', ['update-ref', '--no-deref', '-d', `refs/heads/${stage}`, baseCommit], { cwd: root, allowFailure: true });
+  const deleted = run('git', ['update-ref', '--no-deref', '-d', `refs/heads/${current.branch}`, baseCommit], { cwd: root, allowFailure: true });
   return { status: 'removed', cleanupPending: deleted.status !== 0 };
 }
 

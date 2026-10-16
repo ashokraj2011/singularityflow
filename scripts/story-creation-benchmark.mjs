@@ -110,7 +110,7 @@ try {
           '--from-branch', 'main', '--work-type', workType, '--selected-base-only', '--isolated-worktree',
           '--mint-intake-receipt'], repository, variantEnv);
         const receipt = preview.value.preflight?.intakeReceipt;
-        if (!receipt?.issued) throw new Error('A matched intake preview did not issue its receipt.');
+        if (!receipt?.issued) throw new Error(`A matched intake preview did not issue its receipt (${receipt?.reason ?? 'missing'}).`);
         intakePreview = { durationMs: preview.durationMs };
         intakeArgs = ['--intake-receipt', receipt.id];
         if (variant === 'candidate') {

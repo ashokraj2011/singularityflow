@@ -80,6 +80,9 @@ test('the bundled CLI answers exactly like the sources while opening a handful o
     GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 'bundle@example.invalid' };
   assert.equal(spawnSync('git', ['init', '-q', '-b', 'main', repo], { env }).status, 0);
   assert.equal(spawnSync(process.execPath, [cli, '--no-model', 'init'], { cwd: repo, env }).status, 0);
+  assert.equal(spawnSync('git', ['add', '.'], { cwd: repo, env }).status, 0);
+  assert.equal(spawnSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-qm', 'initialized fixture'],
+    { cwd: repo, env }).status, 0);
   // Count every module file the process loads, from the loader thread, synchronously.
   const hook = path.join(base, 'count.mjs');
   await writeFile(hook, `import { register } from 'node:module';
@@ -100,7 +103,9 @@ export async function load(url, context, next) {
     const modules = (await readFile(log, 'utf8').catch(() => '')).split('\n').filter(Boolean);
     return { status: result.status, stdout: result.stdout, modules };
   };
-  for (const args of [['--version'], ['help'], ['nextsteps', '--json'], ['workflow', 'intent', 'preflight', '--source', 'installed', '--json']]) {
+  for (const args of [['--version'], ['help'], ['nextsteps', '--json'],
+    ['start', 'BUNDLE-NEW-STORY', '--json'],
+    ['workflow', 'intent', 'preflight', '--source', 'installed', '--json']]) {
     const source = await runWith(args, false);
     const bundled = await runWith(args, true);
     assert.equal(bundled.status, source.status, args.join(' '));

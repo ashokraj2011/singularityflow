@@ -186,6 +186,23 @@ export function readRefTreeResult(root, ref, pathspecs = [], {
   }
   if (errors.length) return result('unavailable', new Map(), errors, listedEntries.length, 0);
 
+  // Subject discovery filters the tree by path before opening any blobs. For a bounded set of
+  // ordinary records with no size-aware filter, the batch headers already supply the sizes.
+  // Reuse the hash-verified reader instead of starting a second Git process just to size them.
+  // Missing, oversized, malformed or truncated answers retain the sized path and its diagnostics.
+  if (deferredSizes && !filter && listedEntries.length
+      && listedEntries.every((entry) => entry.type === 'blob')) {
+    const answers = readObjectsWithoutSizing(root, [...new Set(listedEntries.map((entry) => entry.oid))], {
+      runCommand, localEnv, maxObjectBytes, maxBatchBytes
+    });
+    if (answers && listedEntries.every((entry) => answers.get(entry.oid)?.type === 'blob')) {
+      const contents = new Map(listedEntries.map((entry) => [
+        entry.file, answers.get(entry.oid).bytes.toString('utf8')
+      ]));
+      return result('ok', contents, [], listedEntries.length, listedEntries.length);
+    }
+  }
+
   if (deferredSizes) {
     // Batch-check only the accepted metadata objects. This preserves the original per-object
     // admission ceiling without consulting unrelated application blobs in a partial clone.

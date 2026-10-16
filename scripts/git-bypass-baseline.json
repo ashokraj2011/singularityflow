@@ -540,10 +540,10 @@
     },
     "src/cli.mjs": {
       "counts": {
-        "command-run": 23,
+        "command-run": 22,
         "command-runCommand": 1
       },
-      "digest": "ef52d35b2f284b2d65cf6038aedbdbfe8a037ca38970fb3d62bbbed295e263ab"
+      "digest": "b75ac7f19299baae8739cd318296cd5dfca0c8dba721d4a939db50381d6b1546"
     },
     "src/clipboard.mjs": {
       "counts": {
@@ -1466,6 +1466,12 @@
         "command-run": 1
       },
       "digest": "691435376e179ea53cd69f62265e1f5603954af2de40206d39bd219d204a882a"
+    },
+    "src/commands/shared/start-context.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "64dbbba9ad4231731538c196f6dd9619a1a004c0ecb52df68852e1226379201e"
     },
     "src/commands/secrets.mjs": {
       "counts": {

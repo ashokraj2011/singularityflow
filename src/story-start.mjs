@@ -11,6 +11,7 @@ import {
   fastForwardTo,
   fetchRemote,
   identity,
+  localRefHeads,
   preflightPushBranch,
   refExists,
   refHead,
@@ -632,12 +633,13 @@ export async function startStory(root, {
           const target = repoRoot(path.resolve(storyBase.workspaceRoot, repository.path));
           const base = storyBase.plan.resolution.resolved[repository.id];
           const baseRef = `refs/remotes/${remote}/${base.branch}`;
+          const refs = localRefHeads(target, [`refs/heads/${id}`, baseRef]);
           return {
             repository: repository.id,
             target,
             from: branch(target),
-            targetBranchExisted: refExists(target, `refs/heads/${id}`),
-            baseCommit: refExists(target, baseRef) ? refHead(target, baseRef) : null
+            targetBranchExisted: refs.has(`refs/heads/${id}`),
+            baseCommit: refs.get(baseRef) ?? null
           };
         })
       : [];

@@ -196,7 +196,7 @@ const source = (name) => readFile(new URL(`../${name}`, import.meta.url), 'utf8'
 test('every clone path that had a hard-coded default branch now accepts the capability base', async () => {
   // `start`, `story fetch`, and the governed initiative materialization were three separate places
   // that each decided a base branch on their own.
-  const cli = await source('src/cli.mjs');
+  const cli = await source('src/commands/start.mjs');
   assert.match(cli, /storyBaseForRepository\(root, \{/, 'start does not resolve an explicit Story base');
   assert.match(cli, /const baseAtStart = storyBase\.localBase/, 'start ignores the resolved base');
 

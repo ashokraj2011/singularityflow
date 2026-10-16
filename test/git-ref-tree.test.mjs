@@ -329,6 +329,68 @@ function countingRunner() {
   return { calls, runCommand };
 }
 
+test('path-selected state reads use one hash-verified blob batch instead of a separate sizing process', (t) => {
+  const root = realRepository(t);
+  for (let index = 0; index < 12; index += 1) {
+    writeFileSync(path.join(root, 'state', `record-${index}.json`), JSON.stringify({ index, text: 'नमस्ते' }));
+  }
+  git(root, ['add', '--', 'state']);
+  git(root, ['-c', 'user.name=SFlow Test', '-c', 'user.email=test@example.invalid',
+    '-c', 'commit.gpgsign=false', 'commit', '-qm', 'many state records']);
+  const fast = countingRunner();
+  const observed = readRefTreeResult(root, 'HEAD', ['state'], {
+    pathFilter: () => true, runCommand: fast.runCommand
+  });
+  const sized = countingRunner();
+  const reference = readRefTreeResult(root, 'HEAD', ['state'], {
+    pathFilter: () => true, filter: () => true, runCommand: sized.runCommand
+  });
+  assert.deepEqual(observed, reference);
+  assert.equal(observed.status, 'ok');
+  assert.equal(observed.contents.size, 13);
+  assert.equal(fast.calls.length, 3, fast.calls.join('\n'));
+  assert.equal(fast.calls.filter(call => call.startsWith('cat-file')).length, 1);
+  assert.equal(sized.calls.length, 4);
+  t.diagnostic('13 path-selected records: 4 → 3 Git processes; blob sizing+reading: 2 → 1');
+});
+
+test('path-selected batching retains size-limit diagnostics and size-aware filtering', (t) => {
+  const root = realRepository(t);
+  const options = { pathFilter: () => true, maxObjectBytes: 2 };
+  const fast = readRefTreeResult(root, 'HEAD', ['state'], options);
+  const reference = readRefTreeResult(root, 'HEAD', ['state'], { ...options, filter: () => true });
+  assert.deepEqual(fast, reference);
+  assert.equal(fast.status, 'unavailable');
+  assert.equal(fast.errors[0].code, 'REF_TREE_OBJECT_TOO_LARGE');
+  const admitted = [];
+  const skipped = readRefTreeResult(root, 'HEAD', ['state'], {
+    ...options, filter: (file, metadata) => { admitted.push(metadata.size); return false; }
+  });
+  assert.deepEqual(admitted, [5]);
+  assert.equal(skipped.status, 'ok');
+  assert.equal(skipped.contents.size, 0);
+});
+
+test('path-selected batching cannot expose substituted, truncated or missing blob bytes', (t) => {
+  const root = realRepository(t);
+  for (const fault of ['substitution', 'truncation', 'missing']) {
+    const runCommand = (command, args, options) => {
+      const result = run(command, args, options);
+      if (args[0] !== 'cat-file' || args[1] !== '--batch') return result;
+      const bytes = Buffer.from(result.stdout);
+      const start = bytes.indexOf(0x0a) + 1;
+      if (fault === 'substitution') bytes[start] ^= 1;
+      return { ...result, stdout: fault === 'truncation' ? bytes.subarray(0, start + 1)
+        : fault === 'missing' ? Buffer.from(`${String(options.input).trim()} missing\n`) : bytes };
+    };
+    const observed = readRefTreeResult(root, 'HEAD', ['state'], {
+      pathFilter: () => true, runCommand
+    });
+    assert.notEqual(observed.status, 'ok', fault);
+    assert.equal(observed.contents.size, 0, fault);
+  }
+});
+
 test('object IDs that all exist are read in one process, and answer as the sized read does', (t) => {
   const root = realRepository(t);
   writeFileSync(path.join(root, 'state', 'two.json'), 'second');

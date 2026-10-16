@@ -27,6 +27,7 @@ const DECIDING_MODULES = Object.freeze([
   'commands/receipt.mjs', 'commands/guide.mjs', 'commands/validate.mjs', 'commands/doctor.mjs',
   'commands/telemetry.mjs', 'commands/context.mjs', 'commands/wm.mjs', 'commands/secrets.mjs',
   'commands/story.mjs', 'commands/logs.mjs', 'commands/session-open-local.mjs', 'session-read-service.mjs', 'stable-read.mjs',
+  'commands/start.mjs', 'commands/shared/start-context.mjs',
   'commands/shared/session-repository-selection.mjs',
   'commands/shared/session-repository-authority.mjs', 'commands/shared/session-repository-remotes.mjs',
   'commands/shared/session-discovery-configuration.mjs', 'commands/shared/definition-at-ref.mjs',

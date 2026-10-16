@@ -14,7 +14,7 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 26
+version: 27
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
 
@@ -44,6 +44,13 @@ For timing diagnostics, add `--timings` to the CLI start. The Git-private comman
 separates `start.publication.workflow` from `start.publication.commit`, in addition to authority,
 intake, fetch, worktree and readiness spans. This distinguishes repository setup from the durable
 commit/push/ledger transaction without logging credentials or repository contents.
+
+Start has its own command module rather than loading the legacy command dispatcher. Adjacent
+base/destination and sibling recovery-ref checks share one exact local-ref observation per
+checkpoint; no observation is carried across a fetch, a human checkpoint, or a mutation. Small
+path-selected state records are read together with their sizes and object hashes verified in the
+same bounded Git batch. Missing or oversized objects retain the existing diagnostic path.
+These optimizations do not move publication into the background or skip readiness or authority.
 
 In VS Code, Start Work opens at once on Story. It shows the last complete workflow and branch listing for the repository, labelled as last known, while it reads the current one; with none recorded yet, it says it is reading. Readiness is checked once typing the Story ID or changing readiness options pauses, not only when the field loses focus. Rapid option changes are coalesced into one check of the final request. Changed inputs immediately invalidate the old result, including during the pause. Background results update only changed form sections rather than reloading the whole page, preserving search, focus and draft text. No base is ever preselected, and neither the last known listing nor an earlier answer enables Start: only a passing readiness check for the chosen base and workflow does.
 

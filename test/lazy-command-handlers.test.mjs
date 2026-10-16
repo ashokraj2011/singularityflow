@@ -30,10 +30,10 @@ async function graph(relative) {
 }
 
 test('frequent lifecycle handlers do not reach the legacy dispatcher and stay under their eager budget', async () => {
-  for (const name of ['session', 'choices', 'inputs', 'prepare', 'review-source', 'submit', 'approve', 'phase']) {
+  for (const name of ['start', 'session', 'choices', 'inputs', 'prepare', 'review-source', 'submit', 'approve', 'phase']) {
     assert.notEqual(commandDefinition(name).modulePath, './commands/legacy.mjs', name);
   }
-  for (const file of ['commands/session.mjs', 'commands/choices.mjs', 'commands/inputs.mjs',
+  for (const file of ['commands/start.mjs', 'commands/session.mjs', 'commands/choices.mjs', 'commands/inputs.mjs',
     'commands/prepare.mjs', 'commands/review-source.mjs', 'commands/submit.mjs', 'commands/approve.mjs', 'commands/phase-lifecycle.mjs']) {
     const closure = await graph(file);
     assert.equal(closure.files.has(path.join(sourceRoot, 'cli.mjs')), false, `${file} re-imported the monolith`);
@@ -64,7 +64,8 @@ test('extracted legacy helpers remain part of the development build identity', a
 
 test('moving handlers never leaves unbound command-layer identifiers', async () => {
   const files = ['cli.mjs', ...await commandModuleFiles()].map(file => path.join(sourceRoot, file));
-  const program = ts.createProgram(files, { allowJs: true, checkJs: true, noResolve: true, target: ts.ScriptTarget.ESNext });
+  const program = ts.createProgram(files, { allowJs: true, checkJs: true, noResolve: true,
+    types: [], target: ts.ScriptTarget.ESNext });
   // noResolve keeps the check bounded to the command layer. Node globals come from the host;
   // imported names remain declared even when their domain modules are not type-checked here.
   const missing = program.getSemanticDiagnostics().filter(diagnostic => diagnostic.code === 2304

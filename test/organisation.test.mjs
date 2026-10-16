@@ -6862,6 +6862,7 @@ test('a seeded Story supplies its own intake, work type and lens', async () => {
   // the CLI. Together these two files are what cli.mjs used to be, which is what this test scans.
   const cli = [
     await readFile(new URL('../src/cli.mjs', import.meta.url), 'utf8'),
+    await readFile(new URL('../src/commands/start.mjs', import.meta.url), 'utf8'),
     await readFile(new URL('../src/help-text.mjs', import.meta.url), 'utf8')
   ].join('\n');
 

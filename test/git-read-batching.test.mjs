@@ -12,7 +12,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { assertNoSecrets, exactFileAtObject, governedCommitIdentity, prefetchExactObjectFiles,
+import { assertNoSecrets, exactFileAtObject, governedCommitIdentity, localRefHeads, prefetchExactObjectFiles,
   shallowBoundaryCommit, stagedEntriesForPaths } from '../src/git.mjs';
 
 const gitModule = fileURLToPath(new URL('../src/git.mjs', import.meta.url));
@@ -48,6 +48,31 @@ function subprocesses(root, expression) {
   assert.ok(summary, `the probe reported nothing: ${result.stderr}`);
   return Number(summary[1]);
 }
+
+test('Story launch observes base and destination existence and tips in one fresh exact-ref batch', async (t) => {
+  const root = await repository(t);
+  const first = git(root, ['rev-parse', 'HEAD']);
+  git(root, ['update-ref', 'refs/remotes/origin/main', first]);
+  git(root, ['update-ref', 'refs/remotes/origin/feature/child', first]);
+  const refs = ['refs/remotes/origin/main', 'refs/heads/STORY-1', 'refs/remotes/origin/feature'];
+  const observed = localRefHeads(root, refs);
+  assert.deepEqual([...observed], [['refs/remotes/origin/main', first]]);
+  assert.equal(subprocesses(root, `m.localRefHeads(process.cwd(), ${JSON.stringify(refs)})`), 1);
+  await writeFile(path.join(root, 'README.md'), 'second\n');
+  git(root, ['add', '.']);
+  git(root, ['commit', '-q', '-m', 'second']);
+  const second = git(root, ['rev-parse', 'HEAD']);
+  git(root, ['update-ref', 'refs/remotes/origin/main', second]);
+  git(root, ['update-ref', 'refs/heads/STORY-1', second]);
+  git(root, ['pack-refs', '--all']);
+  const next = localRefHeads(root, refs);
+  assert.equal(next.get(refs[0]), second, 'no tip is cached across a mutation');
+  assert.equal(next.get(refs[1]), second, 'a newly created destination must be visible');
+  assert.equal(next.has(refs[2]), false, 'a descendant is not the exact requested ref');
+  assert.equal(observed.get(refs[0]), first, 'the earlier checkpoint remains a distinct observation');
+  assert.throws(() => localRefHeads(root, ['refs/heads/*']), error => error.code === 'GIT_REF_SELECTION_INVALID');
+  t.diagnostic('base existence+tip and absent destination: 3 → 1 Git processes per checkpoint');
+});
 
 test('staged content is read in one batch and matches git show :<path> for every kind of entry', async (t) => {
   const root = await repository(t);

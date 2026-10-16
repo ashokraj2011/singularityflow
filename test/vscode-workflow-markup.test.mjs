@@ -468,6 +468,17 @@ test('catalog drift, invalid installation and unsupported contracts stop before 
   }
 });
 
+test('a failed native replacement invalidates the previous import authorization on the host as well as in the page', async () => {
+  const ui = await host({ native: true });
+  await check(ui, '<previously-checked/>');
+  await ui.send({ type: 'markup.copilot', intent: 'Preserve my intent', catalogSource: 'installed', revision: 0 });
+  ui.compile(async () => { throw Object.assign(new Error('Internal compiler failure'), { result: { error: { code: 'WORKFLOW_MARKUP_COMPILER_FAILED' } } }); });
+  await assert.rejects(ui.tool({ action: 'draft', revision: 0, source: '<failed-replacement/>' }));
+  await apply(ui);
+  assert.deepEqual(ui.imports, []);
+  assert.ok(ui.calls.every(call => !call.args.includes('--out')));
+});
+
 test('native designer corrects a POC approval conflict through the real compiler and accepts the sequential design', async () => {
   const description = 'Preserve my intent';
   const captured = await withWorkflowIntentCatalog(null, { source: 'installed' }, value => ({

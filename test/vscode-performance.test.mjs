@@ -155,7 +155,13 @@ test('automatic Story discovery does not repeat the initial snapshot or load a c
   const extension = codeOnly(await readFile(path.join(root, 'apps/vscode/src/extension.ts'), 'utf8'));
   const discovery = extension.slice(extension.indexOf('const refreshRemoteStories'),
     extension.indexOf('refreshStoriesAfterMapping ='));
-  assert.match(discovery, /if \(refreshSnapshot\) await store\.refresh\(\)/);
+  // Explicit Refresh overlaps the local snapshot with remote discovery, and only explicit Refresh reads it.
+  assert.match(discovery, /if \(refreshSnapshot\) snapshotRead = settleIndependentStoryRead\(\(\) => store\.refresh\(\)\)/);
+  const joined = discovery.indexOf('await (snapshotRead ?? settleIndependentStoryRead(() => store.refresh()))');
+  assert.ok(joined > discovery.indexOf('workspaceStoryCatalog = catalog.stories'), 'the snapshot is joined after the catalog is assigned');
+  // That snapshot can paint before the catalog was assigned, so the Inbox redraws after the join, always.
+  assert.ok(discovery.indexOf('inboxTree.refresh()', joined) > joined);
+  assert.doesNotMatch(discovery, /if \(!refreshSnapshot\) \{\s*inboxTree\.refresh\(\)/);
   assert.match(discovery, /lazyPanelsRuntime\?\.InboxPanel\.refreshCurrent\(\)/);
   assert.doesNotMatch(discovery, /lazyPanels\(\)\.InboxPanel\.refreshCurrent\(\)/);
   const auxiliary = extension.slice(extension.indexOf('const startAuxiliaryReadsAfterConfirmedSnapshot'),

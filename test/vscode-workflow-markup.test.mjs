@@ -88,11 +88,12 @@ async function host({ native = false } = {}) {
     workspace: { getConfiguration: scope => ({ get: () => scope === 'singularityFlow' ? modelMode : aiDisabled }) },
     window: { createWebviewPanel: () => panel, showSaveDialog: () => saving(), showOpenDialog: () => opening(), showQuickPick: choices => choosingGroup(choices) },
     commands: { executeCommand: async (...args) => chats.push(args) } };
+  let groups = [{ id: 'quality-reviewers', label: 'Quality reviewers' }];
   let capabilities = { protocol: 1, engine: { sha256: 'sha256:' + 'd'.repeat(64) }, grammarVersions: [2], cli: { compile: true, catalog: true, asset: true, attachments: true, documentation: true } };
   const client = { repository: '/selected/repository', location: { executable: '/installed/node', cli: '/installed/sflow.mjs' },
     run: async args => args.includes('attachments') ? captureRun(args) : args.includes('preflight')
       ? { resultType: 'workflow-intent-preflight', sourceSha256: catalog.sourceSha256, catalog: await catalogRun(args), capabilities,
-        approvalAuthorities: [{ id: 'quality-reviewers', label: 'Quality reviewers' }] }
+        approvalAuthorities: structuredClone(groups) }
       : args.includes('intent') ? catalogRun(args) : ({ source: '<workflow />' }),
     runWithInput: async (args, text) => { calls.push({ args: [...args], text }); return compile(args, text); } };
   const intentRuntime = { workflowIntentPrompt, attachWorkflowIntentTool: handler => { toolHandler = handler; return { available: native, session: 'designer-session', dispose() {} }; } };
@@ -102,7 +103,7 @@ async function host({ native = false } = {}) {
   return { posted, imports, chats, calls, client, send: message => receive(message), close: () => dispose(),
     compile: fn => { compile = fn; }, saveDialog: fn => { saving = fn; }, openDialog: fn => { opening = fn; }, readDraft: file => Panel.readDraft(file),
     catalog: fn => { catalogRun = fn; }, capture: fn => { captureRun = fn; }, models: (mode, disabled = false) => { modelMode = mode; aiDisabled = disabled; }, tool: request => toolHandler(request),
-    capabilities: value => { capabilities = value; }, group: fn => { choosingGroup = fn; } };
+    capabilities: value => { capabilities = value; }, group: fn => { choosingGroup = fn; }, groups: value => { groups = value; } };
 }
 const check = (ui, source = '<workflow />', revision = 0) => ui.send({ type: 'markup.check', source, revision });
 const apply = (ui, revision = 0, overrides = {}) => ui.send({ type: 'markup.import', revision, sourceSha256: result.sourceSha256, bundleSha256: result.bundleSha256, ...overrides });
@@ -186,6 +187,25 @@ test('native registration does not suppress attachment fallback or bind chat to 
   assert.match(prompt, /Attachment read groups[\s\S]*expected-source/u);
   assert.match(prompt, /quality-reviewers/u);
   assert.match(prompt, /availability here is unknown/u);
+});
+
+test('a repository without checkpoint groups opens chat without a dead-end picker', async () => {
+  const ui = await host(); ui.groups([]);
+  ui.group(async () => { throw new Error('no picker when there is nothing to choose'); });
+  await ui.send({ type: 'markup.copilot', intent: 'A workflow with no human checkpoints', revision: 0 });
+  assert.equal(ui.chats.length, 1, ui.posted.at(-1)?.message);
+  assert.match(ui.chats[0][1].query, /Designer-selected checkpoint group: null/u);
+});
+
+test('the chat request names a launcher that runs the installation CLI outside the editor', async () => {
+  const ui = await host();
+  ui.client.location = { executable: "/Applications/Code Helper (Plugin)/it's", cli: '/installed/sflow.mjs' };
+  await ui.send({ type: 'markup.copilot', intent: 'Keep human checkpoints', revision: 0 });
+  const prompt = ui.chats[0][1].query;
+  const launcher = process.platform === 'win32'
+    ? "$env:ELECTRON_RUN_AS_NODE='1'; & '/Applications/Code Helper (Plugin)/it''s' '/installed/sflow.mjs'"
+    : "ELECTRON_RUN_AS_NODE=1 '/Applications/Code Helper (Plugin)/it'\\''s' '/installed/sflow.mjs'";
+  assert.ok(prompt.includes(JSON.stringify(launcher).slice(1, -1)), prompt);
 });
 
 test('missing, stale or withheld attachment retrieval blocks generation while retaining the selected files', async () => {

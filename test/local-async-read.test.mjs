@@ -23,7 +23,7 @@ test('closed async local reads work offline, return exact identity and are never
   assert.deepEqual(result.stdout.trimEnd().split(/\r?\n/u).slice(2), [expected, 'refs/heads/main']);
   assert.equal(counters['git.local.async-reads'], 1);
   assert.equal(counters['git.remote.total'] ?? 0, 0);
-  assert.ok(counters['git.spawns'] >= 1, 'enterprise configuration preflight processes remain counted alongside the one descriptor execution');
+  assert.ok(counters['git.spawns'] >= 1, 'the descriptor execution is counted as a spawn');
 });
 
 test('unknown async descriptors and pre-cancelled requests cannot execute caller supplied Git operations', async () => {
@@ -33,4 +33,20 @@ test('unknown async descriptors and pre-cancelled requests cannot execute caller
   const controller = new AbortController(); controller.abort('private reason');
   await assert.rejects(readLocalGitAsync('repository.identity', process.cwd(), { signal: controller.signal }),
     error => error.code === 'READ_CANCELLED' && !error.message.includes('private'));
+});
+
+test('the async identity read honours the same Git configuration as the synchronous reads it is compared with', async t => {
+  // A repository Git treats as owned by someone else, trusted only by the user's global safe.directory.
+  const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-local-async-owner-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const root = path.join(base, 'repo');
+  await writeFile(path.join(base, 'global.gitconfig'), '[safe]\n\tdirectory = *\n');
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: path.join(base, 'global.gitconfig'), GIT_TEST_ASSUME_DIFFERENT_OWNER: '1' };
+  run('git', ['init', '-q', '-b', 'main', root], { cwd: base, env });
+  run('git', ['-c', 'user.name=Read Fixture', '-c', 'user.email=read@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'fixture'], { cwd: root, env });
+  const expected = run('git', ['rev-parse', 'HEAD'], { cwd: root, env }).stdout.trim();
+  const untrusted = run('git', ['rev-parse', 'HEAD'], { cwd: root, env: { ...env, GIT_CONFIG_GLOBAL: path.join(base, 'absent') }, allowFailure: true });
+  assert.notEqual(untrusted.status, 0, 'without the global trust Git refuses this repository');
+  const result = await readLocalGitAsync('repository.identity', root, { env });
+  assert.equal(result.stdout.trimEnd().split(/\r?\n/u)[2], expected);
 });

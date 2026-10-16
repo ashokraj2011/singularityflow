@@ -80,3 +80,12 @@ test('a dependency removed between stat and open triggers a bounded rebuild, not
     assert.equal(interleaved, true);
   } finally { hook.mock.restore(); syncBuiltinESMExports(); }
 });
+
+test('a read that declines its projection returns null even while its dependencies keep changing', async t => {
+  const { file } = await fixture(t); let reads = 0;
+  // The caller then takes its original reads; churn in files it no longer uses must not refuse them.
+  const result = await withStableRead({ files: [file], identity: () => 'same' }, async () => {
+    reads++; await writeFile(file, `changed-${reads}`); return null;
+  });
+  assert.equal(result, null); assert.equal(reads, 1);
+});

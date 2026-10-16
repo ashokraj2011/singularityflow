@@ -4,12 +4,12 @@ import { existsSync } from 'node:fs';
 import { repoRoot, gitDir } from '../git-execution.mjs';
 import { optionBoolean, optionString, optionNumber } from '../util.mjs';
 import { filterLogEntries, logFilePath, normalizeLogLevel, parseLogLines, resolveLogging } from '../logging.mjs';
-import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 
-export async function run(argv, { positionals, options }) {
-  return withCommandObservability(positionals[0], argv, options,
-    () => withCommandConfirmation(options, () => logsCommand(positionals, options)));
+// No command accounting: `logs` reads the file, and logging its own invocation would append noise
+// to what it is showing (the general dispatcher excluded it for the same reason).
+export async function run(_argv, { positionals, options }) {
+  return withCommandConfirmation(options, () => logsCommand(positionals, options));
 }
 
 export async function logsCommand(positionals, options) {

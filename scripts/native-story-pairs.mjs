@@ -38,7 +38,8 @@ if (action === 'prepare') {
     const prompt = path.join(base, 'request.md');
     await writeFile(prompt, request, { mode: 0o600 });
     pairs.push({ pair, mode, root: fixture.root, base, bin, prompt,
-      env: Object.fromEntries(Object.entries(fixture.env).filter(([key]) => key.startsWith('SINGULARITY_FLOW_'))), status: 'prepared' });
+      env: Object.fromEntries(Object.entries(fixture.env).filter(([key, value]) => key.startsWith('SINGULARITY_FLOW_')
+        && process.env[key] !== value)), status: 'prepared' });
   }
   await writeFile(manifestPath, JSON.stringify({ schemaVersion: 1, host: 'copilot-cli', model, pairs,
     completeStories: false, humanApprovals: 'not-authorized-by-this-runner',
@@ -107,7 +108,10 @@ if (action === 'prepare') {
   const args = ['--no-auto-update', '--no-remote', '--no-remote-export', '--no-bash-env', '--no-custom-instructions',
     '--disable-builtin-mcps', '--model', manifest.model, '--reasoning-effort', 'medium', '--context', 'default',
     '--available-tools=bash,view,edit,apply_patch,grep,glob', '--allow-tool=shell(singularity-flow:*)', '--allow-tool=write',
-    '--deny-tool=shell(git:*)', '--deny-tool=shell(rm:*)', '--max-ai-credits', '30', '--no-ask-user',
+    '--deny-tool=shell(git:*)', '--deny-tool=shell(rm:*)',
+    ...['approve', 'reinstall', 'fresh-install', 'factory-reset', 'reset-all', 'local-reset']
+      .map(command => `--deny-tool=shell(singularity-flow ${command})`),
+    '--max-ai-credits', '30', '--no-ask-user',
     '--output-format', 'json', '--stream', 'off', '--log-level', 'warning', '--log-dir', path.join(row.base, 'logs'),
     '--usage-output-file', path.join(row.base, 'usage.json'), '--share', path.join(row.base, 'session.md'),
     '-C', row.root, '-p', await readFile(row.prompt, 'utf8')];
@@ -132,6 +136,8 @@ if (action === 'prepare') {
   row.status = exitCode === 0 ? 'turn-completed-not-approved' : 'failed';
   await writeFile(path.join(row.base, 'events.jsonl'), Buffer.concat(stdout), { mode: 0o600 });
   await writeFile(path.join(row.base, 'stderr.txt'), Buffer.concat(stderr), { mode: 0o600 });
+  const latest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  if (latest.stoppedByUser) Object.assign(manifest, { stoppedByUser: true, stoppedAt: latest.stoppedAt });
   await writeFile(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
   console.log(JSON.stringify({ pair: row.pair, mode: row.mode, status: row.status, exitCode, elapsedMs: row.elapsedMs,
     events: path.join(row.base, 'events.jsonl'), stderr: Buffer.concat(stderr).toString('utf8').slice(-2000) }));

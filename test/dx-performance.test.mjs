@@ -404,7 +404,8 @@ test('the command that loads most of the codebase says so under module-load', ()
   };
 
   const fast = timings('about');
-  const monolith = timings('logs');
+  // `logs` has its own small module now; `harness report` still goes through the general dispatcher.
+  const monolith = timings('harness', ['report']);
   assert.ok(monolith['module-load'] > fast['module-load'],
     `a monolith-dispatched command reported ${monolith['module-load']}ms of module load against`
     + ` ${fast['module-load']}ms for a three-module one`);

@@ -50,9 +50,10 @@ The central hardened Git executor now supports one closed asynchronous descripto
 `repository.identity`. It requires an explicit absolute repository root and batches the repository-common directory, private Git directory, HEAD
 and symbolic HEAD in one Git invocation. Callers cannot supply arbitrary Git argv through it.
 Offline mode permits this exact local observation, not an arbitrary remote operation relabeled
-as local. Executable resolution, enterprise configuration, output/deadline limits and process-tree
-cleanup remain owned by the existing executor. Legitimate configuration-preflight processes are
-included in measurements, not hidden.
+as local. Executable resolution, output/deadline limits and process-tree cleanup remain owned by
+the existing executor. Unlike remote Git, this read keeps the caller's Git environment and global
+configuration (for example `safe.directory` and `GIT_DIR`), because it is compared with the
+synchronous local reads that keep them. A failed identity read falls back to the original reads.
 
 The session service schedules these reads through a bounded kernel queue: four global slots,
 at most two per repository, 64 queued requests, and interactive priority over background requests.
@@ -342,3 +343,24 @@ Post-merge focused regressions passed 148/148; startup, host-fixture and attachm
 The native runner's persisted user stop is regression-tested with no provider available on PATH.
 No additional native turn, human approval, installed-build change or release qualification followed
 the stop instruction.
+
+### Review fixes at merge (16 October)
+
+A code review before merging to main found and fixed these on the branch; each has a regression test:
+
+- `logs` wrote its own `command.start`/`command.ok` into the log it was showing, so `logs --tail 1`
+  showed itself and "No activity log yet" could never appear. It again runs without command accounting.
+- The async identity read ran with remote-Git isolation (empty global configuration, no `GIT_DIR`),
+  unlike the synchronous reads it is compared with. A repository trusted only through
+  `safe.directory` failed `session open` after the local open had succeeded.
+- A stable read that declined its projection could still refuse on dependency churn; Windows
+  `EPERM`/`EBUSY` during a file replacement is now the same bounded rebuild as a vanished file.
+- Explicit Refresh could paint the Inbox from the previous remote roster: the overlapped snapshot
+  read finished first and nothing redrew after the new catalog. The Inbox now redraws after the join.
+- The designer named the editor runtime as the chat's CLI executable, which only runs the CLI with
+  `ELECTRON_RUN_AS_NODE=1`; the request now carries that exact launcher. A repository with no
+  checkpoint groups no longer dead-ends at the group picker.
+- `native-story-pairs.mjs` kept a stop issued during a turn, persists only fixture-set variables
+  (never ambient tokens) and denies `approve` and machine resets to the native host outright.
+- Stale tests: `dx-performance` measured `logs` as the monolith command and `vscode-performance`
+  still expected the serial snapshot read.

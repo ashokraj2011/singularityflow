@@ -275,18 +275,18 @@ export class WorkflowMarkupPanel {
           if (disposed || repository !== client.repository || requested !== revision) throw new Error('The repository or intent changed. Review the current intent before opening Copilot.');
           const chosen = selectedLibrary(message as { selectedAssets?: unknown });
           const attachmentReads = attachments.prepareHandoff();
-          const selectedGroup = await vscode.window.showQuickPick([
+          const selectedGroup = !preflight.approvalAuthorities.length ? { group: null } : await vscode.window.showQuickPick([
             ...preflight.approvalAuthorities.map(group => ({ label: group.label || group.id, description: group.id, group })),
             { label: 'Keep draft without choosing a group', description: 'No checkpoint authority is selected; nothing is imported or activated.', group: undefined }
           ], { title: 'Choose the approval group for requested checkpoints', placeHolder: 'This selects a group, not an approval. Preserve the draft if you are not ready.' });
-          if (!selectedGroup?.group) {
+          if (selectedGroup?.group === undefined) {
             post({ type: 'markup.done', revision: requested, message: 'Draft retained locally with unresolved checkpoint authority. Select an existing group before generating an import-ready workflow; no model request was sent.' }); return;
           }
           if (disposed || repository !== client.repository || requested !== revision) throw new Error('The repository or intent changed while selecting authority. Your draft is retained.');
           handoff = { intent, selected, catalog, assets: chosen, revision: requested, repository, attempts: 0, failedSource: null };
           const query = intentRuntime.workflowIntentPrompt({ repository, selected, catalog, intent, source, tool: nativeTool, revision: requested,
-            attachments: attachments.prompt(), attachmentReads, selectedAssets: chosen, checkpointGroup: selectedGroup.group,
-            cliLocation: client.location, capabilities: preflight.capabilities });
+            attachments: attachments.prompt(), attachmentReads, selectedAssets: chosen, checkpointGroup: selectedGroup.group ?? undefined,
+            cliLocation: client.location, platform: process.platform, capabilities: preflight.capabilities });
           await vscode.commands.executeCommand('workbench.action.chat.open', { query, isPartialQuery: true });
           post({ type: 'markup.done', revision: requested, message: 'Your request is ready in Copilot. Review and send it there; the checked workflow will return to this designer.' });
         } catch (error) { post({ type: 'markup.error', revision, message: (error as Error).message }); }

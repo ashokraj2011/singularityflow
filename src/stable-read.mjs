@@ -27,7 +27,8 @@ async function fingerprint(file, signal) {
   catch (error) {
     // A captured regular file may disappear or become a link before open. Rebuild the whole
     // response once; do not leak a raw filesystem race or consume its replacement as authority.
-    if (['ENOENT', 'ELOOP', 'ESTALE'].includes(error.code)) throw new SingularityFlowError(
+    // Windows reports EPERM/EBUSY while another process replaces the file; that is the same race.
+    if (['ENOENT', 'ELOOP', 'ESTALE', 'EPERM', 'EBUSY'].includes(error.code)) throw new SingularityFlowError(
       'A read dependency changed during capture. Refresh the read.', { code: 'READ_SNAPSHOT_STALE' });
     throw error;
   }
@@ -76,6 +77,8 @@ export async function withStableRead({ files = [], identity, signal = null, fres
         for (const file of files) await watch(file);
         const value = await read({ watch, signal });
         assertReadNotCancelled(signal);
+        // null declines the projection: the caller takes its original reads, so nothing here is used.
+        if (value === null) return null;
         for (const [file, expected] of watched) if ((await fingerprint(file, signal)).digest !== expected) {
           throw new SingularityFlowError('The read snapshot changed. Refresh before continuing.', { code: 'READ_SNAPSHOT_STALE' });
         }

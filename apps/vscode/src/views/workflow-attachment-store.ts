@@ -57,7 +57,7 @@ export class WorkflowAttachmentStore {
           || argv.at(-1) !== '--json' || argv.filter(value => value === '--expected-source').length !== 1
           || argv[argv.indexOf('--expected-source') + 1] !== sourceSha256
           || argv.filter(value => value === '--id').length !== 1 || argv[argv.indexOf('--id') + 1] !== '<CAPTURE-ID>') {
-        throw new Error('An attached file has missing or stale verified fallback read guidance. Reattach it before opening Copilot; your other intent is retained.');
+        throw new Error('An attached file has missing or stale verified fallback read guidance. Remove it and attach it again before opening Copilot (attach many files in smaller selections); your other intent is retained.');
       }
     }
     return groups;

@@ -63,3 +63,24 @@ export async function load(url, context, next) { const value = await next(url, c
       summaries: Object.fromEntries(Object.entries(timings).map(([mode, values]) => [mode, summarizeSamples(values)])), timings }));
   }
 });
+
+test('reading the activity log never writes its own invocation into it', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-logs-quiet-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  // The default levels, unlike the parity test above: logging is on.
+  const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_NO_MODEL: '1', SINGULARITY_FLOW_NO_NETWORK: '1',
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(directory, 'registry.json'),
+    SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(directory, 'active.json'), SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(directory, 'mode.json') };
+  delete env.SINGULARITY_FLOW_LOG_LEVEL; delete env.SINGULARITY_FLOW_LOG_CONSOLE;
+  assert.equal(spawnSync('git', ['init', '-q', '-b', 'main'], { cwd: directory, env }).status, 0);
+  const logs = (...args) => {
+    const result = spawnSync(process.execPath, [cli, 'logs', ...args], { cwd: directory, env, encoding: 'utf8', timeout: 30_000 });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    return result.stdout;
+  };
+  const file = logs('path').trim();
+  assert.match(logs(), /No activity log yet/u);
+  assert.match(logs('--tail', '1'), /No activity log yet/u, 'the first read did not create the log');
+  const { existsSync } = await import('node:fs');
+  assert.equal(existsSync(file), false);
+});

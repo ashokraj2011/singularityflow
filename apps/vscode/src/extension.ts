@@ -5145,11 +5145,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (!result.ok) throw result.error;
       }
       if (!repositoryEpoch.isCurrent(scope)) return;
-      if (!refreshSnapshot) {
-        inboxTree.refresh();
-        // A closed Inbox must not load the multi-panel runtime just to refresh an absent view.
-        lazyPanelsRuntime?.InboxPanel.refreshCurrent();
-      }
+      // Always redraw: an overlapped snapshot read can finish (and paint) before the catalog above
+      // was assigned, so its own change event may have shown the previous remote roster.
+      inboxTree.refresh();
+      // A closed Inbox must not load the multi-panel runtime just to refresh an absent view.
+      lazyPanelsRuntime?.InboxPanel.refreshCurrent();
       if (issue) throw new Error(issue);
     }, afterCurrent);
   };

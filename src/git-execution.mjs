@@ -392,7 +392,10 @@ export async function runRemoteGitAsync(args, {
   // configuration read or process launch.
   const executionEnvironment = signal?.aborted
     ? null
-    : nonInteractiveGitEnvironment(remoteGitEnvironment(env));
+    // A registered local read is compared with synchronous local reads, so it keeps their
+    // environment: the caller's GIT_DIR and global config (safe.directory) still apply.
+    : localRead ? withoutInteractiveGitPrompts(env, { platform })
+      : nonInteractiveGitEnvironment(remoteGitEnvironment(env));
   const result = signal?.aborted
     // Abort reasons are caller-owned values and may contain credentials, URLs, or UI text. The
     // closed-vocabulary cancellation classification below is the complete public diagnosis; never

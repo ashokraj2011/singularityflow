@@ -59,7 +59,12 @@ export async function readOpenedSession(root, { workId, signal = null } = {}) {
       freshScope: withFreshReadScope,
       identity: async () => {
         const observed = await gitReadScheduler.run(root,
-          () => readLocalGitAsync('repository.identity', root, { signal }), { signal });
+          () => readLocalGitAsync('repository.identity', root, { signal }), { signal }).catch(error => {
+          // Git refusing this read (unborn HEAD, ownership, configuration) leaves the original reads.
+          if (['LOCAL_GIT_READ_FAILED', 'GIT_ENTERPRISE_CONFIG_UNAVAILABLE'].includes(error?.code)) throw new SingularityFlowError(
+            'The local Git identity is unavailable for a shared read.', { code: 'READ_SNAPSHOT_UNAVAILABLE' });
+          throw error;
+        });
         const values = observed.stdout.trimEnd().split(/\r?\n/u);
         if (values.length !== 4 || !/^[a-f0-9]{40,64}$/iu.test(values[2])) {
           throw new SingularityFlowError('The local Git identity cannot be projected safely.', { code: 'READ_SNAPSHOT_UNAVAILABLE' });

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { GOVERNED_CLAUSE_TYPES, normalizeQualifiedClauseId } from '../src/traceability-ids.mjs';
+import { GOVERNED_CLAUSE_TYPES, normalizeQualifiedClauseId, renderClauseNamespaces } from '../src/traceability-ids.mjs';
 import { scanSourceClauseTags } from '../src/source-clause-tags.mjs';
 import { isQualifiedAcceptanceId, acceptanceTagsInComment } from '../src/verification/tags.mjs';
 import { javascriptSourceComments } from '../src/javascript-source-comments.mjs';
@@ -209,4 +209,12 @@ test('Windows CRLF string continuation does not turn string text into evidence o
   assert.deepEqual(scanSourceClauseTags(source, { sourcePath: 'src/App.jsx' }), [
     { clauseId: 'HEX-LAST:REQ-001', line: 3, tag: 'clause' }
   ]);
+});
+
+test('a template renders the Work ID in capitals only where it opens a clause ID', () => {
+  const template = '# {{work.id}} — plan\n[{{work.id}}:REQ-001] `{{work.id}}:AC-nnn` @clause:{{work.id}}:IFC-... under {{work.id}}/evidence {{work.id}}:NOTE-1';
+  assert.equal(renderClauseNamespaces(template, '{{work.id}}', 'code-hex'),
+    '# {{work.id}} — plan\n[CODE-HEX:REQ-001] `CODE-HEX:AC-nnn` @clause:CODE-HEX:IFC-... under {{work.id}}/evidence {{work.id}}:NOTE-1');
+  assert.equal(renderClauseNamespaces('[{{WORK_ID}}:AC-001]', '{{WORK_ID}}', 'a$&b'), '[A$&B:AC-001]', 'replacement text is literal');
+  assert.equal(normalizeQualifiedClauseId('code-hex:REQ-001'), 'CODE-HEX:REQ-001', 'the rendered form is the canonical form');
 });

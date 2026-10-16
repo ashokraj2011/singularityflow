@@ -55,6 +55,8 @@ test('a missing section is copied from the packaged template, in its packaged pl
   const rendered = addMissingSections('# SPEC-9\n\n## Requirements\n\n- x\n', ['Scenario coverage'], { tokens: { '{{work.id}}': 'SPEC-9' } }).text;
   assert.match(rendered, /^\| `SPEC-9:REQ-001` \| S1 \| TODO \|$/mu, 'tokens are rendered into a copied section');
   assert.ok(rendered.indexOf('## Scenario coverage') > rendered.indexOf('## Requirements'));
+  const lower = addMissingSections('# code-hex\n\n## Requirements\n\n- x\n', ['Scenario coverage'], { tokens: { '{{work.id}}': 'code-hex' } }).text;
+  assert.match(lower, /^\| `CODE-HEX:REQ-001` \| S1 \| TODO \|$/mu, 'a lowercase Work ID opens a copied clause ID in capitals');
   const generic = addMissingSections('# Report\n\n## Summary\n\nDone.\n', ['Team sign-off notes']).text;
   assert.match(generic, /## Team sign-off notes\n\nTODO\n/u, 'with no packaged source, a heading and a TODO the placeholder check refuses');
 });

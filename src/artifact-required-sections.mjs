@@ -20,6 +20,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { normalizeMarkdownHeading } from './markdown-structure.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
+import { renderClauseNamespaces } from './traceability-ids.mjs';
 
 /** Sections every enforced specification must have (specification-quality.mjs checks them). */
 export const SPECIFICATION_REQUIRED_SECTIONS = Object.freeze(['Actors', 'User scenarios', 'Requirements']);
@@ -135,6 +136,7 @@ export function addMissingSections(markdown, sections, { ownRef = null, tokens =
       block = donor.lines.slice(donor.headings[donor.index].line, end);
       while (block.length && block.at(-1).trim() === '') block.pop();
       block.push('');
+      if (tokens['{{work.id}}'] !== undefined) block = block.map((line) => renderClauseNamespaces(line, '{{work.id}}', tokens['{{work.id}}']));
       for (const [token, value] of Object.entries(tokens)) block = block.map((line) => line.replaceAll(token, value ?? ''));
       // Place it after the nearest earlier packaged section the document has, else before the
       // nearest later one, so it lands where the packaged template puts it.

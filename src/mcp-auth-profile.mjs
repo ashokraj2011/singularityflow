@@ -69,7 +69,9 @@ function windowsSid(text) {
 // quoted data inside an encoded script, so spaces, apostrophes and Unicode remain literal.
 function windowsAclCommand(script, values) {
   const literals = values.map(value => "'" + String(value).replaceAll("'", "''") + "'").join(',');
-  const bound = `$sflowAclArguments=@(${literals});${script.replaceAll('$args[', '$sflowAclArguments[')}`;
+  // A pwsh/VS Code host may export PowerShell 7 modules incompatible with Windows PowerShell.
+  // Only this system shell's built-in modules are needed; never autoload caller/user modules.
+  const bound = `$env:PSModulePath=$PSHOME+'\\Modules';$sflowAclArguments=@(${literals});${script.replaceAll('$args[', '$sflowAclArguments[')}`;
   return ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(bound, 'utf16le').toString('base64')];
 }
 

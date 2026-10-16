@@ -110,9 +110,16 @@ try {
           '--from-branch', 'main', '--work-type', workType, '--selected-base-only', '--isolated-worktree',
           '--mint-intake-receipt'], repository, variantEnv);
         const receipt = preview.value.preflight?.intakeReceipt;
-        if (!receipt?.issued) throw new Error(`A matched intake preview did not issue its receipt (${receipt?.reason ?? 'missing'}).`);
-        intakePreview = { durationMs: preview.durationMs };
-        intakeArgs = ['--intake-receipt', receipt.id];
+        // Old Windows builds can legitimately decline their optimization because the ACL helper
+        // inherited Core-only modules. Keep that baseline on its real full-validation path; never
+        // pretend it had a receipt. A candidate must demonstrate actual preparation, not fallback.
+        if (!receipt?.issued && !(variant === 'control' && process.platform === 'win32'
+            && receipt?.reason === 'storage' && preview.value.preflight?.passed === true)) {
+          throw new Error(`A matched intake preview did not issue its receipt (${receipt?.reason ?? 'missing'}).`);
+        }
+        intakePreview = { durationMs: preview.durationMs, receiptIssued: receipt?.issued === true,
+          ...(receipt?.issued ? {} : { receiptDeclined: receipt?.reason }) };
+        intakeArgs = receipt?.issued ? ['--intake-receipt', receipt.id] : [];
         if (variant === 'candidate') {
           const result = invoke(['start', id, '--prepare-only', '--json', '--isolated-worktree', '--from-branch', 'main',
             '--work-type', workType, ...intakeArgs], repository, variantEnv);

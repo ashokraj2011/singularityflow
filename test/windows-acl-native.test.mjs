@@ -35,3 +35,14 @@ test('native Windows ACL arguments retain spaces, quotes, metacharacters and Uni
     assert.equal(checked.entries, 2);
     assert.equal(await readFile(file, 'utf8'), '{"preserved":true}\n');
   });
+
+test('native Windows ACLs ignore inherited PowerShell Core and caller module paths',
+  { skip: process.platform !== 'win32' }, async t => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-native-core-modules-'));
+    t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+    const before = process.env.PSModulePath;
+    const environment = { ...process.env, PSModulePath: path.join(root, 'not-a-system-module-path') };
+    assert.equal((await secureWindowsAuthAcl(root, { directory: true, environment })).protected, true);
+    assert.equal((await secureWindowsAuthAcl(root, { directory: true, apply: false, environment })).protected, true);
+    assert.equal(process.env.PSModulePath, before, 'only the child shell module path changes');
+  });

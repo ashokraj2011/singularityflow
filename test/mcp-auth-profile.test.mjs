@@ -194,6 +194,7 @@ test('Windows auth ACL applies and verifies one current-user principal and fails
     ]);
     assert.ok(calls.every((call) => path.win32.isAbsolute(call.command)));
     const script = Buffer.from(calls[1].args.at(-1), 'base64').toString('utf16le');
+    assert.ok(script.startsWith("$env:PSModulePath=$PSHOME+'\\Modules';"), 'uses this shell built-ins before any autoload');
     assert.ok(script.includes("'" + sid + "','apply'"));
     assert.ok(script.includes('$acl.SetAccessRuleProtection($true,$false)'));
     assert.ok(calls.every((call) => call.options.shell === false));

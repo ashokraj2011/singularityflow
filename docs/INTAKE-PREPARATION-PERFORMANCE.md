@@ -51,6 +51,14 @@ variants the same exact-request preview, then prepares only the candidate's work
 preview time, preparation time, click-to-ready time and their combined wall time separately.
 Background preparation shifts work off the click path; it is not claimed to reduce total work.
 
+Native qualification exposed a Windows host compatibility defect: the system Windows PowerShell
+ACL helper inherited PowerShell 7 module locations, so `Get-Acl` could not autoload. The child now
+uses only its own `$PSHOME/Modules`; ACL requirements and unsafe-store fallback are unchanged.
+Native tests include an incompatible inherited module path. In the prepared Windows comparison,
+the old control may explicitly report a storage-declined receipt and use full Start validation.
+The candidate must issue a real receipt and actually prepare. This measures the combined host
+compatibility correction and preparation path, not checkout alone or a fabricated receipt.
+
 ```sh
 node scripts/story-creation-benchmark.mjs --mode=isolated --fresh=true --configuration=approved --samples=3 --files=10000 --control-ref=697a8738fd58c47503463444c38dd55d89ad6988 --out=cold.json
 node scripts/story-creation-benchmark.mjs --mode=isolated --fresh=true --configuration=approved --samples=3 --files=10000 --prepare-worktree=candidate --control-ref=697a8738fd58c47503463444c38dd55d89ad6988 --out=prepared.json

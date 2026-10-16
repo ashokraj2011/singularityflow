@@ -2102,6 +2102,20 @@ export function commitExactPaths(root, paths, message) {
   return gitAnswer(['rev-parse', 'HEAD'], { cwd: root }, 'The new commit').trim();
 }
 
+/**
+ * Tracked files, as the working tree holds them, and the line numbers holding any of `literals`
+ * (Git's `grep -F`, binary files skipped). Null when Git cannot answer.
+ */
+export function trackedLinesContaining(root, literals, { maximumBytes = 16 * 1024 * 1024 } = {}) {
+  if (!literals.length) return [];
+  const result = git(['-c', 'core.quotePath=false', 'grep', '-n', '-I', '-F', '--full-name', '--no-color',
+    ...literals.flatMap((literal) => ['-e', literal])], { cwd: root, allowFailure: true, maxBuffer: maximumBytes });
+  if (result.status === 1) return [];
+  if (result.status !== 0) return null;
+  return String(result.stdout ?? '').split('\n').map((line) => /^(.+?):(\d+):/u.exec(line))
+    .filter(Boolean).map((match) => ({ path: match[1], line: Number(match[2]) }));
+}
+
 /** Whether `commit` names a commit present in this clone, without fetching. */
 export function commitPresent(root, commit) {
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(String(commit ?? ''))) return false;

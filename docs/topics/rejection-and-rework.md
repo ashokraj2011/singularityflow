@@ -8,7 +8,7 @@ aliases:
 related:
   - approvals
   - artifacts-and-generation
-version: 4
+version: 5
 commands: []
 ---
 A rejection reopens the phase and requires a fresh generation — with the reviewer's reasons pinned as composed context for the regeneration, alongside anything they cited. Nothing else is lost: implementation branches, interval history, checkpoints, and evidence carry forward. Rejection is designed to be cheap for the author and informative by construction: generation 2 starts from everything generation 1 learned, including the reviewer's exact words.
@@ -21,7 +21,7 @@ The target of a rejection, a reopen or a backward workflow decision always needs
 
 Each approval records what it decided over: the phases its step declares as inputs (every earlier phase when it declares none), the code at HEAD and the specification records once code is delivered, the documents offered to it, and the Story's scope, plan, risk and applicability decisions. After a rejection or a reopen, when the phase before an approved later phase completes again, that approval is compared with the Story as it is now. If everything it decided over is byte-identical, and its artifacts and inputs still verify, the approval is kept under rule E1 (identical inputs): the phase is not regenerated, a new approval record names the rule and the approval it carries, and the history shows `phase_retained`. Otherwise the phase runs again, and the approval's history entry says which reference changed, for example `design runs again because input:intake changed`.
 
-Evidence is reused only under the product's closed set of rules (E1 to E7); a workflow cannot add one. A phase that feeds or follows a decision, a skill phase, a phase completed without a person's approval, a decision's loop, and a range reopened by a changed document or design source always run again.
+Evidence is reused only under the product's closed set of rules (E1 to E8); a workflow cannot add one. A phase that feeds or follows a decision, a skill phase, a phase completed without a person's approval, a decision's loop, and a range reopened by a changed document or design source always run again.
 
 ## Code changed outside a code step
 

@@ -19,9 +19,9 @@ const W = 'KEEP-1';
 const at = '2026-10-03T10:00:00.000Z';
 
 test('evidence is reused only under the product rules, and a record names the rule it relies on', () => {
-  assert.deepEqual(Object.keys(EQUIVALENCE_RULES), ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7']);
+  assert.deepEqual(Object.keys(EQUIVALENCE_RULES), ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8']);
   assert.equal(equivalenceRule('E1').name, 'identical inputs');
-  for (const unknown of ['E8', 'workflow-rule', '__proto__', undefined]) {
+  for (const unknown of ['E9', 'workflow-rule', '__proto__', undefined]) {
     assert.throws(() => equivalenceRule(unknown), (error) => error.code === 'EQUIVALENCE_RULE_UNKNOWN');
   }
   assert.deepEqual(retainedByRule('E1', { approvalAt: at }), { rule: 'E1', approvalAt: at });

@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { commitPresent, commitsChangingSince, fileAtRef, pathPatchSince } from './git.mjs';
+import { commitPresent, commitsChangingSince, fileAtRef, pathPatchSince, trackedLinesContaining } from './git.mjs';
 import { readRecord } from './schema-migrations.mjs';
 import { scanSourceClauseTags } from './source-clause-tags.mjs';
 import { SingularityFlowError } from './util.mjs';
@@ -156,6 +156,13 @@ export function evaluateSpecDrift(root, { workItemRoot = 'singularity/work-items
       continue;
     }
     const story = { workId: id, title: workflow.workItem.title ?? null, status: workflow.status, clauses: [], findings: [] };
+    // Tags left behind for clauses the Story's own scope revisions removed (only the working tree is scanned).
+    if (!ref) {
+      for (const tag of removedClauseTags(root, currentlyRemovedClauses(workflow))) {
+        story.findings.push({ code: 'removed-clause-tag', path: tag.path, line: tag.line, clauseId: tag.clauseId,
+          message: `@${tag.tag}:${tag.clauseId} at ${tag.path}:${tag.line} names a clause ${id}'s specification removed.` });
+      }
+    }
     for (const phaseId of workflow.phaseOrder ?? Object.keys(workflow.phases ?? {})) {
       const phase = workflow.phases?.[phaseId];
       if (!phase || phase.status !== 'approved') continue;
@@ -468,4 +475,43 @@ export function recordDriftRevocation(file, { workId, decisionId, reason, actor,
   const revocation = { revokes: decisionId, clauseId: target.clauseId, reason: text, actor, authorityGroup, identityAssurance, at };
   decisions.push(revocation);
   return { file: { schemaVersion: 1, workId, decisions }, decision: revocation };
+}
+
+/**
+ * Comment tags that still name clauses a scope revision removed, outside the governance root: a
+ * clause taken out of the specification leaves `@clause`/`@ac` tags behind in files the change did
+ * not touch, and nothing else names them. `{ clauseId, path, line, tag }`, sorted.
+ */
+export function removedClauseTags(root, clauseIds, { governanceRoot = 'singularity/' } = {}) {
+  const ids = new Set(clauseIds.map((id) => String(id).toUpperCase()));
+  if (!ids.size) return [];
+  const hits = trackedLinesContaining(root, [...ids].flatMap((id) => [`@clause:${id}`, `@ac:${id}`])) ?? [];
+  const found = [];
+  for (const relative of [...new Set(hits.map((hit) => hit.path))].filter((entry) => !entry.startsWith(governanceRoot)).sort()) {
+    let text = null;
+    try { text = readFileSync(path.join(root, relative), 'utf8'); } catch { continue; }
+    for (const tag of scanSourceClauseTags(text, { sourcePath: relative })) {
+      if (ids.has(tag.clauseId)) found.push({ clauseId: tag.clauseId, path: relative, line: tag.line, tag: tag.tag });
+    }
+  }
+  return found;
+}
+
+/** The clauses a Story's scope revisions removed and no later revision added back. */
+export function currentlyRemovedClauses(workflow) {
+  const removed = new Set();
+  for (const revision of workflow?.scopeRevisions ?? []) {
+    for (const id of revision.changes?.removed ?? []) removed.add(String(id).toUpperCase());
+    for (const id of revision.changes?.added ?? []) removed.delete(String(id).toUpperCase());
+  }
+  return [...removed].sort();
+}
+
+/** Advisories for those tags in an open Story: a tag naming a removed clause binds nothing and misleads. */
+export function removedClauseTagAdvisories(root, workflow, { maximum = 20 } = {}) {
+  return removedClauseTags(root, currentlyRemovedClauses(workflow)).slice(0, maximum).map((tag) => Object.freeze({
+    code: 'spec.removed-clause-tag', category: 'coverage', blocking: false, requiredBefore: null,
+    path: tag.path, line: tag.line, value: tag.clauseId,
+    message: `@${tag.tag}:${tag.clauseId} at ${tag.path}:${tag.line} names a clause the specification removed; remove the tag, or re-add the clause if it still applies. Advisory only.`
+  }));
 }

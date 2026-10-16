@@ -349,14 +349,20 @@ export async function phaseDraftCheck(root, config, workflow, phase, {
   });
 }
 
-/** Advisories for other closed Stories' clauses this change makes drift; never a finding or a blocker. */
+/**
+ * Advisories for other closed Stories' clauses this change makes drift, and for tags left naming
+ * clauses this Story's specification removed; never a finding or a blocker.
+ */
 async function foreignClauseDrift(root, config, workflow) {
   try {
-    const { foreignClauseAdvisories } = await import('./spec-drift.mjs');
-    return foreignClauseAdvisories(root, {
-      workItemRoot: config.workItemRoot ?? 'singularity/work-items', workflow,
-      baseCommit: workflow.workItem?.baseCommit ?? workflow.phases?.[workflow.phaseOrder?.[0]]?.sourceCommit ?? null
-    });
+    const { foreignClauseAdvisories, removedClauseTagAdvisories } = await import('./spec-drift.mjs');
+    return [
+      ...foreignClauseAdvisories(root, {
+        workItemRoot: config.workItemRoot ?? 'singularity/work-items', workflow,
+        baseCommit: workflow.workItem?.baseCommit ?? workflow.phases?.[workflow.phaseOrder?.[0]]?.sourceCommit ?? null
+      }),
+      ...removedClauseTagAdvisories(root, workflow)
+    ];
   } catch {
     return [];
   }

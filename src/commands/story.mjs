@@ -2297,6 +2297,9 @@ export async function storyIntentAmendmentCommand(positionals, options) {
       console.log(`Scope revision ${application.scopeRevision.revision} changed ${application.staleClauses.length} clause(s) (${application.staleClauses.join(', ') || 'none'}): evidence of them produced before this revision is stale. ${application.standingClauses.length} clause(s) are unaffected.`);
     }
     console.log(`${result.transition.affectedPhases.length} phase(s) require revalidation; ${result.transition.preservedEvidence.length} unaffected evidence item(s) were preserved.`);
+    if (application.retainedPhases?.length) {
+      console.log(`Kept the approval of ${application.retainedPhases.join(', ')} (rule E8): the amendment changed none of the clauses ${application.retainedPhases.length === 1 ? 'its' : 'their'} artifacts cite, and nothing else ${application.retainedPhases.length === 1 ? 'it' : 'they'} decided over had changed.`);
+    }
     printCommandRoutes(
       `singularity-flow story intent-amendment acknowledge ${proposalId}`,
       { label: 'Acknowledge before submitting' }

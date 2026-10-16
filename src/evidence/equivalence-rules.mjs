@@ -43,6 +43,11 @@ export const EQUIVALENCE_RULES = Object.freeze({
     name: 'baseline-mutable roots',
     permits: 'paths a declared test run may rewrite do not count as a change to the baseline',
     appliedBy: 'test recovery (src/test-recovery-runtime.mjs)'
+  }),
+  E8: Object.freeze({
+    name: 'unaffected by an intent amendment',
+    permits: 'an approval after the scope step stays valid through an approved intent amendment when none of its artifacts cites a clause the amendment added, revised, removed or made stale, it is not a code or convergence step, and everything else it decided over was byte-identical when the amendment was approved',
+    appliedBy: 'intent-amendment approval (decideIntentAmendment in src/state.mjs, candidates from src/phase-retention.mjs)'
   })
 });
 

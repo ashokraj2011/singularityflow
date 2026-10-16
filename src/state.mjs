@@ -67,7 +67,8 @@ import {
 import {
   beginTelemetryCapture, collectCopilotUsage, phaseTelemetrySummary, recordPhaseTelemetry, telemetryCaptureGap
 } from './telemetry.mjs';
-import { retainUnchangedPhases } from './phase-retention.mjs';
+import { amendmentRetentionCandidates, retainUnchangedPhases } from './phase-retention.mjs';
+import { retainedByRule } from './evidence/equivalence-rules.mjs';
 import { forwardAmendmentDecision, nextForwardAmendmentProposal, pendingAmendmentRevalidations, pendingForwardAmendments } from './forward-amendments.mjs';
 import { phaseUpstream } from './phase-upstream.mjs';
 import { contextBoundaryHandoff, normalizeContextPolicy } from './context-policy.mjs';
@@ -7604,6 +7605,10 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     };
   }
 
+  // Rule E8: the approved steps after the scope step whose approvals this amendment cannot touch,
+  // checked against everything they decided over before anything below changes it.
+  const retentionCandidates = await amendmentRetentionCandidates(root, config, workflow, specification,
+    { addsClauses: (proposal.diff?.added ?? []).length > 0 });
   const { specificationPath, specificationFile, proposedText, proposedSnapshot, amendmentAuthorship } = amendmentCandidate;
   await writeBytes(specificationFile, Buffer.from(proposedText, 'utf8'));
   const priorGeneration = Number(specification.generation ?? 0);
@@ -7785,6 +7790,9 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
   ].map(posix));
   const affectedPhases = [];
   const preservedEvidence = [];
+  const retainedPhases = [];
+  let retaining = true;
+  let firstReset = null;
   for (let index = nextIndex; index < workflow.phaseOrder.length; index += 1) {
     const phase = workflow.phases[workflow.phaseOrder[index]];
     let directlyAffected = isConvergencePhase(phase)
@@ -7808,10 +7816,22 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
       else preservedEvidence.push(artifact.path);
     }
     if (directlyAffected) affectedPhases.push(phase.id);
+    // Rule E8: an approved step the amendment cites nothing of keeps its approval, as long as every
+    // step before it did too; the first one that does not runs again, and so does all after it.
+    if (retaining && !directlyAffected && retentionCandidates.has(phase.id)) {
+      phase.retention = { rule: 'E8', at, generation: phase.generation, amendment: proposal.id,
+        ...retainedByRule('E8', { amendment: proposal.id, approvalAt: phase.approvedAt }) };
+      workflow.history.push({ at, actor: key, agent: agent ?? null, event: 'phase_retained', phase: phase.id,
+        detail: `Retained by rule E8: approved intent amendment ${proposal.id} changed none of the clauses its artifacts cite, and nothing else it decided over had changed.` });
+      retainedPhases.push(phase.id);
+      continue;
+    }
+    retaining = false;
+    firstReset ??= index;
     phase.approvals.forEach((approval) => {
       if (!approval.invalidatedAt) approval.invalidatedAt = at;
     });
-    phase.status = index === nextIndex ? 'in_progress' : 'not_started';
+    phase.status = index === firstReset ? 'in_progress' : 'not_started';
     phase.submittedAt = null;
     phase.submissionArchitectureDecision = null;
     phase.approvedAt = null;
@@ -7829,7 +7849,7 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     };
     await updateArtifactMetadata(root, config, workflow, phase);
   }
-  workflow.currentPhase = workflow.phaseOrder[nextIndex];
+  workflow.currentPhase = workflow.phaseOrder[firstReset ?? nextIndex];
   workflow.status = 'in_progress';
 
   proposal.status = 'approved';
@@ -7842,12 +7862,13 @@ export async function decideIntentAmendment(root, config, workflow, proposal, {
     staleClauses: [...staleClauses].sort(),
     standingClauses,
     affectedPhases,
+    retainedPhases,
     preservedEvidence: [...new Set(preservedEvidence)].sort(),
     acknowledgementRequired: true
   };
   Object.assign(summary, {
     status: 'approved', decidedAt: at, decision: recorded,
-    changedClauses, affectedPhases,
+    changedClauses, affectedPhases, retainedPhases,
     scopeRevision: proposal.application.scopeRevision,
     staleClauses: proposal.application.staleClauses,
     standingClauses,

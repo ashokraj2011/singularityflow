@@ -13,6 +13,8 @@
  */
 import path from 'node:path';
 import { approvalRequirementsMet } from './approval-authority.mjs';
+import { phaseRequiresCodeDelivery } from './code-delivery-policy.mjs';
+import { stepResponsibilities } from './phase-roles.mjs';
 import { retainedByRule } from './evidence/equivalence-rules.mjs';
 import { verifyInputsIntegrity } from './inputs.mjs';
 import { changedUpstream, phaseUpstream } from './phase-upstream.mjs';
@@ -67,6 +69,35 @@ function retain(workflow, phase, approvals, { at, actor, agent, upstream }) {
     detail: `Retained by rule E1: everything its approval decided over is byte-identical (${approvals.length} approval${approvals.length === 1 ? '' : 's'} carried).`
   });
   return carried;
+}
+
+/**
+ * Rule E8 candidates: the approved steps right after the scope step, in order up to the first that
+ * does not qualify, whose approvals still decide over exactly the Story as it stands. Checked before
+ * an intent amendment changes anything, so the amendment is the only change they would see; it then
+ * keeps those whose artifacts cite none of its clauses. Code steps, and steps that feed or follow a
+ * decision or run a skill, always run again; so does a step that plans when the amendment adds a
+ * clause, since a new clause cites nothing yet and still has to be planned.
+ */
+export async function amendmentRetentionCandidates(root, config, workflow, specification, { addsClauses = false } = {}) {
+  const order = workflow.phaseOrder ?? [];
+  const candidates = new Map();
+  for (let index = order.indexOf(specification?.id) + 1; index > 0 && index < order.length; index += 1) {
+    const phase = workflow.phases[order[index]];
+    if (phase?.status !== 'approved' || phaseRequiresCodeDelivery(phase)
+        || decisionAfter(workflow, phase.id) || decisionFedBy(workflow, phase.id)
+        || workflow.resolution?.phases?.find((entry) => entry.id === phase.id)?.kind === 'skill'
+        || (addsClauses && stepResponsibilities(workflow, phase.id).includes('plan'))) break;
+    const approvals = (phase.approvals ?? []).filter((entry) => entry?.decision === 'approved' && !entry.invalidatedAt
+      && Number(entry.generation) === Number(phase.generation));
+    if (!approvals.length || approvals.some((entry) => !entry.upstream?.sha256)
+        || !approvalRequirementsMet(phase.approvalPolicy, approvals)) break;
+    const upstream = await phaseUpstream(root, config, workflow, phase);
+    if (!upstream || approvals.some((entry) => entry.upstream.sha256 !== upstream.sha256)) break;
+    if (!(await artifactsUnchanged(root, phase))) break;
+    candidates.set(phase.id, approvals);
+  }
+  return candidates;
 }
 
 /**

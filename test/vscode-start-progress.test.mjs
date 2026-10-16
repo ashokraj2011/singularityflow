@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { ProgressLineSplitter, startProgressLabel } from '../apps/vscode/src/cli/progress.ts';
 import { CliError, invokeCli } from '../apps/vscode/src/cli/runner.ts';
@@ -82,7 +82,7 @@ test('the runner asks for progress only when it will use it, and still parses a 
 
 test('the engine names start stages only when asked, and no child process inherits the request', () => {
   const probe = `
-    const { measureCommandSpan } = await import(${JSON.stringify(path.join(root, 'src', 'dx-timing-context.mjs'))});
+    const { measureCommandSpan } = await import(${JSON.stringify(pathToFileURL(path.join(root, 'src', 'dx-timing-context.mjs')).href)});
     await measureCommandSpan('start.fetch', async () => {});
     await measureCommandSpan('dispatch.requirements', async () => {});
     process.stdout.write(process.env.SINGULARITY_FLOW_PROGRESS ?? 'unset');

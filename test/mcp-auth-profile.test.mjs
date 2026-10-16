@@ -249,9 +249,11 @@ test('Windows ACL protects and verifies a complete private MCP tree in one bound
         return { stdout: `"OFFICE\\\\user","${sid}"\r\n`, stderr: '' };
       }
       if (path.win32.basename(command).toLowerCase() === 'powershell.exe') {
-        assert.ok(args.includes('C:\\private\\mcp-package'));
-        assert.ok(args.includes(sid));
-        assert.ok(args.includes('apply'));
+        assert.equal(args.at(-2), '-EncodedCommand');
+        const script = Buffer.from(args.at(-1), 'base64').toString('utf16le');
+        assert.ok(script.includes("$sflowAclArguments=@('C:\\private\\mcp-package','" + sid + "','apply');"));
+        assert.ok(script.includes('$target=[System.IO.Path]::GetFullPath($sflowAclArguments[0])'));
+        assert.ok(!script.includes('$args['));
         return {
           stdout: JSON.stringify({ protected: true, entries: 37, unsafe: 0 }),
           stderr: ''

@@ -96,7 +96,8 @@ test('a Story worktree reuses the workspace sparse checkout instead of expanding
   git(source, 'sparse-checkout', 'set', 'selected');
   const prepared = await prepareStoryWorktree(source, 'SPARSE-STORY', { base: 'HEAD' });
   assert.equal(git(prepared.repositoryPath, 'sparse-checkout', 'list'), 'selected');
-  assert.equal(await readFile(path.join(prepared.repositoryPath, 'selected/code.txt'), 'utf8'), 'selected\n');
+  const selectedBytes = await readFile(path.join(prepared.repositoryPath, 'selected/code.txt'), 'utf8');
+  assert.equal(selectedBytes.replaceAll('\r\n', '\n'), 'selected\n', 'sparse contents survive normal checkout line-ending policy');
   await assert.rejects(readFile(path.join(prepared.repositoryPath, 'excluded/code.txt')), { code: 'ENOENT' });
 });
 

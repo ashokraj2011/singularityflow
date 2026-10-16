@@ -65,6 +65,14 @@ function windowsSid(text) {
   return String(text ?? '').match(/S-\d+(?:-\d+)+/i)?.[0] ?? null;
 }
 
+// powershell.exe -Command treats trailing argv as command text, not script $args. Bind only
+// quoted data inside an encoded script, so spaces, apostrophes and Unicode remain literal.
+function windowsAclCommand(script, values) {
+  const literals = values.map(value => "'" + String(value).replaceAll("'", "''") + "'").join(',');
+  const bound = `$sflowAclArguments=@(${literals});${script.replaceAll('$args[', '$sflowAclArguments[')}`;
+  return ['-NoLogo', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(bound, 'utf16le').toString('base64')];
+}
+
 function windowsAclExecutables(environment) {
   try {
     const cmd = resolveWindowsSystemTool(environment, 'cmd.exe');
@@ -111,10 +119,8 @@ export async function secureWindowsAuthAcl(target, {
   if (recursive) {
     let observed;
     try {
-      const result = await execFileCommand(executables.powershell, [
-        '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
-        WINDOWS_RECURSIVE_ACL_SCRIPT, target, sid, apply ? 'apply' : 'verify'
-      ], {
+      const result = await execFileCommand(executables.powershell,
+        windowsAclCommand(WINDOWS_RECURSIVE_ACL_SCRIPT, [target, sid, apply ? 'apply' : 'verify']), {
         shell: false, windowsHide: true, timeout: 120_000, maxBuffer: 64 * 1024,
         env: environment
       });
@@ -152,9 +158,8 @@ export async function secureWindowsAuthAcl(target, {
   }
   let observed;
   try {
-    const result = await execFileCommand(executables.powershell, [
-      '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', WINDOWS_ACL_SCRIPT, target
-    ], {
+    const result = await execFileCommand(executables.powershell,
+      windowsAclCommand(WINDOWS_ACL_SCRIPT, [target]), {
       shell: false, windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024,
       env: environment
     });

@@ -44,6 +44,9 @@ test('failed and unsupported warmups are optional and retryable; disabled cachin
   assert.equal(calls, 2, 'an explicit source-runtime selection is not overridden');
   assert.equal((await prewarmCliRuntime(f.location, { NODE_DISABLE_COMPILE_CACHE: '1' }, { invoke })).status, 'unavailable');
   assert.equal(calls, 2);
+  assert.equal((await prewarmCliRuntime(f.location, { SINGULARITY_FLOW_BUNDLE_DIR: './bundle' }, { invoke })).status, 'unavailable');
+  assert.equal((await prewarmCliRuntime(f.location, { NODE_COMPILE_CACHE: './cache' }, { invoke })).status, 'unavailable');
+  assert.equal(calls, 2, 'cwd-dependent overrides are left to the real command');
   await writeFile(path.join(f.root, 'src/build-info.mjs'), 'changed build');
   assert.equal((await prewarmCliRuntime(f.location, {}, { invoke })).status, 'unavailable');
   assert.equal(calls, 2, 'stamp mismatch falls back without running source or old CLI code');

@@ -41,9 +41,9 @@ test('root discovery fills both Git directory answers in one physical process', 
   const index = await readFile(path.join(root, '.git/index'));
   const result = await observe(() => {
     const found = repoRoot(nested);
-    assert.equal(found, git(root, 'rev-parse', '--show-toplevel'));
-    assert.equal(gitDir(found), git(root, 'rev-parse', '--absolute-git-dir'));
-    assert.equal(gitCommonDir(found), git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir'));
+    assert.equal(found, path.resolve(git(root, 'rev-parse', '--show-toplevel')));
+    assert.equal(gitDir(found), path.resolve(git(root, 'rev-parse', '--absolute-git-dir')));
+    assert.equal(gitCommonDir(found), path.resolve(git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir')));
     return found;
   });
   assert.equal(result.counters['git.spawns'], 1);
@@ -57,7 +57,7 @@ test('directory-only batching preserves linked-worktree and bare-repository iden
     const result = await observe(() => [gitDir(selected), gitCommonDir(selected)]);
     assert.equal(result.counters['git.spawns'], 1);
     assert.deepEqual(result.value, [git(selected, 'rev-parse', '--absolute-git-dir'),
-      git(selected, 'rev-parse', '--path-format=absolute', '--git-common-dir')]);
+      git(selected, 'rev-parse', '--path-format=absolute', '--git-common-dir')].map(value => path.resolve(value)));
   }
   const before = head(linked); git(linked, 'switch', '-qc', 'another');
   assert.equal(branch(linked), 'another');
@@ -71,5 +71,5 @@ test('resetting path caches also discards the old common-directory answer', asyn
   git(linked, 'init', '-q');
   resetGitDirCache();
   assert.notEqual(gitCommonDir(linked), old);
-  assert.equal(gitCommonDir(linked), git(linked, 'rev-parse', '--absolute-git-dir'));
+  assert.equal(gitCommonDir(linked), path.resolve(git(linked, 'rev-parse', '--absolute-git-dir')));
 });

@@ -15,10 +15,14 @@ export async function prewarmCliRuntime(location: Location, env: NodeJS.ProcessE
 }: { signal?: AbortSignal; invoke?: typeof invokeCli } = {}): Promise<Result> {
   if (signal?.aborted) return { status: 'cancelled' };
   if (env.NODE_DISABLE_COMPILE_CACHE === '1' || String(env.SINGULARITY_FLOW_BUNDLE).toLowerCase() === 'off') return { status: 'unavailable' };
+  // Warmup deliberately has no repository cwd. Relative overrides belong to the real command's
+  // cwd and cannot safely share its preparation from the process-wide temporary directory.
+  const selectedBundle = env.SINGULARITY_FLOW_BUNDLE_DIR?.trim();
+  if ((selectedBundle && !path.isAbsolute(selectedBundle))
+      || (env.NODE_COMPILE_CACHE && !path.isAbsolute(env.NODE_COMPILE_CACHE))) return { status: 'unavailable' };
   try {
     const root = path.resolve(path.dirname(location.cli), '..');
-    const bundle = env.SINGULARITY_FLOW_BUNDLE_DIR?.trim()
-      ? path.resolve(env.SINGULARITY_FLOW_BUNDLE_DIR) : path.join(root, 'bundle');
+    const bundle = selectedBundle || path.join(root, 'bundle');
     const [manifestBytes, stamp] = await Promise.all([
       readFile(path.join(bundle, 'manifest.json')), readFile(path.join(root, 'src', 'build-info.mjs'))
     ]);

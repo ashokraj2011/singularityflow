@@ -213,3 +213,15 @@ test('null subprocess input means no stdin while explicit bytes are preserved', 
     'a null default must not open a child stdin pipe');
   assert.deepEqual(observed[1].input, Buffer.from('message\n'));
 });
+
+test('a text answer never asks for more than Node can hold as a string', async () => {
+  // Above about 512 MB Node throws ERR_STRING_TOO_LONG from inside spawnSync; at the limit it reports
+  // ENOBUFS, which run() turns into SUBPROCESS_OUTPUT_TOO_LARGE naming the command.
+  const { constants } = await import('node:buffer');
+  const seen = [];
+  const capture = (_command, _args, options) => { seen.push(options.maxBuffer); return { status: 0, stdout: options.encoding === 'buffer' ? Buffer.alloc(0) : '', stderr: '' }; };
+  run('node', ['--version'], { maxBuffer: 1024 * 1024 * 1024, spawnSyncCommand: capture });
+  run('node', ['--version'], { maxBuffer: 1024 * 1024 * 1024, encoding: 'buffer', spawnSyncCommand: capture });
+  run('node', ['--version'], { maxBuffer: 1024, spawnSyncCommand: capture });
+  assert.deepEqual(seen, [constants.MAX_STRING_LENGTH, 1024 * 1024 * 1024, 1024], 'only text is capped; bytes and small ceilings are unchanged');
+});

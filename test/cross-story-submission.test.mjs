@@ -30,8 +30,8 @@ test('convergence advancement pins its selected Story through submission', async
   assert.doesNotMatch(submit, /loadStoryAggregate\(root, config, requestedWorkId\)/,
     'submission can bypass the accepted execution closure for the caller-selected Story');
   assert.match(submit, /const resolvedWorkId = workflow\.workItem\.id/);
-  assert.match(submit, /loadStoryAggregate\(root, config, resolvedWorkId\)/,
-    'submission did not pin its post-telemetry reload to the resolved Story');
+  // Submission reads no telemetry and commits no reconciliation, so it has no mid-command reload.
+  assert.doesNotMatch(submit, /reconcilePhaseTelemetry/, 'submission is part of the work and reads no Copilot telemetry');
   assert.doesNotMatch(submit, /loadStoryAggregate\(root, config\)/,
     'submission can still reload whichever Story is globally active');
 

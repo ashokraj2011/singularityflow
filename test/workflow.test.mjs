@@ -471,7 +471,7 @@ test('artifact-only submission rejects source committed after publication', asyn
   assert.equal((workflow.lineage.submissions ?? []).length, 0);
 });
 
-test('publication commits sanitized Copilot telemetry under the work item and reports provider cost', async () => {
+test('telemetry reconcile commits sanitized Copilot usage under the work item and reports provider cost; publication never reads it', async () => {
   const root = await repository(); const workId = 'TELEMETRY-1';
   flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
@@ -491,7 +491,11 @@ test('publication commits sanitized Copilot telemetry under the work item and re
   };
   await writeFile(path.join(root, '.git/singularity-flow/copilot-otel.jsonl'), `${JSON.stringify(span)}\n`);
   await completeArtifact(root, workflow, 'intake');
-  flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
+  const publication = flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
+  // Copilot appends to this file on every turn; the work never reads it (a 512 MB file once failed publication).
+  assert.match(`${publication.stdout}\n${publication.stderr}`, /Copilot usage is not read during the work; run singularity-flow telemetry reconcile/);
+  assert.equal(JSON.parse(await readFile(workflowFile, 'utf8')).phases.intake.telemetry[0].status, 'pending');
+  assert.match(flow(root, ['telemetry', 'reconcile', 'intake']).stdout, /Reconciled intake generation 1: exact/);
 
   const published = JSON.parse(await readFile(workflowFile, 'utf8'));
   const usage = published.phases.intake.usage[0];
@@ -511,7 +515,7 @@ test('publication commits sanitized Copilot telemetry under the work item and re
   assert.equal(flow(root, ['gate']).status, 0);
 });
 
-test('publication counts Copilot requests, turns, tool calls and quota events from spans that carry no tokens', async () => {
+test('telemetry reconcile counts Copilot requests, turns, tool calls and quota events from spans that carry no tokens', async () => {
   const root = await repository(); const workId = 'TELEMETRY-ACTIVITY-1';
   flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
@@ -529,6 +533,7 @@ test('publication counts Copilot requests, turns, tool calls and quota events fr
   await writeFile(path.join(root, '.git/singularity-flow/copilot-otel.jsonl'), `${spans.map((span) => JSON.stringify(span)).join('\n')}\n`);
   await completeArtifact(root, workflow, 'intake');
   flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
+  flow(root, ['telemetry', 'reconcile', 'intake']);
 
   const published = JSON.parse(await readFile(workflowFile, 'utf8'));
   const context = published.phases.intake.telemetry[0];
@@ -549,7 +554,7 @@ test('publication counts Copilot requests, turns, tool calls and quota events fr
   assert.equal(flow(root, ['gate']).status, 0, 'the committed record and workflow state agree');
 });
 
-test('Copilot telemetry published before turn completion is reconciled and committed on submit', async () => {
+test('a turn that completes after publication is recorded by telemetry reconcile, never by submit', async () => {
   const root = await repository(); const workId = 'TELEMETRY-LATE-1';
   flow(root, ['start', workId, '--from-branch', 'main'], { selection: selection('feature', 'product-owner') });
   const workflowFile = path.join(root, 'singularity/work-items', workId, 'workflow.json');
@@ -557,7 +562,7 @@ test('Copilot telemetry published before turn completion is reconciled and commi
   await completeArtifact(root, workflow, 'intake');
   const published = flow(root, ['phase', 'publish', 'intake'], { selection: selection('feature', 'product-owner') });
   assert.match(published.stdout, /Telemetry: pending/);
-  assert.match(published.stdout, /reconciled automatically on the next submit action/);
+  assert.match(`${published.stdout}\n${published.stderr}`, /run singularity-flow telemetry reconcile/);
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.phases.intake.telemetry[0].status, 'pending');
   assert.equal(workflow.phases.intake.telemetry[0].captureGap, 'no-metered-session', 'no SFlow launch ran for this phase');
@@ -581,11 +586,15 @@ test('Copilot telemetry published before turn completion is reconciled and commi
   assert.equal(telemetryStatus.completedChatSpans, 1);
   assert.deepEqual(telemetryStatus.pending.map((item) => `${item.phase}@${item.generation}`), ['intake@1']);
   const submitted = flow(root, ['submit', '--phase', 'intake'], { selection: selection('feature', 'product-owner') });
-  assert.match(submitted.stdout, /Reconciled intake generation 1 telemetry/);
-  assert.match(submitted.stdout, /Models: gpt-5.4 \| Tokens: 1000 \| Provider cost: \$0.010000/);
-
+  assert.doesNotMatch(submitted.stdout, /Reconciled/, 'submit is part of the work and reads no telemetry');
   workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.phases.intake.status, 'awaiting_approval');
+  assert.equal(workflow.phases.intake.telemetry[0].status, 'pending');
+  const reconciled = flow(root, ['telemetry', 'reconcile', 'intake']);
+  assert.match(reconciled.stdout, /Reconciled intake generation 1: exact/);
+  assert.match(reconciled.stdout, /Models: gpt-5.4 \| Tokens: 1000 \| Provider cost: \$0.010000/);
+
+  workflow = JSON.parse(await readFile(workflowFile, 'utf8'));
   assert.equal(workflow.phases.intake.telemetry[0].status, 'exact');
   assert.equal(workflow.phases.intake.telemetry[0].captureGap, undefined, 'reconciled spans close the gap');
   assert.equal(workflow.phases.intake.usage[0].totalTokens, 1000);

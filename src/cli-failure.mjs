@@ -2,7 +2,7 @@
 import { commandResultOf } from './narration/emit.mjs';
 import { renderCommandResultJson } from './narration/render-json.mjs';
 import { renderCommandResult } from './narration/render-terminal.mjs';
-import { optionBoolean, parseArgs } from './util.mjs';
+import { optionBoolean, parseArgs, SingularityFlowError } from './util.mjs';
 import { refusalEnvelope, renderRefusalPlan } from './refusal-remediation.mjs';
 import { redactDiagnosticText } from './git-remote-diagnostics.mjs';
 
@@ -18,7 +18,25 @@ export function markCliFailureLogged(error) {
   if (error && typeof error === 'object') loggedFailures.add(error);
 }
 
+/**
+ * Node refuses to build a string over about 512 MB (ERR_STRING_TOO_LONG, or "Invalid string length"
+ * for concatenation). Reported raw, that named neither the input nor where SFlow read it, so a
+ * person could only guess. Name the SFlow file and line that tried, and say nothing was changed.
+ */
+export function oversizedTextRefusal(error) {
+  const tooLong = error?.code === 'ERR_STRING_TOO_LONG'
+    || (error instanceof RangeError && /Invalid string length/u.test(error.message ?? ''));
+  if (!tooLong) return null;
+  const frame = String(error.stack ?? '').split('\n')
+    .map((line) => /((?:src|bundle)\/[^\s():]+\.m?js):(\d+)/u.exec(line)).find(Boolean);
+  const origin = frame ? `${frame[1]}:${frame[2]}` : null;
+  return new SingularityFlowError(`An input was larger than SFlow can hold as text (Node's 512 MB limit)${origin ? ` while reading in ${origin}` : ''}. `
+    + 'Nothing was published, committed or pushed. Report this location; rerun with SINGULARITY_FLOW_DEBUG=1 for the full stack.',
+  { code: 'INPUT_TOO_LARGE_FOR_TEXT', details: { origin }, cause: error });
+}
+
 export async function reportCliFailure(error, argv = []) {
+  error = oversizedTextRefusal(error) ?? error;
   const result = commandResultOf(error);
   let json = false;
   let verbose = false;

@@ -16,6 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { createLogger, resolveLogging } from '../src/logging.mjs';
+import { oversizedTextRefusal } from '../src/cli-failure.mjs';
 import { BOOLEAN_OPTIONS, didYouMean, nearestNames, parseArgs, requirePositional, sentenceList } from '../src/util.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -154,4 +155,17 @@ test('requirePositional reconstructs the command path it was called from', () =>
   assert.ok(error, 'expected a refusal');
   assert.equal(error.code, 'MISSING_ARGUMENT');
   assert.match(error.message, /Usage: singularity-flow choices select approve <work-id>/);
+});
+
+test('an input over Node\'s string limit is refused with the SFlow file and line that read it', () => {
+  const raw = Object.assign(new Error('Cannot create a string longer than 0x1fffffe8 characters'), { code: 'ERR_STRING_TOO_LONG',
+    stack: 'Error: Cannot create a string longer than 0x1fffffe8 characters\n    at Object.slice (node:buffer:636:37)\n'
+      + '    at collectUsage (file:///opt/install/singularity-flow/src/telemetry.mjs:436:20)\n    at async publish (file:///opt/install/singularity-flow/src/state.mjs:3866:5)' });
+  const refusal = oversizedTextRefusal(raw);
+  assert.equal(refusal.code, 'INPUT_TOO_LARGE_FOR_TEXT');
+  assert.equal(refusal.details.origin, 'src/telemetry.mjs:436', 'the first SFlow frame, never an absolute path');
+  assert.match(refusal.message, /Node's 512 MB limit\) while reading in src\/telemetry\.mjs:436\. Nothing was published, committed or pushed/u);
+  assert.equal(refusal.cause, raw);
+  assert.equal(oversizedTextRefusal(new RangeError('Invalid string length')).code, 'INPUT_TOO_LARGE_FOR_TEXT');
+  assert.equal(oversizedTextRefusal(new Error('something else')), null);
 });

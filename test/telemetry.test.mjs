@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   beginTelemetryCapture, captureTelemetryCursorsForWorkItem, collectCopilotUsage,
-  groupedUsage, parseCopilotTelemetry, phaseTelemetrySummary, recordPhaseTelemetry,
+  groupedUsage, parseCopilotTelemetry, parseCopilotTelemetryFile, phaseTelemetrySummary, recordPhaseTelemetry,
   restoreTelemetryCursorsForWorkItem, telemetryCaptureGap, verifyPhaseTelemetry
 } from '../src/telemetry.mjs';
 import { currentSchemaVersion } from '../src/schema-migrations.mjs';
@@ -303,4 +303,104 @@ test('a generation that captured nothing records why, from its own launches', as
   const altered = { ...published, telemetry: [{ ...summary, captureGap: 'awaiting-export' }] };
   assert.deepEqual((await verifyPhaseTelemetry(root, workflow, altered, 1)).errors,
     [`telemetry captureGap differs from workflow state: ${result.path}`]);
+});
+
+test('a telemetry file is read one line at a time with the same result as reading its text', async () => {
+  // Copilot appends to these files on every turn and nothing trims them. Read as one string, the
+  // unread part of a busy repository's file passed Node's 512 MB limit and failed publication.
+  const root = await telemetryRepository();
+  const file = path.join(root, 'otel.jsonl');
+  const span = (index) => JSON.stringify({ name: 'chat model-alpha', attributes: { 'gen_ai.request.model': 'model-alpha',
+    'gen_ai.usage.input_tokens': index, 'gen_ai.usage.output_tokens': 1, padding: 'x'.repeat(900) },
+    startTimeUnixNano: '1760000000000000000', endTimeUnixNano: '1760000001000000000' });
+  // Enough lines that records cross the reader's 1 MiB chunk boundaries, plus CRLF, a malformed
+  // record and an unterminated tail.
+  const lines = Array.from({ length: 2600 }, (_, index) => span(index + 1));
+  const text = `${lines.slice(0, 1300).join('\n')}\r\nnot json\n${lines.slice(1300).join('\n')}\n{"incomplete":`;
+  await writeFile(file, text);
+  const whole = parseCopilotTelemetry(text);
+  const streamed = await parseCopilotTelemetryFile(file);
+  assert.equal(streamed.spans.length, whole.spans.length);
+  assert.ok(streamed.spans.length > 2000, `${streamed.spans.length} spans`);
+  assert.deepEqual(streamed, whole, 'spans, activities, warnings and diagnostics are identical');
+  // From a cursor offset: exactly the text after it.
+  const start = Buffer.byteLength(`${lines.slice(0, 2000).join('\n')}\n`) + Buffer.byteLength('not json\n\r\n') - Buffer.byteLength('\r\n') - 1;
+  const offset = Buffer.byteLength(text.slice(0, text.indexOf(lines[2000])));
+  assert.deepEqual(await parseCopilotTelemetryFile(file, { start: offset }), parseCopilotTelemetry(Buffer.from(text).subarray(offset).toString('utf8')));
+  assert.ok(start > 0);
+  // A record over the line bound is quarantined, never held.
+  const capped = await parseCopilotTelemetryFile(file, { maximumLineBytes: 512 });
+  assert.equal(capped.spans.length, 0);
+  assert.match(capped.warnings[0], /quarantined an oversized telemetry record at line 1/u);
+});
+
+test('usage that cannot be read leaves publication with a warning, never a refusal', { skip: process.platform === 'win32' }, async () => {
+  const root = await telemetryRepository();
+  const previous = process.env.SINGULARITY_FLOW_TELEMETRY_PREFERENCES;
+  process.env.SINGULARITY_FLOW_TELEMETRY_PREFERENCES = path.join(root, 'absent-preferences.json');
+  const raw = path.join(root, '.git', 'singularity-flow', 'copilot-otel.jsonl');
+  await mkdir(path.dirname(raw), { recursive: true });
+  await writeFile(raw, '{}\n');
+  const { chmod } = await import('node:fs/promises');
+  await chmod(raw, 0o000);
+  try {
+    const usage = await collectCopilotUsage(root, { workItem: { id: 'WRK-UNREAD' } }, { id: 'planning', generation: 0 }, { generation: 1 });
+    assert.deepEqual(usage.usage, []);
+    assert.match(usage.warnings.join('\n'), /Copilot usage could not be read \(EACCES\); publication continued without it/u);
+  } finally {
+    await chmod(raw, 0o600);
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_TELEMETRY_PREFERENCES;
+    else process.env.SINGULARITY_FLOW_TELEMETRY_PREFERENCES = previous;
+  }
+});
+
+test('with local capture disabled, publication does not read the shared repository telemetry file', async () => {
+  const root = await telemetryRepository();
+  const raw = path.join(root, '.git', 'singularity-flow', 'copilot-otel.jsonl');
+  await mkdir(path.dirname(raw), { recursive: true });
+  await writeFile(raw, `${JSON.stringify({ name: 'chat model-alpha', attributes: { 'gen_ai.request.model': 'model-alpha', 'gen_ai.usage.input_tokens': 5, 'gen_ai.usage.output_tokens': 1 } })}\n`);
+  const preferences = path.join(root, 'telemetry-preferences.json');
+  const previous = process.env.SINGULARITY_FLOW_TELEMETRY_PREFERENCES;
+  process.env.SINGULARITY_FLOW_TELEMETRY_PREFERENCES = preferences;
+  try {
+    await writeFile(preferences, JSON.stringify({ schemaVersion: 1, enabled: false, acceptedDisclosureDigests: [] }));
+    const usage = await collectCopilotUsage(root, { workItem: { id: 'WRK-OFF' } }, { id: 'planning', generation: 0 }, { generation: 1 });
+    assert.equal(usage.rawBytes, 0, 'nothing was read');
+    assert.match(usage.warnings.join('\n'), /Local usage capture is disabled; the repository telemetry file was not read/u);
+  } finally {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_TELEMETRY_PREFERENCES;
+    else process.env.SINGULARITY_FLOW_TELEMETRY_PREFERENCES = previous;
+  }
+});
+
+test('a late reconciliation counts a generation only until the Story\'s next capture window began', async () => {
+  const root = await telemetryRepository();
+  const previous = process.env.SINGULARITY_FLOW_TELEMETRY_PREFERENCES;
+  process.env.SINGULARITY_FLOW_TELEMETRY_PREFERENCES = path.join(root, 'absent-preferences.json');
+  try {
+    const workflow = { workItem: { id: 'WRK-WINDOW' } };
+    const intake = { id: 'intake', generation: 0 };
+    await beginTelemetryCapture(root, workflow, intake);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const during = new Date().toISOString();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await beginTelemetryCapture(root, workflow, { id: 'specification', generation: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const after = new Date().toISOString();
+    const span = (endTime, tokens) => JSON.stringify({ name: 'chat model-alpha', endTime,
+      attributes: { 'gen_ai.operation.name': 'chat', 'gen_ai.response.model': 'model-alpha', 'gen_ai.usage.input_tokens': tokens, 'gen_ai.usage.output_tokens': 1 } });
+    const raw = path.join(root, '.git', 'singularity-flow', 'copilot-otel.jsonl');
+    await mkdir(path.dirname(raw), { recursive: true });
+    await writeFile(raw, `${span(during, 10)}\n${span(after, 999)}\n`);
+    const usage = await collectCopilotUsage(root, workflow, intake, { generation: 1 });
+    assert.equal(usage.spans, 1, 'the specification window\'s span is not intake\'s');
+    assert.equal(usage.usage[0].inputTokens, 10);
+    // Publication itself never reads it.
+    const deferred = await collectCopilotUsage(root, workflow, intake, { readTelemetry: false });
+    assert.equal(deferred.rawBytes, 0);
+    assert.match(deferred.warnings.join('\n'), /not read during the work/u);
+  } finally {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_TELEMETRY_PREFERENCES;
+    else process.env.SINGULARITY_FLOW_TELEMETRY_PREFERENCES = previous;
+  }
 });

@@ -36,7 +36,7 @@ export async function telemetryCommand(positionals, options) {
   const subcommand = positionals[1] ?? 'status';
   let root = null;
   try { root = repoRoot(); } catch { /* Machine-local telemetry controls are intentionally rootless. */ }
-  const status = await copilotTelemetryStatus(root);
+  const status = await copilotTelemetryStatus(root, { countSpans: subcommand === 'status' });
   if (subcommand === 'status') {
     let workflow = null;
     // Pending phase telemetry enriches repository status, but it is not a prerequisite for the

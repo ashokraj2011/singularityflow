@@ -3,15 +3,13 @@ import { repoRoot } from '../git.mjs';
 import { optionString, SingularityFlowError, optionStrings, optionBoolean } from '../util.mjs';
 import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
 import { selectedPhaseArgument } from './shared/selected-phase-argument.mjs';
-import { prefetchStoryPublicationObservation, storyPublicationPending, assertNoPendingPublication, reconcilePhaseTelemetry, commitAndPublish, loadStoryAggregate, actorKey, submitConfirmedConvergencePhase, submitPhase, workflowPublicationBranch, currentPhase } from '../state-stores.mjs';
+import { prefetchStoryPublicationObservation, storyPublicationPending, assertNoPendingPublication, commitAndPublish, actorKey, submitConfirmedConvergencePhase, submitPhase, workflowPublicationBranch, currentPhase } from '../state-stores.mjs';
 import { parseDecisionAssignments, decisionFedBy, normalizeDecisionInputValues, recordedDecisionValues, decisionInputsHint } from '../workflow-decisions.mjs';
 import { isConvergencePhase } from '../phase-roles.mjs';
 import { assertConvergencePublicationReady } from '../convergence-context.mjs';
 import { emitCommandResult } from '../narration/emit.mjs';
 import { commandResult, noop, noEffects, succeeded, effects } from '../narration/command-result.mjs';
-import { storyDraftTransaction } from './shared/story-draft-transaction.mjs';
 import { LIFECYCLE_EVENT } from '../lifecycle-event.mjs';
-import { copilotActivityLine } from './shared/copilot-activity-line.mjs';
 import { withRefusalMemory } from './shared/with-refusal-memory.mjs';
 import { actionActor } from './kernel.mjs';
 import { phaseUsesDeterministicGeneration } from '../manual-authorship.mjs';
@@ -41,16 +39,15 @@ export async function runSubmitCommand(positionals, options, submitContext) {
   const accepted = await loadAcceptedStoryExecution(root, requestedWorkId);
   const config = accepted.definition;
   let workflow = accepted.workflow;
-  // Resolve the target once, then pin every subsequent read to that exact Story. In particular,
-  // telemetry reconciliation may commit and reload while another UI/session changes the globally
-  // active Story; submission must not cross that Story boundary.
+  // Resolve the target once, then pin every subsequent read to that exact Story: another
+  // UI/session may change the globally active Story; submission must not cross that boundary.
   const resolvedWorkId = workflow.workItem.id;
   const requestedPhase = selectedPhaseArgument(positionals, options, 'submit');
   const initialPhaseId = requestedPhase ?? workflow.currentPhase;
   const initialPhase = workflow.phases[initialPhaseId];
   if (!initialPhase) throw new SingularityFlowError(`Unknown or unavailable phase '${initialPhaseId ?? ''}'. Provide a phase ID.`);
   prefetchStoryPublicationObservation(root, config, workflow);
-  // Checked before telemetry reconciliation or the publication unit opens, so a mistyped value is
+  // Checked before the publication unit opens, so a mistyped value is
   // refused with nothing written. The transition records the same values again.
   const decisionValues = parseDecisionAssignments(optionStrings(options, 'decision'));
   const fedDecision = decisionFedBy(workflow, initialPhase.id);
@@ -95,7 +92,7 @@ export async function runSubmitCommand(positionals, options, submitContext) {
     }), { json: optionBoolean(options, 'json'), postState: workflow });
     return;
   }
-  // Refuse a generic `submit convergence` before telemetry reconciliation or any other write. The
+  // Refuse a generic `submit convergence` before any write. The
   // only combined confirmation route is `story advance --confirm`; command-line options cannot
   // set this private function argument.
   if (isConvergencePhase(initialPhase)) {
@@ -127,34 +124,10 @@ export async function runSubmitCommand(positionals, options, submitContext) {
       );
     }
   }
-  // A failed required push is a transport recovery, not an opportunity to open a second draft
-  // transaction for telemetry. Preserve the established sequence-gate refusal (including its
-  // structured recovery command and exit code) before any reconciliation boundary is opened.
+  // A failed required push is a transport recovery. Preserve the established sequence-gate refusal
+  // (including its structured recovery command and exit code) before submission opens.
   await assertNoPendingPublication(root, config, workflow, 'submit');
-  let reconciliation;
-  let telemetryPublication = null;
-  await storyDraftTransaction(root, config, workflow, `telemetry-reconcile:${initialPhaseId}`, async (recoveryPreimage) => {
-    reconciliation = await reconcilePhaseTelemetry(root, config, workflow, { phaseId: requestedPhase });
-    if (reconciliation.updated) {
-      telemetryPublication = await commitAndPublish(
-        root,
-        config,
-        workflow,
-        { type: LIFECYCLE_EVENT.TELEMETRY_RECORDED, phaseId: reconciliation.phase, generation: reconciliation.generation },
-        `[${workflow.workItem.id}][phase:${reconciliation.phase}][telemetry:${reconciliation.generation}] reconcile Copilot usage`,
-        [],
-        { recoveryPreimage }
-      );
-    }
-    return reconciliation;
-  });
-  if (reconciliation.updated) {
-    console.log(`Reconciled ${reconciliation.phase} generation ${reconciliation.generation} telemetry at ${telemetryPublication.sha.slice(0, 8)}${telemetryPublication.pushed ? ' and pushed' : ''}.`);
-    console.log(`Models: ${reconciliation.models.join(', ') || 'unavailable'} | Tokens: ${reconciliation.usage.reduce((sum, item) => sum + (item.totalTokens ?? 0), 0) || 'unavailable'} | Provider cost: ${reconciliation.providerCost == null ? 'unavailable' : `$${reconciliation.providerCost.toFixed(6)}`}`);
-    const reconciledActivity = copilotActivityLine(reconciliation.activity);
-    if (reconciledActivity) console.log(reconciledActivity);
-    workflow = await loadStoryAggregate(root, config, resolvedWorkId);
-  } else if (reconciliation.pending) console.warn(`Telemetry remains pending: ${reconciliation.reason}`);
+  // Copilot usage is never read during the work; `singularity-flow telemetry reconcile` records it.
   const workflowBeforeSubmission = structuredClone(workflow);
   const phaseId = requestedPhase ?? workflow.currentPhase;
   const requested = workflow.phases[phaseId];

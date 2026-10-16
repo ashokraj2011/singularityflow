@@ -3863,11 +3863,11 @@ export async function publishGeneration(root, config, workflow, {
     ? { source: 'not-invoked', usage: [], spans: 0, rawBytes: 0, pending: false, warnings: [] }
     : rawUsage
     ? { source: 'usage-json', usage: Array.isArray(rawUsage) ? rawUsage : [rawUsage], spans: 0, rawBytes: 0, startedAt: rawUsage.startedAt, completedAt: rawUsage.completedAt, warnings: [] }
-    : { source: 'copilot-otel', ...await collectCopilotUsage(root, workflow, phase) };
+    : { source: 'copilot-otel', ...await collectCopilotUsage(root, workflow, phase, { readTelemetry: false }) };
   capture.pending = modelAssisted && !rawUsage && capture.usage.length === 0;
   // Only a launch SFlow started can still be exporting its turn; say so only when one ran.
   if (capture.pending) capture.warnings.push(telemetryCaptureGap(capture, null) === 'awaiting-export'
-    ? 'The active Copilot turn has not been exported yet; telemetry will be reconciled automatically before submission.'
+    ? 'Copilot usage is not read during the work; run singularity-flow telemetry reconcile to record it.'
     : 'No Copilot activity was captured for this phase.');
   capture.warnings.forEach((warning) => console.warn(`Telemetry warning: ${warning}`));
   const normalizedUsage = modelAssisted

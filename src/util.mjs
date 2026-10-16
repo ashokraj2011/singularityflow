@@ -3,6 +3,7 @@ import {
   accessSync, constants as FS_CONSTANTS, existsSync, readFileSync, statSync
 } from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
+import { constants as bufferConstants } from 'node:buffer';
 import { link, lstat, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
@@ -720,6 +721,11 @@ export function run(command, args = [], {
    */
   recordGitTiming = true
 } = {}) {
+  // A text answer cannot exceed Node's string limit (about 512 MB). Above it, Node threw
+  // ERR_STRING_TOO_LONG from inside spawnSync instead of the ENOBUFS refusal explained below.
+  if (encoding !== 'buffer' && Number.isFinite(maxBuffer) && maxBuffer > bufferConstants.MAX_STRING_LENGTH) {
+    maxBuffer = bufferConstants.MAX_STRING_LENGTH;
+  }
   if (command === 'git') {
     // null/zero previously disabled the default. No Git child may wait forever, including
     // untyped legacy callers. A hard signal also bounds a synchronous child ignoring SIGTERM.

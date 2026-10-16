@@ -1,5 +1,5 @@
 import { nextPhaseGeneration } from './phase-generation.mjs';
-import { readFile, stat } from 'node:fs/promises';
+import { open, readFile, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { gitCommonDir } from './git.mjs';
@@ -7,7 +7,7 @@ import { combineUsageMetrics, providerTokenArithmetic, usageMetric } from './mod
 import { boundedErrorType, summarizeCopilotActivity } from './copilot-activity.mjs';
 import { exists, nowIso, snapshot, writeJson } from './util.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
-import { listTelemetryLaunches, telemetryRawPath, telemetryWorktreeId } from './telemetry-provision.mjs';
+import { listTelemetryLaunches, telemetryPreferenceStatus, telemetryRawPath, telemetryWorktreeId } from './telemetry-provision.mjs';
 import { withSubjectLock } from './subject-lock.mjs';
 
 const CURSOR_SCHEMA = currentSchemaVersion('telemetry-cursor');
@@ -32,26 +32,28 @@ function rawTelemetryPath(root) {
   return configured ? path.resolve(root, configured) : path.join(gitCommonDir(root), 'singularity-flow', 'copilot-otel.jsonl');
 }
 
-export async function copilotTelemetryStatus(root = null) {
+export async function copilotTelemetryStatus(root = null, { countSpans = false } = {}) {
   const raw = root ? rawTelemetryPath(root) : null;
   const info = raw ? await stat(raw).catch(() => null) : null;
   const setup = await managedTelemetrySetup();
   const fileConfigured = Boolean(process.env.COPILOT_OTEL_FILE_EXPORTER_PATH);
   const externalEndpoint = Boolean(process.env.OTEL_EXPORTER_OTLP_ENDPOINT);
   const explicitlyEnabled = String(process.env.COPILOT_OTEL_ENABLED ?? '').toLowerCase() === 'true';
-  let spans = 0; const warnings = [];
-  if (info?.isFile() && info.size) {
-    const parsed = parseCopilotTelemetry(await readFile(raw, 'utf8'));
+  // Counting spans reads the whole, ever-growing file: only `telemetry status` asks for it, never
+  // a snapshot that VS Code refreshes or a command an agent runs during the work.
+  let spans = countSpans ? 0 : null; const warnings = [];
+  if (countSpans && info?.isFile() && info.size) {
+    const parsed = await parseCopilotTelemetryFile(raw);
     spans = parsed.spans.length;
     warnings.push(...parsed.warnings);
   }
   if (externalEndpoint && !fileConfigured) warnings.push('An OTLP endpoint is configured, but Singularity Flow requires the Copilot file exporter for repository-scoped collection.');
-  if (!fileConfigured && !externalEndpoint && !explicitlyEnabled && !spans) warnings.push('This process was started without Copilot OpenTelemetry configuration.');
+  if (!fileConfigured && !externalEndpoint && !explicitlyEnabled && !(spans ?? info?.size)) warnings.push('This process was started without Copilot OpenTelemetry configuration.');
   if (setup.installed && !setup.current) warnings.push('The installed Singularity Flow Copilot helper is legacy and shadows manual Copilot launches; rerun install.sh to replace it.');
   if (!root) warnings.push('No repository is selected; repository-scoped legacy telemetry is unavailable.');
   else if (!info?.isFile()) warnings.push('The repository telemetry file does not exist.');
   else if (!info.size) warnings.push('The repository telemetry file is empty; finish a Copilot turn before checking again.');
-  else if (!spans) warnings.push('The telemetry file contains no completed Copilot chat spans.');
+  else if (countSpans && !spans) warnings.push('The telemetry file contains no completed Copilot chat spans.');
   return {
     enabled: fileConfigured || externalEndpoint || explicitlyEnabled,
     fileConfigured,
@@ -61,7 +63,7 @@ export async function copilotTelemetryStatus(root = null) {
     exists: Boolean(info?.isFile()),
     bytes: info?.isFile() ? info.size : 0,
     completedChatSpans: spans,
-    ready: Boolean(info?.isFile()) && spans > 0,
+    ready: Boolean(info?.isFile()) && (countSpans ? spans > 0 : info.size > 0),
     setup,
     warnings
   };
@@ -299,32 +301,90 @@ function spansIn(value, output = [], seen = new Set()) {
   return output;
 }
 
+const SENSITIVE_TELEMETRY = /(?:prompt|completion(?:[_ -]?text)?|messages?|system[_ -]?prompt|source[_ -]?code|file[_ -]?content|tool[_ -]?(?:input|output|arguments?|results?)|http[_ -]?body|private[_ -]?key|connection[_ -]?string|(?:conversation|session)[_. -]?id)/i;
+const hasSensitiveTelemetry = (value, seen = new Set()) => {
+  if (typeof value === 'string') return SENSITIVE_TELEMETRY.test(value);
+  if (!value || typeof value !== 'object' || seen.has(value)) return false;
+  seen.add(value);
+  return Object.entries(value).some(([key, item]) => SENSITIVE_TELEMETRY.test(key) || hasSensitiveTelemetry(item, seen));
+};
+const telemetryResult = () => ({ spans: [], activities: [], warnings: [], privacyDiagnostics: [] });
+
+/** One telemetry line into `out`; an unterminated last line that does not parse is retried later. */
+function telemetryLine(line, number, incompleteTail, out) {
+  if (!line.trim()) return;
+  let value;
+  try { value = JSON.parse(line); } catch {
+    out.warnings.push(incompleteTail
+      ? 'ignored incomplete telemetry tail; it will be retried at the next boundary'
+      : `quarantined malformed telemetry record at line ${number}`);
+    return;
+  }
+  if (hasSensitiveTelemetry(value)) out.privacyDiagnostics.push(`dropped disallowed telemetry attributes at line ${number}`);
+  out.spans.push(...spansIn(value));
+  out.activities.push(...activitiesIn(value));
+}
+
 export function parseCopilotTelemetry(text) {
   const source = String(text ?? '');
-  const spans = [], activities = [], warnings = [], privacyDiagnostics = [];
+  const out = telemetryResult();
   const lines = source.split(/\r?\n/);
-  const sensitive = /(?:prompt|completion(?:[_ -]?text)?|messages?|system[_ -]?prompt|source[_ -]?code|file[_ -]?content|tool[_ -]?(?:input|output|arguments?|results?)|http[_ -]?body|private[_ -]?key|connection[_ -]?string|(?:conversation|session)[_. -]?id)/i;
-  const hasSensitive = (value, seen = new Set()) => {
-    if (typeof value === 'string') return sensitive.test(value);
-    if (!value || typeof value !== 'object' || seen.has(value)) return false;
-    seen.add(value);
-    return Object.entries(value).some(([key, item]) => sensitive.test(key) || hasSensitive(item, seen));
-  };
   for (const [index, line] of lines.entries()) {
-    if (!line.trim()) continue;
-    let value;
-    try { value = JSON.parse(line); } catch {
-      const incompleteTail = index === lines.length - 1 && !source.endsWith('\n');
-      warnings.push(incompleteTail
-        ? 'ignored incomplete telemetry tail; it will be retried at the next boundary'
-        : `quarantined malformed telemetry record at line ${index + 1}`);
-      continue;
-    }
-    if (hasSensitive(value)) privacyDiagnostics.push(`dropped disallowed telemetry attributes at line ${index + 1}`);
-    spans.push(...spansIn(value));
-    activities.push(...activitiesIn(value));
+    telemetryLine(line, index + 1, index === lines.length - 1 && !source.endsWith('\n'), out);
   }
-  return { spans, activities, warnings, privacyDiagnostics };
+  return out;
+}
+
+const TELEMETRY_READ_BYTES = 1024 * 1024;
+const MAXIMUM_TELEMETRY_LINE_BYTES = 16 * 1024 * 1024;
+
+/**
+ * The same parse as `parseCopilotTelemetry`, read from `start` one line at a time. Copilot appends
+ * to these files on every turn and nothing trims them: the unread part of a busy repository's file
+ * passed Node's 512 MB string limit, and publication failed with ERR_STRING_TOO_LONG while only
+ * collecting token counts. Here no more than one line is held, and a line over the bound is
+ * quarantined unread.
+ */
+export async function parseCopilotTelemetryFile(file, { start = 0, maximumLineBytes = MAXIMUM_TELEMETRY_LINE_BYTES } = {}) {
+  const out = telemetryResult();
+  const handle = await open(file, 'r');
+  try {
+    const chunk = Buffer.alloc(TELEMETRY_READ_BYTES);
+    let position = start;
+    let number = 0;
+    let parts = [];
+    let held = 0;
+    let oversized = false;
+    const finish = (incompleteTail) => {
+      number += 1;
+      if (oversized) out.warnings.push(`quarantined an oversized telemetry record at line ${number}`);
+      else telemetryLine(Buffer.concat(parts).toString('utf8').replace(/\r$/u, ''), number, incompleteTail, out);
+      parts = [];
+      held = 0;
+      oversized = false;
+    };
+    for (;;) {
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
+      if (!bytesRead) break;
+      position += bytesRead;
+      let from = 0;
+      while (from <= bytesRead) {
+        const found = chunk.indexOf(0x0a, from);
+        const end = found >= 0 && found < bytesRead ? found : bytesRead;
+        if (!oversized && end > from) {
+          if (held + end - from > maximumLineBytes) { oversized = true; parts = []; held = 0; }
+          else { parts.push(Buffer.from(chunk.subarray(from, end))); held += end - from; }
+        }
+        if (end === bytesRead) break;
+        finish(false);
+        from = end + 1;
+      }
+    }
+    if (held || oversized) finish(true);
+  } finally {
+    await handle.close();
+  }
+  return out;
 }
 
 export function groupedUsage(spans) {
@@ -382,7 +442,26 @@ export function groupedUsage(spans) {
   });
 }
 
-export async function collectCopilotUsage(root, workflow, phase, { generation } = {}) {
+/**
+ * Copilot usage for a generation. It is a measurement, never a gate. The work path (publication)
+ * passes `readTelemetry: false`: it records only which launches ran, and usage stays pending until
+ * `singularity-flow telemetry reconcile` reads the telemetry outside the work. Copilot appends to
+ * these files on every turn, and reading them inside a publication failed it once they passed
+ * Node's 512 MB string limit. When the telemetry cannot be read, usage stays pending with a warning.
+ */
+export async function collectCopilotUsage(root, workflow, phase, options = {}) {
+  try {
+    return await collectUsage(root, workflow, phase, options);
+  } catch (error) {
+    return {
+      usage: [], activity: summarizeCopilotActivity([]), spans: 0, rawBytes: 0, startedAt: null, completedAt: nowIso(),
+      warnings: [`Copilot usage could not be read (${error?.code ?? error?.name ?? 'error'}); publication continued without it.`],
+      privacyDiagnostics: [], launches: []
+    };
+  }
+}
+
+async function collectUsage(root, workflow, phase, { generation, readTelemetry = true } = {}) {
   const raw = rawTelemetryPath(root);
   const info = await stat(raw).catch(() => null);
   let state;
@@ -395,6 +474,11 @@ export async function collectCopilotUsage(root, workflow, phase, { generation } 
   const key = cursorKey(workflow, phase, generation);
   const cursor = state.cursors[key] ?? { offset: info?.size ?? 0, startedAt: nowIso(), missing: true };
   const since = Date.parse(cursor.startedAt);
+  // A generation's window ends where this Story's next one began. Its authoring turn may finish
+  // after publication, and a reconciliation run later must not count the next step's work.
+  const until = Object.values(state.cursors ?? {})
+    .filter((other) => other?.workId === workflow.workItem.id && Date.parse(other.startedAt) > since)
+    .map((other) => other.startedAt).sort()[0] ?? null;
   const launches = (await listTelemetryLaunches(root, { storyId: workflow.workItem.id }))
     .filter((launch) => !phase?.id || !launch.phase || launch.phase === phase.id)
     .filter((launch) => launch.worktreeId === telemetryWorktreeId(root))
@@ -409,10 +493,10 @@ export async function collectCopilotUsage(root, workflow, phase, { generation } 
     const absolute = telemetryRawPath(root, launch);
     if (!absolute) continue;
     const launchInfo = await stat(absolute).catch(() => null);
-    const parsed = launchInfo?.isFile()
-      ? parseCopilotTelemetry(await readFile(absolute, 'utf8'))
+    const parsed = readTelemetry && launchInfo?.isFile()
+      ? await parseCopilotTelemetryFile(absolute)
       : { spans: [], activities: [], warnings: [], privacyDiagnostics: [] };
-    if (launchInfo?.isFile()) launchBytes += launchInfo.size;
+    if (readTelemetry && launchInfo?.isFile()) launchBytes += launchInfo.size;
     launchSpans.push(...parsed.spans);
     launchActivities.push(...parsed.activities);
     warnings.push(...parsed.warnings);
@@ -426,23 +510,32 @@ export async function collectCopilotUsage(root, workflow, phase, { generation } 
       observedEvents: parsed.spans.length
     });
   }
-  let spans = launchSpans;
-  let activities = launchActivities;
+  const beforeEnd = (at) => !until || !at || Date.parse(at) <= Date.parse(until);
+  let spans = launchSpans.filter((span) => beforeEnd(span.completedAt));
+  let activities = launchActivities.filter((entry) => beforeEnd(entry.at));
   let legacyBytes = 0;
-  if (!spans.length && info?.isFile()) {
+  // The repository file is shared by every Story and never trimmed; a person who turned local
+  // capture off is not measured from it either (an unreadable preference counts as off).
+  const captureEnabled = (await telemetryPreferenceStatus().catch(() => ({ enabled: false }))).enabled === true;
+  if (!readTelemetry) {
+    warnings.push('Copilot usage is not read during the work; run singularity-flow telemetry reconcile to record it.');
+  } else if (!spans.length && info?.isFile() && !captureEnabled) {
+    warnings.push('Local usage capture is disabled; the repository telemetry file was not read.');
+  } else if (!spans.length && info?.isFile()) {
     const start = cursor.offset <= info.size ? cursor.offset : 0;
-    const buffer = await readFile(raw);
-    const parsed = parseCopilotTelemetry(buffer.subarray(start).toString('utf8'));
-    spans = parsed.spans.filter((span) => !Number.isFinite(since) || !span.completedAt || Date.parse(span.completedAt) >= since);
+    const parsed = await parseCopilotTelemetryFile(raw, { start });
+    spans = parsed.spans.filter((span) => (!Number.isFinite(since) || !span.completedAt || Date.parse(span.completedAt) >= since)
+      && beforeEnd(span.completedAt));
     // Launch activity without usable usage spans still describes the launch; only fill the gap.
-    if (!activities.length) activities = parsed.activities.filter((entry) => !Number.isFinite(since) || !entry.at || Date.parse(entry.at) >= since);
+    if (!activities.length) activities = parsed.activities.filter((entry) => (!Number.isFinite(since) || !entry.at || Date.parse(entry.at) >= since)
+      && beforeEnd(entry.at));
     legacyBytes = info.size - start;
     warnings.push(...parsed.warnings);
     privacyDiagnostics.push(...parsed.privacyDiagnostics);
   }
   if (cursorUnavailable) warnings.push('Telemetry cursor state was unreadable; only spans matching the active phase time window were considered.');
   else if (cursor.missing) warnings.push('Telemetry cursor was missing; only spans matching the active phase time window were considered.');
-  if (!spans.length) warnings.push('No completed Copilot chat spans were available before publication.');
+  if (readTelemetry && !spans.length) warnings.push('No completed Copilot chat spans were available before publication.');
   return {
     usage: groupedUsage(spans), activity: summarizeCopilotActivity(activities),
     spans: spans.length, rawBytes: launchBytes + legacyBytes,
@@ -517,7 +610,7 @@ export function telemetryCaptureGap(capture, activity) {
 }
 
 const PENDING_NOTES = {
-  'no-metered-session': 'No Copilot session started through SFlow ran for this phase. Telemetry will be reconciled automatically on the next submit action only if Copilot exports to this repository; native Copilot Chat sends SFlow nothing, so requests, turns and calls stay unavailable.',
+  'no-metered-session': 'No Copilot session started through SFlow ran for this phase. singularity-flow telemetry reconcile records usage only if Copilot exports to this repository; native Copilot Chat sends SFlow nothing, so requests, turns and calls stay unavailable.',
   disabled: 'Copilot activity capture was off for this phase; run singularity-flow telemetry enable to measure the next generation.',
   conflict: 'An existing OpenTelemetry setup kept Copilot activity from SFlow; see singularity-flow telemetry probe.'
 };
@@ -525,7 +618,7 @@ const PENDING_NOTES = {
 /** What to expect after publishing a generation that captured no activity, by why it has none. */
 export function pendingTelemetryNote(captureGap) {
   return PENDING_NOTES[captureGap]
-    ?? 'Telemetry will be reconciled automatically on the next submit action, after Copilot exports this completed turn.';
+    ?? 'Usage is recorded outside the work: run singularity-flow telemetry reconcile after Copilot exports this completed turn.';
 }
 
 export async function recordPhaseTelemetry(root, workflow, phase, usage, capture, { itemDirectory, itemRelative }) {

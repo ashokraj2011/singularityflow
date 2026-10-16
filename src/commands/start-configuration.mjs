@@ -33,10 +33,18 @@ export async function withMaterializedConfigurationRead(root, snapshot, action) 
       });
     }
   };
-  await verify();
-  return withConfigurationReadRoot(root, root, null, action, {
+  let verified = false;
+  // Do not verify the same 161-file closure twice before the first reader. The provider fences
+  // every actual load; capability-map consumers that need no definition are fenced before this
+  // bounded local callback returns, still inside start's rollback boundary and before commit.
+  return withConfigurationReadRoot(root, root, null, async () => {
+    const result = await action();
+    if (!verified) await verify();
+    return result;
+  }, {
     compiledDefinition: async () => {
       await verify();
+      verified = true;
       incrementCommandCounter('configuration.compiled-materialized-reuse');
       // Consumers normalize definitions in place. No caller may mutate a later consumer's copy.
       return copyVerifiedStoryConfigurationDefinition(snapshot, root);

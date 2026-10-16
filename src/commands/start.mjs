@@ -604,7 +604,11 @@ export async function startCommand(positionals, options) {
   if (nonInteractive && !receiptToken && !explicitBase && fromBranch.length === 0
       && !jira && !githubReference) {
     const refs = remoteNames(root).map(name => `refs/remotes/${name}/${canonicalBranch}`);
-    if (!refs.length || localRefHeads(root, refs).size === 0) throw storyBaseRequired(id);
+    let cached = false;
+    for (let index = 0; index < refs.length && !cached; index += 32) {
+      cached = localRefHeads(root, refs.slice(index, index + 32)).size > 0;
+    }
+    if (!cached) throw storyBaseRequired(id);
   }
 
   // Only after a local durable Story has had its network-free pinned resume path do we select policy

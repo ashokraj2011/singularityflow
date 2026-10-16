@@ -93,3 +93,11 @@ test('bounded materialized consumers reuse compilation without hiding writes or 
   await withCommandTiming(fresh, () => loadDefinition(f.target));
   assert.equal(fresh.finish().counters['configuration.definition-load'], 1);
 });
+
+test('a materialized callback that needs no definition is still fenced before publication can continue', async t => {
+  const f = await fixture(t);
+  await assert.rejects(withMaterializedConfigurationRead(f.target, f.snapshot, async () => {
+    await appendFile(path.join(f.target, 'singularity/workflow.yml'), '\n# local callback drift\n');
+    return 'not publishable';
+  }), /changed after materialization/);
+});

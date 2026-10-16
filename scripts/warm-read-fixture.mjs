@@ -24,10 +24,16 @@ export async function createWarmReadFixture({ files = 0, branches = 0 } = {}) {
       SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(directory, 'mode.json'),
       SINGULARITY_FLOW_TEST_IDENTITY: 'Warm Read Tester',
       SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'chore', agent: 'developer' }) };
-    const git = (args, { cwd = repository } = {}) => execFileSync('git', args, {
-      cwd, env, encoding: 'utf8', timeout: process.platform === 'win32' ? 120_000 : 30_000,
-      maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe']
-    }).trim();
+    const git = (args, { cwd = repository } = {}) => {
+      try {
+        return execFileSync('git', args, {
+          cwd, env, encoding: 'utf8', timeout: process.platform === 'win32' ? 120_000 : 30_000,
+          maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe']
+        }).trim();
+      } catch (error) {
+        throw new Error(`Qualification fixture Git '${args[0]}' failed: ${error.message}`, { cause: error });
+      }
+    };
     git(['init', '-q', '-b', 'main']);
     git(['config', 'user.name', 'Warm Read Tester']); git(['config', 'user.email', 'warm@example.invalid']);
     await mkdir(path.join(repository, 'singularity/templates/chore'), { recursive: true });
@@ -62,6 +68,10 @@ export async function createWarmReadFixture({ files = 0, branches = 0 } = {}) {
       return json ? JSON.parse(output) : output;
     };
     return { directory, engine, repository, cli, env, git, state, statePath, cold,
-      cleanup: () => rm(directory, { recursive: true, force: true }) };
-  } catch (error) { await rm(directory, { recursive: true, force: true }); throw error; }
+      cleanup: () => rm(directory, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }) };
+  } catch (error) {
+    try { await rm(directory, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }); }
+    catch (cleanup) { console.warn(`Qualification fixture cleanup failed: ${cleanup.code ?? cleanup.message}`); }
+    throw error;
+  }
 }

@@ -10,13 +10,13 @@ export class IntakeWorktreePreparation {
   private readonly run: Run;
   constructor(run: Run) { this.run = run; }
 
-  schedule(key: string, args: string[]): void {
+  schedule(key: string, args: string[], remote?: string): void {
     const generation = ++this.generation;
     this.pending = this.pending.then(async () => {
       await this.cleanup();
       if (generation !== this.generation) return;
       try {
-        const value = (await this.run([...args, '--prepare-only'])).preparation;
+        const value = (await this.run([...args, ...(remote ? ['--remote', remote] : []), '--prepare-only'])).preparation;
         if (value?.status === 'prepared' && typeof value.workId === 'string'
             && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value.baseCommit ?? '')) {
           this.held = { key, workId: value.workId, baseCommit: value.baseCommit!, owned: value.owned === true };

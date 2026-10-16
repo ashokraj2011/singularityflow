@@ -1223,7 +1223,7 @@ export class IntakePanel {
     try {
       const result = await this.client.run<{
         preflight?: {
-          passed?: boolean; readiness?: StoryStartReadinessResult;
+          passed?: boolean; remote?: string; readiness?: StoryStartReadinessResult;
           testReadiness?: PreflightTestReadiness;
           testRecovery?: PreflightTestRecovery;
           intakeReceipt?: { issued?: boolean; id?: string; expiresAt?: string; reason?: string };
@@ -1299,7 +1299,7 @@ export class IntakePanel {
           .createIntakeWorktreePreparation(this.client);
         this.preparation.schedule(this.intakeReceipt.key, [
           ...intakeCommand(this.form), '--intake-receipt', this.intakeReceipt.id
-        ]);
+        ], result.preflight?.remote);
       }
     } catch (error) {
       if (version !== this.preflightVersion) return;

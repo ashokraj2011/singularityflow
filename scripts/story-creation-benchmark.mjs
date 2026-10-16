@@ -26,6 +26,7 @@ if (!Number.isSafeInteger(samples) || samples < 1 || samples > 20
 const summary = values => ({ medianMs: [...values].sort((a,b) => a-b)[Math.floor(values.length/2)],
   minMs: Math.min(...values), maxMs: Math.max(...values) });
 const fixture = await createWarmReadFixture({ files });
+let failure = null;
 try {
   const outdir = path.join(fixture.engine, 'bundle');
   const sourceMode = option('layout', 'cold') === 'source';
@@ -178,4 +179,11 @@ try {
   const serialized = JSON.stringify(report, null, 2) + '\n';
   if (outputFile) await writeFile(path.resolve(outputFile), serialized, { mode: 0o600 });
   process.stdout.write(serialized);
-} finally { await fixture.cleanup(); }
+} catch (error) { failure = error; throw error; }
+finally {
+  try { await fixture.cleanup(); }
+  catch (cleanup) {
+    if (!failure) throw cleanup;
+    console.warn(`Qualification cleanup failed after the primary error: ${cleanup.code ?? cleanup.message}`);
+  }
+}

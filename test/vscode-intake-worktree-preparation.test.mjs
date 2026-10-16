@@ -41,3 +41,9 @@ test('failed preparation or cleanup never blocks the next Start', async () => {
   helper.schedule('key', ['start', 'story']); assert.equal(await helper.take('key'), null);
   helper.cancel(); await tick();
 });
+test('preparation uses the exact preflight remote instead of assuming origin', async () => {
+  const calls = [], helper = new IntakeWorktreePreparation(async args => { calls.push(args); return prepared(); });
+  helper.schedule('company', ['start', 'story'], 'company');
+  await helper.take('company');
+  assert.deepEqual(calls, [['start', 'story', '--remote', 'company', '--prepare-only']]);
+});

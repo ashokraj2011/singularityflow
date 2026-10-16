@@ -5,6 +5,7 @@ import {
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { parseYamlText } from './yaml-parse-cache.mjs';
+import { mergePhaseOverride } from './phase-overrides.mjs';
 import { assertDocumentStoragePolicy } from './document-storage-policy.mjs';
 import { PACKAGE_ROOT } from './package-root.mjs';
 import {
@@ -1815,25 +1816,7 @@ function declaredCatalogValue(catalog, id) {
  * the phase's own. Workflow Studio folds an override into a step copied for one workflow with this
  * same rule, so the copy runs exactly as the step it replaces.
  */
-export function mergePhaseOverride(phase, override = {}) {
-  return {
-    ...phase,
-    ...override,
-    artifact: { ...(phase.artifact ?? {}), ...(override.artifact ?? {}) },
-    worldModel: { ...(phase.worldModel ?? {}), ...(override.worldModel ?? {}) },
-    approval: override.approval === undefined
-      ? phase.approval
-      : typeof override.approval === 'string'
-        ? override.approval
-        : { ...(phase.approval ?? {}), ...override.approval },
-    generation: override.generation === undefined
-      ? phase.generation
-      : typeof override.generation === 'string'
-        ? override.generation
-        : { ...(phase.generation ?? {}), ...override.generation },
-    comparison: { ...(phase.comparison ?? {}), ...(override.comparison ?? {}) }
-  };
-}
+export { mergePhaseOverride };
 
 export function resolveWorkType(definition, workTypeId) {
   const workType = declaredCatalogValue(definition.workTypes, workTypeId);

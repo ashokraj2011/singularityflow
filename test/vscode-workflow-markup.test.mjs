@@ -11,6 +11,9 @@ import { integerField, registerMessageRouter, stringField } from '../apps/vscode
 import { navigationTarget } from '../apps/vscode/src/views/webview.ts';
 import { workflowIntentPrompt } from '../apps/vscode/src/views/workflow-intent-prompt.ts';
 import { WorkflowAttachmentStore } from '../apps/vscode/src/views/workflow-attachment-store.ts';
+import { withWorkflowIntentCatalog, queryWorkflowIntentCatalog } from '../src/workflow-intent-catalog.mjs';
+import { compileWorkflowMarkup } from '../src/workflow-markup.mjs';
+import { workflowMarkupCandidate } from './helpers/workflow-markup-candidate.mjs';
 
 const result = { status: 'portable-ready', sourceSha256: 'source-hash', bundleSha256: 'bundle-hash',
   workflow: { id: 'demo', label: '<script>literal</script>', phases: [{ id: 'intake', label: 'Intake', agent: 'analyst' }], decisions: [] },
@@ -28,14 +31,36 @@ class Element {
   focus() {}
   setRangeText(text, start, end) { this.value = this.value.slice(0, start) + text + this.value.slice(end); }
 }
-function browser() {
+function browser(initialState = null) {
   const elements = Object.fromEntries([...WORKFLOW_MARKUP_BODY.matchAll(/id="([^"]+)"/gu)].map(match => [match[1], new Element()]));
   elements['markup-catalog-source'].value = 'approved';
-  const posted = []; let receive;
-  const window = { __sfVscode: { postMessage: message => posted.push(structuredClone(message)), getState: () => null, setState() {} }, addEventListener: (_name, callback) => { receive = callback; } };
+  const posted = []; let receive, retained = initialState;
+  const window = { __sfVscode: { postMessage: message => posted.push(structuredClone(message)), getState: () => retained, setState: value => { retained = structuredClone(value); } }, addEventListener: (_name, callback) => { receive = callback; } };
   new Function('window', 'document', WORKFLOW_MARKUP_SCRIPT)(window, { getElementById: id => elements[id], createElement: tag => new Element(tag), createTextNode: text => ({ textContent: text }), querySelectorAll: () => [] });
-  return { elements, posted, receive: message => receive({ data: message }) };
+  return { elements, posted, receive: message => receive({ data: message }), state: () => retained };
 }
+
+test('sequential results without decisions render safely, and a screened failed candidate survives reload without authorizing import', () => {
+  const ui = browser(), sequential = structuredClone(result);
+  delete sequential.workflow.decisions;
+  assert.doesNotThrow(() => ui.receive({ type: 'markup.proposed', revision: 0, source: '<previous/>', result: sequential }));
+  assert.equal(ui.elements['markup-import'].disabled, false);
+  ui.receive({ type: 'markup.nativeBusy' });
+  ui.receive({ type: 'markup.nativeIdle' });
+  assert.equal(ui.elements['markup-import'].disabled, true, 'A new failed check cannot reuse the previous successful check.');
+  ui.receive({ type: 'markup.draftFailed', revision: 0, source: '<workflow>retained &amp; inert</workflow>', message: 'Internal compiler failure' });
+  assert.equal(ui.elements['markup-source'].value, '<workflow>retained &amp; inert</workflow>');
+  assert.equal(ui.elements['markup-import'].disabled, true);
+  assert.equal(ui.elements['markup-result'].hidden, true);
+  assert.match(ui.elements['markup-status'].textContent, /unchecked candidate.*retained/iu);
+  const resumed = browser(ui.state());
+  assert.equal(resumed.elements['markup-source'].value, '<workflow>retained &amp; inert</workflow>');
+  assert.equal(resumed.elements['markup-check'].disabled, false);
+  assert.equal(resumed.elements['markup-import'].disabled, true);
+  resumed.elements['markup-intent'].value = 'New intent'; resumed.elements['markup-intent'].listeners.input();
+  resumed.receive({ type: 'markup.draftFailed', revision: 0, source: '<obsolete/>', message: 'Late failure' });
+  assert.notEqual(resumed.elements['markup-source'].value, '<obsolete/>');
+});
 
 test('tag editor preserves source, rejects stale checks, and renders markup as inert text', () => {
   assert.match(WORKFLOW_MARKUP_BODY, /aria-live="polite"/);
@@ -91,10 +116,15 @@ async function host({ native = false } = {}) {
   let groups = [{ id: 'quality-reviewers', label: 'Quality reviewers' }];
   let capabilities = { protocol: 1, engine: { sha256: 'sha256:' + 'd'.repeat(64) }, grammarVersions: [2], cli: { compile: true, catalog: true, asset: true, attachments: true, documentation: true } };
   const client = { repository: '/selected/repository', location: { executable: '/installed/node', cli: '/installed/sflow.mjs' },
-    run: async args => args.includes('attachments') ? captureRun(args) : args.includes('preflight')
-      ? { resultType: 'workflow-intent-preflight', sourceSha256: catalog.sourceSha256, catalog: await catalogRun(args), capabilities,
-        approvalAuthorities: structuredClone(groups) }
-      : args.includes('intent') ? catalogRun(args) : ({ source: '<workflow />' }),
+    run: async args => {
+      if (args.includes('attachments')) return captureRun(args);
+      if (args.includes('preflight')) {
+        const selected = await catalogRun(args);
+        return { resultType: 'workflow-intent-preflight', sourceSha256: selected.sourceSha256, catalog: selected, capabilities,
+          approvalAuthorities: structuredClone(groups) };
+      }
+      return args.includes('intent') ? catalogRun(args) : { source: '<workflow />' };
+    },
     runWithInput: async (args, text) => { calls.push({ args: [...args], text }); return compile(args, text); } };
   const intentRuntime = { workflowIntentPrompt, attachWorkflowIntentTool: handler => { toolHandler = handler; return { available: native, session: 'designer-session', dispose() {} }; } };
   const Panel = new Function('vscode', 'path', 'fs', 'constants', 'TextDecoder', 'require', '__dirname', 'nonce', 'page', 'contentSecurityPolicy', 'registerMessageRouter', 'integerField', 'stringField', 'navigationTarget', 'navigateTo', 'brandMark', code + '\nreturn WorkflowMarkupPanel;')(
@@ -386,7 +416,7 @@ test('native Copilot submits a checked draft directly to the designer without a 
 test('native draft checks bound corrections, stop unchanged failures and discard edits while checking', async () => {
   const ui = await host({ native: true });
   await ui.send({ type: 'markup.copilot', intent: 'Preserve my intent', catalogSource: 'installed', revision: 0 });
-  ui.compile(async () => { throw new Error('Invalid candidate'); });
+  ui.compile(async () => { throw Object.assign(new Error('Invalid candidate'), { result: { error: { code: 'WORKFLOW_MARKUP_INVALID' } } }); });
   await assert.rejects(ui.tool({ action: 'draft', revision: 0, source: '<one/>' }), /Invalid candidate/u);
   assert.ok(ui.posted.some(message => message.type === 'markup.error' && message.message === 'Invalid candidate' && message.revision === 0));
   const attempts = ui.calls.length;
@@ -403,6 +433,62 @@ test('native draft checks bound corrections, stop unchanged failures and discard
   await assert.rejects(pending, /changed/u);
   assert.equal(stale.posted.some(message => message.type === 'markup.proposed'), false);
   assert.equal(stale.posted.some(message => message.type === 'markup.error'), false, 'a late failure must not replace the edited draft status');
+});
+
+test('native compiler/transport failures stop model corrections immediately and retain only credential-screened candidates', async () => {
+  for (const mode of ['compiler', 'transport', 'credentials']) {
+    const ui = await host({ native: true });
+    await ui.send({ type: 'markup.copilot', intent: 'Preserve my intent', catalogSource: 'installed', revision: 0 });
+    const code = mode === 'compiler' ? 'WORKFLOW_MARKUP_COMPILER_FAILED' : mode === 'credentials' ? 'WORKFLOW_MARKUP_CONTENT_BLOCKED' : null;
+    ui.compile(async () => { throw Object.assign(new Error(`${mode} failure`), code ? { result: { error: { code } } } : {}); });
+    await assert.rejects(ui.tool({ action: 'draft', revision: 0, source: '<candidate/>' }));
+    const retained = ui.posted.filter(message => message.type === 'markup.draftFailed');
+    assert.equal(retained.length, mode === 'compiler' ? 1 : 0, mode);
+    if (mode === 'compiler') assert.equal(retained[0].source, '<candidate/>');
+    else assert.ok(ui.posted.filter(message => message.type === 'markup.error').every(message => !Object.hasOwn(message, 'source')));
+    if (mode !== 'credentials') {
+      for (const source of ['<candidate/>', '<different-candidate/>']) await assert.rejects(
+        ui.tool({ action: 'draft', revision: 0, source }), /stopped after an internal compiler or transport failure/u);
+      assert.equal(ui.calls.length, 1, mode);
+    }
+    assert.deepEqual(ui.imports, []);
+    assert.equal(ui.posted.some(message => message.type === 'markup.proposed'), false);
+  }
+});
+
+test('catalog drift, invalid installation and unsupported contracts stop before more model correction calls', async () => {
+  for (const code of ['WORKFLOW_INTENT_CATALOG_STALE', 'DOCS_MANIFEST_MISMATCH', 'WORKFLOW_MARKUP_CAPABILITY_REQUIRED', 'WORKFLOW_MARKUP_CONTENT_BLOCKED']) {
+    const ui = await host({ native: true });
+    await ui.send({ type: 'markup.copilot', intent: 'Preserve my intent', catalogSource: 'installed', revision: 0 });
+    ui.compile(async () => { throw Object.assign(new Error(code), { result: { error: { code } } }); });
+    await assert.rejects(ui.tool({ action: 'draft', revision: 0, source: '<candidate/>' }));
+    await assert.rejects(ui.tool({ action: 'draft', revision: 0, source: '<changed/>' }), /prerequisite or human decision/u);
+    assert.equal(ui.calls.length, 1);
+    assert.equal(ui.posted.some(message => message.type === 'markup.draftFailed' || message.type === 'markup.proposed'), false);
+  }
+});
+
+test('native designer corrects a POC approval conflict through the real compiler and accepts the sequential design', async () => {
+  const description = 'Preserve my intent';
+  const captured = await withWorkflowIntentCatalog(null, { source: 'installed' }, value => ({
+    catalog: queryWorkflowIntentCatalog(value),
+    source: workflowMarkupCandidate(value, 'poc-workflow', { description,
+      approvalGroup: phase => phase === 'poc-publication-review' ? 'quality-reviewers' : 'architecture-reviewers' })
+  }));
+  const ui = await host({ native: true });
+  ui.catalog(async () => captured.catalog);
+  ui.compile(async (_args, source) => compileWorkflowMarkup(source, { designReview: true }));
+  await ui.send({ type: 'markup.copilot', intent: description, catalogSource: 'installed', revision: 0 });
+  await assert.rejects(ui.tool({ action: 'draft', revision: 0, source: captured.source.replace('authority="quality-reviewers"', 'authority="architecture-reviewers"') }), /requiredAuthorities.*quality-reviewers/u);
+  const accepted = await ui.tool({ action: 'draft', revision: 0, source: captured.source });
+  assert.equal(accepted.status, 'portable-ready');
+  const proposed = ui.posted.find(message => message.type === 'markup.proposed');
+  assert.equal(proposed.result.designReview.phases.length, 6);
+  assert.deepEqual(proposed.result.workflow.decisions, []);
+  assert.deepEqual(proposed.result.designReview.phases.at(-1).approval.requiredAuthorities, ['quality-reviewers']);
+  assert.equal(accepted.repositoryFilesChanged, false);
+  assert.equal(accepted.approvalRecorded, false);
+  assert.deepEqual(ui.imports, []);
 });
 
 test('direct proposals preview exact checked bytes without another compilation and never overwrite an edited draft', () => {

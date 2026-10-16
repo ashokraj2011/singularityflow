@@ -863,6 +863,16 @@ export function refusalRemediationPlan(error, argv = []) {
   // read from the same command words, or a no-model run loses its phase scope.
   argv = stripGlobalModelOptions(argv);
   const code = String(error?.code ?? 'SINGULARITY_FLOW_ERROR');
+  if (code === 'WORKFLOW_MARKUP_COMPILER_FAILED') return Object.freeze({
+    schemaVersion: 1,
+    status: 'blocked', code,
+    steps: Object.freeze([
+      step('inspect-workflow-compiler-build', 'Inspect the installed SFlow build; this is an internal compiler failure, not a workflow markup or approval-group correction.',
+        'singularity-flow about --json', 'diagnostic'),
+      step('preserve-workflow-candidate', 'Preserve the unchecked candidate. Repair or align the CLI and VS Code extension, then reopen Create workflow with Copilot for a fresh catalog-bound handoff. Do not import, activate, weaken approval policy or ask the model to rewrite this unchanged failure.', null, 'remediation')
+    ]),
+    retry: Object.freeze({ label: 'Do not retry until the compiler/build has been repaired or aligned and a fresh designer handoff is available.', automatic: false })
+  });
   const hookFailure = error?.details?.remoteFailure?.hook ?? localGitHookFailure({ stderr: error?.message });
   if (hookFailure) return Object.freeze({
     schemaVersion: 1, // schema-transient: process-boundary guidance, never persisted

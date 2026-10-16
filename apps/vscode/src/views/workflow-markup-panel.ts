@@ -30,6 +30,13 @@ interface IntentPreflight {
 }
 
 export class WorkflowMarkupPanel {
+  /** Closed compiler/transport code, not a guess based on a model-facing error message. */
+  static refusalCode(error: unknown): string | null {
+    const value = error as { code?: unknown; result?: { error?: { code?: unknown } } } | null;
+    const code = value?.result?.error?.code ?? value?.code;
+    return typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,127}$/u.test(code) ? code : null;
+  }
+
   /** Capture one explicitly selected, bounded local file; never scan the repository or follow links. */
   static async readDraft(file: string): Promise<string> {
     const limit = 256 * 1024;
@@ -61,7 +68,7 @@ export class WorkflowMarkupPanel {
     let disposed = false, busy = false, revision = 0;
     let catalogRead: AbortController | null = null;
     let reviewed: { source: string; result: MarkupResult; revision: number; repository: string; inspections: Map<string, Promise<unknown>> } | null = null;
-    let handoff: { intent: string; selected: string; catalog: IntentCatalog; assets: { kind: string; id: string }[]; revision: number; repository: string; attempts: number; failedSource: string | null } | null = null;
+    let handoff: { intent: string; selected: string; catalog: IntentCatalog; assets: { kind: string; id: string }[]; revision: number; repository: string; attempts: number; failedSource: string | null; stopped: string | null } | null = null;
     const intentRuntime = require(path.join(__dirname, 'workflow-intent-runtime.cjs')) as typeof import('../workflow-intent-runtime.ts');
     const post = (value: unknown) => { if (!disposed) void panel.webview.postMessage(value); };
     const reviewPayload = (result: MarkupResult) => ({ ...result, bundle: undefined, routeSimulation: result.routeSimulation ? {
@@ -111,10 +118,13 @@ export class WorkflowMarkupPanel {
       }
       if (busy) throw new Error('A designer check or save is already running. Preserve the candidate.');
       const source = sourceText(input.source ?? null);
+      if (request.stopped) throw new Error(request.stopped);
       if (request.attempts >= 3 || source === request.failedSource) throw new Error('The bounded draft check stopped; do not retry an unchanged failure. Preserve the candidate and request human review.');
-      request.attempts++; busy = true; post({ type: 'markup.nativeBusy' });
+      reviewed = null; busy = true; post({ type: 'markup.nativeBusy' });
+      let compilerResponded = false;
       try {
         const result = await client.runWithInput<MarkupResult>(['workflow', 'markup', 'compile', '-', '--design-review', '--json'], source);
+        compilerResponded = true;
         verifyDraft(result, request.intent, request.selected, request.assets);
         if (!current() || result.catalog?.sourceSha256 !== request.catalog.sourceSha256) throw new Error('The source or intent changed. Request a fresh handoff.');
         reviewed = { source, result, revision, repository: request.repository, inspections: new Map() };
@@ -124,7 +134,24 @@ export class WorkflowMarkupPanel {
           semanticReview: 'required', repositoryFilesChanged: false, approvalRecorded: false, next: 'Review the open designer, then use Save bundle & review import. No import or activation was performed.' };
       } catch (error) {
         request.failedSource = source;
-        if (current()) post({ type: 'markup.error', revision: request.revision, message: (error as Error).message });
+        const code = WorkflowMarkupPanel.refusalCode(error);
+        const unexpected = error instanceof TypeError || error instanceof ReferenceError;
+        const correctable = !unexpected && (compilerResponded || ['WORKFLOW_MARKUP_INVALID', 'WORKFLOW_MARKUP_GRAPH_INVALID',
+          'WORKFLOW_MARKUP_PHASE_UNKNOWN', 'WORKFLOW_MARKUP_LIMIT', 'WORKFLOW_MARKUP_CATALOG_REQUIRED'].includes(code ?? ''));
+        const internal = !correctable && (unexpected || code == null || ['WORKFLOW_MARKUP_COMPILER_FAILED', 'SINGULARITY_FLOW_ERROR', 'SINGULARITY_FLOW_CLI_ERROR'].includes(code));
+        if (correctable) request.attempts++;
+        else request.stopped = internal
+          ? 'Draft checking stopped after an internal compiler or transport failure. Do not spend correction attempts; preserve the draft, repair or align SFlow, then request a fresh designer handoff.'
+          : `Draft checking stopped at ${code}. Resolve this prerequisite or human decision, then request a fresh designer handoff; do not spend markup correction attempts.`;
+        // This closed engine code is issued only after parsing and credential screening. Never
+        // persist a rejected credential-bearing source, or a transport failure's unscreened bytes.
+        const retain = code === 'WORKFLOW_MARKUP_COMPILER_FAILED';
+        const message = internal && !retain
+          ? 'The compiler or its transport did not complete. This is not a markup correction. Stop automatic retries, preserve the candidate and repair or align SFlow before requesting a fresh designer handoff.'
+          : (error as Error).message;
+        if (current()) post({ type: retain ? 'markup.draftFailed' : 'markup.error', revision: request.revision,
+          message, ...(code ? { code } : {}), ...(retain ? { source } : {}) });
+        if (internal && !retain) throw new Error(message, { cause: error });
         throw error;
       }
       finally { busy = false; post({ type: 'markup.nativeIdle' }); }
@@ -283,7 +310,7 @@ export class WorkflowMarkupPanel {
             post({ type: 'markup.done', revision: requested, message: 'Draft retained locally with unresolved checkpoint authority. Select an existing group before generating an import-ready workflow; no model request was sent.' }); return;
           }
           if (disposed || repository !== client.repository || requested !== revision) throw new Error('The repository or intent changed while selecting authority. Your draft is retained.');
-          handoff = { intent, selected, catalog, assets: chosen, revision: requested, repository, attempts: 0, failedSource: null };
+          handoff = { intent, selected, catalog, assets: chosen, revision: requested, repository, attempts: 0, failedSource: null, stopped: null };
           const query = intentRuntime.workflowIntentPrompt({ repository, selected, catalog, intent, source, tool: nativeTool, revision: requested,
             attachments: attachments.prompt(), attachmentReads, selectedAssets: chosen, checkpointGroup: selectedGroup.group ?? undefined,
             cliLocation: client.location, platform: process.platform, capabilities: preflight.capabilities });

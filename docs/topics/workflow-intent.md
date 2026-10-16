@@ -7,7 +7,7 @@ questions:
   - Can different teams describe their own workflow instead of writing markup?
 commands: [workflow]
 related: [workflow-markup, workflow-authoring, reusable-instructions, sgos-governed-execution]
-version: 3
+version: 4
 ---
 
 ## Purpose
@@ -42,7 +42,13 @@ definitions only for genuine gaps. On compatible native-chat hosts, Copilot uses
 the exact catalog and checks an in-memory candidate; it cannot edit repository files, execute
 arbitrary commands, import a bundle or approve configuration. Its session and revision bind the
 current designer. Editing the intent, changing repository or closing the designer invalidates the
-handoff. Checks stop after the initial attempt plus two corrections, or an unchanged failure.
+handoff. Correctable draft checks stop after the initial attempt plus two corrections, or an
+unchanged failure. An internal `WORKFLOW_MARKUP_COMPILER_FAILED` stops corrections immediately:
+it is not a request to change the design, select another authority, or spend more model calls.
+The credential-screened unchecked candidate is retained in the designer's Advanced options,
+without authorizing import. Repair or align the CLI/extension and request a fresh handoff before
+checking again. Unscreened transport failures and credential-blocked content are not copied into
+the designer's saved source.
 
 When the chat harness cannot expose this tool, the request includes an explicit CLI/file fallback.
 Use **Load Copilot draft…** for that saved XML file; an active Story write guard must not be bypassed.

@@ -7,7 +7,7 @@ questions:
   - How do I turn a tagged description into a workflow bundle?
 commands: [workflow]
 related: [workflow-intent, workflow-authoring, workflow-decisions, reusable-instructions]
-version: 6
+version: 7
 ---
 
 ## What this does
@@ -30,6 +30,13 @@ Version 2 is the intent-to-workflow authoring format. It binds an exact approved
 catalog, supports asset reuse and preserves structural intent coverage. See
 `singularity-flow explain workflow-intent` before drafting. The selected workflow contract still
 owns its phase count, order and obligations; a family label never grants new runtime support.
+
+The compiler applies the selected workflow's phase overrides before remapping names. A shared
+phase's unused defaults cannot introduce foreign inputs or return routes into the derived
+workflow. Evidence producers remain single phase references, design-source capture/consumer
+references follow the new namespace, and sequential workflows return an empty decision list.
+Required approval groups and inherited repair limits remain enforced; changing names does not
+remove those obligations.
 
 ## Version 2 catalog binding and reuse
 

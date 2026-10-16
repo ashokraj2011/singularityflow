@@ -147,7 +147,7 @@ async function capture(root, authority) {
   entries.sort((a, b) => compare(`${a.kind}:${a.id}`, `${b.kind}:${b.id}`));
   if (entries.length > 4096) fail('Too many catalog assets.', 'WORKFLOW_INTENT_LIMIT');
   const source = { kind: authority.kind, ref: authority.ref ?? null, commit: authority.commit ?? null };
-  const interpretation = await Promise.all(['workflow-intent-catalog.mjs', 'workflow-intent-patterns.mjs', 'workflow-markup.mjs', 'workflow-markup-parser.mjs', 'workflow-markup-mcp.mjs', 'skill-instruction-composition.mjs', 'workflow-intent-capabilities.mjs', 'commands/workflow-intent.mjs']
+  const interpretation = await Promise.all(['workflow-intent-catalog.mjs', 'workflow-intent-patterns.mjs', 'workflow-markup.mjs', 'workflow-markup-parser.mjs', 'workflow-markup-references.mjs', 'phase-overrides.mjs', 'workflow-markup-mcp.mjs', 'skill-instruction-composition.mjs', 'workflow-intent-capabilities.mjs', 'commands/workflow-intent.mjs']
     .map(async file => ({ file, sha256: sha(await readFile(path.join(PACKAGE_ROOT, 'src', file), 'utf8')) })));
   const sourceSha256 = sha({ format: WORKFLOW_INTENT_CATALOG_FORMAT, interpretation, source, definition: sha(rawText),
     files: [...files].sort(([a], [b]) => compare(a, b)).map(([file, text]) => ({ file, sha256: sha(text) })), entries: entries.map(({ value, ...item }) => item), problems });

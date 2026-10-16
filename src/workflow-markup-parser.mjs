@@ -10,6 +10,17 @@ export function markupError(message, node = null, code = 'WORKFLOW_MARKUP_INVALI
   });
 }
 
+/** Domain findings can be corrected; unexpected compiler/IO failures must not spend model retries. */
+export function markupCompilerError(error) {
+  if (error instanceof SingularityFlowError) {
+    if (error.code) return error;
+    return new SingularityFlowError(error.message, { code: 'WORKFLOW_MARKUP_INVALID',
+      exitCode: error.exitCode, details: error.details, cause: error });
+  }
+  return new SingularityFlowError('The workflow compiler failed internally; this is not a markup correction. Preserve the candidate, align or repair the installed SFlow build, then reopen the designer for a fresh catalog. Do not retry the unchanged compiler failure.',
+    { code: 'WORKFLOW_MARKUP_COMPILER_FAILED', cause: error });
+}
+
 function decode(value, node) {
   // Only the five predefined XML entities and literal Unicode scalar references are supported.
   if (/&(?!amp;|lt;|gt;|quot;|apos;|#(?:[0-9]+|x[0-9a-fA-F]+);)/u.test(value)) {

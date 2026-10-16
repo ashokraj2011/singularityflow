@@ -4,7 +4,9 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, lstat } from 'node:fs/promises
 import os from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
-import { parseWorkflowMarkup, markupChildren, markupShape, markupId, markupText, markupError } from './workflow-markup-parser.mjs';
+import { parseWorkflowMarkup, markupChildren, markupShape, markupId, markupText, markupError, markupCompilerError } from './workflow-markup-parser.mjs';
+import { remapMarkupPhase, remapMarkupWorkflow } from './workflow-markup-references.mjs';
+import { mergePhaseOverride } from './phase-overrides.mjs';
 import { scanEntries } from './secrets.mjs';
 import { inlineInstructionTags } from './skill-instruction-composition.mjs';
 import { withoutAttachedSkills, effectiveLibrarySkills } from './skill-library.mjs';
@@ -71,9 +73,6 @@ export function lowerWorkflowMarkup(source, { definition, agents = [], catalog =
   if (!base) markupError('The extends workflow is not in the selected configuration.', root);
   if (version2) reuse('workflow', baseId, root);
   if (Object.hasOwn(definition.workTypes, id)) markupError('Workflow ID already exists; choose a new namespace.', root);
-  const workflow = structuredClone(base);
-  workflow.label = text(root.attrs.label, root, 'Workflow label');
-  workflow.description = description(root) ?? base.description ?? '';
   const phaseNodes = children(root, 'phase');
   if (!phaseNodes.length || phaseNodes.length > 30 || phaseNodes.length !== base.phases.length) markupError('Map every selected workflow-contract phase once, in its existing order. Use the canvas or reviewed workflow-authoring package route for a different topology.', root);
   const phaseMap = new Map(); const phaseIds = new Set();
@@ -103,22 +102,11 @@ export function lowerWorkflowMarkup(source, { definition, agents = [], catalog =
     if (!phaseMap.has(value)) markupError('A starter dependency is outside the selected workflow; select a self-contained starter.', root);
     return phaseMap.get(value);
   };
-  const remapPhase = original => {
-    const phase = structuredClone(original);
-    if (phase.inputs) phase.inputs = phase.inputs.map(input => typeof input === 'string' ? remap(input) : { ...input, phase: remap(input.phase) });
-    if (phase.testEvidenceFrom) phase.testEvidenceFrom = phase.testEvidenceFrom.map(remap);
-    if (phase.approval?.rejectTo) phase.approval.rejectTo = phase.approval.rejectTo.map(remap);
-    if (phase.repairBudget?.resetOnPhase) phase.repairBudget.resetOnPhase = remap(phase.repairBudget.resetOnPhase);
-    return phase;
-  };
+  const remapPhase = original => remapMarkupPhase(original, remap);
+  const workflow = remapMarkupWorkflow(base, remap);
+  workflow.label = text(root.attrs.label, root, 'Workflow label');
+  workflow.description = description(root) ?? base.description ?? '';
   workflow.phases = phaseNodes.map(node => node.attrs.id);
-  if (workflow.plannedClaims?.clausePhases) workflow.plannedClaims.clausePhases = workflow.plannedClaims.clausePhases.map(remap);
-  if (workflow.plannedClaims?.owners) workflow.plannedClaims.owners = Object.fromEntries(Object.entries(workflow.plannedClaims.owners).map(([a, b]) => [remap(a), remap(b)]));
-  for (const key of ['phaseOverrides', 'templateOverrides']) if (workflow[key]) workflow[key] = Object.fromEntries(Object.entries(workflow[key]).map(([phase, value]) => [remap(phase), key === 'phaseOverrides' ? remapPhase(value) : value]));
-  if (workflow.documents?.allowedPhases) workflow.documents.allowedPhases = workflow.documents.allowedPhases.map(remap);
-  if (workflow.sourceReview?.phases) workflow.sourceReview.phases = workflow.sourceReview.phases.map(remap);
-  if (workflow.reworkLoops) workflow.reworkLoops = workflow.reworkLoops.map(loop => ({ ...loop, from: remap(loop.from), to: remap(loop.to), ...(loop.resetOnPhase ? { resetOnPhase: remap(loop.resetOnPhase) } : {}) }));
-  if (workflow.contextPolicy?.phaseOverrides) workflow.contextPolicy.phaseOverrides = Object.fromEntries(Object.entries(workflow.contextPolicy.phaseOverrides).map(([phase, value]) => [remap(phase), value]));
   // Known per-phase references must be explicit; do not clone arbitrary future reference fields.
   const decisions = (base.decisions ?? []).map((decision, index) => ({ ...structuredClone(decision),
     id: markupId(`${id}-decision-${index + 1}`, root), after: remap(decision.after),
@@ -176,7 +164,9 @@ export function lowerWorkflowMarkup(source, { definition, agents = [], catalog =
   const decisionIds = new Set(decisions.map(decision => decision.id));
   for (const node of phaseNodes) {
     const phaseId = node.attrs.id;
-    const phase = remapPhase(definition.phases[node.attrs.from]);
+    // Resolve the selected contract first: shared defaults may point outside this workflow,
+    // while its approved override replaces those inputs, return routes or generation policy.
+    const phase = remapPhase(mergePhaseOverride(definition.phases[node.attrs.from], base.phaseOverrides?.[node.attrs.from]));
     if (phase.kind === 'skill' || typeof phase.artifact?.path !== 'string') markupError('Version 1 supports ordinary Story phase contracts; use the existing skill-contract authoring route for this starter.', node);
     if (node.attrs.label !== undefined) phase.label = text(node.attrs.label, node, 'Phase label');
     const override = workflow.phaseOverrides?.[phaseId];
@@ -190,7 +180,7 @@ export function lowerWorkflowMarkup(source, { definition, agents = [], catalog =
       markupShape(approval, 'approval', ['authority', 'on-reject']); empty(approval);
       const group = markupId(approval.attrs.authority, approval, 'Human approval group');
       if (!Object.hasOwn(definition.approvalAuthorities ?? {}, group)) markupError('Approval needs a named installed human authority, not an agent or the word human.', approval);
-      const current = override?.approval ?? phase.approval;
+      const current = phase.approval;
       const updated = { ...(typeof current === 'object' ? current : {}), mode: 'required', authorities: [group], minimum: current?.minimum ?? 1 };
       if (approval.attrs['on-reject']) updated.rejectTo = [phaseRef(approval.attrs['on-reject'], approval)];
       if (updated.rejectTo?.some(target => ['end', 'next'].includes(target))) markupError('Rejection must return to a declared phase.', approval);
@@ -358,12 +348,15 @@ export async function compileWorkflowMarkup(source, { out = null, repository = n
   if (parsed.attrs.version === '2') {
     if (!/^sha256:[a-f0-9]{64}$/u.test(parsed.attrs.catalog ?? '') || !['approved', 'installed'].includes(parsed.attrs['catalog-source'])) markupError('Version 2 requires the exact catalog SHA-256 and an explicit catalog-source.', parsed, 'WORKFLOW_MARKUP_CATALOG_REQUIRED');
     const { withWorkflowIntentCatalog } = await import('./workflow-intent-catalog.mjs');
-    return withWorkflowIntentCatalog(repository, { source: parsed.attrs['catalog-source'], expectedSource: parsed.attrs.catalog }, catalog => {
-      if (!parsed.attrs.catalog) markupError('Version 2 requires an exact catalog digest.', parsed);
-      return compileCapturedMarkup(source, { out, catalog, designReview, inspectPhase });
-    });
+    try {
+      return await withWorkflowIntentCatalog(repository, { source: parsed.attrs['catalog-source'], expectedSource: parsed.attrs.catalog }, catalog => {
+        if (!parsed.attrs.catalog) markupError('Version 2 requires an exact catalog digest.', parsed);
+        return compileCapturedMarkup(source, { out, catalog, designReview, inspectPhase });
+      });
+    } catch (error) { throw markupCompilerError(error); }
   }
-  return compileCapturedMarkup(source, { out, catalog: null, designReview, inspectPhase });
+  try { return await compileCapturedMarkup(source, { out, catalog: null, designReview, inspectPhase }); }
+  catch (error) { throw markupCompilerError(error); }
 }
 
 /** Candidate-only review uses the same resolved policy and skill composer as runtime, without a Story. */
@@ -375,7 +368,7 @@ async function reviewDesign(root, resolved, definition, phaseAgents, { inspectPh
     approval: normalizeApprovalPolicy(phase.approval, definition.approvalAuthorities, phase.id, definition.approvalSecurity),
     qualityCommands: (phase.qualityCommands ?? []).map((command, index) => ({ id: command.id ?? `qualityCommands[${index}]`, name: command.name ?? command.label ?? null })) }));
   const edges = phases.flatMap((phase, index) => {
-    const decision = resolved.decisions.find(item => item.after === phase.id);
+    const decision = (resolved.decisions ?? []).find(item => item.after === phase.id);
     const routes = decision ? decision.routes : [{ id: 'next', label: 'Continue', to: order[index + 1] ?? 'end' }];
     return routes.map(route => ({ from: phase.id, to: route.to === 'next' ? order[index + 1] ?? 'end' : route.to,
       label: route.label, decision: decision?.id ?? null, when: route.when ?? null,
@@ -472,7 +465,7 @@ async function compileCapturedMarkup(source, { out, catalog, designReview, inspe
     const outputPath = out ? await writeWorkflowBundle(bundle, out) : null;
     return { schemaVersion: 1, resultType: 'workflow-markup-compilation', format: WORKFLOW_MARKUP_FORMAT,
       status: 'portable-ready', sourceSha256: digest(source), bundleSha256: bundle.bundleSha256,
-      workflow: { id: lowered.id, label: lowered.workflow.label, phases: resolved.phases.map(phase => ({ id: phase.id, label: phase.label, agent: lowered.phaseAgents[phase.id] })), decisions: resolved.decisions },
+      workflow: { id: lowered.id, label: lowered.workflow.label, phases: resolved.phases.map(phase => ({ id: phase.id, label: phase.label, agent: lowered.phaseAgents[phase.id] })), decisions: resolved.decisions ?? [] },
       sourceMap: lowered.sourceMap, routeSimulation: simulation, intent: lowered.intent, reusedAssets: lowered.reusedAssets, attachmentMappings: lowered.attachmentMappings,
       ...(review ? { designReview: review } : {}),
       ...(catalog ? { catalog: { source: catalog.source, sourceSha256: catalog.sourceSha256 } } : {}), outputPath, ...(out ? {} : { bundle }),

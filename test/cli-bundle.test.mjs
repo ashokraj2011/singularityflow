@@ -51,21 +51,42 @@ test('the bundle runs only for the stamped build it was made for, unless it is f
   await writeFile(path.join(pkg, 'src', 'build-info.mjs'), 'export const BUILD_INFO = { commit: null };\n');
   assert.equal(bundledCliUrl(pkg, {}), null, 'restored or edited build information: the sources');
   assert.equal(bundledCopilotHookUrl(pkg, {}), null, 'hook bundles must match the live build stamp too');
-  await manifest({ format: 2 });
+  await manifest({ format: 3 });
   assert.equal(bundledCliUrl(pkg, { SINGULARITY_FLOW_BUNDLE_DIR: path.join(pkg, 'bundle') }), null, 'an unknown format is never run');
+  await writeFile(path.join(pkg, 'bundle/cli.mjs'), 'export const main = () => {};');
+  await writeFile(path.join(pkg, 'bundle/cold-core.mjs'), 'export const identity = {};');
+  const coarse = { format: 2, layout: 'coarse-esm', outputs: [{ file: 'cli.mjs' }, { file: 'cold-core.mjs' }] };
+  await manifest(coarse);
+  assert.equal(bundledCliUrl(pkg, { SINGULARITY_FLOW_BUNDLE_DIR: path.join(pkg, 'bundle') }), expected);
+  await manifest({ ...coarse, outputs: [{ file: '../outside.mjs' }] });
+  assert.equal(bundledCliUrl(pkg, { SINGULARITY_FLOW_BUNDLE_DIR: path.join(pkg, 'bundle') }), null);
+  await manifest(coarse);
+  await rm(path.join(pkg, 'bundle/cold-core.mjs'));
+  assert.equal(bundledCliUrl(pkg, { SINGULARITY_FLOW_BUNDLE_DIR: path.join(pkg, 'bundle') }), null, 'partial deployment uses sources');
 });
 
 test('the bundled CLI answers exactly like the sources while opening a handful of files', { timeout: 300_000 }, async (t) => {
   const outdir = path.join(root, `.bundle-test-${process.pid}`);
   t.after(() => rm(outdir, { recursive: true, force: true }));
   const { manifest } = await buildCliBundle({ outdir });
+  assert.equal(manifest.format, 2);
+  assert.ok(manifest.outputs.length <= 20, 'coarse chunks, never hundreds of module files');
+  const closure = file => {
+    const found = new Set();
+    const visit = name => { if (found.has(name)) return; found.add(name);
+      for (const dependency of manifest.outputs.find(item => item.file === name)?.imports ?? []) visit(dependency); };
+    visit(file);
+    return manifest.outputs.filter(item => found.has(item.file));
+  };
+  const cliStartup = closure('cli.mjs').reduce((sum, item) => sum + item.bytes, 0);
+  const hookStartup = closure('copilot-hook-runtime.mjs').reduce((sum, item) => sum + item.bytes, 0);
   assert.deepEqual(manifest.entries, ['cli.mjs', 'copilot-hook-runtime.mjs', 'history-index-worker.mjs', 'configuration-read-worker.mjs', 'read-worker.mjs', 'configuration-proposal-sync-worker.mjs']);
   const hookOutput = manifest.outputs.find(output => output.file === 'copilot-hook-runtime.mjs');
   assert.ok(hookOutput.bytes <= 8 * 1024 * 1024, `hook bundle: ${hookOutput.bytes} bytes`);
   assert.ok(hookOutput.modules <= 650, `hook bundle: ${hookOutput.modules} modules`);
-  assert.ok(hookOutput.bytes < manifest.outputs.find(output => output.file === 'cli.mjs').bytes / 2,
-    'the hook runtime must not become a second general CLI bundle');
-  const text = await readFile(path.join(outdir, 'cli.mjs'), 'utf8');
+  assert.ok(cliStartup < 3 * 1024 * 1024, `CLI cold parse: ${cliStartup}`);
+  assert.ok(hookStartup < 3 * 1024 * 1024, `hook cold parse: ${hookStartup}`);
+  const text = (await Promise.all(closure('cli.mjs').map(item => readFile(path.join(outdir, item.file), 'utf8')))).join('\n');
   assert.doesNotMatch(text, /node_modules\/(?:typescript|pyright|sql\.js|@agentclientprotocol)\//u, 'large or file-based packages stay external');
   assert.match(text, /\.\.\/src\/build-info\.mjs/u, 'the install stamp is read live from src/');
 
@@ -103,19 +124,31 @@ export async function load(url, context, next) {
     const modules = (await readFile(log, 'utf8').catch(() => '')).split('\n').filter(Boolean);
     return { status: result.status, stdout: result.stdout, modules };
   };
-  for (const args of [['--version'], ['help'], ['nextsteps', '--json'],
+  for (const args of [['--version'], ['help'], ['snapshot', '--include', 'repository', '--json'], ['nextsteps', '--json'],
     ['start', 'BUNDLE-NEW-STORY', '--json'],
     ['workflow', 'intent', 'preflight', '--source', 'installed', '--json']]) {
     const source = await runWith(args, false);
     const bundled = await runWith(args, true);
     assert.equal(bundled.status, source.status, args.join(' '));
     assert.equal(bundled.stdout, source.stdout, `${args.join(' ')} prints the same`);
-    assert.ok(bundled.modules.length <= 8, `${args.join(' ')} opened ${bundled.modules.length} module files: ${bundled.modules.join(', ')}`);
+    assert.ok(bundled.modules.length <= 28, `${args.join(' ')} opened ${bundled.modules.length} module files: ${bundled.modules.join(', ')}`);
+    if (args[0] === '--version') assert.ok(bundled.modules.length <= 8, 'version only loads core');
+    if (['snapshot', 'nextsteps'].includes(args[0])) assert.ok(!bundled.modules.some(url => url.endsWith('/cold-compatibility.mjs')),
+      `${args[0]} must not load the general compatibility handler`);
     if (args[0] !== '--version') assert.ok(source.modules.length > 35, `${args.join(' ')} from the sources opened ${source.modules.length}`);
   }
 
   // The launcher must actually select the dedicated bundle, not just a manifest URL. Real turn
   // capture and edit denials replay identically, while the bundled entry opens only a few files.
+  const beforeWarm = spawnSync('git', ['status', '--porcelain'], { cwd: repo, env, encoding: 'utf8' }).stdout;
+  const warmed = await runWith(['--warm-runtime'], true);
+  assert.equal(warmed.status, 0);
+  const preparation = JSON.parse(warmed.stdout);
+  if (preparation.prepared) {
+    assert.equal(preparation.commandsExecuted, 0); assert.equal(preparation.modelsInvoked, 0);
+    assert.ok(preparation.files.every(file => file.startsWith('cold-') && !file.includes('worker')));
+  } else assert.equal(preparation.reason, 'cache-or-bundle-unavailable', 'Node 20/disabled cache is optional');
+  assert.equal(spawnSync('git', ['status', '--porcelain'], { cwd: repo, env, encoding: 'utf8' }).stdout, beforeWarm);
   for (const [action, payload] of [
     ['boundary-guard', {}],
     ['agent-start', { agentName: 'product-owner', cwd: repo }],
@@ -140,7 +173,8 @@ export async function load(url, context, next) {
       if (bundled) {
         assert.ok(modules.some(url => url.endsWith('/copilot-hook-runtime.mjs') && !url.includes('/src/')),
           `${action}: the dedicated bundle ran`);
-        assert.ok(modules.length <= 8, `${action}: ${modules.length} module files`);
+        assert.ok(modules.length <= 16, `${action}: ${modules.length} module files`);
+        assert.ok(!modules.some(url => url.endsWith('/cold-compatibility.mjs')), `${action}: no general CLI chunk`);
       }
     }
     assert.deepEqual(results[1], results[0], `${action}: bundled hooks preserve the source decision`);

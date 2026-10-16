@@ -1276,7 +1276,8 @@ test('submission and approval preserve exact bindings without reproducing docume
 
 test('interactive lifecycle skills ask only for durable human choices', async () => {
   const start = await readFile(path.join(pluginRoot, 'skills', 'sflow-start', 'SKILL.md'), 'utf8');
-  assert.match(start, /workspace current --json/);
+  assert.match(start, /workspace branches --entry --intake --work-id <WORK-ID> --for-agent --json/);
+  assert.doesNotMatch(start, /(?:Read|Run|Check) `singularity-flow (?:pause status|workspace current|version|workspace status)/);
   assert.doesNotMatch(start, /session current --json/);
   assert.match(start, /ask_user/, 'start must collect the human workflow choice interactively');
   assert.match(start, /no preselection/, 'start must prohibit model-selected workflow defaults');
@@ -1343,7 +1344,7 @@ test('start skill falls back to a one-time receipt when Copilot has no persisten
 
 test('start skill previews and recomputes read-only readiness before Story mutation', async () => {
   const content = await readFile(path.join(pluginRoot, 'skills', 'sflow-start', 'SKILL.md'), 'utf8');
-  const authorityDiscovery = content.indexOf('workspace branches --json --intake');
+  const authorityDiscovery = content.indexOf('workspace branches --entry --intake');
   const workflowChoice = content.indexOf('Choose `<BASE>`');
   assert.ok(authorityDiscovery >= 0 && authorityDiscovery < workflowChoice,
     'approved authority discovery must precede base/workflow selection');

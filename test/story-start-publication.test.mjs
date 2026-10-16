@@ -71,6 +71,22 @@ function start(root, id, extra = []) {
   ]);
 }
 
+test('single intake entry preserves canonical choices without authorizing creation', async t => {
+  const { base, root } = await repository(); t.after(() => rm(base, { recursive: true, force: true }));
+  const env = { SINGULARITY_FLOW_ACTIVE_WORKSPACE: path.join(base, 'no-selection.json'),
+    SINGULARITY_FLOW_WORKSPACE_REGISTRY: path.join(base, 'workspaces.json'),
+    SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(base, 'mode.json') };
+  const before = git(root, 'rev-parse', 'HEAD').stdout;
+  const catalog = JSON.parse(flow(root, ['workspace', 'branches', '--intake', '--work-id', 'ENTRY-NEW', '--json'], { env }).stdout);
+  const entry = JSON.parse(flow(root, ['workspace', 'branches', '--entry', '--intake', '--work-id', 'ENTRY-NEW', '--json'], { env }).stdout);
+  assert.equal(entry.status, 'choices-ready'); assert.equal(entry.ready, true);
+  assert.equal(entry.creationAuthorized, false);
+  assert.deepEqual(entry.choices, catalog.choices); assert.deepEqual(entry.intake, catalog.intake);
+  assert.deepEqual(entry.existingWork, catalog.existingWork);
+  assert.equal(git(root, 'rev-parse', 'HEAD').stdout, before);
+  assert.equal(git(root, 'branch', '--list', 'ENTRY-NEW').stdout, '');
+});
+
 async function seedRaceGitEnvironment({ base, remote, storyBranch, seedCommit, replacementCommit }) {
   const realGit = run('which', ['git'], base).stdout.trim();
   const wrappers = path.join(base, `seed-race-${storyBranch}`);

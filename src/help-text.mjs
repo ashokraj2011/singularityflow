@@ -40,6 +40,8 @@ Usage:
   singularity-flow about
   singularity-flow --version | --build
     (--version is a bare semver for scripts; --build adds the commit or validated source digest)
+  singularity-flow --warm-runtime
+    Prepare optional Node bytecode caches for this installed build; no repository commands or models.
   singularity-flow help [TOPIC|COMMAND] [--json]
   sflow specify [WORK-ID] [--json]
   sflow plan [WORK-ID] [--json]

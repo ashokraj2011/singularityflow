@@ -1453,6 +1453,9 @@ if [[ "$SURFACE_CLI_STATE" == "pending" ]]; then
       "${INSTALLED_CLI_BUILD:-unavailable}" "$CANDIDATE_CLI_BUILD" >&2
     activation_failed 1
   fi
+  # Compile pure startup definitions at their final installed paths, never repository commands.
+  singularity-flow --warm-runtime >/dev/null \
+    || printf '%s\n' 'Warning: optional runtime-cache preparation was unavailable.' >&2
   if [[ "$SURFACE_COPILOT_STATE" == "applied" ]]; then
     singularity-flow plugin verify --json >/dev/null || activation_failed 1
   fi

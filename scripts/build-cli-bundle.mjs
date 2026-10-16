@@ -9,14 +9,14 @@
  *
  * `bundle/` sits beside `src/` at the package root, so every path the code works out from its own
  * file (`PACKAGE_ROOT`, `../plugin`, `../templates`, `../bin`) means the same from either place,
- * and `src/` keeps shipping for what runs as its own file: workers loaded by path, AST adapters,
- * hashed sources. There is no code splitting: esbuild would turn every lazy import into its own
- * chunk (561 files), and a single file keeps lazily imported modules lazy anyway.
+ * and `src/` keeps shipping for workers, AST adapters and hashed sources. Coarse static-closure
+ * chunks keep lazy domains out of the first parse without deploying hundreds of tiny files or
+ * duplicating policy state. The old monolithic layout remains an explicit benchmark control.
  *
  * The bundle is only ever run in a stamped build whose `src/build-info.mjs` still has the bytes it
  * was built with (see `src/bundled-cli.mjs`), so a checkout that edits `src/` never runs stale code.
  *
- *   node scripts/build-cli-bundle.mjs [--outdir DIR]
+ *   node scripts/build-cli-bundle.mjs [--outdir DIR] [--layout cold|monolithic]
  */
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -24,7 +24,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const CLI_BUNDLE_FORMAT = 1;
+export const CLI_BUNDLE_FORMAT = 2;
 // Entry names are the basenames the code resolves next to itself (history-index.mjs and the
 // configuration read/sync clients start these workers from their own directory).
 export const CLI_BUNDLE_ENTRIES = Object.freeze({
@@ -60,7 +60,12 @@ function sha256(file) {
  * tool. The VS Code package builds its staged CLI this way: the inputs are the staged sources and
  * their lock-installed production closure, which has no esbuild of its own.
  */
-export async function buildCliBundle({ root = ROOT, outdir = path.join(root, 'bundle'), esbuildRoot = root } = {}) {
+export async function buildCliBundle({ root = ROOT, outdir = path.join(root, 'bundle'), esbuildRoot = root, layout = 'cold' } = {}) {
+  if (layout === 'cold') {
+    const { buildColdCliBundle } = await import('./build-cold-cli-bundle.mjs');
+    return buildColdCliBundle({ root, outdir, toolRoot: esbuildRoot, entries: CLI_BUNDLE_ENTRIES, external: EXTERNAL });
+  }
+  if (layout !== 'monolithic') throw new TypeError('CLI bundle layout must be cold or monolithic.');
   const { build } = await import(pathToFileURL(path.join(esbuildRoot, 'node_modules', 'esbuild', 'lib', 'main.js')).href);
   const staging = `${outdir}.building-${process.pid}`;
   rmSync(staging, { recursive: true, force: true });
@@ -91,7 +96,7 @@ export async function buildCliBundle({ root = ROOT, outdir = path.join(root, 'bu
     file: path.basename(file), bytes: output.bytes, modules: Object.keys(output.inputs).length
   }));
   const manifest = {
-    format: CLI_BUNDLE_FORMAT,
+    format: 1, // Retained monolithic control / compatibility format.
     // Which build this bundle belongs to: it runs only while src/build-info.mjs has these bytes.
     buildInfoSha256: sha256(path.join(root, 'src', 'build-info.mjs')),
     stamped: Boolean(BUILD_INFO?.commit || BUILD_INFO?.sourceSha256),
@@ -109,7 +114,9 @@ export async function buildCliBundle({ root = ROOT, outdir = path.join(root, 'bu
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const index = process.argv.indexOf('--outdir');
   const outdir = index > 0 ? path.resolve(process.argv[index + 1]) : undefined;
-  const { outdir: written, manifest } = await buildCliBundle({ outdir });
+  const layoutIndex = process.argv.indexOf('--layout');
+  const layout = layoutIndex > 0 ? process.argv[layoutIndex + 1] : 'cold';
+  const { outdir: written, manifest } = await buildCliBundle({ outdir, layout });
   const total = manifest.outputs.reduce((sum, output) => sum + output.bytes, 0);
   console.log(`Built ${path.relative(process.cwd(), written) || written}: ${manifest.outputs.length} files, ${total} bytes, ${manifest.stamped ? 'stamped' : 'unstamped (development: not used unless forced)'}.`);
 }

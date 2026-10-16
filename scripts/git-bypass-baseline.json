@@ -12,6 +12,10 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "scripts/cold-start-benchmark.mjs": {
+      "counts": {"command-git":12,"process-import":1,"process-launch":1},
+      "digest": "ee80ad3f936ac02827e9202e3b3878ca4e305aad9ebd29a578cbeef1c64b03f8"
+    },
     "src/read-worker-client.mjs": {
       "counts": { "process-import": 1, "process-launch": 1 },
       "digest": "75514e5515c7c64f2b409927ccdc2c69c836fef92a86b5919430320746486676"

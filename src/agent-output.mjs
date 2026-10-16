@@ -101,6 +101,16 @@ function withRoute(act, action) {
 export function agentAct(result) {
   if (!result || typeof result !== 'object' || Array.isArray(result)) return null;
   if (result.paused === true) return { state: 'paused', said: 'SFlow is paused for this conversation; answer as native Copilot and offer only /sf-pause off.', do: null };
+  if (result.resultType === 'intake-entry') {
+    if (result.status === 'preflight-ready') return { state: 'next', do: null, read: ['preflight', 'intake'],
+      said: 'The exact selected-base preview passed. Continue this invocation\'s Start step with identical explicit choices and the returned receipt, if any. Do not repeat preflight; creation still validates live authority.' };
+    if (result.status === 'choices-ready') return { state: 'ask-person', do: null,
+      read: ['choices', 'intake', 'existingWork', 'preflight', 'personalization'],
+      said: 'Use the returned catalog to ask for explicit base, workflow and intake-policy choices. Reuse this packet; do not repeat pause/workspace/version/status/catalog lookups. It does not authorize Story creation.' };
+    return withRoute({ state: 'next', do: null, read: ['changes', 'workspace', 'existingWork', 'preflight'],
+      said: `Intake requires ${result.status}; preserve existing work and resolve that condition before creating a Story.` },
+    result.commandGuidance ? { commandGuidance: result.commandGuidance } : null);
+  }
   if (result.resultType === 'session-open') {
     if (result.status === 'choose') return { state: 'ask-person', do: null, read: ['table', 'selectors'],
       said: 'Show the returned candidates and ask for the exact Story ID. Reuse this packet; do not list them again without a selection change.' };

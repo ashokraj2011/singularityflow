@@ -10,7 +10,7 @@
  * Node built-ins only, and nothing else imported: every command pays for this check.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -21,8 +21,18 @@ function bundledEntryUrl(installRoot, entry, env) {
   const directory = forced ? path.resolve(forced) : path.join(installRoot, 'bundle');
   try {
     const manifest = JSON.parse(readFileSync(path.join(directory, 'manifest.json'), 'utf8'));
-    if (manifest?.format !== 1 || !Array.isArray(manifest.entries)
+    if (![1, 2].includes(manifest?.format) || !Array.isArray(manifest.entries)
         || !manifest.entries.includes('cli.mjs') || !manifest.entries.includes(entry)) return null;
+    if (manifest.format === 2) {
+      if (manifest.layout !== 'coarse-esm' || !Array.isArray(manifest.outputs)
+          || manifest.outputs.length > 20 || !manifest.outputs.some(output => output.file === entry)) return null;
+      // One bounded directory roster, not twenty stat calls (particularly costly on Windows).
+      // Only the generated regular files qualify; partial deployments fall back to sources.
+      const files = new Set(readdirSync(directory, { withFileTypes: true })
+        .filter(item => item.isFile()).map(item => item.name));
+      if (manifest.outputs.some(output => !/^[a-zA-Z0-9_-]+\.mjs$/u.test(output.file ?? '')
+          || !files.has(output.file))) return null;
+    }
     if (!forced) {
       if (manifest.stamped !== true) return null;
       const buildInfo = readFileSync(path.join(installRoot, 'src', 'build-info.mjs'));

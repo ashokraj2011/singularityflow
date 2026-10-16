@@ -2561,6 +2561,15 @@ export async function applyLocalReinstall(plan, {
         `Installed CLI build '${cliBuild || 'unavailable'}' does not match the admitted candidate build '${expectedCliBuild}'.`
       );
     }
+    // The final installed path/runtime keys V8's cache. This never dispatches repository work and
+    // an unavailable cache is not an installation or governance failure.
+    try {
+      const prewarmed = boundedExecute('singularity-flow', ['--warm-runtime'], {
+        env, allowFailure: true,
+        timeoutMs: productTimeout(env, 'SINGULARITY_FLOW_PRODUCT_READ_TIMEOUT_MS', PRODUCT_READ_TIMEOUT_MS)
+      });
+      if (prewarmed?.status !== 0) console.warn('Warning: optional runtime-cache preparation was unavailable.');
+    } catch { console.warn('Warning: optional runtime-cache preparation was unavailable.'); }
     if (!plan.cliOnly) {
       executeOrThrow(boundedExecute, 'singularity-flow', ['plugin', 'verify', '--json'], {
         env,

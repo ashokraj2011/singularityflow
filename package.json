@@ -179,6 +179,10 @@
     "zod"
   ],
   "devDependencies": {
-    "esbuild": "0.25.12"
+    "@rollup/plugin-commonjs": "29.0.3",
+    "@rollup/plugin-json": "6.1.0",
+    "@rollup/plugin-node-resolve": "16.0.3",
+    "esbuild": "0.25.12",
+    "rollup": "4.64.7"
   }
 }

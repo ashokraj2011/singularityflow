@@ -9,13 +9,18 @@ try { (await import('node:module')).enableCompileCache?.(); } catch { /* an acce
 const { bundledCliUrl } = await import('../src/bundled-cli.mjs');
 const { fileURLToPath } = await import('node:url');
 const bundle = bundledCliUrl(fileURLToPath(new URL('..', import.meta.url)));
-const bundled = bundle ? await import(bundle) : null;
-const { main } = bundled ?? await import('../src/cli-entry.mjs');
+if (process.argv.length === 3 && process.argv[2] === '--warm-runtime') {
+  const { prewarmRuntime } = await import('../src/runtime-prewarm.mjs');
+  console.log(JSON.stringify(await prewarmRuntime(fileURLToPath(new URL('..', import.meta.url)))));
+} else {
+  const bundled = bundle ? await import(bundle) : null;
+  const { main } = bundled ?? await import('../src/cli-entry.mjs');
 
 // Keep the process alive until the dispatcher and every acquired mutation lease settle. Relying on
 // incidental filesystem or worker handles made a fast command able to exit 0 while `main()` was
 // still awaiting lock readiness, so callers (including VS Code) observed success with no result.
-await main(process.argv.slice(2)).catch(async (error) => {
-  const { reportCliFailure } = bundled ?? await import('../src/cli-failure.mjs');
-  await reportCliFailure(error, process.argv.slice(2));
-});
+  await main(process.argv.slice(2)).catch(async (error) => {
+    const { reportCliFailure } = bundled ?? await import('../src/cli-failure.mjs');
+    await reportCliFailure(error, process.argv.slice(2));
+  });
+}

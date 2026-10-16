@@ -1611,6 +1611,11 @@ const PAGES = Object.freeze({
   workspace: {
     summary: 'Manage the set of repositories you work across, and which one is active.',
     description: [
+      '`workspace branches --entry --intake --work-id ID --for-agent --json` combines pause,',
+      'selected workspace, installed build, clean-tree and canonical branch/workflow choices.',
+      'It is an advisory intake preview, not permission to create work. Explicit choices and fresh',
+      'selected-base checks are still required; Story start revalidates live authority and deltas.',
+      '',
       'Use `workspace prepare` for a recoverable first-time setup. It writes an integrity-checked',
       'machine-local bootstrap record, checks the runtime, destination, disk, registry and remote',
       'branches without writing the workspace destination, and returns a bootstrap ID.',

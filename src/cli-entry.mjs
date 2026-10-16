@@ -162,7 +162,7 @@ function timingMode(options) {
 export function validateStoryStartRequestShape(command, positionals, options) {
   const start = command === 'start';
   const preflight = command === 'workspace' && positionals[1] === 'branches'
-    && optionString(options, 'preflight-story');
+    && (optionString(options, 'preflight-story') || (options.entry === true && optionString(options, 'work-id')));
   if (!start && !preflight) return;
   const id = start ? requirePositional(positionals, 1, 'work ID') : preflight;
   validatePortableWorkId(id);
@@ -670,6 +670,13 @@ async function runMain(argv) {
   }
   // /sf-session uses this composed entry instead of a separate pause/workspace preflight. Serve
   // pause before root discovery or product gates, including a broken or absent Git installation.
+  if (definition.name === 'workspace' && positionals[1] === 'branches' && options.entry === true) {
+    const mode = readCopilotMode();
+    if (mode.paused) return console.log(JSON.stringify({
+      resultType: 'intake-entry', status: 'paused', paused: true,
+      agentInstruction: copilotModePresentation(mode).agentInstruction
+    }));
+  }
   if (definition.name === 'session' && positionals[1] === 'open') {
     const { validateSessionOpenRequest, pausedSessionOpenResult } = await import('./commands/session-open.mjs');
     validateSessionOpenRequest({ positionals, options });

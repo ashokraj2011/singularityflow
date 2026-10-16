@@ -14,9 +14,18 @@ related:
   - pins
   - work-intervals
   - supporting-documents
-version: 27
+version: 28
 ---
 Three intake doors, one result: Jira, a manual description, or a Story released from an Epic breakdown. For every new Jira or manual Story, first run `sflow workspace branches --json` and explicitly choose a branch published by every required repository. `sflow start PAY-1234 --jira --from-branch main` then refreshes that remote base, verifies that the configured remote can accept `PAY-1234`, creates the canonical branch, pins its exact base commit, and pushes only `refs/heads/PAY-1234`. The selected base ref is never changed. Existing and Epic-materialized Stories keep their already-pinned lineage instead of choosing a second base.
+
+Native Copilot `/sf-start` begins with one pause-aware packet:
+`singularity-flow workspace branches --entry --intake --work-id <WORK-ID> --for-agent --json`.
+It combines the selected workspace, installed build, clean working-tree check, existing-ID check
+and canonical branch/workflow catalog. It does not repeat separate pause, workspace, version,
+status and catalog calls. A paused result needs no Git. Missing selections and dirty work remain
+explicit repair/review states. Choices are never preselected, the selected-base preview remains
+fresh, and the opening mutation revalidates authority and repository deltas. This packet is not a
+readiness receipt, publication permission, or an approval.
 
 VS Code starts every Story in a dedicated linked Git worktree and opens that folder after the governed start commit lands. The checkout used to launch Start Work is never switched or cleaned, so a cancelled or unfinished Story can keep its uncommitted files while another Work ID starts independently. The CLI automatically uses the same isolation whenever its launch checkout is dirty; pass `--isolated-worktree` to request it from a clean checkout too. Failed-start cleanup removes only a clean disposable worktree and branch without unique commits. It retains dirty checkouts and unpublished commits with an exact recovery path.
 

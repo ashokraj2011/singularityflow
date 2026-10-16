@@ -330,6 +330,7 @@ const SKILL_SEMANTIC_CONTRACTS = Object.freeze({
 });
 
 function executionBoundary(kind = 'story', name = '') {
+  if (name === 'sflow-start') return '**Boundary:** no Story required; reuse entry `repositoryPath` after its workspace/clean-tree checks. Refuse absent/unready selections; never search `$HOME`/parents.';
   if (name === 'sflow-review-source') return '**Boundary:** reuse this invocation\'s review entry: require `ready`/`workId`, valid `phaseAgent`; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact and Git-private staging paths; never `$HOME`.';
   if (['sflow-next', 'sflow-inputs'].includes(name)) return '**Boundary:** reuse this invocation\'s entry: require `ready`/`workId`, valid `phaseAgent` for active phases; cwd=`repositoryPath`. Use returned `workItemRoot`/artifact paths; never `$HOME`.';
   if (PHASE_ENTRY_SKILLS.includes(name)) return '**Boundary:** reuse entry `ready`/`workId`, valid `phaseAgent`; cwd=`repositoryPath`. Honor `mutationContract`. Returned `workItemRoot`/artifact paths only; never `$HOME`.';

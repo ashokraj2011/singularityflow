@@ -10240,7 +10240,7 @@ Do not merge or force-push. After a Story merge, synchronize the stack again bef
           <span class="pill">interactive</span>
           <span class="pill">repository boundary</span>
           <span class="pill">model: never</span>
-          <span class="pill">~1016 body tokens</span>
+          <span class="pill">~1038 body tokens</span>
         </div>
         <dl>
           <div><dt>Command</dt><dd><code>/sflow-start</code></dd></div>
@@ -10262,16 +10262,16 @@ argument-hint: &quot;&lt;WORK-ID&gt; [--jira | manual story details] [documents 
 # Start work
 
 &lt;!-- sflow-copilot-pause --&gt;
-Before any boundary lookup or SFlow action, run `singularity-flow pause status --json` and follow its `data.agentInstruction`. If `data.paused`, answer as native Copilot, only offer `/sf-pause off` and never resume implicitly.
+First require an explicit Work ID, then run `singularity-flow workspace branches --entry --intake --work-id &lt;WORK-ID&gt; --for-agent --json` once. It checks pause before Git and combines workspace/build/clean-tree/catalog facts. If `paused`, native Copilot; only offer `/sf-pause off`, never resume implicitly. Reuse the packet; no separate pause/workspace/version/status/catalog calls. Ask explicit choices; creation still revalidates live authority.
 
 &lt;!-- sflow-output-contract: explicit-selection --&gt;
 **Output contract:** Explicit choices; no preselection; preserve errors/artifacts/actions. Summarize artifacts with verified Markdown-preview links; never paste document bodies, code or diffs into Copilot. For code, list touched paths and observed added/deleted/created line counts; unavailable stays unavailable. Use existing evidence, not extra calls solely for display. Summaries, links and opened previews are not human review or approval. For every next action, honor returned `commandGuidance` in order: Copilot, Shell, VS Code (model-free) using `modelFreeCommand`; if absent, say &quot;not available for this action&quot;. Missing Copilot: &quot;no verified equivalent&quot;. Never invent routes.
 &lt;!-- sflow-execution-boundary --&gt;
-**Boundary:** no Story required; cwd=opened Git root or verified `repositoryPath` from `singularity-flow workspace current --json`; refuse if neither resolves; never search `$HOME`/parents.
+**Boundary:** no Story required; reuse entry `repositoryPath` after its workspace/clean-tree checks. Refuse absent/unready selections; never search `$HOME`/parents.
 
-1. Require WORK-ID. Read `singularity-flow workspace current --json`. If the selected repository is `missing`/`empty`, run `singularity-flow workspace repair &lt;WORKSPACE-PATH&gt; --repository &lt;REPOSITORY-ID&gt; --level readiness --json`. Re-read; use ready `repositoryPath`, else opened Git root. Run `singularity-flow version` and `git status --short`; stop on failure or dirt.
-2. Run `singularity-flow workspace branches --json --intake --work-id &lt;WORK-ID&gt;`. Unless `existingWork.status` is `new`, use `singularity-flow session candidates --json`; existing IDs route to `/sf-session` or `singularity-flow resume &lt;WORK-ID&gt;`, never restart.
-3. Check `singularity-flow workspace status &lt;WORKSPACE-PATH&gt; --level readiness --json`; repair missing required members. Authority failure: Shell `singularity-flow workspace reinitialize --dry-run --json`, Copilot `/sf-admin`; never `init` for an absent local workflow file.
+1. Use the entry above once. `workspace-repair-required`: follow `/sf-workspace` for its exact selected repository; re-enter only after repair. `worktree-review-required`: preserve and review its listed changes; do not create a Story. Use its `repositoryPath`; never search for a checkout.
+2. Unless `existingWork.status` is `new`, route existing IDs to `/sf-session` or `singularity-flow resume &lt;WORK-ID&gt;`, never restart. An unreachable/unknown repository is not a new ID.
+3. The catalog and selected-base preflight check required members together; do not repeat a workspace-wide status scan. Repair a returned missing-member failure explicitly. Authority failure: Shell `singularity-flow workspace reinitialize --dry-run --json`, Copilot `/sf-admin`; never `init` for an absent local workflow file.
 4. Choose `&lt;BASE&gt;` explicitly. If `intake.workflowCatalogScope` is not `approved-configuration`, run step 6 without `--work-type`. Choose `&lt;WORKFLOW&gt;` from exact-base `intake.storyWorkflows`.
 5. Collect Jira/manual outcome, criteria, scope, risks, documents. References need ID, credential-free URL and branch: `--reference-repository ID=URL --reference-branch ID=BRANCH`. Pass `--jira`/`--story-file`; pair document inputs with their name flags. Never search for inputs.
 6. Choose baseline (`reuse`, optional reviewed `run`, `defer`), tests (`changed-and-affected`, `all-configured`) and gates (`hard`, `soft`) separately. Soft needs exact human coverage-risk review, reason/expiry; tests/integrity stay hard. Run `singularity-flow workspace branches --json --intake --preflight-story &lt;WORK-ID&gt; --from-branch &lt;BASE&gt; --work-type &lt;WORKFLOW&gt; --selected-base-only --mint-intake-receipt --readiness-baseline &lt;CHOICE&gt; --test-execution-mode &lt;MODE&gt; --gate-mode &lt;GATES&gt;`. Missing tests/setup never block creation or imply a pass. No implicit installs/tests; baselines use `/sf-ready`. World Model/AST/models/telemetry: advisory. Never upgrade configuration here.

@@ -3,6 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+// Node validates its bytecode cache against runtime and module bytes. Unsupported, disabled or
+// unwritable caches fall back to normal execution; no permission/approval result is cached.
+try { (await import('node:module')).enableCompileCache?.(); } catch { /* optional startup optimization */ }
+
 const [action, ...candidates] = process.argv.slice(2);
 const actions = new Set(['boundary-turn', 'boundary-guard', 'boundary-after', 'boundary-end', 'agent-start']);
 // The shell launcher skips Node while no SFlow turn is recorded. A runtime that cannot load could

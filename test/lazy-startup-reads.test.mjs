@@ -102,6 +102,17 @@ test('performance-v2 source entry manifest enforces module ceilings and unrelate
   assert.equal((await import('../src/command-registry.mjs')).commandDefinition('logs').modulePath, './commands/logs.mjs');
 });
 
+test('utility catalogs do not statically import the legacy dispatcher, model runner or Studio authoring', async () => {
+  for (const entry of ['commands/agents.mjs', 'commands/workflow-list.mjs', 'commands/skill-master.mjs',
+    'commands/instruction.mjs', 'asset-catalog.mjs']) {
+    const names = [...await staticClosure('src/' + entry)]
+      .map(file => path.relative(packageRoot, file).split(path.sep).join('/'));
+    for (const forbidden of ['src/cli.mjs', 'src/model-runner.mjs', 'src/workflow-studio.mjs']) {
+      assert.ok(!names.includes(forbidden), `${entry} reaches ${forbidden}`);
+    }
+  }
+});
+
 test('generator validation shares exact IDs with rendering without importing its Jira/source graph', async () => {
   const { INITIATIVE_GENERATOR_IDS, isInitiativeGenerator } = await import('../src/initiative-phase-roles.mjs');
   const { INITIATIVE_GENERATORS } = await import('../src/initiative-generators.mjs');

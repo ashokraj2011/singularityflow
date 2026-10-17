@@ -8,7 +8,6 @@ import { configurationAssetPolicy, mergeConfigurationAssetPolicies, isConfigurat
   portableConfigurationPath, portableFilesystemPathIdentity } from './configuration-assets.mjs';
 import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
 import { validateDefinition } from './config.mjs';
-import { validateEditorConfiguration } from './editor.mjs';
 import { loadSkillLibrary } from './skill-library.mjs';
 import { readInstruction } from './instruction-library.mjs';
 import { replayConfigurationYaml, replayConfigurationJson } from './configuration-intent-replay.mjs';
@@ -153,6 +152,9 @@ export async function prepareConfigurationStateTransaction(root, remote, reviewe
     ...[...files].filter(([, file]) => file).map(([relative]) => relative)]);
   for (const [relative, file] of files) await install(root, relative, file, env);
   const baselineDefinition = validateDefinition(YAML.parse(text(reader.file(reviewed.targetCommit, 'singularity/workflow.yml'))));
+  // Validation is a mutation/candidate concern. Read-only catalog/proposal callers must not
+  // import the editor's doctor/model graph just to inspect committed configuration objects.
+  const { validateEditorConfiguration } = await import('./editor.mjs');
   await validateEditorConfiguration(root, { baselineDefinition });
   const library = await loadSkillLibrary(root);
   if (library.problems.length) fail('The configuration skill library is invalid.', 'CONFIGURATION_TRANSACTION_VALIDATION_FAILED', { problems: library.problems });

@@ -14,6 +14,7 @@ aliases:
   - skill-where-used
   - authoring-skill
   - workflow-check
+  - workflow-build
 questions:
   - How do I export or import several workflows with their dependencies?
   - What happens when an imported workflow uses names my repository already has?
@@ -25,6 +26,7 @@ questions:
   - How do I design an artifact template and choose it for a step?
   - How do I turn my team's agents, skills and instructions into a workflow?
   - Does my workflow make sense, and what does each step do?
+  - How do I bring my team's agents, runbooks and API specs in to build a workflow?
 commands:
   - workflow
   - configuration
@@ -34,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 66
+version: 69
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1260,6 +1262,79 @@ whichever surface started it. **Check** runs compile with `--dry-run` and offers
 choices as buttons. **Write bundle…** saves the ready bundle beside the team directory.
 **Import in Workflow Studio…** opens Studio's Import preview with that file. The panel needs no
 open repository until the import itself; with one open, it can preview the import into it.
+
+## Start a workflow build from what you have
+
+A workflow build collects what a new workflow will be made from: a workflow this repository already
+has, a team's own material, a description, or a mix. Each thing found becomes an item with the file
+and line it came from. Nothing is run, fetched or called, and nothing in a repository changes; the
+build is kept on this computer for 14 days after its last change.
+
+```bash
+singularity-flow workflow build start --folder ../payments-team --name "Payments release"
+singularity-flow workflow build start --from-workflow feature --folder ../payments-team
+singularity-flow workflow build add --build <ID> --file ../runbook.md --notes notes.txt
+cat meeting-notes.md | singularity-flow workflow build add --build <ID> --notes -
+singularity-flow workflow build status
+singularity-flow workflow build status --build <ID> --json
+```
+
+| Found | From |
+|---|---|
+| Process | An agent or prompt file that numbers its steps or hands off to other agents |
+| Steps, agents, skills | The workflow the build starts from, at their place in `singularity/workflow.yml` |
+| Agents, skills, instruction files, prompt files | Copilot agent and chat mode files, hidden tool folders, `SKILL.md` folders, `*.instructions.md`, `AGENTS.md`, `*.prompt.md` |
+| API calls | OpenAPI and Swagger operations, Postman requests, `.http` and `.rest` requests, and `curl`, `fetch`, `requests` and `METHOD /path` lines in documents and scripts |
+| Tools and MCP servers | Servers in `mcp.json` or `.vscode/mcp.json`, and the server tools an agent asks for |
+| Links | Web links, by kind: ticket, wiki page, repository, file share or web page |
+| Commands | Check and build commands in code, such as `npm test`, `mvn verify` or `./scripts/check.sh` |
+| Sign-off points | Sentences that ask for a sign-off, an approval or someone's review |
+| Documents and scripts | READMEs, runbooks and other text, and shell or PowerShell scripts |
+
+A file whose name looks like a credential, key or environment file is never read, and a file whose
+text looks like it holds a credential is withheld: it is listed by name, and its text is kept
+nowhere. Single files and notes are screened before they are copied into the build.
+
+### Grow it a piece at a time
+
+A build grows through small proposals. Each one is a few moves with a one-line title, why it
+belongs, and the lines it relied on. Copilot proposes; you can propose too (`--by you`). Only a
+person accepts or declines, and answers questions.
+
+```bash
+singularity-flow workflow build propose --build <ID> --proposal proposal.json
+singularity-flow workflow build decide --build <ID> --proposal p-1 --accept
+singularity-flow workflow build decide --build <ID> --proposal p-2 --decline --reason "CI already scans"
+singularity-flow workflow build answer --build <ID> --question q-1 --choice payments-security
+singularity-flow workflow build check --build <ID>
+singularity-flow workflow build finish --build <ID> --propose
+singularity-flow workflow build finish --build <ID> --out payments-release.sflow-workflows.json
+```
+
+| Move | What it does |
+|---|---|
+| `step.add` | Adds a step: one the repository has, as it is; a new one with its agent, output, reads, sign-off and purpose; or a copy of one (`from`) |
+| `step.change`, `step.move`, `step.remove` | Changes, moves or removes a step in this workflow. A step other workflows use keeps its name, output, agent and purpose; add a copy instead |
+| `agent.add`, `skill.add`, `instruction.add` | Adds an agent, skill or instruction, new or starting from one the repository has (`from`) |
+| `skill.attach` | Attaches a skill to an agent, or to this workflow, for some or all steps |
+| `decision.add`, `decision.remove` | Adds or removes a decision after a step |
+| `group.add` | Adds an approval group, empty; people are added in Workflow Studio |
+| `action.add` | Tells an existing integration target when a step is submitted, approved or rejected |
+| `item.classify`, `item.leaveOut`, `item.keepAsLink`, `item.prerequisite` | Says what a found item is or becomes, or leaves it out with a reason |
+
+Every move is checked when it is proposed, and each finding names the move and field
+(`moves[2].agent`). The draft with the proposal must still make a configuration Workflow Studio can
+save. Accepting checks it again, so a proposal that an accepted one overtook is marked stale.
+`check` explains the workflow as the accepted moves leave it, runs `workflow check` on it, and says
+how many found items are not used or left out yet. Nothing is written to the repository until
+`finish`: `--propose` runs Workflow Studio's own apply with the build's change set, which makes one
+reviewed proposal on the approved configuration; `--out` writes a portable workflow bundle that
+Workflow Studio's Import previews like any other.
+
+In Copilot, `/sf-build-workflow` runs this loop with you. It reads only the build's screened copies,
+writes only the build's issued `proposal.json`, proposes one piece at a time with the lines it
+relied on, asks what it cannot infer, and records your choice only after asking you. It never
+edits a repository; finishing is still Workflow Studio's reviewed proposal.
 
 ## Check that a workflow makes sense
 

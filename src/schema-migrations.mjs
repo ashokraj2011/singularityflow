@@ -3293,6 +3293,9 @@ const families = [
   // model writes into it (src/team-import/). Neither ever enters a repository or a bundle.
   family({ id: 'team-import-session', currentVersion: 1, paths: [/^\$local\/team-imports\/tis_[a-f0-9]{16}\/session\.json$/] }),
   family({ id: 'team-import-candidate', currentVersion: 1, paths: [/^\$local\/team-imports\/tis_[a-f0-9]{16}\/candidate\.json$/] }),
+  // workflow build: the machine-local record of one progressive build (src/workflow-build/). It never
+  // enters a repository; finishing a build goes through Workflow Studio's reviewed proposal.
+  family({ id: 'workflow-build', currentVersion: 1, paths: [/^\$local\/workflow-builds\/wb_[a-f0-9]{16}\/build\.json$/] }),
   family({
     id: 'prompt-audit-settings', currentVersion: 2,
     steps: [migration(1, 2, promptAuditSettingsV1ToV2)],

@@ -91,9 +91,10 @@ export function excludesActiveWorkspaceRouting(
     // Shared authoring writes must stay with the explicitly opened repository. A neutral cwd
     // cannot silently choose a different configuration authority from a machine-local selection.
     || (command === 'workflow' && subcommand === 'author')
-    // Team import reads an explicit directory and writes only machine-local sessions and an
-    // explicit --out file; relative paths must resolve where the person ran it.
+    // Team import and workflow builds read explicit directories and write only machine-local state
+    // (and an explicit --out file); relative paths must resolve where the person ran it.
     || (command === 'workflow' && subcommand === 'import-team')
+    || (command === 'workflow' && subcommand === 'build')
     || (command === 'workflow' && subcommand === 'markup')
     || (command === 'workflow' && subcommand === 'intent')
     // Documentation topics remain machine-local and repository-independent. Code explanation is

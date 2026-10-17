@@ -94,7 +94,7 @@ const entries = {
   check: ['sf-check'],
   review: ['sf-review'],
   'review-source': ['sf-review-source', 'sf-review-decide'],
-  workflow: ['sf-workflows', 'sf-import-team'],
+  workflow: ['sf-workflows', 'sf-import-team', 'sf-build-workflow'],
   skill: ['sf-skill'],
   instruction: ['sf-instructions'],
   assign: ['sf-assign'],
@@ -221,7 +221,8 @@ export const COMMAND_LINE_SKILL_ROUTES = Object.freeze({
   }),
   prepare: route('sf-phase'),
   workflow: route('sf-workflows', {
-    'import-team': 'sf-import-team'
+    'import-team': 'sf-import-team',
+    build: 'sf-build-workflow'
   }),
   documents: route('sf-documents', {
     upload: 'sf-upload',

@@ -789,6 +789,14 @@ Every public operation is classified before its implementation module is importe
 | workflow.author.show | read | never | — | — |
 | workflow.author.submit | mutation | never | — | — |
 | workflow.author.where-used | read | never | — | — |
+| workflow.build.add | read | never | — | — |
+| workflow.build.answer | read | never | — | — |
+| workflow.build.check | read | never | — | — |
+| workflow.build.decide | read | never | — | — |
+| workflow.build.finish | mutation | never | — | — |
+| workflow.build.propose | read | never | — | — |
+| workflow.build.start | read | never | — | — |
+| workflow.build.status | read | never | — | — |
 | workflow.check | read | never | — | — |
 | workflow.copy | mutation | never | — | — |
 | workflow.copy.preview | read | never | — | — |

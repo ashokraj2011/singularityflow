@@ -88,7 +88,7 @@ function decodeText(bytes) {
 }
 
 /** One pass over every root: the listing, the readable text, and the screening of each file. */
-async function capturePass(roots, bounds) {
+async function capturePass(roots, bounds, textExtensions = null) {
   const files = [];
   const excluded = [];
   const contents = new Map();
@@ -135,7 +135,7 @@ async function capturePass(roots, bounds) {
         const format = recognizeFormat(relative, toolDirectories);
         const record = { path: where, root: rootIndex, relative, bytes: info.size, format, role: formatRole(format) };
         if (blockedPath(relative)) { files.push({ ...record, screening: 'blocked' }); continue; }
-        if (!textCandidate(relative)) { files.push({ ...record, screening: 'not-text' }); continue; }
+        if (!textCandidate(relative, textExtensions)) { files.push({ ...record, screening: 'not-text' }); continue; }
         if (info.size > bounds.fileBytes) { files.push({ ...record, screening: 'over-bound', bound: 'fileBytes' }); continue; }
         if (totalBytes + info.size > bounds.totalBytes) { files.push({ ...record, screening: 'over-bound', bound: 'totalBytes' }); continue; }
         const read = await readWhole(absolute, info);
@@ -298,7 +298,7 @@ function multiStep(text) {
  * Returns `{ capture, contents }`: the JSON-safe manifest, and the screened text of clean files.
  * `afterPass(index)` runs after each pass; tests use it to change a file between passes.
  */
-export async function captureTeamDirectory(directory, { roots = [], bounds = {}, afterPass = null } = {}) {
+export async function captureTeamDirectory(directory, { roots = [], bounds = {}, afterPass = null, textExtensions = null } = {}) {
   const limits = { ...TEAM_IMPORT_BOUNDS, ...Object.fromEntries(Object.entries(bounds).filter(([, value]) => Number.isInteger(value) && value > 0)) };
   const resolvedRoots = [await sourceRoot(directory, 'team directory')];
   for (const extra of roots) resolvedRoots.push(await sourceRoot(extra, 'extra root'));
@@ -308,7 +308,7 @@ export async function captureTeamDirectory(directory, { roots = [], bounds = {},
     fail('TEAM_IMPORT_SOURCE_INVALID', 'The team directory and every --root must be separate directories, none inside another.');
   }
   const pass = async (index) => {
-    const result = await capturePass(resolvedRoots, limits);
+    const result = await capturePass(resolvedRoots, limits, textExtensions);
     await afterPass?.(index);
     return result;
   };

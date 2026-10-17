@@ -430,6 +430,19 @@ Usage:
   singularity-flow workflow validate [TYPE] [--json] [--for-start]
                                                         verify every code phase has a clause source and plan owner
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
+  singularity-flow workflow build start [--from-workflow ID] [--folder DIR]... [--file FILE]... [--notes FILE|-]...
+    [--describe TEXT] [--name LABEL] [--json]
+                                                        start a progressive build: what a workflow or a team's material holds, each item
+                                                        with its file and lines (screened, never run or fetched; kept on this computer)
+  singularity-flow workflow build add --build ID [--folder DIR]... [--file FILE]... [--notes FILE|-]... [--json]
+  singularity-flow workflow build status [--build ID] [--json]
+  singularity-flow workflow build propose --build ID --proposal FILE|- [--by you|copilot] [--json]
+  singularity-flow workflow build decide --build ID --proposal P (--accept | --decline [--reason TEXT]) [--json]
+  singularity-flow workflow build answer --build ID --question Q --choice TEXT [--json]
+  singularity-flow workflow build check --build ID [--json]
+                                                        the workflow as the accepted proposals leave it: explained and checked
+  singularity-flow workflow build finish --build ID (--propose | --out FILE) [--json]
+                                                        one reviewed proposal through Workflow Studio's apply, or a portable bundle
   singularity-flow workflow check [WORKFLOW] [--change-set FILE|-] [--json]
                                                         explain each workflow in plain words and list what does not make sense, with where
 

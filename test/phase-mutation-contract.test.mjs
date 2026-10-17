@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { deriveMutationContract, mutationPathDecision, mutationTurnMode } from '../src/phase-mutation-contract.mjs';
 import { recordRepositoryBoundaryTurn, endRepositoryBoundaryTurn } from '../src/copilot-repository-boundary.mjs';
-import { captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMutationStaging, issueImportTeamStaging, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
+import { captureMutationTurn, mutationToolGuard, mutationPostToolGuard, issueMutationStaging, issueImportTeamStaging, issueBuildStaging, refreshMutationContracts, endMutationDecisionTurns } from '../src/copilot-mutation-guard.mjs';
 import { createHash } from 'node:crypto';
 import { setCopilotPaused } from '../src/copilot-mode.mjs';
 import { assertPhaseSequence } from '../src/sequence.mjs';
@@ -452,6 +452,7 @@ test('turn modes do not infer authority from custom phase names', () => {
   assert.equal(mutationTurnMode('sf-review-source'), 'read-only-review');
   assert.equal(mutationTurnMode('sf-unrecognised'), 'read');
   assert.equal(mutationTurnMode('sf-import-team'), 'import-team');
+  assert.equal(mutationTurnMode('sf-build-workflow'), 'build-workflow');
 });
 
 test('an import-team turn runs its own commands and edits only the issued candidate file, with or without a Story', async t => {
@@ -495,6 +496,48 @@ test('an import-team turn runs its own commands and edits only the issued candid
   const late = path.join(path.dirname(f.root), 'state', 'team-imports', 'tis-late', 'candidate.json');
   assert.equal(await issueImportTeamStaging(late, { root: f.root }), 0);
   assert.equal((await mutationToolGuard({ ...other, toolName: 'create_file', toolArgs: { filePath: late } })).permissionDecision, 'deny');
+});
+
+test('a build-workflow turn runs the build commands and edits only the issued proposal file, with or without a Story', async t => {
+  const f = await fixture(t);
+  const enter = async (skill, sessionId, load, now = Date.now()) => {
+    const payload = { cwd: f.root, sessionId, prompt: skill };
+    await recordRepositoryBoundaryTurn(payload, { now, captureMutation: (value, record) => captureMutationTurn(value, record,
+      { resolveRoot: async () => f.root, load }) });
+    return payload;
+  };
+  const noStory = async () => { throw new Error('No Story yet'); };
+  for (const [label, load] of [['without a Story', noStory], ['with a bound Story', async () => f.accepted]]) {
+    const payload = await enter('/sf-build-workflow', `build-${label}`, load);
+    const shell = command => mutationToolGuard({ ...payload, toolName: 'bash', toolArgs: { command } });
+    const edit = target => mutationToolGuard({ ...payload, toolName: 'create_file', toolArgs: { filePath: target } });
+    const proposal = path.join(path.dirname(f.root), 'state', 'workflow-builds', `wb-${label.length}`, 'proposal.json');
+    for (const command of ['singularity-flow workflow build start --folder ./team --json',
+      'singularity-flow workflow build status --build wb_0123456789abcdef --json',
+      `singularity-flow workflow build propose --build wb_0123456789abcdef --proposal ${proposal} --json`,
+      'singularity-flow workflow build decide --build wb_0123456789abcdef --proposal p-1 --accept --json',
+      'singularity-flow workflow build answer --build wb_0123456789abcdef --question q-1 --choice leads --json',
+      'singularity-flow workflow build check --build wb_0123456789abcdef --json',
+      'singularity-flow workflow build finish --build wb_0123456789abcdef --propose --json', 'singularity-flow nextsteps --json']) {
+      assert.deepEqual(await shell(command), {}, `${label}: ${command}`);
+      assert.deepEqual(await mutationPostToolGuard({ ...payload, toolName: 'bash', toolArgs: { command } }), {}, `${label} after: ${command}`);
+    }
+    for (const command of ['singularity-flow workflow studio apply --change-set x.json --propose', 'singularity-flow workflow import team.json --confirm abc --json',
+      'singularity-flow approve custom-step --yes', 'ls ../team', 'singularity-flow workflow build finish --build wb_0123456789abcdef --propose && rm -rf src']) {
+      assert.match((await shell(command)).permissionDecisionReason ?? '', /BUILD_WORKFLOW_OPERATION_NOT_ALLOWED/u, `${label}: ${command}`);
+    }
+    assert.match((await edit(proposal)).permissionDecisionReason, /no proposal file is issued/u, label);
+    assert.equal(await issueBuildStaging(proposal, { root: f.root }), 1, label);
+    assert.deepEqual(await edit(proposal), {}, label);
+    assert.match((await edit(path.join(f.root, 'singularity', 'workflow.yml'))).permissionDecisionReason, /BUILD_WORKFLOW_PATH_DENIED.*proposal\.json/u);
+    assert.match((await mutationToolGuard({ ...payload, toolName: 'task', toolArgs: { prompt: 'build it' } })).permissionDecisionReason, /BUILD_WORKFLOW_DELEGATION/u);
+    await endRepositoryBoundaryTurn(payload);
+  }
+  // A team-import turn never receives a build's proposal file, and a build turn never a candidate.
+  const importing = await enter('/sf-import-team', 'import-turn', noStory);
+  const late = path.join(path.dirname(f.root), 'state', 'workflow-builds', 'wb-late', 'proposal.json');
+  assert.equal(await issueBuildStaging(late, { root: f.root }), 0);
+  assert.equal((await mutationToolGuard({ ...importing, toolName: 'create_file', toolArgs: { filePath: late } })).permissionDecision, 'deny');
 });
 
 test('custom required artifacts and deterministic phases retain the pinned boundary', async t => {

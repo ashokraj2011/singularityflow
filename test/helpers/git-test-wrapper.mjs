@@ -35,6 +35,7 @@ export async function writeGitTestWrapper(directory, source) {
   await writeFile(program, String.raw`using System;
 using System.Diagnostics;
 using System.Text;
+using System.Threading.Tasks;
 class GitTestWrapper {
   static string Decode(string value) { return Encoding.UTF8.GetString(Convert.FromBase64String(value)); }
   static string Quote(string value) {
@@ -53,7 +54,16 @@ class GitTestWrapper {
     foreach (string arg in args) child.StartInfo.Arguments += " " + Quote(arg);
     child.StartInfo.UseShellExecute = false;
     child.StartInfo.CreateNoWindow = true;
-    child.Start(); child.WaitForExit(); return child.ExitCode;
+    child.StartInfo.RedirectStandardInput = true;
+    child.StartInfo.RedirectStandardOutput = true;
+    child.StartInfo.RedirectStandardError = true;
+    child.Start();
+    var output = child.StandardOutput.BaseStream.CopyToAsync(Console.OpenStandardOutput());
+    var error = child.StandardError.BaseStream.CopyToAsync(Console.OpenStandardError());
+    Console.OpenStandardInput().CopyToAsync(child.StandardInput.BaseStream).ContinueWith(task => {
+      try { child.StandardInput.Close(); } catch { }
+    });
+    child.WaitForExit(); Task.WaitAll(output, error); return child.ExitCode;
   }
 }`);
   const system = process.env.SystemRoot ?? process.env.WINDIR ?? 'C:\\Windows';

@@ -19,5 +19,13 @@ test('Git fault-injection wrapper preserves exact argv without shell interpretat
   const args = ['clone', 'a b', '--git-dir', 'a"b', 'C:\\ends\\', '', 'é', '--upload-pack=x & not-a-command'];
   const result = spawnSync(wrapper, args, { encoding: 'utf8', timeout: 15_000 });
   assert.equal(result.status, 7, result.stderr);
+  assert.notEqual(result.stdout, '', 'native bridge must retain piped stdout');
   assert.deepEqual(JSON.parse(result.stdout), args);
+  const binary = await writeGitTestWrapper(path.join(directory, 'binary'),
+    '#!/usr/bin/env node\nprocess.stdin.pipe(process.stdout); process.stderr.write("diagnostic");\n');
+  const bytes = Buffer.from([0, 255, 10, 13, 42]);
+  const echoed = spawnSync(binary, [], { input: bytes, timeout: 15_000 });
+  assert.equal(echoed.status, 0, echoed.stderr?.toString());
+  assert.deepEqual(echoed.stdout, bytes);
+  assert.equal(echoed.stderr.toString(), 'diagnostic');
 });

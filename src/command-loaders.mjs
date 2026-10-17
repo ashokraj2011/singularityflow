@@ -17,6 +17,7 @@ export const COMMAND_LOADERS = Object.freeze({
   './commands/auto.mjs': () => import('./commands/auto.mjs'),
   './commands/capability.mjs': () => import('./commands/capability.mjs'),
   './commands/change.mjs': () => import('./commands/change.mjs'),
+  './commands/check.mjs': () => import('./commands/check.mjs'),
   './commands/choices-entry.mjs': () => import('./commands/choices-entry.mjs'),
   './commands/comprehension.mjs': () => import('./commands/comprehension.mjs'),
   './commands/context.mjs': () => import('./commands/context.mjs'),

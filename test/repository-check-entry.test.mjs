@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { repositoryCheckFixture } from '../scripts/repository-check-benchmark.mjs';
 import { safeCommandGuidance } from '../src/safe-command-guidance.mjs';
 
@@ -49,4 +50,20 @@ test('Check now pauses before any Git invocation, and rejects unrelated executio
   const paused = f.invoke(['check', '--for-agent', '--json'], { PATH: '' });
   assert.equal(paused.status, 0, paused.stdout + paused.stderr);
   assert.equal(paused.packet.paused ?? paused.packet.data?.paused, true);
+});
+
+test('the stamped installed bundle serves all three entries and the explicit Check now route', async t => {
+  const f = await repositoryCheckFixture({ files: 0, historyCommits: 0, artifacts: 0 });
+  t.after(f.cleanup);
+  const { buildCliBundle } = await import(pathToFileURL(path.join(f.engine, 'scripts/build-cli-bundle.mjs')));
+  const bundle = await buildCliBundle({ root: f.engine });
+  const env = { SINGULARITY_FLOW_BUNDLE: 'on', SINGULARITY_FLOW_BUNDLE_DIR: bundle.outdir };
+  for (const args of [['nextsteps'], ['nextsteps'], ['phase', 'enter', '--compose'], ['session', 'open', f.workId], ['check']]) {
+    const result = f.invoke([...args, '--for-agent', '--json'], env);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    if (args[0] === 'check') {
+      assert.equal(result.packet.data.repositoryChecks.source, 'fresh');
+      assert.equal(result.packet.effects.publicationCreated, false);
+    } else assert.equal(result.packet.ready, true, result.stdout);
+  }
 });

@@ -22,10 +22,11 @@ import { parseYamlText } from './yaml-parse-cache.mjs';
 import { loadDefinition, mergePhaseOverride, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies, parseAttachedSkills } from './agents.mjs';
 import {
-  SKILL_ATTACHMENTS_PATH, effectiveLibrarySkills, librarySkillPath, librarySkillText, loadSkillLibrary, normalizeSkillUse,
+  SKILL_ATTACHMENTS_PATH, librarySkillPath, librarySkillText, loadSkillLibrary, normalizeSkillUse,
   parseLibrarySkill, parseSkillAttachments, readSkillAttachments, skillAttachmentsText, withoutAttachedSkills, withoutTableSection
 } from './skill-library.mjs';
 import { instructionPath, instructionText, parseInstruction, loadInstructionLibrary } from './instruction-library.mjs';
+import { skillUses, projectSkills, projectInstructions } from './asset-catalog-projection.mjs';
 import { constitutionPolicy, parseConstitution } from './constitution.mjs';
 import { constitutionStudioView, renderStudioConstitution, studioConstitutions } from './studio-constitution.mjs';
 import { packagedWorkflowSkills } from './packaged-workflow-skills.mjs';
@@ -345,12 +346,6 @@ function groupStatus(group, security) {
  * The skills an agent uses, each with the steps it applies in, when to use it, and where it is
  * attached: `agent` (the agent's own table) or `attachments` (the attachments file).
  */
-function skillUses(agent) {
-  const own = new Set((agent.librarySkills ?? []).map((entry) => entry.id));
-  return effectiveLibrarySkills(agent).map((entry) => ({
-    id: entry.id, phases: [...entry.phases], use: entry.use, origin: own.has(entry.id) ? 'agent' : 'attachments'
-  }));
-}
 
 /** The skills the agent drafting a step uses in it. */
 function stepSkills(agent, phaseId) {
@@ -517,20 +512,9 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     security: { profile: security.profile, autoEnrollNewIdentities: security.autoEnrollNewIdentities },
     marketplaces: Object.values(safeMarketplaces(raw.marketplaces, problems)).map((marketplace) => ({ ...marketplace, allowedOrigins: [...marketplace.allowedOrigins] })),
     imports: await importsStatus(root).catch((error) => { problems.push({ code: error?.code ?? 'IMPORTS_LOCK_INVALID', message: error.message }); return []; }),
-    skills: [...library.skills.values()].map((skill) => ({
-      id: skill.id, label: skill.label, description: skill.description, instructions: skill.instructions, loading: skill.loading, path: skill.path,
-      instructionRefs: [...skill.instructionRefs],
-      usedBy: discovered.flatMap((agent) => skillUses(agent).filter((entry) => entry.id === skill.id)
-        .map((entry) => ({ agent: agent.id, phases: entry.phases, use: entry.use, origin: entry.origin })))
-        .concat(workflowAttachments.filter((entry) => entry.id === skill.id)
-          .map((entry) => ({ workflow: entry.workflow, phases: [...entry.phases], use: entry.use, origin: 'attachments' })))
-    })),
+    skills: projectSkills(library, discovered, workflowAttachments),
     skillProblems: library.problems,
-    instructions: [...instructionLibrary.instructions.values()].map(item => ({
-      id: item.id, label: item.label, description: item.description, instructions: item.instructions,
-      path: item.path, sha256: item.sha256,
-      usedBy: [...library.skills.values()].filter(skill => skill.instructionRefs.includes(item.id)).map(skill => skill.id)
-    })),
+    instructions: projectInstructions(library, instructionLibrary),
     instructionProblems: instructionLibrary.problems,
     skillAttachmentsPath: SKILL_ATTACHMENTS_PATH,
     mcpSources: await importableMcpServers(root).catch(() => []),

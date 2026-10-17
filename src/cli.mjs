@@ -32,7 +32,7 @@ import { gitEmptyConfigPath } from './git-isolation-paths.mjs';
 import * as style from './style.mjs';
 import { stdin as input, stdout as output } from 'node:process';
 import { constants as fsConstants, existsSync } from 'node:fs';
-import { addPhase, defineWorkflow, editPhase, editWorkflow, listWorkflows, upsertPhaseOutput } from './workflow-authoring.mjs';
+import { addPhase, defineWorkflow, editPhase, editWorkflow, upsertPhaseOutput } from './workflow-authoring.mjs';
 import { activateWorkflowConfigurationProposal, assertLocalConfigurationAuthoringAllowed, configurationProposalCommitStatus, inspectWorkflowConfigurationProposal, listWorkflowConfigurationProposals, proposeConfigurationChange } from './configuration-proposal.mjs';
 import { chmod, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
@@ -78,7 +78,7 @@ import { assertClarificationRecordingAllowed, recordClarificationResponses, veri
 import { progressBar, progressSnapshot } from './progress.mjs';
 import { phaseNeedsGeneration } from './guide.mjs';
 import { nextStepsSnapshot, nextStepsText } from './nextsteps.mjs';
-import { agentMappingStatus, agentStatus, discoverAgents, lockAgent, prepareRemoteOutputs, syncAgent } from './agents.mjs';
+import { discoverAgents, lockAgent, prepareRemoteOutputs, syncAgent } from './agents.mjs';
 import { attestMcpHost, clearPlaywrightAuthProfile, importPlaywrightAuthProfile, mcpDoctor, mcpStatus, playwrightAuthProfileStatus, previewClearPlaywrightAuthProfile, previewPlaywrightAuthImport, probeMcpHost, recordMcpEvidence, removePlaywrightAuthProfile, scaffoldFigmaMcp, scaffoldMcpServer, scaffoldPlaywrightMcp, serveMcpHost, smokeMcpHost, verifyMcpHostOffline, warmMcpHost } from './mcp.mjs';
 import { message as gatewayMessage } from './gateway/messages.mjs';
 import { approvedDesignSourceBinding, verifyDesignSourceLifecycle } from './design-sources.mjs';
@@ -98,7 +98,7 @@ import { resolveStoryExecutionContext } from './story-execution-context.mjs';
 import { loadAcceptedStoryExecution } from './accepted-story-execution.mjs';
 import { completionVerdict, finalCheckRefusalMessage, printCompletionVerdict, recordedCompletion } from './completion-verdict.mjs';
 import { applicabilityStatus, omissionAuthorities, recordApplicabilityDecision } from './evidence/applicability.mjs';
-import { installWorkflow, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowCatalog, workflowDiff } from './workflow-catalog.mjs';
+import { installWorkflow, simulateWorkflow, simulationText, validateWorkflowCatalog, workflowDiff } from './workflow-catalog.mjs';
 import { applyRecovery, assignPhase, recoveryPlan, recoveryText, watchSnapshot, watchText } from './collaboration.mjs';
 import { agentGuardHook, sessionStartAgentHook } from './agent-hooks.mjs';
 import { requireApprovalAuthority } from './approval-authority.mjs';
@@ -3000,23 +3000,8 @@ async function agentsCommand(positionals, options) {
       applyChangeSet: (repository, changeSet, meta) => applyAuthoringChange(repository, changeSet, options, meta) });
   }
   const root = repoRoot();
-  if (subcommand === 'list') {
-    const agents = await discoverAgents(root);
-    const { lines: drafted } = await import('./configuration-drafts.mjs').then(({ draftNotice }) => draftNotice(root, 'agent'));
-    if (!agents.length) return console.log(['No repository or bundled agents found.', ...drafted].join('\n'));
-    return console.log([table(agents.map((agent) => ({ id: agent.id, scope: agent.scope, source: agent.source, dependencies: agent.dependencies.length })), [
-      { key: 'id', label: 'AGENT' }, { key: 'scope', label: 'SCOPE' }, { key: 'source', label: 'SOURCE' }, { key: 'dependencies', label: 'REMOTE' }
-    ]), ...drafted].join('\n'));
-  }
-  if (subcommand === 'mappings') {
-    const result = await agentMappingStatus(root);
-    console.log(`Copilot agent mappings: ${result.path}${result.exists ? '' : ' (not created; same-name fallback only)'}`);
-    if (!result.rows.length) return console.log('No Copilot agents or Singularity Flow agents were discovered.');
-    return console.log(table(result.rows, [
-      { key: 'copilotAgent', label: 'COPILOT AGENT' },
-      { key: 'agentId', label: 'FLOW AGENT' },
-      { key: 'source', label: 'RESOLUTION' }
-    ]));
+  if (['list', 'mappings', 'status'].includes(subcommand)) {
+    return (await import('./commands/agents.mjs')).run([], { positionals, options });
   }
   if (subcommand === 'lock') {
     const agentId = requirePositional(positionals, 2, 'agent');
@@ -3042,17 +3027,6 @@ async function agentsCommand(positionals, options) {
     });
     result.warnings.forEach((warning) => console.warn(`Warning: ${warning}`));
     console.log(`Active agent: ${result.agent.id}. ${result.dependencies.filter((entry) => entry.status === 'ready').length} remote Markdown resource(s) verified and cached.`);
-    return;
-  }
-  if (subcommand === 'status') {
-    const requested = positionals[2] ?? null;
-    const rows = await agentStatus(root, requested);
-    if (requested && !rows.length) throw new SingularityFlowError(`Unknown agent '${requested}'.`);
-    if (!rows.length) return console.log('No repository or bundled agents found.');
-    console.log(table(rows.map((entry) => ({ id: entry.id, scope: entry.scope, status: entry.status, source: entry.source, resources: entry.dependencies.length })), [
-      { key: 'id', label: 'AGENT' }, { key: 'scope', label: 'SCOPE' }, { key: 'status', label: 'STATUS' }, { key: 'resources', label: 'REMOTE' }, { key: 'source', label: 'SOURCE' }
-    ]));
-    for (const entry of rows) for (const dependency of entry.dependencies) console.log(`  ${entry.id}/${dependency.id}\t${dependency.type}\t${dependency.status}\t${dependency.sha256?.slice(0, 12) ?? ''}`);
     return;
   }
   if (subcommand === 'refresh-output') {
@@ -5543,40 +5517,7 @@ async function workflowCommand(positionals, options) {
   if (subcommand === 'skills-recipe') {
     return (await import('./commands/workflow-skills-recipe.mjs')).run(root, positionals, options);
   }
-  if (subcommand === 'list') {
-    return withApprovedConfigurationRead(root, async () => {
-      const catalog = (await workflowCatalog(root)).map((item) => ({ ...item, governs: 'story' }));
-      // Initiative workflows are the same shape — a label and an ordered list of phases — and were
-      // only ever listed separately because they are stored in a different file under a different
-      // name. That is a fact about the storage, not about the thing.
-      const initiatives = (await listWorkflows(root, 'initiative').catch(() => []))
-        .map((workflow) => ({ ...workflow, status: 'current' }));
-      // Pending proposals are durable Git work and must not disappear after the create command.
-      // They remain non-selectable until merged: `--for-start` intentionally lists only approved
-      // workflows, while the ordinary catalog shows newly added proposal rows as pending review.
-      const pending = optionBoolean(options, 'for-start') ? []
-        : await listWorkflowConfigurationProposals(root, { includeDiff: false }).catch(() => []);
-      const proposed = pending.flatMap((proposal) => (proposal.workflows ?? [])
-        .filter((workflow) => workflow.change === 'added')
-        .map((workflow) => ({
-          ...workflow,
-          status: 'pending-review',
-          installed: false,
-          proposalBranch: proposal.branch,
-          proposalCommit: proposal.proposalCommit
-        })));
-      const both = [...catalog, ...initiatives, ...proposed];
-      if (optionBoolean(options, 'json')) return console.log(JSON.stringify(both, null, 2));
-      return console.log(table(both.map((item) => ({
-        id: item.id, label: item.label, governs: item.governs, phases: item.phases.length, status: item.status
-      })), [
-        { key: 'id', label: 'WORKFLOW' }, { key: 'label', label: 'LABEL' },
-        { key: 'governs', label: 'GOVERNS' }, { key: 'phases', label: 'PHASES' },
-        { key: 'status', label: 'STATUS' }
-      ]));
-    }, { preferAuthority: optionBoolean(options, 'for-start') });
-  }
-
+  if (subcommand === 'list') return (await import('./commands/workflow-list.mjs')).run({ options });
   if (subcommand === 'proposals') {
     const proposals = await listWorkflowConfigurationProposals(root, {
       includeMerged: optionBoolean(options, 'all'), includeDiff: false

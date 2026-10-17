@@ -22,6 +22,8 @@ import { configurationReviewRetryDue, firstRunPassDue } from './product-alignmen
 import { productRequirementDue } from './product-requirement-gate.mjs';
 import { agentViewRequested, interpretsForAgent, withCliJsonOutput, withoutAgentFlag } from './cli-json-output.mjs';
 import { copilotModeFile, copilotModePresentation, readCopilotMode } from './copilot-mode.mjs';
+import { scopedUtilityRead, validateUtilityEntry, withoutUtilityEntry } from './utility-entry.mjs';
+import { withReadScope } from './read-scope.mjs';
 
 // These commands promise to remove machine-local Singularity state. Recording their own duration
 // after they finish would immediately recreate `.git/singularity-flow/` and make that promise false.
@@ -563,24 +565,28 @@ export async function main(argv) {
   const uninstall = installFileLeaseSignalHandlers();
   const { positionals, options } = parseArgs(argv);
   try {
+    const utilityEntry = options['utility-entry'] !== undefined ? { operation: positionals.join(' ') } : null;
+    if (utilityEntry) validateUtilityEntry(positionals, options);
     // Every command accepts --for-agent. The compact entries read it (and check a pause) themselves;
     // for the others it shapes the output only, and a paused SFlow answers before any Git or lookup.
     const agentFlag = options['for-agent'] !== undefined;
     const ownsFlag = interpretsForAgent(positionals);
-    if (agentFlag && !ownsFlag && !['pause', 'hook'].includes(positionals[0])) {
+    if ((utilityEntry || agentFlag && !ownsFlag) && !['pause', 'hook'].includes(positionals[0])) {
       const mode = readCopilotMode();
       if (mode.paused) {
         const result = copilotModePresentation(mode);
         return console.log(optionBoolean(options, 'json') ? JSON.stringify(result, null, 2) : result.message);
       }
     }
-    return await withCliJsonOutput(optionBoolean(options, 'json'), () => runMain(agentFlag && !ownsFlag ? withoutAgentFlag(argv) : argv),
-      { forAgent: agentViewRequested(options), kind: positionals[0] });
+    const commandArgv = utilityEntry ? withoutUtilityEntry(argv) : argv;
+    return await withCliJsonOutput(optionBoolean(options, 'json'),
+      () => runMain(agentFlag && !ownsFlag ? withoutAgentFlag(commandArgv) : commandArgv, utilityEntry),
+      { forAgent: agentViewRequested(options), kind: positionals[0], utilityEntry });
   }
   finally { uninstall(); }
 }
 
-async function runMain(argv) {
+async function runMain(argv, utilityEntry = null) {
   const modelMode = resolveModelMode(argv);
   const effectiveArgv = stripGlobalModelOptions(argv);
   // Product reinstall and product alignment are intentionally not repository operations. Resolving
@@ -765,6 +771,7 @@ async function runMain(argv) {
       { code: 'REPOSITORY_CONTEXT_REQUIRED' }
     );
   }
+  if (utilityEntry) utilityEntry.repositoryPath = root;
   // A publication whose index refresh another program blocked finished anyway and left a record;
   // complete that refresh before this command reads the tree. Without a record this is one file
   // lookup and no Git process.
@@ -910,7 +917,11 @@ async function runMain(argv) {
       ? () => withExplicitRepositoryMutationLeases(mutationRoots, operation.id, execute)
       : execute;
     // A command that did not publish leaves its early remote ask unanswered; never wait for it.
-    const result = await withCommandTiming(timer, guardedExecute).finally(abandonRemoteBranchObservations);
+    // Only closed read forms share configuration through accounting and execution. A mutation,
+    // repair, phase entry or unknown option never inherits cached configuration decisions.
+    const invoke = scopedUtilityRead([definition.name, ...positionals.slice(1)], options)
+      ? () => withReadScope(guardedExecute) : guardedExecute;
+    const result = await withCommandTiming(timer, invoke).finally(abandonRemoteBranchObservations);
     timer.stage('execute');
     // The handler has printed its result; what follows is bookkeeping the person does not wait on
     // to read it, though the host still waits for the process. Each part is its own timed stage.

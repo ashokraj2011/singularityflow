@@ -29,12 +29,13 @@ export function validateInstructionRequest({ positionals, options }) {
 export async function run(argv, { positionals, options, applyChangeSet, printResult = null }) {
   const action = validateInstructionRequest({ positionals, options });
   if (INSTRUCTION_CHANGES.includes(action) && !applyChangeSet) return (await import('./legacy.mjs')).run(argv);
-  const [{ repoRoot }, { withApprovedConfigurationRead }, { buildStudioModel, STUDIO_CHANGE_SET_SCHEMA }] = await Promise.all([
-    import('../git.mjs'), import('../approved-configuration-reader.mjs'), import('../workflow-studio.mjs')
+  const [{ repoRoot }, { withApprovedConfigurationRead }] = await Promise.all([
+    import('../git.mjs'), import('../approved-configuration-reader.mjs')
   ]);
   const root = repoRoot();
   if (INSTRUCTION_READS.includes(action)) {
-    const model = await withApprovedConfigurationRead(root, () => buildStudioModel(root), { preferAuthority: true });
+    const { readAssetCatalog } = await import('../asset-catalog.mjs');
+    const model = await withApprovedConfigurationRead(root, () => readAssetCatalog(root, { kind: 'instruction' }), { preferAuthority: true });
     const item = action === 'show' ? model.instructions.find(item => item.id === positionals[2]) : null;
     if (action === 'show' && !item) throw new SingularityFlowError(`Instruction '${positionals[2]}' does not exist. Run instruction list.`, { code: 'INSTRUCTION_UNKNOWN' });
     const result = action === 'show' ? { schemaVersion: 1, resultType: 'instruction', instruction: item }
@@ -47,6 +48,7 @@ export async function run(argv, { positionals, options, applyChangeSet, printRes
       outcome: succeeded('instruction.inspected', { text }), effects: effects(), restState: 'informational', data: result
     }), { json: Boolean(options.json), restStateWhenIdle: 'informational' });
   }
+  const { STUDIO_CHANGE_SET_SCHEMA } = await import('../workflow-studio.mjs');
   const change = { op: `instruction.${action === 'edit' ? 'update' : action}`, id: positionals[2] };
   for (const key of ['label', 'description', 'instructions']) if (options[key] !== undefined) change[key] = options[key];
   if (options.from !== undefined) {

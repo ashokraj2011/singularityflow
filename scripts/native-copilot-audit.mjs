@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { auditSkillPolicy } from './skill-policy.mjs';
-import { PHASE_ENTRY_SKILLS } from '../src/copilot-mode.mjs';
+import { PHASE_ENTRY_SKILLS, UTILITY_ENTRY_SKILLS } from '../src/copilot-mode.mjs';
 import { compareNativeCopilotTraces, readNativeCopilotTrace, summarizeNativeCopilotTrace } from '../src/native-copilot-efficiency.mjs';
 import { retainedPromptInventory } from '../src/retained-prompt-inventory.mjs';
 
@@ -19,7 +19,8 @@ try {
   if (options['--compare'] && !options['--trace']) throw new Error('--compare requires --trace <BEFORE-JSON>.');
   const skills = await auditSkillPolicy(root);
   const rows = skills.rows.map(row => ({ name: row.name, estimatedBodyTokens: row.bodyTokens,
-    entry: row.name === 'sflow-session' ? 'session-open' : PHASE_ENTRY_SKILLS.includes(row.name) ? 'operation-entry'
+    entry: Object.hasOwn(UTILITY_ENTRY_SKILLS, row.name) ? 'utility-entry'
+      : row.name === 'sflow-session' ? 'session-open' : PHASE_ENTRY_SKILLS.includes(row.name) ? 'operation-entry'
       : row.class === 'delegation' ? 'delegated'
         : row.executionBoundary === 'story' ? 'session-entry' : 'pause-only',
     executionBoundary: row.executionBoundary, maximumTokens: row.maximumTokens }));

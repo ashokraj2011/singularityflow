@@ -144,7 +144,7 @@ const LS_TREE_FLAGS = new Set(['-r', '-z', '-d', '-t', '-l', '--long', '--name-o
 const LS_TREE_FORMAT = /^--format=(?:%\((?:objectmode|objecttype|objectname|objectsize(?::padded)?|path)\)|%x[0-9a-fA-F]{2}|[^%])*$/u;
 // Cached-mode listing flags: the index alone answers them.
 const INDEX_FLAGS = new Set(['--stage', '-s', '-z', '-v', '--unmerged', '-u', '--cached', '-c', '--full-name']);
-const HISTORY_FLAGS = new Set(['--reverse', '--full-history', '--first-parent', '--no-merges', '-z']);
+const HISTORY_FLAGS = new Set(['--reverse', '--full-history', '--first-parent', '--no-merges', '--name-status', '-z']);
 // Commit fields the commits fix: full hashes, parents, tree, subject, body, and literal or hex text.
 const HISTORY_FORMAT = /^--(?:format|pretty=format):(?:%[HPTsbB%n]|%x[0-9a-fA-F]{2}|[^%])*$/u;
 const CONFIG_MODIFIERS = new Set([

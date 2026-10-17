@@ -1,6 +1,5 @@
 /** One bounded Git read supplies both first-add and touch evidence for an exact Story path. */
 import { run, SingularityFlowError } from './util.mjs';
-import { inCommandReadScope, scopedReadSync } from './read-scope.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 
 export function readStoryPathHistory(root, relative, label, { runCommand = run } = {}) {
@@ -33,8 +32,8 @@ export function readStoryPathHistory(root, relative, label, { runCommand = run }
     }
     return { history: additions, touches };
   };
-  // Only closed read operations may share mutable HEAD observations, never authoring transactions.
-  return inCommandReadScope() && runCommand === run
-    ? structuredClone(scopedReadSync(JSON.stringify(['story-path-history', root, relative]), read))
-    : read();
+  // Reuse belongs to the Git fact owner, whose fingerprints include HEAD, shallow/graft state,
+  // config, replacements and object availability. Never memoize just root/path in a read scope:
+  // a governed blobless hydration can change history visibility without moving HEAD.
+  return read();
 }

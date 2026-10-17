@@ -115,3 +115,18 @@ test('closed history reuse ends at the read boundary', async t => {
   await writeFile(path.join(root, 'audit.json'), 'two'); git('add', '.'); git('commit', '-qm', 'two');
   await withCommandReadScope(() => assert.equal(readStoryPathHistory(root, 'audit.json', 'Audit').touches.length, 2));
 });
+
+test('history visibility changes inside a request cannot reuse a pre-hydration answer', async t => {
+  const { root, git } = await repository(t);
+  await writeFile(path.join(root, 'audit.json'), 'one'); git('add', '.'); git('commit', '-qm', 'one');
+  await writeFile(path.join(root, 'audit.json'), 'two'); git('add', '.'); git('commit', '-qm', 'two');
+  await withCommandReadScope(async () => {
+    assert.equal(readStoryPathHistory(root, 'audit.json', 'Audit').touches.length, 2);
+    await writeFile(path.join(root, '.git/shallow'), git('rev-parse', 'HEAD') + '\n');
+    const limited = readStoryPathHistory(root, 'audit.json', 'Audit');
+    assert.equal(limited.touches.length, 1);
+    assert.equal(limited.history.length, 0);
+    await rm(path.join(root, '.git/shallow'));
+    assert.equal(readStoryPathHistory(root, 'audit.json', 'Audit').touches.length, 2);
+  });
+});

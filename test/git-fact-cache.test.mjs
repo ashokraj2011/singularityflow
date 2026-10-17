@@ -82,6 +82,7 @@ test('only repository location, HEAD, the index, history and single object reads
     // History from HEAD limited to paths, with output the commits alone decide.
     [['log', '--format=%H', '--diff-filter=A', '--reverse', '--', 'singularity/work-items/A-1/workflow.json'], 'history'],
     [['log', '--full-history', '--format=%H', '--', 'a.txt'], 'history'],
+    [['log', '--full-history', '--format=%x00sflow-commit:%H%x00', '--name-status', '-z', '--', 'a.txt'], 'history'],
     [['log', '--format=%H', 'HEAD', '--', 'a.txt'], 'history'],
     [['log', '--first-parent', '--max-count=3', '--format=%x1f%s', '--', 'a.txt'], 'history'],
     // Another starting point, a time window, an abbreviation, a relative date, renames, or no path.

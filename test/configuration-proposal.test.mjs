@@ -18,7 +18,7 @@ import {
 } from '../src/configuration-proposal.mjs';
 import { remoteFingerprint } from '../src/git-remote-diagnostics.mjs';
 import { run } from '../src/util.mjs';
-import { realGitForTest, writeGitTestWrapper } from './helpers/git-test-wrapper.mjs';
+import { gitTestWrapperEnvironment, realGitForTest, writeGitTestWrapper } from './helpers/git-test-wrapper.mjs';
 
 const cli = fileURLToPath(new URL('../bin/singularity-flow.mjs', import.meta.url));
 
@@ -91,7 +91,7 @@ process.exit(result.status == null ? 1 : result.status);
       () => proposeConfigurationChange(item.story, {
         operation: 'edit-workflow', subject: 'redaction-check', message: 'redaction check',
         async mutate() { throw new Error('clone refusal must happen before mutation'); }
-      }, { env: { ...process.env, PATH: `${wrappers}${path.delimiter}${process.env.PATH}` } }),
+      }, { env: gitTestWrapperEnvironment(wrappers) }),
       (error) => {
         assert.equal(error.code, 'CONFIGURATION_PROPOSAL_AUTHORITY_UNAVAILABLE');
         const serialized = JSON.stringify({ message: error.message, details: error.details });
@@ -598,7 +598,7 @@ process.exit(result.status == null ? 1 : result.status);
       cwd: item.story,
       encoding: 'utf8',
       env: {
-        ...process.env, NO_COLOR: '1', PATH: `${wrappers}${path.delimiter}${process.env.PATH}`
+        ...gitTestWrapperEnvironment(wrappers), NO_COLOR: '1'
       }
     });
     assert.equal(activated.status, 0, activated.stderr || activated.stdout);
@@ -973,7 +973,7 @@ const result = spawnSync(${JSON.stringify(realGit)}, args, {
 process.exit(result.status == null ? 1 : result.status);
 `);
     await assert.rejects(() => listWorkflowConfigurationProposals(item.story, {
-      env: { ...process.env, PATH: `${wrappers}${path.delimiter}${process.env.PATH}` }
+      env: gitTestWrapperEnvironment(wrappers)
     }), (error) => error.code === 'REMOTE_PROTOCOL_INVALID'
       && /duplicate or malformed remote-reference advertisement/i.test(error.message));
   } finally {

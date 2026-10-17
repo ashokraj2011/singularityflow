@@ -3,6 +3,13 @@ import { access, chmod, mkdir, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
+export function gitTestWrapperEnvironment(directory, source = process.env) {
+  const entries = Object.entries(source);
+  const original = entries.find(([key]) => key.toLowerCase() === 'path')?.[1] ?? '';
+  return { ...Object.fromEntries(entries.filter(([key]) => key.toLowerCase() !== 'path')),
+    PATH: directory + path.delimiter + original };
+}
+
 export function realGitForTest() {
   const result = spawnSync(process.platform === 'win32' ? 'where.exe' : 'which',
     [process.platform === 'win32' ? 'git.exe' : 'git'], { encoding: 'utf8' });

@@ -53,7 +53,20 @@ test('workflow metadata is bounded and binds exact original phase contracts; lar
   assert.equal(view.catalogView.total, 40);
   assert.equal(view.catalogView.more, true);
   assert.ok(view.catalogView.shown > 0 && view.catalogView.shown <= 20);
-  assert.deepEqual(view.data[0].phases, ['check']);
+  assert.equal(view.catalogView.detailLevel, 'identity');
+  assert.equal(view.data[0].phaseCount, 1);
   assert.equal(view.data[0].status, 'pending-review', 'a candidate is never shown as active');
   assert.deepEqual(JSON.parse(await readFile(view.agentOutput.path, 'utf8')).data, result.data);
+});
+
+test('identity-first fallback lists every name before rich partial scope metadata', async t => {
+  const f = await createWarmReadFixture(); t.after(f.cleanup);
+  const skills = Array.from({ length: 11 }, (_, i) => ({ id: `skill-${i}`, label: `Skill ${i}`,
+    description: 'Detailed description '.repeat(30), instructions: 'Do exactly this. '.repeat(100),
+    usedBy: Array.from({ length: 8 }, (_, j) => ({ workflow: `workflow-${j}`, phases: ['check'], use: 'Bound phase scope' })) }));
+  const view = JSON.parse(await boundedAgentOutput(JSON.stringify({ resultType: 'skill-master', skills }), { cwd: f.repository }));
+  assert.equal(view.catalogView.detailLevel, 'identity');
+  assert.equal(view.catalogView.more, false);
+  assert.deepEqual(view.skills.map(row => row.id), skills.map(row => row.id));
+  assert.deepEqual(completeAgentResult(view).skills, skills, 'attachment scope and instructions stay exact for selected expansion');
 });

@@ -357,8 +357,10 @@ export async function boundedAgentOutput(text, { cwd = process.cwd(), budget = a
     instruction: 'A bounded view of a complete result. omittedFields lists each field left out with its exact line range in agentOutput.path, and long texts as their own files; read only the ranges you need with your file-reading tool. Nothing was truncated.' };
   if (catalog) {
     agentOutput.instruction = 'Metadata-only catalog. Read a selected detailField from this exact retained result; long texts have their own referenced files. No definition was discarded. A summary does not replace selected skill/instruction bodies.';
-    for (const limit of [20, 10, 5, 1]) {
-      const view = { ...catalogAgentView(ordered, limit), agentOutput };
+    // Prefer every identity to a richer partial list: a list-names task must not expand the
+    // complete catalog just because descriptions and attachment detail used the inline budget.
+    for (const [limit, identityOnly] of [[20, false], [20, true], [10, true], [5, true], [1, true]]) {
+      const view = { ...catalogAgentView(ordered, limit, { identityOnly }), agentOutput };
       const rendered = agentJson(view);
       if (bytes(rendered) <= budget) return `${rendered}\n`;
     }

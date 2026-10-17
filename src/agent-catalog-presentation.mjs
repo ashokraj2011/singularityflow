@@ -6,7 +6,7 @@ const preview = value => typeof value === 'string' && value.length > 240 ? value
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value[key] !== undefined).map(key => [key, value[key]]));
 
 /** Closed to list catalogs only: never summarize selected instructions, reviews or decisions. */
-export function catalogAgentView(result, limit = 20) {
+export function catalogAgentView(result, limit = 20, { identityOnly = false } = {}) {
   if (!result || result.error || result.errors?.length) return null;
   const utility = result.resultType === 'sflow-utility-entry';
   const data = utility ? result.data : result;
@@ -22,7 +22,11 @@ export function catalogAgentView(result, limit = 20) {
       || (kind === 'workflow' && (!Array.isArray(item.phases)
         || item.phases.some(phase => typeof phase !== 'string' && typeof phase?.id !== 'string'))))) return null;
   const summaries = rows.slice(0, limit).map((item, index) => {
-    const metadata = kind === 'skill'
+    const metadata = identityOnly
+      ? kind === 'skill'
+        ? pick(item, ['id', 'label', 'path', 'loading', 'instructionRefs', 'tags'])
+        : { ...pick(item, ['id', 'label', 'governs', 'installed', 'status', 'seeded', 'editable']), phaseCount: item.phases.length }
+      : kind === 'skill'
       ? pick(item, ['id', 'label', 'description', 'path', 'loading', 'instructionRefs', 'usedBy', 'tags'])
       : { ...pick(item, ['id', 'label', 'description', 'governs', 'installed', 'status', 'source', 'seeded',
         'editable', 'proposalBranch', 'proposalCommit']),
@@ -33,7 +37,8 @@ export function catalogAgentView(result, limit = 20) {
   });
   const projected = kind === 'skill' ? { ...data, skills: summaries } : summaries;
   return { ...(utility ? { ...result, data: projected } : projected), catalogView: {
-    kind, metadataOnly: true, total: rows.length, shown: summaries.length, more: rows.length > summaries.length,
+    kind, metadataOnly: true, detailLevel: identityOnly ? 'identity' : 'scope',
+    total: rows.length, shown: summaries.length, more: rows.length > summaries.length,
     details: 'Read only the needed fields from agentOutput.path. It retains the exact full catalog; a summary is not an instruction or an authority decision.'
   } };
 }

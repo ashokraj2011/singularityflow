@@ -2,10 +2,16 @@
 import { repoRoot } from '../git.mjs';
 import { discoverAgents, agentMappingStatus, agentStatus } from '../agents.mjs';
 import { SingularityFlowError, optionBoolean, table } from '../util.mjs';
+import { withCommandObservability } from '../command-observability.mjs';
 
 export async function run(argv, { positionals, options }) {
   const action = positionals[1];
   if (!['list', 'mappings', 'status'].includes(action)) return (await import('./legacy.mjs')).run(argv);
+  return withCommandObservability('agents', argv, options, () => readAgents({ positionals, options }));
+}
+
+export async function readAgents({ positionals, options }) {
+  const action = positionals[1];
   const root = repoRoot();
   const json = optionBoolean(options, 'json');
   if (action === 'list') {

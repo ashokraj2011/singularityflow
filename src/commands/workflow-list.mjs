@@ -5,8 +5,13 @@ import { workflowCatalog } from '../workflow-catalog.mjs';
 import { listWorkflows } from '../workflow-authoring.mjs';
 import { listWorkflowConfigurationProposals } from '../configuration-proposal.mjs';
 import { optionBoolean, table } from '../util.mjs';
+import { withCommandObservability } from '../command-observability.mjs';
 
-export async function run({ options }) {
+export async function run({ options, argv = ['workflow', 'list'] }) {
+  return withCommandObservability('workflow', argv, options, () => listWorkflowCatalog({ options }));
+}
+
+export async function listWorkflowCatalog({ options }) {
   const root = repoRoot();
   return withApprovedConfigurationRead(root, async () => {
     const catalog = (await workflowCatalog(root)).map(item => ({ ...item, governs: 'story' }));

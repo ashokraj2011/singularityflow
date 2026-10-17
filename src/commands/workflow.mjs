@@ -22,7 +22,7 @@ async function printUnuploadedProposals(root) {
 
 export async function run(argv, { positionals, options }) {
   const method = positionals[1];
-  if (method === 'list') return (await import('./workflow-list.mjs')).run({ options });
+  if (method === 'list') return (await import('./workflow-list.mjs')).run({ options, argv });
   if (method === 'intent') return (await import('./workflow-intent.mjs')).run(argv, { positionals, options });
   if (method === 'markup') return (await import('./workflow-markup.mjs')).run(argv, { positionals, options });
   if (method === 'import-team') return (await import('./workflow-import-team.mjs')).run(argv, { positionals, options });

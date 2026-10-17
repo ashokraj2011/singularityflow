@@ -4,7 +4,8 @@ import path from 'node:path';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { createWarmReadFixture } from '../scripts/warm-read-fixture.mjs';
-import { validateUtilityEntry, scopedUtilityRead, withoutUtilityEntry } from '../src/utility-entry.mjs';
+import { validateUtilityEntry, scopedUtilityRead, withoutUtilityEntry, utilityResult } from '../src/utility-entry.mjs';
+import { agentAct } from '../src/agent-output.mjs';
 import { readAssetCatalog } from '../src/asset-catalog.mjs';
 import { buildStudioModel } from '../src/workflow-studio.mjs';
 import { withApprovedConfigurationRead } from '../src/approved-configuration-reader.mjs';
@@ -38,6 +39,12 @@ test('combined utility entry is closed to mutations, effects, ambiguous flags an
   assert.doesNotThrow(() => validateUtilityEntry(['inputs', 'intake'], { ...flags, 'dry-run': true }));
   assert.doesNotThrow(() => validateUtilityEntry(['report'], { ...flags, format: 'json' }));
   assert.throws(() => validateUtilityEntry(['report'], flags), { code: 'UTILITY_ENTRY_REQUEST_INVALID' });
+  const entry = utilityResult({ repositoryPath: '/fixture', operation: 'status' },
+    { resultType: 'sflow-phase-entry', status: 'clarification-required', workId: 'EXAMPLE', phase: 'intake' });
+  assert.equal(entry.workId, 'EXAMPLE');
+  assert.equal(entry.phase, 'intake');
+  assert.deepEqual(agentAct(entry).read, ['data.clarification', 'data.context']);
+  assert.equal(utilityResult({ repositoryPath: '/fixture' }, []).workId, undefined);
 });
 
 test('utility reads preserve outputs, pause before Git and share only one read invocation', async t => {

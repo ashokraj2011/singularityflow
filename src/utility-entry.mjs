@@ -48,8 +48,12 @@ export function withoutUtilityEntry(argv) {
 
 export function utilityResult(entry, data) {
   if (!entry.repositoryPath) throw Object.assign(new Error('Utility entry did not resolve a repository.'), { code: 'UTILITY_ENTRY_BINDING_REQUIRED' });
+  const workId = data?.workId ?? data?.workItem?.id;
+  const phase = data?.phase ?? data?.currentPhase;
   return { schemaVersion: 1, resultType: 'sflow-utility-entry', paused: false,
     repositoryPath: entry.repositoryPath, operation: entry.operation,
+    ...(typeof workId === 'string' ? { workId } : {}),
+    ...(typeof phase === 'string' ? { phase } : {}),
     // This is a successful read, never permission to author, publish or approve.
     readCompleted: true, data };
 }

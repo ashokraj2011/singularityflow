@@ -3001,7 +3001,7 @@ async function agentsCommand(positionals, options) {
   }
   const root = repoRoot();
   if (['list', 'mappings', 'status'].includes(subcommand)) {
-    return (await import('./commands/agents.mjs')).run([], { positionals, options });
+    return (await import('./commands/agents.mjs')).readAgents({ positionals, options });
   }
   if (subcommand === 'lock') {
     const agentId = requirePositional(positionals, 2, 'agent');
@@ -5517,7 +5517,7 @@ async function workflowCommand(positionals, options) {
   if (subcommand === 'skills-recipe') {
     return (await import('./commands/workflow-skills-recipe.mjs')).run(root, positionals, options);
   }
-  if (subcommand === 'list') return (await import('./commands/workflow-list.mjs')).run({ options });
+  if (subcommand === 'list') return (await import('./commands/workflow-list.mjs')).listWorkflowCatalog({ options });
   if (subcommand === 'proposals') {
     const proposals = await listWorkflowConfigurationProposals(root, {
       includeMerged: optionBoolean(options, 'all'), includeDiff: false

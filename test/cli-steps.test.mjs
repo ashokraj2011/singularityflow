@@ -50,6 +50,8 @@ test('structured refusals survive all composed command families and every seeded
 });
 
 test('process deadlines, output limits and first meaningful text errors are retained, not the retry footer', () => {
+  assert.equal(capturedStepResult({ status: 0, timedOut: true, stdout: '{"status":"ready"}' }).ok, false,
+    'a late zero exit does not erase an exceeded deadline');
   const narrated = { schemaVersion: 1, outcome: { status: 'refused', messageId: 'gate.not-ready' },
     why: [{ id: 'exact.finding' }], next: [{ command: 'singularity-flow status --json' }] };
   assert.throws(() => stop(capturedStepResult({ status: 1, stdout: JSON.stringify(narrated) }), 'phase publish'), error => {

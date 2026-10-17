@@ -17,9 +17,10 @@ export function capturedStepResult(result) {
       }
     }
   }
-  return { ok: result.status === 0 && !result.error, status: result.status, value,
+  const timedOut = result.timedOut === true || result.error?.code === 'ETIMEDOUT';
+  return { ok: result.status === 0 && !result.error && !timedOut && !result.signal, status: result.status, value,
     stdout, stderr, signal: result.signal ?? null,
-    timedOut: result.timedOut === true || result.error?.code === 'ETIMEDOUT',
+    timedOut,
     ...(result.error ? { processError: { code: result.error.code ?? null,
       message: redactDiagnosticText(result.error.message ?? '').slice(0, 2000) } } : {}) };
 }

@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readConfigurationSource } from './configuration-source.mjs';
+import { validateTokenReportingPolicy } from './token-reporting-policy.mjs';
+import { normalizeSessionPolicy } from './session-policy.mjs';
+export { normalizeSessionPolicy } from './session-policy.mjs';
 import {
   cp, mkdir, readFile, readdir
 } from 'node:fs/promises';
@@ -839,17 +842,6 @@ export function normalizeVerificationPolicy(value = null, { phases = [], visualS
   return { coverage, profiles: normalizedProfiles, comparison: { mode, channelTolerance, maxDifferingPixelRatio: ratio, maxDifferingPixels: pixels, maxPixels } };
 }
 
-export function normalizeSessionPolicy(value = {}) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new SingularityFlowError('session must be an object.');
-  for (const key of Object.keys(value)) if (!['workItemSelection', 'requireBeforeTools'].includes(key)) throw new SingularityFlowError(`session contains unknown field '${key}'.`);
-  const workItemSelection = value.workItemSelection ?? 'off';
-  if (!['off', 'reuse', 'prompt'].includes(workItemSelection)) throw new SingularityFlowError('session.workItemSelection must be off, reuse, or prompt.');
-  if (value.requireBeforeTools != null && typeof value.requireBeforeTools !== 'boolean') throw new SingularityFlowError('session.requireBeforeTools must be boolean.');
-  return {
-    workItemSelection,
-    requireBeforeTools: value.requireBeforeTools ?? false
-  };
-}
 
 export function normalizeRepositoryReadinessPolicy(value = {}) {
   assertKnownKeys(value, new Set([
@@ -1069,22 +1061,7 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   // and type-checked here; their IDs are resolved against the verified saved catalog later.
   validateInjectionDefinition(definition, { deferAgentReferences: storyBootstrap });
   definition.codeDelivery = normalizeCodeDeliveryPolicy(definition.codeDelivery ?? {});
-  if (definition.tokens?.mode && definition.tokens.mode !== 'exact-or-unavailable') throw new SingularityFlowError("tokens.mode must be 'exact-or-unavailable'.");
-  for (const [model, pricing] of Object.entries(definition.tokens?.pricing ?? {})) {
-    if (!model.trim()) throw new SingularityFlowError('tokens.pricing model names must not be empty.');
-    if (!pricing || typeof pricing !== 'object' || Array.isArray(pricing)) throw new SingularityFlowError(`Token pricing for '${model}' must be an object.`);
-    for (const field of ['input', 'output', 'cachedInput']) {
-      if (pricing[field] != null && (!Number.isFinite(pricing[field]) || pricing[field] < 0)) throw new SingularityFlowError(`tokens.pricing.${model}.${field} must be a non-negative number.`);
-    }
-    if (pricing.input == null && pricing.output == null && pricing.cachedInput == null) throw new SingularityFlowError(`Token pricing for '${model}' must define input, output, or cachedInput.`);
-  }
-  // Premium-request multipliers are GitHub's per-model rates. They change, so none are bundled.
-  const multipliers = definition.tokens?.premiumMultipliers;
-  if (multipliers != null && (typeof multipliers !== 'object' || Array.isArray(multipliers))) throw new SingularityFlowError('tokens.premiumMultipliers must map model names to numbers.');
-  for (const [model, multiplier] of Object.entries(multipliers ?? {})) {
-    if (!model.trim()) throw new SingularityFlowError('tokens.premiumMultipliers model names must not be empty.');
-    if (!Number.isFinite(multiplier) || multiplier < 0) throw new SingularityFlowError(`tokens.premiumMultipliers.${model} must be a non-negative number.`);
-  }
+  validateTokenReportingPolicy(definition.tokens);
   for (const phaseId of definition.documents?.allowedPhases ?? []) if (!definition.phases[phaseId]) throw new SingularityFlowError(`Document policy references unknown phase '${phaseId}'.`);
   if (definition.documents?.maxFileBytes != null && (!Number.isInteger(definition.documents.maxFileBytes) || definition.documents.maxFileBytes < 1)) throw new SingularityFlowError('documents.maxFileBytes must be a positive integer.');
   assertDocumentStoragePolicy(definition.documents?.storage);

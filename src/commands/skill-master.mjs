@@ -7,53 +7,9 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { SingularityFlowError } from '../util.mjs';
-import { SKILL_MASTER_READS } from './skill.mjs';
-const AUTHORING = ['json', 'dry-run', 'propose', 'expected-authority-kind', 'expected-authority-commit',
-  'expected-authority-remote-fingerprint', 'expected-authority-source-commit'];
-const RETAINED = ['work-id', 'phase', 'agent', 'generation', 'snapshot-sha256', 'expected-sha256'];
-const OPTIONS = Object.freeze({
-  list: ['json'], show: ['json', ...RETAINED],
-  create: [...AUTHORING, 'label', 'description', 'instructions', 'from', 'loading', 'instruction-refs'],
-  edit: [...AUTHORING, 'label', 'description', 'instructions', 'from', 'loading', 'instruction-refs'],
-  attach: [...AUTHORING, 'agent', 'workflow', 'phases', 'use'],
-  detach: [...AUTHORING, 'agent', 'workflow'],
-  remove: AUTHORING
-});
-const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
-
-function fail(message, code) { throw new SingularityFlowError(message, { code }); }
-
-function text(options, key) {
-  const value = options[key];
-  if (value === undefined) return undefined;
-  if (typeof value !== 'string') fail(`--${key} takes a value.`, 'SKILL_MASTER_OPTION_INVALID');
-  return value;
-}
-
-export function validateSkillMasterRequest({ positionals, options }) {
-  const action = positionals[1];
-  if (action === 'list') {
-    if (positionals.length !== 2) fail('skill list takes no skill ID.', 'SKILL_MASTER_ID_INVALID');
-  } else if (positionals.length !== 3 || !ID.test(positionals[2] ?? '')) {
-    fail(`skill ${action} takes one skill ID in lower-case kebab-case.`, 'SKILL_MASTER_ID_INVALID');
-  }
-  for (const key of Object.keys(options)) {
-    if (!OPTIONS[action].includes(key)) fail(`skill ${action} does not support '--${key}'.`, 'SKILL_MASTER_OPTION_UNSUPPORTED');
-  }
-  for (const key of ['json', 'dry-run', 'propose']) {
-    if (options[key] !== undefined && options[key] !== true) fail(`--${key} does not take a value.`, 'SKILL_MASTER_OPTION_UNSUPPORTED');
-  }
-  if (['attach', 'detach'].includes(action) && Boolean(text(options, 'agent')) === Boolean(text(options, 'workflow'))) fail(`skill ${action} needs exactly one --agent <AGENT> or --workflow <WORKFLOW>.`, 'SKILL_MASTER_AGENT_REQUIRED');
-  if (options.loading !== undefined && !['eager', 'on-demand'].includes(text(options, 'loading'))) fail('--loading must be eager or on-demand.', 'SKILL_MASTER_OPTION_INVALID');
-  if (action === 'show' && RETAINED.some(key => options[key] !== undefined)) {
-    for (const key of RETAINED) if (!text(options, key)?.trim()) fail(`Retained skill retrieval requires --${key}.`, 'SKILL_MASTER_OPTION_INVALID');
-    if (!/^[1-9]\d*$/u.test(options.generation) || !Number.isSafeInteger(Number(options.generation))
-        || !ID.test(options.phase) || !ID.test(options.agent)
-        || !/^(?:sha256:)?[a-f0-9]{64}$/u.test(options['snapshot-sha256'])
-        || !/^(?:sha256:)?[a-f0-9]{64}$/u.test(options['expected-sha256'])) fail('Retained skill retrieval requires exact phase, agent, positive generation and SHA-256 identities.', 'SKILL_MASTER_OPTION_INVALID');
-  }
-  return action;
-}
+import { SKILL_MASTER_READS, validateSkillMasterRequest, skillMasterOptionText as text } from './skill-request.mjs';
+export { validateSkillMasterRequest } from './skill-request.mjs';
+const fail = (message, code) => { throw new SingularityFlowError(message, { code }); };
 
 async function instructionsFrom(options) {
   const inline = text(options, 'instructions');

@@ -20,6 +20,7 @@ import { phaseContinuation } from '../phase-continuation.mjs';
 import { safeCommandGuidance } from '../safe-command-guidance.mjs';
 import { authoringSkillCatalog } from '../authoring-skills.mjs';
 import { agentOrIndentedJson, agentPacketPresentation } from '../agent-packet-presentation.mjs';
+import { measureCommandSpan } from '../dx-timing-context.mjs';
 
 async function localSession(root) {
   const target = path.join(gitDir(root), 'singularity-flow', 'session.json');
@@ -171,7 +172,7 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
   const { phaseAuthoringProgress, readPhaseDraftEvidence } = await import('../phase-authoring-progress.mjs');
   const pendingAuthoring = phaseAuthoringProgress(workflow, active);
   const authoringProgress = pendingAuthoring ? phaseAuthoringProgress(workflow, active, {
-    draftEvidence: await readPhaseDraftEvidence(root, definition, workflow, active, { observeFile })
+    draftEvidence: await measureCommandSpan('nextsteps.draft-evidence', () => readPhaseDraftEvidence(root, definition, workflow, active, { observeFile }))
   }) : null;
   const consumedGenerationChanged = active?.generationIntent?.status === 'consumed'
     && Number(active.generationIntent.generation) === Number(active.generation);
@@ -205,12 +206,12 @@ export async function resolveStorySnapshot(root, { workflow, definition, executi
       authoringProgress,
       sourceReviewEvidence,
       stepActionHold,
-      publicationPending: publicationPending ?? Boolean(await readPendingPublication(root, {
+      publicationPending: publicationPending ?? Boolean(await measureCommandSpan('nextsteps.pending-publication', () => readPendingPublication(root, {
         kind: 'story', id: selected.id, migrate: false,
         roots: { workItemRoot: path.dirname(path.dirname(selected.location.path)) }
-      })),
+      }))),
       recovery,
-      prerequisites: await storyPrerequisites(root, workflow, selected, modelMode, { definition, executionCatalog, observeFile }),
+      prerequisites: await measureCommandSpan('nextsteps.prerequisites', () => storyPrerequisites(root, workflow, selected, modelMode, { definition, executionCatalog, observeFile })),
       modelMode
     }),
     evidence: evidenceSummary(workflow)

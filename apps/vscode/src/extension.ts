@@ -4615,6 +4615,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onOutput: (text) => output.append(text)
   });
   output.appendLine(`Using CLI (${client.location.source}): ${client.location.cli}`);
+  // Begin after activation yields, ahead of the first menu click. This only prepares owned code;
+  // it does not scan the repository, execute a handler, or claim readiness/approval.
+  const readPreparation = setTimeout(() => {
+    if (!activationSignal.aborted) void client.prewarmReads(activationSignal);
+  }, 0);
+  context.subscriptions.push({ dispose: () => clearTimeout(readPreparation) });
   context.subscriptions.push({ dispose: () => { client.dispose(); activeSelectionClient.dispose(); } });
 
   const expandReference = async (seed?: string): Promise<void> => {

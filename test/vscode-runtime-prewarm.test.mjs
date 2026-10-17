@@ -83,3 +83,11 @@ test('intake prewarms after catalog loading and cancels optional work before Sta
   assert.match(source, /private async start\(\): Promise<void> \{\s*this\.runtimeWarmup\.abort\(\)/);
   assert.match(source, /dispose\(\): void \{[\s\S]*?this\.runtimeWarmup\.abort\(\)/);
 });
+
+test('activation schedules definition-only preparation before a click and does not await it', async () => {
+  const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
+  assert.match(extension, /const readPreparation = setTimeout\([\s\S]*?void client\.prewarmReads\(activationSignal\)/u);
+  assert.match(extension, /dispose: \(\) => clearTimeout\(readPreparation\)/u);
+  const client = await readFile(new URL('../apps/vscode/src/cli/client.ts', import.meta.url), 'utf8');
+  assert.match(client, /for \(const preparation of this\.readPreparations\) preparation\.abort\(\)/u);
+});

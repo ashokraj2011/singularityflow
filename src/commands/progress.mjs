@@ -1,4 +1,4 @@
-import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
+import { readStoryState } from '../story-state-read.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { repoRoot } from '../git.mjs';
@@ -12,8 +12,7 @@ export async function run(argv, { positionals, options }) {
 
 export async function progressCommand(positionals, options) {
   const root = repoRoot();
-  const { workflow } = await loadAcceptedStoryExecution(root, positionals[1]);
-  const progress = progressSnapshot(workflow);
+  const progress = await readProgress(root, positionals[1]);
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(progress, null, 2));
   if (optionBoolean(options, 'markdown')) return console.log(progressMarkdown(progress));
   console.log(`\n${progress.workId} — ${progress.workType}`);
@@ -25,4 +24,9 @@ export async function progressCommand(positionals, options) {
     { key: 'index', label: '#' }, { key: 'id', label: 'PHASE' }, { key: 'status', label: 'STATUS' },
     { key: 'generation', label: 'GEN' }, { key: 'approvals', label: 'APPROVED' }, { key: 'approvalsRequired', label: 'NEEDED' }, { key: 'tokens', label: 'TOKENS' }
   ])}`);
+}
+
+/** Recorded progress, not evidence that the phase may execute or be approved. */
+export async function readProgress(root, workId = null) {
+  return progressSnapshot(await readStoryState(root, workId));
 }

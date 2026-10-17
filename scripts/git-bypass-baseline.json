@@ -12,6 +12,10 @@
     "scripts/gal-matrix-cell.mjs"
   ],
   "sites": {
+    "scripts/bench-prepared-reads.mjs": {
+      "counts": { "process-import": 1, "process-launch": 1 },
+      "digest": "3009f292bf38a3b8322da102b6528c4cb45f1a1085251b6567257b4b0125fef0"
+    },
     "scripts/bench-utility-entry.mjs": {
       "counts": { "command-run": 4, "process-import": 1, "process-launch": 1 },
       "digest": "a80a1c76b463695cf3b468f8f0d02ab7fbb2280ffd3b92a7a562e8efcd34deb8"
@@ -29,8 +33,8 @@
       "digest": "75514e5515c7c64f2b409927ccdc2c69c836fef92a86b5919430320746486676"
     },
     "scripts/warm-read-fixture.mjs": {
-      "counts": { "command-git": 7, "process-import": 1, "process-launch": 2 },
-      "digest": "fc3de41a4345205938f793857358e8f2e78e9a2a7df69c9ae73e2b39ea3d30e9"
+      "counts": { "command-git": 8, "process-import": 1, "process-launch": 2 },
+      "digest": "9f38f3200d170b12b3682a25b4e856f9dffbc4fa80a672d58f942e0d4f93203c"
     },
     "scripts/warm-read-benchmark.mjs": {
       "counts": { "command-git": 12 },
@@ -418,7 +422,7 @@
       "counts": {
         "command-run": 9
       },
-      "digest": "c91012ae9530f34461ef034bdac3299fe1a40f8de029291bbd1ce6733f02e087"
+      "digest": "ddc8cffe39f4f87bbaa242a258285471b3e34cdd74642f3db805e77585fd89ab"
     },
     "src/ast-intelligence.mjs": {
       "counts": {

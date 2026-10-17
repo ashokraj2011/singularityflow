@@ -36,6 +36,7 @@ const sharedReads = new Map<string, ClientRead>();
 interface WarmReader {
   readWithWorker(options: Record<string, unknown>): Promise<{ kind: 'value'; value: unknown; transport: string; durationMs: number } | null>;
   invalidateReadWorkers(repository: string): void;
+  prewarmReadWorker?(options: Record<string, unknown>): Promise<{ status: string }>;
 }
 const warmReaders = new Map<string, Promise<WarmReader | null>>();
 function warmReader(cli: string): Promise<WarmReader | null> {
@@ -627,6 +628,7 @@ export class SingularityFlowClient {
   private readonly options: ClientOptions;
   private readonly readResults = new Map<string, { expiresAt: number; value: unknown }>();
   private readonly readJobs = new Set<ClientRead>();
+  private readonly readPreparations = new Set<AbortController>();
   private readEpoch = 0;
   constructor(options: ClientOptions) { this.options = options; }
 
@@ -650,6 +652,25 @@ export class SingularityFlowClient {
     } catch { /* Optional acceleration must never deny opening intake or starting work. */ }
   }
 
+  /** Warm owned definitions ahead of a click, never read Story/configuration state. */
+  async prewarmReads(signal?: AbortSignal): Promise<void> {
+    if (this.options.warmReads === false || signal?.aborted) return;
+    const repository = this.repository, epoch = this.readEpoch;
+    const controller = new AbortController();
+    const abort = () => controller.abort(signal?.reason);
+    signal?.addEventListener('abort', abort, { once: true });
+    this.readPreparations.add(controller);
+    const env = { ...((typeof this.options.environment === 'function'
+      ? this.options.environment() : this.options.environment) ?? process.env) };
+    try {
+      const reader = await warmReader(this.location.cli);
+      if (controller.signal.aborted || epoch !== this.readEpoch || repository !== this.repository) return;
+      await reader?.prewarmReadWorker?.({ ...this.location, repository, env, signal: controller.signal,
+        onWorkerStarted: recordHostBackgroundProcessStarted, onWorkerExited: recordHostBackgroundProcessCompleted });
+    } catch { /* Optional definition preparation never denies an interactive request. */ }
+    finally { signal?.removeEventListener('abort', abort); this.readPreparations.delete(controller); }
+  }
+
   /**
    * Point every later command at a different repository.
    *
@@ -671,6 +692,7 @@ export class SingularityFlowClient {
 
   /** External Git/config changes and writes invalidate cross-panel reuse as well as local bytes. */
   invalidateReads(): void {
+    for (const preparation of this.readPreparations) preparation.abort();
     const repository = this.repository;
     const key = mutationKey(repository);
     repositoryMutationEpochs.set(key, (repositoryMutationEpochs.get(key) ?? 0) + 1);

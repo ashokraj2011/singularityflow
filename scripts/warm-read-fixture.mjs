@@ -4,9 +4,11 @@ import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/pr
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 const source = fileURLToPath(new URL('..', import.meta.url));
-export async function createWarmReadFixture({ files = 0, branches = 0 } = {}) {
+export async function createWarmReadFixture({ files = 0, branches = 0, storyMode = 'legacy' } = {}) {
+  if (!['legacy', 'pinned'].includes(storyMode)) throw new Error('Unknown qualification Story mode.');
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-warm-read-'));
   const engine = path.join(directory, 'engine'), repository = path.join(directory, 'repository');
   try {
@@ -57,19 +59,40 @@ export async function createWarmReadFixture({ files = 0, branches = 0 } = {}) {
     };
     const statePath = path.join(repository, 'singularity/work-items/PERF-001/workflow.json');
     await mkdir(path.dirname(statePath), { recursive: true });
+    if (storyMode === 'pinned') {
+      await mkdir(path.join(repository, '.github/agents'), { recursive: true });
+      await writeFile(path.join(repository, '.github/agents/developer.agent.md'),
+        '---\nname: developer\ndescription: Read qualification\nmetadata:\n  sflow-phases: intake\n---\n# Developer\n\nDraft only the approved intake.\n');
+      const { loadDefinition, resolveWorkType, snapshotResolution } = await import(pathToFileURL(path.join(engine, 'src/config.mjs')));
+      const { captureWorkflowSnapshot } = await import(pathToFileURL(path.join(engine, 'src/workflow-snapshots.mjs')));
+      const definition = await loadDefinition(repository), resolved = resolveWorkType(definition, 'chore');
+      state.workItem.createdAt = '2026-10-17T00:00:00.000Z';
+      state.resolution = { ...await snapshotResolution(repository, definition, resolved),
+        session: {}, sequenceGates: {}, collaboration: { assignmentMode: 'off' }, phases: resolved.phases };
+      state.resolution.agents = { developer: state.resolution.agents.developer };
+      state.workflowSnapshot = await captureWorkflowSnapshot(repository, definition, state);
+    }
     await writeFile(statePath, JSON.stringify(state));
     await mkdir(path.join(repository, 'src'));
     for (let index = 0; index < files; index++) await writeFile(path.join(repository, `src/file-${index}.txt`), `file ${index}\n`);
     git(['add', '.']); git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'local qualification fixture']);
     for (let index = 0; index < branches; index++) git(['branch', `unrelated-${index}`]);
     git(['switch', '-qc', 'PERF-001']);
+    let pinnedVerification = null;
+    if (storyMode === 'pinned') {
+      const { loadAcceptedStoryExecution } = await import(pathToFileURL(path.join(engine, 'src/accepted-story-execution.mjs')));
+      const accepted = await loadAcceptedStoryExecution(repository, 'PERF-001');
+      if (accepted.executionCatalog?.mode !== 'workflow-snapshot') throw new Error('Pinned qualification lacks an accepted execution closure.');
+      pinnedVerification = { mode: accepted.executionCatalog.mode, snapshotHash: accepted.executionCatalog.snapshotHash,
+        creationCommit: git(['rev-parse', 'HEAD']) };
+    }
     const cli = path.join(engine, 'bin/singularity-flow.mjs');
     const cold = (args, { cwd = repository, json = true } = {}) => {
       const output = execFileSync(process.execPath, [cli, ...args], { cwd, env,
         encoding: 'utf8', timeout: 90_000, maxBuffer: 40 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'] });
       return json ? JSON.parse(output) : output;
     };
-    return { directory, engine, repository, cli, env, git, state, statePath, cold,
+    return { directory, engine, repository, cli, env, git, state, statePath, cold, storyMode, pinnedVerification,
       cleanup: () => rm(directory, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }) };
   } catch (error) {
     try { await rm(directory, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }); }

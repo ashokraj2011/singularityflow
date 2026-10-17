@@ -1,4 +1,5 @@
-import { loadAcceptedStoryExecution } from '../accepted-story-execution.mjs';
+import { readStoryState } from '../story-state-read.mjs';
+import { readReportPreferences } from '../report-preferences.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { TimingCollector, writeHumanTimings } from '../dx-timings.mjs';
@@ -39,11 +40,10 @@ export async function reportCommand(positionals, options) {
   const timingsEnabled = optionBoolean(options, 'timings');
   const timer = new TimingCollector({ enabled: timingsEnabled });
   const root = repoRoot();
-  const accepted = await timer.measure(
-    'accepted-story-execution',
-    () => loadAcceptedStoryExecution(root, positionals[1])
+  const workflow = await timer.measure(
+    'story-record-read',
+    () => readStoryState(root, positionals[1])
   );
-  const { config, workflow } = accepted;
   // `report --recap` is the same account the pull-request body carries, from the same beats. Kept on
   // `report` rather than given its own verb: it answers "what happened here", which is the question
   // report already exists to answer, and one surface is one thing to keep true.
@@ -59,7 +59,8 @@ export async function reportCommand(positionals, options) {
   }
   const format = optionString(options, 'format', 'md').toLowerCase();
   if (!['md', 'html', 'json'].includes(format)) throw new SingularityFlowError(`Unknown report format: ${format}. Use md, html, or json.`);
-  const report = await timer.measure('derive', async () => deriveReport(workflow, { pricing: config.tokens?.pricing ?? null, premiumMultipliers: config.tokens?.premiumMultipliers ?? null }));
+  const preferences = await readReportPreferences(root);
+  const report = await timer.measure('derive', async () => deriveReport(workflow, preferences));
   let rendered = await timer.measure('render', async () => format === 'json'
     ? `${JSON.stringify(report, null, 2)}\n`
     : format === 'html' ? renderHtml(report) : renderMarkdown(report));
@@ -89,6 +90,7 @@ export async function reportCommand(positionals, options) {
 }
 
 export async function reviewCommand(positionals, options) {
+  const { loadAcceptedStoryExecution } = await import('../accepted-story-execution.mjs');
   const { createReviewBundle, reviewContinuationLines, reviewHtml, reviewMarkdown } = await import('../review.mjs');
   const root = repoRoot();
   const { config, workflow } = await loadAcceptedStoryExecution(root);
@@ -106,4 +108,10 @@ export async function reviewCommand(positionals, options) {
     return console.log(`${summariseRendered(rendered, `review bundle for ${workflow.workItem.id}`)}\n${reviewContinuationLines(bundle.continuation).join('\n')}`);
   }
   process.stdout.write(rendered);
+}
+
+/** Same informational JSON derivation used by the CLI, without console capture. */
+export async function readReport(root, workId = null) {
+  const workflow = await readStoryState(root, workId);
+  return deriveReport(workflow, await readReportPreferences(root));
 }

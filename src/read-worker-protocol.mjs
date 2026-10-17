@@ -13,9 +13,16 @@ export function warmReadRequest(args) {
   if (!Array.isArray(args) || args.length > 32 || args.some(a => typeof a !== 'string' || a.length > 1024)
       || args.at(-1) !== '--json') return null;
   const [method, ...rest] = args.slice(0, -1);
-  if (['status', 'nextsteps'].includes(method)) {
+  if (['status', 'nextsteps', 'progress'].includes(method)) {
     if (rest.length > 1 || rest.some(value => !/^[\p{L}\p{N}][\p{L}\p{N}._-]{0,255}$/u.test(value))) return null;
     return { method, workId: rest[0] ?? null };
+  }
+  if (method === 'report') {
+    const workId = rest[0] === '--format' ? null : rest[0];
+    const flags = workId == null ? rest : rest.slice(1);
+    if (flags.length !== 2 || flags[0] !== '--format' || flags[1] !== 'json'
+        || (workId != null && !/^[\p{L}\p{N}][\p{L}\p{N}._-]{0,255}$/u.test(workId))) return null;
+    return { method, workId };
   }
   if (method !== 'snapshot') return null;
   const included = [];

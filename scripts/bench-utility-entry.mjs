@@ -11,19 +11,22 @@ const combinedBaseline = arguments_.includes('--combined-baseline');
 const prewarm = arguments_.includes('--prewarm');
 const sampleOption = arguments_.find(value => value.startsWith('--samples='));
 const outputOption = arguments_.find(value => value.startsWith('--agent-output='));
+const storyOption = arguments_.find(value => value.startsWith('--story-mode='));
+const storyMode = storyOption?.slice('--story-mode='.length) ?? 'legacy';
 const outputMode = outputOption?.slice('--agent-output='.length) ?? 'full';
 const samples = sampleOption ? Number(sampleOption.slice('--samples='.length)) : 1;
 const positional = arguments_.filter(value => !value.startsWith('--'));
 if (!Number.isInteger(samples) || samples < 1 || samples > 5 || positional.length > 2
-    || !['full', 'bounded'].includes(outputMode)
-    || arguments_.some(value => value.startsWith('--') && !['--combined-baseline', '--prewarm', sampleOption, outputOption].includes(value))) {
+    || !['full', 'bounded'].includes(outputMode) || !['legacy', 'pinned'].includes(storyMode)
+    || arguments_.some(value => value.startsWith('--') && !['--combined-baseline', '--prewarm', sampleOption, outputOption, storyOption].includes(value))) {
   throw new Error('Unsupported benchmark option or sample count (1–5).');
 }
 const baselineRoot = positional[0] && path.resolve(positional[0]);
 if (!baselineRoot) throw new Error('Usage: node scripts/bench-utility-entry.mjs <BASELINE-CHECKOUT> [RESULT.json] [--combined-baseline] [--prewarm] [--samples=3] [--agent-output=full|bounded]');
-const fixture = await createWarmReadFixture({ files: 1000, branches: 20 });
+const fixture = await createWarmReadFixture({ files: 1000, branches: 20, storyMode });
 const report = { schemaVersion: 1, platform: process.platform, node: process.version,
-  fixture: { files: 1000, branches: 20, catalogs: 'full installed seeded defaults',
+  fixture: { files: 1000, branches: 20, storyMode, pinnedVerification: fixture.pinnedVerification,
+    catalogs: 'full installed seeded defaults, local approved configuration branch',
     runtime: 'stamped installed cold bundle', cache: 'empty private V8 cache per variant, then three fresh processes; OS cache not flushed',
     modelCalls: 0, configuredRemotes: 0, baselineEntry: combinedBaseline ? 'combined utility read' : 'pause plus utility read',
     samples, output: outputMode, listingTask: 'Read all catalog IDs/names; required expansion files are read and counted, not modeled as native Copilot tool latency.',
@@ -69,7 +72,7 @@ try {
       cwd, env: { ...common, SINGULARITY_FLOW_BUNDLE_DIR: variant.bundle, NODE_COMPILE_CACHE: cache },
       encoding: 'utf8', timeout: 90_000, maxBuffer: 8 * 1024 * 1024
     });
-    if (result.status !== 0) throw new Error(`${variant.id} ${args.join(' ')}: ${result.error?.message ?? result.stderr ?? result.stdout}`);
+    if (result.status !== 0) throw new Error(`${variant.id} ${args.join(' ')}: ${result.error?.message || result.stderr || result.stdout}`);
     return { ms: Math.round(performance.now() - start), bytes: Buffer.byteLength(result.stdout),
       stdout: result.stdout, outputTiming: (() => { try {
         return JSON.parse(result.stderr.split('\n').find(line => line.startsWith('@@sflow-output/v1 '))?.slice(18));
@@ -78,6 +81,7 @@ try {
   run(variants[0], ['init'], catalog, path.join(fixture.directory, 'init-cache'));
   fixture.git(['add', '.'], { cwd: catalog });
   fixture.git(['-c', 'commit.gpgsign=false', 'commit', '-qm', 'seeded catalog'], { cwd: catalog });
+  fixture.git(['branch', 'sflow/config'], { cwd: catalog });
   for (const [name, args] of cases) {
     const cwd = name.endsWith('list') ? catalog : fixture.repository;
     const rows = new Map(variants.map(variant => [variant.id, { name, variant: variant.id, runs: [], warmups: [] }]));

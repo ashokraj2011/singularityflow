@@ -5,6 +5,7 @@ import { optionBoolean, SingularityFlowError } from '../util.mjs';
 import { phaseReview } from './shared/phase-review.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
+import { measureCommandSpan } from '../dx-timing-context.mjs';
 
 export async function run(argv, { positionals, options }) {
   return withCommandObservability('phase', argv, options,
@@ -17,7 +18,7 @@ export async function phaseShowCommand(positionals, options) {
   const phaseId = positionals[2] ?? workflow.currentPhase;
   const phase = workflow.phases[phaseId];
   if (!phase) throw new SingularityFlowError(`Unknown or unavailable phase '${phaseId ?? ''}'. Provide a phase ID.`);
-  const review = await phaseReview(root, definition, workflow, phase, { includeContinuation: true });
+  const review = await measureCommandSpan('phase.review', () => phaseReview(root, definition, workflow, phase, { includeContinuation: true }));
   if (optionBoolean(options, 'for-agent') && !optionBoolean(options, 'json')) throw new SingularityFlowError('--for-agent requires --json.');
   if (optionBoolean(options, 'for-agent')) {
     const { agentJson, phaseReviewAgentPresentation } = await import('../agent-packet-presentation.mjs');

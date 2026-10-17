@@ -6,18 +6,27 @@ import { withOperationContext } from './operation-context.mjs';
 import { withoutConfigurationReadScope } from './configuration-read-scope.mjs';
 import { resolveModelMode } from './model-mode.mjs';
 import { resolveOperation } from './command-registry.mjs';
-import { resetGitProcessCaches } from './git.mjs';
+import { resetGitDirCache } from './git-execution.mjs';
 import { clearGitFactCache } from './git-fact-cache.mjs';
 import { resetGitBlobReadCaches } from './git-blob-batch.mjs';
 import { resetRefSubjectCache } from './repository-subject-index.mjs';
-import { resetConfigurationAssetPolicyCache } from './configuration-branch.mjs';
+let fullReset = null;
 
-function reset() {
-  resetGitProcessCaches();
+async function reset(full = false) {
+  if (full && !fullReset) {
+    const [git, configuration] = await Promise.all([import('./git.mjs'), import('./configuration-branch.mjs')]);
+    fullReset = () => { git.resetGitProcessCaches(); configuration.resetConfigurationAssetPolicyCache(); };
+  }
+  resetGitDirCache();
+  fullReset?.();
   clearGitFactCache();
   resetGitBlobReadCaches();
   resetRefSubjectCache();
-  resetConfigurationAssetPolicyCache();
+}
+
+/** Definition preparation only: no handler, repository read, model or receipt is executed. */
+export async function prepareReadWorkerDefinitions() {
+  await Promise.all([import('./commands/status.mjs'), import('./commands/progress.mjs'), import('./commands/report.mjs')]);
 }
 
 export async function readWorkerValue(root, args) {
@@ -26,7 +35,7 @@ export async function readWorkerValue(root, args) {
   const operation = resolveOperation({ requestedCommand: request.method,
     positionals: [request.method, ...(request.workId ? [request.workId] : [])], options: { json: true } });
   if (operation.classification !== 'read' || operation.modelPolicy !== 'never') return { kind: 'unsupported' };
-  reset();
+  await reset(!['status', 'progress', 'report'].includes(request.method));
   try {
     const value = await withoutConfigurationReadScope(() => withFreshReadScope(() => withOperationContext({
       operation, root, command: request.method, modelMode: resolveModelMode(args),
@@ -40,11 +49,19 @@ export async function readWorkerValue(root, args) {
         const { readStatus } = await import('./commands/status.mjs');
         return readStatus(root, request.workId);
       }
+      if (request.method === 'progress') {
+        const { readProgress } = await import('./commands/progress.mjs');
+        return readProgress(root, request.workId);
+      }
+      if (request.method === 'report') {
+        const { readReport } = await import('./commands/report.mjs');
+        return readReport(root, request.workId);
+      }
       const { resolveSnapshot } = await import('./commands/nextsteps.mjs');
       return resolveSnapshot([request.method, ...(request.workId ? [request.workId] : [])], { root });
     })));
     // Console-only diagnostics are not a private protocol. Successful structured warning fields
     // remain intact; governed failures are rendered by the one cold CLI fallback, not guessed here.
     return { kind: 'value', value };
-  } finally { reset(); }
+  } finally { await reset(); }
 }

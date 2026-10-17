@@ -24,6 +24,8 @@ process.on('message', message => {
       const build = await readWorkerBuildFingerprint(cli);
       const repository = await realpath(process.cwd());
       if (build?.fingerprint !== binding.build || repository !== await realpath(binding.repository)) return process.exit(1);
+      const { prepareReadWorkerDefinitions } = await import('./read-worker-service.mjs');
+      await prepareReadWorkerDefinitions();
       binding.repository = repository;
       reply({ type: 'ready', format: READ_WORKER_FORMAT, nonce: binding.nonce, build: binding.build });
     })().catch(() => process.exit(1));

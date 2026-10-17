@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { withReadScope, scopedCommandRead } from './read-scope.mjs';
 import { configurationReadRoot } from './configuration-read-scope.mjs';
-import { incrementCommandCounter } from './dx-timing-context.mjs';
+import { incrementCommandCounter, measureCommandSpan } from './dx-timing-context.mjs';
 import { loadDefinition } from './config.mjs';
 import { loadStoryAggregate } from './state-stores.mjs';
 import { resolveStoryExecutionCatalog } from './story-execution-context.mjs';
@@ -110,12 +110,12 @@ export async function loadAcceptedStoryExecution(root, workId = null) {
 async function loadAcceptedStoryExecutionUncached(root, workId) {
   incrementCommandCounter('story.context-load');
   return withReadScope(async () => {
-    const bootstrap = await loadDefinition(root, { storyBootstrap: true });
-    const located = await locateAcceptedStory(root, bootstrap, workId);
+    const bootstrap = await measureCommandSpan('story.bootstrap', () => loadDefinition(root, { storyBootstrap: true }));
+    const located = await measureCommandSpan('story.aggregate', () => locateAcceptedStory(root, bootstrap, workId));
     if (located.workflow.workflowSnapshot) {
-      const executionCatalog = await resolveStoryExecutionCatalog(
+      const executionCatalog = await measureCommandSpan('story.execution-catalog', () => resolveStoryExecutionCatalog(
         root, located.definition, located.workflow
-      );
+      ));
       const definition = executionCatalog.effectiveDefinition;
       return Object.freeze({
         definition, config: definition, workflow: located.workflow, executionCatalog

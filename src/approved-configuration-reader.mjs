@@ -17,6 +17,8 @@ import {
 import { gitReadOutput, removeTemporaryTree, run, SingularityFlowError } from './util.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
 import { withFreshReadScope } from './read-scope.mjs';
+import { readObjectsBatch } from './git-ref-tree.mjs';
+import { measureCommandSpan } from './dx-timing-context.mjs';
 
 const WORKFLOW_PATH = 'singularity/workflow.yml';
 const CONFIGURATION_BRANCH = 'sflow/config';
@@ -26,6 +28,7 @@ const STATE_FORMAT = 'singularity-flow-configuration-mirror/v2';
 const STATE_CONFIGURATION_HISTORY_PREFIX = 'sflow/config-history';
 const MAX_FILES = 10_000;
 const MAX_BYTES = 128 * 1024 * 1024;
+const observedAssetPolicies = new WeakMap();
 
 function stateConfigurationHistoryBranch(sourceCommit) {
   const commit = String(sourceCommit ?? '').trim();
@@ -68,16 +71,23 @@ async function withExistingConfigurationRead(root, scope, fn, { selectPaths = nu
   }
 }
 
-function yamlAtCommit(root, commit, relative) {
+function yamlAtCommit(root, commit, relative, objects = null) {
+  if (objects) {
+    const entry = objects.get(`${commit}:${relative}`);
+    if (entry?.status === 'missing') return {};
+    if (entry?.status !== 'ok' || entry.type !== 'blob') throw new SingularityFlowError(
+      `Approved configuration metadata '${relative}' could not be read.`, { code: 'APPROVED_CONFIGURATION_READ_FAILED' });
+    return YAML.parse(entry.bytes.toString('utf8')) ?? {};
+  }
   const shown = run('git', ['show', `${commit}:${relative}`], { cwd: root, allowFailure: true });
   if (shown.status !== 0) return {};
   return YAML.parse(shown.stdout) ?? {};
 }
 
-function assetPolicyAtCommit(root, commit) {
+function assetPolicyAtCommit(root, commit, objects = null) {
   return configurationAssetPolicy(
-    yamlAtCommit(root, commit, WORKFLOW_PATH),
-    yamlAtCommit(root, commit, 'singularity/portfolio.yml')
+    yamlAtCommit(root, commit, WORKFLOW_PATH, objects),
+    yamlAtCommit(root, commit, 'singularity/portfolio.yml', objects)
   );
 }
 
@@ -93,29 +103,33 @@ function authorityCommit(root, revision) {
   }), `Approved configuration ref '${revision}'`, { absentStatus: 1 })?.trim() ?? '';
 }
 
-function configurationAuthorityAtRef(root, ref) {
-  const commit = authorityCommit(root, ref);
+function configurationAuthorityAtRef(root, ref, observed = null) {
+  const commit = observed?.commit ?? authorityCommit(root, ref);
   if (!/^[0-9a-f]{40,64}$/.test(commit)) return null;
   if (ref.endsWith(`/${CONFIGURATION_BRANCH}`)
       || ref === `refs/heads/${CONFIGURATION_BRANCH}`) {
-    const workflow = run('git', ['cat-file', '-e', `${commit}:${WORKFLOW_PATH}`], {
+    const workflow = observed ? { status: observed.objects.get(`${commit}:${WORKFLOW_PATH}`)?.status === 'ok' ? 0 : 1 }
+      : run('git', ['cat-file', '-e', `${commit}:${WORKFLOW_PATH}`], {
       cwd: root, allowFailure: true
     });
-    return workflow.status === 0
-      ? {
+    if (workflow.status !== 0) return null;
+    const authority = {
           kind: 'approved-configuration-ref', ref, commit,
           remote: remoteIdentityForAuthorityRef(root, ref)
-        }
-      : null;
+        };
+    if (observed) observedAssetPolicies.set(authority, assetPolicyAtCommit(root, commit, observed.objects));
+    return authority;
   }
   if (!(ref.endsWith(`/${STATE_BRANCH}`) || ref === `refs/heads/${STATE_BRANCH}`)) return null;
-  const shown = run('git', ['show', `${commit}:${STATE_MANIFEST}`], { cwd: root, allowFailure: true });
+  const manifestObject = observed?.objects.get(`${commit}:${STATE_MANIFEST}`);
+  const shown = observed ? { status: manifestObject?.status === 'ok' ? 0 : 1, stdout: manifestObject?.bytes?.toString('utf8') }
+    : run('git', ['show', `${commit}:${STATE_MANIFEST}`], { cwd: root, allowFailure: true });
   if (shown.status !== 0) return null;
   let manifest;
   try { manifest = JSON.parse(shown.stdout); } catch { return null; }
   const files = manifest?.files;
   const assets = manifest?.assets ?? null;
-  const policy = assetPolicyAtCommit(root, commit);
+  const policy = assetPolicyAtCommit(root, commit, observed?.objects);
   if (manifest?.format !== STATE_FORMAT || manifest?.layout !== 'canonical-paths'
     || manifest?.source?.branch !== CONFIGURATION_BRANCH
     || !/^[0-9a-f]{40,64}$/.test(manifest?.source?.commit ?? '')
@@ -132,10 +146,12 @@ function configurationAuthorityAtRef(root, ref) {
   if (manifest.history != null
     && (manifest.history?.branch !== stateConfigurationHistoryBranch(manifest.source.commit)
       || manifest.history?.commit !== manifest.source.commit)) return null;
-  return {
+  const authority = {
     kind: 'verified-state-mirror', ref, commit, manifest,
     remote: remoteIdentityForAuthorityRef(root, ref)
   };
+  observedAssetPolicies.set(authority, policy);
+  return authority;
 }
 
 function remoteNameForAuthorityRef(ref) {
@@ -171,29 +187,46 @@ function remoteIdentityForAuthorityRef(root, ref) {
   return identity.url;
 }
 
-function approvedConfigurationAuthority(root, {
+async function approvedConfigurationAuthority(root, {
   allowLocalHeads = true,
   canonicalRemote = null
 } = {}) {
-  const listed = run('git', [
-    'for-each-ref', '--format=%(refname)',
+  const listed = await measureCommandSpan('catalog.authority-refs', () => run('git', [
+    'for-each-ref', '--format=%(refname) %(objectname) %(objecttype)',
     `refs/remotes/*/${CONFIGURATION_BRANCH}`, `refs/heads/${CONFIGURATION_BRANCH}`,
     `refs/remotes/*/${STATE_BRANCH}`, `refs/heads/${STATE_BRANCH}`
-  ], { cwd: root, allowFailure: true });
-  if (listed.status !== 0) return null;
+  ], { cwd: root, allowFailure: true }));
+  gitReadOutput(listed, 'Approved configuration references');
   const priority = (ref) => {
     if (ref === `refs/remotes/origin/${CONFIGURATION_BRANCH}`) return 0;
     if (ref.endsWith(`/${CONFIGURATION_BRANCH}`)) return 1;
     if (ref === `refs/remotes/origin/${STATE_BRANCH}`) return 2;
     return 3;
   };
-  const refs = listed.stdout.trim().split('\n').map((entry) => entry.trim()).filter(Boolean)
+  const observations = new Map(listed.stdout.trim().split('\n').filter(Boolean).map(line => {
+    const [ref, commit, type] = line.trim().split(' ');
+    if (!ref || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(commit ?? '') || type !== 'commit') {
+      throw new SingularityFlowError('Approved configuration references returned invalid identities.', { code: 'APPROVED_CONFIGURATION_READ_FAILED' });
+    }
+    return [ref, commit];
+  }));
+  const refs = [...observations.keys()]
     .filter((ref) => allowLocalHeads || !ref.startsWith('refs/heads/'))
     .filter((ref) => canonicalRemote == null
       || remoteNameForAuthorityRef(ref) === canonicalRemote)
     .sort((left, right) => priority(left) - priority(right) || left.localeCompare(right));
+  if (refs.length > MAX_FILES) throw new SingularityFlowError('Too many approved configuration candidates.', { code: 'APPROVED_CONFIGURATION_TOO_LARGE' });
   for (const ref of refs) {
-    const authority = configurationAuthorityAtRef(root, ref);
+    // Only this priority candidate is relevant. A damaged lower-priority ref must not poison
+    // an already valid authority; its commit, manifest and policy metadata share one batch.
+    const commit = observations.get(ref);
+    const objects = await measureCommandSpan('catalog.authority-objects', () => readObjectsBatch(root,
+      [commit, ...[WORKFLOW_PATH, 'singularity/portfolio.yml', ...(ref.endsWith(`/${STATE_BRANCH}`) ? [STATE_MANIFEST] : [])]
+        .map(relative => `${commit}:${relative}`)], { maxObjectBytes: MAX_BYTES, maxBatchBytes: MAX_BYTES }));
+    if (objects == null || [...objects.values()].some(entry => !['ok', 'missing'].includes(entry.status))) {
+      throw new SingularityFlowError('Approved configuration metadata could not be read completely.', { code: 'APPROVED_CONFIGURATION_READ_FAILED' });
+    }
+    const authority = configurationAuthorityAtRef(root, ref, { commit, objects });
     if (authority) return authority;
   }
   return null;
@@ -276,7 +309,7 @@ async function refreshApprovedConfigurationAuthority(root, {
 }
 
 async function extractConfiguration(root, authority, destination, { selectPaths = null } = {}) {
-  const policy = assetPolicyAtCommit(root, authority.commit);
+  const policy = observedAssetPolicies.get(authority) ?? assetPolicyAtCommit(root, authority.commit);
   const selected = selectPaths == null ? null : [...new Set(selectPaths)].sort();
   if (selected != null && (!selected.includes(WORKFLOW_PATH)
       || selected.some((relative) => !isConfigurationReadPath(relative, policy)))) {
@@ -511,11 +544,11 @@ export async function withApprovedConfigurationRead(root, fn, {
       ? await refreshApprovedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote })
         ?? (requireAuthorityRefresh
           ? null
-          : approvedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote }))
-      : approvedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote }))
+          : await approvedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote }))
+      : await approvedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote }))
     : (requireAuthorityRefresh
       ? null
-      : approvedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote }))
+      : await approvedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote }))
       ?? (refreshAuthority
         ? await refreshApprovedConfigurationAuthority(root, { allowLocalHeads, canonicalRemote })
         : null);

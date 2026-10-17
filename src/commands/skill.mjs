@@ -3,79 +3,9 @@ import { emitCommandResult } from '../narration/emit.mjs';
 import { SingularityFlowError } from '../util.mjs';
 
 /** The skill master's actions: named skills any agent can attach. Its service loads only for them. */
-export const SKILL_MASTER_READS = Object.freeze(['list', 'show']);
-export const SKILL_MASTER_CHANGES = Object.freeze(['create', 'edit', 'attach', 'detach', 'remove']);
+import { SKILL_MASTER_READS, SKILL_MASTER_CHANGES, validateSkillRequest } from './skill-request.mjs';
+export { SKILL_MASTER_READS, SKILL_MASTER_CHANGES, validateSkillRequest } from './skill-request.mjs';
 const skillMaster = () => import('./skill-master.mjs');
-
-const INSPECT_OPTIONS = new Set(['json', 'skill-id']);
-const APPROVED_OPTIONS = new Set(['json', 'expected-package-sha256']);
-const DOCTOR_OPTIONS = new Set(['json', 'story', 'phase', 'source']);
-
-/**
- * SKP inspection is intentionally separate from workflow authoring. This operation reads the
- * exact selected local directory and returns inert suggestions; it never admits a phase, installs
- * a native host skill, or makes a configuration proposal.
- */
-export async function validateSkillRequest({ positionals, options }) {
-  const subcommand = positionals[1];
-  if ([...SKILL_MASTER_READS, ...SKILL_MASTER_CHANGES].includes(subcommand)) {
-    return (await skillMaster()).validateSkillMasterRequest({ positionals, options });
-  }
-  if (!['inspect', 'approved', 'doctor'].includes(subcommand)) {
-    throw new SingularityFlowError(
-      `Unknown skill action '${subcommand ?? 'none'}'. The skill master: 'singularity-flow skill list|show|create|edit|attach|detach|remove'. Skill packages: 'singularity-flow skill inspect <LOCAL-DIRECTORY> --json', 'singularity-flow skill approved <ID> --json', or 'singularity-flow skill doctor <ID> --story <WORK-ID> --phase <PHASE-ID> --json'.`,
-      { code: 'SKP_ACTION_UNKNOWN' }
-    );
-  }
-  if (positionals.length !== 3 || typeof positionals[2] !== 'string' || !positionals[2].trim()) {
-    throw new SingularityFlowError(
-      subcommand === 'inspect'
-        ? 'Skill inspection requires exactly one explicitly selected local directory.'
-        : 'Approved skill inspection requires exactly one portable skill ID.',
-      { code: 'SKP_SKILL_MISSING' }
-    );
-  }
-  const allowed = subcommand === 'inspect' ? INSPECT_OPTIONS
-    : subcommand === 'doctor' ? DOCTOR_OPTIONS : APPROVED_OPTIONS;
-  for (const key of Object.keys(options)) {
-    if (!allowed.has(key)) {
-      throw new SingularityFlowError(
-        `Skill ${subcommand} does not support '--${key}'.`,
-        { code: 'SKP_OPTION_UNSUPPORTED' }
-      );
-    }
-  }
-  if (options.json !== undefined && options.json !== true) {
-    throw new SingularityFlowError('--json does not take a value for skill inspection.',
-      { code: 'SKP_OPTION_UNSUPPORTED' });
-  }
-  if (options['skill-id'] !== undefined
-      && (typeof options['skill-id'] !== 'string' || !options['skill-id'].trim())) {
-    throw new SingularityFlowError('--skill-id requires one explicit portable skill ID.',
-      { code: 'SKP_OPTION_UNSUPPORTED' });
-  }
-  if (options['expected-package-sha256'] !== undefined
-      && (typeof options['expected-package-sha256'] !== 'string'
-        || !options['expected-package-sha256'].trim())) {
-    throw new SingularityFlowError('--expected-package-sha256 requires one exact package digest.',
-      { code: 'SKP_OPTION_UNSUPPORTED' });
-  }
-  if (subcommand !== 'inspect'
-      && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(positionals[2])) {
-    throw new SingularityFlowError('Skill ID must be a portable lowercase kebab-case name.',
-      { code: 'SKP_ID_CASE_COLLISION' });
-  }
-  if (subcommand === 'doctor') {
-    for (const key of ['story', 'phase', 'source']) {
-      if ((key !== 'source' || options[key] !== undefined)
-          && (typeof options[key] !== 'string' || !options[key].trim())) {
-        throw new SingularityFlowError(`Skill doctor requires an explicit --${key} value.`,
-          { code: 'SKP_OPTION_UNSUPPORTED' });
-      }
-    }
-  }
-  return subcommand;
-}
 
 export async function run(argv, { positionals, options, applyChangeSet, printResult }) {
   // A skill master edit is applied through the configuration authority (a reviewed proposal or a

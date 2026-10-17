@@ -11,6 +11,7 @@ import { READ_WORKER_FORMAT, READ_WORKER_MAX_QUEUE, READ_WORKER_MAX_REPLY_BYTES,
 
 const workers = new Map();
 const MAX_WORKERS = 2, MAX_REQUESTS = 64, MAX_AGE_MS = 300_000, IDLE_MS = 60_000;
+const PREPARE_ONLY = Symbol('owned-definition-preparation');
 const cancelled = signal => signal?.reason ?? new Error('The Singularity Flow read was cancelled.');
 
 function stop(worker) {
@@ -91,7 +92,7 @@ function open({ key, repository, selected, executable, env, build, entry, onWork
 
 /** Null means use the ordinary CLI once. Cancellation rejects, and must never trigger fallback. */
 export async function readWithWorker({ executable, cli, repository: selected, args, env = process.env, signal,
-  onWorkerStarted, onWorkerExited }) {
+  onWorkerStarted, onWorkerExited, [PREPARE_ONLY]: prepareOnly = false }) {
   const started = performance.now();
   if (signal?.aborted) throw cancelled(signal);
   if (env.SINGULARITY_FLOW_READ_WORKER === 'off' || !warmReadRequest(args) || !path.isAbsolute(executable)) return null;
@@ -126,13 +127,20 @@ export async function readWithWorker({ executable, cli, repository: selected, ar
   }
   const current = worker;
   // Attach cancellation before awaiting worker startup, not after the five-second startup deadline.
-  const onAbort = () => stop(current);
+  const onAbort = () => {
+    if (!prepareOnly || (current.nextId === 0 && current.pending.size === 0)) stop(current);
+  };
   signal?.addEventListener('abort', onAbort, { once: true });
   try {
-    if (signal?.aborted) { stop(current); throw cancelled(signal); }
+    if (signal?.aborted) { onAbort(); throw cancelled(signal); }
     if (!await current.ready || current.closed) {
       if (signal?.aborted) throw cancelled(signal);
       return null;
+    }
+    if (signal?.aborted) throw cancelled(signal);
+    if (prepareOnly) {
+      idle(current);
+      return { kind: 'prepared', durationMs: Math.round(performance.now() - started) };
     }
     if (current.pending.size >= READ_WORKER_MAX_QUEUE) return null;
     clearTimeout(current.idle);
@@ -152,4 +160,12 @@ export async function readWithWorker({ executable, cli, repository: selected, ar
     return result ? { ...result, transport: reused ? 'warm-worker' : 'worker-start',
       durationMs: Math.round(performance.now() - started) } : null;
   } finally { signal?.removeEventListener('abort', onAbort); }
+}
+
+/** Reuses the private transport but never sends a repository read or consumes a request slot. */
+export async function prewarmReadWorker(options) {
+  try {
+    const result = await readWithWorker({ ...options, args: ['status', '--json'], [PREPARE_ONLY]: true });
+    return { status: result?.kind === 'prepared' ? 'prepared' : 'unavailable' };
+  } catch { return { status: options.signal?.aborted ? 'cancelled' : 'failed' }; }
 }

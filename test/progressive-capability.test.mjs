@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 
 import {
   capabilityMapMode, editCapability, materializeImplicitCapability,
@@ -42,6 +44,32 @@ test('ordinary initialization keeps capability authority implicit and clone-stab
   assert.equal(first.name, 'This repository');
   assert.equal(first.resolutionSha256, second.resolutionSha256);
   assert.deepEqual(first.sourceScope, { sourceRoots: [], sharedRoots: [] });
+});
+
+test('remote-backed implicit capabilities never walk root history; local-only identity still does', async t => {
+  const root = await repository();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  run('git', ['add', '.'], { cwd: root });
+  run('git', ['commit', '-qm', 'baseline'], { cwd: root });
+  const original = childProcess.spawnSync;
+  const history = [];
+  childProcess.spawnSync = function (program, args, options) {
+    if (options?.cwd === root && args?.[0] === 'rev-list') history.push(args);
+    return original(program, args, options);
+  };
+  syncBuiltinESMExports();
+  try {
+    assert.equal((await resolveLifecycleCapability(root, { required: true })).mode, 'implicit');
+    assert.deepEqual(history, [], 'remote identity must not open the fallback application graph');
+    run('git', ['remote', 'remove', 'origin'], { cwd: root });
+    const local = await resolveLifecycleCapability(root, { required: true });
+    assert.equal(local.mode, 'implicit');
+    assert.ok(history.some(args => args.includes('--max-parents=0')),
+      'local-only repositories must retain their clone-stable root identity');
+  } finally {
+    childProcess.spawnSync = original;
+    syncBuiltinESMExports();
+  }
 });
 
 test('ordinary capability resolution ignores ambient repository selectors during portfolio matching', async (t) => {

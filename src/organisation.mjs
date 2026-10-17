@@ -86,6 +86,8 @@ import { normalizeCapabilityAutoPolicy } from './auto/auto-policy.mjs';
 import { executeGitQuery } from './git-query.mjs';
 import { readGitNameStatusDiff } from './git-diff-name-status.mjs';
 import { gitIsAncestor } from './git-ancestry.mjs';
+import { prepareConfigurationObjectCheckout } from './configuration-object-store.mjs';
+import { cloneCapabilityConfiguration } from './capability-configuration-checkout.mjs';
 import { cleanupActivatedConfigurationProposal } from './configuration-proposal-cleanup.mjs';
 import {
   isRetiredPackagedAsset, RETIRED_PACKAGED_ASSET_SHA256
@@ -904,7 +906,15 @@ function proposalBaseCommit(root, proposalBranch, ref, { env = process.env } = {
   );
   const revision = organisationGitRead(root, env, ['rev-list', '--parents', '-n', '1', ref],
     `Capability proposal '${proposalBranch}' parents`).trim().split(/\s+/);
-  const history = prefix
+  // Ordinary proposals are one commit on their exact approved base. Resolve that parent from
+  // the tip object first, not by walking the complete first-parent history for every inbox row.
+  // An abbreviation collision or an edited/legacy proposal still takes the original exact proof.
+  const directBase = prefix && revision[1]?.startsWith(prefix)
+    ? organisationGitRead(root, env, ['rev-parse', `--disambiguate=${prefix}`],
+        `Capability proposal '${proposalBranch}' base objects`).trim().split(/\r?\n/u).filter(Boolean)
+    : [];
+  const history = directBase.length === 1 && directBase[0] === revision[1]
+    ? directBase : prefix
     ? organisationGitRead(root, env, ['rev-list', '--first-parent', ref], `Capability proposal '${proposalBranch}' history`)
         .split('\n').map((entry) => entry.trim()).filter((entry) => entry.startsWith(prefix))
     : [];
@@ -1428,10 +1438,9 @@ async function withCapabilityProposalCheckout(url, branch, operation, {
     // `--branch` alone still negotiates every remote branch. On a monorepo that made a capability
     // approval transfer application history it never reads. The authority branch is orphaned, so
     // this branch plus the exact proposal ref fetched below is the complete review input.
-    const cloned = await runRemoteCommand([
-      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
-      '--branch', CONFIGURATION_BRANCH, transport.remote, scratch
-    ], { operation: 'remote-configuration', env: transport.env });
+    const cloned = await cloneCapabilityConfiguration(scratch, {
+      remote, transport, authorityCommit: configurationHead.sha, fullHistory: true, runRemoteCommand
+    });
     if (cloned.status !== 0) {
       const remoteFailure = publicRemoteFailure(cloned.failure);
       throw new SingularityFlowError(
@@ -1661,12 +1670,9 @@ async function withLeadCheckout(url, message, reviewBranchPrefix, mutate, {
     const transport = frozenRemoteTransport(remote, {
       push: true, env: operationSession.env
     });
-    const cloned = await runRemoteCommand([
-      'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
-      ...(fullHistory ? [] : ['--depth', '1']),
-      '--branch', baseBranch,
-      transport.remote, scratch
-    ], { operation: 'remote-configuration', env: transport.env });
+    const cloned = await cloneCapabilityConfiguration(scratch, {
+      remote, transport, authorityCommit: configurationBootstrap.commit, fullHistory, runRemoteCommand
+    });
     if (cloned.status !== 0) {
       const remoteFailure = publicRemoteFailure(cloned.failure);
       throw new SingularityFlowError(
@@ -4907,7 +4913,8 @@ export async function listCapabilityProposals(url, {
   repositoryUrl = null, maximumProposals = null,
   maximumAdvertisedProposals = CAPABILITY_PROPOSAL_ADVERTISED_SCAN_LIMIT,
   withCoverage = false,
-  env = process.env, remoteSession = null, runRemoteCommand = runRemoteGitAsync
+  env = process.env, remoteSession = null, runRemoteCommand = runRemoteGitAsync,
+  cacheRoot = process.cwd()
 } = {}) {
   const remote = String(url ?? '').trim();
   if (!remote) throw new SingularityFlowError('A lead repository URL is required.', {
@@ -5003,7 +5010,13 @@ export async function listCapabilityProposals(url, {
   const proposals = [];
   let inspectedBranches = 0;
   let proposalBudgetUsed = 0;
+  let objectStore = null;
   try {
+    objectStore = await prepareConfigurationObjectCheckout(cacheRoot, scratch, {
+      remote, transport, authorityCommit: advertisedTargetCommit, runRemoteCommand, env,
+      completeObjects: true
+    });
+    if (!objectStore) {
     const cloned = await runRemoteCommand([
       'clone', '--quiet', '--no-local', '--no-tags', '--single-branch',
       '--no-checkout',
@@ -5021,6 +5034,7 @@ export async function listCapabilityProposals(url, {
           }
         }
       });
+    }
     }
     const targetCommit = run('git', ['rev-parse', 'HEAD'], {
       cwd: scratch, env: transport.env
@@ -5049,7 +5063,19 @@ export async function listCapabilityProposals(url, {
     const fetchPages = capabilityProposalFetchPages(scannedBranches, remote);
     outer: for (const fetchPage of fetchPages) {
       const page = fetchPage.map(({ entry }) => entry);
-      const fetched = await runRemoteCommand([
+      let fetched;
+      if (objectStore) {
+        try { await objectStore.includeBranches(page); fetched = { status: 0 }; }
+        catch (error) {
+          if (error.temporaryGitCleanupUnproven || error.code === 'CONFIGURATION_OBJECT_STORE_UNSAFE') throw error;
+          // Preserve the inbox's existing per-page unavailable rows; never retry a failed
+          // transport via a second clone or silently hide a pending proposal.
+          fetched = { status: 1, failure: {
+            code: error.code ?? 'CAPABILITY_AUTHORITY_UNAVAILABLE',
+            advice: redactDiagnosticText(error.message ?? 'Configuration objects could not be fetched.')
+          } };
+        }
+      } else fetched = await runRemoteCommand([
         ...CAPABILITY_PROPOSAL_FETCH_ARGS, ...fetchPage.map(({ refspec }) => refspec)
       ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
       const sharedFailure = fetched.status === 0 ? null : new SingularityFlowError(
@@ -5176,7 +5202,9 @@ export async function listCapabilityProposals(url, {
       }
     }
   } finally {
-    await removeTemporaryTree(scratch);
+    let cleaned = false;
+    try { await removeTemporaryTree(scratch); cleaned = true; }
+    finally { await objectStore?.release({ cleanupConfirmed: cleaned }); }
   }
   if (!withCoverage && inspectedBranches < allBranches.length) {
     throw new SingularityFlowError(

@@ -1,5 +1,21 @@
 # GAL Git bypass regression gate
 
+Capability history optimization reuses the existing bounded, private configuration-object owner.
+Its two new `update-ref --stdin` sites install freshly advertised exact proposal OIDs in bounded
+pages, one transaction in the retention pool and one in the disposable checkout. Ref names cannot
+contain whitespace; Git validates the complete batch before writing. Complete capability-object
+pools are separate from filtered workflow pools and retain the existing private-directory, lease,
+size, file-count and frozen-transport checks. Mutation/review clones use `--dissociate` so retained
+push recovery owns its objects independently before the pool lease ends. The new capability
+checkout wrapper adds one fixed, bounded `checkout sflow/config` through the existing process
+primitive, only in its freshly created disposable clone. Ledger history calls retain their existing
+owner/count and now scope publishing pathspecs before traversal; the Windows argv bound falls
+back to the previous `singularity` scope. No general process or transport owner is added.
+Configuration refresh proves a single orphan root and linear ancestry in one exact-commit
+`rev-list --parents` call, replacing two traversals with the same ten-second deadline and a bounded
+output. Unreadable or nonlinear histories still refuse before any authority mutation. Generic
+fact reuse remains opt-in to eligible environments and never overrides isolated transport policy.
+
 `scripts/repository-check-benchmark.mjs` has one reviewed process import and one bounded Node
 launcher (90 seconds, 32 MiB, structured argv). It runs copied CLI code against the existing
 local-only warm-read fixture, with private machine state, no models, no network and unconditional

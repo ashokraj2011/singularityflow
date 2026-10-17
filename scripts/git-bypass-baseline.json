@@ -561,6 +561,12 @@
       },
       "digest": "e184529ed6890ed2f047f9fffcbdc9bb91440abef4086a5cbee7df793271d61c"
     },
+    "src/capability-configuration-checkout.mjs": {
+      "counts": {
+        "command-run": 1
+      },
+      "digest": "e499e235d56844243d0d8071332638a268434ded544046d01d6edfd5b6f16971"
+    },
     "src/capability-context.mjs": {
       "counts": {
         "command-run": 4
@@ -663,10 +669,10 @@
     },
     "src/configuration-object-store.mjs": {
       "counts": {
-        "command-git": 7,
+        "command-git": 9,
         "command-run": 1
       },
-      "digest": "889f9f914526c19b8db8b00c2f6016f6e726539704a0abdada68fe76178589af"
+      "digest": "d3347d5afa085f32ad131ff65e392d5fb7a748fb794580d69c37c1ed3488c080"
     },
     "src/configuration-proposal-sync.mjs": {
       "counts": {
@@ -1047,7 +1053,7 @@
         "command-git": 80,
         "command-run": 2
       },
-      "digest": "345b7ad67e105c8f968f9893b62c711e521d1844f0c1c4610c5d8fedcf9e7628"
+      "digest": "6ca0ce385f82bf7d85709e901820d04e410f4fd56e940d8b0a6bb11866752069"
     },
     "src/local-evidence-review.mjs": {
       "counts": {
@@ -1460,9 +1466,9 @@
     },
     "src/workspace-configuration-refresh.mjs": {
       "counts": {
-        "command-run": 36
+        "command-run": 35
       },
-      "digest": "8db56dbad6d3be882e9df15337500d93ea0dc706593d9bf82c2d7d093889d9b5"
+      "digest": "42ae541e74e75811562850687c8bb1b00401099162032746014fb28243987238"
     },
     "src/workspace-impact.mjs": {
       "counts": {

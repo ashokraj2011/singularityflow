@@ -2553,16 +2553,19 @@ function assertExistingStateAuthority(root, repository, desired, stateCommit, {
       }
     );
   };
-  const roots = run('git', ['rev-list', '--max-parents=0', stateCommit], {
-    cwd: root, env, allowFailure: true, maxBuffer: 64 * 1024, timeoutMs: 10_000
+  // Prove both invariants in one traversal. Isolated transport environments intentionally bypass
+  // generic Git-fact reuse, so two independent rev-list calls otherwise reread the same packs.
+  const history = run('git', ['rev-list', '--parents', stateCommit], {
+    cwd: root, env, allowFailure: true, maxBuffer: 16 * 1024 * 1024, timeoutMs: 10_000
   });
-  const rootCommits = roots.status === 0
-    ? roots.stdout.split(/\r?\n/u).map((entry) => entry.trim()).filter(Boolean) : [];
+  if (history.status !== 0) fail('its complete history could not be read');
+  const commits = history.stdout.trim().split(/\r?\n/u).filter(Boolean).map(line => line.trim().split(/\s+/u));
+  if (!commits.length || commits.some(row => row.some(oid => !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(oid)))) {
+    fail('its complete history could not be read');
+  }
+  const rootCommits = commits.filter(row => row.length === 1).map(row => row[0]);
   if (rootCommits.length !== 1) fail('its complete history does not have one orphan root');
-  const merges = run('git', ['rev-list', '--min-parents=2', stateCommit], {
-    cwd: root, env, allowFailure: true, maxBuffer: 1024, timeoutMs: 10_000
-  });
-  if (merges.status !== 0 || merges.stdout.trim()) fail('its history is not linear');
+  if (commits.some(row => row.length > 2)) fail('its history is not linear');
   const rootCommit = rootCommits[0];
   const paths = run('git', ['ls-tree', '-r', '--name-only', rootCommit], {
     cwd: root, env, allowFailure: true, maxBuffer: 4096, timeoutMs: 5_000

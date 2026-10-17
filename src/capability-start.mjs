@@ -494,9 +494,9 @@ export async function storyBaseCatalog(root, options = {}) {
   });
   // The initial picker needs remote names, not a walk through every local commit/tree. A local
   // history read may hydrate cloud-only packs or fetch missing partial-clone objects. Defer these
-  // optional decorations for intake; selected-base preflight still proves shared ancestry before
+  // optional decorations for every picker; selected-base preflight still proves shared ancestry before
   // authorizing creation, and mutation-time start repeats that check against the exact fetched base.
-  const includeLocalMetadata = options.includeLocalMetadata !== false;
+  const includeLocalMetadata = options.includeLocalMetadata === true;
   const orphaned = includeLocalMetadata
     ? orphanBranches(root, plan, published, options.defaultBranch ?? 'main', stateBranch) : {};
   const offered = Object.fromEntries(Object.entries(published)

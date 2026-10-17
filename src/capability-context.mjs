@@ -216,8 +216,11 @@ async function implicitLifecycleCapability(root, source, {
   // falsely invalidate an otherwise byte-identical World Model. Root commits remain clone/path/user
   // independent and stable throughout ordinary history. An unborn repository still falls back to
   // the approved workflow bytes.
-  const repositoryRoots = capabilityHistoryRead(root, ['rev-list', '--max-parents=0', 'HEAD'],
-    'Repository root commits').split(/\r?\n/).map((value) => value.trim()).filter(Boolean).sort().join('\n');
+  // Remote-backed repositories already have their stable identity. Do not open application
+  // history (and potentially hydrate a cloud-only pack) to compute an unused local-only fallback.
+  const repositoryRoots = remote.fingerprint ? '' : capabilityHistoryRead(root,
+    ['rev-list', '--max-parents=0', 'HEAD'], 'Repository root commits')
+    .split(/\r?\n/).map((value) => value.trim()).filter(Boolean).sort().join('\n');
   const workflowBytes = await readFile(path.join(configurationRoot, WORKFLOW_PATH));
   const repositoryIdentitySha256 = remote.fingerprint
     ? `sha256:${remote.fingerprint}`

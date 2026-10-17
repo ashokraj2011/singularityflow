@@ -117,7 +117,7 @@ test('Story base catalog leaves out orphan branches, says which, and keeps them 
   const internal = ['sflow/config', 'sflow/config-change/capability/map-12345678',
     'sflow/config-history/0123456789abcdef', 'state', 'audit-state', 'singularity/pins/approved'];
   git(work, 'push', '--quiet', 'origin', ...internal.map((name) => `pages:refs/heads/${name}`));
-  const catalog = await storyBaseCatalog(work, { stateBranch: 'audit-state' });
+  const catalog = await storyBaseCatalog(work, { stateBranch: 'audit-state', includeLocalMetadata: true });
   assert.deepEqual(catalog.choices.map((choice) => choice.branch), ['main', 'release/24.3'], 'an orphan branch is never offered');
   assert.deepEqual(catalog.orphaned, { application: ['pages'] });
   assert.ok(catalog.published.application.includes('pages'), 'it stays published, so a typed base is refused as an orphan, not as missing');
@@ -135,7 +135,7 @@ test('Story base catalog leaves out orphan branches, says which, and keeps them 
   syncBuiltinESMExports();
   let quick;
   try {
-    quick = await storyBaseCatalog(work, { stateBranch: 'audit-state', includeLocalMetadata: false });
+    quick = await storyBaseCatalog(work, { stateBranch: 'audit-state' });
   } finally {
     childProcess.spawnSync = originalSpawn;
     syncBuiltinESMExports();

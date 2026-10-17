@@ -8,6 +8,8 @@ import { PassThrough } from 'node:stream';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import YAML from 'yaml';
 
@@ -3428,6 +3430,40 @@ test('scoped reinitialization refuses case aliases of one Windows repository aut
     }),
     (error) => error?.code === 'WORKSPACE_REPOSITORY_AUTHORITY_CONFLICT'
   );
+});
+
+test('state authority refresh proves root and linearity in one walk and still refuses merges', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-state-proof-walk-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const { remote, registry } = await registeredRepositoryFixture(root, 'state-proof');
+  const publisher = path.join(root, 'state-publisher');
+  await initializeStatePublisher(publisher);
+  const rootCommit = git(publisher, ['rev-parse', 'HEAD']);
+  await writeFile(path.join(publisher, 'retained.txt'), 'retained state\n');
+  git(publisher, ['add', '.']); git(publisher, ['commit', '-m', 'state successor']);
+  const stateCommit = git(publisher, ['rev-parse', 'HEAD']);
+  git(publisher, ['remote', 'add', 'origin', remote]);
+  git(publisher, ['push', 'origin', 'state']);
+  const original = childProcess.spawnSync;
+  const walks = [];
+  childProcess.spawnSync = function (program, args, options) {
+    if (args?.[0] === 'rev-list' && args.includes(stateCommit)) walks.push(args);
+    return original(program, args, options);
+  };
+  syncBuiltinESMExports();
+  let preview;
+  try { preview = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true }); }
+  finally { childProcess.spawnSync = original; syncBuiltinESMExports(); }
+  assert.equal(preview.status, 'preview', JSON.stringify(preview));
+  assert.deepEqual(walks, [['rev-list', '--parents', stateCommit]]);
+  const tree = git(publisher, ['rev-parse', 'HEAD^{tree}']);
+  const merged = git(publisher, ['commit-tree', tree, '-p', stateCommit, '-p', rootCommit, '-m', 'nonlinear authority']);
+  git(publisher, ['update-ref', 'refs/heads/state', merged, stateCommit]);
+  git(publisher, ['push', 'origin', 'state']);
+  const blocked = await refreshWorkspaceConfigurations({ registryFile: registry, dryRun: true });
+  assert.equal(blocked.status, 'blocked');
+  assert.match(blocked.results[0].error, /history is not linear/u);
+  assert.equal(git(remote, ['rev-parse', 'refs/heads/state']), merged, 'a refused preview changes no authority');
 });
 
 test('seeded reinitialization refuses an unmarked application branch configured as state authority', async (t) => {

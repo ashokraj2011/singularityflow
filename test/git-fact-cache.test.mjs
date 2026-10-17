@@ -60,6 +60,12 @@ test('only repository location, HEAD, the index, history and single object reads
     [['rev-parse', '--verify', `${sha}^{tree}`], 'object'],
     [['cat-file', '-t', sha], 'object'],
     [['merge-base', '--is-ancestor', sha, sha], 'ancestry'],
+    [['rev-list', '--max-parents=0', sha], 'object'],
+    [['rev-list', '--min-parents=2', sha], 'object'],
+    [['rev-list', '--parents', sha], 'object'],
+    [['rev-list', '--max-parents=0', 'HEAD'], null],
+    [['rev-list', '--max-parents=0', '--all'], null],
+    [['rev-list', '--first-parent', sha], null],
     // A path relative to the directory, an abbreviation, a commit's own output or stdin go to Git.
     [['show', `${sha}:./a.txt`], null],
     [['ls-tree', '--abbrev', sha], null],
@@ -334,6 +340,30 @@ test('a borrowed or relocated object store is never answered from the cache', as
   asked(root, read);
   asked(root, read);
   assert.equal(gitFactCacheHits(), before, 'objects borrowed through alternates are not fingerprinted');
+});
+
+test('exact state-history proofs are reused but a shallow boundary invalidates them', async (t) => {
+  const root = await repository(t);
+  const first = outside(root, ['rev-parse', 'HEAD']);
+  await writeFile(path.join(root, 'a.txt'), 'two\n');
+  outside(root, ['commit', '-qam', 'two']);
+  const tip = outside(root, ['rev-parse', 'HEAD']);
+  const query = ['rev-list', '--max-parents=0', tip];
+  assert.equal(asked(root, query).stdout.trim(), first);
+  let before = gitFactCacheHits();
+  assert.equal(asked(root, query).stdout.trim(), first);
+  assert.equal(gitFactCacheHits(), before + 1);
+  await writeFile(path.join(root, '.git/shallow'), `${tip}\n`);
+  before = gitFactCacheHits();
+  assert.equal(asked(root, query).stdout.trim(), tip);
+  assert.equal(gitFactCacheHits(), before, 'an earlier complete-history proof is not reused for a shallow graph');
+  await rm(path.join(root, '.git/shallow'));
+  assert.equal(asked(root, query).stdout.trim(), first);
+  const missing = ['rev-list', '--min-parents=2', '0'.repeat(40)];
+  assert.notEqual(asked(root, missing).status, 0);
+  before = gitFactCacheHits();
+  assert.notEqual(asked(root, missing).status, 0);
+  assert.equal(gitFactCacheHits(), before, 'a failed history proof is never cached');
 });
 
 test('no answer outlives fifteen minutes, and another Git on PATH is asked afresh', async (t) => {

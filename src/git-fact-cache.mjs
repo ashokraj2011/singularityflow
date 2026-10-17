@@ -184,6 +184,13 @@ export function gitFactKind(args) {
       && rest.filter((arg) => arg.startsWith('-')).every((arg) => REF_FORMAT_FLAGS.has(arg)) ? 'ref-format' : null;
   }
   if (command === 'log') return historyQuery(rest) ? 'history' : null;
+  // Dedicated state-authority proofs are fixed by one exact commit, not a moving branch name.
+  // Reuse the existing ancestry dependency stamp: shallow/graft/replace/object changes invalidate
+  // the proof, failed reads are never retained, and mutation callers can still demand fresh facts.
+  if (command === 'rev-list') {
+    return rest.length === 2 && ['--max-parents=0', '--min-parents=2', '--parents'].includes(rest[0])
+      && SHA.test(rest[1]) ? 'object' : null;
+  }
   if (command === 'merge-base') {
     return rest.length === 3 && rest[0] === '--is-ancestor' && SHA.test(rest[1]) && SHA.test(rest[2]) ? 'ancestry' : null;
   }

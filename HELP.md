@@ -79,6 +79,18 @@ singularity-flow workspace branches --json
 singularity-flow start WORK-123 --from-branch setup/WORK-123
 ```
 
+Branch catalogs use remote names and exclude configured state and SFlow configuration refs without
+walking application history. Selected-base preflight still checks ancestry before Story creation.
+Use `singularity-flow workspace branches --include-local-metadata --json` only when you explicitly
+need legacy orphan-branch filtering and Story-lineage decorations.
+
+Capability proposal inspection reuses exact configuration objects locally, with fresh remote-ref
+observations on each request. Remap/review checkouts own their objects independently so retained
+recovery never depends on that cache. Set `SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE=off` to use
+the original disposable-clone path. Story-scoped reconciliation uses its state-index branch when
+available; unindexed legacy Stories retain discovery, and unscoped `ledger reconcile` remains the
+repository-wide recovery operation.
+
 For a protected base branch, `--work-id` creates or reuses `setup/<WORK-ID>`
 before writing files, leaving the Story's own branch available for `start`. Initialization does not modify or push
 `main`. Merge the configuration through an approved pull request only when the

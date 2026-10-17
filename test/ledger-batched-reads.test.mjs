@@ -7,11 +7,13 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import {
   appendLedgerIntent, createLedgerIntent, findLedgerEvents, initializeLedger, ledgerShow,
-  ledgerStatus, persistLedgerIntent, verifyLedger
+  ledgerStatus, persistLedgerIntent, reconcileLedger, verifyLedger
 } from '../src/ledger.mjs';
 import { run } from '../src/util.mjs';
 
@@ -167,6 +169,87 @@ test('remote intent discovery reads shared trees once and keeps the per-ref answ
   assert.ok(!status.pending.some((entry) => entry.workId === 'quoted'), 'a quoted-path intent stays unadmitted');
   // 25 remote refs, 9 intents: a per-ref read cost ~3 processes per ref plus one per intent.
   assert.ok(spawns < 45, `ledger status spawned ${spawns} processes for 25 remote refs`);
+});
+
+test('selected Story reconciliation uses state for custom branch names and never walks unrelated histories', async t => {
+  const { parent, remote, root } = await repository(t);
+  await initializeLedger(root, enabled);
+  const workId = 'SELECTED', branch = 'feature/not-the-story-name';
+  git(root, ['checkout', '-qb', branch]);
+  const initial = createLedgerIntent({ eventType: 'phase-approved', capabilityId: 'selected',
+    subject: { kind: 'story', workId, branch, phase: 'specification', generation: 1 },
+    actor: { email: 'reviewer@example.com' } });
+  await appendLedgerIntent(root, enabled, initial, git(root, ['rev-parse', 'HEAD']).stdout.trim());
+  const pending = createLedgerIntent({ eventType: 'phase-approved', capabilityId: 'selected',
+    subject: { kind: 'story', workId, branch, phase: 'planning', generation: 1 },
+    actor: { email: 'reviewer@example.com' } });
+  const relative = await persistLedgerIntent(root, `singularity/work-items/${workId}`, pending);
+  git(root, ['add', '-A']); git(root, ['commit', '-qm', 'selected pending intent']);
+  git(root, ['push', '-q', 'origin', branch]);
+  for (let index = 0; index < 8; index++) {
+    git(root, ['checkout', '-qB', `unrelated-${index}`, 'main']);
+    const intent = createLedgerIntent({ eventType: 'phase-approved', capabilityId: `other-${index}`,
+      subject: { workId: `OTHER-${index}`, phase: 'planning', generation: 1 },
+      actor: { email: 'reviewer@example.com' } });
+    await persistLedgerIntent(root, `singularity/work-items/OTHER-${index}`, intent);
+    git(root, ['add', '-A']); git(root, ['commit', '-qm', 'unrelated intent']);
+    git(root, ['push', '-q', 'origin', `unrelated-${index}`]);
+  }
+  const fresh = path.join(parent, 'scoped-reader');
+  run('git', ['clone', '-q', remote, fresh]);
+  git(fresh, ['config', 'user.name', 'Reader']);
+  git(fresh, ['config', 'user.email', 'reader@example.com']);
+  const calls = [];
+  const original = childProcess.spawnSync;
+  childProcess.spawnSync = function (program, args, options) {
+    if (options?.cwd === fresh && ['log', 'for-each-ref'].includes(args?.[0])) calls.push(args);
+    return original(program, args, options);
+  };
+  syncBuiltinESMExports();
+  let result;
+  try { result = await reconcileLedger(fresh, enabled, { workId }); }
+  finally { childProcess.spawnSync = original; syncBuiltinESMExports(); }
+  assert.equal(result.failed.length, 0);
+  assert.deepEqual(result.appended.map(entry => entry.eventId), [pending.eventId]);
+  const walks = calls.filter(args => args[0] === 'log' && args.includes('--name-only'));
+  assert.equal(walks.length, 1, 'one selected history, not HEAD plus every remote Story history');
+  assert.deepEqual(walks[0].slice(walks[0].indexOf('--') + 1), [path.posix.dirname(relative)]);
+  assert.ok(calls.some(args => args[0] === 'for-each-ref'
+    && args.at(-1) === `refs/remotes/origin/${branch}`));
+  assert.ok(!calls.some(args => args[0] === 'for-each-ref' && args.at(-1) === 'refs/remotes/origin'));
+  // Global maintenance retains its complete view, and scoped maps cannot poison its cache.
+  assert.equal((await ledgerStatus(fresh, enabled)).pending.length, 8);
+});
+
+test('unindexed legacy Story discovery filters intents before walking any unrelated history', async t => {
+  const { parent, remote, root } = await repository(t);
+  await initializeLedger(root, enabled);
+  const pending = [];
+  for (const [workId, branch] of [['LEGACY', 'feature/legacy-custom'], ['OTHER', 'feature/unrelated']]) {
+    git(root, ['checkout', '-qB', branch, 'main']);
+    const intent = createLedgerIntent({ eventType: 'phase-approved', capabilityId: workId,
+      subject: { workId, phase: 'planning', generation: 1 }, actor: { email: 'reviewer@example.com' } });
+    pending.push(intent);
+    await persistLedgerIntent(root, `singularity/work-items/${workId}`, intent);
+    git(root, ['add', '-A']); git(root, ['commit', '-qm', 'legacy intent']);
+    git(root, ['push', '-q', 'origin', branch]);
+  }
+  const fresh = path.join(parent, 'legacy-reader');
+  run('git', ['clone', '-q', remote, fresh]);
+  git(fresh, ['config', 'user.name', 'Reader']); git(fresh, ['config', 'user.email', 'reader@example.com']);
+  const walks = [], original = childProcess.spawnSync;
+  childProcess.spawnSync = function (program, args, options) {
+    if (options?.cwd === fresh && args?.[0] === 'log' && args.includes('--name-only')) walks.push(args);
+    return original(program, args, options);
+  };
+  syncBuiltinESMExports();
+  let result;
+  try { result = await reconcileLedger(fresh, enabled, { workId: 'LEGACY' }); }
+  finally { childProcess.spawnSync = original; syncBuiltinESMExports(); }
+  assert.deepEqual(result.appended.map(entry => entry.eventId), [pending[0].eventId]);
+  assert.equal(walks.length, 1);
+  assert.equal(walks[0].at(-1), 'singularity/work-items/LEGACY/context/ledger-intents');
+  assert.equal((await ledgerStatus(fresh, enabled)).pending.length, 1);
 });
 
 test('publishing walks are reused per branch commit and redone when a Story branch moves', async (t) => {

@@ -2726,19 +2726,29 @@ export async function discoverLedgerIntents(root) {
  * Cache-only, not blind: the remote-tracking refs already on disk are read exactly as before, so a
  * warm clone gets the same answer for free. What it does not do is populate them.
  */
-async function remoteLedgerIntents(root, config, { offline = false } = {}) {
+async function remoteLedgerIntents(root, config, { offline = false, workId = null } = {}) {
+  // Published Story locations belong to state, not a scan of application branches. Legacy
+  // unindexed intents retain metadata discovery below, but even there unrelated histories are
+  // never walked for a selected-Story reconciliation.
+  // A first publication can precede ledger bootstrap. Absence is legacy discovery, not a new
+  // prerequisite; an existing but unreadable/corrupt index still refuses through its normal owner.
+  const pointer = workId && ledgerHead(root, config) ? (await ledgerStoryPointers(root, config, {
+    offline: offline || !hasRemote(root, config.remote)
+  })).items.find(entry => entry.id === workId) : null;
   if (!offline) {
-    // Reconciliation needs every published intent branch. Use the same frozen, bounded
-    // all-heads fetch as Story discovery; a failed fetch must not silently reconcile stale refs.
-    await fetchRemote(root, config.remote);
+    // Refresh just the indexed Story; only global maintenance or unindexed legacy discovery
+    // needs the all-heads fetch. A failed fetch must never silently reconcile stale refs.
+    await fetchRemote(root, config.remote, pointer ? { branches: [pointer.branch] } : {});
   }
+  const selectedRef = pointer ? `refs/remotes/${config.remote}/${pointer.branch}` : null;
   const tips = new Map(ledgerGitRead(root, [
     'for-each-ref',
     '--format=%(refname:short)%00%(objectname)',
-    `refs/remotes/${config.remote}`
+    selectedRef ?? `refs/remotes/${config.remote}`
   ], `Git remote '${config.remote}' branches`).trim().split('\n').filter(Boolean)
     .map((line) => line.split('\0'))
-    .filter(([ref]) => ref !== `${config.remote}/HEAD` && ref !== `${config.remote}/${config.branch}`));
+    .filter(([ref]) => (!pointer || ref === `${config.remote}/${pointer.branch}`)
+      && ref !== `${config.remote}/HEAD` && ref !== `${config.remote}/${config.branch}`));
   const refs = [...tips.keys()];
   const listed = batchedRefIntentFiles(root, refs);
   const publishing = await publishingCommitCache(root);
@@ -2747,19 +2757,25 @@ async function remoteLedgerIntents(root, config, { offline = false } = {}) {
   for (const ref of refs) {
     const files = listed.get(ref);
     if (!files) {
-      candidates.push(...perRefLedgerIntents(root, ref));
+      candidates.push(...perRefLedgerIntents(root, ref, { workId }));
       continue;
     }
     // A ref with no intent files contributed nothing before either; its publishing walk was unused.
     if (!files.length) continue;
-    const published = publishing.commits(ref, tips.get(ref));
+    const selected = [];
     for (const { intentPath, oid } of files) {
       const text = bodies.has(oid) ? bodies.get(oid).toString('utf8') : showRefFile(root, ref, intentPath);
-      const candidate = intentCandidate(text, intentPath, published, ref);
-      if (candidate) candidates.push(candidate);
+      const candidate = intentCandidate(text, intentPath, new Map(), ref);
+      if (candidate && (!workId || candidate.intent.subject?.workId === workId)) selected.push(candidate);
     }
+    if (!selected.length) continue;
+    const published = publishing.commits(ref, tips.get(ref),
+      workId ? selected.map(candidate => candidate.intentPath) : null);
+    candidates.push(...selected.map(candidate => ({ ...candidate,
+      publishedCommit: published.get(candidate.intentPath) ?? null })));
   }
-  await publishing.save();
+  // Scoped reads may borrow complete cached maps, but must not evict unrelated branch maps.
+  if (!workId) await publishing.save();
   return candidates;
 }
 
@@ -2815,11 +2831,13 @@ async function publishingCommitCache(root) {
   const used = new Map();
   let changed = false;
   return {
-    commits(ref, tip) {
-      if (!stable || !COMMIT_ID.test(tip ?? '')) return publishingCommits(root, ref);
+    commits(ref, tip, paths = null) {
+      if (!stable || !COMMIT_ID.test(tip ?? '')) return publishingCommits(root, ref, { paths });
       const key = `${common}\0${tip}`;
       let map = publishingCommitMemo.get(key) ?? stored.get(tip);
       if (!map) {
+        // A partial path map must never be retained under the complete branch-map cache key.
+        if (paths) return publishingCommits(root, tip, { paths });
         // Walk the exact commit that keys the entry, so a branch that moves meanwhile cannot store
         // one commit's history under another's id.
         map = publishingCommits(root, tip);
@@ -2860,7 +2878,7 @@ function showRefFile(root, ref, file) {
 }
 
 /** The original per-ref read, kept for any ref the batched walk cannot prove exactly. */
-function perRefLedgerIntents(root, ref) {
+function perRefLedgerIntents(root, ref, { workId = null } = {}) {
   const files = ledgerGitRead(root, [
     'ls-tree',
     '-r',
@@ -2870,13 +2888,14 @@ function perRefLedgerIntents(root, ref) {
   ], `Ledger intents on '${ref}'`).trim().split('\n').filter(
     (file) => file.includes(`/${LEDGER_INTENT_DIRECTORY}/`) && file.endsWith('.json')
   );
-  const published = publishingCommits(root, ref);
   const candidates = [];
   for (const intentPath of files) {
-    const candidate = intentCandidate(showRefFile(root, ref, intentPath), intentPath, published, ref);
-    if (candidate) candidates.push(candidate);
+    const candidate = intentCandidate(showRefFile(root, ref, intentPath), intentPath, new Map(), ref);
+    if (candidate && (!workId || candidate.intent.subject?.workId === workId)) candidates.push(candidate);
   }
-  return candidates;
+  if (!candidates.length) return [];
+  const published = publishingCommits(root, ref, { paths: workId ? candidates.map(entry => entry.intentPath) : null });
+  return candidates.map(candidate => ({ ...candidate, publishedCommit: published.get(candidate.intentPath) ?? null }));
 }
 
 const OBJECT_BATCH = 2048;
@@ -3026,9 +3045,13 @@ function batchedRefIntentFiles(root, refs) {
  * `allowFailure` because a ref that cannot be read is a missing fact rather than a broken read —
  * callers already treat a null publishing commit as "not published from here".
  */
-function publishingCommits(root, ref) {
+function publishingCommits(root, ref, { paths = null } = {}) {
+  // Many generations share the same intent directory. Keep Windows argv bounded without losing
+  // any selected path; an unusually dispersed legacy layout falls back to the established scope.
+  let historyPaths = paths ? [...new Set(paths.map(file => path.posix.dirname(file)))] : ['singularity'];
+  if (Buffer.byteLength(historyPaths.join('\0'), 'utf16le') > 16 * 1024) historyPaths = ['singularity'];
   const walked = git(root, [
-    'log', '--format=%H', '--name-only', ref, '--', 'singularity'
+    'log', '--format=%H', '--name-only', ref, '--', ...historyPaths
   ], { allowFailure: true });
   const commits = new Map();
   if (walked.status !== 0) return commits;
@@ -3044,7 +3067,7 @@ function publishingCommits(root, ref) {
   return commits;
 }
 
-async function allLedgerIntents(root, config, { offline = false } = {}) {
+async function allLedgerIntents(root, config, { offline = false, workId = null } = {}) {
   const candidates = [];
   /**
    * One history walk for every working-tree intent, not one per file.
@@ -3058,17 +3081,18 @@ async function allLedgerIntents(root, config, { offline = false } = {}) {
    * wins, which is what `log -1` returned for each path; both are scoped to `singularity`, which is
    * where intents live.
    */
-  const published = publishingCommits(root, 'HEAD');
+  const local = [];
   for (const file of await discoverLedgerIntents(root)) {
     const intentPath = path.relative(root, file).split(path.sep).join('/');
-    candidates.push({
-      intent: readRecord('ledger-intent', await readFile(file)).record,
-      intentPath,
-      publishedCommit: published.get(intentPath) ?? null,
-      source: 'working-tree'
-    });
+    const intent = readRecord('ledger-intent', await readFile(file)).record;
+    if (!workId || intent.subject?.workId === workId) local.push({ intent, intentPath, source: 'working-tree' });
   }
-  candidates.push(...await remoteLedgerIntents(root, config, { offline }));
+  if (local.length) {
+    const published = publishingCommits(root, 'HEAD', { paths: workId ? local.map(entry => entry.intentPath) : null });
+    candidates.push(...local.map(candidate => ({ ...candidate,
+      publishedCommit: published.get(candidate.intentPath) ?? null })));
+  }
+  candidates.push(...await remoteLedgerIntents(root, config, { offline, workId }));
   const unique = new Map();
   for (const candidate of candidates) {
     const current = unique.get(candidate.intent.eventId);
@@ -3079,11 +3103,11 @@ async function allLedgerIntents(root, config, { offline = false } = {}) {
   return [...unique.values()].sort((left, right) => left.intent.eventId.localeCompare(right.intent.eventId));
 }
 
-export async function reconcileLedger(root, rawConfig, { workId = null } = {}) {
+export async function reconcileLedger(root, rawConfig, { workId = null, offline = false } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   if (!config.enabled) return { enabled: false, appended: [], existing: [], failed: [] };
   const appended = [], existing = [], failed = [];
-  for (const candidate of await allLedgerIntents(root, config)) {
+  for (const candidate of await allLedgerIntents(root, config, { workId, offline })) {
     const { intent, intentPath, publishedCommit } = candidate;
     if (workId && intent.subject?.workId !== workId) continue;
     if (!publishedCommit) {

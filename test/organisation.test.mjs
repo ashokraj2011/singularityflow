@@ -16,6 +16,8 @@ import {
 } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import os from 'node:os';
@@ -116,6 +118,51 @@ async function mapAndMerge(remote, options) {
   await mergeProposal(remote, proposal);
   return proposal;
 }
+
+test('capability inbox reuses exact configuration objects and resolves ordinary bases without history walks', async t => {
+  const org = await remotes('platform');
+  t.after(() => removeTemporaryTree(org.base));
+  const previous = process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+  process.env.SINGULARITY_FLOW_LEAD_REGISTRY = registry(org.base);
+  t.after(() => {
+    if (previous === undefined) delete process.env.SINGULARITY_FLOW_LEAD_REGISTRY;
+    else process.env.SINGULARITY_FLOW_LEAD_REGISTRY = previous;
+  });
+  await mapAndMerge(org.platform, { capabilityId: 'foundation', kind: 'collection' });
+  const pending = await mapCapability(org.platform, { capabilityId: 'new-service', kind: 'collection' });
+  const cacheRoot = path.join(org.base, 'platform-seed');
+  const transfers = [], histories = [];
+  const original = childProcess.spawnSync;
+  childProcess.spawnSync = function (program, args, options) {
+    if (args?.[0] === 'rev-list' && args.includes('--first-parent')) histories.push(args);
+    return original(program, args, options);
+  };
+  syncBuiltinESMExports();
+  try {
+    const inspect = () => listCapabilityProposals(org.platform, { cacheRoot, includeDiff: false,
+      runRemoteCommand: async (args, options) => {
+        transfers.push(args); return runRemoteGitAsync(args, options);
+      } });
+    const first = await inspect();
+    assert.equal(first.find(entry => entry.branch === pending.branch)?.valid, true);
+    const initialTransfers = transfers.length;
+    const second = await inspect();
+    assert.deepEqual(second, first, 'cached objects must not change the review contract');
+    assert.equal(transfers.length, initialTransfers, 'warm inspection transfers no configuration history');
+    assert.deepEqual(histories, [], 'one-commit proposals resolve their exact base from local objects');
+    const other = await mapCapability(org.platform, { capabilityId: 'later-service', kind: 'collection' });
+    const unavailable = await listCapabilityProposals(org.platform, { cacheRoot, includeDiff: false,
+      runRemoteCommand: async (args, options) => args[0] === 'fetch' && args.includes(other.commit)
+        ? { status: 1, failure: { code: 'REMOTE_UNKNOWN', advice: 'Fixture transport unavailable.' } }
+        : runRemoteGitAsync(args, options) });
+    assert.equal(unavailable.find(entry => entry.branch === other.branch)?.status, 'unreadable',
+      'a failed cached page stays visible and is never hidden or retried via another clone');
+    run('git', ['update-ref', '-d', `refs/heads/${pending.branch}`, pending.commit], { cwd: org.platform });
+    const afterDelete = await inspect();
+    assert.ok(!afterDelete.some(entry => entry.branch === pending.branch),
+      'private retention refs never resurrect a proposal deleted from the fresh advertisement');
+  } finally { childProcess.spawnSync = original; syncBuiltinESMExports(); }
+});
 
 test('conflicting map proposals remain reviewable, rebase into new refs, and can be discarded exactly', async () => {
   const org = await remotes('platform');
@@ -2991,10 +3038,10 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
     }
   ));
   const activationCounters = activationTimer.finish().counters;
-  assert.equal(activationCounters['git.remote.command.clone'], 1,
-    'activation projects from its validated checkout instead of cloning configuration twice');
-  assert.equal(activationCounters['git.remote.command.fetch'], 1,
-    'first activation fetches only its proposal; root, audit and projection are built without a state fetch');
+  const activationClones = activationCounters['git.remote.command.clone'] ?? 0;
+  const activationFetches = activationCounters['git.remote.command.fetch'] ?? 0;
+  assert.ok(activationClones <= 1 && activationFetches >= 1 && activationClones + activationFetches <= 2,
+    'activation transfers at most authority plus proposal; a warm object pool omits the authority transfer');
   assert.equal(activated.alreadyMerged, false);
   assert.equal(activated.targetBranch, 'sflow/config');
   assert.match(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], {
@@ -4404,10 +4451,12 @@ test('activation publishes its audit and state projection atomically, then retir
   // Authority and prior-audit observations, the checkout clone and its two fetches, the decision
   // push, publication, and exact leased proposal retirement. Cleanup adds two observations and
   // one push but does not change the atomic audit/state publication transaction.
-  assert.deepEqual({
-    clone: counters['git.remote.command.clone'], fetch: counters['git.remote.command.fetch'],
-    push: counters['git.remote.command.push'], advertisements: counters['git.remote.command.ls-remote']
-  }, { clone: 1, fetch: 2, push: 3, advertisements: 6 });
+  assert.deepEqual({ push: counters['git.remote.command.push'],
+    advertisements: counters['git.remote.command.ls-remote'] }, { push: 3, advertisements: 6 });
+  const clones = counters['git.remote.command.clone'] ?? 0;
+  const fetches = counters['git.remote.command.fetch'] ?? 0;
+  assert.ok(clones <= 1 && fetches >= 2 && clones + fetches <= 3,
+    'cold cache and fallback transfer authority once; warm cache transfers only proposal and state');
   const merge = activated.targetCommit;
   const history = `refs/heads/sflow/config-history/${merge}`;
   const [configurationPush, publication, cleanupPush, ...rest] = await pushes();

@@ -142,7 +142,7 @@ export async function readWorkspaceBranches(options = {}, { root = repoRoot() } 
     let catalog = selectedBaseOnly ? null : await measureCommandSpan('intake.catalog', () => storyBaseCatalog(root, {
       // Catalog discovery is not readiness. Do not read every local branch's history/artifacts
       // merely to populate the form; exact-base preflight and start retain their full validation.
-      includeLocalMetadata: !intakeRequested,
+      includeLocalMetadata: optionBoolean(options, 'include-local-metadata'),
       observedHeads: originHeads,
       remote: definition.git?.remote ?? 'origin',
       defaultBranch: definition.defaultBaseBranch,

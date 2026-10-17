@@ -47,7 +47,8 @@ async function qualifiedConfig(root, store) {
  * disposable checkout and its alternate readers; no GC or pack removal occurs while borrowed.
  */
 export async function prepareConfigurationObjectCheckout(root, scratch, {
-  remote, transport, authorityCommit, branches = [], runRemoteCommand, env = process.env
+  remote, transport, authorityCommit, branches = [], runRemoteCommand, env = process.env,
+  completeObjects = false, independent = false
 }) {
   if (env.SINGULARITY_FLOW_CONFIGURATION_OBJECT_STORE === 'off' || !OID.test(authorityCommit ?? '')
       || branches.length > 100 || branches.some(entry => !OID.test(entry.proposalCommit ?? ''))) return null;
@@ -55,7 +56,10 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
   const git = (cwd, args, extra = {}) => run('git', args, { cwd, env: transport.env,
     timeoutMs: 15_000, maxBuffer: 4 * 1024 * 1024, ...extra });
   try {
-    local = path.join(gitCommonDir(root), 'singularity-flow', 'configuration-objects-v1');
+    // Capability validation materializes ordinary worktrees. Its pool must contain complete
+    // objects, never borrow missing blobs from the filtered workflow-reader pool implicitly.
+    local = path.join(gitCommonDir(root), 'singularity-flow', completeObjects
+      ? 'configuration-objects-complete-v1' : 'configuration-objects-v1');
     await safePrivateSidecarDirectory(root, local, { ...privacy, create: true });
     // Do not silently grow one pool for every repository URL encountered on a machine.
     const key = remoteFingerprint(remote);
@@ -102,8 +106,7 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
     if (result.status === 0) storeReader.seal();
     return result;
   };
-  try {
-    const commits = [...new Set([authorityCommit, ...branches.map(entry => entry.proposalCommit)])];
+  const includeCommits = async (commits) => {
     const checked = git(store, ['cat-file', '--batch-check'], { input: commits.join('\n') + '\n' }).stdout.trimEnd().split('\n');
     if (checked.length !== commits.length) throw new Error('Incomplete object pool presence proof');
     const missing = commits.filter((commit, index) => {
@@ -113,7 +116,8 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
     });
     if (missing.length) {
       const fetched = await download(['fetch', '--quiet', '--no-tags', '--no-write-fetch-head',
-        '--filter=blob:none', '--recurse-submodules=no', '--', transport.remote, ...missing],
+        ...(completeObjects ? [] : ['--filter=blob:none']),
+        '--recurse-submodules=no', '--', transport.remote, ...missing],
       { cwd: store, operation: 'remote-configuration', env: transport.env });
       if (fetched.status !== 0) throw new SingularityFlowError(fetched.failure?.advice ?? 'Configuration object transfer failed.', {
         code: fetched.failure?.code ?? 'WORKFLOW_PROPOSAL_AUTHORITY_UNAVAILABLE'
@@ -122,16 +126,36 @@ export async function prepareConfigurationObjectCheckout(root, scratch, {
     } else incrementCommandCounter('configuration.object-store-hit');
     if (!await qualifiedTree(store) || !await qualifiedConfig(root, store)) throw new SingularityFlowError(
       'The derived configuration object pool exceeded its safe storage profile.', { code: 'CONFIGURATION_OBJECT_STORE_UNSAFE' });
+  };
+  const includeBranches = async (entries) => {
+    if (entries.length > 100 || entries.some(entry => !OID.test(entry.proposalCommit ?? '')
+        || typeof entry.branch !== 'string' || !/^[^\s\0]+$/u.test(entry.branch))) {
+      throw new SingularityFlowError('Configuration object pages require bounded, exact proposal refs.', {
+        code: 'CONFIGURATION_OBJECT_STORE_UNSAFE'
+      });
+    }
+    if (!entries.length) return;
+    await includeCommits([...new Set(entries.map(entry => entry.proposalCommit))]);
+    // One transaction per page, not two Git processes per retained proposal on Windows.
+    git(store, ['update-ref', '--stdin'], { input: entries.map(entry =>
+      `update refs/heads/${entry.branch} ${entry.proposalCommit}\n`).join('') });
+    git(scratch, ['update-ref', '--stdin'], { input: entries.map(entry =>
+      `update refs/remotes/origin/${entry.branch} ${entry.proposalCommit}\n`).join('') });
+  };
+  try {
+    await includeCommits([...new Set([authorityCommit, ...branches.map(entry => entry.proposalCommit)])]);
     // Private refs are retention, never authority. Every checkout ref below is bound to this
     // invocation's fresh advertisement, including deletion/movement of a pending proposal.
     git(store, ['update-ref', 'refs/heads/sflow/config', authorityCommit]);
     git(store, ['symbolic-ref', 'HEAD', 'refs/heads/sflow/config']);
     for (const entry of branches) git(store, ['update-ref', `refs/heads/${entry.branch}`, entry.proposalCommit]);
-    git(root, ['clone', '--quiet', '--shared', '--no-checkout', '--', store, scratch]);
+    git(root, ['clone', '--quiet', '--shared', ...(independent
+      ? ['--dissociate', '--single-branch', '--branch', 'sflow/config'] : []),
+      '--no-checkout', '--', store, scratch]);
     exposed = true;
     git(scratch, ['remote', 'set-url', 'origin', transport.remote]);
     incrementCommandCounter('configuration.object-store-checkout');
-    return { download, async release({ cleanupConfirmed = true } = {}) {
+    return { download, includeBranches, async release({ cleanupConfirmed = true } = {}) {
       // Scratch must already be removed. Retain an uncertain borrow rather than deleting/pruning
       // objects from beneath a child whose completion the caller could not prove.
       if (!cleanupConfirmed) await lease.retainQuarantine({ unknownChildren: true });

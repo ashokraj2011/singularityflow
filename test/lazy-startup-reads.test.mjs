@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -13,7 +13,7 @@ const legacy = path.join(packageRoot, 'src', 'commands', 'legacy.mjs');
 function invoke(args, env, { legacyRoute = false } = {}) {
   const command = legacyRoute
     ? ['--input-type=module', '-e',
-        `const command = await import(${JSON.stringify(legacy)});`
+        `const command = await import(${JSON.stringify(pathToFileURL(legacy).href)});`
         + `await command.run(${JSON.stringify(args)});`]
     : [bin, ...args];
   return spawnSync(process.execPath, command, {
@@ -23,8 +23,9 @@ function invoke(args, env, { legacyRoute = false } = {}) {
   });
 }
 
-test('startup reads preserve legacy fields and text with explicit local workspace manifest hints', async () => {
+test('startup reads preserve legacy fields and text with explicit local workspace manifest hints', async t => {
   const machine = await mkdtemp(path.join(os.tmpdir(), 'sflow-lazy-startup-'));
+  t.after(() => rm(machine, { recursive: true, force: true, maxRetries: 6, retryDelay: 100 }));
   const registry = path.join(machine, 'workspaces.json');
   const active = path.join(machine, 'active-workspace.json');
   const leads = path.join(machine, 'leads.json');

@@ -413,6 +413,137 @@ next steps versus less than 1 ms for progress. Root dispatch is about 84–99 ms
 medians must not be summed. The next optimization should target those measured owners rather
 than weaken execution policy or attribute all remaining time to YAML/output rendering.
 
+### Strict policy reads, accepted history and multi-artifact reviews
+
+Strict Story loading now has a dedicated read owner. The lifecycle facade exports that same
+implementation, rather than keeping a second state loader; revision metadata, path helpers and
+branch membership also share canonical leaf implementations. Accepted amended Stories still
+invoke the original skill/test-command revalidation owners. The optimization does not replace
+execution policy with informational state, reinterpret old pins, or grant an author/reviewer action.
+
+Governed-agent Markdown parsing is separated from discovery, synchronization and remote management.
+Configuration bootstrap does not import live-agent services until it actually needs them. Snapshot
+capture and test-command amendment services are loaded on their own paths, not merely to read an
+accepted snapshot. Committed JSON parsing has a bounded 4 MiB / 128-entry byte-digest cache; every
+caller receives its own object. It caches parsing only, never Git object availability, a mutable
+file/ref, identity, readiness, an approval, or an integrity verdict.
+
+Accepted-history inspection gets first-add and touch evidence from one NUL-delimited, bounded
+Git query per exact path. Merge, rename, deletion and restoration evidence retain the original
+full-history semantics. Reuse belongs to the existing Git fact owner, including HEAD, object-store,
+configuration, replacement, graft and shallow-boundary fingerprints. A request-local root/path
+memo is not sufficient: governed blobless hydration can change visibility without moving HEAD.
+Failures, malformed history and resource ceilings remain refusals.
+
+Phase review captures one document catalog and uses its private registered records for document
+reads. It no longer rebuilds and hashes the whole catalog for each document. The public records
+are copies, not authority inputs. Catalog/aggregate changes during the request and changed,
+escaped, symlinked or mismatched document bytes remain refused. New catalog/body timings and a
+catalog-build counter make the work visible separately from the accepted-snapshot checks.
+
+Draft inspection also has a canonical artifact-read owner. It retains descriptor/path rebinding,
+portable exact-byte checks, managed-block normalization and supporting-document fingerprints.
+Next-step definitions import this leaf directly, avoiding a first-use jump into the broad
+publication chunk merely to determine whether the existing draft changed. Publication reexports
+the same functions; there is no second, weaker hash or path implementation.
+
+The small agent-output, catalog-presentation and paged-JSON helpers are claimed before policy
+reads in the existing worker-support slot. Merely moving policy roots earlier had made the light
+output chunk depend on policy and shifted the cost into every `--for-agent` response. Windows
+output-stage timing exposed this regression. A separate 2 MiB presentation-closure guard and
+unrelated-policy exclusions now protect rendering as well as the handler's static closure.
+
+The bundle partitioner gives strict next-step definitions their own early ownership, instead of
+sharing phase review's larger static closure. Both revisions in a paired measurement must still
+use their own selected builder. Deployment remains at most 20 engine files. The next-step closure
+now has a tighter 4.25 MiB ceiling; phase review retains its 7 MiB ceiling, and other byte ceilings
+are unchanged. The VS Code gateway source-map module ceiling changes from 691 to 701 for eleven
+additional leaf modules (701 measured locally). This counts bundled source inputs, not additional
+deployed files; its 7,522,000-byte ceiling is unchanged.
+The start command's raw-source ceiling likewise changes from 424 to 435 for the extracted leaves;
+the local-session source ceiling tightens from 385 to 225 (219 measured). Unrelated-domain
+exclusions remain enforced.
+
+Explicit private-worker preparation also loads next-step definitions, without reading a Story,
+running a handler, opening a generation, testing, or invoking a model. Demand-started light workers
+retain light preparation. Optional preparation does not interrupt an in-flight read; repository,
+build, environment, cancellation, queue and age limits remain enforced. Each real read starts a
+fresh closed read scope. These worker gains do not automatically apply to arbitrary Copilot shell
+commands.
+
+Qualification extends the paired Windows fixtures to legacy, accepted pinned and genuinely
+accepted revision-2 skill-amended Stories. Each has 1,000 application files, 20 unrelated branches,
+120 additional commits and eight extra draft artifacts plus its primary artifact. The amended
+fixture shares setup with adversarial amendment tests and proves both the accepted closure and
+the phase's revalidation baseline. Approvals in this synthetic setup are test data only; no user
+Story or external repository is modified. Full/bounded output modes and cold/prewarmed processes
+are measured separately, with raw first/repeat samples and preparation costs retained. Direct
+Node/owned-worker measurements still do not qualify office-laptop shell, security-software,
+Copilot-hook or whole-conversation latency.
+
+Expanded Windows regression coverage exposed three existing harness assumptions: Git CRLF
+warnings overflowed fixture creation's default 1 MiB child buffer, a path assertion compared
+Windows and Git separators literally, and timing-file mode bits were treated as POSIX permissions.
+The fixture runner now drains a bounded 16 MiB diagnostic volume, paths compare canonically, and
+POSIX mode assertions run only where those bits express that contract. Rotation, stored bytes,
+tamper/invalidation checks and all production policy gates remain enforced. This does not attest
+Windows ACLs; the report records the original failures and the exact bounded rerun.
+
+The [paired Windows results](../benchmarks/utility-entry/strict-policy-reads.json) compare the
+integrated build with main `94b6278d`, using each revision's own builder. There are three fresh
+private-V8-cache samples and nine subsequent fresh-process samples per command/output/warmth.
+OS caches are not flushed. Legacy/pinned fixtures have 122 commits; the accepted revision-2
+amended fixture has 124. All have nine draft artifacts. These are synthetic one-phase read
+fixtures, not a claim about a full Story or a long chain of accepted amendments.
+
+Full-JSON CLI first-request medians, milliseconds (before → after):
+
+| Story | Next steps, cold | Next steps, prewarmed | Phase review, cold | Phase review, prewarmed |
+| --- | ---: | ---: | ---: | ---: |
+| Legacy | 887 → 896 | 687 → 688 | 956 → 933 | 775 → 736 |
+| Pinned | 903 → 908 | 732 → 800 | 990 → 963 | 802 → 808 |
+| Amended | 3,138 → 2,952 | 2,942 → 2,770 | 3,198 → 3,032 | 3,078 → 2,847 |
+
+The amended strict CLI reads improve about 4–8%, not an order of magnitude. Legacy and pinned
+reads are mostly flat; the pinned prewarmed next-step median regresses 9%. Bounded-output pairs,
+including their slower cases, are retained separately rather than pooled across different VMs.
+Three pairs establish the measured result, not a statistical guarantee about enterprise laptops.
+
+Owned-worker next-step medians, milliseconds:
+
+| Story | Fresh worker | Definition-prepared worker | Prepared-worker repeats |
+| --- | ---: | ---: | ---: |
+| Legacy | 793 → 782 | 511 → 449 | 297 → 302 |
+| Pinned | 1,057 → 996 | 766 → 704 | 563 → 546 |
+| Amended | 4,361 → 3,701 | 4,019 → 3,375 | 3,251 → 2,695 |
+
+Definition preparation itself increases from 95 → 147 ms, 71 → 100 ms and 98 → 149 ms respectively.
+That work moves before the user request; it is not free. Bytecode preparation costs are also
+retained. Worker Git-fact persistence is disabled in this suite, unlike the CLI suite, so the
+two sets cannot be subtracted or used as interchangeable speedup claims. Canonical worker
+results match before/after except report clocks.
+
+The next-step static closure falls from 7,126,830 to 3,946,716 bytes; deployment remains 20 files.
+Presentation falls from 1,847,969 to 1,751,818 bytes instead of inheriting policy. The amended
+cold next-step module-load median falls from 171 to 81 ms, but execution still takes 2,656 ms.
+Its Story aggregate span is 1,852 ms; accepted-chain and snapshot-byte spans are 1,482 and 260 ms,
+and accepted catalog interpretation is 375 ms. These nested spans overlap. YAML parsing is about
+3 ms, validation 14 ms and output rendering below 1 ms: those are not the remaining dominant cost.
+
+History batching reduces logical Git requests from 153 to 119 in that sample. With persistent
+facts already available, actual spawns remain around 50, explaining why CLI gains are smaller
+than worker gains. Phase review builds one catalog; catalog and document-body spans are about
+4 and 14 ms for nine artifacts. Further improvement should target the still-shared forensic
+accepted-chain/aggregate reads and their real Git processes, including the legacy/amended
+fallbacks that deliberately keep their original strict owner. It must not cache a mutable
+readiness/approval decision or omit amendment revalidation merely to improve the number.
+
+Windows qualification includes 145 integrity cases (141 initially passed, one skipped, and
+three harness portability failures subsequently corrected and rerun), 182 lifecycle/document
+cases (175 passed, seven platform skips), 44 final bundle/read cases and the three corrected
+portability cases. Repository contracts, type checking and bundle limits pass. Original failed
+run IDs and exact correction deltas remain in the report; the original run was not relabeled green.
+
 ### Story operations
 
 - Every registered skill is audited; aliases delegate once to their canonical owner.

@@ -31,6 +31,7 @@ const DECIDING_MODULES = Object.freeze([
   'commands/start.mjs', 'commands/shared/start-context.mjs',
   'commands/shared/session-repository-selection.mjs',
   'commands/shared/session-repository-authority.mjs', 'commands/shared/session-repository-remotes.mjs',
+  'commands/shared/session-storage-refusal.mjs',
   'commands/shared/session-discovery-configuration.mjs', 'commands/shared/definition-at-ref.mjs',
   'commands/shared/git-answer.mjs', 'commands/shared/accepted-story-execution-if-present.mjs',
   'commands/shared/checklist-decisions.mjs', 'commands/shared/completion-continuation.mjs',

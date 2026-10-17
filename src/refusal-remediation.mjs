@@ -509,9 +509,15 @@ const KNOWN = Object.freeze({
   // Git would wait with no limit on the repository's undownloaded files; the message names them.
   GIT_STORAGE_UNAVAILABLE: (argv, error) => {
     const retry = safeCommandGuidance({ argv });
+    const relocation = error?.details?.relocation;
+    const duplicate = relocation?.requiresConfirmation === true ? safeCommandGuidance({ argv: relocation.argv }) : null;
+    const use = duplicate ? safeCommandGuidance({ argv: relocation.useArgv }) : null;
     return [step('download-repository-files', error?.message
       ?? 'Download the repository folder and keep it downloaded, or move the workspace out of the synced folder.', null, 'remediation'),
-    retry && step('retry-after-download', 'Once the folder is downloaded, run the same command again.', retry.command, 'diagnostic')];
+    retry && step('retry-after-download', 'Once the folder is downloaded, run the same command again.', retry.command, 'diagnostic'),
+    // Never run unasked: a second copy of the workspace, cloned fresh outside the synced folder.
+    duplicate && step('clone-workspace-outside-synced-folder', `Only if the person confirms: clone the workspace again at ${relocation.path}; the offloaded copy is left as it is.`, duplicate.command, 'remediation'),
+    use && step('use-cloned-workspace', 'Then switch to that copy and run /sf-session again.', use.command, 'remediation')];
   },
   // A new workspace would keep Git in a cloud-synced folder: the same command under the local base.
   WORKSPACE_SYNCED_FOLDER: (argv, error) => {
@@ -1185,6 +1191,14 @@ export function refusalDetails(details) {
     const coverage = compact(Object.fromEntries(['unimplemented', 'testPresenceOnly', 'unclaimedChangedPaths', 'withdrawnButClaimed']
       .map((key) => [key, list(details.coverage[key], text)]).filter(([, entries]) => entries.length)));
     if (coverage) projected.coverage = coverage;
+  }
+  // An offloaded workspace repository: the confirm-first fresh clone elsewhere (session-storage-refusal.mjs).
+  const relocation = details.relocation;
+  if (details.offloaded === true && relocation?.requiresConfirmation === true && Array.isArray(relocation.argv)
+      && Array.isArray(relocation.useArgv)) {
+    projected.offloaded = true;
+    projected.relocation = { requiresConfirmation: true, argv: list(relocation.argv, text).slice(0, 16),
+      useArgv: list(relocation.useArgv, text).slice(0, 8), path: text(relocation.path) };
   }
   if (details.publicationPreflight?.scope === 'transport-only') projected.publicationPreflight = {
     scope: 'transport-only', localHooks: 'not-run', remoteStoryBranch: 'not-updated',

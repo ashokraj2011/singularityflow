@@ -40,15 +40,10 @@ export async function run(argv, { positionals, options }) {
  * no limit, so the scanned repository is checked once, before the first of them. null when Git can
  * read it (or the check does not apply), else why it cannot.
  */
-async function unreadableGitStorage(root) {
+export async function unreadableGitStorage(root) {
   const mode = String(process.env.SINGULARITY_FLOW_GIT_STORAGE_CHECK ?? '').trim().toLowerCase();
   if (mode === 'off' || (process.platform !== 'darwin' && mode !== 'always')) return null;
   return (await import('../git-storage-availability.mjs')).gitStorageUnavailable(root);
-}
-
-async function requireReadableGitStorage(root) {
-  const storage = await unreadableGitStorage(root);
-  if (storage) throw (await import('../git-storage-availability.mjs')).gitStorageError(storage);
 }
 
 /** `url` of `[remote "origin"]` in a config file that is itself readable now, else null. */
@@ -561,6 +556,9 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
   let root = resolved.root;
   const unreadable = root ? await unreadableGitStorage(root) : null;
   if (unreadable) {
+    // Attaching needs this clone; it is left exactly as it is (session-storage-refusal.mjs).
+    if (subcommand === 'attach') throw (await import('./shared/session-storage-refusal.mjs')).offloadedRepositoryRefusal(
+      unreadable, { workId: positionals[2] ?? null, workspaceContext: resolved.workspaceContext ?? null });
     if (subcommand !== 'candidates' || localListing) throw (await import('../git-storage-availability.mjs')).gitStorageError(unreadable);
     return renderCandidates(await remoteListingWithoutLocalClone(root, resolved, unreadable), options, {
       workspaceReference: workspaceReference ?? resolved.workspaceContext?.workspacePath ?? null,
@@ -603,7 +601,9 @@ async function sessionCommandUncached(positionals, options, renderCandidates = p
       { code: 'SESSION_REMOTE_CHANGED' }
     );
     root = refreshed.repositoryPath;
-    await requireReadableGitStorage(root);
+    const materialized = await unreadableGitStorage(root);
+    if (materialized) throw (await import('./shared/session-storage-refusal.mjs')).offloadedRepositoryRefusal(
+      materialized, { workId: preflightStory.id, workspaceContext: refreshed });
     // A deferred clone may initially track only its default branch. Fetch the reviewed delivery
     // remote before resolving its Story-carried configuration; do not mistake that for an
     // ungoverned repository merely because the Story ref is not yet locally advertised.

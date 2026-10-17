@@ -57,7 +57,7 @@ function host({ kind = 'submit', cancel = false, moved = false, paused = false, 
     if (name === './generation-guards.ts') return { unsavedRepositoryPaths };
     if (name === '../../../src/model-free-commands.mjs') return { parseModelFreeTarget };
     if (name === './compact-message.ts') return { async showCompactWarningMessage(...args) {
-      warnings.push(args); confirmed = true; return cancel ? undefined : 'Run exact action';
+      warnings.push(args); confirmed = true; return cancel ? undefined : 'Run action';
     } };
     if (name === './views/review-confirmation.ts') return { collectReviewConfirmation: async () => {
       confirmed = true; return reviewConfirmed;

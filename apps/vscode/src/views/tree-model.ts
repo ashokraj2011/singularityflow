@@ -353,8 +353,8 @@ export function buildLifecycleTree(snapshot: RepositorySnapshot | null, error: E
     }, {
       kind: 'action',
       id: 'start-intake',
-      label: 'Start intake',
-      description: 'choose work and workflow',
+      label: 'Start new work',
+      description: 'describe a request and start a Story',
       tooltip: 'Choose Initiative, Epic or Story intake, then select the configured workflow that '
         + 'will govern its phases.',
       icon: 'play-circle',
@@ -892,7 +892,7 @@ function storyPhaseActions(
     icon: 'statusWaiting'
   }, {
     kind: 'action', id: `story:${phase.id}:continue-safely`,
-    label: 'Review the legal next action',
+    label: 'See the next step',
     description: 'read-only plan', icon: 'play-circle',
     runCommand: 'singularityFlow.continueSafely', contextValue: 'sflow.action.plan'
   }];

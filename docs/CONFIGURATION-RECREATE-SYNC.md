@@ -1,8 +1,9 @@
 # Recreate & sync configuration
 
-Use **Recreate & sync configuration** in the main VS Code panel or Configuration Center.
-The click authorizes one operation for the selected repository's configuration authority; it
-does not open a merge, confirmation dialog, or model conversation.
+Use **Recreate & sync configuration** in Configuration Center or from the command palette. It
+asks once, in a dialog that names what will change; that confirmed click authorizes one operation
+for the selected repository's configuration authority. It does not open a merge or a model
+conversation.
 
 The operation reads today's `sflow/config` and all pending workflow, capability, and onboarding
 proposals on that authority. It reconstructs their intended edits instead of merging historical

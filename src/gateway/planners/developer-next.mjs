@@ -26,7 +26,7 @@ function labelFor(preview) {
   if (command === 'gate') return 'Run the completion gate';
   if (command === 'pr' && subcommand) return 'Prepare the pull request';
   if (command === 'progress' || command === 'report') return 'Review the completed work';
-  if (command === 'start') return 'Start new governed work';
+  if (command === 'start') return 'Start new work';
   return 'Continue with the next governed step';
 }
 

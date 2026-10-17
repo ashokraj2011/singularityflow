@@ -78,7 +78,7 @@ function phaseToken(phase: LifecyclePhaseMetric): string {
 
 function analyticsHtml(analytics: LifecycleAnalytics | null): string {
   if (!analytics) return `<section class="analytics-empty">
-    <h2>${icon('story')}Lifecycle analytics</h2>
+    <h2>${icon('story')}Story Analytics</h2>
     <p class="muted">Start or attach a Story to see phase progress, elapsed time, approvals, models, tokens, and cost.</p>
   </section>`;
 
@@ -167,14 +167,14 @@ function checkHtml(check: Check): string {
 
 function bodyHtml(dashboard: Dashboard | null): string {
   if (!dashboard) {
-    return `<header><h1>${icon('impact', { size: 20 })}Lifecycle analytics</h1></header>
+    return `<header><h1>${icon('impact', { size: 20 })}Story Analytics</h1></header>
       <div class="empty"><p>Reading the repository…</p></div>`;
   }
 
   const health = dashboardHealth(dashboard);
   return `
   <header>
-    <h1>${icon('impact', { size: 20 })}Lifecycle analytics</h1>
+    <h1>${icon('impact', { size: 20 })}Story Analytics</h1>
     <p class="meta">${escape(dashboard.repository)}${dashboard.branch ? ` · ${escape(dashboard.branch)}` : ''}</p>
   </header>
 
@@ -286,7 +286,7 @@ export class DashboardPanel {
     let panel: vscode.WebviewPanel;
     try {
       panel = vscode.window.createWebviewPanel(
-        'singularityFlow.dashboard', 'Lifecycle analytics', vscode.ViewColumn.Active, {
+        'singularityFlow.dashboard', 'Story Analytics', vscode.ViewColumn.Active, {
           enableScripts: true,
           retainContextWhenHidden: true,
           localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')]
@@ -303,7 +303,7 @@ export class DashboardPanel {
     this.snapshotRenders.rendered();
     const token = nonce();
     this.panel.webview.html = page(
-      'Lifecycle analytics',
+      'Story Analytics',
       bodyHtml(buildDashboard(this.store.current.snapshot)),
       contentSecurityPolicy(this.panel.webview, token),
       token,

@@ -181,8 +181,8 @@ export async function runLifecycleChat(
   } else {
     const answer = await showCompactWarningMessage(`Run ${kind} for ${active.workId} / ${active.phaseId}?`, {
       modal: true, detail: `${selected.command}\n\nPlan ${plan.planId} · HEAD ${plan.revision.head}\nExpires ${plan.expiresAt}. Changed repository bytes or lifecycle state invalidate this plan. Tests and gates remain enforced.`
-    }, 'Run exact action');
-    if (answer !== 'Run exact action' || !(await stillCurrent())) { stream.markdown('Cancelled; no lifecycle action was executed.\n'); return; }
+    }, 'Run action');
+    if (answer !== 'Run action' || !(await stillCurrent())) { stream.markdown('Cancelled; no lifecycle action was executed.\n'); return; }
     const argv = ['action', 'execute', plan.planId, '--action', selected.actionId];
     if (selected.confirmation.required) {
       const authorization = await active.client.run<{ token: string }>([

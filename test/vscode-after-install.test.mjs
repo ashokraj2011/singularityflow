@@ -70,12 +70,16 @@ function fixture(overrides = {}) {
 async function preview(f) { await f.journey.load(); await f.journey.select(workspace.path); await f.journey.preview(); }
 async function apply(f) { await preview(f); await f.journey.apply(); }
 
-test('After install is a contributed, early, repository-independent main menu and configuration route', async () => {
+test('After install is a contributed, repository-independent Help and configuration route', async () => {
   const manifest = JSON.parse(await readFile(new URL('../apps/vscode/package.json', import.meta.url), 'utf8'));
-  assert.equal(PRIMARY_NAVIGATION.find(item => item.id === 'after-install').command, 'singularityFlow.afterInstall');
+  // A one-off upgrade check is not a daily destination: it moved from the main menu to Help.
+  assert.equal(PRIMARY_NAVIGATION.find(item => item.id === 'after-install'), undefined);
   assert.ok(manifest.contributes.commands.some(command => command.command === 'singularityFlow.afterInstall'));
   assert.equal(sidebarDestination('mainThreadWebview-singularityFlow.afterInstall'), 'after-install');
-  assert.match(sidebarBody({ navigation: { workspace: null, next: null }, freshness: null, loading: false, pending: null, active: null, favorites: [] }), /data-action="after-install"/);
+  assert.match(sidebarBody({ navigation: { workspace: null, next: null }, freshness: null, loading: false, pending: null, active: null, favorites: [] }), /data-action="help-tools"/);
+  const sidebar = await readFile(new URL('../apps/vscode/src/views/sidebar.ts', import.meta.url), 'utf8');
+  assert.match(sidebar, /'help-tools': \{ title: 'Help & diagnostics', ids: \[[^\]]*'after-install'/);
+  assert.match(sidebar, /'after-install': 'singularityFlow\.afterInstall'/);
   const extension = await readFile(new URL('../apps/vscode/src/extension.ts', import.meta.url), 'utf8');
   const handler = extension.indexOf("'singularityFlow.afterInstall', async");
   assert.ok(handler > 0 && handler < extension.indexOf("if ('reason' in resolved)"));

@@ -49,24 +49,24 @@ const STUDIO_STYLE = `
 .mark.wait{background:var(--sf-wait);color:var(--vscode-editor-background)}
 .mark.bad{background:var(--sf-bad);color:var(--vscode-editor-background)}
 .mark.dim{border:1px solid var(--sf-border-color)}
-.muted{opacity:.75;font-size:12px}
+.muted{color:var(--sf-dim,var(--vscode-descriptionForeground));font-size:12px}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 8px;border-radius:12px;border:1px solid var(--sf-border-color)}
 .pill.new{background:var(--sf-accent-quiet);font-weight:700}
-.pill.skill{font-family:var(--vscode-editor-font-family);font-size:10px;padding:1px 6px;max-width:84px;min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+.pill.skill{font-family:var(--vscode-editor-font-family);font-size:11px;padding:1px 6px;max-width:84px;min-width:0;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
 .rail{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .rail .stop{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:3px 8px 3px 3px;border-radius:12px;border:1px solid var(--sf-border-color)}
-.avatar{width:20px;height:20px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
+.avatar{width:20px;height:20px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:var(--vscode-badge-background);color:var(--vscode-badge-foreground)}
 .avatar.large{width:28px;height:28px;border-radius:14px;font-size:11px}
 .blueprints{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:var(--sf-space-3)}
 .blueprint{text-align:left;font:inherit;color:inherit;background:var(--sf-surface);border:1px solid var(--sf-border-color);border-radius:10px;padding:var(--sf-space-3);display:flex;flex-direction:column;gap:8px;cursor:pointer;min-height:150px}
 .blueprint[aria-pressed=true]{border:2px solid var(--sf-accent)}
-.lane-label{font-size:10px;letter-spacing:1px;font-weight:700;opacity:.8}
+.lane-label{font-size:11px;letter-spacing:1px;font-weight:700;opacity:.8}
 .studio.compact{grid-template-columns:56px minmax(0,1fr);min-height:0}
 .studio.compact .studio-nav{padding:var(--sf-space-3) 8px;align-items:center}
 .studio-nav button.nav-icon{position:relative;width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;padding:0;border-radius:8px;border:0;background:transparent;color:inherit;cursor:pointer}
 .studio-nav button.nav-icon[aria-current=page]{background:var(--sf-accent-quiet);color:var(--sf-accent)}
 .studio-nav button.nav-icon:hover{background:var(--vscode-list-hoverBackground)}
-.studio-nav button.nav-icon .count{position:absolute;top:1px;right:0;font-size:9px;line-height:14px;min-width:14px;padding:0 3px;border-radius:7px}
+.studio-nav button.nav-icon .count{position:absolute;top:1px;right:0;font-size:11px;line-height:14px;min-width:14px;padding:0 3px;border-radius:7px}
 .studio-main.board-main{padding:var(--sf-space-3) var(--sf-space-4);gap:var(--sf-space-3)}
 .board-head{display:flex;justify-content:space-between;align-items:center;gap:var(--sf-space-2);flex-wrap:wrap}
 .board-head .muted{max-width:520px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
@@ -81,7 +81,7 @@ const STUDIO_STYLE = `
 .splitter:hover::after,.splitter.dragging::after,.splitter:focus-visible::after{background:var(--sf-accent)}
 .splitter:focus-visible{outline:none}
 .panel-strip{display:flex;flex-direction:column;align-items:center;gap:10px;padding:8px 0;border:1px solid var(--sf-border-color);border-radius:8px;background:var(--sf-surface)}
-.panel-strip .strip-label{writing-mode:vertical-rl;font-family:var(--sf-font-mono,monospace);font-size:10px;letter-spacing:.14em;color:var(--sf-dim)}
+.panel-strip .strip-label{writing-mode:vertical-rl;font-family:var(--sf-font-mono,monospace);font-size:11px;letter-spacing:.14em;color:var(--sf-dim)}
 .canvas{position:relative;overflow:hidden;border:1px solid var(--sf-border-color);border-radius:10px;background-color:var(--vscode-editor-background);background-image:radial-gradient(circle,color-mix(in srgb,var(--vscode-foreground) 22%,transparent) 1px,transparent 1.5px);background-size:22px 22px;cursor:grab;touch-action:none;user-select:none}
 .canvas.panning{cursor:grabbing}
 .canvas-world{position:absolute;left:0;top:0;transform-origin:0 0}
@@ -112,21 +112,21 @@ const STUDIO_STYLE = `
 .node-main:focus-visible{outline:2px solid var(--vscode-focusBorder);outline-offset:2px}
 .node-head{display:flex;align-items:center;gap:7px;min-width:0;padding-right:22px}
 .node-icon{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:24px;border-radius:5px;background:color-mix(in srgb,var(--tone) 20%,transparent);color:var(--tone)}
-.node-step{font-family:var(--sf-font-mono,monospace);font-size:10px;letter-spacing:.1em;font-weight:700;color:var(--sf-dim,inherit);flex:1 0 auto;white-space:nowrap}
+.node-step{font-family:var(--sf-font-mono,monospace);font-size:11px;letter-spacing:.1em;font-weight:700;color:var(--sf-dim,inherit);flex:1 0 auto;white-space:nowrap}
 .node-title{font-size:13px;font-weight:600;line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .node-meta{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:11px;min-width:0}
 .node-agent{display:inline-flex;align-items:center;gap:6px;min-width:0}
 .node-agent .name{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.node-sign{display:inline-flex;align-items:center;gap:3px;flex:none;padding:1px 6px;border-radius:3px;border:1px solid var(--sf-border-color);font-family:var(--sf-font-mono,monospace);font-size:10px}
+.node-sign{display:inline-flex;align-items:center;gap:3px;flex:none;padding:1px 6px;border-radius:3px;border:1px solid var(--sf-border-color);font-family:var(--sf-font-mono,monospace);font-size:11px}
 .node-sign.none{border-style:dashed;opacity:.75}
 .node-sign.bad{background:var(--sf-bad);border-color:var(--sf-bad);color:var(--vscode-editor-background)}
-.node-skills{display:inline-flex;align-items:center;gap:3px;flex:none;padding:1px 6px;border-radius:3px;border:1px solid var(--sf-border-color);font-family:var(--sf-font-mono,monospace);font-size:10px}
+.node-skills{display:inline-flex;align-items:center;gap:3px;flex:none;padding:1px 6px;border-radius:3px;border:1px solid var(--sf-border-color);font-family:var(--sf-font-mono,monospace);font-size:11px}
 .seeded-steps{display:flex;flex-direction:column;gap:8px;padding-left:20px}
 .seeded-steps .studio-card{margin-top:6px}
-.node-asks{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:3px;border:1px solid var(--sf-border-color);font-family:var(--sf-font-mono,monospace);font-size:10px;font-weight:700;color:var(--sf-dim,inherit)}
+.node-asks{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:3px;border:1px solid var(--sf-border-color);font-family:var(--sf-font-mono,monospace);font-size:11px;font-weight:700;color:var(--sf-dim,inherit)}
 .node-after{margin-top:auto;display:flex;align-items:center;gap:4px;min-width:0;padding-top:7px;border-top:1px solid var(--sf-border-color);overflow:hidden}
-.node-after .lane{flex:none;font-family:var(--sf-font-mono,monospace);font-size:9px;letter-spacing:.12em;font-weight:700;color:var(--sf-faint,var(--sf-dim));margin-right:2px}
-.chip{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;padding:1px 6px;border-radius:3px;border:1px solid var(--sf-border-color);font-family:var(--sf-font-mono,monospace);font-size:10px;line-height:16px;white-space:nowrap}
+.node-after .lane{flex:none;font-family:var(--sf-font-mono,monospace);font-size:11px;letter-spacing:.12em;font-weight:700;color:var(--sf-faint,var(--sf-dim));margin-right:2px}
+.chip{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:100%;padding:1px 6px;border-radius:3px;border:1px solid var(--sf-border-color);font-family:var(--sf-font-mono,monospace);font-size:11px;line-height:16px;white-space:nowrap}
 .chip .chip-text{overflow:hidden;text-overflow:ellipsis}
 .chip-route{color:var(--sf-dim,inherit)}
 .chip-decision{border-color:color-mix(in srgb,var(--vscode-charts-purple,#b180d7) 60%,transparent);color:var(--vscode-charts-purple,#b180d7)}
@@ -136,7 +136,7 @@ const STUDIO_STYLE = `
 .node-num{flex:none;font-family:var(--sf-font-mono,monospace);font-size:11px;font-weight:700;color:var(--sf-dim,inherit)}
 .node.collapsed .node-title{flex:1;min-width:0;font-size:12px;-webkit-line-clamp:1;white-space:nowrap;text-overflow:ellipsis;display:block}
 .node-marks{display:inline-flex;align-items:center;gap:3px;flex:none}
-.mark-chip{display:inline-flex;align-items:center;gap:2px;font-family:var(--sf-font-mono,monospace);font-size:10px;color:var(--sf-dim,inherit)}
+.mark-chip{display:inline-flex;align-items:center;gap:2px;font-family:var(--sf-font-mono,monospace);font-size:11px;color:var(--sf-dim,inherit)}
 .mark-chip.bad{color:var(--sf-bad)}
 .mark-chip.decision{color:var(--vscode-charts-purple,#b180d7)}
 .mark-chip.back{color:var(--vscode-charts-orange,#d18616)}
@@ -152,8 +152,8 @@ const STUDIO_STYLE = `
 .finish{position:absolute;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:6px;border-radius:18px;border:1px dashed var(--sf-border-color);background:var(--sf-surface);font-size:12px;font-weight:600}
 .diamond-node{position:absolute;box-sizing:border-box;width:22px;height:22px;margin:-11px 0 0 -11px;padding:0;transform:rotate(45deg);border-radius:4px;border:2px solid var(--vscode-charts-purple,#b180d7);background:color-mix(in srgb,var(--vscode-charts-purple,#b180d7) 30%,var(--vscode-editor-background));cursor:pointer}
 .diamond-node[aria-pressed=true]{box-shadow:0 0 0 4px color-mix(in srgb,var(--vscode-charts-purple,#b180d7) 35%,transparent)}
-.diamond-caption{position:absolute;transform:translateX(-50%);width:88px;font-size:10px;line-height:1.25;text-align:center;opacity:.9;pointer-events:none}
-.edge-label{position:absolute;transform:translate(-50%,-50%);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:inherit;font-size:10.5px;padding:2px 8px;border-radius:10px;border:1px solid var(--tone);background:var(--vscode-editor-background);color:var(--vscode-foreground);cursor:pointer}
+.diamond-caption{position:absolute;transform:translateX(-50%);width:88px;font-size:11px;line-height:1.25;text-align:center;opacity:.9;pointer-events:none}
+.edge-label{position:absolute;transform:translate(-50%,-50%);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:inherit;font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--tone);background:var(--vscode-editor-background);color:var(--vscode-foreground);cursor:pointer}
 .edge-label.tone-send-back{--tone:var(--vscode-charts-orange,#d18616)}
 .edge-label.tone-decision{--tone:var(--vscode-charts-purple,#b180d7)}
 .edge-label.stub{border-style:dashed;max-width:200px}
@@ -184,7 +184,7 @@ const STUDIO_STYLE = `
 .prop-section{border-bottom:1px solid var(--sf-border-color)}
 .ro-details{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:0}.ro-details dt{opacity:.75}.ro-details dd{margin:0}.ro-routes{margin:0;padding-left:18px}.ro-routes li{margin:4px 0}
 .section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px var(--sf-space-3)}
-.section-toggle{display:flex;align-items:center;gap:6px;flex:1;min-width:0;padding:2px 0;border:0;background:transparent;color:inherit;font-family:var(--sf-font-mono,monospace);font-weight:700;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;text-align:left;cursor:pointer;white-space:nowrap}
+.section-toggle{display:flex;align-items:center;gap:6px;flex:1;min-width:0;padding:2px 0;border:0;background:transparent;color:inherit;font-family:var(--sf-font-mono,monospace);font-weight:700;font-size:11px;letter-spacing:.08em;text-transform:uppercase;text-align:left;cursor:pointer;white-space:nowrap}
 .section-toggle .summary{margin-left:auto;font-family:var(--vscode-font-family);font-size:11.5px;font-weight:400;letter-spacing:0;text-transform:none;opacity:.7;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;min-width:0}
 .chevron{display:inline-block;width:12px;opacity:.8}
 .prop-body{display:flex;flex-direction:column;gap:var(--sf-space-2);padding:0 var(--sf-space-3) var(--sf-space-3)}
@@ -219,7 +219,7 @@ const STUDIO_STYLE = `
 .inspector{border:1px solid var(--sf-border-color);border-radius:10px;padding:var(--sf-space-3);display:flex;flex-direction:column;gap:var(--sf-space-3);position:sticky;top:8px}
 .field{display:flex;flex-direction:column;gap:4px}
 .field label,.field .label{font-size:12px;font-weight:600}
-.studio .field>label,.studio .field>.label,.studio .field>legend.label{font-family:var(--sf-font-mono,monospace);font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sf-dim,inherit)}
+.studio .field>label,.studio .field>.label,.studio .field>legend.label{font-family:var(--sf-font-mono,monospace);font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--sf-dim,inherit)}
 .field input[type=text],.field input[type=email],.field select,.field textarea{font:inherit;padding:6px 8px;border-radius:4px;border:1px solid var(--vscode-input-border,var(--sf-border-color));background:var(--vscode-input-background);color:var(--vscode-input-foreground)}
 .field textarea{min-height:110px;resize:vertical}
 .field .hint{font-size:11px;opacity:.8;line-height:1.4}
@@ -1225,9 +1225,17 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     changed();
   }
 
+  // Removing a step also drops its send-back rules, decisions and skill links, so it asks first.
   function removeStep(workflowId, phaseId) {
     var workflow = state.draft.workflows[workflowId];
     if (workflow.phases.length <= 1) { setStatus('A workflow needs at least one step.'); return; }
+    var phase = (state.draft.phases || {})[phaseId];
+    confirmAction('Remove ' + ((phase && phase.label) || phaseId) + ' from ' + (workflow.label || workflowId) + '?',
+      'Send-back rules, decisions and skill links that use this step are removed with it. Nothing is published until you publish.',
+      'Remove step', function () { removeStepNow(workflowId, phaseId); });
+  }
+  function removeStepNow(workflowId, phaseId) {
+    var workflow = state.draft.workflows[workflowId];
     workflow.phases = workflow.phases.filter(function (phase) { return phase !== phaseId; });
     workflow.skills = (workflow.skills || []).filter(function (entry) { return !entry.phases.length || entry.phases.some(function (id) { return id !== phaseId; }); })
       .map(function (entry) { return Object.assign({}, entry, { phases: entry.phases.filter(function (id) { return id !== phaseId; }) }); });
@@ -5782,12 +5790,18 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         el('div', { text: 'Unpublished changes were kept when Workflow Studio closed' + (when && !isNaN(when.getTime()) ? ' (' + when.toLocaleString() + ')' : '') + '.' }),
         el('div', { class: 'studio-row', style: 'margin-top:6px' },
           button('Restore them', function () { state.draft = withDraftDefaults(state.restorable.draft); state.restorable = null; state.view = 'changes'; changed(); }, { class: 'primary', 'data-key': 'draft-restore' }),
-          button('Discard them', function () { state.restorable = null; post({ type: 'studio.draftClear' }); render(); }, { class: 'secondary', 'data-key': 'draft-discard' }))));
+          button('Discard them', function () {
+            confirmAction('Discard your unsaved Studio changes?', 'They cannot be recovered afterwards.', 'Discard changes',
+              function () { state.restorable = null; post({ type: 'studio.draftClear' }); render(); });
+          }, { class: 'secondary', 'data-key': 'draft-discard' }))));
     }
     if (state.configurationChanged) {
       main.appendChild(el('div', { class: 'callout wait', role: 'status' },
         el('div', { text: 'The approved configuration changed (' + state.configurationChanged + '). Your unpublished changes were made on the earlier version, so Check refuses them until you reload; reloading discards them.' }),
-        el('div', { class: 'studio-row', style: 'margin-top:6px' }, button('Reload and discard my changes', function () { post({ type: 'studio.draftClear' }); post({ type: 'studio.reload' }); }, { class: 'secondary', 'data-key': 'configuration-reload' }))));
+        el('div', { class: 'studio-row', style: 'margin-top:6px' }, button('Reload and discard my changes', function () {
+          confirmAction('Reload and discard your changes?', 'Your edits are replaced by the current configuration and cannot be recovered.', 'Discard and reload',
+            function () { post({ type: 'studio.draftClear' }); post({ type: 'studio.reload' }); });
+        }, { class: 'secondary', 'data-key': 'configuration-reload' }))));
     }
     if (state.view === 'changes' && proposalsState().list === null && !proposalsState().loading && !proposalsState().error) requestProposals();
     if (state.view === 'board') renderBoard(main);

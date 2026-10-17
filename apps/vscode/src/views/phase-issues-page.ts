@@ -3,6 +3,12 @@ type RecordValue = Record<string, unknown>;
 const object = (value: unknown): RecordValue => value && typeof value === 'object' && !Array.isArray(value) ? value as RecordValue : {};
 
 /** Display suggestions only; the correction command revalidates every path and clause. */
+/** A finding code read as words; the exact code stays beneath it for search and support. */
+function findingTitle(code: string): string {
+  const words = code.replace(/[._-]+/gu, ' ').trim().toLowerCase();
+  return words ? words[0]!.toUpperCase() + words.slice(1) : 'Unknown finding';
+}
+
 export function pendingEvidenceSuggestions(result: unknown): { path: string; clauses: string[] }[] {
   const envelope = object(result); const data = object(envelope.data ?? envelope);
   const recovery = object(data.recovery); const inspection = object(data.inspection);
@@ -48,7 +54,8 @@ export function phaseIssuesBody(result: unknown): string {
       <p>${escape(String(w.status))} · ${escape(Array.isArray(w.files) ? w.files.map(String).join(', ') : '')}</p>
       <p>After submission pins fresh candidate/test evidence, an authorized human must inspect the exact candidate and file, then answer each checklist item. Contract correction is not this decision.</p></article>`).join('')
       + '<button class="secondary" data-action="witness">Prepare human witness review…</button>' : '<p>No outstanding explicit witness contract was found.</p>'}</section>
-    <section><h2>Issues and owners</h2>${issues.length ? issues.map(issue => `<article class="card"><h3>${escape(String(issue.code ?? 'Unknown finding'))}</h3>
+    <section><h2>Issues and owners</h2>${issues.length ? issues.map(issue => `<article class="card"><h3>${escape(findingTitle(String(issue.code ?? '')))}</h3>
+      ${issue.code ? `<p class="muted"><code>${escape(String(issue.code))}</code></p>` : ''}
       <p>${escape(String(issue.path ?? ''))} · ${escape(String(issue.status ?? 'needs-owner'))}</p>
       ${Array.isArray(issue.choices) ? issue.choices.map(object).map(choice => `<p><b>${escape(String(choice.owner ?? 'Owner'))}</b>: ${escape(String(choice.detail ?? 'Inspect recovery'))}</p>`).join('') : ''}</article>`).join('')
       : '<p>No issue was reported by this inspection. Normal transition checks still run.</p>'}</section>

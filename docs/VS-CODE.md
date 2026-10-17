@@ -76,7 +76,7 @@ Every form that collects input has a way back out of it:
 Favorites answers **where are the menus I use every day?**
 
 - A new installation starts with persona-relevant Favorites. Guided Start is first for every persona;
-  until a persona is chosen, the remaining General suggestions include My Work, Start intake, Inbox,
+  until a persona is chosen, the remaining General suggestions include My Work, Start new work, Inbox,
   and direct capability mapping. This is only a first-use suggestion; removing
   every favorite is remembered as an intentional empty list.
 - Open **Choose favorites** from the section header or its empty state.
@@ -173,10 +173,10 @@ workflow resolution pinned when the work started.
 
 ### Lifecycle analytics
 
-Open **Story Analytics** directly from the Navigator's main menu, below **Stories**.
-The existing **Singularity Flow: Lifecycle Analytics** command opens the same view.
+Open **Story Analytics** from the Navigator's **Work tools**, or pin it to the sidebar.
+The existing **Singularity Flow: Story Analytics** command opens the same view.
 
-Lifecycle Analytics answers **how is this Story moving, and where is time or model
+Story Analytics answers **how is this Story moving, and where is time or model
 usage accumulating?** It is a read-only view over the engine's deterministic
 workflow report:
 

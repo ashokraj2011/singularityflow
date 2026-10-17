@@ -130,7 +130,7 @@ function gateRefusalReasons(gate: any): Array<{ label: string }> {
 
 /** Adapt bounded process-boundary guidance without claiming any effects or preservation. */
 function fromRefusalPlan(result: any, displayMessage: string,
-  repositoryRoot: string | null = null): ResultCardView {
+  repositoryRoot: string | null = null, headline?: string): ResultCardView {
   const planned = Array.isArray(result.remediationPlan?.steps)
     ? result.remediationPlan.steps
     : [];
@@ -144,7 +144,7 @@ function fromRefusalPlan(result: any, displayMessage: string,
   ].flatMap(key => Number.isSafeInteger(budget?.[key]) && budget[key] >= 0 ? [[key, budget[key]]] : []));
   return Object.freeze({
     tone: 'refusal' as const,
-    headline: 'This command is blocked — here is a safe path forward',
+    headline: headline ?? 'Couldn’t complete this — here’s what you can do',
     replyName: null,
     // The runner already redacts and bounds this text. Do not re-read the raw JSON message here.
     why: gate.length ? gate : [{ label: displayMessage.split('\nNext:')[0]?.trim() || 'The command did not complete.' }],
@@ -336,7 +336,7 @@ function messageOnlyRecovery(error: unknown, text: string,
       },
       {
         id: 'recommended-next',
-        label: 'Ask the deterministic planner for the next legal repair.',
+        label: 'Show the next safe repair.',
         command: 'singularity-flow recommend --json'
       }
     ], repositoryRoot);
@@ -344,12 +344,12 @@ function messageOnlyRecovery(error: unknown, text: string,
   return reviewableActions([
     {
       id: 'diagnose-repository',
-      label: 'Run read-only repository and policy diagnostics.',
+      label: 'Check repository health (read-only).',
       command: 'singularity-flow doctor --json'
     },
     {
       id: 'recommended-next',
-      label: 'Ask the deterministic planner for the next legal action.',
+      label: 'Show what to do next.',
       command: 'singularity-flow recommend --json'
     }
   ], repositoryRoot);
@@ -358,10 +358,11 @@ function messageOnlyRecovery(error: unknown, text: string,
 /**
  * Build the card for whatever came back from the CLI.
  *
- * `headline` is what the *caller* was trying to do — "Could not switch workspace". It is used only
- * for a tier-3 card, and deliberately not allowed to override tiers 1 and 2: when the result names
- * its own outcome from the catalog, that name is the accurate one, and a caller's summary of its
- * own intent would replace a fact with a paraphrase.
+ * `headline` is what the *caller* was trying to do — "Could not switch workspace". It heads a
+ * refusal plan or a tier-3 card, and is deliberately not allowed to override a result that names
+ * its own outcome from the catalog: that name is the accurate one, and a caller's summary of its
+ * own intent would replace a fact with a paraphrase. A refusal plan names no outcome, so the
+ * caller's intent beats a generic sentence there.
  */
 export function refusalFor(error: unknown, {
   headline, repositoryRoot = null
@@ -381,7 +382,7 @@ export function refusalFor(error: unknown, {
   }
   if (structured?.resultType === 'sflow-refusal-plan') {
     return {
-      view: fromRefusalPlan(structured, text, repositoryRoot), fidelity: 'refusal-plan-v1'
+      view: fromRefusalPlan(structured, text, repositoryRoot, headline), fidelity: 'refusal-plan-v1'
     };
   }
   const rawCode = String((error as { code?: unknown })?.code ?? '');

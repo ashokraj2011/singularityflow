@@ -210,7 +210,7 @@ test('the card renders the preservation sentence, and renders it last', () => {
   assert.ok(html.indexOf('sf-card-preserved') > html.indexOf('sf-card-why'),
     'the preservation statement comes after the reason');
   // Never a dead end: with no actions, the rest state is stated in words `[INT:REQ-041]`.
-  assert.match(html, /no step you can take/);
+  assert.match(html, /Nothing more can be done here/);
 });
 
 test('the card never renders a raw handle or an operation name into the DOM', () => {

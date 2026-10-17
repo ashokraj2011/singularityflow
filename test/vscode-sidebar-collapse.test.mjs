@@ -20,7 +20,7 @@ test('the primary menu is an expanded native disclosure by default and can rende
   assert.match(remaining, /data-state-key="pinned-shortcuts"/);
   assert.match(remaining, /data-action="work-tools"/);
   assert.match(collapsed.split('<main>')[0], /data-action="workspace-switch"/);
-  assert.equal((collapsed.match(/data-action="configuration-sync"/g) || []).length, 1);
+  assert.equal((collapsed.match(/data-action="configuration-sync"/g) || []).length, 0, 'a writing action is not a menu row');
 });
 
 // Run the shipping script, not a second implementation of persistence or dispatch.

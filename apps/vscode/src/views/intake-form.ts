@@ -454,7 +454,7 @@ export function intakeProblems(form: IntakeForm): string[] {
     if (!form.jiraConfigured) {
       problems.push(form.jiraReason ?? 'No Jira is configured, so there is no key to fetch.');
     }
-    if (!identifier) problems.push(`Give the ${form.shape}'s Jira key.`);
+    if (!identifier) problems.push(`Give the ${shapeNoun(form.shape)}'s Jira key.`);
   } else if (form.tracker === 'github') {
     if (form.shape !== 'story') problems.push('GitHub Issue intake currently starts a Story.');
     if (!form.githubConfigured) problems.push(form.githubReason ?? 'GitHub CLI authentication is unavailable.');
@@ -465,13 +465,13 @@ export function intakeProblems(form: IntakeForm): string[] {
     }
   } else {
     if (!mintsIdentifier(form)) {
-      if (!identifier) problems.push(`Give the ${form.shape} an identifier.`);
+      if (!identifier) problems.push(`Give the ${shapeNoun(form.shape)} an identifier.`);
       else if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(identifier)) {
         problems.push('The identifier may contain letters, numbers, dots, underscores and hyphens.');
       }
     }
     // With a tracker, the title and the rest are fetched. Without one, they are the whole input.
-    if (!form.title.trim()) problems.push(`Give the ${form.shape} a title.`);
+    if (!form.title.trim()) problems.push(`Give the ${shapeNoun(form.shape)} a title.`);
     if (!form.description.trim()) problems.push('Say what is being asked for.');
     if (form.shape === 'epic' && !form.goal.trim()) {
       problems.push('Say what outcome would make this a success.');
@@ -712,9 +712,20 @@ export function referenceRepositoryEntries(
 /** What each scope breaks into, shown as its tag; a Story is where most work starts. */
 const SHAPE_TAGS: Record<Shape, string> = { initiative: 'Multi-Epic', epic: 'Multi-Story', story: 'Single branch' };
 
+const REQUIRED = '<span class="sf-required">(required)</span>';
+
+/** Story, Epic and Initiative are names in the glossary, so they keep their capitals in sentences. */
+function shapeNoun(shape: Shape): string {
+  return shape === 'initiative' ? 'Initiative' : shape === 'epic' ? 'Epic' : 'Story';
+}
+
+/** Smallest first: the recommended Story leads, and the larger scopes follow it. */
+const SHAPE_ORDER: readonly Shape[] = ['story', 'epic', 'initiative'];
+
 function shapeHtml(form: IntakeForm): string {
+  const ordered = [...SHAPES].sort((a, b) => SHAPE_ORDER.indexOf(a.id) - SHAPE_ORDER.indexOf(b.id));
   return `<div class="choices">
-      ${SHAPES.map((shape) => `
+      ${ordered.map((shape) => `
       <label class="choice${shape.id === form.shape ? ' chosen' : ''}">
         ${shape.id === 'story' ? '<span class="sf-ribbon">RECOMMENDED</span>' : ''}
         <input type="radio" name="shape" value="${shape.id}" data-shape="${shape.id}"${shape.id === form.shape ? ' checked' : ''}>
@@ -739,23 +750,23 @@ function trackerHtml(form: IntakeForm): string {
         <input type="radio" name="tracker" value="none" data-tracker="none"${form.tracker === 'none' ? ' checked' : ''}>
         <span class="choice-label"><span class="sf-title">No tracker</span></span>
         <span class="choice-detail">Described here and governed in Git. Nothing else is needed.</span>
-        <span class="sf-card-foot"><span>Git native governance</span><span>LOCAL</span></span>
+        <span class="sf-card-foot"><span>Recorded in Git</span><span>Ready</span></span>
       </label>
       <label class="choice sf-tracker${form.tracker === 'jira' ? ' chosen' : ''}">
         <input type="radio" name="tracker" value="jira" data-tracker="jira"${form.tracker === 'jira' ? ' checked' : ''}>
-        <span class="choice-label"><span class="sf-title">Jira</span>${tag('JIRA_PAT')}</span>
+        <span class="choice-label"><span class="sf-title">Jira</span>${tag(form.jiraConfigured ? 'Connected' : 'Not set up', form.jiraConfigured ? 'accent' : '')}</span>
         <span class="choice-detail">${form.jiraConfigured
     ? 'Fetched by key: the title, description and acceptance criteria come from the issue.'
-    : escape(form.jiraReason ?? 'Not configured on this machine.')}</span>
-        <span class="sf-card-foot"><span>jira issue by key</span><span>${form.jiraConfigured ? 'sync:ready' : 'sync:unconfigured'}</span></span>
+    : `Not set up on this machine.${form.jiraReason ? ` <details class="sf-setup-detail"><summary>What it needs</summary>${escape(form.jiraReason)}</details>` : ''}`}</span>
+        <span class="sf-card-foot"><span>Fetched by issue key</span><span>${form.jiraConfigured ? 'Ready' : 'Not set up'}</span></span>
       </label>
       <label class="choice sf-tracker${form.tracker === 'github' ? ' chosen' : ''}">
         <input type="radio" name="tracker" value="github" data-tracker="github"${form.tracker === 'github' ? ' checked' : ''}>
-        <span class="choice-label"><span class="sf-title">GitHub Issue</span>${tag(form.githubConfigured ? 'gh cli ✓' : 'gh cli', form.githubConfigured ? 'accent' : '')}</span>
+        <span class="choice-label"><span class="sf-title">GitHub Issue</span>${tag(form.githubConfigured ? 'Signed in' : 'Not signed in', form.githubConfigured ? 'accent' : '')}</span>
         <span class="choice-detail">${form.githubConfigured
     ? 'Fetched through the authenticated gh CLI. Repeating the same Issue attaches existing work.'
     : escape(form.githubReason ?? 'GitHub CLI authentication is unavailable.')}</span>
-        <span class="sf-card-foot"><span>gh issue view</span><span>${form.githubConfigured ? 'auth:ready' : 'auth:unavailable'}</span></span>
+        <span class="sf-card-foot"><span>Fetched with the GitHub CLI</span><span>${form.githubConfigured ? 'Ready' : 'Not signed in'}</span></span>
       </label>
     </div>`;
 }
@@ -767,7 +778,7 @@ function fieldsHtml(form: IntakeForm): string {
   if (form.tracker === 'jira') {
     return `
     <div class="sf-field-row">
-      <label class="field"><span>${escape(noun)} key</span><input type="text" value="${escape(form.key)}" data-field="key"
+      <label class="field"><span>${escape(noun)} key ${REQUIRED}</span><input type="text" value="${escape(form.key)}" data-field="key" required aria-required="true"
         placeholder="${form.shape === 'story' ? 'ENG-142' : 'PAY-17'}" size="16"></label>
     </div>
     <p class="muted">Everything else is read from the issue, so it stays the tracker's to change.</p>`;
@@ -776,9 +787,9 @@ function fieldsHtml(form: IntakeForm): string {
   if (form.tracker === 'github') {
     return `
     <div class="sf-field-row">
-      <label class="field"><span>Governed Story ID</span><input type="text" value="${escape(form.id)}" data-field="id"
+      <label class="field"><span>Story ID ${REQUIRED}</span><input type="text" value="${escape(form.id)}" data-field="id" required aria-required="true"
         placeholder="GH-checkout-142" size="24"></label>
-      <label class="field"><span>GitHub Issue</span><input type="text" value="${escape(form.key)}" data-field="key"
+      <label class="field"><span>GitHub Issue ${REQUIRED}</span><input type="text" value="${escape(form.key)}" data-field="key" required aria-required="true"
         placeholder="owner/repository#142" size="56"></label>
     </div>
     <p class="muted">Title, description, labels and acceptance checkboxes are read before any branch is created.</p>`;
@@ -789,14 +800,14 @@ function fieldsHtml(form: IntakeForm): string {
     <p class="muted">${icon('branch')}The identifier is minted when the Epic reserves its branch, so
       there is nothing to choose here.</p>` : ''}
     <div class="sf-field-row">${mintsIdentifier(form) ? '' : `
-      <label class="field"><span>Identifier</span><input type="text" value="${escape(form.id)}" data-field="id"
+      <label class="field"><span>Identifier ${REQUIRED}</span><input type="text" value="${escape(form.id)}" data-field="id" required aria-required="true"
         placeholder="${form.shape === 'story' ? 'checkout-retry' : 'faster-checkout'}" size="24"></label>`}
-      <label class="field"><span>${escape(noun)} title</span><input type="text" value="${escape(form.title)}" data-field="title"
+      <label class="field"><span>${escape(noun)} title ${REQUIRED}</span><input type="text" value="${escape(form.title)}" data-field="title" required aria-required="true"
         placeholder="What this is called" size="42"></label>
     </div>
     ${form.shape === 'story' ? `<div class="story-description-editor">
-      <label class="field full"><span>What is being asked for</span>
-        <textarea data-field="description" rows="8" cols="64" class="story-description">${escape(form.description)}</textarea></label>
+      <label class="field full"><span>What is being asked for ${REQUIRED}</span>
+        <textarea data-field="description" rows="8" cols="64" class="story-description" required aria-required="true">${escape(form.description)}</textarea></label>
       <p class="card-foot">
         <button type="button" class="secondary" data-enhance-description${form.enhancing || form.busy || !form.description.trim() ? ' disabled' : ''}${form.enhancing ? ' aria-busy="true"' : ''}>
           ${form.enhancing ? 'Enhancing…' : 'Enhance with Copilot'}
@@ -815,8 +826,8 @@ function fieldsHtml(form: IntakeForm): string {
       </div>` : ''}
       ${form.enhanceError ? `<div class="notice error" role="alert">${escape(form.enhanceError)}</div>` : ''}
     </div>` : `<div class="sf-field-stack">
-      <label class="field"><span>What is being asked for</span>
-        <textarea data-field="description" rows="3" cols="64">${escape(form.description)}</textarea></label>
+      <label class="field"><span>What is being asked for ${REQUIRED}</span>
+        <textarea data-field="description" rows="3" cols="64" required aria-required="true">${escape(form.description)}</textarea></label>
     </div>`}
     ${form.shape === 'epic' ? `
     <div class="sf-field-stack">
@@ -828,10 +839,11 @@ function fieldsHtml(form: IntakeForm): string {
       <label class="field"><span>How it will be judged done <small>(acceptance criteria)</small></span>
         <textarea data-field="acceptanceCriteria" rows="3" cols="64" placeholder="One per line">${escape(form.acceptanceCriteria)}</textarea></label>
     </div>
-    <p class="muted">Each line becomes an acceptance criterion. In code workflows with traceability
+    <p class="muted">Each line becomes an acceptance criterion.</p>
+    <details class="sf-setup-detail"><summary>How criteria connect to tests</summary><p class="muted">In code workflows with traceability
       enabled, executable tests later use qualified tags such as <code>@ac:WORK-ID:AC-001</code>;
       planned product source uses <code>@clause:WORK-ID:REQ-001</code> followed by how the change meets it, for source-bound clauses.
-      Reviewed test-only or opt-out work may not require source tags.</p>` : ''}`;
+      Reviewed test-only or opt-out work may not require source tags.</p></details>` : ''}`;
 }
 
 /**
@@ -1220,6 +1232,8 @@ function storyAttachmentsHtml(form: IntakeForm): string {
       { length: MIN_STORY_ATTACHMENT_SLOTS - visible.length }, () => null
     )];
   const selectedCount = slots.filter((entry) => entry !== null).length;
+  // Four identical empty cards read as four required uploads. Show what is chosen and one more.
+  const firstEmpty = slots.findIndex((entry) => entry === null);
   return `<section>
     <h2>${icon('document')}Supporting documents <span class="muted">(optional)</span></h2>
     <p class="question">Choose the requirements, designs, examples, or other source documents that
@@ -1229,7 +1243,7 @@ function storyAttachmentsHtml(form: IntakeForm): string {
       commit; files kept in Git are copied into that commit and pushed, and files kept on this machine
       stay here.</p>
     <div class="attachment-slots" aria-label="Story supporting document slots">
-      ${slots.map((entry, index) => `<div class="card attachment-slot" data-attachment-slot="${index}">
+      ${slots.map((entry, index) => entry === null && index !== firstEmpty ? '' : `<div class="card attachment-slot" data-attachment-slot="${index}">
         <div class="card-head">
           <strong>Document ${index + 1}</strong>
           ${entry ? '<span class="pill ok">Selected</span>' : '<span class="pill">Empty</span>'}
@@ -1250,7 +1264,7 @@ function storyAttachmentsHtml(form: IntakeForm): string {
     <p class="card-foot">
       <button type="button" class="secondary" data-attachments-pick${selectedCount >= MAX_STORY_ATTACHMENT_SLOTS ? ' disabled' : ''}>Choose documents…</button>
     </p>
-    <p class="muted">Four slots are available. Each document needs its own name, and has its own
+    <p class="muted">Up to four documents. Each document needs its own name, and has its own
       storage and phases; prompts, reviews and citations refer to it by that name. File paths come from VS Code's native picker and
       cannot be typed or posted by webview content.</p>
   </section>`;
@@ -1292,10 +1306,36 @@ function inFlightHtml(form: IntakeForm): string {
   </section>` : ''}`;
 }
 
+/**
+ * Optional sections, folded behind one disclosure so the first screen holds what a start needs.
+ * They stay ordinary regions inside it, so a patch still finds and replaces each by id.
+ */
+const MORE_OPTIONS_REGIONS: ReadonlySet<string> = new Set(['attachments', 'references', 'recovery']);
+
 export function intakeHtml(form: IntakeForm, journey: StartWizardProgress | null = null): string {
-  const regions = intakeRegions(form, journey);
-  return `<div class="intake-view" aria-busy="${form.busy ? 'true' : 'false'}">${Object.entries(regions)
-    .map(([id, html]) => `<div data-intake-region="${id}">${html}</div>`).join('')}</div>`;
+  const entries = Object.entries(intakeRegions(form, journey));
+  const first = entries.findIndex(([id]) => MORE_OPTIONS_REGIONS.has(id));
+  const last = entries.map(([id]) => MORE_OPTIONS_REGIONS.has(id)).lastIndexOf(true);
+  return `<div class="intake-view" aria-busy="${form.busy ? 'true' : 'false'}">${entries
+    .map(([id, html], index) => `${index === first ? `<details class="sf-more-options" data-more-options>
+      <summary>More options <span class="muted">— documents, reference repositories and quality gates. The defaults are fine.</span></summary>` : ''}<div data-intake-region="${id}">${html}</div>${index === last ? '</details>' : ''}`).join('')}</div>`;
+}
+
+/** Where a problem can be fixed, so its line in the list can take the reader there. */
+function problemTarget(problem: string): string | null {
+  if (/^Document \d/u.test(problem)) return 'region:attachments';
+  if (/^Reference repositor/u.test(problem)) return 'region:references';
+  if (/base branch/iu.test(problem)) return 'base';
+  if (/identifier|Story ID/iu.test(problem)) return 'id';
+  if (/\btitle\b/iu.test(problem)) return 'title';
+  if (/asked for/iu.test(problem)) return 'description';
+  if (/\bkey\b|GitHub Issue/iu.test(problem)) return 'key';
+  return null;
+}
+
+function problemItem(problem: string): string {
+  const target = problemTarget(problem);
+  return `<li>${target ? `<button type="button" class="link" data-focus-field="${escape(target)}">${escape(problem)}</button>` : escape(problem)}</li>`;
 }
 
 /** Independently replaceable sections: a progress result must not rebuild the branch catalog. */
@@ -1314,14 +1354,14 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
   const regions: Record<string, string> = {
     progress: startWizardProgress(journey),
     heading: heroHeader({
-    title: 'Start new governed work',
+    title: 'Start new work',
     status: problems.length ? 'Needs input' : 'Gates ready',
     subtitle: 'Work arrives in three shapes and with or without a tracker. Both are answered here, and the rest of the form follows from the answers.'
   }),
     context: contextStrip([
-    { key: 'Target_workspace', value: form.targetWorkspace ?? '', chip: true },
-    { key: 'Repo', value: form.targetRepository ?? '' },
-    { key: 'Current_base', value: form.targetBranch ? `git:${form.targetBranch}` : '', accent: true }
+    { key: 'Workspace', value: form.targetWorkspace ?? '', chip: true },
+    { key: 'Repository', value: form.targetRepository ?? '' },
+    { key: 'Checked out', value: form.targetBranch ?? '', accent: true }
   ]) + (form.shape === 'story' ? infoNote('This Story gets a dedicated Git checkout. The target branch, index, and uncommitted files stay unchanged; the editor opens the new checkout only after its governed start succeeds.') : ''),
 
     scope: `<div class="sf-panels">
@@ -1343,23 +1383,29 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
 
   let nextSection = 4;
   for (const [id, html] of Object.entries({
-    profile: profileHtml(form), workflow: storyWorkflowHtml(form), poc: pocReadinessHtml(form),
-    attachments: storyAttachmentsHtml(form), references: referenceRepositoriesHtml(form),
-    base: baseBranchHtml(form), recovery: form.shape === 'story' ? testRecoveryHtml(form) : '',
+    profile: profileHtml(form), workflow: storyWorkflowHtml(form), base: baseBranchHtml(form),
+    poc: pocReadinessHtml(form), attachments: storyAttachmentsHtml(form), references: referenceRepositoriesHtml(form),
+    recovery: form.shape === 'story' ? testRecoveryHtml(form) : '',
     inFlight: inFlightHtml(form)
   })) {
     regions[id] = numberedSections(html, nextSection);
     nextSection += [...regions[id].matchAll(/class="sf-step"/gu)].length;
   }
 
+  // A read still in flight is progress, not a blocker: it is shown as checking, never in red.
+  const checking = summaryProblems.filter((problem) => problem.endsWith('…'));
+  const blocking = summaryProblems.filter((problem) => !problem.endsWith('…'));
   regions.status = `<section class="sf-panel">
-    ${problems.length
-    ? `<h2>${icon('bad')}Before this can start</h2>${summaryProblems.length
-      ? `<ul class="blockers">${summaryProblems.map((problem) => `<li>${escape(problem)}</li>`).join('')}</ul>`
-      : '<p class="blockers">Fix the highlighted configuration issue above, then check again.</p>'}`
+    ${problems.length && !blocking.length && checking.length
+    ? `<h2>${icon('wait')}Checking…</h2>${checking.map((problem) => `<p class="meta" role="status" aria-live="polite">${escape(problem)}</p>`).join('')}`
+    : problems.length
+    ? `<h2>${icon('bad')}Before this can start</h2>${blocking.length
+      ? `<ul class="blockers">${blocking.map(problemItem).join('')}</ul>`
+      : '<p class="blockers">Fix the highlighted configuration issue above, then check again.</p>'}${checking.map((problem) =>
+        `<p class="meta" role="status" aria-live="polite">${escape(problem)}</p>`).join('')}`
     : `<h2>${icon('ok')}Ready</h2><p class="ok-text">${mintsIdentifier(form)
-      ? `Reserves a branch for this ${escape(noun.toLowerCase())}, which is what mints its identifier, and commits its first governed state.`
-      : `Starts ${escape(noun.toLowerCase())} <code>${escape(intakeIdentifier(form))}</code> and commits its first governed state.`}</p>`}
+      ? `Reserves a branch for this ${escape(noun)}, which is what mints its identifier, and commits its first governed state.`
+      : `Starts ${escape(noun)} <code>${escape(intakeIdentifier(form))}</code> and commits its first governed state.`}</p>`}
     ${form.error ? `<div class="notice error" role="alert">${escape(form.error)}</div>` : ''}
     ${form.recoveryCommand && recoveryRoute ? `<div class="notice warning" role="status" aria-live="polite"><strong>Continue safely</strong>
       <p>The command is bound to this repository and preserves every argument exactly.</p>
@@ -1373,7 +1419,7 @@ export function intakeRegions(form: IntakeForm, journey: StartWizardProgress | n
     <p>
       <button type="button" data-submit="start" ${problems.length || form.busy || form.enhancing ? 'disabled' : ''}>
         ${form.busy ? 'Starting…' : form.shape === 'story' && testRecoveryNeedsTerminalReview(form)
-          ? 'Prepare exact human review in terminal' : `Start this ${escape(noun.toLowerCase())}`}
+          ? 'Prepare exact human review in terminal' : `Start ${escape(noun)}`}
       </button>
       <button type="button" class="secondary" data-intake-cancel ${form.busy ? 'disabled' : ''}>Cancel</button>
       ${form.busy && form.startStep ? `<span class="meta" role="status" aria-live="polite">${escape(form.startStep)}…</span>` : ''}
@@ -1474,6 +1520,18 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
   });
   bindWorkflowToggle();
   document.addEventListener('click', (event) => {
+    // A line in "Before this can start" takes the reader to the field it is about.
+    const problem = event.target.closest('[data-focus-field]');
+    if (problem) {
+      const name = problem.dataset.focusField;
+      const target = name.startsWith('region:') ? document.querySelector('[data-intake-region="' + name.slice(7) + '"]')
+        : name === 'base' ? document.querySelector('[data-base-branch-search]')
+        : document.querySelector('[data-field="' + name + '"]');
+      const folded = target && target.closest('details');
+      if (folded && !folded.open) folded.open = true;
+      if (target) { target.scrollIntoView({ block: 'center' }); if (target.focus) target.focus({ preventScroll: true }); }
+      return;
+    }
     if (event.target.closest('[data-workflow-search-button]')) { workflowSearch?.focus({ preventScroll: true }); filterWorkflows(); return; }
     if (event.target.closest('[data-workflow-search-clear]')) { workflowSearch.value = ''; filterWorkflows(); workflowSearch.focus({ preventScroll: true }); saveIntakeView(); return; }
     const favourite = event.target.closest('[data-workflow-favourite]');

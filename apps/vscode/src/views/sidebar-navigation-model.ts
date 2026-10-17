@@ -10,6 +10,23 @@ export interface SidebarNavigation {
   next: { label: string; description: string; actionId: SidebarNextActionId } | null;
 }
 
+/**
+ * The current phase as people read it, from the same definitions every other surface uses: the
+ * sidebar, the status bar and My Work once disagreed ("Phase not reported", `epic-publish`, and
+ * "Publish Stories" for one Initiative). Null when nothing is in a phase.
+ */
+export function currentPhaseLabel(snapshot: Pick<RepositorySnapshot, 'workflow' | 'initiative' | 'definition'> | null | undefined): string | null {
+  const story = snapshot?.workflow;
+  if (story) {
+    if (!story.currentPhase) return null;
+    const phases = (snapshot?.definition?.phases ?? {}) as Record<string, { label?: string } | undefined>;
+    return phases[story.currentPhase]?.label || story.currentPhase;
+  }
+  const state = snapshot?.initiative?.state;
+  if (!state?.currentPhase) return null;
+  return state.phases?.[state.currentPhase]?.label || state.currentPhase;
+}
+
 function lastPathSegment(value: string | null | undefined): string | undefined {
   const segments = value?.trim().replace(/[\\/]+$/u, '').split(/[\\/]/u);
   return segments?.at(-1) || undefined;
@@ -68,16 +85,15 @@ export function deriveSidebarNavigation(
   }
   if (snapshot.workflow?.workItem?.id || snapshot.initiative) {
     const story = snapshot.workflow;
-    const detail = story
-      ? `Story ${story.workItem.id}${story.currentPhase ? ` · ${story.currentPhase}` : ''}`
-      : `Initiative ${snapshot.initiative?.state?.initiative?.id ?? ''}`.trim();
+    const id = story?.workItem.id ?? snapshot.initiative?.state?.initiative?.id ?? '';
+    const kind = story ? 'Story' : 'Initiative';
+    const phase = currentPhaseLabel(snapshot);
     return {
       workspace,
-      subject: { id: story?.workItem.id ?? snapshot.initiative?.state?.initiative?.id ?? '',
-        kind: story ? 'Story' : 'Initiative', phase: story?.currentPhase ?? null },
+      subject: { id, kind, phase },
       next: {
-        label: 'Continue current work',
-        description: detail,
+        label: id ? `Continue ${id}` : 'Continue current work',
+        description: phase ? `${kind} · ${phase}` : kind,
         actionId: 'my-work'
       }
     };
@@ -89,7 +105,7 @@ export function deriveSidebarNavigation(
     workspace,
     next: {
       label: 'Start new work',
-      description: 'Begin the first governed work item in this workspace.',
+      description: 'Describe a request and start a Story.',
       actionId: 'work-start'
     }
   };

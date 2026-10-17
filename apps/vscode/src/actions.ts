@@ -149,7 +149,7 @@ async function askConfirmation(confirmation: Confirmation): Promise<string | nul
     summary: 'Review and confirm the exact current decision.',
     detail: confirmation.consequence ?? 'This approves the exact current hash.',
     expected: confirmation.expected,
-    confirmLabel: 'Confirm exact decision'
+    confirmLabel: 'Record decision'
   });
   return accepted ? confirmation.expected : null;
 }
@@ -200,7 +200,7 @@ export async function runGovernedAction(
   if (request.confirmation) {
     const confirmed = await askConfirmation(request.confirmation);
     if (!confirmed) {
-      void vscode.window.setStatusBarMessage('$(circle-slash) Not confirmed; nothing was approved.', 4_000);
+      void vscode.window.setStatusBarMessage('$(circle-slash) Cancelled — nothing changed.', 4_000);
       return false;
     }
     args.push('--confirm', confirmed);
@@ -364,9 +364,9 @@ export async function runPlannedAction(
       modal: true,
       detail: `Copilot: ${choice.guidance.copilotCommand}\nShell: ${choice.guidance.command}\nVS Code (model-free): ${choice.guidance.modelFreeCommand ?? 'not available for this action'}\n\nPlan ${plan.planId} is bound to ${plan.revision.branch}@${plan.revision.head.slice(0, 12)}. Any repository or lifecycle change invalidates it.`
     },
-    'Run exact action'
+    'Run action'
   );
-  if (confirmed !== 'Run exact action') return false;
+  if (confirmed !== 'Run action') return false;
 
   const argv = ['action', 'execute', plan.planId, '--action', choice.action.actionId];
   if (choice.action.confirmation.required) {
@@ -499,7 +499,7 @@ export async function approveWithReceipt(
   }
   if (!(await stillCurrent())) return false;
   if (!confirmed || confirmed !== request.expected) {
-    void vscode.window.setStatusBarMessage('$(circle-slash) Not confirmed; nothing was approved.', 4_000);
+    void vscode.window.setStatusBarMessage('$(circle-slash) Cancelled — nothing changed.', 4_000);
     return false;
   }
 
@@ -554,7 +554,8 @@ export async function approveWithReceipt(
       try {
         return await run(['--acknowledge-self-approval']);
       } catch (retryError) {
-        showRefusal(error);
+        output.appendLine(`  failed: ${(retryError as Error).message}`);
+        showRefusal(retryError);
         return false;
       }
     }

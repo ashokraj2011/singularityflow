@@ -1936,7 +1936,7 @@ Initiative-planning Jira writes are never immediate UI mutations. `initiative ji
 
 Manual intake has the same durable state-transfer behavior as Jira intake. Put the supplied story details in YAML or JSON; Markdown and plain-text briefs are also accepted. The structured format can capture the user, problem, desired outcome, scope, stakeholders, urgency, constraints, dependencies, acceptance criteria, risks, notes, and supporting documents. See `examples/manual-story.yml` for a complete example.
 
-In VS Code, choose **Lifecycle → Start intake** and leave **Create without
+In VS Code, choose **Start new work** and leave **Create without
 Jira** selected. Enter a Work ID and title, use the larger description editor,
 and optionally choose as many as four local supporting documents or images,
 naming each one and choosing, for each, where it is kept (committed to Git or
@@ -2924,7 +2924,7 @@ The supported visual surface is the VS Code extension:
   packets, and pending decisions into one business-friendly view. Its portfolio
   dashboard summarizes capabilities, repositories, Jira routes, open work,
   approvals, and diagnostics.
-- **Lifecycle Analytics** turns the committed Story report into a phase rail and
+- **Story Analytics** turns the committed Story report into a phase rail and
   business-readable dashboards for completion, elapsed/active/waiting time,
   approval bottlenecks, generations and rework, models, exact-or-unavailable token
   usage, and provider/configured cost. It is a read-only projection, not another

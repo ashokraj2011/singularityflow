@@ -139,7 +139,7 @@ const ROUTES = Object.freeze([
     patterns: [/\b(run|do|execute|take)\b.{0,20}\b(the )?next\b/, /\badvance\b.{0,20}\b(work|story|phase|workflow)\b/]
   }),
   route({
-    id: 'start', intent: 'start', label: 'Start new governed work',
+    id: 'start', intent: 'start', label: 'Start new work',
     operationId: 'work.start.intake', skill: '/sf-start', automatic: false, confirmation: 'host-confirm',
     patterns: [
       /\b(start|begin|create|open)\b.{0,20}\bfrom\b.{0,12}\bjira\b/,

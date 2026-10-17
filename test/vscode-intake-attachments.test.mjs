@@ -23,15 +23,17 @@ const story = (overrides = {}) => ({
   ...overrides
 });
 
-test('Story intake gives the description room and always exposes four document slots', () => {
+test('Story intake gives the description room and offers one empty document slot at a time', () => {
   const html = intakeHtml(story());
   assert.match(html, /data-field="description" rows="8" cols="64" class="story-description"/);
-  assert.equal((html.match(/data-attachment-slot="\d+"/g) ?? []).length,
-    MIN_STORY_ATTACHMENT_SLOTS);
+  // Four slots are kept, but four identical empty cards read as four required uploads.
   assert.equal(MIN_STORY_ATTACHMENT_SLOTS, 4);
   assert.equal(MAX_STORY_ATTACHMENT_SLOTS, 4);
-  assert.equal((html.match(/data-attachment-pick="\d+"/g) ?? []).length,
-    MIN_STORY_ATTACHMENT_SLOTS);
+  assert.deepEqual([...html.matchAll(/data-attachment-slot="(\d+)"/g)].map((match) => match[1]), ['0']);
+  assert.equal((html.match(/data-attachment-pick="\d+"/g) ?? []).length, 1);
+  const chosen = intakeHtml(story({ storyAttachments: [null, { displayName: 'brief.md', name: 'brief' }, null, null] }));
+  assert.deepEqual([...chosen.matchAll(/data-attachment-slot="(\d+)"/g)].map((match) => match[1]), ['0', '1'],
+    'a chosen document keeps its slot number and one empty slot stays offered');
   assert.match(html, /Choose documents…/);
   assert.match(html, /opening governed Git\s+commit; files kept in Git are copied into that commit and pushed/);
   assert.match(html, /files kept on this machine\s+stay here/, 'machine-only documents are not promised to the commit');

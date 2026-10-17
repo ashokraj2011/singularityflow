@@ -71,3 +71,69 @@ removed from the disposable control engine during its build and restored before 
 Every sample asserts the exact published remote tip. Native Windows qualification uses a temporary
 CI-only branch; its hosted workflow must never be merged into production. Local bare remotes do
 not measure corporate network latency, antivirus policy or native VS Code paint time.
+
+## Retained results (17 October 2026)
+
+The control is `697a8738fd58c47503463444c38dd55d89ad6988`. The final CLI implementation is
+`b5d4a01f4c35ef0c67db4f247506a2c2ebaf83c4`; subsequent changes before qualification affect
+VS Code integration and portable test assertions, not `src/`, `scripts/` or the dependency lock.
+The exact sources and CI runs are recorded in
+`benchmarks/story-creation/intake-preparation-qualification.json` alongside the raw reports.
+
+| Native host / fresh 10,000-file fixture | Pairs | Control Start | Candidate Start | Control combined time | Candidate combined time |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Windows, cold | 1 | 14,484 ms | 14,213 ms | 14,484 ms | 14,213 ms |
+| Windows, cold (separate runner; median) | 3 | 21,467 ms | 20,821 ms | 21,467 ms | 20,821 ms |
+| Windows, background-prepared | 1 | 14,438 ms | 9,871 ms | 16,722 ms | 21,155 ms |
+| macOS, background-prepared (median) | 3 | 3,271 ms | 2,916 ms | 4,316 ms | 4,530 ms |
+
+The final Windows measurements are single matched observations, **not** a latency distribution
+or a guaranteed percentage. Prepared Start was 31.6% shorter in this observation, while cold
+Start was essentially flat (1.9% in the one-pair job, 3.0% in the three-pair job). Those jobs ran
+on separate shared runners; do not pool them or treat their absolute times as interchangeable.
+The Windows candidate spent 6,972 ms in preview and 4,312 ms
+in preparation before Start. Its combined time increased by 4,433 ms. The old control explicitly
+declined its receipt because of the Windows ACL host defect and used ordinary full validation;
+the candidate issued and used a real receipt. These results measure that correction plus
+preparation, not preparation in isolation. macOS also had a 5,304-ms candidate outlier.
+
+Full definition loads fell from five to three in the Windows cold sample; prepared Start used
+four versus five, with two exact-byte-fenced materialized reuses versus one. Git subprocesses
+were 167 versus 168 cold and 164 versus 168 prepared. These are bounded reductions, not removal
+of publication checks. No mutable authority/ref result is carried across publication writes.
+
+### Remaining click-path costs
+
+In the prepared Windows sample, checkout itself moved from 4,141 ms at Start to 4,312 ms before
+Start; checking/reusing the prepared checkout took 124 ms. The remaining Start still includes
+about 3,713 ms for publication (including candidate validation, commit and exact-tip push),
+1,537 ms for enrollment, 897 ms for authority selection and 248 ms for materialization. These
+are nested/instrumented spans, not independent components to add into a second total. Its Git
+service time was 7,002 ms and 164 subprocesses remain: further measured work should target
+additional redundant read batches and enrollment rather than making push asynchronous or
+removing authority checks.
+
+Background preparation is most useful when the person spends time completing intake after the
+preview. An immediate Start waits for unfinished preparation, so this is not a promise of a
+faster first request or less total CPU/filesystem work. The kill switch provides an exact control.
+
+### Qualification boundaries
+
+Native Windows host qualification passed 42 receipt/ACL/command/catalog/coordinator/bundle tests,
+three end-to-end preparation tests and TypeScript checking in a separate all-green recheck.
+Ten focused legacy/preparation regression cases also passed in a second all-green Windows run,
+including receipt fallback/release, custom remotes, external capability authority and changed-file retention.
+The two final Windows performance jobs also passed and verified exact remote tips, although
+their combined CI run initially failed on three test portability assumptions; that run is not
+represented as wholly green. Installed-bundle smoke, local isolation/publication tests, the
+repository check and unchanged VS Code bundle ceilings were also checked on macOS.
+The final local isolation/publication/configuration/coordinator group passed 109 tests without skips.
+
+Earlier broad Windows qualification exposed long **legacy fixture** paths exceeding Git's default
+MAX_PATH limit and an assertion that mistook the durable private-store integrity key for a leaked
+receipt claim. The assertion now distinguishes that key without allowing claim files. Focused
+legacy-case rechecks use a shorter temporary root, not changed Git or application policy. Long
+production checkout paths and enterprise filesystem policy are not qualified by this fixture.
+Earlier multi-pair performance runs also encountered fixture setup `git add` timeouts; no partial
+or failed setup run is included in the final timing table. Larger Windows distributions and actual
+office-laptop/VS Code end-to-end traces remain necessary for deployment-wide latency claims.

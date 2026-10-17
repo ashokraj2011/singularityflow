@@ -7,8 +7,9 @@ The staging ref is deleted with `update-ref --no-deref -d` and the exact initial
 concurrent ref advance remains reachable. The prior per-spelling staging probes are replaced by
 one bounded ref listing. Only this owner's reviewed call-site fingerprint changes in the baseline.
 The qualification fixture's existing Git launcher additionally retains its original failure as an
-error cause when bounded temporary cleanup fails on Windows. Its commands, launch count, timeout
-and authority are unchanged; only that existing wrapper's fingerprint changes.
+error cause when bounded temporary cleanup fails on Windows. Setup-only indexing suppresses LF
+round-trip warnings with `core.safecrlf=false`; autocrlf and measured checkout policy are unchanged.
+Its launch count, timeout and authority are unchanged; only that existing wrapper's fingerprint changes.
 
 Large-Story configuration reads add one fixed local Git call in the existing configuration
 owner: `read-tree -mu <exact-commit>`. It runs only

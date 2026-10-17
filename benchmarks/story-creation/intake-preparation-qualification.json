@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Final bounded configuration reuse, remaining Git read batching and optional background checkout",
+  "controlRef": "697a8738fd58c47503463444c38dd55d89ad6988",
+  "cliImplementationRef": "b5d4a01f4c35ef0c67db4f247506a2c2ebaf83c4",
+  "windowsPerformance": {
+    "sourceRef": "d7feedb4c39c7f1810e06eae68e2400c99e05f74",
+    "ciRef": "3bcd6777b8f0ffb7dc894d88b2b2ef89eb850f4a",
+    "runId": 38983271593,
+    "runConclusion": "failure",
+    "performanceJobs": "both-success",
+    "otherFailure": "Three portable test assumptions, corrected and separately requalified.",
+    "reports": [
+      "intake-preparation-windows-cold.json",
+      "intake-preparation-windows-prepared.json"
+    ],
+    "pairsPerMode": 1
+  },
+  "windowsHost": {
+    "sourceRef": "4c38380f48abba22a708c5249d1d7167cb10106a",
+    "ciRef": "09d360f0bddb25c1241234a24324e047772a4506",
+    "runId": 38983922964,
+    "conclusion": "success",
+    "testsPassed": 45,
+    "testsSkipped": 0,
+    "typecheck": "passed"
+  },
+  "macosPerformance": {
+    "sourceRef": "b5d4a01f4c35ef0c67db4f247506a2c2ebaf83c4",
+    "report": "intake-preparation-macos.json",
+    "pairs": 3
+  },
+  "windowsColdThreePairs": {
+    "sourceRef": "b5d4a01f4c35ef0c67db4f247506a2c2ebaf83c4",
+    "ciRef": "11c7ebdd7881ab6a0420e2eaefe62483c05809b9",
+    "runId": 38982667634,
+    "jobId": 117246882130,
+    "jobConclusion": "success",
+    "report": "intake-preparation-windows-cold-three-pairs.json",
+    "pairs": 3,
+    "scope": "Only the performance job passed; this is not an all-green run."
+  },
+  "windowsLegacyCaseRecheck": {
+    "sourceRef": "fc202eff1e712ae76f3a107b805b4d6a8ceb4e35",
+    "ciRef": "d1b1ff66cdedadf9670842ff72cf726618dcc62f",
+    "runId": 38984187501,
+    "conclusion": "success",
+    "testsPassed": 10,
+    "testsSkipped": 0,
+    "temporaryRoot": "Short CI fixture root; no change to Git or production policy.",
+    "coverage": "Preparation ownership, cancellation, moved bases, receipt release/fallback, custom remote, external capability, workspace isolation, ignored/changed checkout retention."
+  },
+  "localValidation": {
+    "isolationPublicationConfigurationCoordinatorTests": 109,
+    "gitBatchingAuditInstalledBundleTests": 23,
+    "repositoryCheck": "passed-after-report-retention",
+    "typecheck": "passed",
+    "bundleBudgets": "passed-with-unchanged-ceilings"
+  },
+  "limitations": [
+    "Local bare remotes; not enterprise network, antivirus or VS Code paint latency.",
+    "No model invocations or baseline tests in measured creation.",
+    "OS file cache not flushed; final Windows sample count is one per mode.",
+    "Preparation shifts work earlier; combined work increased, not a total-cost speedup.",
+    "Windows control receipt declined storage; measures the ACL correction plus preparation.",
+    "Subsequent source changes are host/test/docs only; CLI implementation and dependency bytes equal the implementation ref.",
+    "Earlier multi-pair fixture setup failures excluded from timing table; their runs are not all-green.",
+    "Legacy long-path Windows fixture failures are rechecked with a shorter temporary root; production long paths not qualified."
+  ]
+}

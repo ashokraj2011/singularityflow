@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Shared advisory intake catalogs and readiness snapshots, configurable 30-minute reuse, one compiled configuration and batched local refs",
+  "date": "2026-10-17",
+  "baselineRef": "ff86ec1c3e6ed1ebf611759da19db0a52ad65110",
+  "integratedMainRef": "5aeb0204c9c799218c0c869cbd102b49a05de6ab",
+  "functionalSourceRef": "d847601d3ffc4ebb0f068340c5d072dcd9e25a37",
+  "scope": "Fresh CLI processes against disposable local bare remotes. Readiness only: no Story, model, application test or approval in measured commands. OS caches are not flushed.",
+  "rowFields": ["request", "milliseconds", "gitProcesses", "remoteFacingGitOperations", "definitionCompilations"],
+  "remoteFacingGitOperations": "Counted ls-remote, fetch, clone and push invocations; fixture remotes are local filesystem paths, not enterprise network requests.",
+  "measurements": [
+    {
+      "platform": "macOS 26.7.1 arm64, Node 25.5.0",
+      "files": 100,
+      "candidateRef": "c97d64bd1742193ab6461f67342edfc075289762",
+      "before": [["cold-download",1753,47,5,1],["reused-fresh",1018,30,2,0],["reused-fresh",1612,30,2,0],["cache-fill",863,30,2,0],["cache-hit",788,30,2,0],["cache-hit",915,30,2,0]],
+      "after": [["cold-download",1464,42,4,1],["reused-fresh",787,25,1,0],["reused-fresh",1009,25,1,0],["cache-fill",118,0,0,0],["cache-hit",117,0,0,0],["cache-hit",122,0,0,0]]
+    },
+    {
+      "platform": "macOS 26.7.1 arm64, Node 25.5.0",
+      "files": 10000,
+      "candidateRef": "c97d64bd1742193ab6461f67342edfc075289762",
+      "before": [["cold-download",2611,48,6,1],["reused-fresh",947,34,4,1],["reused-fresh",1014,34,4,1],["cache-fill",1023,34,4,1],["cache-hit",1166,34,4,1],["cache-hit",1154,34,4,1]],
+      "after": [["cold-download",1698,43,5,1],["reused-fresh",1152,29,3,1],["reused-fresh",903,29,3,1],["cache-fill",117,0,0,0],["cache-hit",124,0,0,0],["cache-hit",121,0,0,0]]
+    },
+    {
+      "platform": "GitHub windows-latest x64, Node 22",
+      "files": 100,
+      "candidateCIRef": "d18955c5",
+      "runId": 39048321374,
+      "performanceJob": "success",
+      "before": [["cold-download",15067,36,5,1],["reused-fresh",2744,26,3,1],["reused-fresh",2573,23,3,1],["cache-fill",2559,23,3,1],["cache-hit",2584,23,3,1],["cache-hit",2547,23,3,1]],
+      "after": [["cold-download",4580,31,4,1],["reused-fresh",2591,22,2,1],["reused-fresh",2386,18,2,1],["cache-fill",205,0,0,0],["cache-hit",198,0,0,0],["cache-hit",200,0,0,0]],
+      "candidateInstalledBundle": [["cold-download",3736,31,4,1],["reused-fresh",2362,22,2,1],["reused-fresh",2316,18,2,1],["cache-fill",232,0,0,0],["cache-hit",240,0,0,0],["cache-hit",374,0,0,0]]
+    },
+    {
+      "platform": "GitHub windows-latest x64, Node 22",
+      "files": 10000,
+      "candidateCIRef": "d18955c5",
+      "runId": 39048321374,
+      "performanceJob": "success",
+      "before": [["cold-download",18555,36,5,1],["reused-fresh",4860,25,3,1],["reused-fresh",4674,23,3,1],["cache-fill",4646,23,3,1],["cache-hit",4811,23,3,1],["cache-hit",6200,23,3,1]],
+      "after": [["cold-download",14278,31,4,1],["reused-fresh",3981,20,2,1],["reused-fresh",3836,18,2,1],["cache-fill",319,0,0,0],["cache-hit",335,0,0,0],["cache-hit",330,0,0,0]],
+      "candidateInstalledBundle": [["cold-download",11412,31,4,1],["reused-fresh",3963,20,2,1],["reused-fresh",3959,18,2,1],["cache-fill",416,0,0,0],["cache-hit",456,0,0,0],["cache-hit",399,0,0,0]]
+    }
+  ],
+  "otherObservations": {
+    "macCatalog100Files": [["first",1693,27,2,1],["cache-hit",137,0,0,0],["cache-hit",123,0,0,0]],
+    "windowsCatalogCacheUnderParallelFunctionalTests": {"milliseconds":1091,"gitProcesses":1,"remoteFacingGitOperations":0,"definitionCompilations":0,"note":"Native repository-location fallback; catalog service and remote work were bypassed."},
+    "realMacWorkspace": {
+      "forcedReadiness": {"milliseconds":3741,"gitProcesses":27,"remoteFacingGitOperations":1,"definitionCompilations":1,"verifiedCapabilityDefinitionReuses":2},
+      "cachedReadiness": {"milliseconds":212,"gitProcesses":0,"remoteFacingGitOperations":0,"definitionCompilations":0},
+      "effects": "Readiness only; no Story creation or remote writes. User checkouts preserved."
+    }
+  },
+  "qualification": {
+    "macCoreTestsPassed": 52,
+    "macExtensionTestsPassed": 330,
+    "macReadinessHostTestsPassed": 4,
+    "macLatestMainWorkflowAuthoringIntegrationTestsPassed": 20,
+    "repositoryChecks": "2705 passed; existing vocabulary advisories only",
+    "gitBypassAudit": "1786 existing reviewed production sites; no new unreviewed sites",
+    "typecheckBuildAndBundleBudgets": "passed, ceilings unchanged",
+    "windowsFinalRunId": 39049363648,
+    "windowsFinalCIRef": "63e47cc3",
+    "windowsFinalStatus": "success",
+    "windowsCoreTestsPassed": 52,
+    "windowsExtensionTestsPassed": 330,
+    "windowsReadinessHostTestsPassed": 4,
+    "windowsSkippedTests": 0,
+    "windowsTypecheckBuildAndBundleBudgets": "passed, ceilings unchanged",
+    "windowsBroaderLifecycleRunId": 39046888865,
+    "windowsBroaderLifecycleResults": "90/91 passed. Only failure was an LF-string expectation for correctly preserved CRLF checkout bytes, subsequently corrected and independently rechecked.",
+    "windowsPreservedByteRecheckRunId": 39048486447,
+    "windowsPreservedByteRecheckStatus": "success"
+  },
+  "knownBaselineFailure": {
+    "test": "test/configuration-branch.test.mjs: Story start recovers from a verified state mirror when sflow/config is unavailable",
+    "result": "SESSION_REPOSITORY_NOT_GOVERNED at final resume",
+    "evidence": "Reproduced in isolated Mac runs on unchanged ff86ec1 and candidate; the configuration-integrity suite passed 66/67. Not attributed to readiness changes or silently waived as green."
+  },
+  "limitations": [
+    "Two repeated samples and one cold-download sample per fixture; not statistical host qualification or a latency SLA.",
+    "Request names are harness positions: the baseline cache-hit positions still run fresh checks; an after cache-fill position may already reuse the first successful snapshot.",
+    "No office proxy, credentials, antivirus policy or cloud-offloaded directory was reproduced; Windows is native hosted CI, not the office laptop.",
+    "Before and after run sequentially on the same host, so OS/executable caches and host load may favor or penalize the later run. Earlier large-Windows cold samples regressed; do not infer a universal first-download speedup.",
+    "Readiness cache hits remove repeated Git work; actual initial downloads and authoritative Start remain real work. Catalog hits may retain one local native Git location lookup on Windows.",
+    "Windows performance run's two measurement jobs passed; its overall run failed on a portable UI test expectation corrected in later native qualification, not on a performance job.",
+    "Subsequent catalog/UI compatibility changes do not alter the measured selected-base readiness branch. Mac measurements include latest main; final functional qualification also includes latest main.",
+    "Temporary CI workflow files are never merged into main; their branch is deleted after evidence retention."
+  ]
+}

@@ -379,3 +379,5 @@ preview from overwriting a Story created by somebody else. No application tests 
 For reproducible Git-call and latency measurements, run `node scripts/story-readiness-benchmark.mjs`.
 It uses disposable local bare remotes, creates no Story, and reports fresh-process first-download,
 reused-fresh and cached requests. It does not model enterprise network or credential latency.
+Native Mac/Windows measurements and qualification limits are recorded in
+[`readiness-qualification.json`](benchmarks/story-creation/readiness-qualification.json).

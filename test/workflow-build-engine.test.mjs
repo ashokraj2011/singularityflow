@@ -254,6 +254,8 @@ test('starting from a workflow copies it; finishing writes a bundle that imports
   assert.equal(run('git', ['--git-dir', remote, 'rev-parse', 'refs/heads/sflow/config'], base).stdout.trim(), approved, 'nothing is approved until review');
   const finished = json(seed, ['workflow', 'build', 'status', '--build', build.id]).build;
   assert.match(finished.conversation.at(-1).text, /^Created one configuration proposal from this build\./u);
+  const listed = json(seed, ['workflow', 'build', 'status']).builds.find((entry) => entry.id === build.id);
+  assert.deepEqual([listed.finished.kind, /^\d+ steps, \d+ agents?/u.test(listed.found)], ['proposal', true], 'the list says what a build holds in words, and that it is finished');
 
   // Once the approved configuration has the workflow, the build is done: its check is that workflow, and changing it is a new build.
   const merged = run('git', ['--git-dir', remote, 'rev-parse', proposal.branch], base).stdout.trim();

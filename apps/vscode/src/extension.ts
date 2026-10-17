@@ -7367,7 +7367,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     else if (message.action === 'workflow-proposals') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'changes' });
     else if (message.action === 'workflow') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio');
     else if (message.action === 'workflow-studio') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio');
-    else if (message.action === 'import-team') await vscode.commands.executeCommand('singularityFlow.importTeamWorkflow');
+    else if (message.action === 'build-workflow') await vscode.commands.executeCommand('singularityFlow.openWorkflowStudio', { view: 'build' });
     else if (message.action === 'shared-workflow-drafts') await vscode.commands.executeCommand(
       'singularityFlow.openSharedWorkflowDrafts', { repositoryPath: client.repository }
     );

@@ -7,7 +7,7 @@ questions:
   - How do I turn a tagged description into a workflow bundle?
 commands: [workflow]
 related: [workflow-intent, workflow-authoring, workflow-decisions, reusable-instructions]
-version: 7
+version: 8
 ---
 
 ## What this does
@@ -76,7 +76,8 @@ repository-independent compiler remain supported for explicit manual authoring.
 
 ## Use it from each surface
 
-**VS Code:** Workflow Studio → **Create with Copilot…**. Describe the steps, pass/fail routes,
+**VS Code:** Workflow Studio → **Build with Copilot** → **Other ways to start → Write it in workflow
+markup (earlier screen)…**. Describe the steps, pass/fail routes,
 retry limits and human checkpoints in your own words. **Generate workflow with Copilot** prefills a
 reviewable chat request; send it in Copilot when ready. Copilot reads the installed grammar, asks
 only concrete missing questions, creates a new XML draft, validates it, and summarizes its phases,

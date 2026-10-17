@@ -295,3 +295,34 @@ test('the chat tool reads and records for the open build only, and has nothing t
   assert.equal(declared.when, 'singularityFlow.workflowBuildOpen');
   assert.deepEqual(declared.inputSchema.properties.action.enum, ['state', 'source', 'catalog', 'asset', 'propose', 'ask']);
 });
+
+test('Build with Copilot is the way in: Studio home, the New workflow screen and the Configuration Center open it; the earlier screens stay one click away', async () => {
+  const { buildStudioModel } = await import('../src/workflow-studio.mjs');
+  const { root } = await harness();
+  const { page, posted, draw } = studio(await buildStudioModel(root));
+  const home = element('main');
+  page.renderHome(home);
+  assert.ok(byKey(home, 'home-build'));
+  assert.doesNotMatch(textOf(home), /Import a team…|Create with Copilot…/, 'one Copilot entry on the home');
+  byKey(home, 'home-build').listeners.click();
+  assert.equal(page.state().view, 'build');
+  assert.deepEqual(posted.at(-1), { type: 'studio.build.list' });
+
+  const start = draw();
+  byKey(start, 'build-other-team').listeners.click();
+  assert.deepEqual(posted.at(-1), { type: 'studio.importTeam' });
+  byKey(start, 'build-other-markup').listeners.click();
+  assert.deepEqual(posted.at(-1), { type: 'studio.markup' });
+
+  page.state().view = 'new'; page.state().wizard = { label: '', from: null };
+  const wizard = element('main');
+  page.renderWizard(wizard);
+  byKey(wizard, 'wizard-build-open').listeners.click();
+  assert.deepEqual([page.state().view, page.state().wizard], ['build', null]);
+
+  const center = await readFile(path.join(packageRoot, 'apps/vscode/src/views/configuration-center-page.ts'), 'utf8');
+  assert.match(center, /\{ label: 'Build a workflow with Copilot', glyph: 'workflow', action: 'build-workflow' \}/);
+  assert.doesNotMatch(center, /action: 'import-team'/);
+  const extension = await readFile(path.join(packageRoot, 'apps/vscode/src/extension.ts'), 'utf8');
+  assert.match(extension, /message\.action === 'build-workflow'\) await vscode\.commands\.executeCommand\('singularityFlow\.openWorkflowStudio', \{ view: 'build' \}\)/);
+});

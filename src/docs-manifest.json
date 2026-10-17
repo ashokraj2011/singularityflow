@@ -1,9 +1,9 @@
 {
   "schemaVersion": 2,
   "generatedFrom": "docs/topics",
-  "sourceCommit": "243b178e3642a5095c0f5b81c18e033344be6161",
+  "sourceCommit": "f08db29327c07c201db0ee313283781417399ce0",
   "topicCount": 84,
-  "contentSha256": "e963626888cf816c8cbc52f3628c57c207309f24721d9b04849cac52cdae3555",
+  "contentSha256": "2362633a6cc710dcb34a8f5d76f8c71e32395c9c1b7f4dd33b804b61bdc7877b",
   "topics": [
     {
       "id": "activity-and-prompt-audit",
@@ -632,8 +632,8 @@
     {
       "id": "workflow-authoring",
       "title": "Workflow and configuration authoring",
-      "version": 70,
-      "sha256": "9198850707bf2dec977f7c5b4684182c53cdf957f33a61f511676d460de32fd1",
+      "version": 71,
+      "sha256": "c4e0e1ea4147ebb9d1f0f72a7a34a11a5a7d17e17dfb463f3bb4ea7b3cbf518d",
       "routingSha256": "db9a49796ed83230b5bd8e877576ab64d19d6159fd1a763a9b5260ff51fe572b",
       "file": "workflow-authoring.md"
     },
@@ -648,16 +648,16 @@
     {
       "id": "workflow-intent",
       "title": "Intent-to-workflow creation with catalog-grounded Copilot",
-      "version": 4,
-      "sha256": "b31efaf1934d5808bf9d8661ebbae44519dc1df5d9b9a45f927659474a4e14ba",
+      "version": 5,
+      "sha256": "d35087c133fadecea48acb39a62c76dfa396c7fd51ff56593cbb51d161813907",
       "routingSha256": "79db2c08347977604e31a990b2428a6e2ddc90b33373a1374c8ff6c058f4609d",
       "file": "workflow-intent.md"
     },
     {
       "id": "workflow-markup",
       "title": "Create workflows with Copilot and checked tags",
-      "version": 7,
-      "sha256": "502cd82478b23455f420dab0942b08488eb721e3950234315d70fc4d6b86ca1c",
+      "version": 8,
+      "sha256": "887bbc3f37ed419fa2f984144ce0ce5f79279280058ff21cd7e7fe65ebf7936f",
       "routingSha256": "8517db9f9dfdd60d5fbd14dca5ecb7b8c13b8545d869b3c692637ac7dbfb89ce",
       "file": "workflow-markup.md"
     },

@@ -162,8 +162,12 @@ export async function run(argv, { positionals, options }) {
   });
   if (action === 'status' && !optionString(options, 'build')) {
     const builds = await api.listWorkflowBuilds();
-    const list = builds.map((record) => ({ id: record.id, label: record.goal.label, updatedAt: record.updatedAt, expiresAt: record.expiresAt,
-      repository: record.repository, counts: inventory.itemCounts(record.items) }));
+    const list = builds.map((record) => {
+      const counts = inventory.itemCounts(record.items);
+      return { id: record.id, label: record.goal.label, updatedAt: record.updatedAt, expiresAt: record.expiresAt, repository: record.repository, counts,
+        found: Object.entries(counts).filter(([kind]) => kind !== 'withheld').map(([kind, count]) => inventory.countWords(kind, count)).join(', '),
+        finished: record.finished ? { at: record.finished.at, kind: record.finished.kind } : null };
+    });
     if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'workflow-builds', builds: list }, null, 2));
     if (!list.length) return console.log('No workflow builds on this computer. Start one: singularity-flow workflow build start --folder <DIR> | --from-workflow <ID>');
     for (const entry of list) {

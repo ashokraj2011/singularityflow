@@ -13,8 +13,8 @@
   ],
   "sites": {
     "scripts/story-readiness-benchmark.mjs": {
-      "counts": { "command-git": 8, "process-import": 1, "process-launch": 2 },
-      "digest": "4c352c7c89ca605e40775cc31c7702c77604f6428d41b670232c701379831e0e"
+      "counts": { "command-git": 9, "process-import": 1, "process-launch": 2 },
+      "digest": "7361ae80a7470fadb4e8021abfcfafe64c94b26baa830118b28043ad695d6a6c"
     },
     "src/witness-review-read.mjs": {
       "counts": {

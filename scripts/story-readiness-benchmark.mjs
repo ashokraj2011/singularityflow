@@ -15,7 +15,7 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 export async function createStoryReadinessFixture({ files = 100, cliRoot = packageRoot } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'sflow-readiness-bench-'));
   const git = (cwd, ...args) => {
-    const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024 });
+    const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 300_000, maxBuffer: 16 * 1024 * 1024 });
     assert.equal(result.status, 0, result.stderr);
     return result.stdout.trim();
   };
@@ -25,6 +25,9 @@ export async function createStoryReadinessFixture({ files = 100, cliRoot = packa
     git(directory, 'init', '--bare', '--initial-branch=main', remote);
     git(directory, 'clone', '--quiet', remote, source);
     git(source, 'config', 'user.name', 'Readiness Fixture'); git(source, 'config', 'user.email', 'readiness@example.invalid');
+    // Synthetic source files are LF. Avoid thousands of setup-only conversion warnings; measured
+    // application clones still use the host's normal Git configuration (including Windows CRLF).
+    git(source, 'config', 'core.autocrlf', 'false');
     await initializeDefinition(source);
     const workflowFile = path.join(source, 'singularity/workflow.yml');
     const definition = YAML.parse(await readFile(workflowFile, 'utf8'));

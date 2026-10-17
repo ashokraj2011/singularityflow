@@ -60,10 +60,15 @@ export async function run({ positionals, options }) {
     }
   }
   if (!workId) {
+    const listings = await import('./session.mjs');
+    listings.takeListingWithoutLocalClone();
     const table = await step(['session', 'candidates', ...selectors, ...(options.refresh ? ['--refresh'] : []), '--table'], cwd);
     if (!table.ok) stop(table, 'session candidates');
+    // Listed from the remote because the local clone is unreadable: opening one is blocked until it is.
+    const localClone = listings.takeListingWithoutLocalClone();
     const result = { schemaVersion: 1, resultType: 'session-open', status: 'choose', selectors, table: table.stdout.trimEnd(),
-      nextAction: `singularity-flow session open <WORK-ID>${selectors.length ? ` ${selectors.join(' ')}` : ''}` };
+      nextAction: `singularity-flow session open <WORK-ID>${selectors.length ? ` ${selectors.join(' ')}` : ''}`,
+      ...(localClone ? { localClone } : {}) };
     if (json) return console.log(JSON.stringify(result, null, 2));
     console.log(result.table);
     return console.log(`\nChoose a Story, then run: ${result.nextAction}`);

@@ -9,8 +9,14 @@ import { SingularityFlowError, commandLineFile, optionBoolean, optionString, opt
 const OPTIONS = {
   start: new Set(['from-workflow', 'folder', 'file', 'notes', 'describe', 'name', 'json']),
   add: new Set(['build', 'folder', 'file', 'notes', 'json']),
-  status: new Set(['build', 'json'])
+  status: new Set(['build', 'json']),
+  propose: new Set(['build', 'proposal', 'by', 'json']),
+  decide: new Set(['build', 'proposal', 'accept', 'decline', 'reason', 'json']),
+  answer: new Set(['build', 'question', 'choice', 'json']),
+  check: new Set(['build', 'json']),
+  finish: new Set(['build', 'propose', 'out', 'json'])
 };
+const SEVERITY = { problem: 'problem', warning: 'warning', note: 'note' };
 const SHOWN_PER_KIND = 12;
 
 function refuse(message, code = 'WORKFLOW_BUILD_USAGE') {
@@ -57,9 +63,63 @@ function printBuild(view) {
   console.log(`  See it again: singularity-flow workflow build status --build ${build.id}`);
 }
 
+function printCheck(result) {
+  console.log(`${result.draft.workflow.label} (${result.build.workflow}): ${result.explanation?.summary ?? `${result.draft.workflow.phases.length} steps so far.`}`);
+  for (const step of result.explanation?.steps ?? []) {
+    console.log(`  ${step.number}. ${step.label}: ${step.what}${step.why ? ` Why: ${step.why.text}` : ''}`);
+  }
+  for (const problem of result.plan.problems) console.log(`  problem  ${problem.message}`);
+  for (const finding of result.findings) {
+    console.log(`  ${SEVERITY[finding.severity].padEnd(8)} ${finding.title}${finding.location ? `  (${finding.location.file}${finding.location.line ? `:${finding.location.line}` : ''})` : ''}`);
+  }
+  for (const proposal of result.pending) console.log(`  waiting  ${proposal.id} by ${proposal.by}: ${proposal.title}`);
+  for (const question of result.questions) console.log(`  question ${question.id}: ${question.question} (${question.choices.join(' | ')})`);
+  console.log(result.ready ? 'Ready to finish: singularity-flow workflow build finish --build ' + result.build.id + ' --propose'
+    : `Not ready to finish: ${result.counts.problem} problem${result.counts.problem === 1 ? '' : 's'}${result.questions.some((question) => question.blocking) ? ', questions waiting for an answer' : ''}.`);
+}
+
+async function engineAction(action, { options, root, json, buildId, api, labels }) {
+  const engine = await import('../workflow-build/engine.mjs');
+  const id = buildId();
+  if (action === 'check') {
+    const result = await engine.checkBuild(id, { root });
+    if (json) return console.log(JSON.stringify(result, null, 2));
+    return printCheck(result);
+  }
+  if (action === 'finish') {
+    const out = optionString(options, 'out');
+    const result = await engine.finishBuild(id, { root, propose: optionBoolean(options, 'propose'), out: out ? commandLineFile(root, out) : null, json });
+    if (result.kind === 'bundle') {
+      if (json) return console.log(JSON.stringify({ schemaVersion: 1, resultType: 'workflow-build-finish', kind: 'bundle', path: result.path, bundleSha256: result.bundleSha256 }, null, 2));
+      console.log(`Wrote ${result.path} (${result.bundleSha256}). Import it in Workflow Studio, or: singularity-flow workflow import ${result.path} --dry-run`);
+    }
+    return;
+  }
+  let record;
+  if (action === 'propose') {
+    const source = optionString(options, 'proposal') ?? refuse('Give the proposal: --proposal <FILE> or --proposal - (standard input).');
+    const text = source === '-' ? await (await import('../read-stdin.mjs')).readStdinText() : await readFile(commandLineFile(root, source, { reads: true }), 'utf8');
+    let payload;
+    try { payload = JSON.parse(text); } catch (error) { refuse(`The proposal is not valid JSON: ${error.message}`, 'WORKFLOW_BUILD_PROPOSAL_INVALID'); }
+    ({ record } = await engine.proposeToBuild(id, payload, { root, by: optionString(options, 'by') ?? 'copilot' }));
+  } else if (action === 'decide') {
+    const accept = optionBoolean(options, 'accept');
+    if (accept === optionBoolean(options, 'decline')) refuse('Decide with --accept or --decline.');
+    record = await engine.decideInBuild(id, optionString(options, 'proposal') ?? refuse('Name the proposal: --proposal p-1.'), { accept, reason: optionString(options, 'reason') ?? null, root });
+  } else {
+    record = await engine.answerInBuild(id, optionString(options, 'question') ?? refuse('Name the question: --question q-1.'), optionString(options, 'choice') ?? refuse('Give the answer: --choice <TEXT>.'));
+  }
+  const view = api.workflowBuildView(record);
+  if (json) return console.log(JSON.stringify(view, null, 2));
+  const last = record.conversation.slice(-3).map((turn) => `  ${turn.by === 'you' ? 'You' : turn.by === 'copilot' ? 'Copilot' : 'SFlow'}: ${turn.text}`);
+  console.log(`Build ${record.id}: ${record.goal.label}`);
+  for (const line of last) console.log(line);
+  console.log(`  Next: singularity-flow workflow build check --build ${record.id}`);
+}
+
 export async function run(argv, { positionals, options }) {
   const action = positionals[2] ?? 'status';
-  if (!OPTIONS[action]) refuse(`workflow build supports start, add and status, not '${action}'.`);
+  if (!OPTIONS[action]) refuse(`workflow build supports ${Object.keys(OPTIONS).join(', ')}, not '${action}'.`);
   const unknown = Object.keys(options).filter((key) => !OPTIONS[action].has(key));
   if (unknown.length) refuse(`workflow build ${action} does not take --${unknown[0]}.`);
   if (positionals.length > 3) refuse(`workflow build ${action} takes options only, for example --folder <DIR>.`);
@@ -84,6 +144,8 @@ export async function run(argv, { positionals, options }) {
     }
     return;
   }
+  const buildId = () => optionString(options, 'build') ?? refuse(`Name the build: workflow build ${action} --build <ID>.`);
+  if (['propose', 'decide', 'answer', 'check', 'finish'].includes(action)) return engineAction(action, { options, root, json, buildId, api, labels });
   let record;
   if (action === 'start') {
     record = await api.startWorkflowBuild({ root, fromWorkflow: optionString(options, 'from-workflow') ?? null, ...(await material()),

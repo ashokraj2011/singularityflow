@@ -36,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 67
+version: 68
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1294,6 +1294,42 @@ singularity-flow workflow build status --build <ID> --json
 A file whose name looks like a credential, key or environment file is never read, and a file whose
 text looks like it holds a credential is withheld: it is listed by name, and its text is kept
 nowhere. Single files and notes are screened before they are copied into the build.
+
+### Grow it a piece at a time
+
+A build grows through small proposals. Each one is a few moves with a one-line title, why it
+belongs, and the lines it relied on. Copilot proposes; you can propose too (`--by you`). Only a
+person accepts or declines, and answers questions.
+
+```bash
+singularity-flow workflow build propose --build <ID> --proposal proposal.json
+singularity-flow workflow build decide --build <ID> --proposal p-1 --accept
+singularity-flow workflow build decide --build <ID> --proposal p-2 --decline --reason "CI already scans"
+singularity-flow workflow build answer --build <ID> --question q-1 --choice payments-security
+singularity-flow workflow build check --build <ID>
+singularity-flow workflow build finish --build <ID> --propose
+singularity-flow workflow build finish --build <ID> --out payments-release.sflow-workflows.json
+```
+
+| Move | What it does |
+|---|---|
+| `step.add` | Adds a step: one the repository has, as it is; a new one with its agent, output, reads, sign-off and purpose; or a copy of one (`from`) |
+| `step.change`, `step.move`, `step.remove` | Changes, moves or removes a step in this workflow. A step other workflows use keeps its name, output, agent and purpose; add a copy instead |
+| `agent.add`, `skill.add`, `instruction.add` | Adds an agent, skill or instruction, new or starting from one the repository has (`from`) |
+| `skill.attach` | Attaches a skill to an agent, or to this workflow, for some or all steps |
+| `decision.add`, `decision.remove` | Adds or removes a decision after a step |
+| `group.add` | Adds an approval group, empty; people are added in Workflow Studio |
+| `action.add` | Tells an existing integration target when a step is submitted, approved or rejected |
+| `item.classify`, `item.leaveOut`, `item.keepAsLink`, `item.prerequisite` | Says what a found item is or becomes, or leaves it out with a reason |
+
+Every move is checked when it is proposed, and each finding names the move and field
+(`moves[2].agent`). The draft with the proposal must still make a configuration Workflow Studio can
+save. Accepting checks it again, so a proposal that an accepted one overtook is marked stale.
+`check` explains the workflow as the accepted moves leave it, runs `workflow check` on it, and says
+how many found items are not used or left out yet. Nothing is written to the repository until
+`finish`: `--propose` runs Workflow Studio's own apply with the build's change set, which makes one
+reviewed proposal on the approved configuration; `--out` writes a portable workflow bundle that
+Workflow Studio's Import previews like any other.
 
 ## Check that a workflow makes sense
 

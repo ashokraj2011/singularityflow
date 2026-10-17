@@ -1,0 +1,811 @@
+{
+  "schemaVersion": 1,
+  "resultType": "utility-entry-qualification",
+  "baselineCommit": "987b0f8a24d90c38e3527134f0b9abf06e7d1590",
+  "runtimeCommit": "4bd003e0f9047b2c657e9c8f1ba525080bbc6907",
+  "windowsCiCommit": "db767e95923376c7d4d6ae9483521430b1d7bd04",
+  "windowsRun": "https://github.com/ashokraj2011/singularityflow/actions/runs/38987660713",
+  "date": "2026-10-17",
+  "protocol": {
+    "files": 1000,
+    "unrelatedBranches": 20,
+    "catalog": "full installed seeded defaults",
+    "layout": "stamped installed cold bundle",
+    "before": "pause status plus requested read, --for-agent --json",
+    "after": "same requested read --utility-entry --for-agent --json",
+    "output": "full agent JSON for both variants; bounded presentation and native host overhead are not measured",
+    "first": "one fresh private V8 cache per command/variant",
+    "repeat": "median of three subsequent fresh processes sharing that cache",
+    "osCacheFlushed": false,
+    "variantOrder": "before then after for each command",
+    "models": 0,
+    "configuredRemotes": 0,
+    "windowsTemp": "D:\\sfut (short disposable test path)",
+    "qualification": "synthetic CLI fixture, not a native Copilot conversation or enterprise laptop guarantee"
+  },
+  "sourceFallback": {
+    "before": {
+      "workflowList": 608,
+      "agentsList": 614,
+      "skillList": 249,
+      "instructionList": 248
+    },
+    "after": {
+      "workflowList": 246,
+      "agentsList": 238,
+      "skillList": 240,
+      "instructionList": 239
+    },
+    "note": "SFlow engine source modules; excludes dependency modules and loader timing. Catalog accounting is retained; no catalog loads the legacy dispatcher or model runner."
+  },
+  "macos": {
+    "node": "v25.5.0",
+    "commands": [
+      {
+        "name": "status",
+        "variant": "before",
+        "firstMs": 289,
+        "subsequentMedianMs": 213,
+        "wallSamplesMs": [
+          289,
+          215,
+          211,
+          213
+        ],
+        "readSamplesMs": [
+          179,
+          126,
+          124,
+          127
+        ],
+        "firstUncachedDefinitionLoads": 0
+      },
+      {
+        "name": "status",
+        "variant": "after",
+        "firstMs": 190,
+        "subsequentMedianMs": 129,
+        "wallSamplesMs": [
+          190,
+          128,
+          131,
+          129
+        ],
+        "readSamplesMs": [
+          190,
+          128,
+          131,
+          129
+        ],
+        "firstUncachedDefinitionLoads": 0
+      },
+      {
+        "name": "progress",
+        "variant": "before",
+        "firstMs": 503,
+        "subsequentMedianMs": 312,
+        "wallSamplesMs": [
+          503,
+          384,
+          312,
+          298
+        ],
+        "readSamplesMs": [
+          391,
+          253,
+          213,
+          205
+        ],
+        "firstUncachedDefinitionLoads": 3
+      },
+      {
+        "name": "progress",
+        "variant": "after",
+        "firstMs": 324,
+        "subsequentMedianMs": 185,
+        "wallSamplesMs": [
+          324,
+          185,
+          185,
+          193
+        ],
+        "readSamplesMs": [
+          324,
+          185,
+          185,
+          193
+        ],
+        "firstUncachedDefinitionLoads": 2
+      },
+      {
+        "name": "nextsteps",
+        "variant": "before",
+        "firstMs": 428,
+        "subsequentMedianMs": 629,
+        "wallSamplesMs": [
+          428,
+          614,
+          725,
+          629
+        ],
+        "readSamplesMs": [
+          317,
+          495,
+          529,
+          459
+        ],
+        "firstUncachedDefinitionLoads": 2
+      },
+      {
+        "name": "nextsteps",
+        "variant": "after",
+        "firstMs": 478,
+        "subsequentMedianMs": 208,
+        "wallSamplesMs": [
+          478,
+          215,
+          208,
+          198
+        ],
+        "readSamplesMs": [
+          478,
+          215,
+          208,
+          198
+        ],
+        "firstUncachedDefinitionLoads": 2
+      },
+      {
+        "name": "phase-show",
+        "variant": "before",
+        "firstMs": 447,
+        "subsequentMedianMs": 300,
+        "wallSamplesMs": [
+          447,
+          325,
+          293,
+          300
+        ],
+        "readSamplesMs": [
+          342,
+          233,
+          207,
+          206
+        ],
+        "firstUncachedDefinitionLoads": 3
+      },
+      {
+        "name": "phase-show",
+        "variant": "after",
+        "firstMs": 332,
+        "subsequentMedianMs": 198,
+        "wallSamplesMs": [
+          332,
+          202,
+          198,
+          195
+        ],
+        "readSamplesMs": [
+          332,
+          202,
+          198,
+          195
+        ],
+        "firstUncachedDefinitionLoads": 2
+      },
+      {
+        "name": "inputs-preview",
+        "variant": "before",
+        "firstMs": 475,
+        "subsequentMedianMs": 302,
+        "wallSamplesMs": [
+          475,
+          322,
+          302,
+          301
+        ],
+        "readSamplesMs": [
+          362,
+          224,
+          214,
+          210
+        ],
+        "firstUncachedDefinitionLoads": 3
+      },
+      {
+        "name": "inputs-preview",
+        "variant": "after",
+        "firstMs": 343,
+        "subsequentMedianMs": 205,
+        "wallSamplesMs": [
+          343,
+          205,
+          206,
+          203
+        ],
+        "readSamplesMs": [
+          343,
+          205,
+          206,
+          203
+        ],
+        "firstUncachedDefinitionLoads": 2
+      },
+      {
+        "name": "report",
+        "variant": "before",
+        "firstMs": 432,
+        "subsequentMedianMs": 308,
+        "wallSamplesMs": [
+          432,
+          308,
+          297,
+          346
+        ],
+        "readSamplesMs": [
+          321,
+          213,
+          206,
+          253
+        ],
+        "firstUncachedDefinitionLoads": 3
+      },
+      {
+        "name": "report",
+        "variant": "after",
+        "firstMs": 397,
+        "subsequentMedianMs": 192,
+        "wallSamplesMs": [
+          397,
+          238,
+          190,
+          192
+        ],
+        "readSamplesMs": [
+          397,
+          238,
+          190,
+          192
+        ],
+        "firstUncachedDefinitionLoads": 2
+      },
+      {
+        "name": "workflow-list",
+        "variant": "before",
+        "firstMs": 558,
+        "subsequentMedianMs": 405,
+        "wallSamplesMs": [
+          558,
+          405,
+          409,
+          396
+        ],
+        "readSamplesMs": [
+          449,
+          318,
+          318,
+          311
+        ],
+        "firstUncachedDefinitionLoads": 2
+      },
+      {
+        "name": "workflow-list",
+        "variant": "after",
+        "firstMs": 425,
+        "subsequentMedianMs": 290,
+        "wallSamplesMs": [
+          425,
+          290,
+          291,
+          288
+        ],
+        "readSamplesMs": [
+          425,
+          290,
+          291,
+          288
+        ],
+        "firstUncachedDefinitionLoads": 1
+      },
+      {
+        "name": "agents-list",
+        "variant": "before",
+        "firstMs": 490,
+        "subsequentMedianMs": 399,
+        "wallSamplesMs": [
+          490,
+          435,
+          399,
+          343
+        ],
+        "readSamplesMs": [
+          378,
+          349,
+          286,
+          252
+        ],
+        "firstUncachedDefinitionLoads": 1
+      },
+      {
+        "name": "agents-list",
+        "variant": "after",
+        "firstMs": 430,
+        "subsequentMedianMs": 249,
+        "wallSamplesMs": [
+          430,
+          249,
+          264,
+          244
+        ],
+        "readSamplesMs": [
+          430,
+          249,
+          264,
+          244
+        ],
+        "firstUncachedDefinitionLoads": 1
+      },
+      {
+        "name": "skill-list",
+        "variant": "before",
+        "firstMs": 563,
+        "subsequentMedianMs": 429,
+        "wallSamplesMs": [
+          563,
+          429,
+          421,
+          438
+        ],
+        "readSamplesMs": [
+          453,
+          340,
+          334,
+          349
+        ],
+        "firstUncachedDefinitionLoads": 1
+      },
+      {
+        "name": "skill-list",
+        "variant": "after",
+        "firstMs": 332,
+        "subsequentMedianMs": 199,
+        "wallSamplesMs": [
+          332,
+          204,
+          198,
+          199
+        ],
+        "readSamplesMs": [
+          332,
+          204,
+          198,
+          199
+        ],
+        "firstUncachedDefinitionLoads": 0
+      },
+      {
+        "name": "instruction-list",
+        "variant": "before",
+        "firstMs": 569,
+        "subsequentMedianMs": 427,
+        "wallSamplesMs": [
+          569,
+          427,
+          424,
+          428
+        ],
+        "readSamplesMs": [
+          454,
+          336,
+          337,
+          341
+        ],
+        "firstUncachedDefinitionLoads": 1
+      },
+      {
+        "name": "instruction-list",
+        "variant": "after",
+        "firstMs": 330,
+        "subsequentMedianMs": 196,
+        "wallSamplesMs": [
+          330,
+          196,
+          207,
+          196
+        ],
+        "readSamplesMs": [
+          330,
+          196,
+          207,
+          196
+        ],
+        "firstUncachedDefinitionLoads": 0
+      }
+    ]
+  },
+  "windows": {
+    "node": "v24.21.0",
+    "commands": [
+      {
+        "name": "status",
+        "variant": "before",
+        "firstMs": 700,
+        "subsequentMedianMs": 447,
+        "wallSamplesMs": [
+          700,
+          447,
+          456,
+          433
+        ],
+        "readSamplesMs": [
+          459,
+          265,
+          278,
+          257
+        ],
+        "firstUncachedDefinitionLoads": 0
+      },
+      {
+        "name": "status",
+        "variant": "after",
+        "firstMs": 434,
+        "subsequentMedianMs": 271,
+        "wallSamplesMs": [
+          434,
+          271,
+          264,
+          287
+        ],
+        "readSamplesMs": [
+          434,
+          271,
+          264,
+          287
+        ],
+        "firstUncachedDefinitionLoads": 0
+      },
+      {
+        "name": "progress",
+        "variant": "before",
+        "firstMs": 1112,
+        "subsequentMedianMs": 710,
+        "wallSamplesMs": [
+          1112,
+          710,
+          692,
+          729
+        ],
+        "readSamplesMs": [
+          872,
+          511,
+          506,
+          530
+        ],
+        "firstUncachedDefinitionLoads": 3
+      },
+      {
+        "name": "progress",
+        "variant": "after",
+        "firstMs": 833,
+        "subsequentMedianMs": 496,
+        "wallSamplesMs": [
+          833,
+          496,
+          501,
+          484
+        ],
+        "readSamplesMs": [
+          833,
+          496,
+          501,
+          484
+        ],
+        "firstUncachedDefinitionLoads": 2
+      },
+      {
+        "name": "nextsteps",
+        "variant": "before",
+        "firstMs": 1119,
+        "subsequentMedianMs": 774,
+        "wallSamplesMs": [
+          1119,
+          783,
+          774,
+          749
+        ],
+        "readSamplesMs": [
+          885,
+          594,
+          583,
+          568
+        ],
+        "firstUncachedDefinitionLoads": 2
+      },
+      {
+        "name": "nextsteps",
+        "variant": "after",
+        "firstMs": 909,
+        "subsequentMedianMs": 567,
+        "wallSamplesMs": [
+          909,
+          593,
+          567,
+          564
+        ],
+        "readSamplesMs": [
+          909,
+          593,
+          567,
+          564
+        ],
+        "firstUncachedDefinitionLoads": 2
+      },
+      {
+        "name": "phase-show",
+        "variant": "before",
+        "firstMs": 1180,
+        "subsequentMedianMs": 793,
+        "wallSamplesMs": [
+          1180,
+          819,
+          793,
+          735
+        ],
+        "readSamplesMs": [
+          944,
+          637,
+          575,
+          549
+        ],
+        "firstUncachedDefinitionLoads": 3
+      },
+      {
+        "name": "phase-show",
+        "variant": "after",
+        "firstMs": 789,
+        "subsequentMedianMs": 455,
+        "wallSamplesMs": [
+          789,
+          452,
+          459,
+          455
+        ],
+        "readSamplesMs": [
+          789,
+          452,
+          459,
+          455
+        ],
+        "firstUncachedDefinitionLoads": 2
+      },
+      {
+        "name": "inputs-preview",
+        "variant": "before",
+        "firstMs": 1016,
+        "subsequentMedianMs": 695,
+        "wallSamplesMs": [
+          1016,
+          694,
+          696,
+          695
+        ],
+        "readSamplesMs": [
+          807,
+          534,
+          536,
+          532
+        ],
+        "firstUncachedDefinitionLoads": 3
+      },
+      {
+        "name": "inputs-preview",
+        "variant": "after",
+        "firstMs": 824,
+        "subsequentMedianMs": 507,
+        "wallSamplesMs": [
+          824,
+          507,
+          501,
+          530
+        ],
+        "readSamplesMs": [
+          824,
+          507,
+          501,
+          530
+        ],
+        "firstUncachedDefinitionLoads": 2
+      },
+      {
+        "name": "report",
+        "variant": "before",
+        "firstMs": 891,
+        "subsequentMedianMs": 600,
+        "wallSamplesMs": [
+          891,
+          603,
+          588,
+          600
+        ],
+        "readSamplesMs": [
+          682,
+          439,
+          428,
+          436
+        ],
+        "firstUncachedDefinitionLoads": 3
+      },
+      {
+        "name": "report",
+        "variant": "after",
+        "firstMs": 706,
+        "subsequentMedianMs": 405,
+        "wallSamplesMs": [
+          706,
+          405,
+          408,
+          400
+        ],
+        "readSamplesMs": [
+          706,
+          405,
+          408,
+          400
+        ],
+        "firstUncachedDefinitionLoads": 2
+      },
+      {
+        "name": "workflow-list",
+        "variant": "before",
+        "firstMs": 1517,
+        "subsequentMedianMs": 1104,
+        "wallSamplesMs": [
+          1517,
+          1104,
+          1101,
+          1130
+        ],
+        "readSamplesMs": [
+          1307,
+          940,
+          944,
+          973
+        ],
+        "firstUncachedDefinitionLoads": 2
+      },
+      {
+        "name": "workflow-list",
+        "variant": "after",
+        "firstMs": 1141,
+        "subsequentMedianMs": 836,
+        "wallSamplesMs": [
+          1141,
+          839,
+          834,
+          836
+        ],
+        "readSamplesMs": [
+          1141,
+          839,
+          834,
+          836
+        ],
+        "firstUncachedDefinitionLoads": 1
+      },
+      {
+        "name": "agents-list",
+        "variant": "before",
+        "firstMs": 1201,
+        "subsequentMedianMs": 777,
+        "wallSamplesMs": [
+          1201,
+          804,
+          777,
+          764
+        ],
+        "readSamplesMs": [
+          965,
+          624,
+          617,
+          604
+        ],
+        "firstUncachedDefinitionLoads": 1
+      },
+      {
+        "name": "agents-list",
+        "variant": "after",
+        "firstMs": 1019,
+        "subsequentMedianMs": 583,
+        "wallSamplesMs": [
+          1019,
+          583,
+          577,
+          592
+        ],
+        "readSamplesMs": [
+          1019,
+          583,
+          577,
+          592
+        ],
+        "firstUncachedDefinitionLoads": 1
+      },
+      {
+        "name": "skill-list",
+        "variant": "before",
+        "firstMs": 1406,
+        "subsequentMedianMs": 1189,
+        "wallSamplesMs": [
+          1406,
+          1103,
+          1189,
+          1405
+        ],
+        "readSamplesMs": [
+          1187,
+          944,
+          1031,
+          1175
+        ],
+        "firstUncachedDefinitionLoads": 1
+      },
+      {
+        "name": "skill-list",
+        "variant": "after",
+        "firstMs": 1043,
+        "subsequentMedianMs": 473,
+        "wallSamplesMs": [
+          1043,
+          521,
+          463,
+          473
+        ],
+        "readSamplesMs": [
+          1043,
+          521,
+          463,
+          473
+        ],
+        "firstUncachedDefinitionLoads": 0
+      },
+      {
+        "name": "instruction-list",
+        "variant": "before",
+        "firstMs": 1443,
+        "subsequentMedianMs": 1149,
+        "wallSamplesMs": [
+          1443,
+          1153,
+          1149,
+          1148
+        ],
+        "readSamplesMs": [
+          1231,
+          991,
+          990,
+          989
+        ],
+        "firstUncachedDefinitionLoads": 1
+      },
+      {
+        "name": "instruction-list",
+        "variant": "after",
+        "firstMs": 778,
+        "subsequentMedianMs": 472,
+        "wallSamplesMs": [
+          778,
+          472,
+          472,
+          459
+        ],
+        "readSamplesMs": [
+          778,
+          472,
+          472,
+          459
+        ],
+        "firstUncachedDefinitionLoads": 0
+      }
+    ]
+  }
+}

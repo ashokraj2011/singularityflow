@@ -58,6 +58,29 @@ from the removed process. Each variant starts with an empty private V8 cache and
 then uses three fresh processes; the OS cache is not flushed. This is CLI
 qualification, not a measured native Copilot conversation or token-savings claim.
 
+The [2026-10-17 paired results](../benchmarks/utility-entry/qualification.json)
+retain every wall/read sample. Windows ran natively with Node v24.21.0; macOS used
+v25.5.0. Both variants used full agent JSON to isolate CLI/backend costs, not
+bounded presentation or host/model latency. Windows fixture TEMP was a short
+disposable path; antivirus, OneDrive and enterprise laptop behavior are not qualified.
+
+| Windows utility sequence | Before, first | Combined, first | Before, repeat median | Combined, repeat median |
+| --- | ---: | ---: | ---: | ---: |
+| Status | 700 ms | 434 ms | 447 ms | 271 ms |
+| Progress | 1,112 ms | 833 ms | 710 ms | 496 ms |
+| Workflow list | 1,517 ms | 1,141 ms | 1,104 ms | 836 ms |
+| Skill list | 1,406 ms | 1,043 ms | 1,189 ms | 473 ms |
+| Instruction list | 1,443 ms | 778 ms | 1,149 ms | 472 ms |
+
+Across the ten Windows forms, first-sequence improvements range from 15% to 46%;
+repeat medians improve 24% to 60%. These include removing the separate pause
+process. Standalone reads are not universally faster: the Mac nextsteps first
+sample regressed from 428 to 478 ms, and its baseline repeat samples were noisy.
+Progress, phase show, input preview and report reduce uncached definition loads
+from three to two without conflating bootstrap and current policy. Source fallback
+workflow/agent catalogs load 246/238 engine modules instead of 608/614, with
+accounting retained and no legacy dispatcher or model runner import.
+
 ### Story operations
 
 - Every registered skill is audited; aliases delegate once to their canonical owner.

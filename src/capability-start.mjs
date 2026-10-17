@@ -60,6 +60,35 @@ import {
 } from './sgos/candidate-lifecycle.mjs';
 
 const DEFAULT_REMOTE_WORKERS = 4;
+// Execution locations are process-private derivations, never caller-editable plan/JSON authority.
+const branchExecutionWorkspaces = new WeakMap();
+
+function bindBranchExecution(repositories, workspace, context) {
+  if (!context.branchCheckout) return;
+  const binding = { workspace, repositoryId: context.repositoryId,
+    primary: context.branchCheckout, paths: new Map() };
+  for (const repository of repositories) branchExecutionWorkspaces.set(repository, binding);
+}
+
+async function executionRepositoryPath(workspaceRoot, repository, baseBranch) {
+  const binding = branchExecutionWorkspaces.get(repository);
+  if (!binding) return workspaceRepositoryPath({ path: workspaceRoot }, repository);
+  const key = JSON.stringify([repository.id, baseBranch]);
+  if (binding.paths.has(key)) return binding.paths.get(key);
+  // Another window may download the same branch again. Never retarget a preflighted plan or its
+  // launch checkout to that new pointer between verification and Story preparation.
+  if (repository.id === binding.repositoryId && baseBranch === binding.primary.branch) {
+    binding.paths.set(key, binding.primary.repositoryPath);
+    return binding.primary.repositoryPath;
+  }
+  const { preparedWorkspaceBranch } = await import('./workspace-branch-locations.mjs');
+  const prepared = await preparedWorkspaceBranch(binding.workspace, repository.id, baseBranch);
+  if (!prepared) throw new SingularityFlowError(
+    `Download a fresh '${baseBranch}' checkout for required repository '${repository.id}' before continuing. Original work was preserved.`,
+    { code: 'WORKSPACE_BRANCH_DOWNLOAD_REQUIRED' });
+  binding.paths.set(key, prepared.repositoryPath);
+  return prepared.repositoryPath;
+}
 
 /** Bounded publication waves share the remote-read fan-out, but cannot exceed that hard limit. */
 export function capabilityPublicationWorkers(total, requested = DEFAULT_REMOTE_WORKERS) {
@@ -366,6 +395,7 @@ async function storyRepositoryPlan(root, {
       );
     }
     const repositories = capabilityRepositories(workspace, capability);
+    bindBranchExecution(repositories, workspace, context);
     // The exact approved overlay is already active for CLI/VS Code choice collection. When a
     // caller has retained the operation snapshot, use it directly; otherwise resolve through that
     // request-local overlay (or the Story pin) before touching any capability remote. The one
@@ -781,7 +811,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
   // to pass this stage.
   const candidates = [];
   for (const repository of plan.repositories) {
-    const target = workspaceRepositoryPath({ path: workspaceRoot }, repository);
+    const target = await executionRepositoryPath(workspaceRoot, repository, plan.resolution.resolved[repository.id].branch);
     if (!existsSync(path.join(target, '.git'))) {
       throw new SingularityFlowError(
         `Required repository '${repository.id}' is not cloned at '${target}'. Nothing was changed.`,
@@ -1182,8 +1212,8 @@ export async function prepareCapabilityRepositories(workspaceRoot, plan, storyBr
   const prepared = [];
   try {
     for (const repository of plan.repositories) {
-      const target = workspaceRepositoryPath({ path: workspaceRoot }, repository);
       const base = plan.resolution.resolved[repository.id];
+      const target = await executionRepositoryPath(workspaceRoot, repository, base.branch);
       if (!existsSync(path.join(target, '.git'))) {
         prepared.push({ repository: repository.id, target, base: base.branch, action: 'absent' });
         continue;
@@ -1280,6 +1310,7 @@ export async function capabilityBaseForRepository(root, { values = [], interacti
     );
   }
   const plan = await planCapabilityBase(workspace, capability, {}, { values, interactive });
+  bindBranchExecution(plan.repositories, workspace, context);
   return {
     capability,
     workspaceRoot: workspace.path,

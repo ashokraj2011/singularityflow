@@ -1803,6 +1803,8 @@ test('large remote operations and lifecycle submissions get operation-appropriat
     assert.equal(client.timeoutFor(args), 15 * 60_000, args.join(' '));
   }
   assert.equal(client.timeoutFor(['wm', 'build']), 120_000, 'the removed World Model build has no long deadline');
+  assert.equal(client.timeoutFor(['workspace', 'prepare-branch', '--from-branch', 'main', '--json']), 30 * 60_000,
+    'fresh capability downloads have room for bounded per-repository Git operations');
 });
 
 test('Story description enhancement leaves cleanup headroom beyond its model deadline', () => {

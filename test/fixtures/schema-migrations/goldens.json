@@ -491,6 +491,8 @@
   "repository-catalog-selection": [{ "schemaVersion": 1 }],
   "repository-discovery-audit": [{ "schemaVersion": 1 }],
   "workspace-capability-drop-transaction": [{ "schemaVersion": 1 }],
+  "workspace-branch-checkout": [{ "schemaVersion": 1, "workspaceId": "payments", "repositoryId": "payments-api", "branch": "main", "retry": "" }],
+  "workspace-branch-pointer": [{ "schemaVersion": 1, "retry": "" }],
   "active-workspace": [
     { "schemaVersion": 1 },
     { "schemaVersion": 2, "canonicalRepositoryPath": null, "checkoutPath": null, "head": null, "selectionSource": "workspace", "selectionStatus": "ready", "selectionError": null }

@@ -248,7 +248,7 @@ const WORKSPACE_NEVER_OPERATIONS = new Set([
   'branches', 'prune', 'list', 'current', 'prompt', 'create', 'adopt', 'open', 'archive-status', 'rename', 'archive',
   'restore', 'inspect', 'duplicate', 'capabilities', 'update', 'attach-capability', 'detach-capability',
   'status', 'sync', 'repair', 'documents', 'forget', 'use',
-  'prepare', 'doctor', 'migrate-schemas'
+  'prepare', 'prepare-branch', 'doctor', 'migrate-schemas'
 ]);
 // `workspace switch` is a live alias the handler accepts. Resolved to the operation it aliases
 // rather than classified separately, so the registry and the dispatcher cannot drift apart again.

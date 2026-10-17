@@ -21,6 +21,7 @@ async function loadLegacy() {
 
 /** Keep timing attribution accurate for non-hot workspace commands that still use the monolith. */
 export async function load(context = {}) {
+  if (subcommand(context) === 'prepare-branch') return import('./workspace-prepare-branch.mjs');
   if (subcommand(context) === 'branches') return context.options?.entry === true
     ? import('./intake-entry.mjs') : import('./workspace-branches.mjs');
   if (!HOT_ACTIONS.has(subcommand(context))) await loadLegacy();
@@ -28,6 +29,7 @@ export async function load(context = {}) {
 
 export async function run(argv, context = {}) {
   const action = subcommand(context);
+  if (action === 'prepare-branch') return (await import('./workspace-prepare-branch.mjs')).run(context.positionals, context.options);
   if (action === 'branches') {
     if (context.options?.entry === true) return (await import('./intake-entry.mjs')).run(context.options);
     const { runWorkspaceBranches } = await import('./workspace-branches.mjs');

@@ -3394,6 +3394,14 @@ const families = [
     steps: [migration(1, 2, activeWorkspaceV1ToV2)],
     paths: [/^\$local\/active-workspace\.json$/]
   }),
+  family({
+    id: 'workspace-branch-checkout', currentVersion: 1,
+    paths: [/^\$git\/branch-checkout\.json$/]
+  }),
+  family({
+    id: 'workspace-branch-pointer', currentVersion: 1,
+    paths: [/^(?:\$workspace\/)?\.singularity-flow\/branch-checkouts\/[^/]+\/[^/]+\.json$/]
+  }),
   family({ id: 'ast-preference', currentVersion: 1, paths: [/^\$local\/ast-preference\.json$/] }),
   family({ id: 'copilot-mode-preference', currentVersion: 1, paths: [/^\$local\/copilot-mode\.json$/] }),
   family({ id: 'copilot-repository-boundary', currentVersion: 1, paths: [/^\$local\/copilot-boundaries\/[a-f0-9]{64}\.json$/] }),

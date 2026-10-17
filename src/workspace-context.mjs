@@ -363,6 +363,17 @@ async function storedActiveWorkspaceContext(selectionFile) {
   return { ...selected, prompt: workspacePromptLabel(selected) };
 }
 
+async function branchCheckoutSelectionContext(selected, checkout, selectionFile, registryFile, discover = false) {
+  if (!selected.workspacePath || !checkout || (!selected.branchCheckout && !discover)) return null;
+  const { readBranchRecord, BRANCH_CHECKOUT_RECORD } = await import('./workspace-branch-locations.mjs');
+  let common;
+  try { common = gitCommonDir(checkout); } catch { return null; }
+  if (!(await readBranchRecord(path.join(common, BRANCH_CHECKOUT_RECORD)))) return null;
+  const context = await workspaceMemberContextForRepository(checkout, selectionFile, registryFile, { strict: true });
+  return context?.branchCheckout && context.repositoryId === selected.repositoryId
+    && context.workspaceId === selected.workspaceId ? context : null;
+}
+
 export async function readActiveWorkspaceContext(selectionFile, registryFile, {
   refresh = true,
   gitReadMode = 'reference',
@@ -370,9 +381,10 @@ export async function readActiveWorkspaceContext(selectionFile, registryFile, {
 } = {}) {
   const selected = await storedActiveWorkspaceContext(selectionFile);
   if (!selected || !refresh) return selected;
-  let context;
+  let context = await branchCheckoutSelectionContext(selected, selected.checkoutPath ?? selected.repositoryPath,
+    selectionFile, registryFile);
   try {
-    context = await buildWorkspaceContext(registryFile, selected.workspaceId, {
+    context ??= await buildWorkspaceContext(registryFile, selected.workspaceId, {
       repositoryId: selected.repositoryId,
       // The selected checkout, not the canonical clone's current branch, proves the Story below.
       storyId: null,
@@ -407,7 +419,7 @@ export async function readActiveWorkspaceContext(selectionFile, registryFile, {
       }
     });
   }
-  const canonicalRepositoryPath = context.repositoryPath;
+  const canonicalRepositoryPath = context.canonicalRepositoryPath ?? context.repositoryPath;
   const selectedStoryId = portableStoryId(selected.storyId);
   const candidate = selected.checkoutPath ?? selected.repositoryPath;
   if (!selectedStoryId || !candidate) {
@@ -471,12 +483,13 @@ export async function activateWorkspaceStoryContext(
   return withActiveSelectionLease(selectionFile, async () => {
     const selected = await readActiveWorkspaceContext(selectionFile, registryFile, { refresh: false });
     if (!selected) return null;
-    const base = await buildWorkspaceContext(registryFile, selected.workspaceId, {
+    const base = await branchCheckoutSelectionContext(selected, checkout, selectionFile, registryFile, true)
+      ?? await buildWorkspaceContext(registryFile, selected.workspaceId, {
       repositoryId: selected.repositoryId,
       storyId: null
     });
     const checkoutPath = await canonical(checkout);
-    const canonicalRepositoryPath = await canonical(base.repositoryPath);
+    const canonicalRepositoryPath = await canonical(base.canonicalRepositoryPath ?? base.repositoryPath);
     if (await canonical(gitCommonDir(checkoutPath)) !== await canonical(gitCommonDir(canonicalRepositoryPath))) {
       return null;
     }
@@ -654,6 +667,7 @@ export async function workspaceMemberContextForRepository(
       repositoryId,
       repositoryPath: root,
       canonicalRepositoryPath,
+      branchCheckout: undefined,
       checkoutPath: root,
       repositoryCapabilities: [...(repositoryCapabilities ?? [])],
       branch: currentBranch,
@@ -767,6 +781,18 @@ export async function workspaceMemberContextForRepository(
   let rootCommonDirectory;
   try { rootCommonDirectory = await canonical(gitCommonDir(root)); }
   catch { return null; }
+  // Independent recovery repositories prove membership without opening the old objects. Keep
+  // ordinary exact-path membership above this optional recovery path, with no extra Git calls.
+  const { workspaceBranchMember } = await import('./workspace-branch-locations.mjs');
+  const recovered = await workspaceBranchMember(rootCommonDirectory, workspace);
+  if (recovered) {
+    const member = { repositoryId: recovered.repositoryId, repository: recovered.repository,
+      canonicalRepositoryPath: recovered.repositoryPath };
+    if (!await verifiedWorkspaceMemberRepository(root, member, { strict })) return null;
+    const context = contextFor(member.repositoryId, member.canonicalRepositoryPath, member.repository.capabilities);
+    context.branchCheckout = { branch: recovered.record.branch, repositoryPath: recovered.repositoryPath };
+    return context;
+  }
   for (const member of members) {
     try {
       if (await canonical(gitCommonDir(member.canonicalRepositoryPath)) === rootCommonDirectory) {

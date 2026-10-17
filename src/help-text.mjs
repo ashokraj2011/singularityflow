@@ -1203,6 +1203,10 @@ Usage:
   singularity-flow workspace status [DIRECTORY] [--level full|summary|readiness] [--json]
   singularity-flow workspace sync <DIRECTORY> [--json]
   singularity-flow workspace repair [DIRECTORY] [--repository ID]... [--level full|summary|readiness] [--json]
+  singularity-flow workspace prepare-branch [DIRECTORY] --repository ID --from-branch BRANCH [--json]
+    (download only the selected branch into repos/<branch-folder>/<repository-id> with independent
+     Git objects; original checkouts, unpublished work and failed downloads are preserved; rerun
+     Story readiness from the returned repositoryPath; no Story is started or approved)
   singularity-flow workspace documents <DIRECTORY> [--json]
   singularity-flow workspace documents import <DIRECTORY> <FILE...> [--json]
   singularity-flow workspace impact analyze <DIRECTORY> --description TEXT

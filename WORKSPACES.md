@@ -7,6 +7,29 @@ routing, and which repository leads shared Initiative artifacts.
 
 The installed tutorials are `sflow explain workspaces-and-sessions`, `sflow explain capability-management`, and `sflow explain initiative-lifecycle`.
 
+## Recovering an unavailable local object store
+
+When Story readiness cannot read a cloud-offloaded or damaged clone, use **Download fresh branch
+checkout** in Story intake after the failed check, or run:
+
+```sh
+singularity-flow workspace prepare-branch /path/to/workspace --repository payments-api --from-branch main --json
+```
+
+This downloads only the selected branch directly from the manifest's approved remote into
+`workspace/repos/<branch-folder>/<repository-id>`. The branch folder includes a readable branch name
+and a short hash so names remain portable and distinct on Windows and macOS. It never borrows Git
+objects from the old clone. Every required repository in the selected capability gets an independent
+checkout. The original checkout, unpublished commits, drafts, worktrees and previous download attempts
+are preserved. A retry uses a new attempt folder rather than overwriting an existing one.
+
+The VS Code action rechecks readiness and starts the new Story from the fresh checkout without
+retargeting other panels. CLI callers run readiness/Story start from the returned `repositoryPath`.
+The local location receipt does not approve configuration, tests or phase artifacts. Original
+workspace members and older Stories remain recognized. Downloads and remote probes each allow five
+minutes; cancelling or timing out leaves incomplete downloads unselected. Keep the workspace available
+locally: putting fresh checkouts under a cloud-offloaded parent cannot prevent later offloading.
+
 ## The model
 
 ```mermaid

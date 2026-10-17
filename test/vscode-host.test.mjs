@@ -3367,6 +3367,70 @@ test('intake catalog deadlines show retry, superseded reads cancel, and closing 
   assert.deepEqual(registered.errors, []);
 });
 
+test('fresh branch recovery keeps the intake draft and routes readiness and Start through a pinned client', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { IntakePanel } = hostRequire(path.join(packageRoot, 'apps/vscode/dist/lazy-panels-runtime.cjs'));
+  const calls = [];
+  const fresh = path.resolve('/fixture/workspace/repos/main--branch/app');
+  const catalog = { choices: [{ branch: 'main', present: 1, total: 1, everywhere: true, missingFrom: [] }],
+    remote: 'origin', intake: { storyWorkflows: [{ id: 'feature', label: 'Feature', governs: 'story', phases: ['intake'] }] } };
+  let failDownload = true;
+  let started = null;
+  const pinned = {
+    repository: fresh,
+    run: async (args) => {
+      calls.push({ repository: fresh, args });
+      if (args[0] === 'start') return { id: 'STORY-FRESH', repositoryPath: path.join(fresh, 'story-worktree') };
+      return { ...catalog, preflight: { passed: true, readiness: { ready: true, warnings: [], blockers: [] } } };
+    }
+  };
+  const client = {
+    repository: path.resolve('/fixture/workspace/repos/app'),
+    prewarmRuntime: async () => ({ status: 'prepared' }),
+    forkForRepository(repository) { assert.equal(repository, fresh); return pinned; },
+    async run(args) {
+      calls.push({ repository: this.repository, args });
+      if (args[0] === 'workspace' && args[1] === 'prepare-branch') {
+        if (failDownload) throw new Error('The selected remote timed out');
+        return { status: 'ready', branch: 'main', repositoryPath: fresh, originalPreserved: true };
+      }
+      if (args.includes('--preflight-story')) throw new Error('Local Git objects are unavailable');
+      return catalog;
+    }
+  };
+  const panel = IntakePanel.show(context(), client, api.window.createOutputChannel('Intake'), async (result) => { started = result; }, {
+    workspace: 'fixture', repository: client.repository, branch: 'main', inFlight: [], defaults: { source: 'manual' }
+  });
+  t.after(() => panel.dispose());
+  const view = registered.panels.find(entry => entry.id === 'singularityFlow.intake');
+  await until(() => view.webview.html.includes('data-work-type="feature"') ? true : null,
+    { what: 'the workflow catalog to load' });
+  await view.post({ type: 'field', field: 'title', value: 'Preserve my draft' });
+  await view.post({ type: 'field', field: 'description', value: 'Start using independent local objects' });
+  await view.post({ type: 'field', field: 'id', value: 'STORY-FRESH' });
+  await view.post({ type: 'baseBranch', value: 'main' });
+  await until(() => /<button[^>]*data-branch-download/.test(view.webview.html) ? true : null,
+    { what: 'the failed readiness to offer fresh download' });
+  await view.post({ type: 'branchDownload', repositoryPath: '/untrusted/path', branch: 'untrusted' });
+  assert.match(view.webview.html, /Fresh branch download did not complete/);
+  assert.match(view.webview.html, /Preserve my draft/);
+  assert.equal(started, null, 'a failed download cannot start a Story');
+  failDownload = false;
+  await view.post({ type: 'branchDownload', repositoryPath: '/untrusted/path', branch: 'untrusted' });
+  assert.match(view.webview.html, /Story-start readiness confirmed/);
+  assert.equal(client.repository, path.resolve('/fixture/workspace/repos/app'), 'other panels retain their original client');
+  const recovery = calls.find(call => call.args[1] === 'prepare-branch');
+  assert.deepEqual(recovery.args, ['workspace', 'prepare-branch', '--repository-path', client.repository, '--from-branch', 'main', '--json']);
+  assert.ok(calls.some(call => call.repository === fresh && call.args.includes('--preflight-story')));
+  await view.post({ type: 'start' });
+  assert.equal(started?.id, 'STORY-FRESH');
+  assert.ok(calls.some(call => call.repository === fresh && call.args[0] === 'start'));
+  assert.ok(!calls.some(call => call.repository === client.repository && call.args[0] === 'start'));
+  assert.deepEqual(registered.errors, []);
+});
+
 test('readiness deadlines stop checking, preserve intake, offer Retry, and cancel superseded/closed reads', async (t) => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();

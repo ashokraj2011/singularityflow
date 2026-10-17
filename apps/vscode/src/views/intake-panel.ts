@@ -259,6 +259,12 @@ export class IntakePanel {
   private favouriteWrite: Promise<void> = Promise.resolve();
   private readonly runtimeWarmup = new AbortController();
   private prep: IntakeWorktreePreparation | null = null;
+  private branchCheckout: { base: string; client: SingularityFlowClient } | null = null;
+
+  private get storyExecutionClient(): SingularityFlowClient {
+    return this.form.shape === 'story' && this.branchCheckout?.base === this.form.baseBranch
+      ? this.branchCheckout.client : this.client;
+  }
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -808,6 +814,7 @@ export class IntakePanel {
       this.preflightKey = null;
       return this.preflightBaseBranch();
     },
+    branchDownload: () => this.downloadBranch(),
     testRecoveryRefresh: () => {
       if (this.form.busy || !testRecoveryEnabled(this.form)) return;
       return this.preflightBaseBranch();
@@ -1232,12 +1239,46 @@ export class IntakePanel {
     }
   }
 
-  /**
-   * Ask the engine to re-fetch every required base and dry-run the exact Story destination. The
-   * version prevents a slow answer for an earlier branch or identifier from enabling Start.
-   */
+  /** Explicit recovery never mutates the original checkout or the window's shared client. */
+  private async downloadBranch(): Promise<void> {
+    if (this.disposed || this.form.busy || this.form.baselineRunning || this.form.basePreflightChecking
+        || !this.form.targetWorkspace || !this.form.baseBranch
+        || this.client.repository !== this.form.targetRepository) return;
+    this.cancelBasePreflight();
+    this.prep?.cancel(); this.prep = null;
+    const base = this.form.baseBranch;
+    const repository = this.form.targetRepository;
+    const version = ++this.preflightVersion;
+    const controller = new AbortController();
+    this.preflightController = controller;
+    this.update({ ...emptyStoryPreflight(), basePreflightChecking: true,
+      basePreflightReason: 'Downloading the selected branch into an independent workspace checkout…' }, { background: true });
+    try {
+      const result = await this.client.run<{ status?: string; branch?: string; repositoryPath?: string; originalPreserved?: boolean }>([
+        'workspace', 'prepare-branch', '--repository-path', repository, '--from-branch', base, '--json'
+      ], controller.signal);
+      if (this.disposed || version !== this.preflightVersion || this.form.baseBranch !== base
+          || this.client.repository !== repository) return;
+      if (result.status !== 'ready' || result.branch !== base || result.originalPreserved !== true
+          || typeof result.repositoryPath !== 'string' || !path.isAbsolute(result.repositoryPath)) {
+        throw new Error('The branch download did not return a verified checkout. The original checkout and draft are preserved.');
+      }
+      this.branchCheckout = { base, client: this.client.forkForRepository(result.repositoryPath) };
+      this.output.appendLine(`Fresh Story intake checkout: ${result.repositoryPath}. Original checkout preserved.`);
+      await this.preflightBaseBranch();
+    } catch (error) {
+      if (this.disposed || version !== this.preflightVersion) return;
+      this.update({ basePreflightChecking: false, basePreflightPassed: false,
+        basePreflightReason: `Fresh branch download did not complete: ${(error as Error).message}. Your intake draft and original checkout are preserved.` }, { background: true });
+    } finally {
+      if (this.preflightController === controller) this.preflightController = null;
+    }
+  }
+
+  /** Recheck the exact Story tuple; a superseded answer must never enable Start. */
   private async preflightBaseBranch(): Promise<void> {
     this.cancelBasePreflight();
+    this.prep?.cancel(); this.prep = null;
     const command = storyPreflightCommand(this.form);
     if (!command) return;
     const base = this.form.baseBranch;
@@ -1252,7 +1293,7 @@ export class IntakePanel {
       + 'A timeout does not establish a DNS or network failure.'
     )), STORY_READINESS_TIMEOUT_MS);
     try {
-      const result = await this.client.run<{
+      const result = await this.storyExecutionClient.run<{
         preflight?: {
           passed?: boolean; remote?: string; readiness?: StoryStartReadinessResult;
           testReadiness?: PreflightTestReadiness;
@@ -1327,7 +1368,7 @@ export class IntakePanel {
         ? { id: receipt.id, expiresAt, key: JSON.stringify(command) } : null;
       if (this.intakeReceipt && this.form.readinessBaseline !== 'run') {
         this.prep ??= (require(path.join(__dirname, 'runtime-prewarm.cjs')) as typeof import('../runtime-prewarm.ts'))
-          .intakePreparation(this.client);
+          .intakePreparation(this.storyExecutionClient);
         this.prep.schedule(this.intakeReceipt.key, [
           ...intakeCommand(this.form), '--intake-receipt', this.intakeReceipt.id
         ], result.preflight?.remote);
@@ -1370,7 +1411,7 @@ export class IntakePanel {
     try {
       const args = ['precheck', '--run', '--base-commit', base, '--scope', scope, '--json'];
       type BaselinePlan = { planId?: string; status?: string; commands?: Array<{ argv: string[]; purpose: string; workingDirectory: string }>; testRuntime?: { profile?: { nodeOptions?: string[] } }; advisories?: Array<{ message: string }> };
-      const response = await this.client.run<{ data?: { plan?: BaselinePlan; execution?: string }; plan?: BaselinePlan }>(args);
+      const response = await this.storyExecutionClient.run<{ data?: { plan?: BaselinePlan; execution?: string }; plan?: BaselinePlan }>(args);
       const plan = response.data?.plan ?? response.plan;
       if (response.data?.execution === 'no-commands-applicable') {
         this.update({ baselineMessage: 'No baseline commands apply; no tests ran.', baselineRunCommit: base });
@@ -1387,7 +1428,7 @@ export class IntakePanel {
       if (confirmed !== 'Run reviewed baseline' || key !== JSON.stringify(storyPreflightCommand(this.form))
           || this.client.repository !== targetRepository) return;
       this.update({ baselineMessage: 'Running the reviewed baseline…' });
-      await this.client.run([...args, '--confirm-plan', plan.planId!]);
+      await this.storyExecutionClient.run([...args, '--confirm-plan', plan.planId!]);
       if (key === JSON.stringify(storyPreflightCommand(this.form))) this.update({ baselineMessage: 'Baseline completed. Refreshing exact-base evidence…', baselineRunCommit: base });
     } catch (error) {
       this.update({ baselineMessage: `Baseline did not pass: ${(error as Error).message}. No failure was accepted; inspect the observed baseline or choose explicit deferral if policy permits.` });
@@ -1400,6 +1441,7 @@ export class IntakePanel {
   private async start(): Promise<void> {
     this.runtimeWarmup.abort();
     const startRepository = this.client.repository;
+    const executionClient = this.storyExecutionClient;
     // Re-checked here rather than trusted from the page: the disabled button is a courtesy.
     if (intakeProblems(this.form).length || this.form.busy || this.form.enhancing || this.form.baselineRunning) return;
     if (this.client.repository !== this.form.targetRepository) {
@@ -1411,14 +1453,14 @@ export class IntakePanel {
     if (this.form.shape === 'story' && testRecoveryNeedsTerminalReview(this.form)) {
       const terminal = vscode.window.createTerminal({
         name: `Singularity Flow · Baseline review · ${intakeIdentifier(this.form)}`,
-        cwd: this.client.repository,
+        cwd: executionClient.repository,
         shellPath: process.platform === 'win32' ? 'powershell.exe' : '/bin/sh',
         env: { ELECTRON_RUN_AS_NODE: '1' }
       });
       terminal.show(true);
       // UI plan confirmation is not human authority. Never submit the terminal command.
-      terminal.sendText(terminalCommand(this.client.repository, intakeCommand(this.form),
-        process.platform, this.client.location), false);
+      terminal.sendText(terminalCommand(executionClient.repository, intakeCommand(this.form),
+        process.platform, executionClient.location), false);
       return;
     }
     this.update({ busy: true, startStep: null, error: null, recoveryCommand: null, recoveryRouteCommand: null });
@@ -1440,10 +1482,10 @@ export class IntakePanel {
     ];
     const navigation = this.form.shape === 'story' ? this.holdNavigation?.() ?? null : null;
     this.output.appendLine(`\n$ ${terminalCommand(
-      this.client.repository,
+      executionClient.repository,
       redactCliArgsForDisplay(args),
       process.platform,
-      this.client.location
+      executionClient.location
     )}`);
     try {
       type StartPayload = {
@@ -1461,7 +1503,7 @@ export class IntakePanel {
       // The engine reports each stage it enters; show it where the person is looking.
       const result = await vscode.window.withProgress(
         { location: vscode.ProgressLocation.Notification, title: `Starting ${this.form.shape}…` },
-        (progress) => this.client.run<StartPayload & { data?: StartPayload }>(args, undefined, {
+        (progress) => executionClient.run<StartPayload & { data?: StartPayload }>(args, undefined, {
           onProgress: (step) => {
             const label = startProgressLabel(step);
             if (!label || label === this.form.startStep) return;
@@ -1501,7 +1543,7 @@ export class IntakePanel {
       if (failure instanceof CliError) {
         const { showRefusal } = await import('./result-panel.ts');
         if (!this.disposed && this.client.repository === startRepository) showRefusal(failure, {
-          headline: 'Story intake needs recovery', repositoryRoot: startRepository
+          headline: 'Story intake needs recovery', repositoryRoot: executionClient.repository
         });
       }
     } finally {

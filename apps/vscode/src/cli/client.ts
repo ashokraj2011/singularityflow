@@ -966,6 +966,7 @@ export class SingularityFlowClient {
   }
 
   private timeoutFor(args: string[], cancellable = false): number | null {
+    if (args[0] === 'workspace' && args[1] === 'prepare-branch') return WORKSPACE_MUTATION_TIMEOUT_MS;
     // Configuration-only reconstruction still hydrates reviewed assets over the enterprise remote.
     // Do not interrupt its atomic archive/sync transaction at the ordinary two-minute read budget.
     if (args[0] === 'configuration' && ['recreate-sync', 'reconcile', 'cleanup-history'].includes(args[1] ?? '')) return CAPABILITY_AUTHORITY_TIMEOUT_MS;

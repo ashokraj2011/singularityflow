@@ -48,6 +48,10 @@ class GitTestWrapper {
     output.Append('\\', slashes * 2); output.Append('"'); return output.ToString();
   }
   static int Main(string[] args) {
+    // Framework Process uses Console.InputEncoding for its stdin StreamWriter and AutoFlush
+    // writes that encoding's preamble. Use a BOM-less encoding without changing a console code
+    // page; all payload I/O below goes through raw BaseStream, never through the text writer.
+    Console.InputEncoding = new UnicodeEncoding(false, false);
     var child = new Process();
     child.StartInfo.FileName = Decode("${encoded(process.execPath)}");
     child.StartInfo.Arguments = Quote(Decode("${encoded(script)}"));

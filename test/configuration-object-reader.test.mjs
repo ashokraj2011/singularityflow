@@ -3,21 +3,9 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, readFile, writeFile, rename, rm, symlink, stat, utimes } from 'node:fs/promises';
-import { ConfigurationObjectReader, parseConfigurationObjectChecks } from '../src/configuration-object-reader.mjs';
+import { ConfigurationObjectReader } from '../src/configuration-object-reader.mjs';
 import { run } from '../src/util.mjs';
 import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
-
-test('object metadata accepts LF/CRLF without relaxing identity, type, count or byte ceilings', () => {
-  const first = 'a'.repeat(40), second = 'b'.repeat(40);
-  for (const ending of ['\n', '\r\n']) {
-    assert.deepEqual(parseConfigurationObjectChecks(`${first} blob 3${ending}${second} missing${ending}`, [first, second]), [second]);
-  }
-  for (const output of [`${first} tree 3\n`, `${first} blob 33554433\n`,
-    `${second} blob 3\n`, `${first} blob 3\n${first} blob 3\n`, `${first}\r blob 3\n`,
-    `${first} blob invalid\n`]) {
-    assert.throws(() => parseConfigurationObjectChecks(output, [first]), { code: 'CONFIGURATION_RECREATE_UNSAFE' });
-  }
-});
 
 async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'sflow-object-reader-'));

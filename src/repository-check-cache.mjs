@@ -131,13 +131,13 @@ export async function cachedRepositoryCheck(root, { kind, identity, files = [], 
 }
 
 /** Advisory intake only. Never consumed as publication, test or approval authority. */
-export async function cachedStoryReadinessPreview(root, { identity, files = [], env = process.env }, verify) {
-  return cachedCheck(root, { kind: 'story-readiness-preview', identity, files, env,
+export async function cachedStoryReadinessPreview(root, { identity, files = [], env = process.env, settingsRoot = root }, verify) {
+  return cachedCheck(root, { kind: 'story-readiness-preview', identity, files, env, settingsRoot,
     accept: value => value?.preflight?.passed === true }, verify);
 }
 
-async function cachedCheck(root, { kind, identity, files, env, accept = () => true }, verify) {
-  const settings = repositoryCheckSettings(root, { env });
+async function cachedCheck(root, { kind, identity, files, env, settingsRoot = root, accept = () => true }, verify) {
+  const settings = repositoryCheckSettings(settingsRoot, { env });
   const directory = cacheDirectory(root);
   const forced = Boolean(refresh.getStore() || freshGitFactsRequired());
   // Invalidate the old observation before an explicit check. If that check refuses, the next

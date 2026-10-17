@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createStoryReadinessFixture } from '../scripts/story-readiness-benchmark.mjs';
 import { storyReadinessSnapshot } from '../src/story-readiness-snapshot.mjs';
+import { saveRepositoryCheckSettings } from '../src/repository-check-settings.mjs';
 
 test('readiness uses one fresh snapshot, then zero Git processes and zero remote operations across CLI invocations', async t => {
   const f = await createStoryReadinessFixture(); t.after(f.cleanup);
@@ -31,6 +32,10 @@ test('readiness uses one fresh snapshot, then zero Git processes and zero remote
   f.git(f.source, 'push', '--quiet', 'origin', 'HEAD:refs/heads/state');
   const stateChanged = await f.invoke({}, ['--refresh-readiness']);
   assert.equal(stateChanged.metrics.fetches, 0, 'missing state tracking ref must not refetch unchanged main');
+  await saveRepositoryCheckSettings({ mode: 'always', intervalMinutes: 7 }, {
+    workspacePath: await realpath(f.original), file: f.env.SINGULARITY_FLOW_REPOSITORY_CHECK_PREFERENCES });
+  assert.equal((await f.invoke()).packet.readinessSnapshot.intervalMinutes, 7, 'branch checkout inherits original resource preferences');
+  assert.equal((await f.invoke()).metrics.snapshot, 'fresh', 'original always-mode override survives the branch-folder handoff');
   const changed = await f.invoke({}, ['--preflight-story', 'OTHER-READY']);
   assert.equal(changed.metrics.snapshot, 'fresh', 'a different Story cannot reuse the prior tuple');
 });

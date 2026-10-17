@@ -3526,7 +3526,7 @@ test('readiness deadlines stop checking, preserve intake, offer Retry, and cance
   requests[1].resolve({ preflight: { passed: true, readiness: { ready: true, blockers: [], warnings: [] } } });
   await retry;
   assert.match(view.webview.html, /Story-start readiness confirmed/);
-  assert.doesNotMatch(view.webview.html, /<button[^>]*data-readiness-retry/);
+  assert.match(view.webview.html, /<button[^>]*data-readiness-retry[^>]*>Refresh readiness<\/button>/);
   assert.equal(requests[1].signal.aborted, false, 'successful read clears its deadline');
 
   const closing = view.post({ type: 'readinessRetry' });

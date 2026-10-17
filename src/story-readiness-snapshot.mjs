@@ -26,7 +26,8 @@ export async function storyReadinessSnapshot(root, options, checkout, read) {
     for (const name of [...branches, 'sflow/config', 'state']) files.push(path.join(common, 'refs/remotes/origin', name));
     files.push(path.join(common, 'refs/heads', optionString(options, 'preflight-story')));
   }
-  const inspect = () => cachedStoryReadinessPreview(root, { identity, files }, read);
+  const inspect = () => cachedStoryReadinessPreview(root, { identity, files,
+    settingsRoot: checkout?.originalRepositoryPath ?? root }, read);
   const value = await (optionBoolean(options, 'refresh-readiness') ? withFreshRepositoryChecks(inspect) : inspect());
   // A receipt ID is only a handoff to the separately sealed, single-use record. Start still
   // verifies every remote input in one fresh wave. Never extend its independent 15-minute expiry.

@@ -2302,6 +2302,8 @@ export async function publishBranchWithLedgerEntry(root, rawConfig, intent, {
  * push under. Nothing is fetched or pushed here. Returns null when there is no remote or no tracked
  * ledger head to build on, or when the event is already recorded; the caller then uses the ordinary
  * appendLedgerIntent path, which owns initialization, retries and duplicate reconciliation.
+ * `initializeIfAbsent` additionally prepares an unpublished orphan root, without installing refs.
+ * Its caller must freshly observe the remote and atomically lease an absent state ref before use.
  */
 export async function prepareLedgerAppend(root, rawConfig, intent, publishedCommit, {
   env = process.env, commitIdentity = null, commitSigning = null, initializeIfAbsent = false

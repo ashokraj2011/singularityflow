@@ -236,13 +236,14 @@ test('unchanged delivery links freshly observe state and do not publish again', 
   assert.equal(readGit(f.delivery, ['rev-parse', 'state']), tip);
 });
 
-test('an unconfirmed state-only fetch preserves its exact private store and publishes nothing', async t => {
+for (const rejected of [false, true]) test(`an unconfirmed state-only fetch (${rejected ? 'rejected runner' : 'timeout'}) preserves its exact private store`, async t => {
   const f = await fixture(t);
   await f.publish();
   const before = readGit(f.delivery, ['rev-parse', 'state']);
   let retainedStore;
   await assert.rejects(() => f.publish(['service', 'other-service'], { async runRemoteCommand(args, options) {
     if (args[0] === 'fetch' && args.some(arg => arg.startsWith('refs/heads/state:refs/remotes/'))) {
+      if (rejected) throw new Error('Injected unknown process outcome');
       return { status: 0, stdout: '', stderr: '', timedOut: true };
     }
     return runRemoteGitAsync(args, options);
@@ -254,6 +255,24 @@ test('an unconfirmed state-only fetch preserves its exact private store and publ
   t.after(() => rm(retainedStore, { recursive: true, force: true }));
   assert.equal((await lstat(retainedStore)).isDirectory(), true);
   assert.equal(readGit(f.delivery, ['rev-parse', 'state']), before);
+});
+
+test('a delivery state move during materialization preserves the concurrent update', async t => {
+  const f = await fixture(t);
+  await f.publish();
+  let moved = false;
+  await assert.rejects(() => f.publish(['service', 'other-service'], { async runRemoteCommand(args, options) {
+    if (!moved && args[0] === 'fetch' && args.some(arg => arg.startsWith('refs/heads/state:refs/remotes/'))) {
+      moved = true;
+      await publishToStateBranch(f.application, ledger, { 'concurrent/retained.txt': 'concurrent bytes\n' }, 'Concurrent state update', {
+        env: f.env, commitIdentity: f.commitIdentity
+      });
+    }
+    return runRemoteGitAsync(args, options);
+  } }), error => error.code === 'state_branch.concurrent_publication');
+  assert.equal(moved, true);
+  assert.equal(readGit(f.delivery, ['show', 'state:concurrent/retained.txt']), 'concurrent bytes');
+  assert.deepEqual(JSON.parse(readGit(f.delivery, ['show', `state:${CAPABILITY_AUTHORITY_LINK_PATH}`])).subject.capabilityIds, ['service']);
 });
 
 test('state-only delivery publication preserves the SHA-256 repository object format', async t => {
@@ -270,6 +289,17 @@ test('a symbolic delivery state ref is refused without moving its application ta
   git(f.delivery, ['symbolic-ref', 'refs/heads/state', 'refs/heads/main']);
   await assert.rejects(() => f.publish(), error => error.code === 'REMOTE_SYMBOLIC_REF_UNSUPPORTED');
   assert.equal(readGit(f.delivery, ['rev-parse', 'main']), f.main);
+});
+
+test('delivery publication refuses wildcard branch patterns before any Git request', async t => {
+  const f = await fixture(t);
+  for (const invalid of ['main*', 'main?', 'main[0]']) {
+    const { counters } = await timed(async () => {
+      await assert.rejects(() => f.publish(['service'], { defaultBranch: invalid }),
+        error => error.code === 'CAPABILITY_AUTHORITY_LINK_INVALID');
+    });
+    assert.equal(counters['git.requests'] ?? 0, 0);
+  }
 });
 
 test('activation dispatch stays independent of the legacy CLI handler', async () => {

@@ -24,7 +24,7 @@ import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import { readRefTreeResult } from './git-ref-tree.mjs';
 import {
-  mapLimit, removeTemporaryTree, run, SingularityFlowError, writeAtomic
+  isGitRefName, mapLimit, removeTemporaryTree, run, SingularityFlowError, writeAtomic
 } from './util.mjs';
 import { gitRepositoryComparisonKey } from './git-repository-identity.mjs';
 import { gitDisabledHooksPath } from './git-isolation-paths.mjs';
@@ -534,13 +534,14 @@ export async function publishCapabilityAuthorityLink(repositoryRemote, link, {
 } = {}) {
   const repository = assertCredentialFreeRemote(repositoryRemote);
   const validated = validateCapabilityAuthorityLink(link, repository);
-  const gitEnv = enterpriseGitEnvironment(env);
   const branch = String(stateBranch ?? '').trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(branch) || branch.includes('..') || branch.endsWith('/')) {
-    throw new SingularityFlowError('The capability state branch is invalid.', {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(branch) || !isGitRefName(branch)
+      || !isGitRefName(defaultBranch)) {
+    throw new SingularityFlowError('The capability state or default branch is invalid.', {
       code: 'CAPABILITY_AUTHORITY_LINK_INVALID'
     });
   }
+  const gitEnv = enterpriseGitEnvironment(env);
   const frozenIdentity = commitIdentity ?? resolveGitCommitIdentity(process.cwd(), { env });
   const session = new GitRemoteSession({ env: gitEnv, runAsyncCommand: runRemoteCommand });
   const stateRef = `refs/heads/${branch}`;
@@ -584,10 +585,18 @@ export async function publishCapabilityAuthorityLink(repositoryRemote, link, {
       // A rejected/poisoned process result may leave a child using this exact store. Its bytes
       // must survive rather than being removed by finally under an unconfirmed process.
       cleanupUnproven = true;
-      const fetched = await runRemoteCommand([
-        'fetch', '--quiet', '--no-tags', '--refmap=', '--', transport.remote,
-        `${stateRef}:refs/remotes/origin/${branch}`
-      ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
+      let fetched;
+      try {
+        fetched = await runRemoteCommand([
+          'fetch', '--quiet', '--no-tags', '--refmap=', '--', transport.remote,
+          `${stateRef}:refs/remotes/origin/${branch}`
+        ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
+      } catch {
+        throw new SingularityFlowError(
+          'The capability state fetch did not return a confirmed process outcome. Its private store was preserved.', {
+            code: 'CAPABILITY_AUTHORITY_LINK_PUBLICATION_FAILED', details: { retainedStore: scratch }
+          });
+      }
       cleanupUnproven = !processResultCompleted(fetched);
       if (!processResultSucceeded(fetched)) throw new SingularityFlowError(
         `The observed capability state branch could not be fetched for publication.${cleanupUnproven ? ' The private store was preserved because process completion is unconfirmed.' : ''}`, {

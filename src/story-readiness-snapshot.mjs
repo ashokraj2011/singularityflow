@@ -19,6 +19,7 @@ export async function storyReadinessSnapshot(root, options, checkout, read) {
     if (!common || !privateGit) return read();
     files.push(path.join(privateGit, 'HEAD'), path.join(privateGit, 'index'),
       path.join(common, 'config'), path.join(common, 'packed-refs'),
+      path.join(common, 'objects'), path.join(common, 'objects/pack'),
       path.join(common, 'singularity-flow/repository-readiness'),
       path.join(member, 'singularity/workflow.yml'), path.join(member, 'singularity/portfolio.yml'),
       path.join(member, 'singularity/work-items', optionString(options, 'preflight-story'), 'workflow.json'),

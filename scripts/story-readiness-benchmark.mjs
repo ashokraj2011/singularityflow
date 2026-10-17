@@ -73,7 +73,7 @@ export async function benchmarkStoryReadiness({ cliRoot = packageRoot, files = 1
   const fixture = await createStoryReadinessFixture({ cliRoot, files });
   try {
     const rows = [];
-    for (const [name, mode] of [['cold-download', 'always'], ['reused-fresh', 'always'], ['reused-fresh', 'always'],
+    for (const [name, mode] of [['cold-download', 'cached'], ['reused-fresh', 'always'], ['reused-fresh', 'always'],
       ['cache-fill', 'cached'], ['cache-hit', 'cached'], ['cache-hit', 'cached']]) {
       const result = await fixture.invoke({ SINGULARITY_FLOW_REPOSITORY_CHECK_MODE: mode });
       rows.push({ name, mode, ...result.metrics });

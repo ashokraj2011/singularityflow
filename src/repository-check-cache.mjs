@@ -91,8 +91,8 @@ function readCache(file, key, stamp, settings, now) {
 }
 
 /** No Git processes: reuse the existing cross-platform HEAD/config/object visibility observers. */
-function dependencyStamp(root, files, env) {
-  const request = gitFactRequest(['log', '--format=%H', 'HEAD', '--', '.'], { cwd: root, env });
+function dependencyStamp(root, files, env, advisoryPreview = false) {
+  const request = gitFactRequest(advisoryPreview ? ['rev-parse', 'HEAD'] : ['log', '--format=%H', 'HEAD', '--', '.'], { cwd: root, env });
   const observed = gitFactSnapshot(request);
   if (!observed || [...observed.values()].some(value => value === null)) return null;
   const checkout = gitFactCheckout(root);
@@ -138,6 +138,7 @@ export async function cachedStoryReadinessPreview(root, { identity, files = [], 
 
 async function cachedCheck(root, { kind, identity, files, env, settingsRoot = root, accept = () => true }, verify) {
   const settings = repositoryCheckSettings(settingsRoot, { env });
+  const advisoryPreview = kind === 'story-readiness-preview';
   const directory = cacheDirectory(root);
   const forced = Boolean(refresh.getStore() || freshGitFactsRequired());
   // Invalidate the old observation before an explicit check. If that check refuses, the next
@@ -154,12 +155,18 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
       }
     } catch { /* Refresh still runs the original verifier if cache invalidation is unavailable. */ }
   }
+  if (advisoryPreview && settings.mode === 'always') {
+    incrementCommandCounter('repository-checks.refreshes');
+    const value = await verify();
+    observe(root, settings, 'fresh', Date.now());
+    return value;
+  }
   const runtime = { node: process.versions.node, v8: process.versions.v8, platform: process.platform, arch: process.arch };
   const key = repositoryCheckKey({ format: FORMAT, root: path.resolve(root), build: BUILD_INFO, runtime, kind, identity,
     // Includes machine/environment inputs without writing credentials or raw environment values.
     environment: repositoryCheckKey(Object.entries(env).filter(([name]) => HOST_ENV.test(name) && !PRESENTATION_ENV.has(name))
       .sort(([a], [b]) => a.localeCompare(b))) });
-  const stamp = directory ? dependencyStamp(root, files, env) : null;
+  const stamp = directory ? dependencyStamp(root, files, env, advisoryPreview) : null;
   const file = directory ? path.join(directory, `${repositoryCheckKey({ kind, runtime })}.json`) : null;
   const cached = !forced && settings.mode !== 'always' && stamp
     ? readCache(file, key, stamp, settings, Date.now()) : null;
@@ -176,7 +183,7 @@ async function cachedCheck(root, { kind, identity, files, env, settingsRoot = ro
     const value = await verify();
     const checkedAt = Date.now();
     observe(root, settings, 'fresh', checkedAt, stamp ? null : 'Dependency observation unavailable; verification was fresh.');
-    if (!accept(value) || !stamp || dependencyStamp(root, files, env) !== stamp) return value;
+    if (!accept(value) || !stamp || dependencyStamp(root, files, env, advisoryPreview) !== stamp) return value;
     let temporary;
     try {
       if (typeof value?.bytes === 'number' && value.bytes > MAXIMUM_PAYLOAD_BYTES) return value;

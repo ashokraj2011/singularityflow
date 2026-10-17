@@ -356,6 +356,11 @@ not silently treated as a fresh observation. In the intake form, **Refresh readi
 **Retry readiness** after a refusal) forces refresh;
 in the CLI repeat the same command with `--refresh-readiness`.
 
+The advisory preview fingerprints identity, configuration, selected refs, index and object-directory
+metadata, not every loose-object fan-out directory. It does not attest that all Git objects are still
+readable. Start retains complete fresh object/publication checks; routine accepted-Story verification
+keeps its stronger object-visibility fingerprint. `always` mode bypasses preview cache I/O entirely.
+
 On a miss, the coordinator shares one parsed approved definition and batches selected local refs.
 It observes exact selected/configuration/state refs rather than rediscovering all branches.
 It fetches the selected application branch only when its tip differs; a state-ref mismatch does not

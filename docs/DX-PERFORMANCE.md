@@ -60,6 +60,15 @@ The optimized paths preserve exact-ref authority and mutation preflights:
   the base, state, absent Story destination and transport identity;
 - VS Code Story intake lists remote branch choices once. After a base is selected, its preflight
   skips repeating that list but still performs the fresh fetch and dry-run publication checks;
+- the initial intake catalog filters `state`, the configured state branch, `sflow/*`, and framework
+  pin refs by name. It does not walk all local history to classify orphans or open each branch's
+  Story artifact for a label. The response marks local metadata as deferred; a listed name is not
+  readiness evidence. The exact selected base retains its ancestry, authority, and publication
+  checks before creation. This avoids cloud hydration and partial-clone object reads just to open
+  the picker. Catalog discovery has a 30-second UI deadline, cancels superseded/closed requests,
+  and shows a draft-preserving Retry action on failure rather than an indefinite "Reading" state.
+  If Git packs or source files are cloud-only, make the repository available offline (or place the
+  workspace outside cloud-synced folders) before selected-base validation or Story creation;
 - that first preflight also carries the test-policy choice tuple for discovery. Enabling test
   recovery no longer triggers a second full preflight just to evaluate display defaults. Defaults
   are not consent: Start still requires confirmation of the exact returned plan when enabled;

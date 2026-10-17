@@ -140,6 +140,9 @@ export async function readWorkspaceBranches(options = {}, { root = repoRoot() } 
       }
     }
     let catalog = selectedBaseOnly ? null : await measureCommandSpan('intake.catalog', () => storyBaseCatalog(root, {
+      // Catalog discovery is not readiness. Do not read every local branch's history/artifacts
+      // merely to populate the form; exact-base preflight and start retain their full validation.
+      includeLocalMetadata: !intakeRequested,
       observedHeads: originHeads,
       remote: definition.git?.remote ?? 'origin',
       defaultBranch: definition.defaultBaseBranch,
@@ -368,9 +371,10 @@ export async function readWorkspaceBranches(options = {}, { root = repoRoot() } 
       // say which repositories it could not reach, not show an empty list or an error dialog.
       unreachable: catalog.unreachable,
       choices: catalog.choices,
-      // Orphan branches (no history shared with the default branch) are never offered; named per
-      // repository so a reader who expected one learns why it is missing.
+      // Full catalogs explain known orphan exclusions. Initial intake deliberately defers local
+      // history reads; names alone are not evidence that a base is ready for Story creation.
       orphaned: catalog.orphaned ?? {},
+      ...(catalog.localMetadata ? { localMetadata: catalog.localMetadata } : {}),
       preflight,
       ...(existingWorkId ? { existingWork: await intakeExistingWork(root, existingWorkId, catalog) } : {}),
       ...(intake ? { intake: {

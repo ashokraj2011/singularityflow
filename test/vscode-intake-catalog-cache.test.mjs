@@ -14,7 +14,7 @@ import {
   IntakeCatalogCache, MAX_INTAKE_CATALOG_CACHE_BYTES, cliBuildIdentity
 } from '../apps/vscode/src/intake-catalog-cache.ts';
 import {
-  EMPTY_INTAKE_FORM, intakeHtml, intakeProblems
+  EMPTY_INTAKE_FORM, intakeCatalogFailure, intakeHtml, intakeProblems, INTAKE_SCRIPT
 } from '../apps/vscode/src/views/intake-form.ts';
 
 async function fakeCli(t) {
@@ -106,4 +106,34 @@ test('a cached paint is labelled and still cannot start without a fresh readines
   assert.doesNotMatch(html, /data-base-branch="main" checked/, 'no base is ever preselected');
   assert.ok(intakeProblems(form).includes('Choose the remote base branch from which the Story branch will be created.'));
   assert.doesNotMatch(intakeHtml({ ...form, catalogStatus: 'fresh' }), /last known/);
+});
+
+test('initial and cached catalog failures stop reading, preserve drafts, and offer read-only retry', () => {
+  for (const catalogStatus of ['loading', 'cached']) {
+    const before = {
+      ...EMPTY_INTAKE_FORM, shape: 'story', tracker: 'none', catalogStatus,
+      id: 'KEEP-DRAFT', title: 'Keep my title', description: 'Keep my description',
+      workType: 'feature', baseBranch: 'main', baseRemote: 'origin',
+      storyWorkflows: catalogStatus === 'cached' ? [{ id: 'feature', label: 'Feature', phases: ['intake'] }] : [],
+      baseBranchChoices: catalogStatus === 'cached' ? LISTED.choices : [],
+      basePreflightPassed: true, basePreflightChecking: true
+    };
+    const failed = { ...before, ...intakeCatalogFailure('Remote read timed out <unsafe>') };
+    assert.equal(failed.catalogStatus, 'failed');
+    assert.equal(failed.id, before.id);
+    assert.equal(failed.description, before.description);
+    assert.equal(failed.baseBranch, before.baseBranch);
+    assert.equal(failed.storyWorkflows, before.storyWorkflows);
+    assert.equal(failed.basePreflightPassed, false);
+    assert.equal(failed.basePreflightChecking, false);
+    const html = intakeHtml(failed);
+    assert.match(html, /<button[^>]*data-catalog-retry/);
+    assert.match(html, /Remote read timed out &lt;unsafe&gt;/);
+    assert.doesNotMatch(html, /Reading the approved Story workflows|Reading the remote base branches/);
+    assert.doesNotMatch(html, /Refresh or reinitialize repository configuration/,
+      'a failed read is not a reason to recreate valid configuration');
+    assert.match(html, /data-submit="start" disabled/);
+    assert.ok(intakeProblems(failed).some(problem => problem.includes('Could not load workflows and branches')));
+  }
+  assert.match(INTAKE_SCRIPT, /catalogRetry/);
 });

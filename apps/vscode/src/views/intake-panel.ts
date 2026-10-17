@@ -14,7 +14,7 @@ import {
 import { navigateTo } from './navigate.ts';
 import { integerField, registerMessageRouter, stringField, type InboundMessage } from './messages.ts';
 import {
-  EMPTY_INTAKE_FORM, intakeCommand, intakeHasInput, intakeHtml, intakeRegions, intakeIdentifier, intakePlanInputKey, intakeProblems, INTAKE_SCRIPT,
+  EMPTY_INTAKE_FORM, intakeCatalogFailure, intakeCommand, intakeHasInput, intakeHtml, intakeRegions, intakeIdentifier, intakePlanInputKey, intakeProblems, INTAKE_SCRIPT,
   MAX_STORY_ATTACHMENT_SLOTS, mergeStoryAttachments, referenceRepositoryEntries, SHAPES,
   storyPreflightCommand, storyWorkflowSelection, suggestedStoryDocumentName,
   storyWorkflowSelectionForReload,
@@ -43,6 +43,8 @@ const PORTABLE_WORK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const INTAKE_REFERENCE_PREFETCH_DEBOUNCE_MS = 600;
 /** Start passes an intake receipt only while this much of its life remains. */
 const INTAKE_RECEIPT_MINIMUM_REMAINING_MS = 60_000;
+/** Discovery must finish or show Retry; it is not an unbounded Story-start transaction. */
+const INTAKE_CATALOG_TIMEOUT_MS = 30_000;
 
 /** What was started, so the caller can take the reader straight to it. */
 export interface Started {
@@ -119,8 +121,9 @@ interface CatalogListing {
   remote?: string;
   stateBranch?: string;
   unreachable?: { repository: string }[];
-  /** Orphan branches per repository, never offered as a base. */
+  /** Known exclusions; initial discovery defers ancestry checks to selected-base preflight. */
   orphaned?: Record<string, string[]>;
+  localMetadata?: 'deferred-to-selected-base-preflight';
   intake?: EngineStoryWorkflowCatalog & {
     profiles?: { id?: string; label?: string; description?: string; phases?: string[] }[];
     profileReason?: string | null;
@@ -227,6 +230,7 @@ export class IntakePanel {
   private preflightController: AbortController | null = null;
   private enhancementRevision = 0;
   private catalogRevision = 0;
+  private catalogController: AbortController | null = null;
   private enhancementController: AbortController | null = null;
   private trackerChosen = false;
   /** Any input at all. A background result never switches the tracker under somebody's typing. */
@@ -494,10 +498,16 @@ export class IntakePanel {
    */
   private async load({ preserveSelections = false }: { preserveSelections?: boolean } = {}): Promise<void> {
     const revision = ++this.catalogRevision;
+    this.catalogController?.abort();
+    const controller = new AbortController();
+    this.catalogController = controller;
+    const deadline = setTimeout(() => controller.abort(new Error(
+      'Loading workflows and branches timed out. Check remote access and that the repository is available locally, then retry.'
+    )), INTAKE_CATALOG_TIMEOUT_MS);
     const mode: CatalogMode = preserveSelections ? 'reload'
       : this.form.catalogStatus === 'cached' ? 'revalidate' : 'initial';
     try {
-      const listed = await this.client.run<CatalogListing>(['workspace', 'branches', '--json', '--intake']);
+      const listed = await this.client.run<CatalogListing>(['workspace', 'branches', '--json', '--intake'], controller.signal);
       if (revision !== this.catalogRevision || this.disposed) return;
       if (listed.intake?.profileReason) {
         this.output.appendLine(`No delivery profiles could be read: ${listed.intake.profileReason}`);
@@ -522,21 +532,15 @@ export class IntakePanel {
         this.cancelBasePreflight();
         this.preflightVersion += 1;
       }
-      this.update(mode !== 'initial' ? {
-        // A failed refresh must not erase a valid draft or its last known choices. Mark the
-        // authority stale and require another successful preflight before Start can be enabled.
-        workflowReason: `Could not refresh Story workflows: ${reason}`,
-        baseBranchReason: reason,
-        ...emptyStoryPreflight()
-      } : {
-        profiles: [], profile: null, storyWorkflows: [], availableStoryWorkflows: [], workType: null,
-        workflowCatalogReason: null,
-        workflowReason: `Could not load Story workflows: ${reason}`,
-        baseBranchChoices: [], baseBranch: null, baseRemote: null, baseBranchReason: reason, baseBranchOrphans: [],
-        catalogStatus: 'fresh',
+      // Preserve both the draft and the last complete catalog in every mode. A failed reload
+      // used to leave catalogStatus=loading and render "Reading…" even after the CLI timed out.
+      this.update({
         ...emptyStoryPreflight(),
-        inFlight: this.inFlight
+        ...intakeCatalogFailure(reason)
       });
+    } finally {
+      clearTimeout(deadline);
+      if (this.catalogController === controller) this.catalogController = null;
     }
     // Jira is an optional external integration. Do not make its cold process or network probe part
     // of the form's critical path; its result updates only the tracker controls when it arrives.
@@ -649,6 +653,9 @@ export class IntakePanel {
     // stale workflow/configuration bytes while the refresh is in flight.
     this.update({
       ...emptyStoryPreflight(),
+      catalogStatus: this.form.storyWorkflows.length || this.form.baseBranchChoices.length ? 'cached' : 'loading',
+      workflowReason: null,
+      baseBranchReason: null,
       basePreflightChecking: true
     });
     await this.load({ preserveSelections: true });
@@ -853,6 +860,7 @@ export class IntakePanel {
         return this.scheduleIdentifierPreflight();
       }
     },
+    catalogRetry: () => { if (!this.form.busy) return this.reloadCatalog(); },
     workflowRefresh: () => vscode.commands.executeCommand(
       'singularityFlow.refreshRepositorySetup', {
         repositoryPath: this.form.targetRepository ?? undefined,
@@ -1490,6 +1498,8 @@ export class IntakePanel {
     if (this.disposed) return;
     this.disposed = true;
     this.runtimeWarmup.abort();
+    this.catalogController?.abort();
+    this.catalogController = null;
     this.holdWhileVisible(false);
     for (const timer of this.referencePrefetchTimers.values()) clearTimeout(timer);
     this.referencePrefetchTimers.clear();

@@ -249,7 +249,7 @@ export interface IntakeForm extends TestRecoveryDraft {
    * shown while a fresh one is read, or the fresh listing. Only a fresh exact-base readiness check
    * ever enables Start, whichever it is.
    */
-  catalogStatus: 'loading' | 'cached' | 'fresh';
+  catalogStatus: 'loading' | 'cached' | 'fresh' | 'failed';
   /** Whether a tracker is actually configured. Offering Jira when it is not is a dead end. */
   jiraConfigured: boolean;
   /** Why Jira is unavailable, when it is. */
@@ -383,6 +383,17 @@ function storyWorkflowProblem(form: IntakeForm): string {
     : form.workflowReason ?? 'No Story workflow is configured in singularity/workflow.yml.';
 }
 
+/** A read failure is terminal for this attempt, never another indefinite loading state. */
+export function intakeCatalogFailure(reason: string): Partial<IntakeForm> {
+  return {
+    catalogStatus: 'failed',
+    workflowReason: `Could not load workflows and branches: ${reason}`,
+    baseBranchReason: reason,
+    basePreflightPassed: false,
+    basePreflightChecking: false
+  };
+}
+
 /** What each shape is, and — the part that matters — what it leads to. */
 export const SHAPES: { id: Shape; label: string; leads: string }[] = [
   {
@@ -490,6 +501,9 @@ export function intakeProblems(form: IntakeForm): string[] {
       + 'Add at least one person in People & approvals.');
   }
   if (form.shape === 'story') {
+    if (form.catalogStatus === 'failed') {
+      problems.push(form.workflowReason ?? 'Could not load workflows and branches. Retry loading.');
+    }
     problems.push(...testRecoveryProblems(form));
     let references: ReferenceRepositoryEntry[] = [];
     try { references = referenceRepositoryEntries(form.referenceRepositories); } catch (error) {
@@ -958,7 +972,7 @@ function baseBranchHtml(form: IntakeForm): string {
   <section>
     <h2>${icon('workflow')}Base branch</h2>
     <p class="question">Choose explicitly. The new Story branch is cut from the latest remote commit
-      and only the Story branch is published.</p>
+      and only the Story branch is published. The selected branch is validated before Start.</p>
     ${form.catalogStatus === 'cached' ? `<p class="meta" role="status">These are the last known
       branches and workflows. Checking the remote for changes…</p>` : ''}
     ${form.baseBranchChoices.length ? `<div class="base-branch-filter">
@@ -1043,6 +1057,13 @@ function sampleWorkflowOffered(form: IntakeForm, id: string): boolean {
 
 function storyWorkflowHtml(form: IntakeForm): string {
   if (form.shape !== 'story') return '';
+  if (form.catalogStatus === 'failed') {
+    return `<section><h2>${icon('workflow')}Story workflow</h2>
+      <p class="blockers" role="alert">${escape(form.workflowReason ?? 'Could not load workflows and branches.')}</p>
+      <p class="question">Your draft and previous selections are preserved. Nothing has been created.
+        If the repository is in a cloud-synced folder, make it available offline before retrying.</p>
+      <p><button type="button" class="secondary" data-catalog-retry>Retry loading workflows and branches</button></p></section>`;
+  }
   if (!form.storyWorkflows.length && !form.availableStoryWorkflows.length
       && form.catalogStatus === 'loading') {
     return `<section><h2>${icon('workflow')}Story workflow</h2>
@@ -1603,6 +1624,8 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
     if (applyEnhancement) return vscode.postMessage({ type: 'enhanceApply' });
     const discardEnhancement = event.target.closest('[data-enhance-discard]');
     if (discardEnhancement) return vscode.postMessage({ type: 'enhanceDiscard' });
+    const catalogRetry = event.target.closest('[data-catalog-retry]');
+    if (catalogRetry) return vscode.postMessage({ type: 'catalogRetry' });
     const workflowRefresh = event.target.closest('[data-workflow-refresh]');
     if (workflowRefresh) return vscode.postMessage({ type: 'workflowRefresh' });
     const testRecoveryRefresh = event.target.closest('[data-test-recovery-refresh]');

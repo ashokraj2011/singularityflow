@@ -3319,6 +3319,54 @@ test('Story readiness is checked once typing the identifier pauses, and the blur
   assert.deepEqual(registered.errors, []);
 });
 
+test('intake catalog deadlines show retry, superseded reads cancel, and closing cancels discovery', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { IntakePanel } = hostRequire(path.join(packageRoot, 'apps/vscode/dist/lazy-panels-runtime.cjs'));
+  const requests = [];
+  const client = {
+    prewarmRuntime: async () => ({ status: 'prepared' }),
+    run(args, signal) {
+      if (args[0] !== 'workspace') return Promise.resolve({ configured: false });
+      return new Promise((resolve, reject) => {
+        requests.push({ signal, resolve });
+        signal.addEventListener('abort', () => reject(signal.reason ?? new Error('cancelled')), { once: true });
+      });
+    }
+  };
+  const realSetTimeout = globalThis.setTimeout;
+  let accelerateDeadline = true;
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => realSetTimeout(callback,
+    accelerateDeadline && delay === 30_000 && String(callback).includes('Loading workflows and branches timed out')
+      ? 1 : delay, ...args));
+  const panel = IntakePanel.show(context(), client, api.window.createOutputChannel('Intake'), async () => {}, {
+    workspace: null, repository: '/fixture/intake', branch: 'main', inFlight: [], defaults: { source: 'manual' }
+  });
+  t.after(() => panel.dispose());
+  const webview = registered.panels.find(entry => entry.id === 'singularityFlow.intake');
+  await until(() => /<button[^>]*data-catalog-retry/.test(webview.webview.html) ? true : null,
+    { what: 'a catalog deadline to become an actionable error' });
+  assert.equal(requests[0].signal.aborted, true, 'the deadline cancels the actual client read');
+  assert.doesNotMatch(webview.webview.html, /Reading the approved Story workflows|Reading the remote base branches/);
+
+  accelerateDeadline = false;
+  const superseded = webview.post({ type: 'catalogRetry' });
+  const latest = webview.post({ type: 'catalogRetry' });
+  assert.equal(requests[1].signal.aborted, true, 'retry supersedes rather than duplicates the old read');
+  requests[2].resolve({ choices: [{ branch: 'main', present: 1, total: 1, everywhere: true, missingFrom: [] }],
+    remote: 'origin', intake: { storyWorkflows: [{ id: 'feature', label: 'Feature', governs: 'story', phases: ['intake'] }] } });
+  await Promise.all([superseded, latest]);
+  assert.doesNotMatch(webview.webview.html, /<button[^>]*data-catalog-retry/, 'the stale cancelled read cannot overwrite the new result');
+  assert.match(webview.webview.html, /data-work-type="feature"/);
+
+  const closing = webview.post({ type: 'catalogRetry' });
+  panel.dispose();
+  assert.equal(requests[3].signal.aborted, true, 'closing does not leave a background CLI read alive');
+  await closing;
+  assert.deepEqual(registered.errors, []);
+});
+
 test('a second Start Work paints the cached catalog at once, then revalidates without losing choices', async (t) => {
   if (!requireBundle(t)) return;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-intake-cache-'));
@@ -3413,6 +3461,20 @@ test('a second Start Work paints the cached catalog at once, then revalidates wi
   assert.match(second.webview.html, /data-base-branch="main" checked/, 'the chosen base survived revalidation');
   assert.equal(branchReads() - readsBefore, 2,
     'one revalidating catalog read and one readiness check; revalidation never repeats the check');
+
+  run('git', ['remote', 'set-url', 'origin', path.join(base, 'unavailable.git')], { cwd: root });
+  await second.post({ type: 'catalogRetry' });
+  await until(() => /<button[^>]*data-catalog-retry/.test(second.webview.html) ? true : null,
+    { what: 'a failed catalog refresh to stop loading and offer retry' });
+  assert.doesNotMatch(second.webview.html, /Reading the approved Story workflows|Reading the remote base branches/);
+  assert.match(second.webview.html, /value="STORY-CACHED"/, 'read failure preserves the typed identifier');
+  assert.match(second.webview.html, /data-submit="start" disabled/, 'stale readiness cannot start a Story');
+  run('git', ['remote', 'set-url', 'origin', remote], { cwd: root });
+  await second.post({ type: 'catalogRetry' });
+  await until(() => !/<button[^>]*data-catalog-retry/.test(second.webview.html)
+    && /Story-start readiness confirmed for[\s\S]*?create <code>STORY-CACHED<\/code>/.test(second.webview.html)
+    ? true : null, { what: 'explicit retry to restore choices and revalidate the preserved draft' });
+  assert.match(second.webview.html, /data-base-branch="main" checked/, 'retry keeps the selected branch');
   assert.deepEqual(registered.errors, []);
 });
 

@@ -492,16 +492,23 @@ export async function storyBaseCatalog(root, options = {}) {
   const { published, unreachable } = await publishedBranchesAsync(plan.repositories, {
     observed: options.observedHeads ?? null
   });
-  const orphaned = orphanBranches(root, plan, published, options.defaultBranch ?? 'main', stateBranch);
+  // The initial picker needs remote names, not a walk through every local commit/tree. A local
+  // history read may hydrate cloud-only packs or fetch missing partial-clone objects. Defer these
+  // optional decorations for intake; selected-base preflight still proves shared ancestry before
+  // authorizing creation, and mutation-time start repeats that check against the exact fetched base.
+  const includeLocalMetadata = options.includeLocalMetadata !== false;
+  const orphaned = includeLocalMetadata
+    ? orphanBranches(root, plan, published, options.defaultBranch ?? 'main', stateBranch) : {};
   const offered = Object.fromEntries(Object.entries(published)
     .map(([id, branches]) => [id, branches.filter((name) => !(orphaned[id] ?? []).includes(name))]));
   const choices = branchChoices(offered, { stateBranch });
   // A branch that is a Story's own says so: a Story started from it is built on that Story.
-  const stories = storyBranchLabels(root, {
+  const stories = includeLocalMetadata ? storyBranchLabels(root, {
     workItemRoot: options.workItemRoot ?? options.configurationSnapshot?.definition?.workItemRoot
-  }, choices.map((choice) => choice.branch), { remote: plan.remote });
+  }, choices.map((choice) => choice.branch), { remote: plan.remote }) : {};
   return {
     ...plan, stateBranch, published, unreachable, orphaned,
+    ...(!includeLocalMetadata ? { localMetadata: 'deferred-to-selected-base-preflight' } : {}),
     choices: choices.map((choice) => stories[choice.branch] ? { ...choice, story: stories[choice.branch] } : choice)
   };
 }

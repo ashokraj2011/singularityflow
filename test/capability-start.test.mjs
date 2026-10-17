@@ -4,6 +4,8 @@ import { chmod, mkdtemp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import YAML from 'yaml';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 
 import {
   assertStoryBaseSharesHistory, capabilityPublicationPlan, preflightStoryRepositories, publishCapabilityRepositories,
@@ -14,6 +16,7 @@ import { parseBaseSelection, resolveCapabilityBase } from '../src/capability-bra
 import { run } from '../src/util.mjs';
 import { branch as currentBranch, orphanRemoteBranches, refsShareHistory } from '../src/git.mjs';
 import { initializeDefinition } from '../src/config.mjs';
+import { readWorkspaceBranches } from '../src/commands/workspace-branches.mjs';
 import {
   ensureConfigurationBranch, loadStoryConfigurationSnapshot,
   resolveStoryConfigurationAuthority, resolveStoryConfigurationSnapshotCapability
@@ -87,8 +90,9 @@ test('Story base catalog offers only application branches but retains every publ
   assert.ok(catalog.published.application.includes('audit-state'));
 });
 
-test('Story base catalog leaves out orphan branches, says which, and keeps them published', async () => {
+test('Story base catalog leaves out orphan branches, says which, and keeps them published', async (t) => {
   const base = await mkdtemp(path.join(tmpdir(), 'sflow-story-orphans-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
   const repositoryEntry = await repository(base, 'application', ['main', 'release/24.3']);
   const work = path.join(base, repositoryEntry.path);
   // A pages branch made with --orphan shares no history with main.
@@ -120,10 +124,57 @@ test('Story base catalog leaves out orphan branches, says which, and keeps them 
   assert.ok(internal.every((name) => catalog.published.application.includes(name)),
     'internal refs remain in the raw inventory but not in user-facing orphan explanations');
 
+  const observedLocalObjectReads = [];
+  const originalSpawn = childProcess.spawnSync;
+  childProcess.spawnSync = function (program, args, options) {
+    if (options?.cwd === work && args?.some(arg => ['rev-list', 'cat-file', 'ls-tree', 'merge-base'].includes(arg))) {
+      observedLocalObjectReads.push(args);
+    }
+    return originalSpawn(program, args, options);
+  };
+  syncBuiltinESMExports();
+  let quick;
+  try {
+    quick = await storyBaseCatalog(work, { stateBranch: 'audit-state', includeLocalMetadata: false });
+  } finally {
+    childProcess.spawnSync = originalSpawn;
+    syncBuiltinESMExports();
+  }
+  assert.deepEqual(observedLocalObjectReads, [], 'initial discovery never walks local history or opens branch artifacts');
+  assert.equal(quick.localMetadata, 'deferred-to-selected-base-preflight');
+  assert.deepEqual(quick.choices.map(choice => choice.branch), ['main', 'pages', 'release/24.3']);
+  assert.deepEqual(quick.orphaned, {});
+  assert.ok(quick.choices.every(choice => !internal.includes(choice.branch)), 'internal refs are filtered by name alone');
+  assert.throws(() => assertStoryBaseSharesHistory(work, {
+    remote: 'origin', baseBranch: 'pages', defaultBranch: 'main'
+  }), error => error.code === 'STORY_BASE_ORPHAN', 'a quick catalog never waives selected-base ancestry');
+
   // A shallow clone cannot tell an orphan from history it does not have, so it offers every branch.
   const shallow = path.join(base, 'shallow');
   git(base, 'clone', '--quiet', '--depth', '1', '--no-single-branch', `file://${path.join(base, 'application.git')}`, shallow);
   assert.deepEqual(orphanRemoteBranches(shallow, { remote: 'origin', defaultBranch: 'main' }), { checked: false, orphans: [] });
+});
+
+test('workspace intake discovery filters names without scanning application history', async (t) => {
+  const base = await mkdtemp(path.join(tmpdir(), 'sflow-intake-names-'));
+  t.after(() => rm(base, { recursive: true, force: true }));
+  const entry = await repository(base, 'application', ['main', 'develop']);
+  const root = path.join(base, entry.path);
+  await initializeDefinition(root);
+  const historyReads = [];
+  const originalSpawn = childProcess.spawnSync;
+  childProcess.spawnSync = function (program, args, options) {
+    if (options?.cwd === root && args?.some(arg => ['rev-list', 'merge-base'].includes(arg))) historyReads.push(args);
+    return originalSpawn(program, args, options);
+  };
+  syncBuiltinESMExports();
+  let listed;
+  try { listed = await readWorkspaceBranches({ intake: true }, { root }); }
+  finally { childProcess.spawnSync = originalSpawn; syncBuiltinESMExports(); }
+  assert.equal(listed.localMetadata, 'deferred-to-selected-base-preflight');
+  assert.deepEqual(listed.choices.map(choice => choice.branch), ['develop', 'main']);
+  assert.ok(listed.intake.storyWorkflows.some(workflow => workflow.id === 'feature'));
+  assert.deepEqual(historyReads, [], 'the complete intake handler does not enumerate roots or ancestry');
 });
 
 test('explicit framework bases are refused before repository inspection', async () => {

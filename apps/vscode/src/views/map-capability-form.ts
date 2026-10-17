@@ -22,7 +22,7 @@ import {
   type RepositoryOnboardingPlan,
   type RepositoryOnboardingResult
 } from './repository-onboarding-model.ts';
-import { escape, icon } from './webview.ts';
+import { escape, icon, repositoryWebLink } from './webview.ts';
 import { startWizardProgress, type StartWizardProgress } from './start-wizard.ts';
 
 const SSH_USERNAME_PROTOCOLS = new Set(['ssh:', 'git+ssh:', 'ssh+git:']);
@@ -705,13 +705,13 @@ export function mapCapabilityHtml(form: MapCapabilityForm, journey: StartWizardP
   const inspectionMatches = form.inspectionMatches.map((match) => {
     const capabilities = match.capabilities?.length ? match.capabilities.join(', ') : 'no assigned capability';
     const stale = match.stale ? ' (validated cached result)' : '';
-    return `<li>${escape(`${capabilities} in ${match.lead ?? 'an existing capability map'}${stale}`)}</li>`;
+    return `<li>${escape(`${capabilities} in ${match.lead ?? 'an existing capability map'}${stale}`)}${match.capabilities?.length ? repositoryWebLink(match.repositoryUrl) : ''}</li>`;
   }).join('');
   const ambiguousInspectionMatches = form.inspectionMatches.map((match) => {
     const capabilities = match.capabilities?.length ? match.capabilities.join(', ') : 'no assigned capability';
     const stale = match.stale ? ' (validated cached result)' : '';
     const lead = match.lead?.trim() ?? '';
-    return `<li>${escape(`${capabilities} in ${lead || 'an existing capability map'}${stale}`)}${lead
+    return `<li>${escape(`${capabilities} in ${lead || 'an existing capability map'}${stale}`)}${match.capabilities?.length ? repositoryWebLink(match.repositoryUrl) : ''}${lead
       ? ` <button type="button" class="secondary" data-map-inspect-authority="${escape(lead)}">Check this capability map</button>`
       : ''}</li>`;
   }).join('');

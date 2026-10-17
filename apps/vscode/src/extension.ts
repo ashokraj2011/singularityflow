@@ -2530,8 +2530,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ...status,
           availableCapabilities: capabilityChoices(
             organisation.capabilities ?? [], organisation.repositories ?? {}
-          ).map(({ id, name, depth, ancestors, repository }) => ({
-            id, name, depth, ancestors, repository
+          ).map(({ id, name, depth, ancestors, repository, url }) => ({
+            id, name, depth, ancestors, repository, url
           }))
         };
       } catch (error) {

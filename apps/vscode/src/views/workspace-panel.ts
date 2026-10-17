@@ -11,8 +11,8 @@ import { showCompactWarningMessage, showCompactInformationMessage } from "../com
  * capabilities ship from.
  */
 import * as vscode from 'vscode';
-import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
-import { navigateTo } from './navigate.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page, repositoryWebTarget } from './webview.ts';
+import { navigateTo, openRepositoryWeb } from './navigate.ts';
 import { booleanField, registerMessageRouter, stringField } from './messages.ts';
 import {
   capabilityChoices, effectiveLead, EMPTY_WORKSPACE_FORM, formPrepareCommand,
@@ -117,6 +117,8 @@ export class WorkspacePanel {
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
+      const repositoryWeb = repositoryWebTarget(raw);
+      if (repositoryWeb) return void openRepositoryWeb(repositoryWeb);
  this.router.route(raw); }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();

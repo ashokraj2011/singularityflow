@@ -8,8 +8,8 @@ import { showCompactWarningMessage, showCompactInformationMessage } from "../com
  */
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
-import { contentSecurityPolicy, navigationTarget, nonce, page } from './webview.ts';
-import { navigateTo } from './navigate.ts';
+import { contentSecurityPolicy, navigationTarget, nonce, page, repositoryWebTarget } from './webview.ts';
+import { navigateTo, openRepositoryWeb } from './navigate.ts';
 import { SetupProposalPanel } from './setup-proposal.ts';
 import { rememberSetupReviewRepository } from './setup-review-repositories.ts';
 import { collectReviewConfirmation } from './review-confirmation.ts';
@@ -499,6 +499,8 @@ export class BootstrapPanel {
       // this panel's own message contract, because "go to another page" is not this panel's business.
       const navigation = navigationTarget(raw);
       if (navigation) return void navigateTo(navigation);
+      const repositoryWeb = repositoryWebTarget(raw);
+      if (repositoryWeb) return void openRepositoryWeb(repositoryWeb);
  void this.receive(raw); }, null, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
     this.render();

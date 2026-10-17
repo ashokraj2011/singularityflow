@@ -908,14 +908,17 @@ export interface RepositorySnapshot {
    */
   comprehension?: ComprehensionIdeSnapshot;
   /**
-   * The portfolio, of which only the approval authorities are read: an Epic cannot start until at
-   * least one is populated, and finding that out after asking five questions is a poor greeting.
+   * The portfolio, of which the approval authorities and repository declarations are read: an Epic
+   * cannot start until at least one authority is populated, and finding that out after asking five
+   * questions is a poor greeting. Repositories give each onboarded capability its GitHub link.
    */
   portfolio?: {
     approvalAuthorities?: Record<string, {
       label?: string; allowAnyGitIdentity?: boolean;
       members?: Array<{ name?: string; email?: string; githubLogin?: string; login?: string }>;
     }>;
+    /** Declared repositories by ID; a capability names the ID and this says where it is cloned from. */
+    repositories?: Record<string, { url?: string; defaultBranch?: string; [key: string]: unknown } | null>;
     [key: string]: unknown;
   } | null;
   portfolioPath?: string;

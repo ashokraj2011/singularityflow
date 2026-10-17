@@ -9,9 +9,17 @@ import {
   CAPABILITY_KINDS, capabilityDetail, flattenCapabilities, formatPolicyValue, parentChoices
 } from './capability-model.ts';
 import type { CapabilityDetail } from './capability-model.ts';
-import { escape, icon } from './webview.ts';
+import { escape, icon, repositoryWebLink } from './webview.ts';
 import type { CapabilityNode } from '../cli/snapshot.ts';
 import type { CapabilityDashboard } from './capability-dashboard-model.ts';
+
+/** The portfolio's repository declarations, keyed by the repository ID a capability names. */
+export type RepositoryDeclarations = Record<string, { url?: unknown } | null | undefined>;
+
+/** A delivery repository's ID, then its GitHub page when the portfolio declares one there. */
+function repositoryCell(id: string, repositories: RepositoryDeclarations): string {
+  return `<code>${escape(id)}</code>${repositoryWebLink(repositories[id]?.url)}`;
+}
 
 /** Editable fields, named once. The page cannot introduce a key that is not on this list. */
 const FIELDS = [
@@ -61,7 +69,7 @@ function metadataEditor(metadata: Record<string, string> = {}): string {
   </div>`;
 }
 
-function treeHtml(tree: CapabilityNode[], selected: string | null): string {
+function treeHtml(tree: CapabilityNode[], selected: string | null, repositories: RepositoryDeclarations): string {
   const rows = flattenCapabilities(tree);
   if (!rows.length) {
     return `<p class="muted">Nothing describes what this organisation builds yet. The lead repository
@@ -77,7 +85,7 @@ function treeHtml(tree: CapabilityNode[], selected: string | null): string {
             <a href="#" data-select="${escape(row.id)}">${icon(row.kind === 'delivery' ? 'delivery' : 'collection')}${escape(row.name)}</a>
           </td>
           <td class="muted">${escape(row.kind)}</td>
-          <td>${row.repository ? `${icon('repository')}<code>${escape(row.repository)}</code>` : '<span class="muted">—</span>'}</td>
+          <td>${row.repository ? `${icon('repository')}${repositoryCell(row.repository, repositories)}` : '<span class="muted">—</span>'}</td>
           <td class="muted">${row.jira?.projectKey ? `${icon('jira')}${escape(row.jira.projectKey)}` : '—'}</td>
           <td class="muted">${escape((row.teams ?? []).join(', ') || '—')}</td>
         </tr>`).join('')}</tbody>
@@ -148,7 +156,7 @@ function implicitCapabilityHtml(tree: CapabilityNode[], error: string | null): s
 
 function managedCapabilityHtml(
   tree: CapabilityNode[], selected: string | null, error: string | null,
-  dashboard?: CapabilityDashboard
+  dashboard: CapabilityDashboard | undefined, repositories: RepositoryDeclarations
 ): string {
   const detail = selected ? capabilityDetail(tree, selected) : null;
   return `<header>
@@ -158,7 +166,7 @@ function managedCapabilityHtml(
   ${error ? `<section class="plain"><p class="blockers">${escape(error)}</p></section>` : ''}
   ${dashboard ? dashboardHtml(dashboard) : ''}
   <section class="plain">
-    ${treeHtml(tree, selected)}
+    ${treeHtml(tree, selected, repositories)}
     <p class="remedy">This map is receipt-managed. Changes are proposed for review; direct form edits are disabled.</p>
     <div class="action-grid">
       <button type="button" class="secondary" data-onboard-team>${icon('team')}Onboard a team</button>
@@ -238,7 +246,7 @@ function parentSelect(
   </select>`;
 }
 
-function detailHtml(tree: CapabilityNode[], selected: string): string {
+function detailHtml(tree: CapabilityNode[], selected: string, repositories: RepositoryDeclarations): string {
   const detail = capabilityDetail(tree, selected);
   if (!detail) return '<p class="muted">That capability is no longer in the map.</p>';
   const overridden = detail.policy.filter((field) => field.overridden);
@@ -269,7 +277,7 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
         ${detail.children.length ? detail.children.map((child) => `
         <tr><td>Child</td><td><button type="button" class="link" data-select="${escape(child.id)}">${escape(child.name)}</button></td>
           <td class="muted">${escape(child.kind)}</td>
-          <td>${child.repository ? `<code>${escape(child.repository)}</code>` : '<span class="muted">—</span>'}</td></tr>`).join('')
+          <td>${child.repository ? repositoryCell(child.repository, repositories) : '<span class="muted">—</span>'}</td></tr>`).join('')
     : '<tr><td>Children</td><td colspan="3" class="muted">No direct children.</td></tr>'}
       </tbody>
     </table>
@@ -386,7 +394,7 @@ function detailHtml(tree: CapabilityNode[], selected: string): string {
   <table>
     <thead><tr><th>Capability</th><th>Repository</th></tr></thead>
     <tbody>${detail.ships.map((ship) => `
-      <tr><td>${escape(ship.id)}</td><td><code>${escape(ship.repository)}</code></td></tr>`).join('')}</tbody>
+      <tr><td>${escape(ship.id)}</td><td>${repositoryCell(ship.repository, repositories)}</td></tr>`).join('')}</tbody>
   </table>`
     : '<p class="muted">No delivery capability in this subtree names a repository yet.</p>'}`;
 }
@@ -396,10 +404,12 @@ export function bodyHtml(
   selected: string | null,
   error: string | null,
   dashboard?: CapabilityDashboard,
-  mode: 'implicit' | 'explicit-legacy' | 'explicit-managed' = 'explicit-legacy'
+  mode: 'implicit' | 'explicit-legacy' | 'explicit-managed' = 'explicit-legacy',
+  repositories: RepositoryDeclarations = {}
 ): string {
+  // No map means no onboarded capability, so the implicit page gains no repository link.
   if (mode === 'implicit') return implicitCapabilityHtml(tree, error);
-  if (mode === 'explicit-managed') return managedCapabilityHtml(tree, selected, error, dashboard);
+  if (mode === 'explicit-managed') return managedCapabilityHtml(tree, selected, error, dashboard, repositories);
   return `
   <header>
     <h1>${icon('capability', { size: 20 })}Capabilities</h1>
@@ -409,14 +419,14 @@ export function bodyHtml(
   ${error ? `<section class="plain"><p class="blockers">${escape(error)}</p></section>` : ''}
   ${dashboard ? dashboardHtml(dashboard) : ''}
   <section class="plain">
-    ${treeHtml(tree, selected)}
+    ${treeHtml(tree, selected, repositories)}
     <p><button type="button" class="secondary" data-onboard-team>${icon('team')}Onboard a team and its repositories</button></p>
     ${flattenCapabilities(tree).length
     ? `<p><button class="secondary" data-add="${escape(selected ?? '')}">Add a capability${selected ? ' inside this one' : ''}</button></p>`
     : ''}
   </section>
   <section class="editor-card">${selected
-    ? detailHtml(tree, selected)
+    ? detailHtml(tree, selected, repositories)
     : '<p class="muted">Choose a capability to see what it delivers, who works on it, and the policy it is held to. Use Add a capability to map a new capability and its Git repository.</p>'}
   </section>`;
 }

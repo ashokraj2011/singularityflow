@@ -548,7 +548,7 @@ export function intakeProblems(form: IntakeForm): string[] {
           : form.catalogStatus === 'loading' ? 'Reading the remote base branches…'
             : 'No remote base branch is available for this Story.'));
     } else if (form.basePreflightChecking) {
-      problems.push(form.basePreflightReason ?? 'Checking Story-start readiness for configuration, workflow agents, and publication access…');
+      problems.push(form.basePreflightReason ?? 'Checking Story-start readiness for configuration, workflow agents, and the selected branch…');
     } else if (!form.basePreflightPassed) {
       problems.push(form.basePreflightReason
         ?? 'Remote publication preflight must succeed before this Story can start.');
@@ -1009,7 +1009,7 @@ function baseBranchHtml(form: IntakeForm): string {
       Publication access and changed inputs are checked on Start.</p>
       ${form.basePreflightReason ? `<p class="meta" role="status">${escape(form.basePreflightReason)}</p>` : ''}
       <button type="button" class="secondary" data-readiness-retry ${form.busy || form.basePreflightChecking ? 'disabled' : ''}>Refresh readiness</button>` : ''}
-    ${form.basePreflightChecking ? '<p class="meta">Checking approved configuration, workflow agents, and every required remote…</p>' : ''}
+    ${form.basePreflightChecking ? '<p class="meta">Checking approved configuration, workflow agents, and selected branches. Publication access is checked on Start.</p>' : ''}
     ${form.basePreflightChecking && form.basePreflightReason ? `<p class="meta" role="status">${escape(form.basePreflightReason)}</p>` : ''}
     ${form.baseBranch && !form.basePreflightPassed && !form.basePreflightChecking && form.basePreflightReason ? `<p class="blockers" role="alert">${escape(form.basePreflightReason)}</p>
       <button type="button" class="secondary" data-readiness-retry ${form.busy || form.basePreflightChecking ? 'disabled' : ''}>Retry readiness</button>

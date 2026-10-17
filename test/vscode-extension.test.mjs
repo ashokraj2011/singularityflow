@@ -6527,7 +6527,8 @@ test('an intake form still missing something disables the button and lists why',
     shape: 'story', tracker: 'none', id: 'checkout-retry', title: 'A', description: 'B',
     basePreflightPassed: false, basePreflightChecking: true
   }));
-  assert.match(waitingForRemote, /Checking approved configuration, workflow agents, and every required remote/);
+  assert.match(waitingForRemote, /Checking approved configuration, workflow agents, and selected branches/);
+  assert.match(waitingForRemote, /Publication access is checked on Start/);
   assert.match(waitingForRemote, /<button type="button" data-submit="start" disabled>/);
 });
 

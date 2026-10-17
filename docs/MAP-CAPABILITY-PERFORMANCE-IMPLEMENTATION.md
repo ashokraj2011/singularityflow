@@ -116,9 +116,81 @@ checks the supported argument profile; it is not an execution claim against that
 Real-provider before/after timings and those host checks remain required before making release
 performance claims.
 
-The final focused implementation batch passed 69 tests with zero skips. The workspace host batch
+The earlier focused Map Capability batch passed 69 tests with zero skips. The workspace host batch
 passed 54 tests, with additional retained-owner and safety reruns passing. Project checks (1,938),
 TypeScript checking, and extension compilation passed. A broader diagnostic run found two regressions
 and a stale navigation assertion; all three targeted reruns passed after correction. The all-suite
 aggregate was stopped because final edits superseded its source snapshot; it did not complete and
 is not a passing full-suite or release qualification receipt.
+
+## First-activation qualification — 2026-10-17
+
+The matched control is `f715f1731835a85a6b48ac67a5c69b9d270b4fe1`. The Mac candidate is
+`fd56275b7351af33af36ea225cb6d3c1ebea0119`; the Windows candidate is
+`fc00b423b9f5fc6da07007e3cc807bf4081494f8`. That commit and the subsequent
+`b96cd364f97992d453cadac65060b577b025b152` add test-fixture corrections only, with identical
+product/runtime sources. Both measurements use
+Node 25.5.0, three alternating samples per variant and warmth, and 1,000 application files. Every
+activation verifies the approved configuration, ledger audit, state mirror, portable locator and
+unchanged application main branches. No real capability or workspace is activated.
+
+Mac medians on Apple M4 (macOS 26.7.1, Git 2.54.0):
+
+| Request | Control | Candidate | Reduction |
+|---|---:|---:|---:|
+| First activation, cold V8 cache | 2.601 s | 1.706 s | 34.4% |
+| First activation, prewarmed V8 cache | 2.405 s | 1.681 s | 30.1% |
+
+Cold ranges were 2.584–3.062 s control and 1.682–1.794 s candidate; prewarmed ranges were
+2.148–2.419 s and 1.657–1.763 s. These are local-remotes CLI measurements, not operating-system
+cold starts or office-provider/native-VS-Code latency claims. Prewarming cost is recorded
+separately rather than counted as free preparation. Review/catalog latency is not claimed improved.
+
+Native Windows CI medians (OS 10.0.26100, Git 2.56.0.windows.2):
+
+| Request | Control | Candidate | Reduction |
+|---|---:|---:|---:|
+| First activation, cold V8 cache | 15.715 s | 10.644 s | 32.3% |
+| First activation, prewarmed V8 cache | 15.502 s | 11.234 s | 27.5% |
+
+Cold ranges were 15.456–24.052 s control and 10.524–11.070 s candidate; prewarmed ranges were
+15.172–23.697 s and 10.387–11.631 s. The small sample and runner variance do not establish a
+general cold-versus-prewarmed ordering. Both platform runs retained 36 successful requests each.
+The Windows benchmark job passed in retained qualification run `39027284881`;
+that run's separate regression job exposed the test-fixture transport issue described below and
+was not an overall passing regression receipt. This is native Windows execution against local
+remotes, not qualification of a particular office laptop, Defender configuration or corporate WAN.
+
+Every measured activation uses 139 Git processes instead of 211, 13 remote Git commands instead
+of 26, four pushes instead of nine, and one clone instead of two. The remaining clone is the
+configuration checkout; the delivery application branch is no longer cloned for its locator.
+Candidate Windows counters attribute 8.491–9.713 s to aggregate Git service time; the main
+configuration YAML parse span is only 8.4–9.4 ms. Those service counters are not an additive
+end-to-end wall-time decomposition, but identify remaining Git work rather than YAML parsing as
+the next measured target. No further remote-authority or signing checks were removed to lower it.
+
+Mac validation passed the 182-test capability suite, the 175-test ledger/onboarding/transport
+batch, 63 cache/lease/activation tests after portability corrections, the full 61-test portable
+ledger rerun, two completion-before-refresh UI tests and three publication smoke tests. These
+batches overlap and are not a whole-repository test count. All had zero failures and zero skips.
+Extension compilation, TypeScript checking and all 2,673 repository checks passed.
+
+Windows qualification also exposed and corrected a derived-cache recovery bug: synthetic Windows
+mode bits must not be interpreted as POSIX permissions. Exact owner/death, nonce/inode, link and
+successor fences remain enforced; unknown-child stores are still preserved. The race tests now use
+the existing native executable test bridge, not Unix-only PATH scripts or a production Git-policy
+exception. The .NET compiler is a test-fixture requirement, not a new product runtime dependency.
+Those fixtures freeze the normal approved enterprise transport environment so Windows `Path` /
+`PATH` spellings cannot silently select a different executable at the remote boundary.
+
+The final Windows regression receipt is retained run `39027981266`: the complete ledger file
+passed 50 tests with 11 existing POSIX-only skips, including both corrected native race cases;
+both built-extension completion tests passed with zero skips. Extension build, TypeScript checking
+and all 2,673 repository checks passed. The identical-runtime activation/cache/lease batch in
+`39027284881` passed 61 tests with four POSIX signal-fixture skips. No failed test is counted as a
+pass; the earlier failed runs are retained separately. The final rerun deliberately reuses the
+already-completed benchmark rather than measuring the same unchanged runtime again.
+
+All hosted qualification files live only on a disposable CI branch, never on production main.
+Raw JSON measurements and TAP receipts are retained outside the source checkout; production
+contains the reproducible benchmark script and this bounded record, not machine-specific paths.

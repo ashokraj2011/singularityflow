@@ -125,7 +125,9 @@ test('history visibility changes inside a request cannot reuse a pre-hydration a
     await writeFile(path.join(root, '.git/shallow'), git('rev-parse', 'HEAD') + '\n');
     const limited = readStoryPathHistory(root, 'audit.json', 'Audit');
     assert.equal(limited.touches.length, 1);
-    assert.equal(limited.history.length, 0);
+    // Git treats a shallow boundary as a root/addition. It must be the current boundary,
+    // not the original addition retained by the earlier complete-history observation.
+    assert.deepEqual(limited.history, [git('rev-parse', 'HEAD')]);
     await rm(path.join(root, '.git/shallow'));
     assert.equal(readStoryPathHistory(root, 'audit.json', 'Audit').touches.length, 2);
   });

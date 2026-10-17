@@ -19,7 +19,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const gateway = path.join(root, 'src', 'gateway');
@@ -69,7 +69,7 @@ test('every name a gateway module destructures from a deferred import is exporte
     const source = await readFile(file, 'utf8');
     for (const { specifier, names } of destructuredImports(source)) {
       if (!specifier.startsWith('.')) continue;
-      const module = await import(path.resolve(path.dirname(file), specifier));
+      const module = await import(pathToFileURL(path.resolve(path.dirname(file), specifier)).href);
       for (const name of names) {
         checked += 1;
         if (!(name in module)) {

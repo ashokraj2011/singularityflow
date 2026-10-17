@@ -61,3 +61,16 @@ test('a new strict execution load cannot conceal changed resolution or committed
   await assert.rejects(loadAcceptedStoryExecution(f.repository, f.workId),
     { code: 'SKP_AMENDMENT_REVALIDATION_INVALID' });
 });
+
+test('stress fixture Git cannot launch detached maintenance or change its measured environment', async t => {
+  const f = await createWarmReadFixture({ historyCommits: 120, artifacts: 8 }); t.after(f.cleanup);
+  assert.equal(f.totalCommits, 122);
+  assert.equal(f.env.GIT_CONFIG_COUNT, process.env.GIT_CONFIG_COUNT);
+  f.git(['config', 'maintenance.auto', 'true']);
+  f.git(['config', 'gc.auto', '1']);
+  assert.equal(f.git(['config', 'maintenance.auto']), 'false');
+  assert.equal(f.git(['config', 'gc.auto']), '0');
+  assert.equal(f.git(['config', '--local', 'maintenance.auto']), 'true', 'repository configuration stays unchanged');
+  assert.equal(f.git(['config', '--local', 'gc.auto']), '1');
+  assert.equal(f.git(['fsck', '--no-dangling']), '');
+});

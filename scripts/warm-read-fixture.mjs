@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { propose, acceptAmendment } from './amended-read-fixture.mjs';
+import { withoutAutomaticGitMaintenance } from '../src/platform-process.mjs';
 
 const source = fileURLToPath(new URL('..', import.meta.url));
 export async function createWarmReadFixture({ files = 0, branches = 0, storyMode = 'legacy', historyCommits = 0, artifacts = 0 } = {}) {
@@ -32,12 +33,16 @@ export async function createWarmReadFixture({ files = 0, branches = 0, storyMode
       SINGULARITY_FLOW_COPILOT_MODE_FILE: path.join(directory, 'mode.json'),
       SINGULARITY_FLOW_TEST_IDENTITY: 'Warm Read Tester',
       SINGULARITY_FLOW_TEST_SELECTION: JSON.stringify({ workType: 'chore', agent: 'developer' }) };
+    // Fixture setup bypasses the product runner. Keep its rapid history commits from spawning
+    // overlapping Git 2.54 detached repacks, just as production Git children are protected.
+    // Do not alter the measured CLI environment or any user/repository Git configuration.
+    const gitEnvironment = withoutAutomaticGitMaintenance(env);
     const git = (args, { cwd = repository } = {}) => {
       try {
         // The generated files are known LF text. Suppress setup-only round-trip warnings that
         // otherwise flood Windows pipes; keep autocrlf and every measured checkout unchanged.
         return execFileSync('git', args[0] === 'add' ? ['-c', 'core.safecrlf=false', ...args] : args, {
-          cwd, env, encoding: 'utf8', timeout: process.platform === 'win32' ? 120_000 : 30_000,
+          cwd, env: gitEnvironment, encoding: 'utf8', timeout: process.platform === 'win32' ? 120_000 : 30_000,
           maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe']
         }).trim();
       } catch (error) {

@@ -136,9 +136,16 @@ export async function cachedStoryReadinessPreview(root, { identity, files = [], 
     accept: value => value?.preflight?.passed === true }, verify);
 }
 
+/** Selection inventory only. A complete catalog is still not Story-start authority. */
+export async function cachedStoryIntakeCatalog(root, { identity, files = [], env = process.env, settingsRoot = root }, verify) {
+  return cachedCheck(root, { kind: 'story-intake-catalog', identity, files, env, settingsRoot,
+    accept: value => value?.choicesComplete === true && Array.isArray(value.intake?.storyWorkflows)
+      && !value.unreachable?.length && !value.intake.workflowReason && !value.intake.workflowCatalogReason }, verify);
+}
+
 async function cachedCheck(root, { kind, identity, files, env, settingsRoot = root, accept = () => true }, verify) {
   const settings = repositoryCheckSettings(settingsRoot, { env });
-  const advisoryPreview = kind === 'story-readiness-preview';
+  const advisoryPreview = kind === 'story-readiness-preview' || kind === 'story-intake-catalog';
   const directory = cacheDirectory(root);
   const forced = Boolean(refresh.getStore() || freshGitFactsRequired());
   // Invalidate the old observation before an explicit check. If that check refuses, the next

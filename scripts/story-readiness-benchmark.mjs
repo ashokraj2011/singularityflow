@@ -50,16 +50,17 @@ export async function createStoryReadinessFixture({ files = 100, cliRoot = packa
     const env = { ...process.env, NODE_ENV: 'test', SINGULARITY_FLOW_ACTIVE_WORKSPACE: selection,
       SINGULARITY_FLOW_WORKSPACE_REGISTRY: registry, SINGULARITY_FLOW_LEAD_REGISTRY: path.join(directory, 'leads.json'),
       SINGULARITY_FLOW_REPOSITORY_CHECK_PREFERENCES: path.join(directory, 'preferences.json') };
-    const invoke = async (extra = {}, more = []) => {
+    const invoke = async (extra = {}, more = [], catalog = false) => {
       const started = performance.now();
       const run = spawnSync(process.execPath, [path.join(cliRoot, 'bin/singularity-flow.mjs'), 'workspace', 'branches',
-        '--intake', '--preflight-story', 'PERF-READY', '--from-branch', 'main', '--work-type', 'feature',
-        '--selected-base-only', '--mint-intake-receipt', '--json', '--timings', ...more], {
+        '--intake', ...(catalog ? [] : ['--preflight-story', 'PERF-READY', '--from-branch', 'main', '--work-type', 'feature',
+          '--selected-base-only', '--mint-intake-receipt']), '--json', '--timings', ...more], {
         cwd: original, env: { ...env, ...extra }, encoding: 'utf8', timeout: 120_000, maxBuffer: 8 * 1024 * 1024
       });
       const ms = performance.now() - started;
       assert.equal(run.status, 0, `${run.stderr}\n${run.stdout}`);
-      const packet = JSON.parse(run.stdout); assert.equal(packet.preflight.passed, true, run.stdout);
+      const packet = JSON.parse(run.stdout);
+      assert.equal(catalog ? packet.choicesComplete : packet.preflight.passed, true, run.stdout);
       const lines = (await readFile(path.join(packet.repositoryPath, '.git/singularity-flow/dx/timings.jsonl'), 'utf8')).trim().split('\n');
       const timing = JSON.parse(lines.at(-1));
       const counters = timing.counters ?? {};
@@ -68,7 +69,8 @@ export async function createStoryReadinessFixture({ files = 100, cliRoot = packa
         fetches: timing.fetches, configurationLoads: counters['configuration.definition-load'] ?? 0,
         snapshot: packet.readinessSnapshot?.source ?? null, counters } };
     };
-    return { directory, original, source, remote, env, git, invoke, cleanup };
+    return { directory, original, source, remote, env, git, invoke,
+      invokeCatalog: (extra, more) => invoke(extra, more, true), cleanup };
   } catch (error) { await cleanup(); throw error; }
 }
 

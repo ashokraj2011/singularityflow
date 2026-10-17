@@ -383,7 +383,7 @@ export class IntakePanel {
     if (repository && current.form.targetRepository
         && await canonicalFilesystemPath(repository)
           !== await canonicalFilesystemPath(current.form.targetRepository)) return false;
-    await current.reloadCatalog();
+    await current.reloadCatalog({ refresh: true });
     return true;
   }
 
@@ -502,7 +502,7 @@ export class IntakePanel {
    * A form painted from the cached catalog revalidates here, keeping what the person chose since
    * wherever it is still offered.
    */
-  private async load({ preserveSelections = false }: { preserveSelections?: boolean } = {}): Promise<void> {
+  private async load({ preserveSelections = false, refresh = false }: { preserveSelections?: boolean; refresh?: boolean } = {}): Promise<void> {
     const revision = ++this.catalogRevision;
     this.catalogController?.abort();
     const controller = new AbortController();
@@ -513,7 +513,8 @@ export class IntakePanel {
     const mode: CatalogMode = preserveSelections ? 'reload'
       : this.form.catalogStatus === 'cached' ? 'revalidate' : 'initial';
     try {
-      const listed = await this.client.run<CatalogListing>(['workspace', 'branches', '--json', '--intake'], controller.signal);
+      const listed = await this.client.run<CatalogListing>(['workspace', 'branches', '--json', '--intake',
+        ...(refresh ? ['--refresh-readiness'] : [])], controller.signal);
       if (revision !== this.catalogRevision || this.disposed) return;
       if (listed.intake?.profileReason) {
         this.output.appendLine(`No delivery profiles could be read: ${listed.intake.profileReason}`);
@@ -651,7 +652,7 @@ export class IntakePanel {
     }
   }
 
-  private async reloadCatalog(): Promise<void> {
+  private async reloadCatalog({ refresh = false }: { refresh?: boolean } = {}): Promise<void> {
     this.cancelBasePreflight();
     this.preflightVersion += 1;
     // The last successful preflight is bound to the catalog revision being replaced. Invalidate it
@@ -664,7 +665,7 @@ export class IntakePanel {
       baseBranchReason: null,
       basePreflightChecking: true
     });
-    await this.load({ preserveSelections: true });
+    await this.load({ preserveSelections: true, refresh });
   }
 
   /**
@@ -872,7 +873,7 @@ export class IntakePanel {
         return this.scheduleIdentifierPreflight();
       }
     },
-    catalogRetry: () => { if (!this.form.busy) return this.reloadCatalog(); },
+    catalogRetry: () => { if (!this.form.busy) return this.reloadCatalog({ refresh: true }); },
     workflowRefresh: () => vscode.commands.executeCommand(
       'singularityFlow.refreshRepositorySetup', {
         repositoryPath: this.form.targetRepository ?? undefined,

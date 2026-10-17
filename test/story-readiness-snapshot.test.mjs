@@ -8,6 +8,34 @@ import { createStoryReadinessFixture } from '../scripts/story-readiness-benchmar
 import { storyReadinessSnapshot } from '../src/story-readiness-snapshot.mjs';
 import { saveRepositoryCheckSettings } from '../src/repository-check-settings.mjs';
 
+test('intake catalogs share the cache policy, explicit refresh and complete-only admission', async t => {
+  const f = await createStoryReadinessFixture({ files: 1 }); t.after(f.cleanup);
+  const first = await f.invokeCatalog();
+  assert.equal(first.packet.readinessSnapshot.scope, 'story-intake-catalog');
+  assert.equal(first.packet.readinessSnapshot.source, 'fresh');
+  const hit = await f.invokeCatalog();
+  assert.equal(hit.metrics.snapshot, 'cache'); assert.equal(hit.metrics.gitSpawns, 0);
+  assert.equal(hit.metrics.remoteGitOperations, 0);
+  assert.deepEqual(hit.packet.intake.storyWorkflows, first.packet.intake.storyWorkflows);
+  f.git(f.source, 'push', '--quiet', 'origin', 'main:refs/heads/catalog-added');
+  assert.equal((await f.invokeCatalog()).metrics.snapshot, 'cache', 'remote-only changes wait for refresh or TTL');
+  const refreshed = await f.invokeCatalog({}, ['--refresh-readiness']);
+  assert.equal(refreshed.metrics.snapshot, 'fresh'); assert.ok(refreshed.metrics.remoteGitOperations > 0);
+  assert.match(JSON.stringify(refreshed.packet.choices), /catalog-added/u);
+  assert.equal((await f.invokeCatalog()).metrics.snapshot, 'cache');
+
+  let calls = 0;
+  const read = async () => { calls++; return { choicesComplete: true, intake: { storyWorkflows: [] },
+    unreachable: [{ repository: 'offline' }] }; };
+  await storyReadinessSnapshot(f.original, { intake: true, json: true, test: 'incomplete' }, null, read);
+  await storyReadinessSnapshot(f.original, { intake: true, json: true, test: 'incomplete' }, null, read);
+  assert.equal(calls, 2, 'degraded catalogs never replace complete cached snapshots');
+  calls = 0;
+  await storyReadinessSnapshot(f.original, { intake: true, 'work-id': 'EXISTING' }, null, read);
+  await storyReadinessSnapshot(f.original, { intake: true, 'work-id': 'EXISTING' }, null, read);
+  assert.equal(calls, 2, 'existing Story conflict reads never use the advisory catalog cache');
+});
+
 test('readiness uses one fresh snapshot, then zero Git processes and zero remote operations across CLI invocations', async t => {
   const f = await createStoryReadinessFixture(); t.after(f.cleanup);
   const cold = await f.invoke();

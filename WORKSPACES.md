@@ -339,8 +339,10 @@ See [VS Code guide](docs/VS-CODE.md), [Capability ledger](CAPABILITY-LEDGER.md),
 [State authority](docs/STATE-AUTHORITY.md) for the related boundaries.
 # Story-readiness snapshots
 
-Selected-branch Story readiness is an advisory preview, not permission to publish. It reuses one
-machine-local snapshot for the exact Story/workflow/base/capability/reference and test-policy tuple.
+The initial workflow/branch catalog and selected-branch Story readiness are advisory previews, not
+permission to publish. Each has a separate machine-local snapshot. Readiness is bound to the exact
+Story/workflow/base/capability/reference and test-policy tuple; existing-Story conflict queries are
+never cached as catalogs. Only complete catalogs and passing readiness results may be reused.
 The existing repository-check preferences apply: `cached` defaults to 30 minutes, `always` checks
 again on every request, and `manual` retains a preview until its local dependencies change or an
 explicit refresh is requested. VS Code workspace preferences and the native CLI use the same settings.
@@ -354,7 +356,8 @@ tuple invalidates reuse. Corrupt, unsafe, expired or unavailable caches fall bac
 blocked results are never cached. A remote-only change is discovered on expiry or explicit refresh,
 not silently treated as a fresh observation. In the intake form, **Refresh readiness** (or
 **Retry readiness** after a refusal) forces refresh;
-in the CLI repeat the same command with `--refresh-readiness`.
+in the CLI repeat the same command with `--refresh-readiness`. The catalog's Refresh action and
+configuration-change notifications also bypass the catalog cache; simply reopening intake does not.
 
 The advisory preview fingerprints identity, configuration, selected refs, index and object-directory
 metadata, not every loose-object fan-out directory. It does not attest that all Git objects are still

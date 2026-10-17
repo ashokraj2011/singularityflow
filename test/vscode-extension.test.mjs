@@ -1708,7 +1708,7 @@ test('CLI resolution prefers the setting, then the bundled CLI, and says which i
 
   const bundled = resolveCli({ extensionPath: '/ext', exists });
   assert.equal(bundled.source, 'bundled');
-  assert.equal(bundled.cli, path.join('/ext', 'cli', 'bin', 'singularity-flow.mjs'));
+  assert.equal(bundled.cli, path.resolve('/ext', 'cli', 'bin', 'singularity-flow.mjs'));
 });
 
 test('a configured CLI that does not exist fails at resolution, not at first use', () => {
@@ -6126,11 +6126,14 @@ test('Story Intake refreshes retained catalogs after configuration changes witho
   ]);
   assert.match(panel, /static async configurationChanged\(/);
   assert.match(panel, /void IntakePanel\.current\.reloadCatalog\(\)/,
-    'reopening a retained Intake panel must not reveal a stale catalog');
+    'reopening a retained Intake panel consults the configurable catalog cache');
   assert.match(panel,
-    /private async reloadCatalog\(\)[\s\S]*?emptyStoryPreflight\(\)[\s\S]*?basePreflightChecking: true[\s\S]*?await this\.load\(\{ preserveSelections: true \}\)/,
-    'catalog reload must invalidate the prior ready state before awaiting fresh authority');
-  assert.match(panel, /load\(\{ preserveSelections: true \}\)/);
+    /private async reloadCatalog\([\s\S]*?emptyStoryPreflight\(\)[\s\S]*?basePreflightChecking: true[\s\S]*?await this\.load\(\{ preserveSelections: true, refresh \}\)/,
+    'catalog reload must invalidate the prior ready state before reading its snapshot');
+  assert.match(panel, /await current\.reloadCatalog\(\{ refresh: true \}\)/,
+    'configuration changes force a new catalog rather than waiting for cache expiry');
+  assert.match(panel, /catalogRetry: [^\n]+reloadCatalog\(\{ refresh: true \}\)/,
+    'the human catalog Refresh action bypasses cache');
   assert.match(panel, /Intake catalog could not be read/,
     'a failed reload must retain the prior draft and make its stale state visible');
   assert.match(extension,

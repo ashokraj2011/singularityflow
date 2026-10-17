@@ -18,6 +18,7 @@ import {
 } from './git-execution.mjs';
 import { enterpriseGitEnvironment, inheritEnterpriseGitEnvironment } from './git-enterprise-environment.mjs';
 import { publishToStateBranch } from './ledger.mjs';
+import { resolveGitCommitIdentity } from './git.mjs';
 import { canonicalJson, recordSha256 } from './records.mjs';
 import { currentSchemaVersion, readRecord } from './schema-migrations.mjs';
 import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
@@ -528,44 +529,98 @@ export async function publishCapabilityAuthorityLink(repositoryRemote, link, {
   stateBranch = DEFAULT_CAPABILITY_STATE_BRANCH,
   env = process.env,
   commitIdentity = null,
-  commitSigning = null
+  commitSigning = null,
+  runRemoteCommand = runRemoteGitAsync
 } = {}) {
   const repository = assertCredentialFreeRemote(repositoryRemote);
   const validated = validateCapabilityAuthorityLink(link, repository);
   const gitEnv = enterpriseGitEnvironment(env);
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-link-publish-'));
-  try {
-    const { cloned, transport } = await cloneOneBranch(repository, defaultBranch, scratch, {
-      env: gitEnv, operation: 'remote-configuration'
+  const branch = String(stateBranch ?? '').trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(branch) || branch.includes('..') || branch.endsWith('/')) {
+    throw new SingularityFlowError('The capability state branch is invalid.', {
+      code: 'CAPABILITY_AUTHORITY_LINK_INVALID'
     });
-    if (cloned.status !== 0) throw new SingularityFlowError(
-      `Cannot prepare portable capability discovery for '${sanitizeRemote(repository)}'. ${cloned.failure?.advice ?? 'Git clone failed.'}`, {
-        code: cloned.failure?.code ?? 'CAPABILITY_AUTHORITY_LINK_PUBLICATION_FAILED'
-      }
-    );
-    const bytes = canonicalJson(validated);
+  }
+  const frozenIdentity = commitIdentity ?? resolveGitCommitIdentity(process.cwd(), { env });
+  const session = new GitRemoteSession({ env: gitEnv, runAsyncCommand: runRemoteCommand });
+  const stateRef = `refs/heads/${branch}`;
+  const observed = await session.observeAsync(repository, {
+    refs: [stateRef, `refs/heads/${defaultBranch}`], includeHead: true
+  });
+  requireRemoteObservation(observed, 'capability authority-link publication');
+  const stateCommit = observed.refs.get(stateRef) ?? null;
+  const formatCommit = stateCommit ?? observed.refs.get(`refs/heads/${defaultBranch}`)
+    ?? observed.refs.get('HEAD');
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(formatCommit ?? '')) {
+    throw new SingularityFlowError('The repository object format could not be established without application objects.', {
+      code: 'CAPABILITY_AUTHORITY_LINK_PUBLICATION_FAILED'
+    });
+  }
+  const bytes = canonicalJson(validated);
+  if (stateCommit) {
+    // An exact-tip routing receipt can prove an unchanged link without another publication store.
+    // It is still freshly observed and subject-bound; a cache hit never authorizes a changed link.
+    const current = await readCapabilityAuthorityLink(repository, {
+      stateBranch: branch, env: gitEnv, remoteSession: session, runRemoteCommand
+    });
+    if (current.status === 'current' && current.stateCommit === stateCommit && canonicalJson(current.link) === bytes) {
+      incrementCommandCounter('capability-authority.publication-current');
+      return Object.freeze({ repository: sanitizeRemote(repository), stateBranch: branch,
+        published: false, current: true, commit: stateCommit, linkSha256: validated.linkSha256 });
+    }
+  }
+  const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-capability-link-publish-'));
+  let cleanupUnproven = false;
+  try {
+    // No application branch is cloned: an inert bare store fetches only the exact state branch.
+    // This also supports a missing first state branch without transferring any application blob.
+    const transport = frozenRemoteTransport(repository, { env: gitEnv });
+    const initEnv = { ...transport.env, GIT_DEFAULT_HASH: formatCommit.length === 64 ? 'sha256' : 'sha1' };
+    inheritEnterpriseGitEnvironment(transport.env, initEnv);
+    run('git', ['-c', `core.hooksPath=${gitDisabledHooksPath()}`, 'init', '--quiet', '--bare', '--template=',
+      ...(formatCommit.length === 64 ? ['--object-format=sha256'] : []), scratch], { cwd: scratch, env: initEnv });
+    run('git', ['config', 'remote.origin.url', transport.remote], { cwd: scratch, env: transport.env });
+    if (stateCommit) {
+      // A rejected/poisoned process result may leave a child using this exact store. Its bytes
+      // must survive rather than being removed by finally under an unconfirmed process.
+      cleanupUnproven = true;
+      const fetched = await runRemoteCommand([
+        'fetch', '--quiet', '--no-tags', '--refmap=', '--', transport.remote,
+        `${stateRef}:refs/remotes/origin/${branch}`
+      ], { cwd: scratch, operation: 'remote-configuration', env: transport.env });
+      cleanupUnproven = !processResultCompleted(fetched);
+      if (!processResultSucceeded(fetched)) throw new SingularityFlowError(
+        `The observed capability state branch could not be fetched for publication.${cleanupUnproven ? ' The private store was preserved because process completion is unconfirmed.' : ''}`, {
+          code: 'CAPABILITY_AUTHORITY_LINK_PUBLICATION_FAILED',
+          details: { ...(cleanupUnproven ? { retainedStore: scratch } : {}) }
+        });
+      const fetchedCommit = run('git', ['rev-parse', '--verify', `refs/remotes/origin/${branch}^{commit}`], {
+        cwd: scratch, env: transport.env
+      }).stdout.trim();
+      if (fetchedCommit !== stateCommit) throw new SingularityFlowError(
+        'The capability state branch changed while its publication was being prepared.', {
+          code: 'state_branch.concurrent_publication'
+        });
+    }
     const result = await publishToStateBranch(scratch, {
-      enabled: true,
-      branch: stateBranch,
-      remote: 'origin',
-      publication: 'warn',
+      enabled: true, branch, remote: 'origin', publication: 'warn',
       signing: commitSigning?.required === true ? 'commit' : 'off'
     }, { [CAPABILITY_AUTHORITY_LINK_PATH]: bytes }, 'Publish capability authority link', {
-      env: transport.env,
-      transportRemote: repository,
-      commitIdentity,
-      commitSigning,
+      env: transport.env, transportRemote: repository,
+      commitIdentity: frozenIdentity, commitSigning,
+      expectedRemoteSha: stateCommit, baseRef: stateCommit, refreshRemote: false,
+      initializeLocally: true,
       exactBlobSha256: { [CAPABILITY_AUTHORITY_LINK_PATH]: sha256(bytes) }
     });
     return Object.freeze({
-      repository: sanitizeRemote(repository), stateBranch,
+      repository: sanitizeRemote(repository), stateBranch: branch,
       published: result.changed === true,
       current: result.changed !== true,
       commit: result.commit ?? null,
       linkSha256: validated.linkSha256
     });
   } finally {
-    await removeTemporaryTree(scratch);
+    if (!cleanupUnproven) await removeTemporaryTree(scratch);
   }
 }
 

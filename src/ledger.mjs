@@ -24,6 +24,7 @@ import { observePublicationHookEffects } from './git-hook-effects.mjs';
 import { incrementCommandCounter } from './dx-timing-context.mjs';
 import { storyPointersFromLedger } from './story-state-index.mjs';
 import { compactCanonicalJson } from './records.mjs';
+import { processResultCompleted, processResultSucceeded } from './process-result.mjs';
 import {
   configuredRemoteAuthority, configuredRemoteIdentity, frozenRemoteTransport,
   safeGitDiagnosticReference
@@ -40,6 +41,8 @@ export const LEDGER_EVENT_TYPES = Object.freeze([
 ]);
 const HEAD_PATH = 'ledger/head.json';
 const README_PATH = 'README.md';
+const LEDGER_README = '# Singularity Flow Capability Ledger\n\n'
+  + 'This orphan branch is an append-only workflow ledger. It has no shared ancestry with application branches and must never be merged into them.\n';
 
 function git(root, args, {
   allowFailure = false, stdio = 'pipe', env = process.env,
@@ -118,30 +121,52 @@ function refExistsInEnvironment(root, ref, env = process.env) {
 // The ledger may update only the named ref, never a symbolic ref's target. `rev-parse` and
 // `show-ref` dereference symbolic refs, so neither proves that the lease belongs to this ref.
 // Keep this observation exact and bounded; an unavailable answer is not an absent ref.
-function directRefObservation(root, ref, env = process.env) {
+function directRefObservations(root, refs, env = process.env) {
+  const requested = [...new Set(refs)];
   const observed = git(root, [
-    'for-each-ref', '--count=1', '--format=%(refname)%00%(objectname)%00%(symref)', ref
+    'for-each-ref', `--count=${requested.length + 1}`,
+    '--format=%(refname)%00%(objectname)%00%(symref)', ...requested
   ], {
-    allowFailure: true, env, encoding: 'buffer', maxBuffer: 1024, timeoutMs: 5_000
+    allowFailure: true, env, encoding: 'buffer', maxBuffer: 1024 * requested.length, timeoutMs: 5_000
   });
-  if (observed.status !== 0 || observed.error || observed.timedOut
-      || !Buffer.isBuffer(observed.stdout)) return { status: 'unavailable', commit: null };
-  if (observed.stdout.length === 0) {
+  const unavailable = () => ({ status: 'unavailable', commit: null });
+  const exactReads = () => ({ get: ref => directRefObservations(root, [ref], env).get(ref) });
+  // A prefix belonging to the lower-priority local ref may overflow a paired listing. Fall back
+  // to the original exact reads, not a new refusal of an otherwise valid remote authority.
+  if (requested.length > 1 && observed.outputOverflow === true) return exactReads();
+  if (!processResultSucceeded(observed)
+      || !Buffer.isBuffer(observed.stdout)) return { get: unavailable };
+  if (observed.stdout.length && observed.stdout.at(-1) !== 0x0a) return { get: unavailable };
+  const answers = new Map();
+  for (const row of observed.stdout.toString('utf8').split('\n').filter(Boolean)) {
+    const match = /^([^\x00\n]+)\x00([0-9a-f]{40}|[0-9a-f]{64})\x00([^\x00\n]*)$/u.exec(row);
+    // for-each-ref also accepts prefixes. An unrelated local descendant must not invalidate a
+    // higher-priority direct remote ref. Single-ref reads retain the original refusal semantics.
+    if (match && requested.length > 1 && !requested.includes(match[1])
+        && requested.some(ref => match[1].startsWith(`${ref}/`))) return exactReads();
+    if (!match || !requested.includes(match[1]) || answers.has(match[1])) return { get: unavailable };
+    answers.set(match[1], { status: match[3] ? 'symbolic' : 'direct', commit: match[3] ? null : match[2] });
+  }
+  return { get(ref) {
+    if (!requested.includes(ref)) return unavailable();
+    if (answers.has(ref)) return answers.get(ref);
     // Git omits dangling symbolic refs from for-each-ref. Probe only this ambiguous case so an
     // absent-ref lease cannot be confused with a symbolic pin or state ref whose target is gone.
+    // Probe lazily: a valid remote state ref must not pay for an unused local-ref absence check.
     const symbolic = git(root, ['symbolic-ref', '-q', ref], {
       allowFailure: true, env, encoding: 'buffer', maxBuffer: 1024, timeoutMs: 5_000
     });
-    if (symbolic.status === 0) return { status: 'symbolic', commit: null };
-    return symbolic.status === 1 && !symbolic.error && !symbolic.timedOut
-      ? { status: 'absent', commit: null }
-      : { status: 'unavailable', commit: null };
-  }
-  const match = /^([^\x00\n]+)\x00([0-9a-f]{40}|[0-9a-f]{64})\x00([^\x00\n]*)\n$/u
-    .exec(observed.stdout.toString('utf8'));
-  if (!match || match[1] !== ref) return { status: 'unavailable', commit: null };
-  if (match[3]) return { status: 'symbolic', commit: null };
-  return { status: 'direct', commit: match[2] };
+    const answer = processResultSucceeded(symbolic)
+      ? { status: 'symbolic', commit: null }
+      : symbolic.status === 1 && processResultCompleted(symbolic)
+        ? { status: 'absent', commit: null } : unavailable();
+    answers.set(ref, answer);
+    return answer;
+  } };
+}
+
+function directRefObservation(root, ref, env = process.env) {
+  return directRefObservations(root, [ref], env).get(ref);
 }
 
 function requireDirectLocalStateRef(root, config, env = process.env) {
@@ -324,8 +349,10 @@ function hasRemoteInEnvironment(root, remote, env = process.env) {
 }
 
 function ledgerHead(root, config, { env = process.env } = {}) {
-  for (const ref of [remoteRef(config), localRef(config)]) {
-    const observed = directRefObservation(root, ref, env);
+  const refs = [remoteRef(config), localRef(config)];
+  const observations = directRefObservations(root, refs, env);
+  for (const ref of refs) {
+    const observed = observations.get(ref);
     if (observed.status === 'direct') return ref;
     if (observed.status === 'symbolic' || observed.status === 'unavailable') {
       throw new SingularityFlowError(
@@ -1115,6 +1142,18 @@ function initialHead() {
   };
 }
 
+/** The ordinary orphan ledger root, also used when its first publication is built locally. */
+async function commitInitialLedgerRoot(worktree, config, operation, env) {
+  await writeCanonicalJson(path.join(worktree, HEAD_PATH), initialHead());
+  await writeAtomic(path.join(worktree, README_PATH), LEDGER_README);
+  git(worktree, ['add', README_PATH, HEAD_PATH], { env });
+  git(worktree, commitArgs(
+    config, 'Initialize Singularity Flow capability ledger',
+    operation.commitIdentity, operation.commitSigning
+  ), { env: gitCommitIdentityEnvironment(env, operation.commitIdentity) });
+  return git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
+}
+
 export async function initializeLedger(root, rawConfig = {}, {
   publish = true, refreshRemote = true, env = process.env, repairPins = true,
   transportRemote = undefined, commitIdentity = null, commitSigning = null
@@ -1138,17 +1177,18 @@ export async function initializeLedger(root, rawConfig = {}, {
   const operation = frozenCommitOperation(root, config, {
     env, commitIdentity, commitSigning
   });
+  if (!publish && await canBuildLedgerObjects(root, env)) {
+    // A private state-only store has no application HEAD to attach a worktree to. Build the same
+    // orphan root directly, retaining it locally; its caller publishes root + data in one CAS.
+    const sha = await commitLedgerFilesFromObjects(root, config, null, [
+      { path: HEAD_PATH, text: canonicalJson(initialHead()) },
+      { path: README_PATH, text: LEDGER_README }
+    ], 'Initialize Singularity Flow capability ledger', operation, env);
+    updateDirectLocalStateRef(root, config, sha, null, env);
+    return { created: true, branch: config.branch, commit: sha, orphan: true, refspecInstalled };
+  }
   return temporaryWorktree(root, null, async (worktree) => {
-    await writeCanonicalJson(path.join(worktree, HEAD_PATH), initialHead());
-    await writeAtomic(path.join(worktree, README_PATH),
-      '# Singularity Flow Capability Ledger\n\n'
-      + 'This orphan branch is an append-only workflow ledger. It has no shared ancestry with application branches and must never be merged into them.\n');
-    git(worktree, ['add', README_PATH, HEAD_PATH], { env });
-    git(worktree, commitArgs(
-      config, 'Initialize Singularity Flow capability ledger',
-      operation.commitIdentity, operation.commitSigning
-    ), { env: gitCommitIdentityEnvironment(env, operation.commitIdentity) });
-    const sha = git(worktree, ['rev-parse', 'HEAD'], { env }).stdout.trim();
+    const sha = await commitInitialLedgerRoot(worktree, config, operation, env);
     // Keep the orphan root reachable locally before attempting the network operation.
     // If the first push fails, `ledger init` can be retried without losing the commit
     // when this temporary worktree is removed.
@@ -1923,6 +1963,11 @@ async function ledgerWorktreeHooksInstalled(root, env) {
   return false;
 }
 
+async function canBuildLedgerObjects(root, env) {
+  return env.SINGULARITY_FLOW_LEDGER_APPEND_WORKTREE !== '1'
+    && !await ledgerWorktreeHooksInstalled(root, env);
+}
+
 /**
  * The bytes at `commit:path` for each path, absent paths omitted; null when Git could not answer.
  *
@@ -1955,8 +2000,7 @@ function ledgerFilesAtCommit(root, commit, paths, env) {
  * `SINGULARITY_FLOW_LEDGER_APPEND_WORKTREE=1` asks for it.
  */
 async function prepareLedgerAppendFromObjects(root, config, base, intent, publishedCommit, idempotency, pin, operation, env) {
-  if (env.SINGULARITY_FLOW_LEDGER_APPEND_WORKTREE === '1') return undefined;
-  if (await ledgerWorktreeHooksInstalled(root, env)) return undefined;
+  if (!await canBuildLedgerObjects(root, env)) return undefined;
   const recordedPath = idempotencyPath(idempotency.hash);
   const files = ledgerFilesAtCommit(root, base, [recordedPath, HEAD_PATH], env);
   if (!files) return undefined;
@@ -1967,12 +2011,23 @@ async function prepareLedgerAppendFromObjects(root, config, base, intent, publis
   if (!files.has(HEAD_PATH)) throw new SingularityFlowError(`Ledger branch is missing ${HEAD_PATH}.`);
   const head = readRecord('ledger-entry', files.get(HEAD_PATH)).record;
   const prepared = ledgerEntryFiles(config, intent, publishedCommit, idempotency, head, pin);
+  const ledgerCommit = await commitLedgerFilesFromObjects(
+    root, config, base, prepared.files, prepared.message, operation, env
+  );
+  return Object.freeze({
+    branch: config.branch, eventId: intent.eventId, entryHash: prepared.entryHash,
+    sequence: prepared.sequence, ledgerCommit, pinRef: pin, expectedRemoteSha: base
+  });
+}
+
+/** One bounded private index builds either an orphan root or an append, without application files. */
+async function commitLedgerFilesFromObjects(root, config, base, files, message, operation, env) {
   const scratch = await mkdtemp(path.join(os.tmpdir(), 'sflow-ledger-index-'));
   try {
     const indexEnv = { ...env, GIT_INDEX_FILE: path.join(scratch, 'index') };
-    git(root, ['read-tree', base], { env: indexEnv });
+    git(root, ['read-tree', base ?? '--empty'], { env: indexEnv });
     const sources = [];
-    for (const [index, file] of prepared.files.entries()) {
+    for (const [index, file] of files.entries()) {
       const source = path.join(scratch, `record-${index}`);
       await writeFile(source, file.text);
       sources.push(source);
@@ -1982,25 +2037,22 @@ async function prepareLedgerAppendFromObjects(root, config, base, intent, publis
     const blobs = git(root, ['hash-object', '-w', '--no-filters', '--', ...sources], {
       env, timeoutMs: 30_000
     }).stdout.trim().split('\n');
-    if (blobs.length !== prepared.files.length || !blobs.every((blob) => /^[0-9a-f]{40,64}$/u.test(blob))) {
+    if (blobs.length !== files.length || !blobs.every((blob) => /^[0-9a-f]{40,64}$/u.test(blob))) {
       throw new SingularityFlowError('Git did not store the ledger records as blobs.', { code: 'state_branch.commit_unavailable' });
     }
     git(root, ['update-index', '--add',
-      ...prepared.files.flatMap((file, index) => ['--cacheinfo', `100644,${blobs[index]},${file.path}`])], { env: indexEnv });
+      ...files.flatMap((file, index) => ['--cacheinfo', `100644,${blobs[index]},${file.path}`])], { env: indexEnv });
     const tree = git(root, ['write-tree'], { env: indexEnv }).stdout.trim();
     const signed = config.signing === 'commit';
     const ledgerCommit = git(root, [
       ...(operation.commitIdentity ? gitCommitIdentityArgs(operation.commitIdentity) : []),
       ...(signed ? gitCommitSigningArgs(operation.commitSigning) : []),
-      'commit-tree', tree, '-p', base, ...(signed ? ['-S'] : []), '-m', prepared.message
+      'commit-tree', tree, ...(base ? ['-p', base] : []), ...(signed ? ['-S'] : []), '-m', message
     ], { env: gitCommitIdentityEnvironment(env, operation.commitIdentity) }).stdout.trim();
     if (!/^[0-9a-f]{40,64}$/u.test(ledgerCommit)) {
       throw new SingularityFlowError('Git did not create the ledger commit.', { code: 'state_branch.commit_unavailable' });
     }
-    return Object.freeze({
-      branch: config.branch, eventId: intent.eventId, entryHash: prepared.entryHash,
-      sequence: prepared.sequence, ledgerCommit, pinRef: pin, expectedRemoteSha: base
-    });
+    return ledgerCommit;
   } finally {
     await rm(scratch, { recursive: true, force: true });
   }
@@ -2252,21 +2304,34 @@ export async function publishBranchWithLedgerEntry(root, rawConfig, intent, {
  * appendLedgerIntent path, which owns initialization, retries and duplicate reconciliation.
  */
 export async function prepareLedgerAppend(root, rawConfig, intent, publishedCommit, {
-  env = process.env, commitIdentity = null, commitSigning = null
+  env = process.env, commitIdentity = null, commitSigning = null, initializeIfAbsent = false
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   if (!hasRemoteInEnvironment(root, config.remote, env)) return null;
   const operation = frozenCommitOperation(root, config, { env, commitIdentity, commitSigning });
   const tracked = remoteRef(config);
   const expectedRemoteSha = optionalDirectStateRef(root, config, tracked, env);
-  if (!expectedRemoteSha || ledgerHead(root, config, { env }) !== tracked) return null;
+  let base = expectedRemoteSha;
+  if (!base) {
+    // A first activation can build root -> audit -> mirror before publishing any state ref.
+    // This is preparation only: the caller must re-observe the remote and use an absent-ref
+    // lease in its atomic transaction. Never replace a locally retained initialization/recovery.
+    if (!initializeIfAbsent || optionalDirectStateRef(root, config, localRef(config), env)) return null;
+    base = await canBuildLedgerObjects(root, env)
+      ? await commitLedgerFilesFromObjects(root, config, null, [
+          { path: HEAD_PATH, text: canonicalJson(initialHead()) },
+          { path: README_PATH, text: LEDGER_README }
+        ], 'Initialize Singularity Flow capability ledger', operation, env)
+      : await temporaryWorktree(root, null,
+        worktree => commitInitialLedgerRoot(worktree, config, operation, env), { env });
+  }
   const idempotency = ledgerIdempotencyKey(intent, publishedCommit);
   const pin = pinRef(config, intent);
   const fromObjects = await prepareLedgerAppendFromObjects(
-    root, config, expectedRemoteSha, intent, publishedCommit, idempotency, pin, operation, env
+    root, config, base, intent, publishedCommit, idempotency, pin, operation, env
   );
-  if (fromObjects !== undefined) return fromObjects;
-  return temporaryWorktree(root, tracked, async (worktree) => {
+  if (fromObjects !== undefined) return fromObjects && Object.freeze({ ...fromObjects, expectedRemoteSha });
+  return temporaryWorktree(root, base, async (worktree) => {
     if (await eventAlreadyRecorded(worktree, idempotency.hash)) return null;
     const head = await loadHead(worktree);
     const { entryHash, sequence, ledgerCommit } = await commitLedgerEntry(
@@ -2322,7 +2387,7 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
   replaceRoots = [], removePaths = [], expectedRemoteSha: suppliedExpectedRemoteSha = undefined,
   baseRef: suppliedBaseRef = null, refreshRemote = true, guardedRemoteRefs = {},
   env = process.env, transportRemote = undefined, exactBlobSha256 = {}, pathPreconditions = {},
-  commitIdentity = null, commitSigning = null, deferPush = false
+  commitIdentity = null, commitSigning = null, deferPush = false, initializeLocally = false
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   forgetLedgerRemoteView(config);
@@ -2381,6 +2446,11 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
   }
   let ref = ledgerHead(root, config, { env });
   let initializedCommit = null;
+  if (!ref && deferPush && suppliedBaseRef && suppliedExpectedRemoteSha === null) {
+    // A first atomic publication supplies its locally prepared audit commit and explicitly
+    // leases an absent remote. No state ref or initialization root is published here.
+    ref = suppliedBaseRef;
+  }
   if (!ref && deferPush) {
     throw new SingularityFlowError('A deferred state publication needs an existing state branch.', {
       code: 'state_branch.publication_base_unavailable', details: { branch: config.branch }
@@ -2388,7 +2458,8 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
   }
   if (!ref) {
     const initialized = await initializeLedger(root, config, {
-      env, repairPins: false, transportRemote, commitIdentity, commitSigning
+      env, repairPins: false, transportRemote, commitIdentity, commitSigning,
+      ...(initializeLocally ? { publish: false, refreshRemote: false } : {})
     });
     if (suppliedExpectedRemoteSha === null && !initialized.created) {
       const error = new SingularityFlowError(
@@ -2401,8 +2472,8 @@ export async function publishToStateBranch(root, rawConfig, files, message, {
       error.concurrent = true;
       throw error;
     }
-    initializedCommit = initialized.created ? initialized.commit : null;
-    await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
+    initializedCommit = initialized.created && !initializeLocally ? initialized.commit : null;
+    if (!initializeLocally) await ensureRemoteBranchFetchedAsync(root, config, { env, transportRemote });
     ref = ledgerHead(root, config, { env });
   }
   const expectedRemoteSha = suppliedExpectedRemoteSha !== undefined

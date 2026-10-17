@@ -42,6 +42,10 @@
       "counts": { "command-git": 13, "process-import": 1, "process-launch": 1 },
       "digest": "3c3520e81875cda1166137fdabacfa7512318880041734603d56a7b2e52f0959"
     },
+    "scripts/onboarding-activation-benchmark.mjs": {
+      "counts": { "command-git": 7, "process-import": 1, "process-launch": 1 },
+      "digest": "73e2292759624fd4b4095b9d9669c7c23439def7730f13364447311e1f6f15e0"
+    },
     "scripts/cold-start-benchmark.mjs": {
       "counts": {"command-git":12,"process-import":1,"process-launch":1},
       "digest": "ee80ad3f936ac02827e9202e3b3878ca4e305aad9ebd29a578cbeef1c64b03f8"
@@ -548,10 +552,10 @@
     },
     "src/capability-authority-link.mjs": {
       "counts": {
-        "command-run": 3,
+        "command-run": 6,
         "command-runCommand": 4
       },
-      "digest": "717212b5316ab985e1ac18c430a658bbc48a4cdf4814618ccfc63e253945cadd"
+      "digest": "e184529ed6890ed2f047f9fffcbdc9bb91440abef4086a5cbee7df793271d61c"
     },
     "src/capability-context.mjs": {
       "counts": {
@@ -1039,7 +1043,7 @@
         "command-git": 80,
         "command-run": 2
       },
-      "digest": "fd6b1a9c8209318b86a50f51af8aa9cac8392ae77cbec35c1d5b0129f3ed4a0f"
+      "digest": "345b7ad67e105c8f968f9893b62c711e521d1844f0c1c4610c5d8fedcf9e7628"
     },
     "src/local-evidence-review.mjs": {
       "counts": {

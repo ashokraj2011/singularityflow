@@ -2993,8 +2993,8 @@ test('an exact capability proposal can be reviewed, activated, and projected wit
   const activationCounters = activationTimer.finish().counters;
   assert.equal(activationCounters['git.remote.command.clone'], 1,
     'activation projects from its validated checkout instead of cloning configuration twice');
-  assert.equal(activationCounters['git.remote.command.fetch'], 2,
-    'activation checks prior audit identity once and projection reuses its exact state fetch');
+  assert.equal(activationCounters['git.remote.command.fetch'], 1,
+    'first activation fetches only its proposal; root, audit and projection are built without a state fetch');
   assert.equal(activated.alreadyMerged, false);
   assert.equal(activated.targetBranch, 'sflow/config');
   assert.match(run('git', ['show', 'sflow/config:singularity/capabilities.yml'], {

@@ -21,6 +21,10 @@ measurements of this build.
 | G11: one activation publication | After the configuration decision, the audit entry, its pin, the retained history and the state mirror are built locally by the sequential builders and move in one atomic push. One observation before the push refuses symbolic refs and checks each lease; one after verifies every update, including when the acknowledgement was lost. Activation drops from 18 remote operations to 9. | Each ref keeps an exact lease: the observed state tip, and create-only for the history ref and pin. Commits keep the frozen identity and signing. Anything short of a verified landing, including a server without atomic pushes, runs the sequential publication, which is idempotent against an unverified landing. |
 | G12: inspection continuation | A ready, read-only setup check can continue into inspection automatically. Continue is disabled during inspection; changed inputs or disposal abort obsolete inspections. | No automatic setup write, migration, reset, activation, or workspace attachment. |
 | G13: direct inspection dispatch | Route `capability inspect-repository` directly to its command module without eagerly loading the legacy dispatcher. | Existing human/JSON output and inspection semantics remain covered by regression tests. |
+| First-activation publication | Build the ordinary orphan ledger root, activation audit and full configuration mirror locally, then include their reachable chain in the same atomic state/pin/history publication. A delivery locator similarly publishes its first root and link in one absent-ref CAS. | The configuration decision remains separate. Current remote refs are re-observed before atomic publication; unavailable or unsupported atomic publication retains sequential, idempotent recovery. No prepared audit or mirror alone installs a state ref. Signing, canonical bytes and hook-sensitive fallback are preserved. |
+| State-only delivery locators | Initialize an inert bare store in the observed repository's object format, then fetch only its exact state branch. A fresh exact-tip link receipt can prove an unchanged locator without another writer. | No application branch objects are transferred. Changed locators preserve every unrelated state file under the original observed state lease. Custom state branches, SHA-256 repositories, invalid-cache fallback and uncertain-child preservation remain covered. |
+| Scoped activation reads | One immutable configuration-header batch feeds proposal asset, capability and managed-mutation validation. Effective merged configuration is validated separately; an already-validated authority definition is reused only while that same isolated checkout remains unchanged. Paired ledger-ref reads share one bounded listing. | No writer-wide read cache, cached remote authority or stale pre-merge policy. Dangling symbolic refs still require explicit probes; unavailable/truncated answers are not absence. |
+| Immediate activation receipt | Both proposal panels render the successful kernel result before awaiting workspace/map refresh callbacks. `capability activate` has direct dispatch rather than loading the legacy Story handler. | UI completion requires the positive kernel attestation. Callback failures remain visible and do not cause another activation; CLI text/JSON, confirmation and recovery semantics are unchanged. |
 
 Git-backed tree reads use private bare stores. Once transfer completes, temporary promisor routing
 is removed before local object reads, preventing an unexpected lazy network fetch. A server that
@@ -86,6 +90,20 @@ workspace, and current-state checks remain the CLI's responsibility.
 | G14: republish a user's legacy mirror | This changes authoritative remote state and must be an explicitly reviewed repository operation. No application repository was republished as part of this implementation. |
 
 ## Verification boundary
+
+Run matched first-activation measurements with two clean source checkouts and lock-installed
+dependencies (the control is an explicit reviewed commit, not a moving branch):
+
+```text
+node scripts/onboarding-activation-benchmark.mjs --control <CONTROL-CHECKOUT> --output <RESULT.json> --samples=3 --files=1000
+```
+
+The script alternates control/candidate and cold/prewarmed requests. Every case starts with new
+local authority/delivery remotes, verifies the exact configuration and state commits, retains an
+activation audit and portable delivery locator, and checks unchanged application main branches.
+It records per-stage timings, Git process/remote counts, separate warm-up cost and source/bundle
+identities. Cold means an empty private V8 cache, not flushed operating-system caches. Results are
+CLI-only: native VS Code rendering and corporate Git-server latency need separate host evidence.
 
 Regression fixtures cover shared observation counts, exact positive/negative cache invalidation,
 legacy proof, captured-commit races, filtered tree reads, 48-workspace manifest matching with zero

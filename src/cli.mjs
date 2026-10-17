@@ -7454,52 +7454,8 @@ async function capabilityCommand(positionals, options) {
   }
 
   if (subcommandForWrite === 'activate') {
-    const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
-    if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
-    const branch = requirePositional(positionals, 2, 'capability proposal branch');
-    let result = await activateCapabilityProposal(leadUrl, branch, {
-      confirm: optionString(options, 'confirm'),
-      acknowledgeUnprotected: optionBoolean(options, 'acknowledge-unprotected')
-    });
-    try {
-      await rememberLeadRepository(leadUrl);
-    } catch {
-      const warning = 'Capability activation completed, but this machine could not remember its capability-map repository.';
-      result = {
-        ...result,
-        localCache: { remembered: false, code: 'CAPABILITY_LEAD_REGISTRY_WRITE_FAILED', warning },
-        warnings: [...(result.warnings ?? []), warning]
-      };
-    }
-    if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-    if (!result.activated) {
-      console.log(`Capability activation is ${result.status}.`);
-      console.log(`  proposal retained: ${result.branch}@${result.proposalCommit}`);
-      console.log(`  approved ${result.targetBranch} remains at ${result.targetCommit}`);
-      if (result.failure?.message) console.log(`  reason: ${result.failure.message}`);
-      if (result.externalAction) {
-        console.log(`  repository review: merge ${result.externalAction.sourceBranch} into ${result.externalAction.targetBranch}`);
-      }
-      if (result.nextAction?.command) printCommandRoutes(result.nextAction.command, {
-        skill: result.nextAction.skill ?? null, indent: '  ', label: 'After recovery'
-      });
-      return;
-    }
-    console.log(result.alreadyMerged
-      ? `${branch} was already merged into ${result.targetBranch}.`
-      : `Merged ${branch}@${result.proposalCommit.slice(0, 12)} into ${result.targetBranch} at ${result.targetCommit.slice(0, 12)}.`);
-    if (result.projection?.published) {
-      console.log(`Published the capability projection to ${result.projection.branch} at ${result.projection.commit.slice(0, 12)}.`);
-    } else {
-      console.log(result.projection?.branch
-        ? `The ${result.projection.branch} capability projection is already current.`
-        : `Capability projection not published: ${result.projection?.reason}.`);
-    }
-    if (result.nextAction?.command) printCommandRoutes(result.nextAction.command, {
-      skill: result.nextAction.skill ?? null, label: 'Recovery'
-    });
-    console.log(`Recorded activation audit ${result.audit.eventId} at ledger sequence ${result.audit.sequence}.`);
-    return;
+    const command = await import('./commands/capability.mjs');
+    return command.run([], { positionals, options });
   }
 
   if (subcommandForWrite === 'world-model') {

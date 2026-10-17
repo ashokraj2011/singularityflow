@@ -8141,6 +8141,54 @@ test('setup review shows an unavailable diff as a blocked inspection', async (t)
   controller.dispose();
 });
 
+for (const mode of ['capability', 'setup']) test(`${mode} activation renders completion before slow UI follow-ups finish`, async t => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const runtime = hostRequire(path.join(packageRoot, 'apps', 'vscode', 'dist', 'lazy-panels-runtime.cjs'));
+  const lead = `https://git.example/${mode}-completion.git`;
+  const branch = mode === 'capability'
+    ? 'sflow/config-change/capability/map-completion-12345678'
+    : 'sflow/config-change/onboarding/create-cccccccccccc';
+  const proposalCommit = 'c'.repeat(40), targetCommit = 'd'.repeat(40);
+  let release;
+  const refresh = new Promise(resolve => { release = resolve; });
+  let refreshStarted = false;
+  const calls = [];
+  const runCommand = async argv => {
+    calls.push(argv);
+    if (argv[1] === (mode === 'capability' ? 'proposal' : 'setup-proposal')) return { result: {
+      remote: lead, branch, targetBranch: 'sflow/config', targetCommit, proposalCommit,
+      proposalBase: targetCommit, merged: false, valid: true, invalidFiles: [],
+      changedFiles: [{ status: 'M', paths: ['singularity/workflow.yml'] }], diff: 'Reviewed configuration change'
+    }, error: null };
+    return { result: { status: 'activated', activated: true, proposalCommit,
+      targetBranch: 'sflow/config', targetCommit,
+      audit: { eventId: 'activation-test', sequence: 1 },
+      projection: { published: true, branch: 'state', commit: targetCommit }
+    }, error: null };
+  };
+  const onActivated = async () => { refreshStarted = true; await refresh; };
+  const controller = mode === 'capability'
+    ? runtime.CapabilityProposalPanel.show(context(), lead, branch, runCommand, onActivated)
+    : runtime.SetupProposalPanel.show(context(), lead, branch, proposalCommit, runCommand, onActivated);
+  const panel = registered.panels.find(entry => entry.id === (mode === 'capability'
+    ? 'singularityFlow.capabilityProposal' : 'singularityFlow.setupProposal'));
+  await until(() => panel.webview.html.includes('Reviewed configuration change') ? true : null);
+  if (mode === 'setup') registered.warningAnswers.push('Approve exact setup');
+  const activation = panel.post({ type: 'activate' });
+  try {
+    await until(() => refreshStarted ? true : null);
+    assert.match(panel.webview.html, mode === 'capability' ? /Capability activated\./ : /Setup approved\./);
+    assert.doesNotMatch(panel.webview.html, /Activating…|Checking approval…/);
+    assert.equal(calls.length, 2, 'the attested result is rendered without repeating the mutation');
+  } finally {
+    release();
+    await activation;
+    controller.dispose();
+  }
+});
+
 test('capability review does not infer repairability from MCP-shaped error prose', async (t) => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();

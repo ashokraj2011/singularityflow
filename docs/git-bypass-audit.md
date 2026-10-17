@@ -1,5 +1,20 @@
 # GAL Git bypass regression gate
 
+Onboarding activation's three new local Git sites initialize an inert, template-free bare store,
+configure its frozen remote alias, and verify its exact fetched state commit. They run through the
+existing bounded process primitive under the reviewed enterprise environment. No application branch
+is fetched or checked out. The ledger retains its existing 80 Git / two process sites: initialization
+and append share the same canonical object builder, and paired direct-ref observations retain
+dangling-symbolic-ref probes, exact old-value leases and failure classification. Only these owners'
+reviewed fingerprints change; no process owner is added.
+
+`scripts/onboarding-activation-benchmark.mjs` adds one bounded Node launcher (180 seconds, 32 MiB,
+structured argv) for copied installed runtimes and seven fixed setup/inspection Git sites delegated
+to the existing disposable fixture owner. Both control and candidate use separate local bare
+remotes, machine registries and V8 caches. It never runs a model, contacts a provider, mutates the
+source checkout, or activates a real repository. Its exact call-site fingerprint is frozen, not a
+new production process allowance.
+
 The utility-entry qualification harness adds one bounded Node process launcher (90 seconds,
 8 MiB, structured argv) for copied SFlow runtimes inside an owned temporary fixture. Three call
 sites invoke fixed pause, initialization and allowlisted utility-read forms. Git setup stays in

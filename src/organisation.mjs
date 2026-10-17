@@ -6579,7 +6579,7 @@ async function publishActivationAtomically(root, {
     // This activation's recovery read refreshed the state tracking ref. It is the build base and
     // the exact lease; a newer remote tip only makes the push refuse.
     audit = await prepareLedgerAppend(root, ledger, intent, targetCommit, {
-      env, commitIdentity, commitSigning
+      env, commitIdentity, commitSigning, initializeIfAbsent: true
     });
     if (!audit) return null;
     const mirror = await capabilityMapMirrorFiles(root, { env });
@@ -6763,7 +6763,10 @@ export async function activateCapabilityProposal(url, branch, {
           })
         });
       }
-      const policy = proposalAssetPolicyInEnvironment(root, [reviewBase, ref], env);
+      // One immutable header batch feeds all proposal validators. Do not open a generic read
+      // scope around this writer: the effective merged configuration is validated afresh below.
+      const configurationBlobs = configurationBlobsAtRefs(root, [reviewBase, ref], undefined, { env });
+      const policy = proposalAssetPolicyInEnvironment(root, [reviewBase, ref], env, configurationBlobs);
       const invalidFiles = changed.names.filter((file) => !isConfigurationAsset(file, policy));
       if (invalidFiles.length) {
         const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
@@ -6777,7 +6780,7 @@ export async function activateCapabilityProposal(url, branch, {
             })
           });
       }
-      const proposedConfigurationError = proposalConfigurationError(root, ref, { env });
+      const proposedConfigurationError = proposalConfigurationError(root, ref, { env, blobs: configurationBlobs });
       if (proposedConfigurationError) {
         const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
         throw new SingularityFlowError(
@@ -6790,8 +6793,9 @@ export async function activateCapabilityProposal(url, branch, {
             })
           });
       }
-      validateManagedCapabilityMutation(root, reviewBase, ref, changed.names, { env });
+      validateManagedCapabilityMutation(root, reviewBase, ref, changed.names, { env, blobs: configurationBlobs });
       let definition;
+      let authorityDefinition = null;
       try {
         // Validate what would actually become approved before reading recovery evidence.  This
         // catches cross-file workflow/agent/MCP incompatibilities on the Review screen rather than
@@ -6799,6 +6803,7 @@ export async function activateCapabilityProposal(url, branch, {
         definition = alreadyMerged
           ? await loadDefinition(root)
           : await loadDefinitionAtGitRef(root, ref, { env });
+        if (alreadyMerged) authorityDefinition = definition;
       } catch (error) {
         const repairableProposal = !alreadyMerged
           && gitRefHasRepairableMcpAgentMismatch(root, ref, error, { env });
@@ -6851,7 +6856,7 @@ export async function activateCapabilityProposal(url, branch, {
         // Recovery can discover that a proposal which looked unmerged at checkout time was
         // already accepted. From this point onward policy must come from the effective approved
         // authority, not from the older proposal tip that was loaded above.
-        definition = await loadDefinition(root);
+        definition = authorityDefinition ??= await loadDefinition(root);
       }
       // A provider may have squash-merged this proposal and then advanced the same file again.
       // Its current tree can conflict with the source even though an exact accepted transition is
@@ -6960,6 +6965,7 @@ export async function activateCapabilityProposal(url, branch, {
         await validateEffectiveCapabilities();
         try {
           definition = await loadDefinition(root);
+          authorityDefinition = definition;
         } catch (error) {
           run('git', ['merge', '--abort'], { cwd: root, env, allowFailure: true });
           const nextAction = {
@@ -7207,7 +7213,7 @@ export async function activateCapabilityProposal(url, branch, {
         // Externally merged and recovered activations obey the frozen approved policy snapshot
         // cloned for this invocation. A later configuration revision is ordered after this
         // snapshot and cannot retroactively change the signing rule for an earlier activation.
-        definition = await loadDefinition(root);
+        definition = authorityDefinition ??= await loadDefinition(root);
         requireActivationLedger(definition);
         commitSigning = resolveGitCommitSigning(identityRoot, {
           env: initiatingEnv, required: definition.ledger.signing === 'commit'

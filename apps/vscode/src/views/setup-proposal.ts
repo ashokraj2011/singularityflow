@@ -247,6 +247,8 @@ export class SetupProposalPanel {
       this.activation = setupActivation(attempted.result, proposal);
       if (!this.activation) this.error = 'The CLI returned an incompatible setup approval result. Recheck the repository before retrying.';
       else if (this.activation.activated && this.activation.status === 'activated') {
+        // The exact setup update has landed; UI follow-up reads are not part of that mutation.
+        this.render();
         await Promise.allSettled([...this.callbacks].map((callback) => callback()));
       }
     }

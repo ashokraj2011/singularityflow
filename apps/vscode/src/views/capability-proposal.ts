@@ -317,6 +317,9 @@ export class CapabilityProposalPanel {
     else {
       this.activated = result as ActivationResult;
       if (capabilityActivationSucceeded(this.activated)) {
+        // Publication is complete. Render its attested result before awaiting independent map /
+        // workspace refreshes, so those reads cannot leave a successful review saying Activating.
+        this.render();
         const followUps = await Promise.allSettled(
           [...this.activationCallbacks].map((callback) => callback(this.activated as ActivationResult))
         );

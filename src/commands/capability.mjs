@@ -12,7 +12,7 @@ let organisation = null;
 let explanationSupport = null;
 const DIRECT = new Set([
   'add', 'protect', 'depend', 'auto', 'show', 'leads', 'adopt-managed', 'map-team', 'onboard',
-  'setup-proposals', 'setup-proposal', 'setup-activate', 'inspect-repository', 'test-setup'
+  'setup-proposals', 'setup-proposal', 'setup-activate', 'inspect-repository', 'test-setup', 'activate'
 ]);
 
 /**
@@ -81,7 +81,55 @@ async function loadExplanationSupport() {
 /** Progressive commands avoid loading the legacy monolith; expert compatibility commands retain it. */
 export async function load(context = {}) {
   if (!isDirect(context)) await loadLegacy();
-  else if (context.positionals?.[1] === 'inspect-repository') await loadOrganisation();
+  else if (['inspect-repository', 'activate'].includes(context.positionals?.[1])) await loadOrganisation();
+}
+
+/** Remote-only activation does not need the legacy Story dispatcher or launch-repository catalog. */
+async function runActivation(context) {
+  const options = context.options ?? {};
+  const leadUrl = optionString(options, 'lead') ?? (await listLeadRepositories())[0]?.url;
+  if (!leadUrl) throw new SingularityFlowError('No lead repository is known. Pass --lead <URL>.');
+  const branch = requirePositional(context.positionals ?? [], 2, 'capability proposal branch');
+  const { activateCapabilityProposal } = await loadOrganisation();
+  let result = await activateCapabilityProposal(leadUrl, branch, {
+    confirm: optionString(options, 'confirm'),
+    acknowledgeUnprotected: optionBoolean(options, 'acknowledge-unprotected')
+  });
+  try { await rememberLeadRepository(leadUrl); }
+  catch {
+    const warning = 'Capability activation completed, but this machine could not remember its capability-map repository.';
+    result = { ...result,
+      localCache: { remembered: false, code: 'CAPABILITY_LEAD_REGISTRY_WRITE_FAILED', warning },
+      warnings: [...(result.warnings ?? []), warning] };
+  }
+  if (optionBoolean(options, 'json')) { console.log(JSON.stringify(result, null, 2)); return result; }
+  if (!result.activated) {
+    console.log(`Capability activation is ${result.status}.`);
+    console.log(`  proposal retained: ${result.branch}@${result.proposalCommit}`);
+    console.log(`  approved ${result.targetBranch} remains at ${result.targetCommit}`);
+    if (result.failure?.message) console.log(`  reason: ${result.failure.message}`);
+    if (result.externalAction) console.log(
+      `  repository review: merge ${result.externalAction.sourceBranch} into ${result.externalAction.targetBranch}`);
+    if (result.nextAction?.command) await printCommandRoutes(result.nextAction.command, {
+      skill: result.nextAction.skill ?? null, indent: '  ', label: 'After recovery'
+    });
+    return result;
+  }
+  console.log(result.alreadyMerged
+    ? `${branch} was already merged into ${result.targetBranch}.`
+    : `Merged ${branch}@${result.proposalCommit.slice(0, 12)} into ${result.targetBranch} at ${result.targetCommit.slice(0, 12)}.`);
+  if (result.projection?.published) {
+    console.log(`Published the capability projection to ${result.projection.branch} at ${result.projection.commit.slice(0, 12)}.`);
+  } else {
+    console.log(result.projection?.branch
+      ? `The ${result.projection.branch} capability projection is already current.`
+      : `Capability projection not published: ${result.projection?.reason}.`);
+  }
+  if (result.nextAction?.command) await printCommandRoutes(result.nextAction.command, {
+    skill: result.nextAction.skill ?? null, label: 'Recovery'
+  });
+  console.log(`Recorded activation audit ${result.audit.eventId} at ledger sequence ${result.audit.sequence}.`);
+  return result;
 }
 
 async function runInspectRepository(context) {
@@ -775,6 +823,7 @@ function capabilityAutoOptions(options) {
 
 export async function run(argv, context = {}) {
   const subcommand = context.positionals?.[1] ?? 'show';
+  if (subcommand === 'activate') return runActivation(context);
   if (subcommand === 'test-setup') {
     const options = context.options ?? {};
     if ((context.positionals?.length ?? 0) > 2 || Object.keys(options).some(key => !['source-root', 'json'].includes(key))) {

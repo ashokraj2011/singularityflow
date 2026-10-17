@@ -530,6 +530,7 @@
         "then": { "not": { "required": ["authoringSkill"] } },
         "properties": {
           "kind": { "const": "skill" },
+          "description": { "type": "string", "minLength": 1, "maxLength": 600, "description": "What the step is for, in plain words. Shown to people in Workflow Studio and workflow explanations; never sent in prompts or pinned with a Story." },
           "skillBinding": { "$ref": "#/$defs/skpSkillBinding" },
           "writeScope": { "enum": ["artifact-only", "source-and-artifact"] },
           "sourceBoundary": { "enum": ["unrestricted", "test-automation"] },

@@ -13,6 +13,7 @@ aliases:
   - skill-inspect
   - skill-where-used
   - authoring-skill
+  - workflow-check
 questions:
   - How do I export or import several workflows with their dependencies?
   - What happens when an imported workflow uses names my repository already has?
@@ -23,6 +24,7 @@ questions:
   - How do I choose which skill drafts a workflow step?
   - How do I design an artifact template and choose it for a step?
   - How do I turn my team's agents, skills and instructions into a workflow?
+  - Does my workflow make sense, and what does each step do?
 commands:
   - workflow
   - configuration
@@ -32,7 +34,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 65
+version: 66
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1258,6 +1260,45 @@ whichever surface started it. **Check** runs compile with `--dry-run` and offers
 choices as buttons. **Write bundle…** saves the ready bundle beside the team directory.
 **Import in Workflow Studio…** opens Studio's Import preview with that file. The panel needs no
 open repository until the import itself; with one open, it can preview the import into it.
+
+## Check that a workflow makes sense
+
+`workflow check` explains each workflow in plain words and lists what does not make sense in it.
+Each step is explained from the configuration itself: what it produces, why it is there (its
+description, when one is written), which agent drafts it with which skills and instructions, what
+it reads, who signs it off, and what happens next, including decisions, send-back rules and where a
+rejection goes. No model is involved, and nothing is written.
+
+```bash
+singularity-flow workflow check
+singularity-flow workflow check feature
+singularity-flow workflow check feature --json
+```
+
+Naming one workflow also prints its steps. Every finding says where to look: the step or decision
+in `singularity/workflow.yml`, or the file and line of an agent, skill or instruction. Findings are
+`problem` (a Story would stop or misbehave), `warning` (it works, probably not as meant) or `note`
+(worth a look). They never block anything; Story start keeps its own checks.
+
+| Area | What it finds |
+|---|---|
+| Flow | Steps nobody can reach, routes that never reach the end, loops without a limit, routes an earlier rule always wins, work every route owes (requirements, a plan, the change, verification, a person's review), and a code step with no requirements step before it |
+| Who owns it | A step no agent drafts, code that can reach the end without a sign-off, groups nobody can sign off with, and a last step that needs no sign-off |
+| Guidance | API calls a step's guidance makes that nothing in the workflow makes, possible conflicts between rules that reach the same step, broken links, and web pages the agent sees only as links |
+| Clarity | Steps with the same name, and steps that do not say what they are for |
+| Across the repository | Agents that can run no step, skills attached to nothing, instructions placed in no skill, the same instruction text under two names, and skills attached for steps their agent never drafts |
+
+A possible conflict is a pattern check: one rule says always and another never about the same
+thing, or two rules give different limits for the same thing. Keep one rule, or say when each
+applies.
+
+`--change-set FILE|-` checks a Workflow Studio change set as it would leave the configuration,
+including any saved drafts, without writing anything. In Workflow Studio, **Check** on the board
+does this for the draft you are editing: it shows the explanation and the findings by area, marks
+steps that have a problem or warning, and **Show** selects the step a finding is about. Each
+step's properties have **What it is for**, a description people read in the Studio and in these
+explanations. Agents never see it, and a Story never pins it, so writing one does not change any
+Story's prompts.
 
 ## Validate code-phase planning contracts
 

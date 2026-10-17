@@ -86,6 +86,8 @@ import { renderClauseNamespaces } from './traceability-ids.mjs';
 
 export const WORKFLOW_PATH = 'singularity/workflow.yml';
 export const CONTROL_ROOT = 'singularity';
+/** A step's description says what it is for. People read it; prompts and Story pins never carry it. */
+export const STEP_DESCRIPTION_LIMIT = 600;
 const LEGACY_CONTROL_ROOT = '.singularity';
 export const DEFAULT_PLANNING_PROMPT = 'singularity/prompts/copilot-planning.md';
 /**
@@ -1121,6 +1123,9 @@ export function validateDefinition(definition, { storyBootstrap = false } = {}) 
   for (const [id, phase] of Object.entries(definition.phases)) {
     assertId(id, 'Phase');
     if (!phase.label || !phase.artifact?.path) throw new SingularityFlowError(`Phase '${id}' requires label and artifact.path.`);
+    if (phase.description != null && (typeof phase.description !== 'string' || !phase.description.trim() || phase.description.length > STEP_DESCRIPTION_LIMIT)) {
+      throw new SingularityFlowError(`Phase '${id}' description must be text of 1 to ${STEP_DESCRIPTION_LIMIT} characters.`);
+    }
     assertRelative(phase.artifact.path, `Phase '${id}' artifact.path`);
     for (const field of ['minimumBytes', 'maximumBytes']) {
       if (phase.artifact[field] != null
@@ -1890,6 +1895,8 @@ export function resolveWorkType(definition, workTypeId) {
     const clarification = normalizeClarificationPolicy(merged.clarification);
     const specificationQuality = specificationQualityPolicy(merged.specificationQuality ?? {});
     const resolvedPhase = { id, order, ...merged, approval, generation, mcp, repairBudget, clarification, specificationQuality, sourceBoundary, inputs, template };
+    // Read by people in the Studio and in explanations; a Story's pinned contract and prompts never carry it.
+    delete resolvedPhase.description;
     assertCodeDeliveryConfiguration(resolvedPhase, `Work type '${workTypeId}' phase '${id}'`);
     assertStepAuthoringSkill(resolvedPhase, `Work type '${workTypeId}' phase '${id}'`);
     // Pinned with each target's settings, so a running Story keeps the actions it started with. A step

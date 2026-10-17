@@ -232,6 +232,19 @@ const STUDIO_STYLE = `
 .callout.wait{border-color:var(--sf-wait)}
 .callout.bad{border-color:var(--sf-bad)}
 .callout.ok{border-color:var(--sf-ok)}
+.check-summary{display:flex;flex-wrap:wrap;gap:6px;align-items:baseline;font-size:12px;margin:0}
+.finding-list{display:flex;flex-direction:column;gap:6px}
+.finding{display:flex;flex-direction:column;gap:3px;font-size:12px;line-height:1.45;padding:8px 10px;border-radius:6px;border:1px solid var(--sf-border-color);border-left-width:3px}
+.finding.sev-problem{border-left-color:var(--sf-bad)}
+.finding.sev-warning{border-left-color:var(--sf-wait)}
+.finding .finding-where,.callout .finding-where{font-family:var(--sf-font-mono,monospace);font-size:11px;opacity:.85;overflow-wrap:anywhere}
+.sev{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:0 5px;border-radius:3px;border:1px solid var(--sf-border-color)}
+.sev.problem{border-color:var(--sf-bad);color:var(--sf-bad)}
+.sev.warning{border-color:var(--sf-wait);color:var(--sf-wait)}
+.node-finding{display:inline-flex;align-items:center;justify-content:center;flex:none;width:15px;height:15px;border-radius:50%;font-size:10px;font-weight:700;line-height:1;color:var(--vscode-editor-background);background:var(--sf-wait)}
+.node-finding.problem{background:var(--sf-bad)}
+.node-finding.check-badge{margin-left:6px;min-width:15px;width:auto;padding:0 4px;border-radius:8px}
+.explain-list{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px;font-size:12px}
 .agents-grid,.groups-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--sf-space-3)}
 .member{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 4px 2px 8px;border-radius:12px;border:1px solid var(--sf-border-color)}
 .member button{padding:0 6px;font-size:11px}
@@ -377,7 +390,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
 (function () {
   'use strict';
   var vscodeApi = window.__sfVscode;
-  var state = { model: null, draft: null, view: 'home', workflow: null, step: null, decision: null, plan: null, planKey: null, busy: null, error: null, wizard: null, agentForm: null, status: '', panel: null, sections: {}, canvas: {}, searches: {}, focusKey: null, collapsed: {}, panelWidth: 380, panelHidden: false, legend: false, confirms: {}, confirmSeq: 0, returnTo: null };
+  var state = { model: null, draft: null, view: 'home', workflow: null, step: null, decision: null, plan: null, planKey: null, busy: null, error: null, wizard: null, agentForm: null, status: '', panel: null, sections: {}, canvas: {}, searches: {}, focusKey: null, collapsed: {}, panelWidth: 380, panelHidden: false, legend: false, confirms: {}, confirmSeq: 0, returnTo: null, checks: {} };
 
   function clone(value) { return JSON.parse(JSON.stringify(value)); }
   function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
@@ -403,7 +416,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       });
     });
     (model.phases || []).forEach(function (phase) {
-      draft.phases[phase.id] = { id: phase.id, label: phase.label, output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill), usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: approvalDraft(phase.approval), inputs: (phase.inputs || []).slice(), afterStep: clone(phase.afterStep || []),
+      draft.phases[phase.id] = { id: phase.id, label: phase.label, description: phase.description || '', output: phase.output, baseOutput: phase.output, views: (phase.views || []).slice(), clarification: phase.clarification || 'off', agent: phase.agent, authoringSkill: phase.authoringSkill || null, generatedByEngine: Boolean(phase.generatedByEngine), convergence: Boolean(phase.convergence), compiledSkill: Boolean(phase.compiledSkill), usedBy: (phase.usedBy || []).slice(), isNew: false, fromBlueprint: null, approval: approvalDraft(phase.approval), inputs: (phase.inputs || []).slice(), afterStep: clone(phase.afterStep || []),
         template: phase.template || null, artifactSet: phase.artifactSet || null, optionalInputs: (phase.optionalInputs || []).slice(),
         artifactFile: phase.artifact ? String(phase.artifact).split('/').pop() : null };
     });
@@ -664,6 +677,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         var step = home && draft.steps[home] && draft.steps[home][id] ? draft.steps[home][id] : { approval: phase.approval, inputs: phase.inputs, authoringSkill: phase.authoringSkill, afterStep: phase.afterStep };
         var create = { op: 'phase.create', id: id, label: phase.label, output: phase.output, inputs: step.inputs, approval: approvalChange(step), views: phase.views, agent: phase.agent, clarification: phase.clarification || 'off', authoringSkill: step.authoringSkill || null };
         if (phase.copyOf) create.copyOf = phase.copyOf;
+        if (phase.description) create.description = phase.description;
         if (phase.copyFromWorkflow) create.copyFromWorkflow = phase.copyFromWorkflow;
         if (phase.templateChosen && phase.template) create.template = phase.template;
         if (phase.artifactSetChosen && phase.artifactSet) create.artifactSet = phase.artifactSet;
@@ -683,6 +697,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       if (!baseline) return;
       var patch = { op: 'phase.update', id: id };
       if (baseline.label !== phase.label) patch.label = phase.label;
+      if ((baseline.description || '') !== (phase.description || '')) patch.description = phase.description || null;
       if (baseline.output !== phase.output) patch.output = phase.output;
       if (!same(baseline.views, phase.views)) patch.views = phase.views;
       if ((baseline.clarification || 'off') !== phase.clarification) patch.clarification = phase.clarification;
@@ -957,7 +972,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     targetUsers: function () { return targetUsers.apply(null, arguments); }, targetFromForm: function () { return targetFromForm.apply(null, arguments); },
     newTargetForm: function () { return newTargetForm.apply(null, arguments); }, editTargetForm: function () { return editTargetForm.apply(null, arguments); },
     saveTargetForm: function () { return saveTargetForm.apply(null, arguments); }, removeTarget: function () { return removeTarget.apply(null, arguments); },
-    integrationsState: function () { return integrationsState(); }, canonical: canonical };
+    integrationsState: function () { return integrationsState(); }, canonical: canonical,
+    countWords: countWords, stepFindings: stepFindings, stepMark: stepMark, draftKey: draftKey, freshCheck: freshCheck, requestCheck: requestCheck, renderCheckPanel: renderCheckPanel, aboutSection: aboutSection };
 
   // ---- Rendering helpers ---------------------------------------------------------------------
 
@@ -1105,6 +1121,121 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var phase = state.draft.phases[phaseId] || { output: 'document' };
     var settings = state.draft.steps[workflowId] && state.draft.steps[workflowId][phaseId];
     return outputSetByWorkflow(settings, phase) ? settings.output : phase.output;
+  }
+  // ---- Check: does this workflow make sense? ---------------------------------------------------
+  // The engine explains and checks a workflow as the draft would leave it (workflow check with the
+  // draft's change set). The page shows that result; it never judges a workflow itself.
+  var CHECK_AREAS = [['flow', 'Flow'], ['ownership', 'Who owns it'], ['guidance', 'Guidance'], ['clarity', 'Clarity'], ['assets', 'Agents, skills and instructions']];
+  function draftKey() { var changeSet = changeSetFrom(state.model, state.draft); return changeSet.changes.length ? JSON.stringify(changeSet) : ''; }
+  function checkOf(workflowId) { return (state.checks || {})[workflowId] || null; }
+  function freshCheck(workflowId) { var entry = checkOf(workflowId); return entry && entry.result && !entry.loading && entry.key === draftKey() ? entry : null; }
+  function requestCheck(workflowId) {
+    var key = draftKey();
+    state.checks[workflowId] = { key: key, result: (checkOf(workflowId) || {}).result || null, loading: true, error: null };
+    post({ type: 'studio.check', workflow: workflowId, changeSet: key });
+    requestRender();
+  }
+  function checkedWorkflow(entry, workflowId) { return entry && entry.result ? (entry.result.workflows || []).find(function (item) { return item.id === workflowId; }) || null : null; }
+  function countWords(counts) {
+    var parts = ['problem', 'warning', 'note'].filter(function (severity) { return counts && counts[severity]; })
+      .map(function (severity) { return counts[severity] + ' ' + severity + (counts[severity] === 1 ? '' : 's'); });
+    return parts.length ? parts.join(', ') : 'nothing to fix';
+  }
+  function stepFindings(workflowId, phaseId) {
+    var checked = checkedWorkflow(freshCheck(workflowId), workflowId);
+    return checked ? checked.findings.filter(function (item) { return item.subject && item.subject.step === phaseId; }) : [];
+  }
+  /** The step's most serious problem or warning; notes do not mark the canvas. */
+  function stepMark(findings) { return ['problem', 'warning'].find(function (severity) { return findings.some(function (item) { return item.severity === severity; }); }) || null; }
+  function stepExplanation(workflowId, phaseId) {
+    var checked = checkedWorkflow(freshCheck(workflowId), workflowId);
+    return checked && checked.explanation ? (checked.explanation.steps || []).find(function (step) { return step.id === phaseId; }) || null : null;
+  }
+  function checkButton(workflowId) {
+    var entry = checkOf(workflowId); var fresh = freshCheck(workflowId); var checked = checkedWorkflow(fresh, workflowId);
+    var counts = checked ? checked.counts : null;
+    // The most serious count rides on the button as a badge, so the board's header keeps its width.
+    var serious = counts && counts.problem ? 'problem' : counts && counts.warning ? 'warning' : null;
+    var summary = counts ? countWords(counts) : fresh && fresh.result && !fresh.result.configuration.valid ? 'the configuration cannot be read' : null;
+    return el('button', { type: 'button', class: 'secondary', 'data-key': 'workflow-check',
+      title: summary ? 'Checked: ' + summary + '. Check again.' : 'Explain this workflow and list what does not make sense in it',
+      'aria-label': summary ? 'Check: ' + summary : 'Check this workflow',
+      onclick: function () { state.panel = 'check'; state.decision = null; requestCheck(workflowId); } },
+      entry && entry.loading ? 'Checking…' : 'Check',
+      serious ? el('span', { class: 'node-finding check-badge ' + serious, 'aria-hidden': 'true', text: String(counts[serious]) }) : null);
+  }
+  function showSubject(workflowId, subject) {
+    var workflow = state.draft.workflows[workflowId];
+    if (!workflow) return;
+    if (subject.decision && decisionById(workflow, subject.decision)) { state.decision = subject.decision; state.step = decisionById(workflow, subject.decision).after; }
+    else if (subject.step && workflow.phases.indexOf(subject.step) >= 0) { state.step = subject.step; state.decision = null; canvasView(workflowId).reveal = subject.step; }
+    state.panel = null; render();
+  }
+  function findingList(workflowId, findings) {
+    return el('div', { class: 'finding-list' }, findings.map(function (item) {
+      var subject = item.subject || {};
+      var where = item.location ? item.location.file + (item.location.line ? ' line ' + item.location.line : '') : null;
+      var target = subject.step || subject.decision;
+      return el('div', { class: 'finding sev-' + item.severity, 'data-finding': item.code },
+        el('div', null, el('span', { class: 'sev ' + item.severity, text: item.severity }), ' ', el('strong', { text: item.title })),
+        item.detail && item.detail !== item.title ? el('div', { class: 'muted', text: item.detail }) : null,
+        item.fix ? el('div', { text: 'Fix: ' + item.fix.text }) : null,
+        where ? el('div', { class: 'finding-where', text: where }) : null,
+        target || item.location ? el('div', { class: 'studio-row' },
+          target ? button('Show', function () { showSubject(workflowId, subject); }, { class: 'secondary', 'data-key': 'finding-show-' + item.id }) : null,
+          item.location ? button('Open file', function () { openFile(item.location.file, item.location.line || null); }, { class: 'secondary', 'data-key': 'finding-open-' + item.id }) : null) : null);
+    }));
+  }
+  function renderCheckPanel(workflowId) {
+    var aside = el('aside', { class: 'inspector properties', 'aria-label': 'Check' });
+    aside.appendChild(propTitle('blue', 'check', 'CHECK', 'Does it make sense?', [
+      propTool('back', 'Back to the step', function () { state.panel = null; render(); })]));
+    var entry = checkOf(workflowId); var fresh = freshCheck(workflowId);
+    var result = entry && entry.result;
+    var top = [];
+    if (entry && entry.error) top.push(el('div', { class: 'callout bad', text: entry.error }));
+    if (entry && entry.loading && !result) top.push(el('p', { class: 'muted', text: 'Checking the workflow…' }));
+    if (result && !fresh && !entry.loading) top.push(el('div', { class: 'callout wait', 'data-key': 'check-stale', text: 'The workflow changed since this check. Check again to see the change.' }));
+    var checked = result && result.configuration.valid ? checkedWorkflow(entry, workflowId) : null;
+    if (result && !result.configuration.valid) {
+      top.push(el('p', { text: result.changeSet ? 'These changes cannot be applied yet, so nothing else was checked.' : 'The workflow configuration cannot be read, so nothing else was checked.' }));
+      top.push(findingList(workflowId, result.repository.findings));
+    } else if (checked) {
+      top.push(el('p', { class: 'check-summary', 'data-key': 'check-summary' }, el('strong', { text: checked.explanation.summary }), el('span', { class: 'muted', text: countWords(checked.counts) })));
+      if (!checked.findings.length) top.push(el('div', { class: 'callout ok', text: 'Nothing to fix in this workflow.' }));
+    }
+    top.push(el('div', { class: 'studio-row' }, button(entry && entry.loading ? 'Checking…' : 'Check again', function () { requestCheck(workflowId); },
+      { class: 'secondary', 'data-key': 'check-again', disabled: Boolean(entry && entry.loading) })));
+    top.push(el('p', { class: 'hint', text: 'Checks the workflow as your changes would leave it. Nothing here blocks publishing; Story start keeps its own checks.' }));
+    aside.appendChild(section('check', 'Result', top));
+    if (checked) {
+      CHECK_AREAS.forEach(function (area) {
+        var items = checked.findings.filter(function (item) { return item.area === area[0]; });
+        if (items.length) aside.appendChild(section('check-' + area[0], area[1], findingList(workflowId, items), null, countWords(countBy(items))));
+      });
+    }
+    if (result && result.configuration.valid && result.repository.findings.length) {
+      aside.appendChild(section('check-repository', 'Across the repository', findingList(workflowId, result.repository.findings), null, countWords(result.repository.counts), true));
+    }
+    return aside;
+  }
+  function countBy(findings) { var counts = {}; findings.forEach(function (item) { counts[item.severity] = (counts[item.severity] || 0) + 1; }); return counts; }
+  /** What a step is for (its description) and what the engine says it does. */
+  function aboutSection(workflowId, phaseId, phase, readOnly) {
+    var explained = stepExplanation(workflowId, phaseId);
+    var marks = stepFindings(workflowId, phaseId).filter(function (item) { return item.severity !== 'note'; });
+    var body = [];
+    if (readOnly || protectedObject('phases', phaseId)) {
+      body.push(el('p', { 'data-key': 'step-description-text', class: phase.description ? null : 'muted', text: phase.description || 'This step does not say what it is for.' }));
+    } else {
+      body.push(field('step-description', 'What it is for', el('textarea', { id: 'step-description', 'data-key': 'step-description', rows: '3', maxlength: '600',
+        placeholder: 'Why this step is here, in a sentence or two.', onchange: function (event) { phase.description = event.target.value.replace(/\s+/g, ' ').trim(); changed(); } }, phase.description || ''),
+        'Shown to people in Workflow Studio and in workflow explanations. Agents never see it.'));
+    }
+    if (explained) body.push(el('ul', { class: 'explain-list', 'data-key': 'step-explained' }, [explained.what, explained.signOff].concat(explained.then).map(function (line) { return el('li', { text: line }); })));
+    else body.push(el('div', { class: 'studio-row' }, button('Explain and check', function () { state.panel = 'check'; requestCheck(workflowId); }, { class: 'secondary', 'data-key': 'step-explain' })));
+    marks.forEach(function (item) { body.push(el('div', { class: 'callout ' + (item.severity === 'problem' ? 'bad' : 'wait'), text: item.title })); });
+    return section('about', 'About this step', body, null, phase.description ? 'described' : 'not described yet');
   }
   function changesNow() { return state.draft && state.model ? changeSetFrom(state.model, state.draft).changes : []; }
   function changed() { state.plan = null; state.planKey = null; if (/^Checked:/.test(state.status)) setStatus(''); scheduleDraftSave(); requestRender(); }
@@ -2539,11 +2670,15 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     var decisionChip = chips.find(function (entry) { return entry.tone === 'decision'; });
     var backChip = chips.find(function (entry) { return entry.tone === 'back'; });
     var actionChip = chips.find(function (entry) { return entry.tone === 'action'; });
+    var findings = stepFindings(workflowId, phaseId); var mark = stepMark(findings);
+    var markTitle = findings.filter(function (item) { return item.severity !== 'note'; }).map(function (item) { return item.title; }).join('; ');
+    var findingMark = mark ? el('span', { class: 'node-finding ' + mark, 'data-key': 'node-finding-' + phaseId, title: markTitle, 'aria-hidden': 'true', text: '!' }) : null;
     var inside = node.collapsed ? [
       el('span', { class: 'node-icon' }, icon(look.icon, 12)),
       el('span', { class: 'node-num', text: String(node.index + 1) }),
       el('span', { class: 'node-title', text: phase.label }),
       el('span', { class: 'node-marks' },
+        findingMark,
         group ? el('span', { class: 'mark-chip' + (blocked ? ' bad' : ''), title: signText }, icon('people', 11), String(minimum)) : null,
         decisionChip ? el('span', { class: 'mark-chip decision', title: decisionChip.title }, icon('diamond', 10)) : null,
         backChip ? el('span', { class: 'mark-chip back', title: backChip.title }, icon('back', 11)) : null,
@@ -2551,7 +2686,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     ] : [
       el('span', { class: 'node-head' }, el('span', { class: 'node-icon' }, icon(look.icon, 14)), el('span', { class: 'node-step', text: 'STEP ' + (node.index + 1) }),
         phase.isNew || phase.fromBlueprint ? el('span', { class: 'pill new', text: 'NEW' }) : null,
-        settings.authoringSkill ? el('span', { class: 'pill skill', title: 'Drafted with /' + settings.authoringSkill, text: '/' + settings.authoringSkill }) : null),
+        settings.authoringSkill ? el('span', { class: 'pill skill', title: 'Drafted with /' + settings.authoringSkill, text: '/' + settings.authoringSkill }) : null,
+        findingMark),
       el('span', { class: 'node-title', text: phase.label }),
       el('span', { class: 'node-meta' },
         el('span', { class: 'node-agent', title: agent ? agent.label : 'Choose an agent' }, el('span', { class: 'avatar', text: agent ? initials(agent.label) : '?' }), el('span', { class: 'name', text: agent ? agent.label : 'Choose an agent' })),
@@ -2576,7 +2712,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     },
       el('button', {
         type: 'button', class: 'node-main', 'data-key': 'node-' + phaseId, 'aria-pressed': selected ? 'true' : 'false', title: node.collapsed ? phase.label : null,
-        'aria-label': 'Step ' + (node.index + 1) + ' of ' + phases.length + ': ' + phase.label + '. ' + look.label + ', drafted by ' + (agent ? agent.label : 'no agent yet') + '. ' + signText + '. ' + then + '.',
+        'aria-label': 'Step ' + (node.index + 1) + ' of ' + phases.length + ': ' + phase.label + '. ' + look.label + ', drafted by ' + (agent ? agent.label : 'no agent yet') + '. ' + signText + '. ' + then + '.' + (markTitle ? ' Check: ' + markTitle + '.' : ''),
         onclick: function () { selectStep(phaseId); },
         onkeydown: function (event) {
           var next = event.key === 'ArrowRight' ? node.index + 1 : event.key === 'ArrowLeft' ? node.index - 1 : -1;
@@ -2860,7 +2996,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     if (!workflow) { state.view = 'home'; render(); return; }
     // A seeded workflow opens on the canvas too, read-only: its structure, and each step's details.
     var readOnly = workflowReadOnly(workflowId);
-    if (readOnly) { state.panel = null; }
+    if (readOnly && state.panel !== 'check') { state.panel = null; }
     var phases = workflow.phases;
     if (phases.indexOf(state.step) < 0) state.step = phases[0];
     main.appendChild(el('div', { class: 'board-head' },
@@ -2876,6 +3012,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         workflow.isNew || workflow.installFrom ? button('Back to details', function () { openWorkflowDetails(workflowId); }, { class: 'secondary', 'data-key': 'workflow-details' }) : null,
         workflow.isNew || workflow.installFrom ? button('Cancel this workflow', function () { askRemoveNewWorkflow(workflowId); }, { class: 'secondary', 'data-key': 'workflow-cancel' }) : null),
       el('div', { id: 'studio-status', class: 'studio-status muted', role: 'status', 'aria-live': 'polite', text: state.status }),
+      checkButton(workflowId),
       readOnly
         ? button('Duplicate and customize', function () { duplicateWorkflow('story:' + workflowId); }, { class: 'primary', 'data-key': 'workflow-duplicate' })
         : button('Review changes (' + changesNow().length + ')', function () { state.view = 'changes'; render(); }, { class: 'primary' })));
@@ -2885,6 +3022,8 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       : state.panel === 'add' ? renderAddStep(workflowId, workflow)
       : state.panel === 'workflow' ? renderWorkflowProperties(workflowId, workflow)
         : selectedDecision ? renderDecisionInspector(workflowId, selectedDecision) : renderInspector(workflowId, state.step);
+    // The check panel replaces whichever properties the board would show, read-only workflows included.
+    if (state.panel === 'check') inspector = renderCheckPanel(workflowId);
     var board = el('div', { class: 'board' + (state.panelHidden ? ' panel-hidden' : '') });
     board.style.setProperty('--panel-w', Math.round(state.panelWidth || 380) + 'px');
     board.appendChild(renderCanvas(workflowId, workflow));
@@ -3271,6 +3410,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     aside.appendChild(section('ro-step', 'Step', el('dl', { class: 'ro-details', 'data-key': 'step-details' }, rows.map(function (row) {
       return [el('dt', { text: row[0] }), el('dd', { text: row[1] })];
     }))));
+    aside.appendChild(aboutSection(workflowId, phaseId, phase, true));
     aside.appendChild(worldModelSection(workflowId, phaseId, phase, true));
     if (agent) aside.appendChild(section('ro-agent-prompt', 'Agent prompt & instructions', agentPromptPreview(phase.agent, phaseId, workflowId), null, agent.label));
     aside.appendChild(section('ro-workflow-rules', 'Workflow rules', workflowRules(workflowId), null, null, true));
@@ -3312,6 +3452,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
         el('div', { text: phase.label + ' is also used by ' + users.map(function (id) { return state.draft.workflows[id].label; }).join(', ') + '. Its agent, name and output change there too.' }),
         button('Use a copy in this workflow', function () { copyStepForWorkflow(workflowId, phaseId); }, { class: 'secondary', style: 'margin-top:6px' })) : null
     ], null, look.label));
+    aside.appendChild(aboutSection(workflowId, phaseId, phase, false));
 
     aside.appendChild(section('agent', 'Drafting agent', [
       el('div', { class: 'agent-row' }, el('span', { class: 'avatar large', 'aria-hidden': 'true', text: agent ? initials(agent.label) : '?' }),
@@ -5725,7 +5866,7 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
     })));
   }
   /** Open a governed file in an editor: the workflow file, or a template under the templates folder. */
-  function openFile(relative) { post({ type: 'studio.openFile', path: relative }); }
+  function openFile(relative, line) { post(line ? { type: 'studio.openFile', path: relative, line: line } : { type: 'studio.openFile', path: relative }); }
   function templateFilePath(relative) { return (state.model.templatesRoot || 'singularity/templates') + '/' + relative; }
 
   /** Back to the published configuration: the draft, and every form still holding typed input. */
@@ -5749,8 +5890,17 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
   function renderPlan(plan) {
     var section = el('section', { class: 'studio-card', 'aria-label': 'Check result' });
     section.appendChild(el('h2', { text: plan.valid ? 'Checked: ready to publish' : 'Checked: fix these first' }));
-    plan.problems.forEach(function (problem) { section.appendChild(el('div', { class: 'callout bad', text: problem.message })); });
-    plan.warnings.forEach(function (warning) { section.appendChild(el('div', { class: 'callout wait', text: warning.message })); });
+    plan.problems.forEach(function (problem) {
+      section.appendChild(el('div', { class: 'callout bad' }, problem.message, (problem.located || []).slice(0, 5).map(function (entry) {
+        return el('div', { class: 'finding-where', text: (entry.file || 'singularity/workflow.yml') + (entry.line ? ' line ' + entry.line : '') + (entry.fix ? ' · Fix: ' + entry.fix : '') });
+      })));
+    });
+    plan.warnings.forEach(function (warning) {
+      var workflowId = warning.subject && warning.subject.kind === 'workflow' ? warning.subject.id : null;
+      var target = workflowId && state.draft.workflows[workflowId] && (warning.step || warning.decision) ? (warning.decision ? { decision: warning.decision } : { step: warning.step }) : null;
+      section.appendChild(el('div', { class: 'callout wait' }, warning.message, target ? el('div', { class: 'studio-row' },
+        button('Show', function () { if (openWorkflowCanvas(workflowId) !== false) { state.view = 'board'; showSubject(workflowId, target); } }, { class: 'secondary' })) : null));
+    });
     if (plan.valid) plan.summary.forEach(function (line) { section.appendChild(el('div', { class: 'callout ok', text: line })); });
     if (plan.files.length) {
       var files = el('details', null, el('summary', { text: 'Files this changes (' + plan.files.length + ')' }));
@@ -5834,6 +5984,14 @@ export const WORKFLOW_STUDIO_SCRIPT = CATALOG_SEARCH_SCRIPT + String.raw`
       // Whether this machine has the secrets the targets name decides the Integrations badge.
       askSecretStatus(targetIds().reduce(function (names, id) { return names.concat(targetSecrets(state.draft.integrations[id])); }, []));
       state.busy = null; render();
+    } else if (message.type === 'studio.check' || message.type === 'studio.checkFailed') {
+      // A later request for the same workflow wins; an answer for an older draft is dropped.
+      var pending = state.checks[message.workflow];
+      if (pending && pending.loading && pending.key !== (message.changeSet || '')) return;
+      state.checks[message.workflow] = message.type === 'studio.check'
+        ? { key: message.changeSet || '', result: message.result, loading: false, error: null }
+        : { key: message.changeSet || '', result: pending ? pending.result : null, loading: false, error: message.message || 'The check did not run.' };
+      render();
     } else if (message.type === 'studio.plan') {
       state.plan = message.plan; state.planKey = message.changeSet; state.busy = null;
       setStatus(message.plan.valid ? 'Checked: ready to publish.' : 'Checked: some changes need fixing.');
@@ -5975,6 +6133,10 @@ export function studioPublishArgs(authority: StudioAuthority | null | undefined)
 
 export const STUDIO_PREVIEW_ARGS = Object.freeze(['workflow', 'studio', 'apply', '--change-set', '-', '--dry-run', '--json']);
 export const STUDIO_MODEL_ARGS = Object.freeze(['workflow', 'studio', '--json']);
+/** Explain and check one workflow, as a draft's change set (on standard input) would leave it. */
+export function studioCheckArgs(workflow: string, withChangeSet: boolean): string[] {
+  return ['workflow', 'check', workflow, ...(withChangeSet ? ['--change-set', '-'] : []), '--json'];
+}
 
 /**
  * The page body. The panel wraps it in the shared page shell, so the footer that shell draws and

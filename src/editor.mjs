@@ -1699,7 +1699,11 @@ async function validateConfigurationCandidate(root, relative, content, definitio
  * phase moving from one default agent to another. Each file alone fails the whole-catalog check,
  * so the candidate is assembled first and checked once. Returns the candidate definition.
  */
-export async function validateConfigurationCandidates(root, candidates, definition, portfolio) {
+/**
+ * `inspect`, when given, reads the validated candidate copy before it is removed (workflow check of a
+ * Studio draft runs there).
+ */
+export async function validateConfigurationCandidates(root, candidates, definition, portfolio, { inspect = null } = {}) {
   const validationRoot = await mkdtemp(path.join(tmpdir(), 'singularity-flow-configuration-'));
   try {
     const sources = new Set([
@@ -1738,6 +1742,7 @@ export async function validateConfigurationCandidates(root, candidates, definiti
     await discoverAgents(validationRoot);
     await loadAgentMappings(validationRoot);
     await validateEnvironmentConfiguration(validationRoot, updatedDefinition);
+    if (inspect) await inspect(validationRoot, updatedDefinition);
     return updatedDefinition;
   } finally {
     await rm(validationRoot, { recursive: true, force: true });

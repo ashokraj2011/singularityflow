@@ -175,6 +175,12 @@ test('workflow help distinguishes linked copy from independent duplication', () 
   assert.doesNotMatch(page, /alias of workflow copy/);
 });
 
+test('workflow help shows the check that explains a workflow and says what does not make sense', () => {
+  const page = renderCommandHelp('workflow');
+  assert.match(page, /workflow check \[WORKFLOW\] \[--change-set FILE\|-\] \[--json\]/);
+  assert.match(page, /explain each workflow in plain words and list what does not make sense/);
+});
+
 test('workflow help shows the three team import commands and their Copilot route', () => {
   const page = renderCommandHelp('workflow');
   assert.match(page, /workflow import-team inspect <DIRECTORY> \[--entry AGENT\]\.\.\. \[--root DIRECTORY\]\.\.\./);

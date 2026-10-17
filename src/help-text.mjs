@@ -424,6 +424,8 @@ Usage:
   singularity-flow workflow validate [TYPE] [--json] [--for-start]
                                                         verify every code phase has a clause source and plan owner
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
+  singularity-flow workflow check [WORKFLOW] [--change-set FILE|-] [--json]
+                                                        explain each workflow in plain words and list what does not make sense, with where
 
   # SGOS — deterministic intent compilation and governed execution
   singularity-flow intent capture <TEXT> [--out FILE] [--json]

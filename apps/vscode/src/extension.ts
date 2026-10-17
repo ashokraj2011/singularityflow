@@ -8654,7 +8654,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         importWorkflows: (source) => importWorkflowBundle(source),
         importTeam: () => vscode.commands.executeCommand('singularityFlow.importTeamWorkflow'),
         duplicateWorkflow: (selector) => duplicateWorkflow(selector),
-        openFile: async (relative) => {
+        openFile: async (relative, line) => {
+          // A check finding names a line: open the text there when the file is in this checkout.
+          const absolute = path.join(repository, relative);
+          if (line && await access(absolute).then(() => true, () => false)) {
+            const position = new vscode.Position(line - 1, 0);
+            await vscode.window.showTextDocument(await vscode.workspace.openTextDocument(vscode.Uri.file(absolute)), { preview: true, selection: new vscode.Range(position, position) });
+            return;
+          }
           await openArtifact(repository, { kind: 'artifact', id: relative, label: relative, path: relative });
         },
         // Unpublished changes survive closing the panel, in this workspace's storage.

@@ -19,7 +19,7 @@ import { collectReviewConfirmation } from './review-confirmation.ts';
 import { integerField, registerMessageRouter, stringField } from './messages.ts';
 import { INTEGRATION_SECRET_NAME, type IntegrationSecretSource } from '../credentials.ts';
 import {
-  PROPOSAL_BRANCH, STUDIO_FOCUS_VIEWS, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, localProposalUploads, proposalSummaries,
+  PROPOSAL_BRANCH, STUDIO_FOCUS_VIEWS, STUDIO_MODEL_ARGS, STUDIO_PREVIEW_ARGS, WORKFLOW_STUDIO_SCRIPT, studioCheckArgs, localProposalUploads, proposalSummaries,
   studioPublishArgs, workflowStudioBody, type LocalProposalUpload, type StudioAuthority, type StudioFocusView
 } from './workflow-studio-page.ts';
 import * as path from 'node:path';
@@ -71,7 +71,7 @@ export interface WorkflowStudioActions {
   importTeam?(): Thenable<unknown> | Promise<unknown>;
   duplicateWorkflow?(selector: string): Promise<StudioChangeOutcome>;
   /** Open a repository file in an editor: the governed workflow or portfolio file, or a template. */
-  openFile?(relative: string): Promise<void>;
+  openFile?(relative: string, line?: number): Promise<void>;
   /** The operating-system keychain, through VS Code, for the secrets integration targets name. */
   integrationSecrets?: IntegrationSecretStore;
   /**
@@ -184,6 +184,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       stringField(message, 'detail'), stringField(message, 'ok')),
     'studio.reload': () => this.load(true),
     'studio.preview': (message) => this.preview(stringField(message, 'changeSet')),
+    'studio.check': (message) => this.check(stringField(message, 'workflow'), stringField(message, 'changeSet')),
     'studio.publish': (message) => this.publish(stringField(message, 'changeSet'), integerField(message, 'count') ?? 0),
     'studio.importPreview': (message) => this.importPreview(stringField(message, 'reference'), stringField(message, 'as'), (message as { arguments?: unknown }).arguments),
     'studio.mcpSources': (message) => this.mcpSources(stringField(message, 'id')),
@@ -214,7 +215,7 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       });
     },
     'studio.duplicateWorkflow': (message) => this.duplicateWorkflow(stringField(message, 'selector'), integerField(message, 'pending') ?? 0),
-    'studio.openFile': (message) => this.openFile(stringField(message, 'path')),
+    'studio.openFile': (message) => this.openFile(stringField(message, 'path'), integerField(message, 'line')),
     'studio.integrationTest': (message) => this.integrationTest(stringField(message, 'target'), stringField(message, 'trigger'),
       stringField(message, 'send'), (message as { sendTest?: unknown }).sendTest === true)
   });
@@ -346,13 +347,17 @@ export class WorkflowStudioPanel implements vscode.Disposable {
   private openableFile(relative: string): boolean {
     if (relative.split('/').some((part) => part === '..' || part === '' || part === '.')) return false;
     if (relative === 'singularity/workflow.yml' || relative === 'singularity/portfolio.yml') return true;
+    // Files a workflow check can point at: skills, instructions, the attachments file and agents.
+    if (/^singularity\/(?:skill-library\/[a-z0-9][a-z0-9-]*\/SKILL\.md|instruction-library\/[a-z0-9][a-z0-9-]*\/INSTRUCTIONS\.md|skill-library\/attachments\.yml)$/.test(relative)) return true;
+    if (/^\.github\/agents\/[A-Za-z0-9][A-Za-z0-9._-]*\.md$/.test(relative)) return true;
     const root = typeof this.model?.templatesRoot === 'string' && this.model.templatesRoot ? this.model.templatesRoot : 'singularity/templates';
     return relative.startsWith(`${root}/`) && /^[A-Za-z0-9][A-Za-z0-9._/-]*\.md$/.test(relative.slice(root.length + 1));
   }
 
-  private async openFile(relative: string | null): Promise<void> {
+  private async openFile(relative: string | null, line: number | null = null): Promise<void> {
     if (!relative || relative.length > 512 || !this.openableFile(relative) || !this.actions.openFile) return;
-    await this.actions.openFile(relative);
+    // A check finding opens the file at the line it is about.
+    await this.actions.openFile(relative, line !== null && line > 0 && line < 1_000_000 ? line : undefined);
   }
 
   /** Whether each secret is stored through VS Code, inherited from the environment, or missing. Never a value. */
@@ -621,6 +626,24 @@ export class WorkflowStudioPanel implements vscode.Disposable {
       this.post({ type: 'studio.plan', plan, changeSet });
     } catch (error) {
       this.post({ type: 'studio.failed', message: (error as Error).message });
+    }
+  }
+
+  /** Explain and check one workflow; with the draft's change set, as publishing it would leave it. */
+  private async check(workflow: string | null, text: string | null): Promise<void> {
+    if (!workflow || workflow.length > 120 || !/^[a-z0-9][a-z0-9-]*$/.test(workflow)) return;
+    const changeSet = text ?? '';
+    if (Buffer.byteLength(changeSet, 'utf8') > MAX_CHANGE_SET_BYTES) {
+      this.post({ type: 'studio.checkFailed', workflow, changeSet, message: 'These changes are too large to check.' });
+      return;
+    }
+    try {
+      const result = changeSet
+        ? await this.client.runWithInput<unknown>(studioCheckArgs(workflow, true), changeSet)
+        : await this.client.run<unknown>(studioCheckArgs(workflow, false));
+      this.post({ type: 'studio.check', workflow, changeSet, result });
+    } catch (error) {
+      this.post({ type: 'studio.checkFailed', workflow, changeSet, message: (error as Error).message });
     }
   }
 

@@ -19,7 +19,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { parseYamlText } from './yaml-parse-cache.mjs';
-import { loadDefinition, mergePhaseOverride, resolveWorkType, validateDefinition, WORKFLOW_PATH } from './config.mjs';
+import { loadDefinition, mergePhaseOverride, resolveWorkType, STEP_DESCRIPTION_LIMIT, validateDefinition, WORKFLOW_PATH } from './config.mjs';
 import { AGENT_LOCK_PATH, discoverAgents, parseAgentDependencies, parseAttachedSkills } from './agents.mjs';
 import {
   SKILL_ATTACHMENTS_PATH, librarySkillPath, librarySkillText, loadSkillLibrary, normalizeSkillUse,
@@ -427,6 +427,8 @@ export async function buildStudioModel(root, { authority = null } = {}) {
         const route = authoringRoute(phase);
         return {
           id: phase.id, label: phase.label ?? phase.id, output: outputOf(phase),
+          // Resolution leaves the description out of Story pins, so it is read from the step itself.
+          description: typeof phases[phase.id]?.description === 'string' ? phases[phase.id].description : '',
           agent: phase.defaultAgent ?? defaultAgentOf(phase.id),
           approval: approvalSummary(phase.approval), inputs: inputIds(phase.inputs),
           optionalInputs: optionalInputIds(phase.inputs),
@@ -479,6 +481,7 @@ export async function buildStudioModel(root, { authority = null } = {}) {
     },
     phases: Object.entries(phases).map(([id, phase]) => ({
       id, label: phase.label ?? id, output: outputOf(phase),
+      description: typeof phase.description === 'string' ? phase.description : '',
       approval: approvalSummary(phase.approval), inputs: inputIds(phase.inputs),
       authoringSkill: typeof phase.authoringSkill === 'string' ? phase.authoringSkill : null,
       afterStep: (Array.isArray(phase.afterStep) ? phase.afterStep : []).map((action) => ({ id: action?.id, on: [...(action?.on ?? [])], target: action?.target, send: action?.send ?? 'event', ...(action?.required === true ? { required: true } : {}) })),
@@ -687,6 +690,14 @@ function requireLabel(value, label) {
   const text = String(value ?? '').replace(/\s+/g, ' ').trim();
   if (!text || text.length > 120) throw new SingularityFlowError(`${label} needs a name of 1 to 120 characters.`, { code: 'STUDIO_LABEL_INVALID' });
   return text;
+}
+
+/** What a step is for, in the person's words: one paragraph, or null to take it away. */
+function stepDescription(value, name) {
+  if (value === null) return null;
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (text.length > STEP_DESCRIPTION_LIMIT) throw new SingularityFlowError(`The description of ${name} is longer than ${STEP_DESCRIPTION_LIMIT} characters.`, { code: 'STUDIO_DESCRIPTION_INVALID' });
+  return text || null;
 }
 
 function starterTemplate(id, label) {
@@ -2047,7 +2058,7 @@ class StudioCandidate {
     this.summary.push(`Installed blueprint ${profile.label ?? workflowId}: ${profile.phases.map((phase) => this.phaseLabel(phase)).join(' → ')}.`);
   }
 
-  createPhase({ id, label, output, inputs, approval, views, agent, copyOf, copyFromWorkflow, authoringSkill, clarification, afterStep, template, artifactSet, artifactFile }) {
+  createPhase({ id, label, description, output, inputs, approval, views, agent, copyOf, copyFromWorkflow, authoringSkill, clarification, afterStep, template, artifactSet, artifactFile }) {
     const phaseId = requireId(id, 'A step ID');
     if (this.phase(phaseId)) throw new SingularityFlowError(`A step called '${phaseId}' already exists.`, { code: 'STUDIO_PHASE_EXISTS' });
     const name = requireLabel(label, 'The step');
@@ -2088,6 +2099,10 @@ class StudioCandidate {
         writeScope: 'artifact-only',
         approval: approval === 'none' ? 'none' : this.approvalNode(approval ?? { group: firstGroup })
       };
+    }
+    if (description !== undefined) {
+      const text = stepDescription(description, name);
+      if (text) node.description = text; else delete node.description;
     }
     this.document.setIn(['phases', phaseId], this.document.createNode(node));
     // A copy's own skill that cannot draft its new output is dropped; one the change names decides.
@@ -2165,7 +2180,7 @@ class StudioCandidate {
     });
   }
 
-  updatePhase({ id, workflow, label, output, inputs, approval, views, clarification, authoringSkill, afterStep, template, artifactSet, artifactFile }) {
+  updatePhase({ id, workflow, label, description, output, inputs, approval, views, clarification, authoringSkill, afterStep, template, artifactSet, artifactFile }) {
     const phaseId = this.requirePhase(requireId(id, 'A step ID'));
     const name = this.phaseLabel(phaseId);
     // Shared once the change set is applied: a step this change set also adds to another workflow
@@ -2195,6 +2210,13 @@ class StudioCandidate {
     let dropped = null;
     if (label != null) { this.document.setIn(['phases', phaseId, 'label'], requireLabel(label, 'The step')); changed.push('name'); }
     if (output != null) { dropped = this.setOutput(phaseId, output); changed.push('output'); }
+    if (description !== undefined) {
+      // What the step is for is the step's own, wherever it is used.
+      const text = stepDescription(description, name);
+      if (text) this.document.setIn(['phases', phaseId, 'description'], text);
+      else if (this.document.hasIn(['phases', phaseId, 'description'])) this.document.deleteIn(['phases', phaseId, 'description']);
+      changed.push('description');
+    }
     const inputList = changeList(inputs, `The inputs of ${name}`, 'STUDIO_PHASE_UNKNOWN');
     if (inputList) {
       const scope = scopeFor('inputs');
@@ -2833,7 +2855,7 @@ async function loadSources(root, options = {}) {
  * written to `root` — call that only where the configuration really lives: a proposal clone, or a
  * local authority's working tree. Without it nothing is written.
  */
-export async function planStudioChangeSet(root, changeSet, { write = false, imports = null, fetchImpl = globalThis.fetch } = {}) {
+export async function planStudioChangeSet(root, changeSet, { write = false, imports = null, fetchImpl = globalThis.fetch, inspect = null } = {}) {
   if (!changeSet || typeof changeSet !== 'object' || changeSet.schema !== STUDIO_CHANGE_SET_SCHEMA) {
     throw new SingularityFlowError(`A Studio change set must declare schema '${STUDIO_CHANGE_SET_SCHEMA}'.`, { code: 'STUDIO_CHANGE_SET_INVALID' });
   }
@@ -2901,13 +2923,20 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
     try { files = await candidate.files(); }
     catch (error) { problems.push({ code: error?.code ?? 'STUDIO_CHANGE_INVALID', message: error.message }); }
   }
+  // `inspect` reads the configuration as it would be after the change set: the validated copy, or the
+  // configuration itself when nothing would change.
+  let inspection = null;
+  const inspectCandidate = inspect ? async (candidateRoot) => { inspection = await inspect(candidateRoot); } : null;
   if (!problems.length && files.length) {
     try {
-      await validateStudioCandidate(sources, files);
+      await validateStudioCandidate(sources, files, inspectCandidate);
     } catch (error) {
-      problems.push({ code: error?.code ?? 'CONFIGURATION_INVALID', message: String(error.message).replace(/^Change was not saved because configuration validation failed: /, '') });
+      // The located problems say where in the changed file; the person fixes the draft from them.
+      const located = error?.details?.configurationProblems;
+      problems.push({ code: error?.code ?? 'CONFIGURATION_INVALID', message: String(error.message).replace(/^Change was not saved because configuration validation failed: /, ''),
+        ...(Array.isArray(located) && located.length ? { located } : {}) });
     }
-  }
+  } else if (!problems.length && inspectCandidate) await inspectCandidate(root);
   const obligationWarnings = problems.length ? [] : obligationFindings(files, [...candidate.workflows.keys()]);
   const plan = {
     schemaVersion: 1,
@@ -2921,7 +2950,8 @@ export async function planStudioChangeSet(root, changeSet, { write = false, impo
       path: file.path,
       action: file.before == null ? 'create' : file.after == null ? 'delete' : 'update',
       diff: unifiedDiff(asText(file.before), asText(file.after), file.path)
-    }))
+    })),
+    ...(inspect ? { inspection } : {})
   };
   if (!write) return plan;
   if (!plan.valid) {
@@ -2960,14 +2990,17 @@ function obligationFindings(files, touched) {
       warnings.push({
         code: entry.code,
         message: entry.severity === 'error' ? `Stories cannot start from this workflow yet: ${entry.message}` : entry.message,
-        resolvingAction: entry.resolvingAction, subject: { kind: 'workflow', id }
+        resolvingAction: entry.resolvingAction, subject: { kind: 'workflow', id },
+        // Where in the workflow: the Studio selects that step or decision.
+        ...(entry.subject?.phase ?? entry.phaseId ? { step: entry.subject?.phase ?? entry.phaseId } : {}),
+        ...(entry.subject?.decision ? { decision: entry.subject.decision } : {})
       });
     }
   }
   return warnings;
 }
 
-async function validateStudioCandidate(sources, files) {
+async function validateStudioCandidate(sources, files, inspect = null) {
   const readCandidate = (file, fallback) => {
     const changed = files.find((entry) => entry.path === file);
     return changed ? parseYamlText(asText(changed.after) ?? '') ?? {} : fallback;
@@ -2985,7 +3018,7 @@ async function validateStudioCandidate(sources, files) {
   const definition = sources.definition ?? { templatesRoot: sources.templatesRoot };
   // A removed file stays in the copy validation reads, so the attachments file is checked empty.
   await validateConfigurationCandidates(sources.configRoot, files.filter((file) => file.after != null || file.path === SKILL_ATTACHMENTS_PATH)
-    .map((file) => ({ path: file.path, content: file.after == null ? 'attachments: []\n' : asText(file.after) })), definition, sources.portfolio);
+    .map((file) => ({ path: file.path, content: file.after == null ? 'attachments: []\n' : asText(file.after) })), definition, sources.portfolio, { inspect });
 }
 
 export function readStudioChangeSet(text) {

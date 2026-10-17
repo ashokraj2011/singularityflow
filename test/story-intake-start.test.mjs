@@ -410,14 +410,37 @@ test('a start without a receipt fetches only its chosen base and preserves the l
   assert.ok(timing.spans['start.publication.commit'] >= 0);
 });
 
-test('a stale deleted Story tracking ref retains the ordinary prune and collision validation path', intakePlatforms, async (t) => {
-  const { root } = await repository(t);
+test('a stale deleted Story tracking ref never widens readiness or isolated start to all branches', intakePlatforms, async (t) => {
+  const { root, remote } = await repository(t);
+  const tip = git(root, 'rev-parse', 'HEAD');
+  git(remote, 'update-ref', 'refs/heads/not-selected', tip);
   git(root, 'update-ref', 'refs/remotes/origin/STORY-DELETED-TRACKING', git(root, 'rev-parse', 'HEAD'));
+  const receipt = preflight(root, 'STORY-DELETED-TRACKING');
+  assert.equal(receipt.issued, true);
+  assert.notEqual(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/not-selected'], root,
+    { allowFailure: true }).status, 0, 'readiness does not fetch an unrelated branch');
   const started = start(root, 'STORY-DELETED-TRACKING');
   const result = data(started);
   assert.equal(git(result.repositoryPath, 'branch', '--show-current'), 'STORY-DELETED-TRACKING');
   assert.equal(git(result.repositoryPath, 'rev-parse', 'HEAD^'), git(root, 'rev-parse', 'origin/main'));
   assert.equal(git(root, 'branch', '--show-current'), 'main');
+  assert.notEqual(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/not-selected'], root,
+    { allowFailure: true }).status, 0, 'creation does not fall back to a broad fetch');
+});
+
+test('starting a remote-only Story on a custom branch resumes without fetching other application branches', intakePlatforms, async (t) => {
+  const { root, remote, base } = await repository(t);
+  const created = data(start(root, 'REMOTE-CUSTOM', ['--ref', 'feature/existing-story']));
+  const fresh = path.join(base, 'fresh');
+  git(base, 'clone', '-q', '--single-branch', '--branch', 'main', remote, fresh);
+  git(fresh, 'config', 'user.name', 'Story Publisher');
+  git(fresh, 'config', 'user.email', EMAIL);
+  git(remote, 'update-ref', 'refs/heads/not-selected', git(root, 'rev-parse', 'HEAD'));
+  const resumed = data(start(fresh, 'REMOTE-CUSTOM', ['--ref', 'feature/existing-story']));
+  assert.equal(git(resumed.repositoryPath, 'branch', '--show-current'), 'feature/existing-story');
+  assert.equal(git(resumed.repositoryPath, 'rev-parse', 'HEAD'), git(created.repositoryPath, 'rev-parse', 'HEAD'));
+  assert.notEqual(run('git', ['show-ref', '--verify', '--quiet', 'refs/remotes/origin/not-selected'], fresh,
+    { allowFailure: true }).status, 0, 'resume refreshes only its exact Story ref');
 });
 
 test('a Story started with a receipt is the Story started without one', intakePlatforms, async (t) => {

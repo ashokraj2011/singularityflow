@@ -28,7 +28,7 @@ import {
 import {
   assertClean, branch as currentBranch, checkout, exactRemoteBranchObservationAsync, publicationPushOutcome,
   gitCommonDir, orphanRemoteBranches, refExists, refHead, refsShareHistory, remoteDefaultBranchName, repoRoot,
-  safePruneRefspecs, validBranch
+  validBranch
 } from './git.mjs';
 import { workspaceRepositoryPath } from './workspace.mjs';
 import {
@@ -42,7 +42,7 @@ import {
   resolveStoryConfigurationSnapshotCapability
 } from './configuration-branch.mjs';
 import { mapLimit, nowIso, run, SingularityFlowError } from './util.mjs';
-import { GitRemoteSession, runRemoteGitAsync } from './git-execution.mjs';
+import { GitRemoteSession, requireRemoteObservation, runRemoteGitAsync } from './git-execution.mjs';
 import { probeStoryBranchPublication, storyPublicationPreflightError } from './story-publication-preflight.mjs';
 import { publicationFailureMessage } from './git-hook-effects.mjs';
 import { incrementCommandCounter } from './dx-command-timing.mjs';
@@ -80,11 +80,11 @@ function stateBranchAuthority(definition) {
  * Reuse only an operation-local launch fetch whose exact inputs are still freshly advertised.
  *
  * A matching base alone is insufficient: a changed/removed state tip or a stale destination ref
- * must take the ordinary prune-fetch path. This receipt is never persisted or accepted from argv.
+ * must take the exact-ref refresh path. This receipt is never persisted or accepted from argv.
  * Local tips and transport identity are checked again after the async probe, so a concurrent fetch
  * or remote retarget cannot make a stale receipt authoritative.
  */
-async function reusableLaunchFetch(candidate, remote, baseBranch, storyBranch, proof, runGit, recent = null) {
+async function reusableLaunchFetch(candidate, remote, baseBranch, storyBranch, proof, session, recent = null) {
   proof = proof ? Object.freeze({ ...proof }) : null;
   if (!proof || proof.remote !== remote || proof.baseBranch !== baseBranch
       || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(proof.baseCommit ?? '')
@@ -121,9 +121,7 @@ async function reusableLaunchFetch(candidate, remote, baseBranch, storyBranch, p
     ? recent.observation : null;
   if (!observed) {
     try {
-      observed = await new GitRemoteSession({
-        cwd: candidate.root, runAsyncCommand: runGit
-      }).observeAsync(candidate.fetchAuthority.url, {
+      observed = await session.observeAsync(candidate.fetchAuthority.url, {
         includeHead: false, refs: needed, refresh: true, timeoutMs: 5_000
       });
     } catch {
@@ -792,6 +790,7 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
     }
     const root = repoRoot(target);
     validBranch(root, storyBranch);
+    validBranch(root, plan.resolution.resolved[repository.id].branch);
     // The lifecycle repository may be executing from its dedicated Story worktree while the
     // workspace's canonical checkout intentionally contains unrelated work. Both paths share the
     // same Git common directory, so only sibling repositories still need the legacy clean-checkout
@@ -817,15 +816,15 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       worldModelDefinition: repositoryDefinition
     });
   }
-  // Keep preflight observational with respect to repository configuration. The fetch below already
-  // carries the exact all-heads destination refspec it needs, so rewriting remote.<name>.fetch here
-  // would only leave a persistent machine-local change behind when a later fetch or push probe is
-  // refused. Any checkout policy that wants a broader default refspec belongs to preparation, after
-  // the complete Story-start readiness gate.
+  // Refresh only each repository's selected base. Destination existence is a fresh exact remote
+  // observation, not a reason to transfer/prune every other Story, state, or configuration branch.
+  // Never rewrite the contributor's remote configuration or delete unrelated tracking refs.
   const fetched = await mapLimit(candidates, workers, async (candidate) => {
+    const baseBranch = plan.resolution.resolved[candidate.repository.id].branch;
+    const session = new GitRemoteSession({ cwd: candidate.root, runAsyncCommand: runGit });
     const fetchReused = await reusableLaunchFetch(
       candidate, remote, plan.resolution.resolved[candidate.repository.id].branch,
-      storyBranch, launchFetchProof, runGit, launchFetchObservation
+      storyBranch, launchFetchProof, session, launchFetchObservation
     );
     const tipsCurrent = !fetchReused && observedTipsCurrent(
       candidate, remote, plan.resolution.resolved[candidate.repository.id].branch, storyBranch, observedTips
@@ -839,12 +838,25 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       incrementCommandCounter('git.story-preflight-fetch-verified');
       result = { status: 0, stdout: '', stderr: '' };
     } else {
+      const storyRef = `refs/heads/${storyBranch}`;
+      const recent = [observedTips, launchFetchObservation].find((tips) =>
+        tips?.url === candidate.fetchAuthority.url && tips.observation?.ok === true
+        && tips.observation.patterns?.includes(storyRef));
+      const observation = requireRemoteObservation(recent?.observation
+        ?? await session.observeAsync(candidate.fetchAuthority.url, { includeHead: false, refs: [storyRef] }),
+      `Story destination for required repository '${candidate.repository.id}'`);
+      if (observation.refs.has(storyRef)) {
+        throw new SingularityFlowError(
+          `Story branch '${storyBranch}' already exists for required repository '${candidate.repository.id}' `
+          + `on '${remote}'. Resume it instead of overwriting it. No Story was created.`,
+          { code: 'STORY_BRANCH_EXISTS' }
+        );
+      }
       incrementCommandCounter('git.remote-fetch');
       const transport = frozenRemoteTransport(candidate.fetchAuthority.url);
-      const pruneRefspecs = safePruneRefspecs(candidate.root, remote);
       result = await runGit([
-        'fetch', ...(pruneRefspecs ? ['--prune'] : []), transport.remote,
-        `+refs/heads/*:refs/remotes/${remote}/*`, ...(pruneRefspecs ?? [])
+        'fetch', '--no-tags', '--recurse-submodules=no', transport.remote,
+        `+refs/heads/${baseBranch}:refs/remotes/${remote}/${baseBranch}`
       ], {
         cwd: candidate.root, operation: 'remote-configuration', allowFailure: true,
         env: transport.env
@@ -855,15 +867,18 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
       // Bind the fetch to the exact URL captured above. The explicit destination refspec retains
       // the normal remote-tracking layout without letting a concurrent `remote set-url` redirect it.
       result,
+      baseBranch,
       fetchReused
     };
   });
   const failedFetch = fetched.find((entry) => !processResultSucceeded(entry.result));
   if (failedFetch) {
     throw new SingularityFlowError(
-      `Cannot refresh required repository '${failedFetch.repository.id}' from '${remote}'. `
-      + `${failedFetch.result.failure?.advice ?? (failedFetch.result.stderr || failedFetch.result.stdout || 'Git fetch failed').trim()} Nothing was changed.`,
-      { code: failedFetch.result.failure?.code ?? 'STORY_REMOTE_UNREACHABLE' }
+      `Cannot refresh selected base branch '${failedFetch.baseBranch}' for required repository '${failedFetch.repository.id}' from '${remote}'. `
+      + `${failedFetch.result.failure?.advice ?? (failedFetch.result.stderr || failedFetch.result.stdout || 'Git fetch failed').trim()} No Story was created; existing work was preserved.`,
+      { code: failedFetch.result.failure?.code ?? 'STORY_REMOTE_UNREACHABLE',
+        details: { classification: failedFetch.result.failure?.classification ?? null,
+          timedOut: failedFetch.result.timedOut === true } }
     );
   }
 
@@ -881,14 +896,8 @@ export async function preflightStoryRepositories(workspaceRoot, plan, storyBranc
     assertStoryBaseSharesHistory(root, {
       remote, baseBranch: base.branch, defaultBranch: repository.defaultBranch ?? null, repositoryId: repository.id
     });
-    const destinationRef = `refs/remotes/${remote}/${storyBranch}`;
-    if (refExists(root, destinationRef)) {
-      throw new SingularityFlowError(
-        `Story branch '${storyBranch}' already exists for required repository '${repository.id}' `
-        + `on '${remote}'. Resume it instead of overwriting it. Nothing was changed.`,
-        { code: 'STORY_BRANCH_EXISTS' }
-      );
-    }
+    // The exact observation above (or verified launch receipt) established destination absence.
+    // A stale local tracking ref must neither block creation nor cause an all-heads prune fetch.
     candidatesToProbe.push({
       repository: repository.id,
       root,

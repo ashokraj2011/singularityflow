@@ -1008,7 +1008,8 @@ function baseBranchHtml(form: IntakeForm): string {
       <code>${escape(form.baseRemote ?? 'remote')}/refs/heads/${escape(intakeIdentifier(form) || '<Story ID>')}</code>.
       The engine recomputes these checks immediately before mutation.</p>` : ''}
     ${form.basePreflightChecking ? '<p class="meta">Checking approved configuration, workflow agents, and every required remote…</p>' : ''}
-    ${form.baseBranch && form.basePreflightReason ? `<p class="blockers">${escape(form.basePreflightReason)}</p>` : ''}
+    ${form.baseBranch && form.basePreflightReason ? `<p class="blockers" role="alert">${escape(form.basePreflightReason)}</p>
+      <button type="button" class="secondary" data-readiness-retry ${form.busy || form.basePreflightChecking ? 'disabled' : ''}>Retry readiness</button>` : ''}
     ${form.basePreflightWarnings.length ? `<div class="notice warning" role="status">
       <strong>Ready with advisory information</strong>
       <ul>${form.basePreflightWarnings.map((warning) => `<li>${escape(warning)}</li>`).join('')}</ul>
@@ -1597,6 +1598,7 @@ export const INTAKE_SCRIPT = CATALOG_SEARCH_SCRIPT + `
     const samples = event.target.closest('[data-workflow-samples]');
     if (samples) return vscode.postMessage({ type: 'sampleWorkflows', value: samples.dataset.workflowSamples });
     if (event.target.closest('[data-baseline-run]')) return vscode.postMessage({ type: 'baselineRun' });
+    if (event.target.closest('[data-readiness-retry]')) return vscode.postMessage({ type: 'readinessRetry' });
     if (event.target.closest('[data-base-branch-clear]')) {
       branchSearch.value = '';
       filterBaseBranches();

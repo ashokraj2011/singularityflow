@@ -8,7 +8,7 @@ import {
 } from '../src/capability-start.mjs';
 import { publishCapabilityRepositoriesDurably } from '../src/capability-publication-recovery.mjs';
 import { parseBaseSelection, resolveCapabilityBase } from '../src/capability-branches.mjs';
-import { configuredRemoteAuthority } from '../src/git-remote-diagnostics.mjs';
+import { classifyGitRemoteFailure, configuredRemoteAuthority } from '../src/git-remote-diagnostics.mjs';
 import { gitCommonDir, refHead } from '../src/git.mjs';
 import { GitRemoteSession, runRemoteGitAsync } from '../src/git-execution.mjs';
 import { run } from '../src/util.mjs';
@@ -347,24 +347,29 @@ test('moved launch base is fetched and bound rather than reused', async (t) => {
   assert.equal(fixture.calls.filter((args) => args[0] === 'fetch').length, 1);
 });
 
-test('absent remote Story and state tips take the normal prune path for stale tracking refs', async (t) => {
+test('absent remote Story and state tips do not widen fetch or prune unrelated tracking refs', async (t) => {
   const fixture = await launchFixture(t, { registered: true });
   git(fixture.root, 'update-ref', 'refs/remotes/origin/STORY-FRESH', fixture.options.launchFetchProof.baseCommit);
   git(fixture.remote, '--git-dir', fixture.remote, 'update-ref', '-d', 'refs/heads/state');
   const checked = await fixture.preflight();
   assert.equal(checked[0].fetchReused, false);
   assert.equal(fixture.calls.filter((args) => args[0] === 'fetch').length, 1);
-  assert.equal(refHead(fixture.root, 'refs/remotes/origin/STORY-FRESH'), null);
+  assert.equal(refHead(fixture.root, 'refs/remotes/origin/STORY-FRESH'), fixture.options.launchFetchProof.baseCommit,
+    'a stale tracking ref is not remote existence and is preserved, not broadly pruned');
+  const fetch = fixture.calls.find((args) => args[0] === 'fetch');
+  assert.ok(fetch.includes('--recurse-submodules=no'));
+  assert.deepEqual(fetch.filter((arg) => arg.startsWith('+refs/')), ['+refs/heads/main:refs/remotes/origin/main']);
+  assert.ok(!fetch.includes('--prune'));
 });
 
-test('a state tip removed after launch is freshly detected and pruned even when the base did not move', async (t) => {
+test('a changed state tip invalidates launch reuse without transferring or pruning state', async (t) => {
   const fixture = await launchFixture(t, { registered: true });
   git(fixture.remote, '--git-dir', fixture.remote, 'update-ref', '-d', 'refs/heads/state');
   const checked = await fixture.preflight();
   assert.equal(checked[0].fetchReused, false);
   assert.equal(fixture.calls.filter((args) => args[0] === 'ls-remote').length, 1);
   assert.equal(fixture.calls.filter((args) => args[0] === 'fetch').length, 1);
-  assert.equal(refHead(fixture.root, 'refs/remotes/origin/state'), null);
+  assert.equal(refHead(fixture.root, 'refs/remotes/origin/state'), fixture.options.launchFetchProof.stateCommit);
 });
 
 test('freshly absent state remains reusable only when the launch fetch also proved absence', async (t) => {
@@ -386,7 +391,7 @@ test('poisoned fetch success is refused before any publication probe', async (t)
     if (args[0] === 'push') probes += 1;
     return { ...success, aborted: true };
   };
-  await assert.rejects(fixture.preflight, (error) => error.code === 'STORY_REMOTE_UNREACHABLE');
+  await assert.rejects(fixture.preflight, (error) => /REMOTE_|STORY_REMOTE_/.test(error.code));
   assert.equal(probes, 0);
 });
 
@@ -394,7 +399,8 @@ test('newly published Story destination is still refused after launch fetch', as
   const fixture = await launchFixture(t);
   git(fixture.root, 'push', '--quiet', fixture.remote, 'HEAD:refs/heads/STORY-FRESH');
   await assert.rejects(fixture.preflight, (error) => error.code === 'STORY_BRANCH_EXISTS');
-  assert.equal(fixture.calls.filter((args) => args[0] === 'fetch').length, 1);
+  assert.equal(fixture.calls.filter((args) => args[0] === 'fetch').length, 0,
+    'an existing destination is refused before transferring objects');
 });
 
 test('a receipt for another common directory cannot bypass the ordinary fetch', async (t) => {
@@ -403,5 +409,47 @@ test('a receipt for another common directory cannot bypass the ordinary fetch', 
   const checked = await fixture.preflight();
   assert.equal(checked[0].fetchReused, false);
   assert.equal(fixture.calls.filter((args) => args[0] === 'fetch').length, 1);
-  assert.equal(fixture.calls.filter((args) => args[0] === 'ls-remote').length, 0);
+  assert.equal(fixture.calls.filter((args) => args[0] === 'ls-remote').length, 1,
+    'an invalid receipt still requires an exact remote destination observation');
+});
+
+test('selected-base preflight never downloads unrelated Story/config-history refs and rejects a removed base', async (t) => {
+  const fixture = await launchFixture(t);
+  fixture.options.launchFetchProof = null;
+  for (const branch of ['unrelated', 'sflow/config-history/retained']) {
+    git(fixture.remote, '--git-dir', fixture.remote, 'update-ref', `refs/heads/${branch}`,
+      refHead(fixture.root, 'HEAD'));
+  }
+  await fixture.preflight();
+  assert.equal(refHead(fixture.root, 'refs/remotes/origin/unrelated'), null);
+  assert.equal(refHead(fixture.root, 'refs/remotes/origin/sflow/config-history/retained'), null);
+  assert.ok(fixture.calls.filter((args) => args[0] === 'fetch').every((args) =>
+    args.filter((arg) => arg.startsWith('+')).join() === '+refs/heads/main:refs/remotes/origin/main'));
+  git(fixture.remote, '--git-dir', fixture.remote, 'update-ref', '-d', 'refs/heads/main');
+  await assert.rejects(fixture.preflight, { code: 'REMOTE_BRANCH_NOT_FOUND' });
+});
+
+test('a selected-base fetch deadline preserves work and reports an unknown cause, not DNS failure', async (t) => {
+  const fixture = await launchFixture(t);
+  fixture.options.launchFetchProof = null;
+  fixture.options.publishRequired = true;
+  const before = refHead(fixture.root, 'HEAD');
+  let pushes = 0;
+  fixture.options.runGit = async (args, options) => {
+    if (args[0] === 'push') pushes += 1;
+    if (args[0] !== 'fetch') return runRemoteGitAsync(args, options);
+    const result = { status: 1, stdout: '', stderr: '', timedOut: true };
+    return { ...result, failure: classifyGitRemoteFailure(result) };
+  };
+  await assert.rejects(fixture.preflight, (error) => {
+    assert.equal(error.code, 'REMOTE_OPERATION_TIMEOUT');
+    assert.equal(error.details.timedOut, true);
+    assert.match(error.message, /selected base branch 'main'/);
+    assert.match(error.message, /cause is not established/);
+    assert.match(error.message, /existing work was preserved/);
+    assert.doesNotMatch(error.message, /Check DNS/);
+    return true;
+  });
+  assert.equal(pushes, 0);
+  assert.equal(refHead(fixture.root, 'HEAD'), before);
 });

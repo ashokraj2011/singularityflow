@@ -1401,6 +1401,13 @@ Story intake is the developer entry point. It starts one Story workflow;
 it does not require a Singularity Epic or Initiative. When Jira supplies a parent
 Epic, that parent is retained as lineage rather than treated as a prerequisite.
 
+Readiness and creation fetch only the selected application base in each required repository;
+resuming fetches the exact Story branch. Configuration and state use their separate exact
+authorities. An old local Story tracking ref never triggers an all-branch fetch or prune.
+Intake readiness has a 60-second VS Code deadline, separate from the longer creation budget.
+If it expires, **Retry readiness** keeps the draft and selections. A Git deadline alone does
+not prove a network failure: local/cloud-only files and credential handling can also stall Git.
+
 ### Jira Story
 
 In VS Code choose **Lifecycle → Start work → Story → Jira**. Select an assigned

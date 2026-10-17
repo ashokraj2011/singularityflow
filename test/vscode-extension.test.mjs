@@ -1793,7 +1793,7 @@ test('large remote operations and lifecycle submissions get operation-appropriat
   assert.equal(timeouts[9], 30 * 60_000);
   assert.equal(timeouts[10], 15 * 60_000);
   assert.equal(timeouts[11], 15 * 60_000);
-  assert.equal(timeouts[12], 15 * 60_000);
+  assert.equal(timeouts[12], 60_000, 'read-only Story readiness is bounded independently of Story creation');
   assert.equal(timeouts[13], 30 * 60_000);
   assert.equal(timeouts[14], 120_000);
   assert.equal(timeouts.length, 15,
@@ -4325,6 +4325,13 @@ test('repository setup reports classified Git failures without exposing diagnost
     },
     {
       failure: {
+        code: 'REMOTE_OPERATION_TIMEOUT', classification: 'operation-timeout', retryable: false,
+        advice: 'Git exceeded its deadline; the cause is not established.'
+      },
+      expected: /Git check timed out/
+    },
+    {
+      failure: {
         code: 'REMOTE_TIMEOUT', classification: 'network-transient', retryable: true,
         advice: 'The bounded Git check timed out.'
       },
@@ -6122,7 +6129,7 @@ test('Story Intake refreshes retained catalogs after configuration changes witho
     /private async reloadCatalog\(\)[\s\S]*?emptyStoryPreflight\(\)[\s\S]*?basePreflightChecking: true[\s\S]*?await this\.load\(\{ preserveSelections: true \}\)/,
     'catalog reload must invalidate the prior ready state before awaiting fresh authority');
   assert.match(panel, /load\(\{ preserveSelections: true \}\)/);
-  assert.match(panel, /Could not refresh Story workflows/,
+  assert.match(panel, /Intake catalog could not be read/,
     'a failed reload must retain the prior draft and make its stale state visible');
   assert.match(extension,
     /!request\.dryRun[\s\S]*?await IntakePanel\.configurationChanged\(\)/,

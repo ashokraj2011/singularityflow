@@ -175,7 +175,7 @@ export async function verifyStoryIntakeWave(root, admission, {
     if (stateCommit && refHead(root, trackingRef) !== stateCommit) {
       const transport = frozenRemoteTransport(repository.fetch.url);
       const fetched = await runGit([
-        'fetch', transport.remote, `+${stateRef}:${trackingRef}`
+        'fetch', '--no-tags', '--recurse-submodules=no', transport.remote, `+${stateRef}:${trackingRef}`
       ], { cwd: root, operation: 'remote-configuration', allowFailure: true, env: transport.env });
       incrementCommandCounter('story.intake-receipt-state-fetch');
       if (!processResultSucceeded(fetched) || refHead(root, trackingRef) !== stateCommit) {

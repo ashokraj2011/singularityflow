@@ -387,7 +387,7 @@ test('bootstrap remote discovery is asynchronously supervised and bounded', {
       bootstrapRepository('https://deadline.invalid/repository.git', {
         capabilityId: 'deadline', base
       }),
-      (error) => error?.code === 'REMOTE_NETWORK_TRANSIENT'
+      (error) => error?.code === 'REMOTE_OPERATION_TIMEOUT'
     );
   } finally {
     clearTimeout(tick);

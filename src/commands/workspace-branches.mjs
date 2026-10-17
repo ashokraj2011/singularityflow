@@ -180,7 +180,9 @@ export async function readWorkspaceBranches(options = {}, { root = repoRoot() } 
             { code: 'STORY_REMOTE_UNREACHABLE' }
           );
         }
-        await fetchRemote(root, selected.remote, { transportRemote: fetchAuthority.url });
+        await fetchRemote(root, selected.remote, {
+          transportRemote: fetchAuthority.url, branches: [selected.localBase], respectPartialClone: true
+        });
         const selectedBaseRef = `refs/remotes/${selected.remote}/${selected.localBase}`;
         if (!refExists(root, selectedBaseRef)) {
           throw new SingularityFlowError(

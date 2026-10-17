@@ -7,6 +7,7 @@ import { networkDisabled, run, SingularityFlowError } from './util.mjs';
 
 export const REMOTE_FAILURE_CLASSES = Object.freeze([
   'network-transient',
+  'operation-timeout',
   'offline',
   'git-unavailable',
   'working-directory-unavailable',
@@ -29,6 +30,7 @@ export const REMOTE_FAILURE_CLASSES = Object.freeze([
 
 const ADVICE = Object.freeze({
   'network-transient': 'Check DNS and network reachability, then retry the same bootstrap session.',
+  'operation-timeout': 'Git exceeded its deadline; the cause is not established. Check local disk/cloud-file availability, credential prompts, and remote access, then retry the same operation. A timeout alone does not establish a DNS failure.',
   offline: 'Reconnect to the network, then retry the same bootstrap session.',
   'git-unavailable': 'Install Git or add the approved Git executable to PATH, restart the calling application, then retry.',
   'working-directory-unavailable': 'Restore or reopen the local repository directory, then retry the same operation.',
@@ -773,11 +775,13 @@ export function classifyGitRemoteFailure(result, { branch = null, cwdAvailable =
   // A process may reach its supervisor deadline after already printing a conclusive provider
   // refusal. Preserve `timedOut` in evidence, but use the explicit diagnosis above for remediation.
   else if (sshNetworkFailure(output)) classification = 'network-transient';
-  else if (result?.timedOut) classification = 'network-transient';
-  else if (/timed? out|temporary failure|connection (?:reset|closed)|could not resolve host|name or service not known|network is unreachable|failed to connect|early eof|unexpected (?:disconnect|eof)|remote end hung up unexpectedly|rpc failed|broken pipe/i.test(output)) classification = 'network-transient';
+  else if (/connection timed? out|temporary failure|connection (?:reset|closed)|could not resolve host|name or service not known|network is unreachable|failed to connect|early eof|unexpected (?:disconnect|eof)|remote end hung up unexpectedly|rpc failed|broken pipe/i.test(output)) classification = 'network-transient';
   // Git adds this generic receive-pack trailer to many server-side failures. Use it only after
   // stronger transport diagnostics have had a chance to explain the actual failure.
   else if (receiveHookRejected(output)) classification = 'policy-rejected';
+  // A supervisor deadline can expire in local object reads, cloud hydration, or credentials before
+  // any socket is opened. Preserve stronger diagnostics above; do not invent a network diagnosis.
+  else if (result?.timedOut) classification = 'operation-timeout';
 
   return Object.freeze({
     classification,

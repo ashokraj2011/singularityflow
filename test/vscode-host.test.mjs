@@ -3367,6 +3367,73 @@ test('intake catalog deadlines show retry, superseded reads cancel, and closing 
   assert.deepEqual(registered.errors, []);
 });
 
+test('readiness deadlines stop checking, preserve intake, offer Retry, and cancel superseded/closed reads', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { IntakePanel } = hostRequire(path.join(packageRoot, 'apps/vscode/dist/lazy-panels-runtime.cjs'));
+  const requests = [];
+  const client = {
+    repository: '/fixture/intake',
+    prewarmRuntime: async () => ({ status: 'prepared' }),
+    run(args, signal) {
+      if (!args.includes('--preflight-story')) return Promise.resolve({
+        choices: [{ branch: 'main', present: 1, total: 1, everywhere: true, missingFrom: [] }],
+        remote: 'origin', intake: { storyWorkflows: [{ id: 'feature', label: 'Feature', governs: 'story', phases: ['intake'] }] }
+      });
+      return new Promise((resolve, reject) => {
+        requests.push({ signal, resolve });
+        signal.addEventListener('abort', () => reject(signal.reason ?? new Error('cancelled')), { once: true });
+      });
+    }
+  };
+  const realSetTimeout = globalThis.setTimeout;
+  let accelerateDeadline = true;
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => realSetTimeout(callback,
+    accelerateDeadline && delay === 60_000 && String(callback).includes('Story-start readiness timed out')
+      ? 1 : delay, ...args));
+  const panel = IntakePanel.show(context(), client, api.window.createOutputChannel('Intake'), async () => {}, {
+    workspace: null, repository: client.repository, branch: 'main', inFlight: [], defaults: { source: 'manual' }
+  });
+  t.after(() => panel.dispose());
+  const view = registered.panels.find(entry => entry.id === 'singularityFlow.intake');
+  await until(() => view.webview.html.includes('data-work-type="feature"') ? true : null,
+    { what: 'the catalog to load' });
+  await view.post({ type: 'baseBranch', value: 'main' });
+  await view.post({ type: 'field', field: 'title', value: 'Keep this draft' });
+  await view.post({ type: 'field', field: 'id', value: 'STORY-DEADLINE' });
+  await until(() => /<button[^>]*data-readiness-retry/.test(view.webview.html) ? true : null,
+    { what: 'the readiness deadline to show Retry' });
+  assert.equal(requests[0].signal.aborted, true, 'the actual CLI read is cancelled');
+  assert.match(view.webview.html, /Story-start readiness timed out after 60 seconds/);
+  assert.match(view.webview.html, /Keep this draft/);
+  assert.match(view.webview.html, /STORY-DEADLINE/);
+  assert.match(view.webview.html, /data-base-branch="main" checked/);
+  assert.doesNotMatch(view.webview.html, /Checking Story-start readiness for/);
+
+  accelerateDeadline = false;
+  const retry = view.post({ type: 'readinessRetry' });
+  await until(() => requests.length === 2 ? true : null, { what: 'Retry to start one new readiness read' });
+  requests[1].resolve({ preflight: { passed: true, readiness: { ready: true, blockers: [], warnings: [] } } });
+  await retry;
+  assert.match(view.webview.html, /Story-start readiness confirmed/);
+  assert.doesNotMatch(view.webview.html, /<button[^>]*data-readiness-retry/);
+  assert.equal(requests[1].signal.aborted, false, 'successful read clears its deadline');
+
+  const closing = view.post({ type: 'readinessRetry' });
+  await until(() => requests.length === 3 ? true : null, { what: 'the next readiness read to start' });
+  await view.post({ type: 'field', field: 'id', value: 'STORY-NEWER' });
+  await until(() => requests.length === 4 ? true : null, { what: 'a changed identifier to supersede readiness' });
+  assert.equal(requests[2].signal.aborted, true, 'superseded readiness is cancelled');
+  requests[2].resolve({ preflight: { passed: true, readiness: { ready: true, blockers: [], warnings: [] } } });
+  await closing;
+  assert.doesNotMatch(view.webview.html, /Story-start readiness confirmed/,
+    'a late old response cannot make a newer draft ready');
+  panel.dispose();
+  assert.equal(requests[3].signal.aborted, true, 'closing cancels the running readiness read');
+  assert.deepEqual(registered.errors, []);
+});
+
 test('a second Start Work paints the cached catalog at once, then revalidates without losing choices', async (t) => {
   if (!requireBundle(t)) return;
   const base = await mkdtemp(path.join(os.tmpdir(), 'sflow-intake-cache-'));

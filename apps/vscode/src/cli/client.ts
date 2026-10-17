@@ -13,7 +13,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   CAPABILITY_AUTHORITY_TIMEOUT_MS, CLI_TIMEOUT_MS, SNAPSHOT_TIMEOUT_MS, VALIDATION_TIMEOUT_MS,
-  FACTORY_RESET_TRANSACTION_TIMEOUT_MS, WORKSPACE_MUTATION_TIMEOUT_MS, WORK_START_TIMEOUT_MS,
+  FACTORY_RESET_TRANSACTION_TIMEOUT_MS, WORKSPACE_MUTATION_TIMEOUT_MS, WORK_START_TIMEOUT_MS, STORY_READINESS_TIMEOUT_MS,
   STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS, WORLD_MODEL_TIMEOUT_MS,
   invokeCli, cliInvocationTimeoutError, type OutputStream, type CliCommandTiming
 } from './runner.ts';
@@ -988,10 +988,12 @@ export class SingularityFlowClient {
     if (args[0] === 'story' && args[1] === 'enhance-description') {
       return STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS;
     }
+    if (args[0] === 'workspace' && args[1] === 'branches' && hasOption(args, 'preflight-story')) {
+      return STORY_READINESS_TIMEOUT_MS;
+    }
     if (args[0] === 'start'
         || (['story', 'epic', 'initiative'].includes(args[0] ?? '')
-          && ['start', 'prepare-worktree', 'discard-worktree'].includes(args[1] ?? ''))
-        || (args[0] === 'workspace' && args[1] === 'branches' && hasOption(args, 'preflight-story'))) {
+          && ['start', 'prepare-worktree', 'discard-worktree'].includes(args[1] ?? ''))) {
       return WORK_START_TIMEOUT_MS;
     }
     // An exact workspace Story attach may materialize one deferred repository before creating or

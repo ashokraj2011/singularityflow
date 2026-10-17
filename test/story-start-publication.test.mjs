@@ -101,11 +101,12 @@ const args = process.argv.slice(2);
 const realGit = ${JSON.stringify(realGit)};
 const initialFetchSeen = ${JSON.stringify(initialFetchSeen)};
 const raceApplied = ${JSON.stringify(raceApplied)};
-const broadRefspec = '+refs/heads/*:refs/remotes/origin/*';
-const storyFetch = args[0] === 'fetch' && args.includes(broadRefspec);
+const storyRef = ${JSON.stringify(`refs/heads/${storyBranch}`)};
+const storyRefspec = ${JSON.stringify(`+refs/heads/${storyBranch}:refs/remotes/origin/${storyBranch}`)};
+const storyFetch = args[0] === 'fetch' && args.includes(storyRefspec);
 // The transport is an invocation-local frozen alias, never the mutable name 'origin'.
 const initialStoryFetch = storyFetch && !fs.existsSync(initialFetchSeen);
-const postFreezeRefresh = storyFetch && !initialStoryFetch && fs.existsSync(initialFetchSeen)
+const postFreezeRefresh = args[0] === 'ls-remote' && args.includes(storyRef) && fs.existsSync(initialFetchSeen)
   && !fs.existsSync(raceApplied);
 if (initialStoryFetch) fs.writeFileSync(initialFetchSeen, 'yes');
 if (postFreezeRefresh) {
@@ -575,7 +576,7 @@ test('Story start refuses the configured state branch as an explicit base before
   assert.equal(git(root, 'ls-remote', 'origin', 'refs/heads/STORY-STATE-BASE').stdout.trim(), '');
 });
 
-test('the branch list never offers an orphan branch, and Story start refuses one before mutation', async () => {
+test('the explicit metadata branch list omits orphans, and Story start refuses one before mutation', async () => {
   const { root } = await repository();
   git(root, 'switch', '--orphan', 'pages');
   await writeFile(path.join(root, 'index.html'), '<h1>Pages</h1>\n');
@@ -585,10 +586,10 @@ test('the branch list never offers an orphan branch, and Story start refuses one
   git(root, 'switch', 'main');
   const originalHead = git(root, 'rev-parse', 'HEAD').stdout.trim();
 
-  const listed = JSON.parse(flow(root, ['workspace', 'branches', '--json']).stdout);
+  const listed = JSON.parse(flow(root, ['workspace', 'branches', '--include-local-metadata', '--json']).stdout);
   assert.deepEqual(listed.choices.map((choice) => choice.branch), ['main', 'release/24.3']);
   assert.deepEqual(Object.values(listed.orphaned).flat(), ['pages']);
-  const text = flow(root, ['workspace', 'branches']).stdout;
+  const text = flow(root, ['workspace', 'branches', '--include-local-metadata']).stdout;
   assert.match(text, /Not offered, because they share no history with the default branch: pages/);
 
   const refused = flow(root, [
@@ -612,7 +613,7 @@ test('with approved configuration the intake list and Story start treat an orpha
   git(root, 'push', 'origin', 'gh-pages');
   git(root, 'switch', 'main');
 
-  const listed = JSON.parse(flow(root, ['workspace', 'branches', '--json', '--intake']).stdout);
+  const listed = JSON.parse(flow(root, ['workspace', 'branches', '--include-local-metadata', '--json', '--intake']).stdout);
   assert.equal(listed.intake.workflowCatalogScope, 'approved-configuration');
   assert.deepEqual(listed.choices.map((choice) => choice.branch), ['main', 'release/24.3'],
     'neither the configuration branch nor the orphan is offered');
@@ -646,11 +647,11 @@ test('a Story started from another Story\'s branch is built on it, takes its Epi
   const parentTip = git(root, 'rev-parse', 'origin/STORY-PARENT').stdout.trim();
   git(root, 'switch', 'main');
 
-  const listed = JSON.parse(flow(root, ['workspace', 'branches', '--json']).stdout);
+  const listed = JSON.parse(flow(root, ['workspace', 'branches', '--include-local-metadata', '--json']).stdout);
   assert.deepEqual(listed.choices.find((choice) => choice.branch === 'STORY-PARENT')?.story,
     { workId: 'STORY-PARENT', title: 'Retry a failed charge', epicId: 'EPIC-7' });
   assert.equal(listed.choices.find((choice) => choice.branch === 'main')?.story, undefined);
-  assert.match(flow(root, ['workspace', 'branches']).stdout, /STORY-PARENT .* — Story STORY-PARENT: Retry a failed charge/);
+  assert.match(flow(root, ['workspace', 'branches', '--include-local-metadata']).stdout, /STORY-PARENT .* — Story STORY-PARENT: Retry a failed charge/);
 
   startFrom('STORY-CHILD', 'STORY-PARENT', ['--title', 'Show the retry', '--description', 'Built on the parent.']);
   const child = await lineageOf('STORY-CHILD');

@@ -387,7 +387,7 @@ export function refusalFor(error: unknown, {
   }
   const rawCode = String((error as { code?: unknown })?.code ?? '');
   const safeCodes = new Set([
-    'REMOTE_UNKNOWN', 'REMOTE_LOCAL_HOOK_TOOL_UNAVAILABLE', 'REMOTE_LOCAL_HOOK_FAILED',
+    'REMOTE_UNKNOWN', 'REMOTE_OPERATION_TIMEOUT', 'REMOTE_LOCAL_HOOK_TOOL_UNAVAILABLE', 'REMOTE_LOCAL_HOOK_FAILED',
     'WMB_VIEW_UNKNOWN', 'WMB_VIEW_VERSION_UNSUPPORTED',
     'WMB_VIEW_ASSIGNMENT_MIXED', 'WMB_SOURCE_SNAPSHOT_REQUIRED'
   ]);
@@ -396,7 +396,7 @@ export function refusalFor(error: unknown, {
   const rawClassification = typedDetails && typeof typedDetails === 'object'
     ? String((typedDetails as { classification?: unknown }).classification ?? '') : '';
   const safeClassifications = new Set([
-    'network-transient', 'offline', 'git-unavailable', 'working-directory-unavailable',
+    'network-transient', 'operation-timeout', 'offline', 'git-unavailable', 'working-directory-unavailable',
     'credential-helper-unavailable', 'authentication-required', 'sso-authorization-required',
     'local-hook-tool-unavailable', 'local-hook-failed',
     'authorization-denied', 'tls-trust', 'proxy-configuration', 'remote-not-found',

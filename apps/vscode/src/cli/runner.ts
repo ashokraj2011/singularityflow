@@ -33,6 +33,8 @@ export const CAPABILITY_AUTHORITY_TIMEOUT_MS = 15 * 60_000;
 export const WORKSPACE_MUTATION_TIMEOUT_MS = 30 * 60_000;
 /** Starting governed work may fetch, materialize, commit, and publish several repositories. */
 export const WORK_START_TIMEOUT_MS = 15 * 60_000;
+/** Read-only intake readiness must finish or offer Retry, not inherit the creation budget. */
+export const STORY_READINESS_TIMEOUT_MS = 60_000;
 /** Story enhancement may perform authority reads before its separately bounded model invocation. */
 export const STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS = 5 * 60_000;
 /** Submission may run repository-native compile and browser suites; keep it above the seeded POC budget. */
@@ -88,7 +90,7 @@ export const DISPLAY_BOOLEAN_OPTIONS = new Set([
   'assisted', 'auto', 'automatic', 'blocking', 'bootstrap', 'check', 'churn', 'clear-loops', 'cli-only', 'clipboard', 'clone', 'commit-reviewed', 'concat',
   'confirm-pin-retention', 'confirm-protected', 'confirm-push-policy', 'create', 'derived', 'design-review', 'dry-run', 'evidence', 'no-index',
   'diagnose-only', 'diagnostics', 'disclose-provider-results', 'draft-stdin', 'drop-local', 'experimental', 'fetch', 'first-run', 'force', 'forget-only', 'for-start', 'from-artifact', 'from-records', 'gate-recovery', 'here', 'include-prompt', 'include-proposals', 'initialize', 'intake', 'json',
-  'include-existing', 'include-local-documents', 'independent', 'isolated-worktree',
+  'include-existing', 'include-local-documents', 'include-local-metadata', 'independent', 'isolated-worktree',
   'git-shadow', 'git-speed', 'keep', 'local', 'local-only', 'make-lead', 'markdown', 'migrate-legacy', 'mint-intake-receipt', 'narrate', 'network', 'offline', 'once', 'open', 'performance', 'plan-only', 'planned',
   'opt-out', 'optional', 'parallel', 'polish', 'portable-discovery', 'prefetch', 'preview', 'probe', 'propose', 'publish', 'push',
   'query-stdin', 'quick', 'raw', 'readiness', 'rebuild', 'recap', 'record', 'record-audit', 'recover', 'refresh', 'release', 'render-only', 'repair', 'repair-on-fault', 'restore-remote', 'run', 'feedback-stdin', 'saved-buffers-confirmed',

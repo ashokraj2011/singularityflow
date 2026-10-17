@@ -632,7 +632,7 @@ test('publication dry-run probes use bounded concurrency and preserve repository
   let maximum = 0;
   let pushes = 0;
   const runGit = async (args) => {
-    if (args[0] === 'fetch') return { status: 0, stdout: '', stderr: '' };
+    if (['fetch', 'ls-remote'].includes(args[0])) return { status: 0, stdout: '', stderr: '' };
     assert.equal(args[0], 'push');
     pushes += 1;
     active += 1;

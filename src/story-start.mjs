@@ -25,6 +25,7 @@ import {
   storyBaseForRepository
 } from './capability-start.mjs';
 import { configuredRemoteAuthority } from './git-remote-diagnostics.mjs';
+import { GitRemoteSession, requireRemoteObservation } from './git-execution.mjs';
 import { storyPublicationPreflightError } from './story-publication-preflight.mjs';
 import { loadCopilotSession, loadSession, setAgentSession } from './session.mjs';
 import { loadWorkflow } from './story-workflow-read.mjs';
@@ -325,8 +326,14 @@ export async function startStory(root, {
       { code: 'STORY_REMOTE_UNREACHABLE' }
     );
   }
-  await fetchRemote(root, remote, { transportRemote: initialFetchAuthority.url });
-  const remoteExisted = refExists(root, `refs/remotes/${remote}/${id}`);
+  // Existence is an exact remote observation, never an all-branch fetch or a stale tracking ref.
+  const destination = requireRemoteObservation(await new GitRemoteSession({ cwd: root })
+    .observeAsync(initialFetchAuthority.url, { includeHead: false, refs: [`refs/heads/${id}`] }),
+  `Story branch '${id}' on '${remote}'`);
+  const remoteExisted = destination.refs.has(`refs/heads/${id}`);
+  if (remoteExisted) await fetchRemote(root, remote, {
+    transportRemote: initialFetchAuthority.url, branches: [id], respectPartialClone: true
+  });
   const existed = localExisted || remoteExisted;
   // Reject incomplete POC intake while the caller is still on its original branch. Validation
   // after checkout remains below because the selected remote base owns the definitive workflow.
@@ -360,7 +367,7 @@ export async function startStory(root, {
   if (existed) {
     checkoutMode = await checkout(root, id, {
       base: initialDefinition.defaultBaseBranch,
-      fetch: remoteExisted,
+      fetched: remoteExisted,
       existingOnly: true,
       remote
     });
@@ -388,7 +395,9 @@ export async function startStory(root, {
           { code: 'STORY_REMOTE_UNREACHABLE' }
         );
       }
-      await fetchRemote(root, remote, { transportRemote: baseFetchAuthority.url });
+      await fetchRemote(root, remote, {
+        transportRemote: baseFetchAuthority.url, branches: [storyBase.localBase], respectPartialClone: true
+      });
       const selectedBaseRef = `refs/remotes/${remote}/${storyBase.localBase}`;
       if (!refExists(root, selectedBaseRef)) {
         throw new SingularityFlowError(
@@ -464,7 +473,9 @@ export async function startStory(root, {
           { code: 'STORY_REMOTE_UNREACHABLE' }
         );
       }
-      await fetchRemote(root, remote, { transportRemote: fetchAuthority.url });
+      await fetchRemote(root, remote, {
+        transportRemote: fetchAuthority.url, branches: [storyBase.localBase], respectPartialClone: true
+      });
       if (publishRequired) publicationAuthority = configuredRemoteAuthority(root, remote);
     }
     if (publishRequired && !publicationAuthority?.url) {

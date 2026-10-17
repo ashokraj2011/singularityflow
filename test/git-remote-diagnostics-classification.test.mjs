@@ -306,8 +306,8 @@ const classificationCases = [
   {
     name: 'the supervised Git operation reaches its deadline without diagnostic text',
     result: failed('', { timedOut: true }),
-    classification: 'network-transient',
-    advice: /network reachability/
+    classification: 'operation-timeout',
+    advice: /local disk\/cloud-file availability/
   },
   {
     name: 'the remote repository does not exist for this identity',
@@ -387,6 +387,21 @@ test('office classifications win over less specific trailing Git errors', () => 
     assert.equal(failure.classification, example.classification, example.name);
     assert.equal(failureEvidence(result).timedOut, true,
       `${example.name} retained the supervisor timeout as evidence`);
+  }
+});
+
+test('a supervisor timeout does not invent DNS failure or hide an explicit network diagnosis', () => {
+  for (const stderr of ['', 'fatal: operation timed out']) {
+    const failure = classifyGitRemoteFailure(failed(stderr, { timedOut: true }));
+    assert.equal(failure.classification, 'operation-timeout');
+    assert.equal(failure.retryable, false, 'unknown timeouts must not trigger blind automatic retries');
+    assert.match(failure.advice, /cause is not established/);
+    assert.doesNotMatch(failure.advice, /Check DNS/);
+  }
+  for (const stderr of ['Could not resolve host: git.example',
+    'Failed to connect to git.example port 443: Connection timed out']) {
+    assert.equal(classifyGitRemoteFailure(failed(stderr, { timedOut: true })).classification,
+      'network-transient');
   }
 });
 

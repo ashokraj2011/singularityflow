@@ -358,7 +358,7 @@ test('each shared waiter keeps its own deadline and the live waiter may still su
   const shorter = session.observeAsync(remote, { timeoutMs: 25 });
   const timedOut = await shorter;
   assert.equal(timedOut.timedOut, true);
-  assert.equal(timedOut.failure.code, 'REMOTE_NETWORK_TRANSIENT');
+  assert.equal(timedOut.failure.code, 'REMOTE_OPERATION_TIMEOUT');
   assert.equal(physicalAborts, 0);
   release();
   assert.equal((await longer).ok, true);
@@ -389,7 +389,7 @@ test('an overdue waiter refuses a completed probe after an event-loop stall', as
   assert.equal(calls, 1);
   assert.equal(observed.ok, false);
   assert.equal(observed.timedOut, true);
-  assert.equal(observed.failure.code, 'REMOTE_NETWORK_TRANSIENT');
+  assert.equal(observed.failure.code, 'REMOTE_OPERATION_TIMEOUT');
   assert.equal(session.observations.size, 0, 'late authority must not enter the session cache');
 });
 
@@ -1089,7 +1089,7 @@ test('synchronous Git launcher preflight consumes the async operation deadline',
   });
   assert.equal(spawned, false);
   assert.equal(result.timedOut, true);
-  assert.equal(result.failure.code, 'REMOTE_NETWORK_TRANSIENT');
+  assert.equal(result.failure.code, 'REMOTE_OPERATION_TIMEOUT');
 });
 
 test('asynchronous remote execution terminates a command at its operation deadline', async () => {
@@ -1110,7 +1110,7 @@ test('asynchronous remote execution terminates a command at its operation deadli
   });
   assert.equal(result.status, 1);
   assert.equal(result.timedOut, true);
-  assert.equal(result.failure.classification, 'network-transient');
+  assert.equal(result.failure.classification, 'operation-timeout');
   assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
 });
 
@@ -1138,7 +1138,7 @@ test('asynchronous remote execution has a hard settlement deadline when close ne
 
   assert.equal(result.status, 1);
   assert.equal(result.timedOut, true);
-  assert.equal(result.failure.classification, 'network-transient');
+  assert.equal(result.failure.classification, 'operation-timeout');
   assert.deepEqual(signals, ['SIGTERM', 'SIGKILL']);
   assert.ok(elapsedMs >= 15, `deadline fired too early after ${elapsedMs}ms`);
   assert.ok(elapsedMs < 300, `operation escaped its deadline plus grace (${elapsedMs}ms)`);
@@ -1162,7 +1162,7 @@ test('a wrapper exiting zero after the deadline remains a timeout failure', asyn
   });
   assert.equal(result.status, 1);
   assert.equal(result.timedOut, true);
-  assert.equal(result.failure.classification, 'network-transient');
+  assert.equal(result.failure.classification, 'operation-timeout');
 });
 
 test('hard async boundaries preserve timeout, cancellation, and output-limit error codes', async (t) => {
@@ -1184,7 +1184,7 @@ test('hard async boundaries preserve timeout, cancellation, and output-limit err
       terminationGraceMs: 40,
       allowFailure: false,
       spawnCommand: childThat(() => {})
-    }), (error) => error?.code === 'REMOTE_NETWORK_TRANSIENT'
+    }), (error) => error?.code === 'REMOTE_OPERATION_TIMEOUT'
       && error?.details?.timedOut === true);
   });
 
@@ -1410,7 +1410,7 @@ test('remote execution waits for bounded cleanup and rejects a late zero exit', 
 
   assert.equal(result.status, 1);
   assert.equal(result.timedOut, true);
-  assert.equal(result.failure.classification, 'network-transient');
+  assert.equal(result.failure.classification, 'operation-timeout');
   assert.deepEqual(cleanupSignals, ['SIGTERM', 'SIGKILL']);
   assert.ok(elapsedMs >= 50, `remote operation settled before forced cleanup (${elapsedMs}ms)`);
   assert.ok(elapsedMs < 200, `remote cleanup exceeded the hard grace (${elapsedMs}ms)`);

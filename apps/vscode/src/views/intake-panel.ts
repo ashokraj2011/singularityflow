@@ -22,7 +22,7 @@ import {
   type PreflightTestReadiness, type ReferenceRepositoryDraft, type Shape, type StoryAttachmentDraft, type Tracker
 } from './intake-form.ts';
 import { SingularityFlowClient } from '../cli/client.ts';
-import { CliError, CliTimeoutError, redactCliArgsForDisplay, terminalCommand } from '../cli/runner.ts';
+import { CliError, CliTimeoutError, STORY_READINESS_TIMEOUT_MS, redactCliArgsForDisplay, terminalCommand } from '../cli/runner.ts';
 import { startProgressLabel } from '../cli/progress.ts';
 import { canonicalFilesystemPath } from '../repository-refresh-model.ts';
 import type { StartWizardProgress } from './start-wizard.ts';
@@ -803,6 +803,11 @@ export class IntakePanel {
         this.form, stringField(message, 'planDigest'), message.confirmed
       ) });
     },
+    readinessRetry: () => {
+      if (this.form.busy || this.form.baselineRunning || this.form.basePreflightChecking) return;
+      this.preflightKey = null;
+      return this.preflightBaseBranch();
+    },
     testRecoveryRefresh: () => {
       if (this.form.busy || !testRecoveryEnabled(this.form)) return;
       return this.preflightBaseBranch();
@@ -1241,6 +1246,11 @@ export class IntakePanel {
     this.preflightController = controller;
     this.preflightKey = JSON.stringify(command);
     this.update({ ...emptyStoryPreflight(), basePreflightChecking: true }, { background: true });
+    const deadline = setTimeout(() => controller.abort(new Error(
+      'Story-start readiness timed out after 60 seconds. Your draft and selections are preserved. '
+      + 'Check that repository files are available locally (not cloud-only), Git credentials, and remote access, then retry readiness. '
+      + 'A timeout does not establish a DNS or network failure.'
+    )), STORY_READINESS_TIMEOUT_MS);
     try {
       const result = await this.client.run<{
         preflight?: {
@@ -1327,10 +1337,15 @@ export class IntakePanel {
       this.preflightKey = null;
       this.update({
         basePreflightPassed: false, basePreflightChecking: false,
-        basePreflightReason: (error as Error).message,
+        basePreflightReason: controller.signal.reason instanceof Error
+          ? controller.signal.reason.message
+          : error instanceof CliTimeoutError
+            ? 'Story-start readiness timed out. Your draft is preserved. Check local repository availability, Git credentials, and remote access, then retry readiness.'
+            : (error as Error).message,
         basePreflightWarnings: [], baseTestReadiness: null, basePreflightRefreshRecommended: false
       }, { background: true });
     } finally {
+      clearTimeout(deadline);
       if (this.preflightController === controller) this.preflightController = null;
     }
   }

@@ -263,10 +263,8 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
         await measureCommandSpan('start.fetch', () =>
           fetchRemote(sourceRoot, requestedRemote, {
             transportRemote: fetchAuthority.url,
-            // A stale Story tracking ref needs the ordinary inventory/prune path before reuse or
-            // resume can be decided. The normal new-Story path transfers only its chosen base.
-            branches: refExists(sourceRoot, `refs/remotes/${requestedRemote}/${canonicalBranch}`)
-              ? undefined : [requestedBase],
+            // Destination discovery checks the exact remote ref, not a stale local inventory.
+            branches: [requestedBase],
             respectPartialClone: true
           }));
       }
@@ -340,8 +338,8 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
           remoteFingerprint: requestedBaseFetchAuthority.fingerprint,
           baseBranch: requestedBase,
           baseCommit: launchBaseCommit,
-          // Only the same-transport state tip is covered by the launch's full fetch. Capability
-          // preflight re-observes these exact refs before admitting this process-private proof.
+          // Only same-transport state can participate in launch reuse. Capability preflight
+          // re-observes this exact tip before admitting the process-private base-fetch proof.
           stateBranch: worldModelStateAuthority(launchDefinition ?? {}).remote === requestedRemote
             ? worldModelStateAuthority(launchDefinition ?? {}).branch : null,
           stateCommit: worldModelStateAuthority(launchDefinition ?? {}).remote === requestedRemote
@@ -701,11 +699,13 @@ export async function startCommand(positionals, options) {
   };
   let destinationFetchPromise = null;
   const fetchObservedStoryDestination = () => {
-    // Destination and tracked-identity lookup consume one freshly fetched inventory in this
+    // Destination and tracked-identity lookup consume one freshly fetched Story ref in this
     // invocation. This is not a cross-command receipt: the later base/publication preflight still
     // refreshes mutable refs before the first Story mutation.
-    destinationFetchPromise ??= fetchRemote(root, remote,
-      destination.transportRemote ? { transportRemote: destination.transportRemote } : {});
+    destinationFetchPromise ??= fetchRemote(root, remote, {
+      ...(destination.transportRemote ? { transportRemote: destination.transportRemote } : {}),
+      branches: [canonicalBranch], respectPartialClone: true
+    });
     return destinationFetchPromise;
   };
   const applicationDefault = destination.defaultBranch;
@@ -731,7 +731,7 @@ export async function startCommand(positionals, options) {
           { code: 'STORY_SOURCE_CONFLICT' }
         );
       }
-      return resumeCommand(['resume', id], { ...options, fetch: true });
+      return resumeCommand(['resume', id], { ...options, fetch: true }, { selectedBranch: canonicalBranch });
     }
   }
   // An Epic may already have published the Story branch and its seed without creating lifecycle
@@ -840,19 +840,32 @@ export async function startCommand(positionals, options) {
       : await resolveReceipt();
   }
 
-  // A stable external identity wins over a proposed new Work ID. Fetch and search the governed
-  // refs before choosing a base or checking out a branch, then attach to the existing Story.
+  // A stable external identity wins over a proposed Work ID. Consult known local state first and
+  // the shared state index next; never fetch every application branch to discover an identity.
   const requestedExternalSource = await externalSource();
   if (requestedExternalSource?.stableId) {
-    await measureCommandSpan('start.fetch', fetchObservedStoryDestination);
     const refs = [
       ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
       ...remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` }))
     ];
     const sourceIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: config ?? {}, refs });
-    const existing = resolveContext(sourceIndex, {
+    let existing = resolveContext(sourceIndex, {
       reference: requestedExternalSource.stableId, kind: 'story', required: false
     });
+    if (!existing) {
+      const { discoverRemoteStoryCandidates } = await import('../session-story-discovery.mjs');
+      const roster = await discoverRemoteStoryCandidates(root, config ?? {}, { remote, fetch: true });
+      if (roster.unavailable?.length) throw new SingularityFlowError(
+        'Cannot verify the existing Story source identities from the state index. Refresh Story discovery before retrying; no Story was created.',
+        { code: 'SESSION_STATE_INDEX_UNAVAILABLE' }
+      );
+      const matches = roster.items.filter((item) => item.aliases?.includes(requestedExternalSource.stableId));
+      if (matches.length > 1) throw new SingularityFlowError(
+        'The source identity is claimed by multiple Stories. Resolve the state-index conflict before retrying.',
+        { code: 'STORY_SOURCE_CONFLICT' }
+      );
+      existing = matches[0] ?? null;
+    }
     if (existing) {
       if (referenceRequests.length) {
         throw new SingularityFlowError(
@@ -864,7 +877,9 @@ export async function startCommand(positionals, options) {
       if (!optionBoolean(options, 'json')) {
         console.log(`Source ${requestedExternalSource.stableId} is already tracked as ${existing.id}; attaching instead of creating ${id}.`);
       }
-      return resumeCommand(['resume', existing.id], { ...options, fetch: true });
+      return resumeCommand(['resume', existing.id], { ...options, fetch: true }, {
+        selectedBranch: existing.canonicalBranch ?? existing.branch
+      });
     }
   }
 
@@ -971,7 +986,7 @@ export async function startCommand(positionals, options) {
       await measureCommandSpan('start.fetch', () =>
         fetchRemote(root, remote, {
           transportRemote: fetchAuthority.url,
-          branches: refExists(root, remoteStoryRef) ? undefined : [baseAtStart], respectPartialClone: true
+          branches: [baseAtStart], respectPartialClone: true
         }));
     }
     const selectedBaseRef = `refs/remotes/${remote}/${baseAtStart}`;
@@ -1178,7 +1193,7 @@ export async function startCommand(positionals, options) {
       await measureCommandSpan('start.fetch', () =>
         fetchRemote(root, remote, {
           transportRemote: fetchAuthority.url,
-          branches: refExists(root, remoteStoryRef) ? undefined : [baseAtStart], respectPartialClone: true
+          branches: [baseAtStart], respectPartialClone: true
         }));
     }
     if (publishRequired) publicationAuthority = configuredRemoteAuthority(root, remote);
@@ -1200,7 +1215,9 @@ export async function startCommand(positionals, options) {
   }
   // Every path reaches this check, approved configuration or not: an orphan branch is no line of work.
   if (!materializedSeed) assertStoryBaseSharesHistory(root, { remote, baseBranch: baseAtStart });
-  if (!materializedSeed && selectedRefs.has(remoteStoryRef)) {
+  // An old tracking ref is not proof the destination still exists. Discovery observed the exact
+  // remote ref; final create-only publication independently enforces absence with its lease.
+  if (!materializedSeed && approvedRemoteStoryExists) {
     throw new SingularityFlowError(
       `Story branch '${canonicalBranch}' already exists on '${remote}'. Resume it instead of starting it again. Nothing was changed.`,
       { code: 'STORY_BRANCH_EXISTS' }

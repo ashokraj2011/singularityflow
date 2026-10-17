@@ -33,6 +33,7 @@ export type RepositoryStateKind =
 
 export const REPOSITORY_ONBOARDING_FAILURE_CLASSIFICATIONS = [
   'network-transient',
+  'operation-timeout',
   'offline',
   'git-unavailable',
   'working-directory-unavailable',
@@ -703,7 +704,7 @@ function repositoryOnboardingFailureCopy(
   if (timeout) {
     return retryCopy(
       'Git check timed out',
-      'The bounded Git check did not finish within its time limit. Check connectivity or open Diagnostics, then retry.'
+      'The bounded Git check did not finish within its time limit; its cause is not established. Check local disk/cloud-file availability, credential prompts, and remote access, then retry.'
     );
   }
   switch (failure.classification) {
@@ -751,6 +752,11 @@ function repositoryOnboardingFailureCopy(
       return retryCopy(
         'Git network check failed',
         'Check DNS and network reachability, then retry the same repository check.'
+      );
+    case 'operation-timeout':
+      return retryCopy(
+        'Git check timed out',
+        'The cause is not established. Check local disk/cloud-file availability, credential prompts, and remote access, then retry.'
       );
     case 'offline':
       return retryCopy(
@@ -881,9 +887,9 @@ export function repositoryOnboardingCommandFailureCopy(value: unknown): Reposito
       code: 'REMOTE_AUTHENTICATION_REQUIRED', classification: 'authentication-required', retryable: false, advice: ''
     });
   }
-  if (/\bREMOTE_TIMEOUT\b/u.test(diagnostic)) {
+  if (/\bREMOTE_(?:TIMEOUT|OPERATION_TIMEOUT)\b/u.test(diagnostic)) {
     return repositoryOnboardingFailureCopy({
-      code: 'REMOTE_TIMEOUT', classification: 'network-transient', retryable: true, advice: ''
+      code: 'REMOTE_OPERATION_TIMEOUT', classification: 'operation-timeout', retryable: false, advice: ''
     });
   }
   if (/\bREMOTE_(?:NETWORK_TRANSIENT|OFFLINE)\b/u.test(diagnostic)) {

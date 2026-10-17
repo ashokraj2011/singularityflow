@@ -68,6 +68,26 @@ async function captureRepository(t) {
   return root;
 }
 
+test('programmatic Story start uses selected refs despite a stale destination tracking ref', async (t) => {
+  const root = await repository();
+  t.after(() => Promise.all([rm(root, { recursive: true, force: true }),
+    rm(`${root}.git`, { recursive: true, force: true })]));
+  const tip = run('git', ['rev-parse', 'HEAD'], root).stdout.trim();
+  run('git', ['update-ref', 'refs/heads/not-selected', tip], `${root}.git`);
+  run('git', ['update-ref', 'refs/remotes/origin/EXACT-STORY', tip], root);
+  const preview = run(process.execPath, [path.resolve('bin/singularity-flow.mjs'),
+    'workspace', 'branches', '--json', '--intake', '--preflight-story', 'EXACT-STORY',
+    '--from-branch', 'main', '--selected-base-only', '--isolated-worktree',
+    '--work-type', 'feature', '--readiness-baseline', 'reuse'], root);
+  assert.equal(JSON.parse(preview.stdout).preflight.passed, true);
+  assert.equal(run('git', ['for-each-ref', '--format=%(refname)', 'refs/remotes/origin/not-selected'], root).stdout, '',
+    'legacy policy readiness must also fetch only the selected base');
+  await startStory(root, { id: 'EXACT-STORY', workType: 'feature', baseBranch: 'main',
+    source: manualStorySource('EXACT-STORY', { title: 'Selected branch only' }) });
+  assert.equal(run('git', ['branch', '--show-current'], root).stdout.trim(), 'EXACT-STORY');
+  assert.equal(run('git', ['for-each-ref', '--format=%(refname)', 'refs/remotes/origin/not-selected'], root).stdout, '');
+});
+
 test('native Story start returns typed configuration recovery instead of a missing-definition crash', async (t) => {
   const root = await repository();
   t.after(() => Promise.all([

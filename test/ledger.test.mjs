@@ -1196,7 +1196,7 @@ test('first ledger publication is deadline-supervised and returns no hook diagno
   } finally {
     clearTimeout(tick);
   }
-  assert.equal(refusal?.code, 'REMOTE_NETWORK_TRANSIENT');
+  assert.equal(refusal?.code, 'REMOTE_OPERATION_TIMEOUT');
   assert.doesNotMatch(refusal?.message ?? '', new RegExp(secret));
   assert.match(refusal?.message ?? '', /diagnostic sha256:[0-9a-f]{16}/);
   assert.equal(eventLoopAdvanced, true, 'ledger publication blocked the event loop');

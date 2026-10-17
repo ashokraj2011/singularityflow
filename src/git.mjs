@@ -951,7 +951,8 @@ export async function fetchRemote(root, remote = 'origin', options = {}) {
     }).stdout.trim() === 'blob:none';
   const result = await runRemoteGitAsync([
     'fetch', ...(pruneRefspecs ? ['--prune'] : []),
-    ...(partialClone ? ['--filter=blob:none'] : []), ...(branches ? ['--no-tags'] : []), frozen.remote,
+    ...(partialClone ? ['--filter=blob:none'] : []),
+    ...(branches ? ['--no-tags', '--recurse-submodules=no'] : []), frozen.remote,
     ...(branches
       ? branches.map((name) => `+refs/heads/${name}:refs/remotes/${remote}/${name}`)
       : [`+refs/heads/*:refs/remotes/${remote}/*`, ...(pruneRefspecs ?? [])])

@@ -76,7 +76,7 @@ export function testRecoveryIntakePhases(definition, workType, snapshot, capabil
   return applyCapabilityPolicyToWorkResolution(resolved, capability).phases;
 }
 
-export async function resumeCommand(positionals, options) {
+export async function resumeCommand(positionals, options, { selectedBranch = null } = {}) {
   const reference = requirePositional(positionals, 1, 'work ID or branch reference');
   const root = repoRoot();
   const json = optionBoolean(options, 'json');
@@ -88,14 +88,19 @@ export async function resumeCommand(positionals, options) {
   const initialConfig = discovery.definition;
   const fetch = optionBoolean(options, 'fetch');
   const remote = discovery.remote;
-  if (fetch) await fetchRemote(root, remote);
-  const refs = [
+  if (fetch) await fetchRemote(root, remote, selectedBranch
+    ? { branches: [selectedBranch], respectPartialClone: true } : {});
+  const refs = selectedBranch ? [{ branch: selectedBranch, ref: `${remote}/${selectedBranch}` }] : [
     { branch: branch(root), ref: branch(root) },
     ...localBranches(root).map((branchName) => ({ branch: branchName, ref: branchName })),
     ...(fetch ? remoteBranches(root, remote).map((branchName) => ({ branch: branchName, ref: `${remote}/${branchName}` })) : [])
   ];
   const refIndex = await buildRepositorySubjectIndexFromRefs(root, { definition: initialConfig, refs });
   const refSubject = resolveContext(refIndex, { reference, kind: 'story', required: false });
+  if (selectedBranch && !refSubject) throw new SingularityFlowError(
+    `The refreshed Story branch '${selectedBranch}' does not prove Work ID '${reference}'. No session was selected.`,
+    { code: 'STORY_SOURCE_CONFLICT' }
+  );
   const resolved = refSubject
     ? { workId: refSubject.id, branch: refSubject.canonicalBranch, selectedBranch: refSubject.selectedBranch, workflow: refSubject.state, source: refSubject.source }
     : await resolveWorkItem(root, initialConfig, reference, { mutation: true });
@@ -109,7 +114,7 @@ export async function resumeCommand(positionals, options) {
   if (branch(executionRoot) !== targetBranch && !optionBoolean(options, 'allow-dirty')) {
     assertClean(executionRoot);
   }
-  // Discovery has already fetched every remote ref. Reuse that exact observation for the local
+  // Discovery has already refreshed the selected remote ref. Reuse that observation for the local
   // fast-forward; asking `checkout` to fetch again used to add a second fetch and then a pull.
   await checkout(executionRoot, targetBranch, {
     base: initialConfig.defaultBaseBranch, fetch: false, fetched: fetch, existingOnly: true, remote

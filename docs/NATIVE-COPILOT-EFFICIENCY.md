@@ -148,6 +148,83 @@ request and is not a total-work reduction for a one-off command. For example, th
 prewarmed skill/instruction reads are slightly slower in this sample. All cold,
 repeat and warmup wall samples are retained, including unchanged/regressed cases.
 
+### Shared read context and useful compact catalogs
+
+The CLI's closed read forms now open a command-local context. Repeated accepted-Story
+resolution shares one pending load, keyed by repository, configuration overlay and
+Work ID. Each consumer receives its own workflow object. Ordinary writer scopes do
+not opt into this memo; fresh/bypassed reads see new bytes, and nothing survives the
+invocation. Counters distinguish `story.context-requests` from `story.context-load`.
+
+Bootstrap and current configuration still have different validated definitions.
+Only the secured source read and YAML parse are shared; compatibility normalization
+and policy validation run against separate clones. Tests require one source read/
+parse for two policy variants, reject broken current agents after bootstrap, and
+refuse malformed YAML in either variant. No approved revision, receipt, identity,
+permission change or publication decision is cached across requests.
+
+`phase show` uses the existing phase-review kernel through a narrow read handler,
+not the lifecycle mutation dispatcher. JSON reports load the review-bundle renderer
+only for an actual review operation. Installed bundles route phase documents and
+reports through the read family, and keep the pure phase router in the early family;
+source and installed-bundle parity cover these paths. Runtime warmup includes the
+narrow read definitions without running their handlers. The deployment remains 20 files.
+
+For agent-only skill/workflow lists, `catalogView.metadataOnly` retains useful names,
+scope and pending status inline. Rich rows include attachment detail and phase IDs;
+when those cannot fit, `detailLevel: identity` prioritizes every name over a richer
+partial list, with phase counts and selected expansion pointers. Each
+row binds its exact original definition with a digest and `detailField`; the complete
+result stays in the private Git agent-result store, with long text in referenced files.
+Large catalogs explicitly report `more`. Selected skill bodies, phase context, review
+evidence, refusal packets and ordinary/full/raw JSON are not replaced by catalog
+metadata. Copilot should list inline and expand only selected definitions, not read
+the entire result by default. A catalog summary is neither an instruction nor authority.
+
+To qualify backend and presentation separately, run the paired benchmark above with
+`--agent-output=full` and `--agent-output=bounded`, cold and prewarmed. The bounded
+listing consumer actually reads any required expansion file and counts the bytes and
+file reads for all catalog IDs/names. This is a filesystem/CLI workload, not native
+Copilot tool latency or measured billed-token savings. Warmup costs remain separate.
+
+The shared context adds about 1.2 KB to the VS Code gateway bundle (module count
+unchanged). Its byte ceiling increases by 2 KB, from 7,520,000 to 7,522,000; other
+budget changes merged from main belong to the separate VS Code UX work. This small
+measured packaging cost is not hidden as a runtime speedup.
+
+The [shared-context qualification](../benchmarks/utility-entry/shared-read-context.json)
+compares runtime `09c4fda1` with the newer main `64b2147a`, after integrating its VS Code
+UX changes. Native Windows (Node v24.21.0) passed 80 tests, with one existing
+platform-limited symlink test skipped, plus typecheck and package budgets. Local
+macOS used Node v25.5.0. Every cold/repeat/warmup wall sample and catalog-consumer
+byte/read result is retained, including regressions, with hashes of the raw reports.
+
+| Windows full-JSON read | Cold before | Cold after | Prewarmed before | Prewarmed after |
+| --- | ---: | ---: | ---: | ---: |
+| Status | 249 ms | 250 ms | 160 ms | 161 ms |
+| Next steps | 541 ms | 520 ms | 390 ms | 384 ms |
+| Phase documents | 486 ms | 495 ms | 359 ms | 357 ms |
+| Report | 355 ms | 353 ms | 240 ms | 248 ms |
+| Workflows | 546 ms | 542 ms | 500 ms | 533 ms |
+| Skills | 292 ms | 282 ms | 238 ms | 241 ms |
+
+These incremental CLI timings are largely flat, not a universal speedup. The full-JSON
+first-request medians across cold and prewarmed runs range from a 6.6% regression to a 3.9%
+improvement. Most fixture reads have only one accepted-Story consumer; concurrent
+coalescing is separately regression-tested rather than claimed as a saving on every
+request. The narrow handlers reduce coupling while retaining the same review kernel.
+Median warmup costs on the full-JSON Windows runner were 277 ms before and 281 ms
+after; prewarming moves that cost ahead of visibility, not out of the total workload.
+
+The larger measured saving is useful bounded output. Listing all 20 workflow names
+consumed 13,116 bytes before (stub plus one full-file read), versus 5,932 bytes after
+with no follow-up read: 55% less. Listing all 11 skill names fell from 24,496 to 4,814
+bytes, 80% less, also without expansion. The new inline metadata is larger than the
+old unhelpful stub; the complete listing task is smaller. Selected definitions remain
+exact and catalogs larger than the inline limit explicitly require further reading.
+This does not establish native Copilot tool latency, billed-token savings, whole-Story
+speed or performance under an office laptop's antivirus/OneDrive policy.
+
 ### Story operations
 
 - Every registered skill is audited; aliases delegate once to their canonical owner.

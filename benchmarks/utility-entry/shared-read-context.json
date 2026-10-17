@@ -1,0 +1,2224 @@
+{
+  "schemaVersion": 1,
+  "resultType": "shared-read-context-qualification",
+  "date": "2026-10-17",
+  "baselineCommit": "64b2147a28d657b2fdbed81fdbfa953d0646661d",
+  "runtimeCommit": "09c4fda1e32a74e100363dcee7d5ed867b14fcf8",
+  "windowsQualification": {
+    "runId": 38995996997,
+    "ciCommit": "7d009a08f23607152d0a185283a51a3398748aa1",
+    "passed": 80,
+    "failed": 0,
+    "skipped": 1,
+    "typecheck": "passed",
+    "bundleBudget": "passed",
+    "skipReason": "Existing symlink/cache-ancestor test is skipped on Windows where link support is unavailable."
+  },
+  "protocol": {
+    "files": 1000,
+    "branches": 20,
+    "samples": 3,
+    "baselineEntry": "combined utility read",
+    "runtime": "stamped installed cold bundle",
+    "first": "median of three fresh private V8-cache processes; alternating before/after order",
+    "repeat": "median of nine subsequent fresh processes",
+    "prewarmed": "both variants warmed before timing; warmup reported separately",
+    "output": "full and bounded agent JSON qualified separately",
+    "modelCalls": 0,
+    "configuredRemotes": 0,
+    "osCacheFlushed": false,
+    "listing": "All catalog IDs/names; consumer actually reads required retained JSON files. Not native Copilot tool or token measurement.",
+    "limits": "Hosted Windows with short disposable TEMP, not an enterprise antivirus/OneDrive guarantee. Local macOS fixture, not end-to-end Story latency."
+  },
+  "bundle": {
+    "beforeFiles": 20,
+    "afterFiles": 20,
+    "gatewayBudgetDeltaBytes": 2000
+  },
+  "rawReports": [
+    {
+      "host": "macos",
+      "mode": "full",
+      "warmth": "cold",
+      "file": "final-mac/full-cold.json",
+      "sha256": "43ba05b16ae3cb2e4e2b5b9d871997300429090d5cf11d6bd04cd13dc2a23b7b"
+    },
+    {
+      "host": "macos",
+      "mode": "full",
+      "warmth": "prewarmed",
+      "file": "final-mac/full-prewarmed.json",
+      "sha256": "03c007df61640ef12d295987e1ec3ee1eb4f63454b99dad7de57683a23cbd575"
+    },
+    {
+      "host": "macos",
+      "mode": "bounded",
+      "warmth": "cold",
+      "file": "final-mac/bounded-cold.json",
+      "sha256": "f0da43af20213af7f2f298fc1ab302b911aaeaddf91a30f5cdaaccd70103e63a"
+    },
+    {
+      "host": "macos",
+      "mode": "bounded",
+      "warmth": "prewarmed",
+      "file": "final-mac/bounded-prewarmed.json",
+      "sha256": "0eb4e5d598b27bb4fc2e7764e7c6afaf0d334b1f04022fc9e070f926358da7d7"
+    },
+    {
+      "host": "windows",
+      "mode": "full",
+      "warmth": "cold",
+      "file": "windows-full/utility-full-cold.json",
+      "sha256": "9befa9cd6dffcf27f73c23ce629f80de9befb74e89ac11e1cba948f2213898e3"
+    },
+    {
+      "host": "windows",
+      "mode": "full",
+      "warmth": "prewarmed",
+      "file": "windows-full/utility-full-prewarmed.json",
+      "sha256": "cacf352c6ffc87135c3f4abede7fc613bc093b58aa752498b8ae34079f428418"
+    },
+    {
+      "host": "windows",
+      "mode": "bounded",
+      "warmth": "cold",
+      "file": "windows-bounded/utility-bounded-cold.json",
+      "sha256": "dd30e15290b469974a4d159ab746e8ac95a49f22acdb37f58190df541c651909"
+    },
+    {
+      "host": "windows",
+      "mode": "bounded",
+      "warmth": "prewarmed",
+      "file": "windows-bounded/utility-bounded-prewarmed.json",
+      "sha256": "8a6504e58e2f95ac5ec4f20abe3ed21b7cade52783a095800c421c61f84ec2f3"
+    }
+  ],
+  "macos": {
+    "full": {
+      "cold": [
+        {
+          "name": "status",
+          "before": {
+            "firstMedianMs": 187,
+            "firstSamplesMs": [195,186,187],
+            "repeatMedianMs": 122,
+            "repeatSamplesMs": [122,120,122,121,121,122,123,124,123],
+            "stdoutBytes": [1627],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 187,
+            "firstSamplesMs": [188,187,184],
+            "repeatMedianMs": 122,
+            "repeatSamplesMs": [124,123,126,122,122,122,122,122,122],
+            "stdoutBytes": [1627],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 0
+        },
+        {
+          "name": "progress",
+          "before": {
+            "firstMedianMs": 230,
+            "firstSamplesMs": [230,259,215],
+            "repeatMedianMs": 155,
+            "repeatSamplesMs": [169,151,167,170,155,150,151,167,152],
+            "stdoutBytes": [1007],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 216,
+            "firstSamplesMs": [216,219,215],
+            "repeatMedianMs": 154,
+            "repeatSamplesMs": [159,160,166,154,152,155,149,152,152],
+            "stdoutBytes": [1007],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 6.1
+        },
+        {
+          "name": "nextsteps",
+          "before": {
+            "firstMedianMs": 329,
+            "firstSamplesMs": [335,325,329],
+            "repeatMedianMs": 192,
+            "repeatSamplesMs": [193,188,191,191,192,192,194,461,207],
+            "stdoutBytes": [7558],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 326,
+            "firstSamplesMs": [326,322,339],
+            "repeatMedianMs": 194,
+            "repeatSamplesMs": [194,188,191,200,191,190,203,294,196],
+            "stdoutBytes": [7558],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 0.9
+        },
+        {
+          "name": "phase-show",
+          "before": {
+            "firstMedianMs": 342,
+            "firstSamplesMs": [342,320,413],
+            "repeatMedianMs": 189,
+            "repeatSamplesMs": [188,191,200,190,189,189,189,194,189],
+            "stdoutBytes": [2671],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 319,
+            "firstSamplesMs": [330,319,318],
+            "repeatMedianMs": 193,
+            "repeatSamplesMs": [196,196,198,190,193,196,190,190,192],
+            "stdoutBytes": [2671],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 6.7
+        },
+        {
+          "name": "inputs-preview",
+          "before": {
+            "firstMedianMs": 322,
+            "firstSamplesMs": [324,322,322],
+            "repeatMedianMs": 196,
+            "repeatSamplesMs": [192,196,200,198,194,197,196,199,195],
+            "stdoutBytes": [7377],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 330,
+            "firstSamplesMs": [332,330,326],
+            "repeatMedianMs": 195,
+            "repeatSamplesMs": [193,200,194,193,195,195,195,195,199],
+            "stdoutBytes": [7377],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": -2.5
+        },
+        {
+          "name": "report",
+          "before": {
+            "firstMedianMs": 240,
+            "firstSamplesMs": [240,241,240],
+            "repeatMedianMs": 159,
+            "repeatSamplesMs": [158,166,169,158,159,159,161,161,158],
+            "stdoutBytes": [4069],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 240,
+            "firstSamplesMs": [240,242,239],
+            "repeatMedianMs": 160,
+            "repeatSamplesMs": [163,160,159,159,157,160,158,162,162],
+            "stdoutBytes": [4069],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 0
+        },
+        {
+          "name": "workflow-list",
+          "before": {
+            "firstMedianMs": 340,
+            "firstSamplesMs": [346,340,321],
+            "repeatMedianMs": 262,
+            "repeatSamplesMs": [250,265,263,246,254,247,265,264,262],
+            "stdoutBytes": [12212],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [20],
+              "followupReads": [0],
+              "totalBytesRead": [12212],
+              "totalRows": [20]
+            }
+          },
+          "after": {
+            "firstMedianMs": 318,
+            "firstSamplesMs": [326,309,318],
+            "repeatMedianMs": 262,
+            "repeatSamplesMs": [244,262,260,253,245,262,265,265,267],
+            "stdoutBytes": [12212],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [20],
+              "followupReads": [0],
+              "totalBytesRead": [12212],
+              "totalRows": [20]
+            }
+          },
+          "firstImprovementPercent": 6.5
+        },
+        {
+          "name": "agents-list",
+          "before": {
+            "firstMedianMs": 249,
+            "firstSamplesMs": [249,267,247],
+            "repeatMedianMs": 187,
+            "repeatSamplesMs": [188,183,184,193,183,187,188,184,189],
+            "stdoutBytes": [6924],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [6924],
+              "totalRows": [31]
+            }
+          },
+          "after": {
+            "firstMedianMs": 248,
+            "firstSamplesMs": [246,248,249],
+            "repeatMedianMs": 186,
+            "repeatSamplesMs": [185,188,186,185,187,186,185,187,185],
+            "stdoutBytes": [6918],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [6918],
+              "totalRows": [31]
+            }
+          },
+          "firstImprovementPercent": 0.4
+        },
+        {
+          "name": "skill-list",
+          "before": {
+            "firstMedianMs": 176,
+            "firstSamplesMs": [177,176,174],
+            "repeatMedianMs": 134,
+            "repeatSamplesMs": [134,134,133,132,134,133,134,135,133],
+            "stdoutBytes": [23483],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [11],
+              "followupReads": [0],
+              "totalBytesRead": [23483],
+              "totalRows": [11]
+            }
+          },
+          "after": {
+            "firstMedianMs": 176,
+            "firstSamplesMs": [175,178,176],
+            "repeatMedianMs": 134,
+            "repeatSamplesMs": [134,139,135,134,134,135,135,132,134],
+            "stdoutBytes": [23483],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [11],
+              "followupReads": [0],
+              "totalBytesRead": [23483],
+              "totalRows": [11]
+            }
+          },
+          "firstImprovementPercent": 0
+        },
+        {
+          "name": "instruction-list",
+          "before": {
+            "firstMedianMs": 171,
+            "firstSamplesMs": [171,172,171],
+            "repeatMedianMs": 129,
+            "repeatSamplesMs": [128,128,134,129,129,130,134,129,128],
+            "stdoutBytes": [3929],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3929],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "after": {
+            "firstMedianMs": 172,
+            "firstSamplesMs": [170,172,176],
+            "repeatMedianMs": 129,
+            "repeatSamplesMs": [130,128,128,130,129,127,129,128,131],
+            "stdoutBytes": [3929],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3929],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "firstImprovementPercent": -0.6
+        }
+      ],
+      "prewarmed": [
+        {
+          "name": "status",
+          "before": {
+            "firstMedianMs": 122,
+            "firstSamplesMs": [134,120,122],
+            "repeatMedianMs": 120,
+            "repeatSamplesMs": [121,121,120,120,120,120,120,121,119],
+            "stdoutBytes": [1627],
+            "warmupSamplesMs": [205,205,207]
+          },
+          "after": {
+            "firstMedianMs": 120,
+            "firstSamplesMs": [120,123,120],
+            "repeatMedianMs": 121,
+            "repeatSamplesMs": [120,119,121,120,122,121,120,123,124],
+            "stdoutBytes": [1627],
+            "warmupSamplesMs": [206,208,206]
+          },
+          "firstImprovementPercent": 1.6
+        },
+        {
+          "name": "progress",
+          "before": {
+            "firstMedianMs": 153,
+            "firstSamplesMs": [164,149,153],
+            "repeatMedianMs": 150,
+            "repeatSamplesMs": [150,150,150,149,152,155,149,149,150],
+            "stdoutBytes": [1007],
+            "warmupSamplesMs": [208,206,203]
+          },
+          "after": {
+            "firstMedianMs": 151,
+            "firstSamplesMs": [151,158,149],
+            "repeatMedianMs": 150,
+            "repeatSamplesMs": [159,149,149,158,149,151,151,150,148],
+            "stdoutBytes": [1007],
+            "warmupSamplesMs": [211,205,205]
+          },
+          "firstImprovementPercent": 1.3
+        },
+        {
+          "name": "nextsteps",
+          "before": {
+            "firstMedianMs": 238,
+            "firstSamplesMs": [247,235,238],
+            "repeatMedianMs": 188,
+            "repeatSamplesMs": [188,186,187,193,187,189,191,188,187],
+            "stdoutBytes": [7558],
+            "warmupSamplesMs": [206,206,206]
+          },
+          "after": {
+            "firstMedianMs": 235,
+            "firstSamplesMs": [238,234,235],
+            "repeatMedianMs": 189,
+            "repeatSamplesMs": [187,189,190,189,189,190,194,188,200],
+            "stdoutBytes": [7558],
+            "warmupSamplesMs": [206,204,204]
+          },
+          "firstImprovementPercent": 1.3
+        },
+        {
+          "name": "phase-show",
+          "before": {
+            "firstMedianMs": 241,
+            "firstSamplesMs": [249,241,240],
+            "repeatMedianMs": 191,
+            "repeatSamplesMs": [189,187,188,188,196,191,197,206,192],
+            "stdoutBytes": [2671],
+            "warmupSamplesMs": [206,207,205]
+          },
+          "after": {
+            "firstMedianMs": 237,
+            "firstSamplesMs": [237,243,237],
+            "repeatMedianMs": 188,
+            "repeatSamplesMs": [189,189,188,187,189,189,188,188,186],
+            "stdoutBytes": [2671],
+            "warmupSamplesMs": [205,210,206]
+          },
+          "firstImprovementPercent": 1.7
+        },
+        {
+          "name": "inputs-preview",
+          "before": {
+            "firstMedianMs": 240,
+            "firstSamplesMs": [241,240,237],
+            "repeatMedianMs": 196,
+            "repeatSamplesMs": [196,198,195,197,196,194,198,191,196],
+            "stdoutBytes": [7377],
+            "warmupSamplesMs": [206,208,212]
+          },
+          "after": {
+            "firstMedianMs": 245,
+            "firstSamplesMs": [287,241,245],
+            "repeatMedianMs": 194,
+            "repeatSamplesMs": [195,195,190,190,192,195,194,190,196],
+            "stdoutBytes": [7377],
+            "warmupSamplesMs": [208,204,203]
+          },
+          "firstImprovementPercent": -2.1
+        },
+        {
+          "name": "report",
+          "before": {
+            "firstMedianMs": 159,
+            "firstSamplesMs": [159,158,160],
+            "repeatMedianMs": 160,
+            "repeatSamplesMs": [159,160,158,160,160,160,160,161,160],
+            "stdoutBytes": [4069],
+            "warmupSamplesMs": [206,204,210]
+          },
+          "after": {
+            "firstMedianMs": 158,
+            "firstSamplesMs": [158,157,161],
+            "repeatMedianMs": 159,
+            "repeatSamplesMs": [156,161,159,159,156,160,161,156,157],
+            "stdoutBytes": [4069],
+            "warmupSamplesMs": [202,205,214]
+          },
+          "firstImprovementPercent": 0.6
+        },
+        {
+          "name": "workflow-list",
+          "before": {
+            "firstMedianMs": 266,
+            "firstSamplesMs": [283,246,266],
+            "repeatMedianMs": 268,
+            "repeatSamplesMs": [252,286,268,244,254,258,383,284,281],
+            "stdoutBytes": [12212],
+            "warmupSamplesMs": [206,205,205],
+            "listing": {
+              "inlineRows": [20],
+              "followupReads": [0],
+              "totalBytesRead": [12212],
+              "totalRows": [20]
+            }
+          },
+          "after": {
+            "firstMedianMs": 264,
+            "firstSamplesMs": [254,264,266],
+            "repeatMedianMs": 253,
+            "repeatSamplesMs": [266,245,245,253,249,267,265,260,245],
+            "stdoutBytes": [12212],
+            "warmupSamplesMs": [205,203,213],
+            "listing": {
+              "inlineRows": [20],
+              "followupReads": [0],
+              "totalBytesRead": [12212],
+              "totalRows": [20]
+            }
+          },
+          "firstImprovementPercent": 0.8
+        },
+        {
+          "name": "agents-list",
+          "before": {
+            "firstMedianMs": 187,
+            "firstSamplesMs": [187,185,187],
+            "repeatMedianMs": 187,
+            "repeatSamplesMs": [187,185,187,185,185,183,188,189,190],
+            "stdoutBytes": [6924],
+            "warmupSamplesMs": [206,203,204],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [6924],
+              "totalRows": [31]
+            }
+          },
+          "after": {
+            "firstMedianMs": 188,
+            "firstSamplesMs": [185,199,188],
+            "repeatMedianMs": 185,
+            "repeatSamplesMs": [195,189,187,183,183,185,184,185,230],
+            "stdoutBytes": [6918],
+            "warmupSamplesMs": [203,207,212],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [6918],
+              "totalRows": [31]
+            }
+          },
+          "firstImprovementPercent": -0.5
+        },
+        {
+          "name": "skill-list",
+          "before": {
+            "firstMedianMs": 134,
+            "firstSamplesMs": [134,134,133],
+            "repeatMedianMs": 134,
+            "repeatSamplesMs": [135,134,133,133,134,133,139,134,131],
+            "stdoutBytes": [23483],
+            "warmupSamplesMs": [214,211,208],
+            "listing": {
+              "inlineRows": [11],
+              "followupReads": [0],
+              "totalBytesRead": [23483],
+              "totalRows": [11]
+            }
+          },
+          "after": {
+            "firstMedianMs": 135,
+            "firstSamplesMs": [140,132,135],
+            "repeatMedianMs": 134,
+            "repeatSamplesMs": [134,135,136,133,135,134,135,132,134],
+            "stdoutBytes": [23483],
+            "warmupSamplesMs": [205,208,209],
+            "listing": {
+              "inlineRows": [11],
+              "followupReads": [0],
+              "totalBytesRead": [23483],
+              "totalRows": [11]
+            }
+          },
+          "firstImprovementPercent": -0.7
+        },
+        {
+          "name": "instruction-list",
+          "before": {
+            "firstMedianMs": 128,
+            "firstSamplesMs": [128,128,127],
+            "repeatMedianMs": 128,
+            "repeatSamplesMs": [127,128,129,135,128,129,128,128,132],
+            "stdoutBytes": [3929],
+            "warmupSamplesMs": [205,205,208],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3929],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "after": {
+            "firstMedianMs": 129,
+            "firstSamplesMs": [129,129,128],
+            "repeatMedianMs": 135,
+            "repeatSamplesMs": [129,135,139,157,141,130,130,141,129],
+            "stdoutBytes": [3929],
+            "warmupSamplesMs": [207,214,206],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3929],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "firstImprovementPercent": -0.8
+        }
+      ]
+    },
+    "node": "v25.5.0",
+    "phaseReadFirstCounters": [
+      {
+        "git.requests": 5,
+        "git.fact-cache-hits": 5,
+        "git.fact-store-hits": 5,
+        "configuration.definition-load": 2,
+        "configuration.source-read": 1,
+        "configuration.yaml-parse": 1,
+        "catalog.reads": 1,
+        "catalog.scans": 1,
+        "configuration.template-checks": 1,
+        "story.context-requests": 1,
+        "story.context-load": 1
+      },
+      {
+        "git.requests": 5,
+        "git.fact-cache-hits": 5,
+        "git.fact-store-hits": 5,
+        "configuration.definition-load": 2,
+        "configuration.source-read": 1,
+        "configuration.yaml-parse": 1,
+        "catalog.reads": 1,
+        "catalog.scans": 1,
+        "configuration.template-checks": 1,
+        "story.context-requests": 1,
+        "story.context-load": 1
+      },
+      {
+        "git.requests": 5,
+        "git.fact-cache-hits": 5,
+        "git.fact-store-hits": 5,
+        "configuration.definition-load": 2,
+        "configuration.source-read": 1,
+        "configuration.yaml-parse": 1,
+        "catalog.reads": 1,
+        "catalog.scans": 1,
+        "configuration.template-checks": 1,
+        "story.context-requests": 1,
+        "story.context-load": 1
+      }
+    ],
+    "bounded": {
+      "cold": [
+        {
+          "name": "status",
+          "before": {
+            "firstMedianMs": 185,
+            "firstSamplesMs": [192,185,183],
+            "repeatMedianMs": 122,
+            "repeatSamplesMs": [122,122,125,121,122,123,121,121,120],
+            "stdoutBytes": [1231],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 186,
+            "firstSamplesMs": [188,186,182],
+            "repeatMedianMs": 122,
+            "repeatSamplesMs": [124,147,124,122,121,121,120,122,121],
+            "stdoutBytes": [1231],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": -0.5
+        },
+        {
+          "name": "progress",
+          "before": {
+            "firstMedianMs": 219,
+            "firstSamplesMs": [225,219,216],
+            "repeatMedianMs": 151,
+            "repeatSamplesMs": [150,150,151,155,155,153,151,152,149],
+            "stdoutBytes": [811],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 214,
+            "firstSamplesMs": [258,214,214],
+            "repeatMedianMs": 150,
+            "repeatSamplesMs": [153,150,150,156,149,151,149,150,150],
+            "stdoutBytes": [811],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 2.3
+        },
+        {
+          "name": "nextsteps",
+          "before": {
+            "firstMedianMs": 329,
+            "firstSamplesMs": [332,329,322],
+            "repeatMedianMs": 189,
+            "repeatSamplesMs": [189,190,189,191,193,192,189,189,189],
+            "stdoutBytes": [5918,6128,6131],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 320,
+            "firstSamplesMs": [325,320,320],
+            "repeatMedianMs": 192,
+            "repeatSamplesMs": [190,192,188,192,195,200,191,190,192],
+            "stdoutBytes": [6128,6131],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 2.7
+        },
+        {
+          "name": "phase-show",
+          "before": {
+            "firstMedianMs": 321,
+            "firstSamplesMs": [355,319,321],
+            "repeatMedianMs": 189,
+            "repeatSamplesMs": [196,189,189,196,189,191,187,189,191],
+            "stdoutBytes": [2644,2854,2857],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 317,
+            "firstSamplesMs": [316,317,319],
+            "repeatMedianMs": 191,
+            "repeatSamplesMs": [191,193,188,192,196,190,191,191,192],
+            "stdoutBytes": [2854,2857],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 1.2
+        },
+        {
+          "name": "inputs-preview",
+          "before": {
+            "firstMedianMs": 326,
+            "firstSamplesMs": [326,325,422],
+            "repeatMedianMs": 196,
+            "repeatSamplesMs": [196,192,206,204,194,198,193,197,196],
+            "stdoutBytes": [5734],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 328,
+            "firstSamplesMs": [323,334,328],
+            "repeatMedianMs": 194,
+            "repeatSamplesMs": [192,193,195,197,192,197,192,196,194],
+            "stdoutBytes": [5734],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": -0.6
+        },
+        {
+          "name": "report",
+          "before": {
+            "firstMedianMs": 240,
+            "firstSamplesMs": [240,258,239],
+            "repeatMedianMs": 163,
+            "repeatSamplesMs": [157,170,176,159,165,163,161,163,161],
+            "stdoutBytes": [2638],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 253,
+            "firstSamplesMs": [255,253,244],
+            "repeatMedianMs": 170,
+            "repeatSamplesMs": [170,173,172,184,203,166,162,162,161],
+            "stdoutBytes": [2638],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": -5.4
+        },
+        {
+          "name": "workflow-list",
+          "before": {
+            "firstMedianMs": 313,
+            "firstSamplesMs": [351,309,313],
+            "repeatMedianMs": 257,
+            "repeatSamplesMs": [250,246,264,245,266,263,247,268,257],
+            "stdoutBytes": [1038],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [1],
+              "totalBytesRead": [13250],
+              "totalRows": [20]
+            }
+          },
+          "after": {
+            "firstMedianMs": 319,
+            "firstSamplesMs": [317,321,319],
+            "repeatMedianMs": 259,
+            "repeatSamplesMs": [249,260,275,259,267,255,261,248,251],
+            "stdoutBytes": [6020],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [20],
+              "followupReads": [0],
+              "totalBytesRead": [6020],
+              "totalRows": [20]
+            }
+          },
+          "firstImprovementPercent": -1.9
+        },
+        {
+          "name": "agents-list",
+          "before": {
+            "firstMedianMs": 249,
+            "firstSamplesMs": [253,249,247],
+            "repeatMedianMs": 187,
+            "repeatSamplesMs": [183,187,188,189,184,186,186,188,188],
+            "stdoutBytes": [4942],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [4942],
+              "totalRows": [31]
+            }
+          },
+          "after": {
+            "firstMedianMs": 248,
+            "firstSamplesMs": [253,248,248],
+            "repeatMedianMs": 187,
+            "repeatSamplesMs": [189,188,187,183,186,187,183,184,187],
+            "stdoutBytes": [4936],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [4936],
+              "totalRows": [31]
+            }
+          },
+          "firstImprovementPercent": 0.4
+        },
+        {
+          "name": "skill-list",
+          "before": {
+            "firstMedianMs": 181,
+            "firstSamplesMs": [178,181,187],
+            "repeatMedianMs": 138,
+            "repeatSamplesMs": [135,135,136,139,139,136,140,138,140],
+            "stdoutBytes": [1077],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [1],
+              "totalBytesRead": [24630],
+              "totalRows": [11]
+            }
+          },
+          "after": {
+            "firstMedianMs": 181,
+            "firstSamplesMs": [181,177,181],
+            "repeatMedianMs": 139,
+            "repeatSamplesMs": [139,138,137,139,137,135,174,182,147],
+            "stdoutBytes": [4902],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [11],
+              "followupReads": [0],
+              "totalBytesRead": [4902],
+              "totalRows": [11]
+            }
+          },
+          "firstImprovementPercent": 0
+        },
+        {
+          "name": "instruction-list",
+          "before": {
+            "firstMedianMs": 172,
+            "firstSamplesMs": [173,168,172],
+            "repeatMedianMs": 129,
+            "repeatSamplesMs": [130,129,129,131,128,129,130,128,128],
+            "stdoutBytes": [3244],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3244],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "after": {
+            "firstMedianMs": 170,
+            "firstSamplesMs": [169,170,171],
+            "repeatMedianMs": 129,
+            "repeatSamplesMs": [128,128,129,128,129,129,130,131,132],
+            "stdoutBytes": [3244],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3244],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "firstImprovementPercent": 1.2
+        }
+      ],
+      "prewarmed": [
+        {
+          "name": "status",
+          "before": {
+            "firstMedianMs": 122,
+            "firstSamplesMs": [132,121,122],
+            "repeatMedianMs": 121,
+            "repeatSamplesMs": [122,121,123,121,121,120,121,121,121],
+            "stdoutBytes": [1231],
+            "warmupSamplesMs": [203,203,202]
+          },
+          "after": {
+            "firstMedianMs": 120,
+            "firstSamplesMs": [120,122,120],
+            "repeatMedianMs": 121,
+            "repeatSamplesMs": [122,121,122,122,120,121,122,121,119],
+            "stdoutBytes": [1231],
+            "warmupSamplesMs": [206,203,202]
+          },
+          "firstImprovementPercent": 1.6
+        },
+        {
+          "name": "progress",
+          "before": {
+            "firstMedianMs": 151,
+            "firstSamplesMs": [163,150,151],
+            "repeatMedianMs": 150,
+            "repeatSamplesMs": [149,150,149,151,150,153,149,149,150],
+            "stdoutBytes": [811],
+            "warmupSamplesMs": [205,204,204]
+          },
+          "after": {
+            "firstMedianMs": 152,
+            "firstSamplesMs": [157,150,152],
+            "repeatMedianMs": 150,
+            "repeatSamplesMs": [150,152,150,152,154,151,149,149,149],
+            "stdoutBytes": [811],
+            "warmupSamplesMs": [208,205,205]
+          },
+          "firstImprovementPercent": -0.7
+        },
+        {
+          "name": "nextsteps",
+          "before": {
+            "firstMedianMs": 242,
+            "firstSamplesMs": [242,244,235],
+            "repeatMedianMs": 191,
+            "repeatSamplesMs": [188,191,191,190,195,194,191,188,191],
+            "stdoutBytes": [5918,6128,6131],
+            "warmupSamplesMs": [205,209,203]
+          },
+          "after": {
+            "firstMedianMs": 239,
+            "firstSamplesMs": [245,239,235],
+            "repeatMedianMs": 189,
+            "repeatSamplesMs": [195,192,191,188,187,189,189,188,191],
+            "stdoutBytes": [6128,6131],
+            "warmupSamplesMs": [208,206,205]
+          },
+          "firstImprovementPercent": 1.2
+        },
+        {
+          "name": "phase-show",
+          "before": {
+            "firstMedianMs": 244,
+            "firstSamplesMs": [253,234,244],
+            "repeatMedianMs": 188,
+            "repeatSamplesMs": [189,190,191,188,188,186,193,188,188],
+            "stdoutBytes": [2644,2854,2857],
+            "warmupSamplesMs": [207,205,206]
+          },
+          "after": {
+            "firstMedianMs": 235,
+            "firstSamplesMs": [235,233,239],
+            "repeatMedianMs": 189,
+            "repeatSamplesMs": [191,189,189,197,193,191,189,189,188],
+            "stdoutBytes": [2854,2857],
+            "warmupSamplesMs": [204,203,205]
+          },
+          "firstImprovementPercent": 3.7
+        },
+        {
+          "name": "inputs-preview",
+          "before": {
+            "firstMedianMs": 242,
+            "firstSamplesMs": [242,247,239],
+            "repeatMedianMs": 197,
+            "repeatSamplesMs": [190,191,200,206,196,199,197,193,197],
+            "stdoutBytes": [5734],
+            "warmupSamplesMs": [205,206,206]
+          },
+          "after": {
+            "firstMedianMs": 238,
+            "firstSamplesMs": [236,238,239],
+            "repeatMedianMs": 196,
+            "repeatSamplesMs": [194,196,196,198,196,196,194,197,193],
+            "stdoutBytes": [5734],
+            "warmupSamplesMs": [204,205,205]
+          },
+          "firstImprovementPercent": 1.7
+        },
+        {
+          "name": "report",
+          "before": {
+            "firstMedianMs": 158,
+            "firstSamplesMs": [161,158,157],
+            "repeatMedianMs": 159,
+            "repeatSamplesMs": [160,160,156,157,163,162,158,159,159],
+            "stdoutBytes": [2638],
+            "warmupSamplesMs": [205,204,203]
+          },
+          "after": {
+            "firstMedianMs": 160,
+            "firstSamplesMs": [158,162,160],
+            "repeatMedianMs": 161,
+            "repeatSamplesMs": [161,161,157,161,159,157,162,162,166],
+            "stdoutBytes": [2638],
+            "warmupSamplesMs": [203,205,202]
+          },
+          "firstImprovementPercent": -1.3
+        },
+        {
+          "name": "workflow-list",
+          "before": {
+            "firstMedianMs": 256,
+            "firstSamplesMs": [285,256,247],
+            "repeatMedianMs": 262,
+            "repeatSamplesMs": [266,247,263,264,261,263,257,261,262],
+            "stdoutBytes": [1038],
+            "warmupSamplesMs": [204,212,209],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [1],
+              "totalBytesRead": [13250],
+              "totalRows": [20]
+            }
+          },
+          "after": {
+            "firstMedianMs": 256,
+            "firstSamplesMs": [254,264,256],
+            "repeatMedianMs": 255,
+            "repeatSamplesMs": [247,247,269,330,248,249,267,256,255],
+            "stdoutBytes": [6020],
+            "warmupSamplesMs": [205,206,210],
+            "listing": {
+              "inlineRows": [20],
+              "followupReads": [0],
+              "totalBytesRead": [6020],
+              "totalRows": [20]
+            }
+          },
+          "firstImprovementPercent": 0
+        },
+        {
+          "name": "agents-list",
+          "before": {
+            "firstMedianMs": 187,
+            "firstSamplesMs": [187,227,185],
+            "repeatMedianMs": 184,
+            "repeatSamplesMs": [185,184,185,184,184,183,182,184,185],
+            "stdoutBytes": [4942],
+            "warmupSamplesMs": [206,221,205],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [4942],
+              "totalRows": [31]
+            }
+          },
+          "after": {
+            "firstMedianMs": 184,
+            "firstSamplesMs": [183,197,184],
+            "repeatMedianMs": 188,
+            "repeatSamplesMs": [185,188,251,194,192,196,184,184,184],
+            "stdoutBytes": [4936],
+            "warmupSamplesMs": [204,223,205],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [4936],
+              "totalRows": [31]
+            }
+          },
+          "firstImprovementPercent": 1.6
+        },
+        {
+          "name": "skill-list",
+          "before": {
+            "firstMedianMs": 135,
+            "firstSamplesMs": [135,142,134],
+            "repeatMedianMs": 134,
+            "repeatSamplesMs": [134,133,134,136,134,135,134,134,134],
+            "stdoutBytes": [1077],
+            "warmupSamplesMs": [210,203,208],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [1],
+              "totalBytesRead": [24630],
+              "totalRows": [11]
+            }
+          },
+          "after": {
+            "firstMedianMs": 136,
+            "firstSamplesMs": [136,133,136],
+            "repeatMedianMs": 135,
+            "repeatSamplesMs": [135,135,135,134,133,135,134,136,137],
+            "stdoutBytes": [4902],
+            "warmupSamplesMs": [202,204,205],
+            "listing": {
+              "inlineRows": [11],
+              "followupReads": [0],
+              "totalBytesRead": [4902],
+              "totalRows": [11]
+            }
+          },
+          "firstImprovementPercent": -0.7
+        },
+        {
+          "name": "instruction-list",
+          "before": {
+            "firstMedianMs": 128,
+            "firstSamplesMs": [132,128,128],
+            "repeatMedianMs": 128,
+            "repeatSamplesMs": [129,128,128,127,128,128,127,128,127],
+            "stdoutBytes": [3244],
+            "warmupSamplesMs": [204,203,203],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3244],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "after": {
+            "firstMedianMs": 130,
+            "firstSamplesMs": [128,131,130],
+            "repeatMedianMs": 128,
+            "repeatSamplesMs": [128,126,138,128,131,128,126,127,128],
+            "stdoutBytes": [3244],
+            "warmupSamplesMs": [203,221,203],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3244],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "firstImprovementPercent": -1.6
+        }
+      ]
+    }
+  },
+  "windows": {
+    "full": {
+      "cold": [
+        {
+          "name": "status",
+          "before": {
+            "firstMedianMs": 249,
+            "firstSamplesMs": [296,241,249],
+            "repeatMedianMs": 154,
+            "repeatSamplesMs": [156,157,156,154,149,153,157,149,149],
+            "stdoutBytes": [1581],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 250,
+            "firstSamplesMs": [250,259,246],
+            "repeatMedianMs": 153,
+            "repeatSamplesMs": [153,152,161,156,157,162,151,151,151],
+            "stdoutBytes": [1581],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": -0.4
+        },
+        {
+          "name": "progress",
+          "before": {
+            "firstMedianMs": 314,
+            "firstSamplesMs": [405,305,314],
+            "repeatMedianMs": 217,
+            "repeatSamplesMs": [224,217,211,214,220,214,214,218,251],
+            "stdoutBytes": [961],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 310,
+            "firstSamplesMs": [297,310,325],
+            "repeatMedianMs": 218,
+            "repeatSamplesMs": [218,220,211,231,227,218,211,219,212],
+            "stdoutBytes": [961],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 1.3
+        },
+        {
+          "name": "nextsteps",
+          "before": {
+            "firstMedianMs": 541,
+            "firstSamplesMs": [553,541,527],
+            "repeatMedianMs": 329,
+            "repeatSamplesMs": [326,324,344,330,332,331,323,320,329],
+            "stdoutBytes": [7466],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 520,
+            "firstSamplesMs": [520,513,523],
+            "repeatMedianMs": 336,
+            "repeatSamplesMs": [322,336,336,330,332,341,338,401,333],
+            "stdoutBytes": [7466],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 3.9
+        },
+        {
+          "name": "phase-show",
+          "before": {
+            "firstMedianMs": 486,
+            "firstSamplesMs": [569,486,476],
+            "repeatMedianMs": 288,
+            "repeatSamplesMs": [291,298,288,292,283,288,286,285,284],
+            "stdoutBytes": [2625],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 495,
+            "firstSamplesMs": [497,495,478],
+            "repeatMedianMs": 293,
+            "repeatSamplesMs": [290,297,291,299,297,290,299,284,293],
+            "stdoutBytes": [2625],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": -1.9
+        },
+        {
+          "name": "inputs-preview",
+          "before": {
+            "firstMedianMs": 545,
+            "firstSamplesMs": [539,545,559],
+            "repeatMedianMs": 340,
+            "repeatSamplesMs": [340,344,335,338,355,340,356,343,337],
+            "stdoutBytes": [7285],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 543,
+            "firstSamplesMs": [543,543,541],
+            "repeatMedianMs": 333,
+            "repeatSamplesMs": [337,339,332,337,335,333,330,314,321],
+            "stdoutBytes": [7285],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 0.4
+        },
+        {
+          "name": "report",
+          "before": {
+            "firstMedianMs": 355,
+            "firstSamplesMs": [348,396,355],
+            "repeatMedianMs": 227,
+            "repeatSamplesMs": [223,226,229,230,232,225,276,227,227],
+            "stdoutBytes": [4023],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 353,
+            "firstSamplesMs": [344,353,360],
+            "repeatMedianMs": 227,
+            "repeatSamplesMs": [235,226,226,232,227,226,235,240,225],
+            "stdoutBytes": [4023],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 0.6
+        },
+        {
+          "name": "workflow-list",
+          "before": {
+            "firstMedianMs": 546,
+            "firstSamplesMs": [657,537,546],
+            "repeatMedianMs": 452,
+            "repeatSamplesMs": [452,458,452,496,458,464,451,445,448],
+            "stdoutBytes": [12166],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [20],
+              "followupReads": [0],
+              "totalBytesRead": [12166],
+              "totalRows": [20]
+            }
+          },
+          "after": {
+            "firstMedianMs": 542,
+            "firstSamplesMs": [542,558,536],
+            "repeatMedianMs": 459,
+            "repeatSamplesMs": [462,456,457,459,456,449,462,466,485],
+            "stdoutBytes": [12166],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [20],
+              "followupReads": [0],
+              "totalBytesRead": [12166],
+              "totalRows": [20]
+            }
+          },
+          "firstImprovementPercent": 0.7
+        },
+        {
+          "name": "agents-list",
+          "before": {
+            "firstMedianMs": 373,
+            "firstSamplesMs": [373,387,368],
+            "repeatMedianMs": 282,
+            "repeatSamplesMs": [280,282,279,284,283,285,279,275,282],
+            "stdoutBytes": [6878],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [6878],
+              "totalRows": [31]
+            }
+          },
+          "after": {
+            "firstMedianMs": 368,
+            "firstSamplesMs": [368,385,367],
+            "repeatMedianMs": 281,
+            "repeatSamplesMs": [284,277,281,283,287,282,276,274,277],
+            "stdoutBytes": [6872],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [6872],
+              "totalRows": [31]
+            }
+          },
+          "firstImprovementPercent": 1.3
+        },
+        {
+          "name": "skill-list",
+          "before": {
+            "firstMedianMs": 292,
+            "firstSamplesMs": [284,292,294],
+            "repeatMedianMs": 229,
+            "repeatSamplesMs": [227,223,227,232,238,233,223,229,232],
+            "stdoutBytes": [23437],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [11],
+              "followupReads": [0],
+              "totalBytesRead": [23437],
+              "totalRows": [11]
+            }
+          },
+          "after": {
+            "firstMedianMs": 282,
+            "firstSamplesMs": [282,296,280],
+            "repeatMedianMs": 229,
+            "repeatSamplesMs": [233,229,226,237,236,232,228,223,225],
+            "stdoutBytes": [23437],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [11],
+              "followupReads": [0],
+              "totalBytesRead": [23437],
+              "totalRows": [11]
+            }
+          },
+          "firstImprovementPercent": 3.4
+        },
+        {
+          "name": "instruction-list",
+          "before": {
+            "firstMedianMs": 306,
+            "firstSamplesMs": [291,306,309],
+            "repeatMedianMs": 239,
+            "repeatSamplesMs": [239,244,230,234,234,247,245,236,239],
+            "stdoutBytes": [3883],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3883],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "after": {
+            "firstMedianMs": 299,
+            "firstSamplesMs": [297,301,299],
+            "repeatMedianMs": 249,
+            "repeatSamplesMs": [228,239,241,230,249,257,275,299,252],
+            "stdoutBytes": [3883],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3883],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "firstImprovementPercent": 2.3
+        }
+      ],
+      "prewarmed": [
+        {
+          "name": "status",
+          "before": {
+            "firstMedianMs": 160,
+            "firstSamplesMs": [218,160,157],
+            "repeatMedianMs": 154,
+            "repeatSamplesMs": [156,153,153,156,154,155,165,152,149],
+            "stdoutBytes": [1581],
+            "warmupSamplesMs": [266,277,265]
+          },
+          "after": {
+            "firstMedianMs": 161,
+            "firstSamplesMs": [161,171,153],
+            "repeatMedianMs": 161,
+            "repeatSamplesMs": [165,161,157,157,166,161,216,156,151],
+            "stdoutBytes": [1581],
+            "warmupSamplesMs": [282,290,270]
+          },
+          "firstImprovementPercent": -0.6
+        },
+        {
+          "name": "progress",
+          "before": {
+            "firstMedianMs": 210,
+            "firstSamplesMs": [268,206,210],
+            "repeatMedianMs": 207,
+            "repeatSamplesMs": [205,207,205,206,216,213,208,212,207],
+            "stdoutBytes": [961],
+            "warmupSamplesMs": [262,263,268]
+          },
+          "after": {
+            "firstMedianMs": 210,
+            "firstSamplesMs": [210,212,205],
+            "repeatMedianMs": 206,
+            "repeatSamplesMs": [218,217,211,206,206,202,202,213,203],
+            "stdoutBytes": [961],
+            "warmupSamplesMs": [267,277,303]
+          },
+          "firstImprovementPercent": 0
+        },
+        {
+          "name": "nextsteps",
+          "before": {
+            "firstMedianMs": 390,
+            "firstSamplesMs": [409,390,378],
+            "repeatMedianMs": 317,
+            "repeatSamplesMs": [309,323,319,325,327,317,306,315,306],
+            "stdoutBytes": [7466],
+            "warmupSamplesMs": [262,264,268]
+          },
+          "after": {
+            "firstMedianMs": 384,
+            "firstSamplesMs": [421,384,379],
+            "repeatMedianMs": 311,
+            "repeatSamplesMs": [311,318,310,311,323,316,311,307,313],
+            "stdoutBytes": [7466],
+            "warmupSamplesMs": [265,266,265]
+          },
+          "firstImprovementPercent": 1.5
+        },
+        {
+          "name": "phase-show",
+          "before": {
+            "firstMedianMs": 359,
+            "firstSamplesMs": [401,340,359],
+            "repeatMedianMs": 287,
+            "repeatSamplesMs": [288,283,278,287,289,291,302,278,279],
+            "stdoutBytes": [2625],
+            "warmupSamplesMs": [257,266,269]
+          },
+          "after": {
+            "firstMedianMs": 357,
+            "firstSamplesMs": [362,357,351],
+            "repeatMedianMs": 287,
+            "repeatSamplesMs": [288,291,292,284,390,287,276,279,281],
+            "stdoutBytes": [2625],
+            "warmupSamplesMs": [264,273,262]
+          },
+          "firstImprovementPercent": 0.6
+        },
+        {
+          "name": "inputs-preview",
+          "before": {
+            "firstMedianMs": 399,
+            "firstSamplesMs": [404,380,399],
+            "repeatMedianMs": 322,
+            "repeatSamplesMs": [322,324,321,316,316,318,408,425,333],
+            "stdoutBytes": [7285],
+            "warmupSamplesMs": [264,267,261]
+          },
+          "after": {
+            "firstMedianMs": 387,
+            "firstSamplesMs": [387,385,407],
+            "repeatMedianMs": 332,
+            "repeatSamplesMs": [320,322,326,332,342,317,338,336,364],
+            "stdoutBytes": [7285],
+            "warmupSamplesMs": [269,266,319]
+          },
+          "firstImprovementPercent": 3
+        },
+        {
+          "name": "report",
+          "before": {
+            "firstMedianMs": 240,
+            "firstSamplesMs": [248,240,235],
+            "repeatMedianMs": 243,
+            "repeatSamplesMs": [256,251,251,261,243,233,236,227,231],
+            "stdoutBytes": [4023],
+            "warmupSamplesMs": [321,278,280]
+          },
+          "after": {
+            "firstMedianMs": 248,
+            "firstSamplesMs": [248,242,254],
+            "repeatMedianMs": 242,
+            "repeatSamplesMs": [242,228,234,242,234,244,239,246,266],
+            "stdoutBytes": [4023],
+            "warmupSamplesMs": [290,274,299]
+          },
+          "firstImprovementPercent": -3.3
+        },
+        {
+          "name": "workflow-list",
+          "before": {
+            "firstMedianMs": 500,
+            "firstSamplesMs": [617,492,500],
+            "repeatMedianMs": 514,
+            "repeatSamplesMs": [522,555,593,515,514,505,499,501,498],
+            "stdoutBytes": [12166],
+            "warmupSamplesMs": [288,282,288],
+            "listing": {
+              "inlineRows": [20],
+              "followupReads": [0],
+              "totalBytesRead": [12166],
+              "totalRows": [20]
+            }
+          },
+          "after": {
+            "firstMedianMs": 533,
+            "firstSamplesMs": [632,533,485],
+            "repeatMedianMs": 490,
+            "repeatSamplesMs": [478,489,511,512,495,513,485,490,489],
+            "stdoutBytes": [12166],
+            "warmupSamplesMs": [366,283,290],
+            "listing": {
+              "inlineRows": [20],
+              "followupReads": [0],
+              "totalBytesRead": [12166],
+              "totalRows": [20]
+            }
+          },
+          "firstImprovementPercent": -6.6
+        },
+        {
+          "name": "agents-list",
+          "before": {
+            "firstMedianMs": 294,
+            "firstSamplesMs": [294,295,293],
+            "repeatMedianMs": 291,
+            "repeatSamplesMs": [283,295,291,288,294,291,289,288,296],
+            "stdoutBytes": [6878],
+            "warmupSamplesMs": [281,281,277],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [6878],
+              "totalRows": [31]
+            }
+          },
+          "after": {
+            "firstMedianMs": 290,
+            "firstSamplesMs": [298,290,290],
+            "repeatMedianMs": 298,
+            "repeatSamplesMs": [298,300,290,283,289,282,314,298,301],
+            "stdoutBytes": [6872],
+            "warmupSamplesMs": [280,290,277],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [6872],
+              "totalRows": [31]
+            }
+          },
+          "firstImprovementPercent": 1.4
+        },
+        {
+          "name": "skill-list",
+          "before": {
+            "firstMedianMs": 238,
+            "firstSamplesMs": [235,238,242],
+            "repeatMedianMs": 247,
+            "repeatSamplesMs": [247,234,242,248,234,241,319,249,268],
+            "stdoutBytes": [23437],
+            "warmupSamplesMs": [285,281,297],
+            "listing": {
+              "inlineRows": [11],
+              "followupReads": [0],
+              "totalBytesRead": [23437],
+              "totalRows": [11]
+            }
+          },
+          "after": {
+            "firstMedianMs": 241,
+            "firstSamplesMs": [236,251,241],
+            "repeatMedianMs": 243,
+            "repeatSamplesMs": [236,298,254,243,244,242,256,235,242],
+            "stdoutBytes": [23437],
+            "warmupSamplesMs": [272,286,298],
+            "listing": {
+              "inlineRows": [11],
+              "followupReads": [0],
+              "totalBytesRead": [23437],
+              "totalRows": [11]
+            }
+          },
+          "firstImprovementPercent": -1.3
+        },
+        {
+          "name": "instruction-list",
+          "before": {
+            "firstMedianMs": 259,
+            "firstSamplesMs": [258,272,259],
+            "repeatMedianMs": 260,
+            "repeatSamplesMs": [260,268,256,245,285,270,255,239,263],
+            "stdoutBytes": [3883],
+            "warmupSamplesMs": [271,294,299],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3883],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "after": {
+            "firstMedianMs": 253,
+            "firstSamplesMs": [253,240,256],
+            "repeatMedianMs": 255,
+            "repeatSamplesMs": [249,249,247,282,259,253,259,255,261],
+            "stdoutBytes": [3883],
+            "warmupSamplesMs": [290,281,290],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3883],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "firstImprovementPercent": 2.3
+        }
+      ]
+    },
+    "node": "v24.21.0",
+    "phaseReadFirstCounters": [
+      {
+        "git.requests": 5,
+        "git.fact-cache-hits": 5,
+        "git.fact-store-hits": 5,
+        "configuration.definition-load": 2,
+        "configuration.source-read": 1,
+        "configuration.yaml-parse": 1,
+        "catalog.reads": 1,
+        "catalog.scans": 1,
+        "configuration.template-checks": 1,
+        "story.context-requests": 1,
+        "story.context-load": 1
+      },
+      {
+        "git.requests": 5,
+        "git.fact-cache-hits": 5,
+        "git.fact-store-hits": 5,
+        "configuration.definition-load": 2,
+        "configuration.source-read": 1,
+        "configuration.yaml-parse": 1,
+        "catalog.reads": 1,
+        "catalog.scans": 1,
+        "configuration.template-checks": 1,
+        "story.context-requests": 1,
+        "story.context-load": 1
+      },
+      {
+        "git.requests": 5,
+        "git.fact-cache-hits": 5,
+        "git.fact-store-hits": 5,
+        "configuration.definition-load": 2,
+        "configuration.source-read": 1,
+        "configuration.yaml-parse": 1,
+        "catalog.reads": 1,
+        "catalog.scans": 1,
+        "configuration.template-checks": 1,
+        "story.context-requests": 1,
+        "story.context-load": 1
+      }
+    ],
+    "bounded": {
+      "cold": [
+        {
+          "name": "status",
+          "before": {
+            "firstMedianMs": 392,
+            "firstSamplesMs": [489,382,392],
+            "repeatMedianMs": 248,
+            "repeatSamplesMs": [257,247,249,240,235,252,248,245,249],
+            "stdoutBytes": [1185],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 388,
+            "firstSamplesMs": [394,388,388],
+            "repeatMedianMs": 244,
+            "repeatSamplesMs": [247,241,257,256,244,247,244,235,242],
+            "stdoutBytes": [1185],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 1
+        },
+        {
+          "name": "progress",
+          "before": {
+            "firstMedianMs": 486,
+            "firstSamplesMs": [571,486,479],
+            "repeatMedianMs": 332,
+            "repeatSamplesMs": [332,330,335,330,329,360,340,327,336],
+            "stdoutBytes": [765],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 475,
+            "firstSamplesMs": [469,484,475],
+            "repeatMedianMs": 336,
+            "repeatSamplesMs": [335,336,329,341,336,336,328,336,334],
+            "stdoutBytes": [765],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 2.3
+        },
+        {
+          "name": "nextsteps",
+          "before": {
+            "firstMedianMs": 812,
+            "firstSamplesMs": [846,812,806],
+            "repeatMedianMs": 518,
+            "repeatSamplesMs": [516,515,506,515,518,522,895,610,519],
+            "stdoutBytes": [5826,6036,6039],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 828,
+            "firstSamplesMs": [814,828,838],
+            "repeatMedianMs": 523,
+            "repeatSamplesMs": [535,527,522,523,506,521,537,612,521],
+            "stdoutBytes": [6036,6039],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": -2
+        },
+        {
+          "name": "phase-show",
+          "before": {
+            "firstMedianMs": 851,
+            "firstSamplesMs": [904,823,851],
+            "repeatMedianMs": 499,
+            "repeatSamplesMs": [501,499,487,499,485,509,480,593,565],
+            "stdoutBytes": [2598,2808,2811],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 852,
+            "firstSamplesMs": [852,783,891],
+            "repeatMedianMs": 502,
+            "repeatSamplesMs": [508,482,492,474,496,502,597,586,648],
+            "stdoutBytes": [2808,2811],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": -0.1
+        },
+        {
+          "name": "inputs-preview",
+          "before": {
+            "firstMedianMs": 889,
+            "firstSamplesMs": [1208,851,889],
+            "repeatMedianMs": 563,
+            "repeatSamplesMs": [563,579,591,534,557,527,576,535,575],
+            "stdoutBytes": [5642],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 857,
+            "firstSamplesMs": [857,823,883],
+            "repeatMedianMs": 537,
+            "repeatSamplesMs": [537,531,519,520,531,554,568,568,553],
+            "stdoutBytes": [5642],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 3.6
+        },
+        {
+          "name": "report",
+          "before": {
+            "firstMedianMs": 581,
+            "firstSamplesMs": [584,581,572],
+            "repeatMedianMs": 373,
+            "repeatSamplesMs": [373,380,369,374,366,376,370,366,374],
+            "stdoutBytes": [2592],
+            "warmupSamplesMs": []
+          },
+          "after": {
+            "firstMedianMs": 574,
+            "firstSamplesMs": [580,574,567],
+            "repeatMedianMs": 368,
+            "repeatSamplesMs": [384,368,367,374,370,366,368,359,362],
+            "stdoutBytes": [2592],
+            "warmupSamplesMs": []
+          },
+          "firstImprovementPercent": 1.2
+        },
+        {
+          "name": "workflow-list",
+          "before": {
+            "firstMedianMs": 925,
+            "firstSamplesMs": [1013,913,925],
+            "repeatMedianMs": 764,
+            "repeatSamplesMs": [764,757,753,767,768,764,773,778,764],
+            "stdoutBytes": [950],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [1],
+              "totalBytesRead": [13116],
+              "totalRows": [20]
+            }
+          },
+          "after": {
+            "firstMedianMs": 901,
+            "firstSamplesMs": [900,903,901],
+            "repeatMedianMs": 766,
+            "repeatSamplesMs": [770,756,789,783,757,768,764,751,766],
+            "stdoutBytes": [5932],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [20],
+              "followupReads": [0],
+              "totalBytesRead": [5932],
+              "totalRows": [20]
+            }
+          },
+          "firstImprovementPercent": 2.6
+        },
+        {
+          "name": "agents-list",
+          "before": {
+            "firstMedianMs": 603,
+            "firstSamplesMs": [635,600,603],
+            "repeatMedianMs": 463,
+            "repeatSamplesMs": [463,464,472,461,458,464,475,459,463],
+            "stdoutBytes": [4896],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [4896],
+              "totalRows": [31]
+            }
+          },
+          "after": {
+            "firstMedianMs": 606,
+            "firstSamplesMs": [623,598,606],
+            "repeatMedianMs": 461,
+            "repeatSamplesMs": [476,465,478,461,460,457,455,461,468],
+            "stdoutBytes": [4890],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [4890],
+              "totalRows": [31]
+            }
+          },
+          "firstImprovementPercent": -0.5
+        },
+        {
+          "name": "skill-list",
+          "before": {
+            "firstMedianMs": 459,
+            "firstSamplesMs": [460,459,443],
+            "repeatMedianMs": 365,
+            "repeatSamplesMs": [378,366,364,368,369,356,365,362,363],
+            "stdoutBytes": [989],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [1],
+              "totalBytesRead": [24496],
+              "totalRows": [11]
+            }
+          },
+          "after": {
+            "firstMedianMs": 468,
+            "firstSamplesMs": [468,471,461],
+            "repeatMedianMs": 365,
+            "repeatSamplesMs": [360,370,373,364,369,368,358,360,365],
+            "stdoutBytes": [4814],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [11],
+              "followupReads": [0],
+              "totalBytesRead": [4814],
+              "totalRows": [11]
+            }
+          },
+          "firstImprovementPercent": -2
+        },
+        {
+          "name": "instruction-list",
+          "before": {
+            "firstMedianMs": 447,
+            "firstSamplesMs": [465,447,444],
+            "repeatMedianMs": 354,
+            "repeatSamplesMs": [367,362,359,354,354,347,351,351,355],
+            "stdoutBytes": [3198],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3198],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "after": {
+            "firstMedianMs": 445,
+            "firstSamplesMs": [460,445,442],
+            "repeatMedianMs": 354,
+            "repeatSamplesMs": [353,361,360,352,358,353,352,354,354],
+            "stdoutBytes": [3198],
+            "warmupSamplesMs": [],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3198],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "firstImprovementPercent": 0.4
+        }
+      ],
+      "prewarmed": [
+        {
+          "name": "status",
+          "before": {
+            "firstMedianMs": 247,
+            "firstSamplesMs": [337,247,247],
+            "repeatMedianMs": 246,
+            "repeatSamplesMs": [255,241,244,247,250,250,246,243,246],
+            "stdoutBytes": [1185],
+            "warmupSamplesMs": [420,422,420]
+          },
+          "after": {
+            "firstMedianMs": 251,
+            "firstSamplesMs": [251,248,252],
+            "repeatMedianMs": 247,
+            "repeatSamplesMs": [247,252,247,263,247,249,245,242,245],
+            "stdoutBytes": [1185],
+            "warmupSamplesMs": [419,429,421]
+          },
+          "firstImprovementPercent": -1.6
+        },
+        {
+          "name": "progress",
+          "before": {
+            "firstMedianMs": 351,
+            "firstSamplesMs": [429,338,351],
+            "repeatMedianMs": 346,
+            "repeatSamplesMs": [350,340,346,344,341,347,351,353,344],
+            "stdoutBytes": [765],
+            "warmupSamplesMs": [418,421,429]
+          },
+          "after": {
+            "firstMedianMs": 347,
+            "firstSamplesMs": [339,347,347],
+            "repeatMedianMs": 343,
+            "repeatSamplesMs": [341,338,343,345,338,352,340,343,348],
+            "stdoutBytes": [765],
+            "warmupSamplesMs": [421,422,425]
+          },
+          "firstImprovementPercent": 1.1
+        },
+        {
+          "name": "nextsteps",
+          "before": {
+            "firstMedianMs": 631,
+            "firstSamplesMs": [718,631,616],
+            "repeatMedianMs": 522,
+            "repeatSamplesMs": [548,556,555,515,506,519,522,520,522],
+            "stdoutBytes": [5826,6036,6039],
+            "warmupSamplesMs": [430,424,422]
+          },
+          "after": {
+            "firstMedianMs": 626,
+            "firstSamplesMs": [646,625,626],
+            "repeatMedianMs": 522,
+            "repeatSamplesMs": [523,522,526,515,524,525,506,509,511],
+            "stdoutBytes": [6036,6039],
+            "warmupSamplesMs": [449,416,427]
+          },
+          "firstImprovementPercent": 0.8
+        },
+        {
+          "name": "phase-show",
+          "before": {
+            "firstMedianMs": 597,
+            "firstSamplesMs": [662,579,597],
+            "repeatMedianMs": 481,
+            "repeatSamplesMs": [469,479,481,487,476,473,482,486,481],
+            "stdoutBytes": [2598,2808,2811],
+            "warmupSamplesMs": [415,419,417]
+          },
+          "after": {
+            "firstMedianMs": 570,
+            "firstSamplesMs": [583,558,570],
+            "repeatMedianMs": 464,
+            "repeatSamplesMs": [475,471,466,464,463,462,468,460,462],
+            "stdoutBytes": [2808,2811],
+            "warmupSamplesMs": [426,417,420]
+          },
+          "firstImprovementPercent": 4.5
+        },
+        {
+          "name": "inputs-preview",
+          "before": {
+            "firstMedianMs": 633,
+            "firstSamplesMs": [633,646,622],
+            "repeatMedianMs": 535,
+            "repeatSamplesMs": [543,523,525,536,538,538,531,535,524],
+            "stdoutBytes": [5642],
+            "warmupSamplesMs": [424,446,415]
+          },
+          "after": {
+            "firstMedianMs": 675,
+            "firstSamplesMs": [632,690,675],
+            "repeatMedianMs": 537,
+            "repeatSamplesMs": [537,529,530,551,559,543,540,534,537],
+            "stdoutBytes": [5642],
+            "warmupSamplesMs": [422,479,433]
+          },
+          "firstImprovementPercent": -6.6
+        },
+        {
+          "name": "report",
+          "before": {
+            "firstMedianMs": 373,
+            "firstSamplesMs": [373,391,369],
+            "repeatMedianMs": 378,
+            "repeatSamplesMs": [381,379,373,384,371,381,376,376,378],
+            "stdoutBytes": [2592],
+            "warmupSamplesMs": [434,426,418]
+          },
+          "after": {
+            "firstMedianMs": 375,
+            "firstSamplesMs": [382,370,375],
+            "repeatMedianMs": 379,
+            "repeatSamplesMs": [382,376,389,382,381,375,373,367,379],
+            "stdoutBytes": [2592],
+            "warmupSamplesMs": [437,420,424]
+          },
+          "firstImprovementPercent": -0.5
+        },
+        {
+          "name": "workflow-list",
+          "before": {
+            "firstMedianMs": 767,
+            "firstSamplesMs": [875,740,767],
+            "repeatMedianMs": 754,
+            "repeatSamplesMs": [762,744,752,758,756,757,754,753,752],
+            "stdoutBytes": [950],
+            "warmupSamplesMs": [428,420,418],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [1],
+              "totalBytesRead": [13116],
+              "totalRows": [20]
+            }
+          },
+          "after": {
+            "firstMedianMs": 760,
+            "firstSamplesMs": [760,772,748],
+            "repeatMedianMs": 762,
+            "repeatSamplesMs": [757,766,762,763,763,740,742,764,739],
+            "stdoutBytes": [5932],
+            "warmupSamplesMs": [410,423,412],
+            "listing": {
+              "inlineRows": [20],
+              "followupReads": [0],
+              "totalBytesRead": [5932],
+              "totalRows": [20]
+            }
+          },
+          "firstImprovementPercent": 0.9
+        },
+        {
+          "name": "agents-list",
+          "before": {
+            "firstMedianMs": 469,
+            "firstSamplesMs": [457,470,469],
+            "repeatMedianMs": 467,
+            "repeatSamplesMs": [454,472,466,462,467,465,550,539,536],
+            "stdoutBytes": [4896],
+            "warmupSamplesMs": [420,422,413],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [4896],
+              "totalRows": [31]
+            }
+          },
+          "after": {
+            "firstMedianMs": 477,
+            "firstSamplesMs": [470,477,485],
+            "repeatMedianMs": 472,
+            "repeatSamplesMs": [465,467,471,472,472,469,482,485,493],
+            "stdoutBytes": [4890],
+            "warmupSamplesMs": [418,427,447],
+            "listing": {
+              "inlineRows": [31],
+              "followupReads": [0],
+              "totalBytesRead": [4890],
+              "totalRows": [31]
+            }
+          },
+          "firstImprovementPercent": -1.7
+        },
+        {
+          "name": "skill-list",
+          "before": {
+            "firstMedianMs": 364,
+            "firstSamplesMs": [389,364,363],
+            "repeatMedianMs": 365,
+            "repeatSamplesMs": [374,365,380,362,367,366,360,362,361],
+            "stdoutBytes": [989],
+            "warmupSamplesMs": [439,424,417],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [1],
+              "totalBytesRead": [24496],
+              "totalRows": [11]
+            }
+          },
+          "after": {
+            "firstMedianMs": 379,
+            "firstSamplesMs": [376,399,379],
+            "repeatMedianMs": 371,
+            "repeatSamplesMs": [369,371,367,366,369,403,371,383,377],
+            "stdoutBytes": [4814],
+            "warmupSamplesMs": [427,419,425],
+            "listing": {
+              "inlineRows": [11],
+              "followupReads": [0],
+              "totalBytesRead": [4814],
+              "totalRows": [11]
+            }
+          },
+          "firstImprovementPercent": -4.1
+        },
+        {
+          "name": "instruction-list",
+          "before": {
+            "firstMedianMs": 359,
+            "firstSamplesMs": [371,355,359],
+            "repeatMedianMs": 355,
+            "repeatSamplesMs": [363,354,359,355,355,355,356,359,355],
+            "stdoutBytes": [3198],
+            "warmupSamplesMs": [416,429,419],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3198],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "after": {
+            "firstMedianMs": 354,
+            "firstSamplesMs": [354,353,362],
+            "repeatMedianMs": 366,
+            "repeatSamplesMs": [359,356,350,370,366,374,387,363,366],
+            "stdoutBytes": [3198],
+            "warmupSamplesMs": [420,420,409],
+            "listing": {
+              "inlineRows": [0],
+              "followupReads": [0],
+              "totalBytesRead": [3198],
+              "totalRows": [
+                null
+              ]
+            }
+          },
+          "firstImprovementPercent": 1.4
+        }
+      ]
+    }
+  }
+}

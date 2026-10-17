@@ -597,7 +597,8 @@ if (args[0] === 'cat-file' && args.includes('--batch-check')) {
 }
 if (result.stdout) process.stdout.write(result.stdout);
 if (result.stderr) process.stderr.write(result.stderr);
-process.exit(result.status == null ? 1 : result.status);
+// Let queued binary writes drain before this forwarding process exits.
+process.exitCode = result.status == null ? 1 : result.status;
 `);
     run('git', ['--git-dir', item.remote, 'config', 'receive.denyDeletes', 'true']);
     const activated = spawnSync(process.execPath, [

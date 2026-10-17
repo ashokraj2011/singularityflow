@@ -23,7 +23,7 @@ test('Git fault-injection wrapper preserves exact argv without shell interpretat
   assert.deepEqual(JSON.parse(result.stdout), args);
   const binary = await writeGitTestWrapper(path.join(directory, 'binary'),
     '#!/usr/bin/env node\nprocess.stdin.pipe(process.stdout); process.stderr.write("diagnostic");\n');
-  const bytes = Buffer.from([0, 255, 10, 13, 42]);
+  const bytes = Buffer.concat([Buffer.from([0, 255, 10, 13, 42]), Buffer.alloc(128 * 1024, 0xab)]);
   const echoed = spawnSync(binary, [], { input: bytes, timeout: 15_000 });
   assert.equal(echoed.status, 0, echoed.stderr?.toString());
   assert.deepEqual(echoed.stdout, bytes);

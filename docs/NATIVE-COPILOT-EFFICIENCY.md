@@ -544,6 +544,100 @@ cases (175 passed, seven platform skips), 44 final bundle/read cases and the thr
 portability cases. Repository contracts, type checking and bundle limits pass. Original failed
 run IDs and exact correction deltas remain in the report; the original run was not relabeled green.
 
+### Mac strict policy-read qualification (2026-10-17)
+
+The [retained Mac measurements](../benchmarks/utility-entry/mac-strict-policy-reads.json)
+compare fresh main `43bac9ea` with runtime/test commit `ac4d4ceb`. The host is an Apple M4,
+10 logical CPUs, macOS 26.7.1, Node 25.5.0 and Git 2.54.0. Reports ran serially, with alternating
+before/after order within each three-pair sample. Host load is retained: this was a busy
+interactive Mac, not a quiescent performance laboratory or a Windows qualification.
+
+Each legacy, pinned and accepted revision-2 amended fixture has 1,000 source files, 20 unrelated
+branches, 120 added history commits and nine draft artifacts. Total history is 122/124 commits.
+The fixtures have one phase and at most one accepted amendment, not a long amendment chain.
+Full and bounded output, cold and bytecode-prepared processes, and fresh/definition-prepared
+owned workers are all retained separately. Each command has three first-request samples and
+nine repeats. Cold means an empty private V8 cache, **not** flushed OS/Git caches. Each revision
+uses its own bundle builder. Worker canonical values match except report clocks. No models or
+user Stories were used, and no remote network latency was measured.
+
+The amended load previously verified its accepted snapshot while loading the Story, discarded
+the resulting closure, then verified it again to construct the execution catalog. The strict
+loader now passes its freshly verified catalog directly to the execution service. Skill
+revalidation baselines and accepted test-command epochs still go through their existing forensic
+owners. The handoff is private to that load, with exact repository/Story/snapshot identity; it
+does not create a cross-request readiness or approval cache. Ordinary domain reads keep their
+existing forensic-only contract. Tests refuse forged/cross-root capabilities, changed resolution,
+removed committed revalidation markers and stale data on a subsequent load.
+
+Full-JSON CLI first-request medians, milliseconds (before → after):
+
+| Story | Next steps, cold | Next steps, prewarmed | Phase review, cold | Phase review, prewarmed |
+| --- | ---: | ---: | ---: | ---: |
+| Legacy | 351 → 346 | 263 → 264 | 365 → 362 | 277 → 275 |
+| Pinned | 380 → 387 | 377 → 299 | 401 → 411 | 308 → 313 |
+| Amended | 746 → 682 | 535 → 421 | 654 → 552 | 545 → 471 |
+
+Amended full-JSON prewarmed policy reads improve about 14–21%; repeated fresh-process reads
+improve about 18–27%. Legacy/pinned results are mostly flat and include slower cases; the
+isolated pinned prewarmed next-step improvement is not a general pinned-path optimization.
+Amended cold inputs preview is slightly slower, 588 → 595 ms, despite faster repeats.
+Bounded-output results, all raw first/repeat samples, paired deltas and preparation costs remain
+in the report, rather than pooling different output modes or dropping regressions.
+
+Identical-code controls show why cold claims need caution: cold next steps are 649 → 574 ms and
+inputs preview 615 → 735 ms with **no code difference**. The matched prewarmed controls are
+478 → 479, 489 → 491 and 484 → 485 ms for next steps, phase review and inputs preview. Three pairs
+are a measured result, not a statistical guarantee or a complete native Copilot latency claim.
+
+Owned-worker next-step medians, milliseconds:
+
+| Story | Fresh worker | Definition-prepared worker | Prepared-worker repeats |
+| --- | ---: | ---: | ---: |
+| Legacy | 294 → 288 | 115 → 119 | 50 → 52 |
+| Pinned | 362 → 367 | 192 → 189 | 110 → 108 |
+| Amended | 869 → 700 | 662 → 593 | 451 → 353 |
+
+Amended definition preparation itself costs about 100 ms, plus roughly 230 ms for bytecode
+preparation; neither is free. Worker Git-fact persistence is disabled, unlike the CLI suite,
+so their absolute timings cannot be subtracted. Native Copilot hooks, VS Code activation,
+publication/approval mutations and full Story runs are outside this measurement.
+
+The amended prewarmed next-step path reduces logical Git requests from 119 to 67, history batches
+from 34 to 14 and observed first-sample Git spawns from 50–68 to 36. The candidate records one
+accepted-snapshot verification and one catalog handoff per strict load. Its execute-stage median
+falls from 434 to 317 ms; accepted-chain and byte-validation spans fall from 206/34 to 110/29 ms.
+Nested spans overlap, and the candidate aggregate now includes catalog interpretation. YAML
+parsing is about 2 ms, validation 5 ms and output rendering below 1 ms. Nine-artifact catalog/body
+reads take about 1/3 ms. First forensic validation and remaining policy execution still cost
+time; a YAML cache or a cached approval verdict would not address those costs safely.
+
+Deployment remains 20 files. The next-step closure is 3,948,379 bytes and the phase-review closure
+6,961,416 bytes, only 1,663 bytes above baseline and within the unchanged bundle limits.
+All 198 targeted regression/audit cases, 2,670 repository checks, VS Code type checking and CLI/
+VS Code bundle limits passed. The report identifies the exact tested source and documentation/
+reviewed-audit-fingerprint delta; this is not a claim that the entire repository suite ran.
+
+Qualification also found a harness defect: direct fixture Git calls bypassed the product's
+existing automatic-maintenance guard. Git 2.54 launched overlapping detached geometric repacks
+during rapid history creation, lost temporary packs and left missing commit parents. Those runs
+remain failed/diagnostic evidence; every matrix cell was rerun after applying the same existing
+process-local guard to fixture setup. No user/repository Git settings or measured CLI environment
+were changed. The stress regression proves 122 intact commits, `fsck`, effective setup protection
+even with repository maintenance enabled, and unchanged repository settings. Trace hashes and
+the excluded pre-fix failures are retained in the report; no integrity refusal was weakened.
+
+To reproduce from the candidate checkout with an exact detached baseline:
+
+```sh
+node scripts/bench-utility-entry.mjs /path/to/baseline /path/to/result.json --combined-baseline --samples=3 --commands=policy --story-mode=amended --agent-output=full --history-commits=120 --artifacts=8
+node scripts/bench-prepared-reads.mjs /path/to/baseline /path/to/worker.json --samples=3 --story-mode=amended --history-commits=120 --artifacts=8
+```
+
+Repeat for `legacy`/`pinned`, `bounded` output, and `--prewarm` on utility runs. Identical-code
+controls use the candidate as both source checkouts. Record the explicit Node executable and
+host load; do not relabel a concurrent development smoke run as qualification.
+
 ### Story operations
 
 - Every registered skill is audited; aliases delegate once to their canonical owner.

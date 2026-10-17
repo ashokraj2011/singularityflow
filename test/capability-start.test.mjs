@@ -16,6 +16,7 @@ import { parseBaseSelection, resolveCapabilityBase } from '../src/capability-bra
 import { run } from '../src/util.mjs';
 import { branch as currentBranch, orphanRemoteBranches, refsShareHistory } from '../src/git.mjs';
 import { initializeDefinition } from '../src/config.mjs';
+import { commandTimer, withCommandTiming } from '../src/dx-command-timing.mjs';
 import { readWorkspaceBranches } from '../src/commands/workspace-branches.mjs';
 import {
   ensureConfigurationBranch, loadStoryConfigurationSnapshot,
@@ -859,7 +860,12 @@ test('approved multi-repository Story plans retain exact repository identity acr
         root: lifecycleRoot, remote: 'origin', repositoryId: plan.repositoryId
       }
     )).capability;
-    const firstCapability = await resolveFromPlan(first.plan);
+    const timer = commandTimer('capability-snapshot-read');
+    const firstCapability = await withCommandTiming(timer, () => resolveFromPlan(first.plan));
+    const timing = timer.finish();
+    assert.equal(timing.counters['configuration.definition-load'] ?? 0, 0,
+      'an owner-verified definition is shared, not recompiled in the capability scratch directory');
+    assert.equal(timing.counters['configuration.capability-definition-reuse'], 1);
     const secondCapability = await resolveFromPlan(second.plan);
     assert.equal(firstCapability.repositoryId, 'lead');
     assert.equal(firstCapability.effectiveResolution.repository.id, 'lead');

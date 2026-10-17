@@ -3221,12 +3221,15 @@ export async function resolveStoryConfigurationSnapshotCapability(
   try {
     await copyStoryConfigurationSnapshot(snapshot, scratch);
     const { resolveLifecycleCapability } = await import('./capability-context.mjs');
-    const capability = await resolveLifecycleCapability(scratch, {
-      capabilityId,
-      required: true,
-      offline: true,
-      repositoryContext
-    });
+    // These bytes have already passed the complete snapshot compiler. Keep repository-specific
+    // capability checks fresh, but do not reparse/rediscover every agent and template in each
+    // disposable capability projection. Null authority preserves this API's provenance semantics.
+    const capability = await withConfigurationReadRoot(scratch, scratch, null, () => resolveLifecycleCapability(scratch, {
+      capabilityId, required: true, offline: true, repositoryContext
+    }), { compiledDefinition: () => {
+      incrementCommandCounter('configuration.capability-definition-reuse');
+      return copyVerifiedStoryConfigurationDefinition(snapshot, scratch);
+    } });
     return {
       branch: snapshot.authority.branch,
       commit: snapshot.sourceCommit,

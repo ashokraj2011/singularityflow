@@ -740,16 +740,32 @@ async function runMain(argv, utilityEntry = null) {
     commandClass: 'unknown', operationId: null, mode: timingMode(options)
   };
   const timer = commandTimer(definition.name, timingInput);
+  // Selected-base intake owns an independent workspace checkout. Choose it before generic
+  // workspace repair, status, authority or fetch can open the original (possibly cloud-only) objects.
+  let automaticIntake = null;
+  let automaticScope = action => action();
+  if (definition.name === 'start' || definition.name === 'story' && ['start', 'prepare-worktree'].includes(positionals[1])
+      || definition.name === 'workspace' && positionals[1] === 'branches' && optionString(options, 'preflight-story')) {
+    resolveOperation({ requestedCommand: requested, positionals, options });
+    const { automaticWorkspaceStoryCheckout, rebaseAutomaticStoryFiles, withAutomaticStoryCheckout } = await import('./workspace-story-checkout.mjs');
+    automaticIntake = await withCommandTiming(timer, () => automaticWorkspaceStoryCheckout(definition.name, positionals, options));
+    if (automaticIntake) {
+      automaticScope = action => withAutomaticStoryCheckout(automaticIntake, action);
+      rebaseAutomaticStoryFiles(options, process.cwd());
+      process.chdir(automaticIntake.repositoryPath);
+      if (definition.name === 'start' || definition.name === 'story' && positionals[1] === 'start') options['isolated-worktree'] = true;
+    }
+  }
   // Root discovery is part of the command. Bind the timing context before the first Git probe so
   // --timings and durable events no longer omit dispatch work performed ahead of module loading.
-  root = localOnlyRequest ? null : withCommandTiming(timer, () => rootIfAvailable());
+  root = automaticIntake?.repositoryPath ?? (localOnlyRequest ? null : withCommandTiming(timer, () => rootIfAvailable()));
   const subcommand = positionals[1] ?? null;
   const action = positionals[2] ?? null;
   const routingExcluded = excludesActiveWorkspaceRouting(
     definition.name, subcommand, options, action
   );
   await withCommandTiming(timer, async () => {
-    const opened = Boolean(root) && readsOpenedRepository(definition.name, subcommand);
+    const opened = Boolean(automaticIntake) || Boolean(root) && readsOpenedRepository(definition.name, subcommand);
     if (!routingExcluded && !opened && (!root || !hasLocalGovernanceAuthority(root))) {
       const selectedRoot = await activeWorkspaceRepositoryRoot(definition.name, {
         subcommand, action, options
@@ -879,7 +895,7 @@ async function runMain(argv, utilityEntry = null) {
     }));
     timer.stage('module-load');
     const startedAt = new Date().toISOString();
-    const execute = () => withOperationContext({
+    const execute = () => automaticScope(() => withOperationContext({
       operation,
       modelMode,
       root,
@@ -891,7 +907,7 @@ async function runMain(argv, utilityEntry = null) {
     }, () => module.run(effectiveArgv, {
       positionals: [definition.name, ...positionals.slice(1)], options, definition,
       operation, requestedOperation, modelMode
-    }));
+    })));
     // Keep the complete mutating handler visible to factory reset. The reset barrier and this
     // short-lived, uniquely named lease form a two-way exclusion boundary: a reset refuses while
     // any current-build mutation is active, and a mutation refuses once reset has begun. Loading

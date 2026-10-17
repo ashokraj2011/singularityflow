@@ -990,7 +990,9 @@ export class SingularityFlowClient {
       return STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS;
     }
     if (args[0] === 'workspace' && args[1] === 'branches' && hasOption(args, 'preflight-story')) {
-      return STORY_READINESS_TIMEOUT_MS;
+      // Preparation, branch download and readiness each have their own five-minute UI deadline.
+      // Leave aggregate headroom so a valid download cannot consume the readiness stage's budget.
+      return 3 * STORY_READINESS_TIMEOUT_MS;
     }
     if (args[0] === 'start'
         || (['story', 'epic', 'initiative'].includes(args[0] ?? '')

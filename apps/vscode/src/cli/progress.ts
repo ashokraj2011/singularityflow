@@ -11,6 +11,8 @@ const PROGRESS_LINE = /^@@sflow-progress\/v1 (start\.[a-z][a-z-]*|publication\.(
 
 /** What each stage is doing, in words for the person waiting. Unknown stages are not shown. */
 const START_PROGRESS_LABELS: Readonly<Record<string, string>> = Object.freeze({
+  'start.branch-checkout': 'Preparing the selected branch in workspace/repos',
+  'start.branch-download': 'Downloading the selected branch into workspace/repos',
   'start.intake-verification': 'Confirming the readiness check',
   'start.authority': 'Reading approved configuration',
   'start.configuration': 'Reading approved configuration',

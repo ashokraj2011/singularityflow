@@ -15,6 +15,8 @@ import { BRANCH_CHECKOUT_RECORD, preparedWorkspaceBranch, workspaceBranchFolder,
   workspaceBranchMember, workspaceBranchPath } from '../src/workspace-branch-locations.mjs';
 import { readWorkspace, rememberWorkspace } from '../src/workspace.mjs';
 import { activateWorkspaceContext, readActiveWorkspaceContext, workspaceMemberContextForRepository } from '../src/workspace-context.mjs';
+import { automaticStoryCheckoutRequest, automaticWorkspaceStoryCheckout, automaticStorySelection, withAutomaticStoryCheckout } from '../src/workspace-story-checkout.mjs';
+import { beginCustomSelectionReceipt, answerSelectionReceipt, selectionReceiptStatus } from '../src/choices.mjs';
 
 const git = (cwd, ...args) => run('git', args, { cwd }).stdout.trim();
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -102,6 +104,70 @@ test('fresh retry preserves even a completed checkout and selects a new independ
   assert.match(second.repositoryPath, /--retry-[a-f0-9]{16}/u);
   assert.equal(await readFile(path.join(first.repositoryPath, 'private.txt'), 'utf8'), 'preserve');
   assert.equal((await preparedWorkspaceBranch(f.workspace, 'app', 'main')).repositoryPath, second.repositoryPath);
+});
+
+test('automatic branch preparation coalesces concurrent requests and reuses without another clone', async (t) => {
+  const f = await fixture(t);
+  const env = { ...process.env, SINGULARITY_FLOW_ACTIVE_WORKSPACE: f.selection, SINGULARITY_FLOW_WORKSPACE_REGISTRY: f.registry };
+  const options = { 'preflight-story': 'AUTO-NEW', 'from-branch': 'main' };
+  let clones = 0;
+  const prepareBranch = (workspace, id, branch, settings) => prepareWorkspaceBranch(workspace, id, branch, {
+    ...settings, runGit: (args, execution) => {
+      if (args[0] === 'clone') clones += 1;
+      assert.notEqual(execution.cwd, f.original);
+      return runRemoteGitAsync(args, execution);
+    }
+  });
+  const both = await Promise.all([1, 2].map(() => automaticWorkspaceStoryCheckout('workspace', ['workspace', 'branches'],
+    { ...options }, { cwd: f.original, env, prepareBranch })));
+  assert.equal(both[0].repositoryPath, both[1].repositoryPath);
+  assert.equal(clones, 1);
+  const repeat = await automaticWorkspaceStoryCheckout('workspace', ['workspace', 'branches'], { ...options }, { cwd: f.original, env, prepareBranch });
+  assert.equal(repeat.reused, true);
+  assert.equal(clones, 1);
+  const other = path.join(f.root, 'unrelated');
+  git(f.root, 'init', '--quiet', other);
+  assert.equal(await automaticWorkspaceStoryCheckout('workspace', ['workspace', 'branches'], { ...options },
+    { cwd: other, env, prepareBranch }), null, 'an unrelated opened repository cannot inherit the active workspace');
+});
+
+test('local Stories and interrupted starts retain their original checkout without any download', async (t) => {
+  const f = await fixture(t);
+  git(f.original, 'branch', 'LOCAL-ONLY');
+  git(f.original, 'pack-refs', '--all');
+  const env = { ...process.env, SINGULARITY_FLOW_ACTIVE_WORKSPACE: f.selection, SINGULARITY_FLOW_WORKSPACE_REGISTRY: f.registry };
+  const settings = { cwd: f.original, env, prepareBranch() { throw new Error('must not clone an existing local Story'); } };
+  assert.equal(await automaticWorkspaceStoryCheckout('start', ['start', 'LOCAL-ONLY'], { 'from-branch': 'main' }, settings), null);
+  await mkdir(path.join(f.original, '.git/singularity-flow/story-start'), { recursive: true });
+  await writeFile(path.join(f.original, '.git/singularity-flow/story-start/INTERRUPTED.json'), '{}');
+  assert.equal(await automaticWorkspaceStoryCheckout('start', ['start', 'INTERRUPTED'], { 'from-branch': 'main' }, settings), null);
+  for (const key of ['help', 'dry-run', 'offline', 'managed-story-worktree']) {
+    assert.equal(automaticStoryCheckoutRequest('start', ['start', 'NEW'], { 'from-branch': 'main', [key]: key === 'managed-story-worktree' ? '/checked/story' : true }), null);
+  }
+  for (const base of ['state', 'sflow/config', '../invalid']) {
+    assert.throws(() => automaticStoryCheckoutRequest('start', ['start', 'NEW'], { 'from-branch': base }));
+  }
+});
+
+test('automatic start honors a human-selected base without copying or rebinding its signed receipt', async (t) => {
+  const f = await fixture(t);
+  const receipt = await beginCustomSelectionReceipt(f.original, { action: 'start', workId: 'SIGNED-START',
+    choiceSets: [{ id: 'base-branch', label: 'Base branch', options: [{ id: 'feature/topic', label: 'Topic' }] }] });
+  await answerSelectionReceipt(f.original, receipt.token, 'base-branch', 'feature/topic');
+  const options = { 'selection-receipt': receipt.token };
+  const env = { ...process.env, SINGULARITY_FLOW_ACTIVE_WORKSPACE: f.selection, SINGULARITY_FLOW_WORKSPACE_REGISTRY: f.registry };
+  const prepared = await automaticWorkspaceStoryCheckout('start', ['start', 'SIGNED-START'], options, { cwd: f.original, env });
+  assert.equal(prepared.branch, 'feature/topic');
+  assert.equal(automaticStorySelection(options, 'SIGNED-START').root, await realpath(f.original));
+  assert.equal((await selectionReceiptStatus(f.original, receipt.token)).repositoryHead, receipt.repositoryHead);
+  await withAutomaticStoryCheckout(prepared, async () => {
+    const routedOptions = { ...options, jira: true };
+    const routed = await automaticWorkspaceStoryCheckout('start', ['start', 'SIGNED-START'], routedOptions,
+      { cwd: prepared.repositoryPath, env });
+    assert.equal(routed.repositoryPath, prepared.repositoryPath, 'CLI aliases may copy options without losing the private handoff');
+    assert.equal(automaticStorySelection(routedOptions, 'SIGNED-START').root, await realpath(f.original));
+  });
+  await assert.rejects(readFile(path.join(prepared.repositoryPath, '.git/singularity-flow/choices', `${receipt.token}.json`)), { code: 'ENOENT' });
 });
 
 test('downloaded repositories and their linked Story worktrees remain manifest-bound workspace members', async (t) => {
@@ -239,7 +305,7 @@ test('workspace prepare-branch is available from the narrow CLI without an old o
   assert.ok(result.repositoryPath.startsWith(path.join(f.workspace.path, 'repos', workspaceBranchFolder('main'))));
 });
 
-test('recovered checkout passes governed readiness, creates a Story and retains its workspace selection', async (t) => {
+test('readiness and direct Story start automatically use the branch checkout without fetching old objects', async (t) => {
   const f = await fixture(t);
   await initializeDefinition(f.source);
   const workflowFile = path.join(f.source, 'singularity/workflow.yml');
@@ -252,9 +318,6 @@ test('recovered checkout passes governed readiness, creates a Story and retains 
   await writeFile(workflowFile, YAML.stringify(definition));
   git(f.source, 'add', '.'); git(f.source, 'commit', '--quiet', '-m', 'governed configuration');
   git(f.source, 'push', '--quiet', 'origin', 'main', 'main:refs/heads/sflow/config');
-  const result = await prepareWorkspaceBranch(f.workspace, 'app', 'main');
-  git(result.repositoryPath, 'config', 'user.email', 'fixture@example.com');
-  git(result.repositoryPath, 'config', 'user.name', 'Fixture');
   await writeFile(path.join(f.original, 'private-draft.txt'), 'preserve unpublished work');
   await rename(path.join(f.original, '.git/objects'), path.join(f.original, '.git/retained-objects'));
   await mkdir(path.join(f.original, '.git/objects'));
@@ -263,7 +326,7 @@ test('recovered checkout passes governed readiness, creates a Story and retains 
     SINGULARITY_FLOW_LEAD_REGISTRY: path.join(f.root, 'leads.json') };
   const cli = (args) => {
     const executed = spawnSync(process.execPath, [path.join(packageRoot, 'bin/singularity-flow.mjs'), ...args], {
-      cwd: result.repositoryPath, env, encoding: 'utf8', timeout: 90_000, maxBuffer: 16 * 1024 * 1024
+      cwd: f.original, env, encoding: 'utf8', timeout: 90_000, maxBuffer: 16 * 1024 * 1024
     });
     assert.equal(executed.status, 0, executed.stderr || executed.stdout);
     return JSON.parse(executed.stdout);
@@ -271,8 +334,19 @@ test('recovered checkout passes governed readiness, creates a Story and retains 
   const preflight = cli(['workspace', 'branches', '--intake', '--preflight-story', 'FRESH-STORY',
     '--from-branch', 'main', '--work-type', 'feature', '--selected-base-only', '--mint-intake-receipt', '--json']);
   assert.equal(preflight.preflight.passed, true, JSON.stringify(preflight.preflight));
+  const result = { repositoryPath: preflight.repositoryPath };
+  assert.equal(result.repositoryPath, workspaceBranchPath(f.workspace.path, 'app', 'main'));
+  assert.equal(preflight.branchCheckout.originalPreserved, true);
+  const repeat = cli(['workspace', 'branches', '--intake', '--preflight-story', 'FRESH-STORY',
+    '--from-branch', 'main', '--work-type', 'feature', '--selected-base-only', '--json']);
+  assert.equal(repeat.repositoryPath, result.repositoryPath);
+  assert.equal(repeat.branchCheckout.reused, true, 'editing/rechecking intake must not make another clone');
+  git(result.repositoryPath, 'config', 'user.email', 'fixture@example.com');
+  git(result.repositoryPath, 'config', 'user.name', 'Fixture');
+  await writeFile(path.join(f.original, 'notes.txt'), 'Relative intake document');
   const started = cli(['start', 'FRESH-STORY', '--isolated-worktree', '--from-branch', 'main',
-    '--work-type', 'feature', '--title', 'Fresh local Story', '--description', 'Independent object recovery', '--json']);
+    '--work-type', 'feature', '--title', 'Fresh local Story', '--description', 'Independent object recovery',
+    '--document', 'notes.txt', '--document-name', 'Intake notes', '--document-phases', definition.workTypes.feature.phases[0], '--json']);
   const payload = started.data ?? started;
   assert.ok(payload.repositoryPath);
   assert.notEqual(payload.repositoryPath, result.repositoryPath);
@@ -284,4 +358,9 @@ test('recovered checkout passes governed readiness, creates a Story and retains 
   const old = await workspaceMemberContextForRepository(f.original, f.selection, f.registry, { strict: true });
   assert.equal(old.branchCheckout, undefined, 'the active fresh selection must not reclassify old workspace members');
   assert.equal(await readFile(path.join(f.original, 'private-draft.txt'), 'utf8'), 'preserve unpublished work');
+  assert.deepEqual(await readdir(path.join(f.original, '.git/objects')), [], 'no readiness or start fetch may write into the old object store');
+  const direct = cli(['start', 'DIRECT-STORY', '--from-branch', 'main', '--work-type', 'feature',
+    '--title', 'No readiness click', '--description', 'Direct Story start also selects the independent branch folder', '--json']);
+  assert.ok((direct.data ?? direct).repositoryPath);
+  assert.deepEqual(await readdir(path.join(f.original, '.git/objects')), []);
 });

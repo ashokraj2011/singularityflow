@@ -25,7 +25,21 @@ import { withApprovedConfigurationRead } from "../approved-configuration-reader.
 import { configurationReadSnapshot } from "../configuration-read-scope.mjs";
 import { measureCommandSpan } from "../dx-timing-context.mjs";
 
-export async function readWorkspaceBranches(options = {}, { root = repoRoot() } = {}) {
+export async function readWorkspaceBranches(options = {}, { root: launchRoot = null } = {}) {
+  const { automaticWorkspaceStoryCheckout } = await import('../workspace-story-checkout.mjs');
+  const checkout = await automaticWorkspaceStoryCheckout('workspace', ['workspace', 'branches'], options,
+    { cwd: launchRoot ?? process.cwd() });
+  const root = checkout?.repositoryPath ?? repoRoot(launchRoot ?? process.cwd());
+  const result = await (checkout
+    ? measureCommandSpan('start.readiness', () => readWorkspaceBranchesAtRoot(options, root))
+    : readWorkspaceBranchesAtRoot(options, root));
+  return { ...result, repositoryPath: root, ...(checkout ? { branchCheckout: {
+    repositoryPath: checkout.repositoryPath, branch: checkout.branch, reused: checkout.reused,
+    originalPreserved: true
+  } } : {}) };
+}
+
+async function readWorkspaceBranchesAtRoot(options, root) {
   const intakeRequested = optionBoolean(options, 'intake');
   // Initiative and local Epic start still resolve profiles from the execution checkout. Read the
   // same catalog before entering the approved-configuration overlay; otherwise an older Story

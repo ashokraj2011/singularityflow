@@ -38,7 +38,6 @@ import { materializeReferenceRepositories, materializeReferenceRepositoriesFromB
 import { consumeSelectionReceipt, readStartSelectionReceipt, resolveHandedOffStartSelectionReceipt, resolveSelectionReceipt } from '../choices.mjs';
 import { writeReturnLocator } from '../return-locator.mjs';
 import { getGitHubIssue, normalizeWorkSource, workflowSourceIdentity } from '../work-source.mjs';
-import { workspaceRepositoryPath } from '../workspace.mjs';
 import { captureConfigurationState, CONFIGURATION_BRANCH, configurationBranchHead, materializeConfigurationSnapshot, loadStoryConfigurationSnapshot, resolveNewStoryConfigurationAuthority, withStoryConfigurationSnapshotRead, withStoryConfigurationTransaction } from '../configuration-branch.mjs';
 import { fosStoryConfigurationAuthority } from '../onboard.mjs';
 import { beginStoryStartJournal, clearStoryStartJournal, recoverStoryStart, serializeConfigurationRestorePoint, updateStoryStartJournal } from '../story-start-journal.mjs';
@@ -59,6 +58,7 @@ import { incrementCommandCounter, measureCommandSpan } from '../dx-timing-contex
 import { publishCapabilityRepositoriesDurably, retainCapabilityPublicationRecovery } from '../capability-publication-recovery.mjs';
 import { withCommandObservability } from '../command-observability.mjs';
 import { withCommandConfirmation } from '../command-confirmation.mjs';
+import { automaticWorkspaceStoryCheckout, automaticStorySelection, rebaseAutomaticStoryFiles } from '../workspace-story-checkout.mjs';
 
 export async function run(argv, { positionals, options }) {
   if (Object.hasOwn(options, 'prepare-only') || Object.hasOwn(options, 'discard-prepared')) {
@@ -302,7 +302,8 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
     // Checked here, before any worktree exists, so a stale or foreign receipt refuses at once.
     const selectionToken = optionString(options, 'selection-receipt');
     const selectionHandoff = selectionToken && !durableLocalStory
-      ? await readStartSelectionReceipt(sourceRoot, selectionToken, id) : null;
+      ? options[ISOLATED_STORY_SELECTION_HANDOFF] ?? automaticStorySelection(options, id)
+        ?? await readStartSelectionReceipt(sourceRoot, selectionToken, id) : null;
     const preparedBase = optionString(options, 'prepared-base');
     if (!durableLocalStory && preparedBase && preparedBase !== launchBaseCommit && !baselineTarget) {
       const { discardPreparedStoryWorktree } = await import('../story-worktree.mjs');
@@ -390,6 +391,17 @@ async function startCommandInIsolatedWorktree(sourceRoot, id, positionals, optio
 }
 
 export async function startCommand(positionals, options) {
+  const previousDirectory = process.cwd();
+  const checkout = await automaticWorkspaceStoryCheckout('start', positionals, options);
+  if (!checkout) return startCommandAtRoot(positionals, options);
+  rebaseAutomaticStoryFiles(options, previousDirectory);
+  options['isolated-worktree'] = true;
+  process.chdir(checkout.repositoryPath);
+  try { return await startCommandAtRoot(positionals, options); }
+  finally { process.chdir(previousDirectory); }
+}
+
+async function startCommandAtRoot(positionals, options) {
   normalizeQualityGateMode(optionString(options, 'gate-mode', 'hard'));
   const id = requirePositional(positionals, 1, 'work ID');
   const root = repoRoot();
@@ -827,7 +839,7 @@ export async function startCommand(positionals, options) {
     }
   }
   const selectionHandoff = options[ISOLATED_STORY_SELECTION_HANDOFF]?.token === receiptToken
-    ? options[ISOLATED_STORY_SELECTION_HANDOFF] : null;
+    ? options[ISOLATED_STORY_SELECTION_HANDOFF] : automaticStorySelection(options, id);
   if (receiptToken) {
     const resolveReceipt = selectionHandoff
       ? async () => resolveHandedOffStartSelectionReceipt(selectionHandoff, config)
@@ -1589,7 +1601,9 @@ export async function startCommand(positionals, options) {
   const originalCopilotSession = await loadCopilotSession(root);
   const siblingRepositories = storyBase.scope === 'capability'
     ? storyBase.plan.repositories.map((repository) => {
-        const target = repoRoot(workspaceRepositoryPath({ path: storyBase.workspaceRoot }, repository));
+        const verified = capabilityPreflight?.find(entry => entry.repository === repository.id);
+        if (!verified) throw new SingularityFlowError(`Required repository '${repository.id}' has no verified Story preparation.`, { code: 'STORY_BASE_INVALID' });
+        const target = repoRoot(verified.root);
         const base = storyBase.plan.resolution.resolved[repository.id];
         const baseRef = `refs/remotes/${remote}/${base.branch}`;
         const refs = localRefHeads(target, [`refs/heads/${canonicalBranch}`, baseRef]);

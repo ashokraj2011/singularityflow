@@ -548,7 +548,7 @@ export function intakeProblems(form: IntakeForm): string[] {
           : form.catalogStatus === 'loading' ? 'Reading the remote base branches…'
             : 'No remote base branch is available for this Story.'));
     } else if (form.basePreflightChecking) {
-      problems.push('Checking Story-start readiness for configuration, workflow agents, and publication access…');
+      problems.push(form.basePreflightReason ?? 'Checking Story-start readiness for configuration, workflow agents, and publication access…');
     } else if (!form.basePreflightPassed) {
       problems.push(form.basePreflightReason
         ?? 'Remote publication preflight must succeed before this Story can start.');

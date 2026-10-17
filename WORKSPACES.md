@@ -7,10 +7,23 @@ routing, and which repository leads shared Initiative artifacts.
 
 The installed tutorials are `sflow explain workspaces-and-sessions`, `sflow explain capability-management`, and `sflow explain initiative-lifecycle`.
 
-## Recovering an unavailable local object store
+## Automatic branch-local Story preparation
 
-When Story readiness cannot read a cloud-offloaded or damaged clone, use **Download fresh branch
-checkout** in Story intake after the failed check, or run:
+New-Story readiness and Story start automatically use `workspace/repos/<branch-folder>/<repository-id>`
+as soon as a base branch is selected. They download that branch directly from the approved manifest
+remote when needed, then reuse the verified independent checkout on subsequent checks. They do not
+first fetch or check the original object store, wait for it to fail, or require a recovery click.
+VS Code follows the returned location for readiness, baseline checks, background worktree preparation
+and Start without changing other panels. Direct CLI starts and selected-base Copilot intake use the
+same path. Story documents keep their original relative-path interpretation.
+
+Existing local Stories and interrupted starts keep their own checkout, draft, pin and recovery
+journal. Signed human selections remain validated and consumed at the root that issued them; they
+are not copied or rebound. The new Story still receives an isolated worktree and all ordinary
+configuration, publication and approval checks. A location receipt is not lifecycle authority.
+
+If an independent checkout itself becomes unavailable, the explicit **Download fresh branch checkout**
+action remains available after a failed check. It preserves that attempt and prepares a new one:
 
 ```sh
 singularity-flow workspace prepare-branch /path/to/workspace --repository payments-api --from-branch main --json
@@ -23,11 +36,10 @@ objects from the old clone. Every required repository in the selected capability
 checkout. The original checkout, unpublished commits, drafts, worktrees and previous download attempts
 are preserved. A retry uses a new attempt folder rather than overwriting an existing one.
 
-The VS Code action rechecks readiness and starts the new Story from the fresh checkout without
-retargeting other panels. CLI callers run readiness/Story start from the returned `repositoryPath`.
-The local location receipt does not approve configuration, tests or phase artifacts. Original
-workspace members and older Stories remain recognized. Downloads and remote probes each allow five
-minutes; cancelling or timing out leaves incomplete downloads unselected. Keep the workspace available
+Original workspace members and older Stories remain recognized. Preparation, download and readiness
+have distinct progress stages and five-minute stage deadlines; the host allows aggregate headroom,
+not an unchanged-failure retry loop. Cancelling or timing out leaves incomplete downloads unselected.
+Keep the workspace available
 locally: putting fresh checkouts under a cloud-offloaded parent cannot prevent later offloading.
 
 ## The model

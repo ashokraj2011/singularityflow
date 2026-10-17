@@ -17,13 +17,15 @@ export async function readIntakeEntry(options = {}) {
     throw new SingularityFlowError('Choose --work-id for initial choices or --preflight-story for selected-base readiness, not both.');
   }
   validatePortableWorkId(workId);
-  const workspace = await readActiveWorkspaceContext(activeWorkspaceFile(), workspaceRegistryFile());
+  const { automaticWorkspaceStoryCheckout } = await import('../workspace-story-checkout.mjs');
+  const checkout = await automaticWorkspaceStoryCheckout('workspace', ['workspace', 'branches'], options);
+  const workspace = await readActiveWorkspaceContext(activeWorkspaceFile(), workspaceRegistryFile(), { refresh: !checkout });
   const base = { resultType: 'intake-entry', workId, paused: false,
     build: versionLine(), workspace: workspace ?? null, creationAuthorized: false };
-  if (workspace?.repositoryState && workspace.repositoryState !== 'ready') return { ...base, status: 'workspace-repair-required',
+  if (!checkout && workspace?.repositoryState && workspace.repositoryState !== 'ready') return { ...base, status: 'workspace-repair-required',
     ready: false, commandGuidance: { copilotCommand: '/sf-workspace',
       command: 'singularity-flow workspace repair --help', modelFreeCommand: null } };
-  const root = repoRoot(workspace?.repositoryPath ?? process.cwd());
+  const root = repoRoot(checkout?.repositoryPath ?? workspace?.repositoryPath ?? process.cwd());
   base.personalization = resolvePersonalization({ root });
   const dirty = changes(root);
   if (dirty.length) return { ...base, status: 'worktree-review-required', ready: false,

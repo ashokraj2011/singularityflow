@@ -1286,12 +1286,15 @@ export class IntakePanel {
     const controller = new AbortController();
     this.preflightController = controller;
     this.preflightKey = JSON.stringify(command);
-    this.update({ ...emptyStoryPreflight(), basePreflightChecking: true }, { background: true });
-    const deadline = setTimeout(() => controller.abort(new Error(
+    this.update({ ...emptyStoryPreflight(), basePreflightChecking: true,
+      basePreflightReason: this.form.targetWorkspace ? 'Preparing the selected branch in workspace/repos…' : null }, { background: true });
+    const armDeadline = () => setTimeout(() => controller.abort(new Error(
       `Story-start readiness timed out after ${STORY_READINESS_TIMEOUT_MS / 60_000} minutes. Your draft and selections are preserved. `
       + 'Check that repository files are available locally (not cloud-only), Git credentials, and remote access, then retry readiness. '
       + 'A timeout does not establish a DNS or network failure.'
     )), STORY_READINESS_TIMEOUT_MS);
+    let deadline = armDeadline();
+    const timedStages = new Set<string>();
     try {
       const result = await this.storyExecutionClient.run<{
         preflight?: {
@@ -1301,8 +1304,23 @@ export class IntakePanel {
           intakeReceipt?: { issued?: boolean; id?: string; expiresAt?: string; reason?: string };
         };
         intake?: EngineStoryWorkflowCatalog;
-      }>(command, controller.signal);
+        branchCheckout?: { repositoryPath?: string; branch?: string; originalPreserved?: boolean };
+      }>(command, controller.signal, { onProgress: (step) => {
+        if (version !== this.preflightVersion || this.disposed) return;
+        if (['start.branch-checkout', 'start.branch-download', 'start.readiness'].includes(step) && !timedStages.has(step)) {
+          timedStages.add(step); clearTimeout(deadline); deadline = armDeadline();
+        }
+        const label = startProgressLabel(step);
+        if (label) this.update({ basePreflightReason: `${label}…` }, { background: true });
+      } });
       if (version !== this.preflightVersion) return;
+      const prepared = result.branchCheckout;
+      if (prepared?.originalPreserved === true && prepared.branch === base
+          && typeof prepared.repositoryPath === 'string' && path.isAbsolute(prepared.repositoryPath)
+          && this.storyExecutionClient.repository !== prepared.repositoryPath) {
+        this.branchCheckout = { base, client: this.client.forkForRepository(prepared.repositoryPath) };
+        this.output.appendLine(`Story intake uses branch checkout: ${prepared.repositoryPath}. Original checkout preserved.`);
+      }
       const testRecovery = result.preflight?.testRecovery?.schemaVersion === 1
         ? result.preflight.testRecovery : null;
       // The first read includes the choice tuple, so capability discovery does not trigger a

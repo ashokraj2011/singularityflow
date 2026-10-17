@@ -7,10 +7,11 @@ import { GitRemoteSession, requireRemoteObservation, runRemoteGitAsync } from '.
 import { frozenRemoteTransport } from './git-remote-diagnostics.mjs';
 import { processResultSucceeded } from './process-result.mjs';
 import { currentSchemaVersion } from './schema-migrations.mjs';
+import { measureCommandSpan } from './dx-timing-context.mjs';
 import { SingularityFlowError, writeAtomic } from './util.mjs';
 import { workspaceRepositoryPath } from './workspace-manifest.mjs';
 import {
-  BRANCH_CHECKOUT_RECORD, workspaceBranchFolder, workspaceBranchPath,
+  BRANCH_CHECKOUT_RECORD, preparedWorkspaceBranch, workspaceBranchFolder, workspaceBranchPath,
   workspaceBranchPointer
 } from './workspace-branch-locations.mjs';
 
@@ -28,7 +29,7 @@ async function safeParents(workspacePath, target) {
 }
 
 export async function prepareWorkspaceBranch(workspace, repositoryId, branch, {
-  signal = null, env = process.env, runGit = runRemoteGitAsync
+  signal = null, env = process.env, runGit = runRemoteGitAsync, reuse = false
 } = {}) {
   workspaceBranchFolder(branch);
   const repository = Object.hasOwn(workspace.repositories, repositoryId) ? workspace.repositories[repositoryId] : null;
@@ -39,6 +40,9 @@ export async function prepareWorkspaceBranch(workspace, repositoryId, branch, {
   await safeParents(workspacePath, path.dirname(pointer));
   return withRegistryFileLease(pointer, async () => {
     if (signal?.aborted) throw new SingularityFlowError('Branch download was cancelled.');
+    const existing = reuse ? await preparedWorkspaceBranch({ ...workspace, path: workspacePath }, repositoryId, branch) : null;
+    if (existing) return { status: 'ready', reused: true, repositoryPath: existing.repositoryPath,
+      repositoryId, branch, baseCommit: existing.record.baseCommit, originalRepositoryPath: original, originalPreserved: true };
     // This is an explicit fresh-download action, not a fetch in the previous objects: even an
     // earlier successful checkout might have been offloaded since. Preserve every prior attempt.
     let retry = '';
@@ -72,8 +76,8 @@ export async function prepareWorkspaceBranch(workspace, repositoryId, branch, {
     const commit = observed.refs.get(`refs/heads/${branch}`);
     if (!commit) throw new SingularityFlowError(`Selected branch '${branch}' is not published.`, { code: 'STORY_BASE_INVALID' });
     // --no-local also prevents hardlink/alternate borrowing for local-path remotes in tests or offices.
-    await invoke(['clone', '--no-local', '--no-tags', '--single-branch', '--no-checkout',
-      '--no-recurse-submodules', '--branch', branch, '--', transport.remote, target]);
+    await measureCommandSpan('start.branch-download', () => invoke(['clone', '--no-local', '--no-tags', '--single-branch', '--no-checkout',
+      '--no-recurse-submodules', '--branch', branch, '--', transport.remote, target]));
     await invoke(['remote', 'set-url', 'origin', repository.url], target);
     const tip = (await invoke(['rev-parse', `refs/remotes/origin/${branch}^{commit}`], target)).stdout.trim();
     if (tip !== commit) throw new SingularityFlowError(

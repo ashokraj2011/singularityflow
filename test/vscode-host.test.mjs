@@ -3367,6 +3367,51 @@ test('intake catalog deadlines show retry, superseded reads cancel, and closing 
   assert.deepEqual(registered.errors, []);
 });
 
+test('automatic readiness selects the branch checkout and Start uses it without a recovery click', async (t) => {
+  if (!requireBundle(t)) return;
+  const { api, registered } = stubVscode();
+  loadExtension(api);
+  const { IntakePanel } = hostRequire(path.join(packageRoot, 'apps/vscode/dist/lazy-panels-runtime.cjs'));
+  const calls = [];
+  const fresh = path.resolve('/fixture/workspace/repos/main--branch/app');
+  const catalog = { choices: [{ branch: 'main', present: 1, total: 1, everywhere: true, missingFrom: [] }],
+    remote: 'origin', intake: { storyWorkflows: [{ id: 'feature', label: 'Feature', governs: 'story', phases: ['intake'] }] } };
+  let started = null;
+  const pinned = { repository: fresh, run: async (args) => {
+    calls.push({ repository: fresh, args });
+    return { id: 'AUTO-STORY', repositoryPath: path.join(fresh, 'story-worktree') };
+  } };
+  const client = {
+    repository: path.resolve('/fixture/workspace/repos/app'), prewarmRuntime: async () => {},
+    forkForRepository(repository) { assert.equal(repository, fresh); return pinned; },
+    async run(args, _signal, options) {
+      calls.push({ repository: this.repository, args });
+      assert.notEqual(args[1], 'prepare-branch', 'the readiness command itself owns automatic preparation');
+      if (!args.includes('--preflight-story')) return catalog;
+      options.onProgress('start.branch-checkout'); options.onProgress('start.branch-download'); options.onProgress('start.readiness');
+      return { ...catalog, preflight: { passed: true, readiness: { ready: true, warnings: [], blockers: [] } },
+        branchCheckout: { repositoryPath: fresh, branch: 'main', originalPreserved: true } };
+    }
+  };
+  const panel = IntakePanel.show(context(), client, api.window.createOutputChannel('Intake'), async result => { started = result; }, {
+    workspace: 'fixture', repository: client.repository, branch: 'main', inFlight: [], defaults: { source: 'manual' }
+  });
+  t.after(() => panel.dispose());
+  const view = registered.panels.find(entry => entry.id === 'singularityFlow.intake');
+  await until(() => view.webview.html.includes('data-work-type="feature"') ? true : null, { what: 'workflow choices' });
+  await view.post({ type: 'field', field: 'title', value: 'Automatic folder' });
+  await view.post({ type: 'field', field: 'description', value: 'No manual recovery step' });
+  await view.post({ type: 'field', field: 'id', value: 'AUTO-STORY' });
+  await view.post({ type: 'baseBranch', value: 'main' });
+  await until(() => /Story-start readiness confirmed/.test(view.webview.html) ? true : null, { what: 'automatic readiness' });
+  assert.equal(client.repository, path.resolve('/fixture/workspace/repos/app'));
+  await view.post({ type: 'start' });
+  assert.equal(started?.id, 'AUTO-STORY');
+  assert.ok(calls.some(call => call.repository === fresh && call.args[0] === 'start'));
+  assert.ok(!calls.some(call => call.repository === client.repository && call.args[0] === 'start'));
+  assert.deepEqual(registered.errors, []);
+});
+
 test('fresh branch recovery keeps the intake draft and routes readiness and Start through a pinned client', async (t) => {
   if (!requireBundle(t)) return;
   const { api, registered } = stubVscode();

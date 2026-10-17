@@ -17,32 +17,58 @@ already exist.
 | **Workflow** | work type, profile, template | `--work-type` selects which workflow applies. "Profile" means a named workflow in `singularity/workflow.yml`; "template" means an artifact template and is a different thing entirely — do not use it for a workflow. |
 | **Phase sequence** | rail, phase graph | "Rail" is the visual presentation of a phase sequence, not a separate concept. |
 | **Next step** | next action, what's next, continuation | The narration plane calls this `next`. One label: **Next**. |
+| **Flow Gate** | governance gate, phase gate, readiness gate | `gate` fields, gate IDs and refusal codes. In a sentence about one phase, plain "gate" is enough: "two gates are still open". |
+| **Flow Ledger** | capability ledger, governance ledger, state branch | The orphan `state` / `sflow/state` branch and the `ledger` command family. |
+| **Flow Policy** | governance policy, governance rules, rules | `singularity/workflow.yml`, `approvalAuthorities`, the `constitution` files and their keys. The **Constitution** keeps its name: it is the part of the Flow Policy people write as prose. |
+| **Approval group** | approval authority, authority group | The `approvalAuthorities` key and `--authority` style flags. The people in it give a **sign-off**; the button that records one says **Approve…**. |
+| **Agent** | governed agent | `.github/agents/*.agent.md` and the `agents` commands. Write **Flow agent** only where other Copilot agents appear beside it. |
+| **Land as a Story** | governed landing | `singularity-flow land` and the `adhoc` command family. |
+| **Ad hoc work** | ungoverned work, ad-hoc mode | The `adhoc` command family. The alternative is a **Story**, not a mode: the product already has Auto mode, model mode and Copilot mode. |
+| **Evidence**, **receipt** | governance evidence, governed evidence, delivery receipt | Directory and record names such as `generation-start/` and `submissions/`. No prefix: they are already unambiguous. |
+
+### "Flow" is a prefix for three things
+
+**Flow Gate**, **Flow Ledger** and **Flow Policy** name things the product owns that would otherwise
+read as generic Git, CI or configuration words. Nothing else takes the prefix: not the work itself
+(it is a Story or an Initiative, and starting one is **Start new work**), not people, and not a
+mode. "Flow state" is not a term.
+
+### "Governed" is retired from what people read
+
+Everything in Singularity Flow is governed, so the adjective tells the reader nothing. Say the
+thing instead: a workspace, a repository, a Story ID, a change, an agent. Where two things need
+telling apart, name both (**Ad hoc work** and a **Story**). The words survive in machine names:
+identifiers, flags, file and branch names, schema fields, skill names and refusal codes, where
+renaming would break repositories that already exist. Architecture documents may still use
+"governance" for the idea itself when that idea is the subject.
 
 ## Core concepts
 
 | Term | Meaning | Stored in | Authoritative for |
 |---|---|---|---|
-| Workspace | A machine-local directory and selection of governed capabilities/repositories | Global CLI registry and workspace manifest | Which local clones and repository are active |
+| Workspace | A machine-local directory and selection of capabilities/repositories | Global CLI registry and workspace manifest | Which local clones and repository are active |
 | Capability | A stable description of what the organisation builds; capabilities may group other capabilities or be delivered by repositories | Lead repository `singularity/capabilities.yml` | Organisational ownership, policy inheritance, repository/Jira routing |
 | Work item / Story | One repository-scoped delivery unit, normally identified by a Jira key or supplied Work ID | `singularity/work-items/<ID>/` on its lifecycle branch | Story phase, artifacts, events, approvals, and progress |
-| Initiative / Epic | A cross-repository planning and governance unit that may create many Stories | `singularity/initiatives/<ID>/` on its lifecycle branch | Epic outputs, evidence, Story breakdown, contracts, and aggregate progress |
-| Workflow | The ordered phase graph and policies applied to a work type | `singularity/workflow.yml`; resolved snapshot in active state | Phase order, templates, inputs, gates, checks, and approval requirements |
+| Initiative / Epic | A cross-repository planning unit that may create many Stories | `singularity/initiatives/<ID>/` on its lifecycle branch | Epic outputs, evidence, Story breakdown, contracts, and aggregate progress |
+| Workflow | The ordered phase graph and Flow Policy applied to a work type | `singularity/workflow.yml`; resolved snapshot in active state | Phase order, templates, inputs, Flow Gates, checks, and sign-off requirements |
 | Phase contract | The instructions and deterministic requirements for one workflow phase | Workflow definition, templates, and generated phase context | What the phase must read, produce, check, and submit |
 | Artifact template | The configurable Markdown structure for a generated deliverable | `singularity/templates/` | Required headings and managed output shape |
-| Governed agent | A software execution contract for Copilot: purpose, instructions, tools, and phases | `.github/agents/*.agent.md` | How Copilot approaches the active phase |
-| Human identity | The real contributor or approver | Git identity, GitHub login, and configured authority groups | Attribution and approval authority |
+| Agent (Flow agent) | A software execution contract for Copilot: purpose, instructions, tools, and phases | `.github/agents/*.agent.md` | How Copilot approaches the active phase |
+| Human identity | The real contributor or approver | Git identity, GitHub login, and configured approval groups | Attribution and who may sign off |
 | Skill | A user-invoked Copilot playbook such as `/sf-submit`; it calls deterministic CLI commands and explains what Copilot may author | Installed plugin/personal skill directory; optional repository skills | How a named Copilot interaction is carried out |
 | Prompt | A reusable Markdown instruction fragment | `singularity/prompts/` or repository configuration | Additional authoring rules supplied to composition |
 | Prompt pack | A named, ordered bundle of prompts/skills/templates for a particular way of working | Repository configuration or a trust-pinned remote Agent Markdown declaration | Which reusable instruction set is assembled together |
 | World model | The Repository brief: short, cited facts about the code a Story touches (rules, contracts, flows, what the change touches, risky places), read from the committed source with no build and no model | Composed into each phase prompt; `singularity-flow wm brief --phase PHASE` shows it | Repository facts used to ground impact, design, implementation, and verification; guidance, never a gate |
 | Phase input | An approved artifact from an earlier phase injected into a later phase | Phase definition and per-generation `context/inputs-*.json` | Traceable upstream decisions supplied to generation |
-| Approval authority | A configured group of real identities permitted to approve | `approvalAuthorities` in workflow/portfolio configuration | Whether an approval decision is valid |
-| Capability ledger | Optional append-only proof/mirror of high-value lifecycle events on an orphan `state` branch | Orphan Git branch | Audit proof and reconciliation, never active operational state |
+| Approval group | A configured group of real identities permitted to sign off | `approvalAuthorities` in workflow/portfolio configuration | Whether an approval decision is valid |
+| Flow Gate | A check a phase must pass before it moves on: a deterministic check (tests, evidence, coverage, publication) or a sign-off by an approval group | The workflow definition, evaluated by the engine at each transition | Whether a transition may happen |
+| Flow Policy | The rules a Story is held to: its workflow, Flow Gates, sign-off requirements and Constitution, as approved on the configuration branch and pinned when the Story starts | `singularity/workflow.yml`, `approvalAuthorities`, `constitution` on `sflow/config` | What a Story is judged against |
+| Flow Ledger | Optional append-only proof/mirror of high-value lifecycle events on an orphan `state` branch | Orphan Git branch | Audit proof and reconciliation, never active operational state |
 | Generation | One numbered attempt at a phase. Rejecting a phase and reworking it produces generation 2, and so on; artifacts, telemetry and review packets are all recorded per generation | `phases.<id>.generation` in the work item, and `-gen<N>` suffixes on stored records | Which attempt an artifact, approval or telemetry record belongs to |
 | Generation-start receipt | Immutable local proof of the source/tree and change-set boundary established before code authoring; it is not a lifecycle event | `singularity/work-items/<ID>/context/generation-start/` | Which exact authoring boundary a later artifact publication consumed |
 | Closed vocabulary | Immutable registry that owns finite first-party symbolic members such as lifecycle event types | `src/vocabularies/` and its generated manifest | Whether a producer may create authority using a symbolic member |
-| Publication | The atomic unit of a governed change: take the subject lock, run preflight, write state, commit, push, append to the ledger. Either all of it happens or none of it does | `src/publication-unit-of-work.mjs` | Whether a lifecycle transition actually took effect |
-| Configuration branch | The orphan `sflow/config` branch holding governed configuration, with no shared history with any code branch. A Story pins its hashes at start, so later edits stop it rather than silently change it | Orphan Git branch | What configuration a Story is judged against |
+| Publication | The atomic unit of a change: take the subject lock, run preflight, write state, commit, push, append to the Flow Ledger. Either all of it happens or none of it does | `src/publication-unit-of-work.mjs` | Whether a lifecycle transition actually took effect |
+| Configuration branch | The orphan `sflow/config` branch holding the approved configuration and Flow Policy, with no shared history with any code branch. A Story pins its hashes at start, so later edits stop it rather than silently change it | Orphan Git branch | What configuration a Story is judged against |
 | Grounding | The repository context a phase prompt carries: the Repository brief. It is guidance and never blocks; `worldModel.knowledge.prompt: off` leaves it out everywhere, and a work type's `intelligence.worldModel: off` for that work type | `worldModel.knowledge`, `intelligence.worldModel` | Whether repository facts are included |
 | Pinned resolution | The snapshot of configuration hashes a Story takes when it starts | `resolution` in the work item | Why an old Story is unaffected by today's configuration edit |
 | Review packet | The hashed record of exactly what a reviewer was shown when they approved | `singularity/work-items/<ID>/submissions/` | That an approval refers to specific bytes, not to a moving artifact |
@@ -53,7 +79,7 @@ When a phase runs, Singularity Flow composes context in this order:
 
 ```text
 phase contract and artifact template
-+ governed agent instructions
++ agent instructions
 + configured prompt pack fragments
 + the Repository brief for the phase
 + approved upstream phase inputs
@@ -97,8 +123,8 @@ A workspace is local convenience and selection state. The lifecycle branch owns
 shared operational state. Deleting the local workspace cannot erase the remote
 Story or Initiative history.
 
-### Capability map versus capability ledger
+### Capability map versus Flow Ledger
 
-The capability map describes ownership and relationships. The optional capability
-ledger records append-only proof events. Neither replaces Story or Initiative
+The capability map describes ownership and relationships. The optional Flow Ledger
+records append-only proof events. Neither replaces Story or Initiative
 state.

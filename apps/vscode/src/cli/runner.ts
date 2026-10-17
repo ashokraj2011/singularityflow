@@ -34,7 +34,7 @@ export const WORKSPACE_MUTATION_TIMEOUT_MS = 30 * 60_000;
 /** Starting governed work may fetch, materialize, commit, and publish several repositories. */
 export const WORK_START_TIMEOUT_MS = 15 * 60_000;
 /** Read-only intake readiness must finish or offer Retry, not inherit the creation budget. */
-export const STORY_READINESS_TIMEOUT_MS = 60_000;
+export const STORY_READINESS_TIMEOUT_MS = 5 * 60_000;
 /** Story enhancement may perform authority reads before its separately bounded model invocation. */
 export const STORY_DESCRIPTION_ENHANCEMENT_TIMEOUT_MS = 5 * 60_000;
 /** Submission may run repository-native compile and browser suites; keep it above the seeded POC budget. */

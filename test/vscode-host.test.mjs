@@ -3390,7 +3390,7 @@ test('readiness deadlines stop checking, preserve intake, offer Retry, and cance
   const realSetTimeout = globalThis.setTimeout;
   let accelerateDeadline = true;
   t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => realSetTimeout(callback,
-    accelerateDeadline && delay === 60_000 && String(callback).includes('Story-start readiness timed out')
+    accelerateDeadline && delay === 5 * 60_000 && String(callback).includes('Story-start readiness timed out')
       ? 1 : delay, ...args));
   const panel = IntakePanel.show(context(), client, api.window.createOutputChannel('Intake'), async () => {}, {
     workspace: null, repository: client.repository, branch: 'main', inFlight: [], defaults: { source: 'manual' }
@@ -3405,7 +3405,7 @@ test('readiness deadlines stop checking, preserve intake, offer Retry, and cance
   await until(() => /<button[^>]*data-readiness-retry/.test(view.webview.html) ? true : null,
     { what: 'the readiness deadline to show Retry' });
   assert.equal(requests[0].signal.aborted, true, 'the actual CLI read is cancelled');
-  assert.match(view.webview.html, /Story-start readiness timed out after 60 seconds/);
+  assert.match(view.webview.html, /Story-start readiness timed out after 5 minutes/);
   assert.match(view.webview.html, /Keep this draft/);
   assert.match(view.webview.html, /STORY-DEADLINE/);
   assert.match(view.webview.html, /data-base-branch="main" checked/);

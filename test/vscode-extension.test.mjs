@@ -1793,7 +1793,7 @@ test('large remote operations and lifecycle submissions get operation-appropriat
   assert.equal(timeouts[9], 30 * 60_000);
   assert.equal(timeouts[10], 15 * 60_000);
   assert.equal(timeouts[11], 15 * 60_000);
-  assert.equal(timeouts[12], 60_000, 'read-only Story readiness is bounded independently of Story creation');
+  assert.equal(timeouts[12], 5 * 60_000, 'office Story readiness gets five minutes independently of Story creation');
   assert.equal(timeouts[13], 30 * 60_000);
   assert.equal(timeouts[14], 120_000);
   assert.equal(timeouts.length, 15,

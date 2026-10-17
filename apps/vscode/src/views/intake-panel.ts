@@ -1247,7 +1247,7 @@ export class IntakePanel {
     this.preflightKey = JSON.stringify(command);
     this.update({ ...emptyStoryPreflight(), basePreflightChecking: true }, { background: true });
     const deadline = setTimeout(() => controller.abort(new Error(
-      'Story-start readiness timed out after 60 seconds. Your draft and selections are preserved. '
+      `Story-start readiness timed out after ${STORY_READINESS_TIMEOUT_MS / 60_000} minutes. Your draft and selections are preserved. `
       + 'Check that repository files are available locally (not cloud-only), Git credentials, and remote access, then retry readiness. '
       + 'A timeout does not establish a DNS or network failure.'
     )), STORY_READINESS_TIMEOUT_MS);

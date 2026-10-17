@@ -281,42 +281,137 @@ flushed. In particular, the first baseline status sample creates persistent fact
 which later candidate samples can reuse, so its apparent cold gain is not strong
 evidence of a startup improvement.
 
-Windows full-output first-request medians, in milliseconds:
+Retrospective qualification limitation: that harness rebuilt both sources using the candidate
+partitioner. Its historical timing/closure comparisons are therefore superseded, not a qualified
+before/after package comparison. The data remains retained for audit; use the revision-owned
+builder qualification in the next section instead. Functional regression results are unaffected.
 
-| Command | Cold before → after | Prewarmed before → after |
-| --- | ---: | ---: |
-| Workflow list | 871 → 757 (13% faster) | 728 → 601 (17% faster) |
-| Agents list | 605 → 462 (24% faster) | 455 → 311 (32% faster) |
-| Next steps | 824 → 792 | 614 → 600 |
-| Phase documents | 760 → 756 | 565 → 559 |
-| Inputs preview | 832 → 806 | 621 → 631 |
-| Status | 215 → 199 | 158 → 159 |
-| Report | 474 → 477 | 334 → 330 |
-
-Bounded-output workflow/agent listings show similar Windows gains: 13%/24% cold
-and 17%/31% prewarmed. Most other Windows commands are approximately flat, including
-skill/instruction listings; the record retains every slowdown. Mac listings also
-improve, but other Mac commands have mixed results, including regressions. This is
-not a claim of universal command, whole-Story or native Copilot tool/token savings.
-Hosted Windows uses a short disposable TEMP and invokes Node directly: office-laptop
-antivirus, PowerShell/.cmd startup and actual Copilot hooks are not qualified here.
-
-The installed static status closure decreases from 1,636,828 to 1,373,296 bytes;
-document reads decrease from 9,252,100 to 7,121,613 bytes. Deployment remains 20 files.
-These byte reductions do not translate directly into proportional latency gains.
-Listing/accounting no longer checks 57 phase templates merely to display a catalog.
-Governed lifecycle reads still admit full policy: the Windows cold next-step profile
-includes roughly 176–180 ms of handler-module loading and 405–416 ms of execution,
-with about 42–47 ms of agent discovery and 77–82 ms of Git service work. Workflow
-listing still spends about 114–120 ms preparing accounting, 181–190 ms producing
-metadata and 116–136 ms looking up pending proposals. Spans are nested. YAML parsing
-is only about 3–6 ms, and full next-step/list post-handler output serialization and emission are
-each below 1 ms in these samples; neither explains the remaining latency. Status's
-first output renderer import costs about 20 ms and is now visible separately.
+Historical latency and closure comparisons are not repeated here because of that packaging
+limitation. Listing/accounting still avoids checking phase templates merely to display metadata;
+that behavior is covered by regression tests, independently of the excluded timing comparison.
 
 Native Windows regressions: 81 passed, zero failed, one platform-specific unsafe
 cache-ancestor symlink test skipped; scripted lifecycle/output: 16 passed. VS Code
 typechecking and unchanged installed bundle budgets passed. Local checks also passed.
+
+### Narrow recorded-state reads and prepared workers
+
+Progress and report summaries now share a recorded-state reader instead of loading an accepted
+execution catalog merely to display recorded progress or usage. The reader uses the same subject
+index/schema migration and the same extracted in-memory Story hydration as the lifecycle owner.
+It clones request-local values. Reporting reads only its live pricing preferences and uses the
+same token preference validator as strict configuration loading. Neither value proves the current
+execution closure is intact or authorizes a transition. Missing live templates may no longer
+prevent an informational progress display; phase entry, review, publication, submission and
+approval continue through their existing execution/admission owners. Next steps, phase review and
+input readiness do not substitute a state-only summary for those decisions.
+
+Skill and instruction argv validation lives in pure request modules. Existing command exports
+delegate to the same contracts, and early CLI validation no longer loads the command service.
+The ordinary state-read bundle also owns progress/report, their observation preferences and the
+private read service. It retains the existing 1.5 MiB static closure ceiling, unrelated-domain
+exclusions and 20-file installed deployment ceiling. Three source-graph slots account for extracted
+token/session/state-hydration helpers; installed byte/module ceilings are not increased.
+
+Local approved-configuration selection captures ref names, exact object IDs and object types in
+one bounded namespace listing. Each candidate's commit, workflow, portfolio and optional state
+manifest are read in a bounded object batch, with object hashes checked before use. Parsed asset
+policy is reused only for that exact authority object. Lower-priority candidate bytes are not
+opened after a higher-priority authority succeeds. Authority order, state-mirror digest checks,
+remote ownership and full extraction/containment checks remain in place. Read failures are not
+converted into a successful lower-priority authority selection.
+
+VS Code schedules private read-worker preparation after activation yields, ahead of a menu click,
+when warm reads are enabled. Only owned definitions are prepared: no Story/configuration read,
+handler, provider, test, readiness witness or approval is executed. Progress and JSON report reads
+join the worker's closed model-free vocabulary; author/reviewer packets and mutations remain
+excluded. Build/environment binding, bounded lifetime/queue, fresh request scopes, cache resets,
+cancellation and one authoritative CLI fallback remain enforced. Preparation is cancelled on
+client invalidation/disposal. Lightweight requests do not eagerly load the full reset/authority
+domains; after a full-policy request has loaded them, every subsequent request still clears them.
+
+VS Code bundles also use syntax compression while preserving identifiers and source maps. The
+unchanged bundle budgets enforce the resulting deployed sizes; this build-size change alone is
+not a measurement of actual VS Code activation latency.
+
+Additional nested spans cover Story bootstrap/aggregate/execution-catalog loading, phase review,
+next-step draft evidence/publication lookup/prerequisites and catalog authority refs/objects.
+Do not sum nested spans or attribute unassigned process wall time entirely to Node startup.
+
+Qualification distinguishes a legacy Story from an actual pinned Story. The pinned fixture
+captures its policy, template and custom-agent bytes in its first commit and independently loads
+the accepted execution catalog before measurement. Catalog tests use full seeded configuration
+on a local approved branch. Both output modes pair cold/private-bytecode-cache and prewarmed
+requests against the same baseline. Private-worker qualification separately records first-worker,
+prepared-first-request and repeat latency, including the preparation cost outside request timing;
+an older build without the preparation API is identified as bytecode-only, not an already running
+worker. The harness checks canonical before/after result parity (excluding report read-time clocks).
+These are native-process Windows tests, not native Copilot conversations or office-laptop
+PowerShell, antivirus and hook qualification. Local Mac smoke timings under concurrent activity
+are diagnostic only and are not used as evidence of performance gains.
+
+Each revision must be built by its own selected package's builder/partitioner, not by a shared
+candidate builder. Raw reports retain both partitioner digests and the summary verifies them
+against the exact Git revisions. The initial run `39011285299` failed this methodology check and
+is excluded from the performance record; it must not be used as evidence of gains.
+
+The corrected [qualification record](../benchmarks/utility-entry/narrow-recorded-reads.json)
+uses baseline `c9062f33`, runtime `d98ae9ca`, test/harness `264fa0be`, and native Windows
+run `39012031992`.
+All seven jobs passed. The two regression groups total 117 passed, zero failed and one existing
+Windows symlink-test skip; scripted lifecycle, typechecking and unchanged bundle budgets passed.
+The report retains every first/repeat sample, nested timing, slowdown and raw-artifact hash.
+
+Full-JSON CLI first-request medians, milliseconds (three samples per cell):
+
+| Story | Command | Cold before → after | Prewarmed before → after |
+| --- | --- | ---: | ---: |
+| Legacy | Progress | 370 → 171 | 258 → 133 |
+| Legacy | Report | 366 → 174 | 258 → 134 |
+| Pinned | Progress | 618 → 174 | 546 → 139 |
+| Pinned | Report | 564 → 172 | 447 → 133 |
+| Legacy | Next steps | 621 → 619 | 471 → 460 |
+| Pinned | Next steps | 855 → 789 | 664 → 653 |
+| Legacy | Phase documents | 578 → 576 | 428 → 428 |
+| Pinned | Phase documents | 758 → 829 | 597 → 594 |
+
+Progress/report improve 48–75% in this full-output comparison; bounded-output pairs improve
+47–70%. Next steps, phase review, inputs preview and most catalog reads remain broadly flat,
+including the pinned cold phase-review slowdown above. The catalog's batched object selection
+does not remove all independent policy/asset scans. These are not universal command gains.
+
+Private-worker first-request medians, milliseconds, measured separately with persistent Git
+facts disabled:
+
+| Story | Read | Unprepared before → after | Prepared before → after | Candidate repeat median |
+| --- | --- | ---: | ---: | ---: |
+| Legacy | Status | 424 → 155 | 236 → 19 | 10 |
+| Legacy | Progress | 588 → 153 | 438 → 18 | 10 |
+| Legacy | Report | 584 → 161 | 435 → 25 | 11 |
+| Pinned | Status | 452 → 174 | 262 → 31 | 22 |
+| Pinned | Progress | 1,152 → 274 | 968 → 30 | 20 |
+| Pinned | Report | 1,229 → 171 | 1,144 → 43 | 26 |
+
+The old worker did not support progress/report, so its transport is an explicit CLI fallback;
+the record distinguishes that from a worker request. Both versions get bytecode preparation in
+the prepared comparison, while only the candidate supports definition preparation. Candidate
+definition preparation for these reads costs 100–292 ms outside the visible request, in addition
+to separately retained bytecode warmup. It moves work earlier; it is not eliminated work. Full
+next-step execution remains heavy: candidate prepared first requests are 383 ms legacy / 922 ms
+pinned, with repeat medians 169 / 586 ms. Worker gains do not apply to arbitrary Copilot shell
+commands, mutations or model/tool-host time.
+
+Installed static closures remain within their unchanged ceilings: core 1,336,698 → 1,344,136
+bytes; status/record reads 1,373,296 → 1,486,049 bytes; full lifecycle reads 7,121,613 →
+7,129,155 bytes; 20 files in both deployments. The narrow read improvement comes from avoiding
+unneeded execution-catalog work, not a claim that every closure shrank. Candidate cold CLI
+progress spends about 15–20 ms in its handler; next steps still spend 322–516 ms, including a
+244 ms accepted-catalog span for the pinned Story. Handler-module loading is 123–137 ms for
+next steps versus less than 1 ms for progress. Root dispatch is about 84–99 ms and a further
+57–70 ms of process wall time remains unassigned in these samples. Workflow listing retains
+80–86 ms accounting, 119–135 ms metadata and 95–97 ms pending-proposal spans. These nested
+medians must not be summed. The next optimization should target those measured owners rather
+than weaken execution policy or attribute all remaining time to YAML/output rendering.
 
 ### Story operations
 

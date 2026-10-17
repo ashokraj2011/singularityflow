@@ -1,6 +1,9 @@
 {
   "schemaVersion": 1,
   "resultType": "light-read-projections-qualification",
+  "comparisonStatus": "superseded-baseline-repacked",
+  "comparisonLimitation": "Both source revisions were assembled with the candidate partitioner. Historical timing and closure differences are not a qualified before/after installed-package comparison. Functional regression results remain valid.",
+  "replacementQualification": "benchmarks/utility-entry/narrow-recorded-reads.json",
   "date": "2026-10-17",
   "baselineCommit": "c9e1d7beca62dd1f8a3d4c513dd824cebb50f75f",
   "runtimeCommit": "3629dbdad948046d828108340422d7e90dfb440a",

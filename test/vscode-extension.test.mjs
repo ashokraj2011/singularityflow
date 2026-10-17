@@ -255,11 +255,11 @@ test('VS Code POSIX Git resolution ignores relative PATH and checkout-local shim
   };
   assert.equal(await resolvePosixGitExecutable('/work/repo', {
     PATH: '.:/work/repo:/trusted/bin'
-  }, filesystem), '/trusted/bin/git');
+  }, filesystem, 'linux'), '/trusted/bin/git');
   assert.deepEqual(examined, ['/trusted/bin/git']);
   assert.equal(await resolvePosixGitExecutable('/work/repo', {
     PATH: '.:/work/repo'
-  }, filesystem), null);
+  }, filesystem, 'linux'), null);
   const nonExecutable = {
     ...filesystem,
     async stat(candidate) {
@@ -268,7 +268,7 @@ test('VS Code POSIX Git resolution ignores relative PATH and checkout-local shim
   };
   assert.equal(await resolvePosixGitExecutable('/work/repo', {
     PATH: '/blocked:/trusted/bin'
-  }, nonExecutable), '/trusted/bin/git');
+  }, nonExecutable, 'linux'), '/trusted/bin/git');
 });
 
 test('VS Code POSIX Git resolution accepts trusted Git when the extension cwd is filesystem root', async () => {
@@ -284,13 +284,13 @@ test('VS Code POSIX Git resolution accepts trusted Git when the extension cwd is
 
   assert.equal(await resolvePosixGitExecutable('/', {
     PATH: '.:/opt/homebrew/bin:/usr/bin'
-  }, filesystem), '/opt/homebrew/bin/git');
+  }, filesystem, 'linux'), '/opt/homebrew/bin/git');
   assert.deepEqual(examined, ['/HEAD', '/objects', '/refs', '/config', '/opt/homebrew/bin/git']);
 
   // The root exception must not weaken the checkout-local shadow exclusion.
   assert.equal(await resolvePosixGitExecutable('/work/repo', {
     PATH: '/work/repo'
-  }, filesystem), null);
+  }, filesystem, 'linux'), null);
 
   const rootCheckout = {
     async stat(candidate) {
@@ -302,7 +302,7 @@ test('VS Code POSIX Git resolution accepts trusted Git when the extension cwd is
   };
   assert.equal(await resolvePosixGitExecutable('/', {
     PATH: '/tools'
-  }, rootCheckout), null, 'a checkout mounted at filesystem root cannot supply Git');
+  }, rootCheckout, 'linux'), null, 'a checkout mounted at filesystem root cannot supply Git');
 
   const bareRootEntries = new Map([
     ['/HEAD', { isFile: () => true, isDirectory: () => false, mode: 0o644 }],
@@ -320,7 +320,7 @@ test('VS Code POSIX Git resolution accepts trusted Git when the extension cwd is
   };
   assert.equal(await resolvePosixGitExecutable('/', {
     PATH: '/tools'
-  }, rootBareRepository), null,
+  }, rootBareRepository, 'linux'), null,
   'a bare repository mounted at filesystem root cannot supply Git');
 });
 
@@ -1700,15 +1700,15 @@ test('a folder that is not a Git repository at all is refused', async () => {
 });
 
 test('CLI resolution prefers the setting, then the bundled CLI, and says which it used', () => {
-  const exists = (candidate) => candidate.endsWith('bin/singularity-flow.mjs');
+  const exists = (candidate) => candidate.endsWith(path.join('bin', 'singularity-flow.mjs'));
 
   const configured = resolveCli({ configuredCli: '/custom/bin/singularity-flow.mjs', exists });
   assert.equal(configured.source, 'setting');
-  assert.equal(configured.cli, '/custom/bin/singularity-flow.mjs');
+  assert.equal(configured.cli, path.resolve('/custom/bin/singularity-flow.mjs'));
 
   const bundled = resolveCli({ extensionPath: '/ext', exists });
   assert.equal(bundled.source, 'bundled');
-  assert.equal(bundled.cli, '/ext/cli/bin/singularity-flow.mjs');
+  assert.equal(bundled.cli, path.join('/ext', 'cli', 'bin', 'singularity-flow.mjs'));
 });
 
 test('a configured CLI that does not exist fails at resolution, not at first use', () => {

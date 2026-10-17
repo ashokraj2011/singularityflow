@@ -564,6 +564,7 @@ export async function resolvePosixGitExecutable(
   },
   platform: string = process.platform
 ): Promise<string | null> {
+  const lexical = path.posix; // This resolver's injected filesystem may run on a Windows test host.
   const pathValue = environmentValue(environment, 'PATH');
   if (!pathValue) return null;
   let canonicalCwd: string;
@@ -576,36 +577,36 @@ export async function resolvePosixGitExecutable(
   // a `.git` marker it is a real checkout and remains an exclusion boundary. Bare repositories
   // have no `.git` entry, so the complete HEAD/object/refs/config layout is checked as well.
   let rootHasCheckoutMarker = false;
-  if (canonicalCwd === path.parse(canonicalCwd).root) {
+  if (canonicalCwd === lexical.parse(canonicalCwd).root) {
     try {
-      await filesystem.stat(path.join(canonicalCwd, '.git'));
+      await filesystem.stat(lexical.join(canonicalCwd, '.git'));
       rootHasCheckoutMarker = true;
     } catch { /* A host root without `.git` is not a repository boundary. */ }
     if (!rootHasCheckoutMarker) {
       try {
         const [head, objects, refs, config] = await Promise.all([
-          filesystem.stat(path.join(canonicalCwd, 'HEAD')),
-          filesystem.stat(path.join(canonicalCwd, 'objects')),
-          filesystem.stat(path.join(canonicalCwd, 'refs')),
-          filesystem.stat(path.join(canonicalCwd, 'config'))
+          filesystem.stat(lexical.join(canonicalCwd, 'HEAD')),
+          filesystem.stat(lexical.join(canonicalCwd, 'objects')),
+          filesystem.stat(lexical.join(canonicalCwd, 'refs')),
+          filesystem.stat(lexical.join(canonicalCwd, 'config'))
         ]);
         rootHasCheckoutMarker = head.isFile() && objects.isDirectory() && refs.isDirectory()
           && config.isFile();
       } catch { /* A host root without the complete bare layout is not a repository boundary. */ }
     }
   }
-  const checkoutBoundary = canonicalCwd !== path.parse(canonicalCwd).root || rootHasCheckoutMarker
+  const checkoutBoundary = canonicalCwd !== lexical.parse(canonicalCwd).root || rootHasCheckoutMarker
     ? canonicalCwd : null;
   let appleGit: string | null = null;
   for (const directory of gitHostSearchDirectories(environment, platform)) {
-    if (!path.isAbsolute(directory)) continue;
-    const candidate = path.join(directory, 'git');
+    if (!lexical.isAbsolute(directory)) continue;
+    const candidate = lexical.join(directory, 'git');
     try {
       const canonical = await filesystem.canonicalize(candidate);
-      const relative = checkoutBoundary == null ? null : path.relative(checkoutBoundary, canonical);
-      if (!path.isAbsolute(canonical) || relative === ''
-        || (relative != null && relative !== '..' && !relative.startsWith(`..${path.sep}`)
-          && !path.isAbsolute(relative))) continue;
+      const relative = checkoutBoundary == null ? null : lexical.relative(checkoutBoundary, canonical);
+      if (!lexical.isAbsolute(canonical) || relative === ''
+        || (relative != null && relative !== '..' && !relative.startsWith(`..${lexical.sep}`)
+          && !lexical.isAbsolute(relative))) continue;
       const info = await filesystem.stat(canonical);
       if (info.isFile() && (info.mode & 0o111) !== 0) {
         if (platform === 'darwin' && isAppleDeveloperGit(canonical)) {

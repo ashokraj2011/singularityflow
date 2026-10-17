@@ -63,7 +63,7 @@ test('initiative CLI starts, prepares, publishes, records evidence, approves, an
 
   const prepared = execute(root, ['initiative', 'phase', 'define']);
   assert.match(prepared.stdout, /Prepared 3 define documents/);
-  assert.match(prepared.stdout, /Governed Copilot prompt:/);
+  assert.match(prepared.stdout, /Copilot prompt:/);
   const context = execute(root, ['initiative', 'context', 'define']);
   assert.match(context.stdout, /Governed Copilot prompt — INIT-CLI\/define generation 1/);
   assert.match(context.stdout, /Selected governed agent: Product owner \(product-owner\)/);
@@ -214,7 +214,7 @@ test('initiative resume materializes an Initiative that exists only on a remote 
   );
 
   const resumed = execute(clone, ['initiative', 'resume', 'INIT-REMOTE', '--fetch']);
-  assert.match(resumed.stdout, /Resumed INIT-REMOTE at define with governed agent product-owner/);
+  assert.match(resumed.stdout, /Resumed INIT-REMOTE at define with agent product-owner/);
   assert.equal(git(clone, ['branch', '--show-current']), 'INIT-REMOTE');
   assert.equal(
     git(clone, ['rev-parse', 'HEAD']),

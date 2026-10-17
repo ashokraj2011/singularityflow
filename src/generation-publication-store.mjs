@@ -99,7 +99,7 @@ function authenticateStoredPublication(root, commit, record, {
 } = {}) {
   const identity = commitIdentity(root, commit);
   if (!identity?.transactionId || !identity.eventSha256) {
-    return { valid: false, reason: 'governed transaction trailers are missing' };
+    return { valid: false, reason: 'transaction trailers are missing' };
   }
   const { recordSha256: claimed, ...core } = record ?? {};
   if (claimed !== sha256Record(core)) {
@@ -232,7 +232,7 @@ function verifyCommittedEvidence(root, commit, {
     } else {
       identity = commitIdentity(root, commit);
       if (!identity?.transactionId || !identity.eventSha256) {
-        return { valid: false, reason: 'governed transaction trailers are missing' };
+        return { valid: false, reason: 'transaction trailers are missing' };
       }
     }
     const evidencePath = recordPath ?? generationPublicationRelative({
@@ -440,7 +440,7 @@ export function publishedGenerationCommit(root, workflow, phase, number = phase.
       throw new SingularityFlowError(
         valid.length > 1
           ? `Generation ${generation} has multiple valid publication records.`
-          : `Generation ${generation} publication record does not verify against its governed commit.`,
+          : `Generation ${generation} publication record does not verify against its commit.`,
         {
           code: valid.length > 1 ? 'GENERATION_PUBLICATION_AMBIGUOUS' : 'GENERATION_PUBLICATION_INVALID',
           details: { workId, phase: phase.id, generation, recordPath, candidates: checked }

@@ -49,7 +49,7 @@ const PREFIXES = Object.freeze([
 
 const COMPATIBILITY_MESSAGES = Object.freeze([
   [/missing singularity\/workflow\.yml/i, 'installation-and-upgrades'],
-  [/interrupted before (?:its )?governed commit completed/i, 'recovery'],
+  [/interrupted before (?:its )?(?:governed )?commit completed/i, 'recovery'],
   [/adoption confirmation must equal the current change-set digest/i, 'recovery'],
   [/generation (?:is )?not publishable|generation intent .* consumed/i, 'artifacts-and-generation'],
   [/is not a member of:|authorized reviewer/i, 'approvals'],

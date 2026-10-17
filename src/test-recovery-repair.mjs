@@ -67,7 +67,7 @@ export function assertTrpFeatureAdmission(workflow, phase, {
   if (!currentPhase) fail('Resolve the current phase before feature admission.', 'TRP_READINESS_PHASE_INVALID');
   if (!phaseRequiresCodeDelivery(currentPhase)) return { enabled: true, featureCodingAllowed: true, applicable: false };
   if (!agreement || agreement.recordSha256 !== pin.agreementSha256) {
-    fail('Load the exact governed Test and Recovery Agreement before feature admission.', 'TRP_AGREEMENT_REQUIRED');
+    fail('Load the exact Test and Recovery Agreement before feature admission.', 'TRP_AGREEMENT_REQUIRED');
   }
   const required = requiredAgreementRepositories(agreement);
   const workId = workflow.workItem?.id ?? workflow.workId ?? workflow.id;

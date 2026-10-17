@@ -152,7 +152,7 @@ export class DraftUnitOfWork {
           }, { transactionId: journal.transactionId });
           throw new SingularityFlowError(
             `${subject.kind} '${subject.id}' failed during ${operation}, and HEAD advanced from `
-            + `${expectedHead} to ${observedHead} without an exact verifiable nested governed publication. `
+            + `${expectedHead} to ${observedHead} without an exact verifiable nested publication. `
             + 'Automatic rollback and publication were both refused. '
             + `${retained ? 'The durable draft journal was retained.' : 'The draft journal could not be replaced safely.'} `
             + 'Run the appropriate doctor command and inspect the recorded recovery evidence.',

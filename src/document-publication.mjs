@@ -20,19 +20,19 @@ function refusal(message, code, details = undefined) {
 
 function canonicalDocumentRecords(records) {
   if (!Array.isArray(records) || !records.length) {
-    refusal('A governed document set must contain at least one document record.', 'DOCUMENT_SET_INVALID');
+    refusal('A document set must contain at least one document record.', 'DOCUMENT_SET_INVALID');
   }
   const identities = records.map((record) => {
     if (!record || typeof record !== 'object' || Array.isArray(record)
         || typeof record.id !== 'string' || !record.id.trim()
         || record.id !== record.id.trim()) {
-      refusal('A governed document set contains an invalid document record.', 'DOCUMENT_SET_INVALID');
+      refusal('A document set contains an invalid document record.', 'DOCUMENT_SET_INVALID');
     }
     return structuredClone(record);
   });
   const ids = identities.map((record) => record.id);
   if (new Set(ids).size !== ids.length) {
-    refusal('A governed document set contains duplicate document IDs.', 'DOCUMENT_SET_INVALID');
+    refusal('A document set contains duplicate document IDs.', 'DOCUMENT_SET_INVALID');
   }
   // Persisted digests must not depend on a laptop's locale or ICU build.
   return identities.sort((left, right) => Buffer.compare(
@@ -63,7 +63,7 @@ export function documentSetLifecycleBinding(records) {
   };
 }
 
-function governedTreePath(value, { label = 'Governed document path' } = {}) {
+function governedTreePath(value, { label = 'Document path' } = {}) {
   const candidate = String(value ?? '');
   if (!candidate || candidate.includes('\0') || candidate.includes('\\')
       || /[\u0000-\u001f\u007f]/u.test(candidate) || path.posix.isAbsolute(candidate)
@@ -121,7 +121,7 @@ function treeEntries(root, tree, requestedPaths, { forbiddenPrefixes = [] } = {}
   }
   for (const item of requested) {
     if (!entries.has(item)) {
-      refusal(`Prospective Git tree is missing governed document path '${item}'.`, 'DOCUMENT_SET_TREE_MISMATCH');
+      refusal(`Prospective Git tree is missing document path '${item}'.`, 'DOCUMENT_SET_TREE_MISMATCH');
     }
   }
   entries.forbidden = forbidden;
@@ -137,7 +137,7 @@ function readTreeFiles(root, tree, requestedPaths, {
   for (const [item, entry] of entries) {
     if (!['100644', '100755'].includes(entry.mode) || entry.type !== 'blob') {
       refusal(
-        `Prospective Git tree path '${item}' is not a regular governed file.`,
+        `Prospective Git tree path '${item}' is not a regular file.`,
         'DOCUMENT_SET_TREE_MISMATCH'
       );
     }
@@ -182,7 +182,7 @@ export function validateDocumentPublicationTree(root, config, workflow, event, {
 
   const itemRoot = posix(path.join(config.workItemRoot ?? 'singularity/work-items', workflow.workItem.id));
   const manifestPath = governedTreePath(path.posix.join(itemRoot, 'documents.json'), {
-    label: 'Governed document manifest path'
+    label: 'Document manifest path'
   });
   const manifestBytes = readTreeFiles(root, prospectiveTree, [manifestPath], {
     maximumBytes: MAX_MANIFEST_BYTES,
@@ -246,11 +246,11 @@ export function validateDocumentPublicationTree(root, config, workflow, event, {
     }
     const recordPath = governedTreePath(record.path, { label: `Document '${record.id}' path` });
     if (!recordPath.startsWith(`${itemRoot}/inputs/`)) {
-      refusal(`Document '${record.id}' is outside the governed Story input directory.`, 'DOCUMENT_SET_PATH_INVALID');
+      refusal(`Document '${record.id}' is outside the Story input directory.`, 'DOCUMENT_SET_PATH_INVALID');
     }
     totalBytes += record.size;
     if (!Number.isSafeInteger(totalBytes) || totalBytes > MAX_DOCUMENT_SET_BYTES) {
-      refusal('Governed document set exceeds its publication verification byte limit.', 'DOCUMENT_SET_RESOURCE_LIMIT');
+      refusal('Document set exceeds its publication verification byte limit.', 'DOCUMENT_SET_RESOURCE_LIMIT');
     }
     files.push({ record, path: recordPath });
   }
@@ -264,14 +264,14 @@ export function validateDocumentPublicationTree(root, config, workflow, event, {
     const blobs = readTreeFiles(root, prospectiveTree, files.map((item) => item.path), {
       maximumBytes: MAX_DOCUMENT_SET_BYTES,
       maximumObjectBytes: MAX_DOCUMENT_SET_BYTES,
-      label: 'Prospective governed document set'
+      label: 'Prospective document set'
     });
     for (const item of files) {
       const bytes = blobs.get(item.path);
       const observedSha256 = createHash('sha256').update(bytes).digest('hex');
       if (bytes.length !== item.record.size || observedSha256 !== item.record.sha256) {
         refusal(
-          `Governed document '${item.record.id}' changed after its manifest record was finalized.`,
+          `Document '${item.record.id}' changed after its manifest record was finalized.`,
           'DOCUMENT_SET_BLOB_MISMATCH',
           {
             documentId: item.record.id,

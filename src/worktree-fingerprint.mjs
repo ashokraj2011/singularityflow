@@ -298,7 +298,7 @@ export function worktreeFingerprint(root, {
  * delivery, and source-tree receipt records the old indexed blob.  Legitimately absent sparse
  * entries are not returned by `worktreeFingerprint` and therefore remain supported.
  */
-export function assertNoHiddenWorktreeChanges(root, operation = 'Governed source inspection') {
+export function assertNoHiddenWorktreeChanges(root, operation = 'Source inspection') {
   const hiddenChanges = hiddenWorktreeChangePaths(root);
   if (!hiddenChanges.length) return Object.freeze({ hiddenChanges: Object.freeze([]) });
   throw new SingularityFlowError(

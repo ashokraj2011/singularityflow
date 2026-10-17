@@ -77,7 +77,7 @@ function assertSequenceFailure(result, ...patterns) {
     assert.match(result.stderr, /\bNext:\s+NOW\s+\S/, 'a ranked next action is offered');
     assert.match(result.stderr, /\bNext:\s[\s\S]*?\bShell: singularity-flow \S/, 'the next action has a runnable shell command');
     assert.match(result.stderr, /\bNext:\s[\s\S]*?\bCopilot: \/sf-\S/, 'the next action has a runnable Copilot command');
-    assert.match(result.stderr, /No governed state, files, publications or external systems were changed\./);
+    assert.match(result.stderr, /No lifecycle state, files, publications or external systems were changed\./);
   } else {
     assert.match(result.stderr, /Required next action:/);
     // Soft warnings still use the legacy guidance prose, which ranks its actions — "Run next",
@@ -280,7 +280,7 @@ test('an accepted workflow snapshot is not reinterpreted through later workspace
   const validation = flow(root, ['validate']);
   assert.equal(validation.status, 0, validation.stderr);
   assert.doesNotMatch(validation.stderr,
-    /Session governed-agent policy differs from the immutable configuration snapshot/);
+    /Session agent policy differs from the immutable configuration snapshot/);
 });
 
 test('submitted work blocks generation mutations and rejection requires regeneration', async () => {

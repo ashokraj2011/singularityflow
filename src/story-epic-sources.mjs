@@ -141,7 +141,7 @@ export async function readStoryEpicSource(root, epic, source, { maxBytes, runtim
   let bytes;
   if (record.provider === 'git' && record.providerType === 'git-managed-markdown') {
     if (typeof record.objectId !== 'string' || !record.objectId.startsWith(`${epic.directory}/sources/text/`) || record.objectId.split('/').includes('..')) {
-      throw new SingularityFlowError(`${label} points outside the Epic's governed text.`, { code: 'DOCUMENT_EPIC_SOURCE_UNVERIFIED' });
+      throw new SingularityFlowError(`${label} points outside the Epic's text.`, { code: 'DOCUMENT_EPIC_SOURCE_UNVERIFIED' });
     }
     bytes = exactFileAtObject(root, epic.commit, record.objectId, { maximumBytes: source.bytes + 1 });
   } else if (record.providerType === 'local') {

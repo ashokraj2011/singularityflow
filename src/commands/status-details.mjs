@@ -20,7 +20,7 @@ function summary(workflow) {
   console.log(`Status: ${storyStatusLabel(workflow.status)}`);
   console.log(`Current phase: ${active ? `${active.id} (${active.status})` : noCurrentPhaseLabel(workflow.status)}`);
   if (active) {
-    console.log(`Governed agent: ${active.defaultAgent ?? 'unassigned'}`);
+    console.log(`Agent: ${active.defaultAgent ?? 'unassigned'}`);
     console.log(`Required artifact: ${active.requiredArtifact?.path ?? 'none'}`);
     console.log(`Registered artifacts: ${active.artifacts.length}`);
   }

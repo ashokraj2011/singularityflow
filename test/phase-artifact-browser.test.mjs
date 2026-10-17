@@ -67,7 +67,7 @@ test('symlink drafts and oversized artifacts are refused before a preview is ret
   const entry = phaseArtifactCatalog(config, value).phases[1].artifacts[0];
   await writeFile(path.join(root, 'outside.md'), 'Not a governed document');
   await symlink(path.join(root, 'outside.md'), path.join(root, entry.path));
-  await assert.rejects(viewPhaseArtifact(root, config, value, entry.id), /regular governed file/);
+  await assert.rejects(viewPhaseArtifact(root, config, value, entry.id), /regular file/);
   await rm(path.join(root, entry.path));
   await writeFile(path.join(root, entry.path), 'x'.repeat(1024 * 1024 + 1));
   await assert.rejects(viewPhaseArtifact(root, config, value, entry.id), /preview limit/);

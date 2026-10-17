@@ -110,7 +110,7 @@ function relativePath(value, label, { dot = false, allowGoverned = false } = {})
   }
   const first = value.split('/')[0].toLowerCase();
   if (!allowGoverned && ['.sflow', '.singularity-flow', 'singularity'].includes(first)) {
-    fail('REV_BROWSER_PATH_INVALID', `${label} cannot target governed or local runtime state.`);
+    fail('REV_BROWSER_PATH_INVALID', `${label} cannot target lifecycle or local runtime state.`);
   }
   return value;
 }
@@ -186,13 +186,13 @@ export function defineRevisionBrowserCheck(value) {
         || typeof value.visualBaseline.tolerance !== 'number'
         || !Number.isFinite(value.visualBaseline.tolerance)
         || value.visualBaseline.tolerance < 0 || value.visualBaseline.tolerance > 1) {
-      fail('REV_BROWSER_CHECK_INVALID', 'Visual baseline must use governed updates and a tolerance from 0 through 1.');
+      fail('REV_BROWSER_CHECK_INVALID', 'Visual baseline must use updates and a tolerance from 0 through 1.');
     }
     // A reporter-provided pixel count is not a deterministic visual comparison. Keep the closed
     // contract shape readable for forward-compatible diagnostics, but refuse activation until the
     // registered comparator can independently load approved baseline pixels and verify membership.
     fail('REV_BROWSER_VISUAL_COMPARATOR_UNAVAILABLE',
-      'Visual browser checks require the unavailable registered pixel comparator and governed baseline store.');
+      'Visual browser checks require the unavailable registered pixel comparator and baseline store.');
   }
   integer(value.timeoutMs, 'browser timeout', 1_000, 2 * 60 * 60 * 1000);
   const limits = normalizeLimits(value.limits);
@@ -596,7 +596,7 @@ function visualComparisons(values, artifacts, definition) {
       'testId', 'actualPath', 'baselineSha256', 'diffPath', 'differentPixels', 'totalPixels'
     ], 'visual comparison');
     if (!definition.visualBaseline) {
-      fail('REV_BROWSER_RESULT_INVALID', 'Visual comparisons require a governed pinned baseline.');
+      fail('REV_BROWSER_RESULT_INVALID', 'Visual comparisons require a pinned baseline.');
     }
     if (typeof value.testId !== 'string' || !value.testId || value.testId.length > 256
         || testIds.has(value.testId)) {
@@ -878,7 +878,7 @@ export function validateRevisionBrowserRunReceipt(value) {
   }
   if (receipt.visualComparisons.length !== 0) {
     fail('REV_BROWSER_RECEIPT_INVALID',
-      'Visual claims are unavailable until a registered comparator and governed baseline store exist.');
+      'Visual claims are unavailable until a registered comparator and baseline store exist.');
   }
   const paths = new Set();
   for (const artifact of receipt.artifacts) {

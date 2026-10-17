@@ -30,7 +30,7 @@ export async function completionVerdict(root, workId) {
     return Object.freeze({
       verified: false,
       assurance: null,
-      errors: Object.freeze([`the final governance check could not run: ${error?.message ?? String(error)}`]),
+      errors: Object.freeze([`the final Flow Gate could not run: ${error?.message ?? String(error)}`]),
       warnings: Object.freeze([]),
       findings: Object.freeze([])
     });
@@ -57,24 +57,24 @@ export function completionRecoveryActions(verdict) {
   if (verdict.verified) return [];
   const commands = [...new Set(verdict.findings.map((finding) => finding.recovery?.command).filter(Boolean))];
   const recoveries = commands.map((command, index) => action({
-    id: `final-check-recovery-${index + 1}`, label: 'Fix what the final governance check found', command, kind: 'remediation'
+    id: `final-check-recovery-${index + 1}`, label: 'Fix what the final Flow Gate found', command, kind: 'remediation'
   }));
   return [...recoveries, action({
-    id: 'final-check-rerun', label: 'Re-run the final governance check', command: 'singularity-flow gate --terminal', kind: 'remediation'
+    id: 'final-check-rerun', label: 'Re-run the final Flow Gate', command: 'singularity-flow gate --terminal', kind: 'remediation'
   })];
 }
 
 /** Why finalize refused, with the same recoveries a completing transition offers. */
 export function finalCheckRefusalMessage(workId, verdict) {
   const commands = completionRecoveryActions(verdict).map((entry) => entry.command);
-  return `Story ${workId} cannot be finalized: the final governance check failed:\n- ${verdict.errors.join('\n- ')}`
+  return `Story ${workId} cannot be finalized: the final Flow Gate failed:\n- ${verdict.errors.join('\n- ')}`
     + (commands.length ? `\nRecover:\n  ${commands.join('\n  ')}` : '');
 }
 
 /** Print the verdict for terminal users; JSON callers read it from the command result instead. */
 export function printCompletionVerdict(verdict, { write = console.log, warn = console.warn } = {}) {
   if (verdict.verified) {
-    write(verdict.label ? `Final governance check passed: ${verdict.label}.` : 'Final governance check passed.');
+    write(verdict.label ? `Final Flow Gate passed: ${verdict.label}.` : 'Final Flow Gate passed.');
     // The check proves the Story's records are consistent; the assurance says how each criterion was tested.
     if (verdict.assurance === 'module-observed') {
       write('Assurance: at least module-observed — the test commands covering the acceptance criteria passed; the evidence matrix shows which criteria were joined to their own test result.');
@@ -84,6 +84,6 @@ export function printCompletionVerdict(verdict, { write = console.log, warn = co
     verdict.warnings.forEach((message) => warn(`  warning: ${message}`));
     return;
   }
-  warn('Final governance check failed, so the Story is not complete yet:');
+  warn('Final Flow Gate failed, so the Story is not complete yet:');
   verdict.errors.forEach((message) => warn(`  - ${message}`));
 }

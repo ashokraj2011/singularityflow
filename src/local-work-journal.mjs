@@ -375,15 +375,15 @@ function summaryFor(event) {
     return 'Repository state was checked locally.';
   }
   const labels = {
-    'work-started': 'Governed work started', 'work-resumed': 'Governed work resumed',
+    'work-started': 'Work started', 'work-resumed': 'Work resumed',
     'phase-started': 'Phase work started', completed: 'Work completed', abandoned: 'Work abandoned',
     verification: 'Verification recorded', reproduction: 'Failure reproduced', reopened: 'Phase reopened',
     checkpoint: 'Local checkpoint recorded', published: 'Generation published', submitted: 'Phase submitted',
-    review: 'Review decision recorded', rework: 'Rework requested', challenge: 'Governed change recorded',
+    review: 'Review decision recorded', rework: 'Rework requested', challenge: 'Change recorded',
     repair: 'Repair outcome recorded', 'publication-recovery': 'Publication recovery completed',
     'test-result': 'Test outcome recorded', 'check-result': 'Check outcome recorded'
   };
-  return labels[event.kind] ?? 'Governed work progressed';
+  return labels[event.kind] ?? 'Work progressed';
 }
 
 export async function journalToday(workspaceId, { date = null, ...options } = {}) {

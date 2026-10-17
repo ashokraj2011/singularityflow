@@ -3314,7 +3314,7 @@ export async function repairLedgerPins(root, rawConfig, {
 } = {}) {
   const config = normalizeLedgerConfig(rawConfig);
   if (!config.enabled) {
-    throw new SingularityFlowError('The capability ledger is disabled; there are no governed source pins to repair.', {
+    throw new SingularityFlowError('The capability ledger is disabled; there are no source pins to repair.', {
       code: 'LEDGER_DISABLED'
     });
   }

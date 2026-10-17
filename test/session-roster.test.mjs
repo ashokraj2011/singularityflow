@@ -195,7 +195,7 @@ test('unavailable diagnostics and incomplete counts remain visible, including an
     count: 3, unavailableCount: 2,
     unavailable: [{ claimedId: 'LOST', branch: 'story/LOST', path: 'workflow.json', code: 'UNREADABLE', reason: 'read failed' }]
   }));
-  assert.match(output, /No verified governed Stories/u);
+  assert.match(output, /No verified Stories/u);
   assert.match(output, /discovery count 3 differs/u);
   assert.match(output, /2 reported; 1 retained diagnostics/u);
   assert.match(output, /not every unavailable claim is described/u);

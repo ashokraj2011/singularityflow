@@ -28,7 +28,7 @@ export function normalizeSourceReviewPolicy(value = null, { workTypeId = 'workfl
   const reviewerAgent = value.reviewerAgent ?? null;
   if (reviewerAgent != null && (typeof reviewerAgent !== 'string'
       || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(reviewerAgent))) {
-    throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview.reviewerAgent must be a governed agent ID.`);
+    throw new SingularityFlowError(`Work type '${workTypeId}' sourceReview.reviewerAgent must be an agent ID.`);
   }
   if (mode === 'enforce' && (!selected.length || !reviewerAgent)) {
     throw new SingularityFlowError(`Work type '${workTypeId}' enforced sourceReview needs phases and reviewerAgent.`);
@@ -74,7 +74,7 @@ export function assertSourceReviewerAvailable(policy, agents, { workTypeId = 'wo
   const reviewer = agents?.find((agent) => agent.id === policy.reviewerAgent);
   if (!reviewer || reviewer.metadata?.['sflow-mode'] !== 'read-only-review') {
     throw new SingularityFlowError(
-      `Work type '${workTypeId}' requires governed reviewer '${policy.reviewerAgent}' with sflow-mode: read-only-review.`,
+      `Work type '${workTypeId}' requires reviewer '${policy.reviewerAgent}' with sflow-mode: read-only-review.`,
       { code: 'SOURCE_REVIEW_AGENT_UNAVAILABLE' }
     );
   }

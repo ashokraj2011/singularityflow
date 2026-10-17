@@ -26,7 +26,7 @@ function completionActions(workId, timing = 'now') {
   return [
     action(timing, null, 'singularity-flow gate --terminal', 'Confirm the completed workflow and remote branch satisfy the final gate.'),
     action('then', '/sflow-stack', `singularity-flow pr ${workId}`, 'Preview the pull request title, body, base, head, checks, and evidence before publishing anything.'),
-    action('then', '/sflow-stack', `singularity-flow pr ${workId} --create`, 'After reviewing the preview, create the governed pull request with explicit confirmation.'),
+    action('then', '/sflow-stack', `singularity-flow pr ${workId} --create`, 'After reviewing the preview, create the pull request with explicit confirmation.'),
     action('alternative', '/sflow-progress', `singularity-flow progress ${workId}`, 'Review deterministic phase completion and approvals.'),
     action('alternative', '/sflow-report', `singularity-flow report ${workId}`, 'Review timing, rework, token usage, and bottlenecks.')
   ];
@@ -234,7 +234,7 @@ export function nextStepsSnapshot({ initialized = true, branch = null, requested
     workId: null,
     currentPhase: null,
     actions: [
-      action('now', null, 'singularity-flow init', 'Initialize editable Singularity Flow configuration, templates, governed agents, approval authorities, and prompts.'),
+      action('now', null, 'singularity-flow init', 'Initialize editable Singularity Flow configuration, templates, agents, approval groups, and prompts.'),
       action('then', '/sflow-start', 'singularity-flow start <WORK-ID>', 'Commit the initialized configuration, then start Jira or manual intake.')
     ]
   };
@@ -294,7 +294,7 @@ export function nextStepsText(snapshot) {
     const guidance = safeCommandGuidance(item);
     if (guidance) lines.push(...commandRouteLines(guidance, '   '));
     else {
-      lines.push('   Copilot: unavailable — ask /sf-next for a current governed action.');
+      lines.push('   Copilot: unavailable — ask /sf-next for a current action.');
       lines.push('   Shell: unavailable — the supplied command was not safe to display.');
       lines.push('   VS Code (model-free): not available for this action');
     }

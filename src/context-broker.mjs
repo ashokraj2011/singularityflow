@@ -110,7 +110,7 @@ function withinOutputBudget(result, maximumOutputBytes) {
     ...result,
     payload: {
       status: 'partial',
-      summary: 'This context slice exceeded the response budget. Request a narrower governed slice.'
+      summary: 'This context slice exceeded the response budget. Request a narrower slice.'
     },
     accounting: {
       ...result.accounting,
@@ -226,7 +226,7 @@ export async function composeContextBriefFromState(root, config, workflow, {
         'max-output-bytes': budget
       }, workBinding);
       if (recordSha256(payload.scope?.workBinding ?? null) !== recordSha256(workBinding)) {
-        throw Object.assign(new Error('AST returned a different governed work binding.'), {
+        throw Object.assign(new Error('AST returned a different work binding.'), {
           code: 'AST_WORK_BINDING_MISMATCH'
         });
       }

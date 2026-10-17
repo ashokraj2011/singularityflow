@@ -107,7 +107,7 @@ export async function telemetryCommand(positionals, options) {
   if (subcommand === 'disable') {
     const preference = await setTelemetryCapture(false);
     if (optionBoolean(options, 'json')) return console.log(JSON.stringify({ schemaVersion: 1, status: 'disabled', preference }, null, 2));
-    console.log('Local usage capture is disabled for future SFlow-owned launches. Governed work is unchanged.');
+    console.log('Local usage capture is disabled for future SFlow-owned launches. Work is unchanged.');
     return;
   }
   if (subcommand === 'enable') {
@@ -126,7 +126,7 @@ export async function telemetryCommand(positionals, options) {
   }
   if (subcommand !== 'reconcile') throw new SingularityFlowError(`Unknown telemetry subcommand: ${subcommand}`);
   if (!root) {
-    throw new SingularityFlowError('Telemetry reconciliation requires an active governed repository.', {
+    throw new SingularityFlowError('Telemetry reconciliation requires an active repository.', {
       code: 'TELEMETRY_ROOT_REQUIRED'
     });
   }

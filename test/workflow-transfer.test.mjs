@@ -864,7 +864,7 @@ test('workflow bundle binds direct and catalog templates to their governed sourc
   await assert.rejects(
     () => planWorkflowImport(directSource, directBundle),
     (error) => error.code === 'WORKFLOW_BUNDLE_DEPENDENCY_MISMATCH'
-      && /governed reference/.test(error.message)
+      && /does not match its reference, root-relative path/.test(error.message)
   );
 
   const catalogSource = await initializedRepository(t, 'sflow-workflow-catalog-binding-');
@@ -890,7 +890,7 @@ test('workflow bundle binds direct and catalog templates to their governed sourc
   await assert.rejects(
     () => planWorkflowImport(catalogSource, catalogBundle),
     (error) => error.code === 'WORKFLOW_BUNDLE_DEPENDENCY_MISMATCH'
-      && /governed reference/.test(error.message)
+      && /does not match its reference, root-relative path/.test(error.message)
   );
 
   const crossRootSource = await initializedRepository(t, 'sflow-workflow-cross-root-');
@@ -910,7 +910,7 @@ test('workflow bundle binds direct and catalog templates to their governed sourc
   await assert.rejects(
     () => planWorkflowImport(crossRootSource, crossRootBundle),
     (error) => error.code === 'WORKFLOW_BUNDLE_DEPENDENCY_MISMATCH'
-      && /governed reference/.test(error.message)
+      && /does not match its reference, root-relative path/.test(error.message)
   );
 });
 

@@ -164,7 +164,7 @@ async function captureDirectory(repositoryRoot, directory, relative = '', files 
     const absolute = path.join(secured.absolute, entry.name);
     const info = await lstat(absolute);
     if (info.isSymbolicLink()) {
-      throw new SingularityFlowError(`Publication recovery refuses symbolic links in governed state: ${posix(child)}`, {
+      throw new SingularityFlowError(`Publication recovery refuses symbolic links in lifecycle state: ${posix(child)}`, {
         code: 'PUBLICATION_PREIMAGE_SYMBOLIC_LINK',
         details: { path: posix(child), reason: 'symbolic-link' }
       });
@@ -316,7 +316,7 @@ export async function capturePublicationPreimage(root, requestedRoots, options =
     .sort((left, right) => left.split('/').length - right.split('/').length || left.localeCompare(right));
   const roots = candidates.filter((candidate, index) => !candidates.slice(0, index)
     .some((parent) => candidate.startsWith(`${parent}/`)));
-  if (!roots.length) throw new SingularityFlowError('Publication recovery requires at least one governed path.');
+  if (!roots.length) throw new SingularityFlowError('Publication recovery requires at least one path.');
   assertNonOverlapping(roots);
   const records = [];
   const quota = { files: 0, bytes: 0 };
@@ -329,7 +329,7 @@ export async function capturePublicationPreimage(root, requestedRoots, options =
     });
     if (!secured.exists) records.push({ path: relative, type: 'absent', mode: null, directories: [], files: [] });
     else if (secured.entry.isSymbolicLink()) {
-      throw new SingularityFlowError(`Publication recovery refuses symbolic links in governed state: ${relative}`, {
+      throw new SingularityFlowError(`Publication recovery refuses symbolic links in lifecycle state: ${relative}`, {
         code: 'PUBLICATION_PREIMAGE_SYMBOLIC_LINK',
         details: { path: relative, reason: 'symbolic-link' }
       });

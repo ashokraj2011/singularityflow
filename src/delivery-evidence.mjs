@@ -189,7 +189,7 @@ export async function assertReviewCodeEvidenceFresh(root, config, workflow, phas
       + `Return the changes to '${source.id}', publish and validate a fresh code generation, then resume '${phase.id}'.`
       + (evidenceAvailable && repairCommand ? ` Preview the exact repair with: ${repairCommand}.`
         : evidenceAvailable ? ' The current phase policy has no available direct return; inspect singularity-flow nextsteps --json and request an authorized workflow return.'
-          : ' Restore the original governed Code submission evidence before requesting a confirmed return; run singularity-flow doctor --json to inspect missing evidence.'),
+          : ' Restore the original Code submission evidence before requesting a confirmed return; run singularity-flow doctor --json to inspect missing evidence.'),
     { code: 'PRIOR_CODE_TEST_EVIDENCE_STALE', details: { phase: phase.id, sourcePhase: source.id, changedPaths,
       repairCommand: evidenceAvailable ? repairCommand : null } }
   );
@@ -818,7 +818,7 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
     .map(([rawClauseId, claim]) => {
       const clauseId = normalizeQualifiedClauseId(rawClauseId);
       if (!clauseId) {
-        throw new SingularityFlowError(`Planned source clause '${rawClauseId}' is not a qualified governed ID.`, {
+        throw new SingularityFlowError(`Planned source clause '${rawClauseId}' is not a qualified ID.`, {
           code: 'CODE_DELIVERY_SOURCE_CLAUSE_ID_INVALID'
         });
       }
@@ -864,7 +864,7 @@ export async function plannedSourceClauseBindings(root, config, workflow, phase,
     .map((tag) => ({ code: 'EVIDENCE_CLAUSE_UNAPPROVED', clauseId: tag.clauseId, sourcePath: tag.path, line: tag.line,
       message: `@clause:${tag.clauseId} at ${tag.path}:${tag.line} names a clause this Story has not approved.` }));
   if (unapproved.length) throw new SingularityFlowError(
-    `Product source names clauses that this Story has not approved: ${unapproved.map((tag) => `${tag.clauseId} at ${tag.sourcePath}:${tag.line}`).join('; ')}. Correct the tag or revise the governed specification before publishing.`,
+    `Product source names clauses that this Story has not approved: ${unapproved.map((tag) => `${tag.clauseId} at ${tag.sourcePath}:${tag.line}`).join('; ')}. Correct the tag or revise the specification before publishing.`,
     { code: 'EVIDENCE_CLAUSE_UNAPPROVED', details: { findings: unapproved } }
   );
   const tagged = required.flatMap(({ clauseId, expectedPaths }) => expectedPaths.flatMap((sourcePath) =>
@@ -967,7 +967,7 @@ async function validatedReusablePaths(root, candidates, priorEvidence, { role, s
     if (!previous || previous.fileKind !== 'regular-file' || record.fileKind !== 'regular-file'
         || !previous.sha256 || previous.sha256 !== record.sha256 || !executable) {
       throw new SingularityFlowError(
-        `Previously governed ${role} path '${record.path}' is missing, replaced, symbolic, no longer executable, or differs from its prior evidence. Change or restore it in the current generation.`,
+        `Previously recorded ${role} path '${record.path}' is missing, replaced, symbolic, no longer executable, or differs from its prior evidence. Change or restore it in the current generation.`,
         { code: 'CODE_DELIVERY_REUSE_INVALID' }
       );
     }
@@ -1119,7 +1119,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   });
   if (!boundaryResult.valid) {
     throw new SingularityFlowError(
-      `Phase ${phase.id} may change test automation only; product-source endpoints are outside its governed boundary: ${boundaryResult.violations.map((entry) => entry.path).join(', ')}`,
+      `Phase ${phase.id} may change test automation only; product-source endpoints are outside its boundary: ${boundaryResult.violations.map((entry) => entry.path).join(', ')}`,
       { code: 'CHANGE_SET_POLICY_VIOLATION' }
     );
   }
@@ -1239,7 +1239,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
   const sourceRequired = !obligations || obligations.some(changesProductSource);
 
   if (!applicationEntries.length && !intentRevalidation && changeRequired) {
-    errors.push('no application source or test paths changed during the governed work interval');
+    errors.push('no application source or test paths changed during the work interval');
   }
   if (phase.sourceBoundary !== 'test-automation' && !sourcePaths.length && sourceRequired) {
     errors.push('no product source path changed; a summary, configuration or test-only edit is not an implementation');
@@ -1318,7 +1318,7 @@ export async function evaluateCodeDeliveryPreflight(root, config, workflow, phas
     // tag edit can make its exactly read test reviewable.
     const owedUnknown = [...new Set(unknownCriteria.map((finding) => finding.clauseId))].filter((id) => requiredAcIds.includes(id));
     const correction = criteria
-      ? `Correct each @ac tag to a criterion the specification holds${requiredAcIds.length ? ` (this step owes ${requiredAcIds.join(', ')})` : ''}, or remove it; a criterion it lacks needs a revised governed specification first.`
+      ? `Correct each @ac tag to a criterion the specification holds${requiredAcIds.length ? ` (this step owes ${requiredAcIds.join(', ')})` : ''}, or remove it; a criterion it lacks needs a revised specification first.`
       : owedUnknown.length
         ? `${unknownCriteria.some((finding) => !owedUnknown.includes(finding.clauseId)) ? 'Remove each @ac tag the step does not owe. ' : ''}`
           + `A criterion the step owes but no specification index defines (${owedUnknown.join(', ')}) cannot be witnessed by an exactly read test; the Story needs an indexed specification first (singularity-flow explain governance-rebuild).`

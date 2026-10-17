@@ -3995,7 +3995,7 @@ export function readRecord(familyId, rawBytes) {
   }
   if (storedVersion < entry.minimumReadableVersion) {
     throw new SingularityFlowError(
-      `Durable record '${familyId}' is stored at schema version ${storedVersion} (v${storedVersion}), below this build's readable range v${entry.minimumReadableVersion}–v${entry.maximumReadableVersion}; use the archival reader for that release or a governed republication with recorded lineage.`,
+      `Durable record '${familyId}' is stored at schema version ${storedVersion} (v${storedVersion}), below this build's readable range v${entry.minimumReadableVersion}–v${entry.maximumReadableVersion}; use the archival reader for that release or a republication with recorded lineage.`,
       { code: 'SCHEMA_VERSION_ARCHIVED', details: { family: familyId, storedVersion, readable: { minimum: entry.minimumReadableVersion, maximum: entry.maximumReadableVersion } } }
     );
   }

@@ -1695,7 +1695,7 @@ async function assertReplayPlanAuthority(root, before, plan, effectReplayReceipt
     }
     if (!retainedTasks.has(task.taskInstanceId)
         && task.attemptIds.length >= replayAttemptCeiling(program, template)) {
-      fail(`SGOS task '${task.taskInstanceId}' has no remaining governed attempt.`,
+      fail(`SGOS task '${task.taskInstanceId}' has no remaining attempt.`,
         'SGOS_REPLAY_ATTEMPT_CEILING');
     }
   }
@@ -1925,7 +1925,7 @@ async function assertImmutableCore(before, after, {
         if (!replayPrior
             || beforeTask.attemptIds.length <= replayPrior.attemptIds.length
             || beforeTask.attemptIds.at(-1) === replayPrior.attemptIds.at(-1)) {
-          fail(`SGOS task '${id}' may replace replayed '${field}' only after a new governed attempt.`,
+          fail(`SGOS task '${id}' may replace replayed '${field}' only after a new attempt.`,
             'SGOS_REPLAY_RECEIPT_REPLACEMENT_INVALID', { taskInstanceId: id, field });
         }
       }

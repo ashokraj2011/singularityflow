@@ -39,7 +39,7 @@ test('a failed final check names its recoveries and never rests complete', () =>
     verified: false, errors: ['terminal: phase code is not approved'], warnings: [],
     findings: [{ recovery: { command: 'singularity-flow recover W-1' } }]
   }), [
-    'Story W-1 cannot be finalized: the final governance check failed:',
+    'Story W-1 cannot be finalized: the final Flow Gate failed:',
     '- terminal: phase code is not approved',
     'Recover:',
     '  singularity-flow recover W-1',
@@ -49,7 +49,7 @@ test('a failed final check names its recoveries and never rests complete', () =>
   const lines = [];
   printCompletionVerdict({ verified: false, errors: ['terminal: phase code is not approved'], warnings: [], findings: [] },
     { write: (line) => lines.push(line), warn: (line) => lines.push(line) });
-  assert.deepEqual(lines, ['Final governance check failed, so the Story is not complete yet:', '  - terminal: phase code is not approved']);
+  assert.deepEqual(lines, ['Final Flow Gate failed, so the Story is not complete yet:', '  - terminal: phase code is not approved']);
 });
 
 test('a passing final check still states the assurance behind delivered code', () => {
@@ -57,16 +57,16 @@ test('a passing final check still states the assurance behind delivered code', (
   const sink = { write: (line) => lines.push(line), warn: (line) => lines.push(line) };
   printCompletionVerdict({ verified: true, assurance: 'module-observed', errors: [], warnings: [], findings: [] }, sink);
   assert.deepEqual(lines, [
-    'Final governance check passed.',
+    'Final Flow Gate passed.',
     'Assurance: at least module-observed — the test commands covering the acceptance criteria passed; the evidence matrix shows which criteria were joined to their own test result.'
   ]);
   lines.length = 0;
   printCompletionVerdict({ verified: true, assurance: 'exact-local-observed', errors: [], warnings: [], findings: [] }, sink);
   assert.deepEqual(lines, [
-    'Final governance check passed.',
+    'Final Flow Gate passed.',
     "Assurance: exact-local-observed — each acceptance criterion's own test was found passing in a local run; no run was independently attested."
   ]);
   lines.length = 0;
   printCompletionVerdict({ verified: true, assurance: null, errors: [], warnings: [], findings: [] }, sink);
-  assert.deepEqual(lines, ['Final governance check passed.'], 'a Story that delivered no code makes no test claim');
+  assert.deepEqual(lines, ['Final Flow Gate passed.'], 'a Story that delivered no code makes no test claim');
 });

@@ -424,7 +424,7 @@ export async function phaseCommand(positionals, options) {
             applicationDigest = applicationChangeSetProjection(current, pathContext).digest;
             if (applicationDigest !== expectedApplicationDigest) {
               throw new SingularityFlowError(
-                'Application source or test bytes changed after validation and before the governed commit. '
+                'Application source or test bytes changed after validation and before the commit. '
                 + 'Nothing was committed; wait for editor, formatter, generator, and test writes to finish, then retry.',
                 {
                   code: 'PUBLICATION_SNAPSHOT_CHANGED',
@@ -496,7 +496,7 @@ export async function phaseCommand(positionals, options) {
           `tool calls: ${activity.toolCalls}`,
           ...(events ? [`quota/model events: ${events}`] : [])
         ] : []),
-        ...(prompt ? [`governed prompt: ${prompt.bytes.toLocaleString('en-US')} bytes (~${prompt.estimatedTokens.toLocaleString('en-US')} tokens)`] : [])
+        ...(prompt ? [`phase prompt: ${prompt.bytes.toLocaleString('en-US')} bytes (~${prompt.estimatedTokens.toLocaleString('en-US')} tokens)`] : [])
       ));
     }
     console.log(`Telemetry record: ${telemetry.path}`);

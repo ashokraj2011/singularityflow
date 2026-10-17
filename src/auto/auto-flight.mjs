@@ -185,7 +185,7 @@ async function startAutoFlightLocked(root, planId, confirmation, options = {}) {
       evidence: adoption ? { adoption: adoption.evidence } : {},
       stopReason: waiting ? 'first-human-boundary' : 'authorized-start',
       nextAction: waiting
-        ? 'Resolve the Plan questions in governed clarification records; Auto will not answer them.'
+        ? 'Resolve the Plan questions in clarification records; Auto will not answer them.'
         : 'Run the one authorized phase step; any failure halts without retry.'
     });
     // The local .git flight projection is disposable. Commit a first reconstructible authority

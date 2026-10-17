@@ -182,13 +182,13 @@ function storyRecovery(workflow, code, ownerPhase, path, openStory = null) {
     if (allowed.includes(ownerPhase)) {
       return {
         mode: 'guided', ownerPhase, requiresReopen: true,
-        command: `singularity-flow reopen ${workId} --to ${ownerPhase} --reason "Governance recovery: ${code}"`,
+        command: `singularity-flow reopen ${workId} --to ${ownerPhase} --reason "Flow Gate recovery: ${code}"`,
         detail: `Reopen the completed workflow at the phase that owns this evidence. Existing approved generations remain in history.`
       };
     }
     return {
       mode: 'guided', ownerPhase, requiresReopen: true,
-      command: `singularity-flow reopen ${workId} --to ${ownerPhase} --reason "Governance gate recovery" --gate-recovery`,
+      command: `singularity-flow reopen ${workId} --to ${ownerPhase} --reason "Flow Gate recovery" --gate-recovery`,
       detail: `The ordinary completion policy does not target ${ownerPhase}. Preview the content-bound final-gate recovery plan, then repeat the command with its exact --confirm digest. No state changes during preview.`
     };
   }
@@ -202,7 +202,7 @@ function storyRecovery(workflow, code, ownerPhase, path, openStory = null) {
     command: ownerPhase ? `singularity-flow recover ${workId} --phase ${ownerPhase}` : `singularity-flow recover ${workId}`,
     detail: ownerPhase
       ? `Repair or regenerate the evidence owned by ${ownerPhase}; approvals and published generations are not edited in place.`
-      : 'Inspect the governed recovery plan before changing lifecycle state.'
+      : 'Inspect the recovery plan before changing lifecycle state.'
   };
 }
 

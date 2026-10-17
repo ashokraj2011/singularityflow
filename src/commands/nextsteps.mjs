@@ -94,7 +94,7 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
   }
   if (authoring && !activeSessionAgent && !deterministicConvergence) prerequisites.push({
     timing: 'now', skill: '/sf-resume', command: `singularity-flow resume ${workflow.workItem.id} --fetch`,
-    reason: 'Select the governed agent that will remain active for this terminal session before generation.'
+    reason: 'Select the agent that will remain active for this terminal session before generation.'
   });
 
   // The lifecycle's own freshness rule: a phase reopened as downstream rework or by a skill
@@ -106,7 +106,7 @@ export async function storyPrerequisites(root, workflow, selected, modelMode = {
     if (!(await composedPromptCurrent(root, definition, workflow, active, observeFile))) prerequisites.push({
       timing: 'optional', skill: null, command: `singularity-flow wm compose --phase ${active.id}`,
       route: 'grounding-composition',
-      reason: 'Compose the governed prompt for this generation before authoring and publishing it.'
+      reason: 'Compose the phase prompt for this generation before authoring and publishing it.'
     });
   }
   if (authoring && activeSessionAgent && !deterministicConvergence) {

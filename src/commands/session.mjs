@@ -62,12 +62,12 @@ export function exactDiscoveredStory(discovery, reference) {
   const matches = discovery.items.filter((item) => item.id === reference || item.branch === reference || item.aliases?.includes(reference));
   if (matches.length !== 1) throw new SingularityFlowError(
     matches.length ? `Story reference '${reference}' is ambiguous on the selected remote.`
-      : `No governed Story matches '${reference}' on the selected remote. Refresh Story candidates and choose an exact ID or branch.`,
+      : `No Story matches '${reference}' on the selected remote. Refresh Story candidates and choose an exact ID or branch.`,
     { code: matches.length ? 'SESSION_STORY_AMBIGUOUS' : 'SESSION_STORY_NOT_FOUND' }
   );
   if (discovery.unavailable?.some((entry) => entry.claimedId === matches[0].id
       || entry.branch === matches[0].branch)) throw new SingularityFlowError(
-    `Story '${matches[0].id}' has conflicting or unreadable claims on the selected remote. Repair its governed state before attaching.`,
+    `Story '${matches[0].id}' has conflicting or unreadable claims on the selected remote. Repair its lifecycle state before attaching.`,
     { code: 'SESSION_STORY_INVALID' }
   );
   return matches[0];
@@ -127,7 +127,7 @@ export async function exactStoryMetadataAtRef(root, remote, item, expectedCommit
   try { state = readRecord('story-workflow', JSON.parse(await readMetadata(itemPath))).record; }
   catch (error) {
     if (error instanceof SingularityFlowError) throw error;
-    throw new SingularityFlowError(`Story '${item.id}' has invalid governed state.`, {
+    throw new SingularityFlowError(`Story '${item.id}' has invalid lifecycle state.`, {
       code: 'SESSION_STORY_INVALID'
     });
   }
@@ -257,7 +257,7 @@ export async function sessionCommand(positionals, options) {
     if (!editorRooted) {
       // Information, not an instruction. Governed commands resolve the repository from this
       // selection; only hand-editing files in the editor needs the folder open.
-      console.log(`Governed commands will use ${context.repositoryPath}; this shell is elsewhere.`);
+      console.log(`Commands will use ${context.repositoryPath}; this shell is elsewhere.`);
       console.log(`To edit files in this repository directly: ${result.commands.openCopilot}`);
     }
     if (context.storyId) {
@@ -505,8 +505,8 @@ export async function sessionCommand(positionals, options) {
     if (subcommand === 'attach' || subcommand === 'candidates') {
       throw new SingularityFlowError(
         subcommand === 'attach'
-          ? `Cannot attach a Story because no governed repository is active. ${resolved.detail}`
-          : `Cannot discover Stories because no governed delivery repository is active. ${resolved.detail}`,
+          ? `Cannot attach a Story because no repository is active. ${resolved.detail}`
+          : `Cannot discover Stories because no delivery repository is active. ${resolved.detail}`,
         { code: 'SESSION_REPOSITORY_REQUIRED' }
       );
     }
@@ -754,9 +754,9 @@ export async function sessionCommand(positionals, options) {
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(status, null, 2));
   if (resolved.resolvedFrom === 'active-workspace') console.log(`Repository: ${root} (from the active workspace, not the working directory)`);
   console.log(`Work item: ${status.workId ?? 'not selected'}${status.candidateWorkId && !status.workId ? ` · current candidate: ${status.candidateWorkId}` : ''}`);
-  console.log(`governed agent: ${status.activeAgent ?? 'not selected'}`);
+  console.log(`Agent: ${status.activeAgent ?? 'not selected'}`);
   console.log(`Copilot session: ${status.copilotSessionId ?? 'not bound'}`);
-  console.log(`Work-item selection: ${status.workItemSelectionRequired ? 'required' : 'complete'} · governed agent: ${status.activeAgent ?? 'phase default pending'}`);
+  console.log(`Work-item selection: ${status.workItemSelectionRequired ? 'required' : 'complete'} · agent: ${status.activeAgent ?? 'phase default pending'}`);
   console.log(`Policy: work item ${status.policy.workItemSelection ?? 'off'} · phase agent automatic · before tools: ${status.policy.requireBeforeTools ? 'required' : 'not required'}`);
   if (status.workItemSelectionRequired) {
     printCommandRoutes('singularity-flow session attach <WORK-ID>', { label: 'Select the Story' });

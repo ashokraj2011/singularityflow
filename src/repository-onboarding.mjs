@@ -112,10 +112,10 @@ const TEMPORARY_CLEANUP_STORAGE_WARNING =
   + 'SFlow continued without deleting or trusting that storage.';
 const TEMPORARY_MUTATION_CLEANUP_WARNING =
   'Repository setup completed, but another process still has its disposable checkout open. '
-  + 'The governed result is preserved; SFlow queued cleanup and will retry after the locking process exits.';
+  + 'The result is preserved; SFlow queued cleanup and will retry after the locking process exits.';
 const TEMPORARY_MUTATION_CLEANUP_UNQUEUED_WARNING =
   'Repository setup completed, but SFlow could not remove its disposable checkout. '
-  + 'The governed result is preserved; local cleanup could not be queued.';
+  + 'The result is preserved; local cleanup could not be queued.';
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');

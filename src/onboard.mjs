@@ -683,7 +683,7 @@ async function bootstrapAuthorization({
   );
   if (route.kind === 'remote') {
     if (typeof kernelAuthorize !== 'function') throw new SingularityFlowError(
-      'Remote bootstrap requires a trusted governance-kernel authorization adapter.', {
+      'Remote bootstrap requires a trusted kernel authorization adapter.', {
         code: 'TRUST_REQUIRED'
       }
     );
@@ -702,7 +702,7 @@ async function bootstrapAuthorization({
       && Object.entries(request).every(([key, value]) => result[key] === value)
       && /^sha256:[a-f0-9]{64}$/.test(result.receiptSha256 ?? '');
     if (!bound) throw new SingularityFlowError(
-      'The governance kernel did not authorize this exact remote bootstrap.', {
+      'The kernel did not authorize this exact remote bootstrap.', {
         code: 'NOT_AUTHORIZED'
       }
     );

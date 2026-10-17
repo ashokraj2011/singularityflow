@@ -552,7 +552,7 @@ test('session attach fails non-zero when no governed repository can be resolved'
     }
   });
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /Cannot attach a Story because no governed repository is active/);
+  assert.match(result.stderr, /Cannot attach a Story because no repository is active/);
   const discovery = spawnSync(process.execPath,
     [bin, 'session', 'candidates', '--json', '--diagnostics'], {
       cwd: root, encoding: 'utf8', env: {

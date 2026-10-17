@@ -80,7 +80,7 @@ function effectFor(argv) {
 export function previewAction(item = {}) {
   const tokens = tokenize(item.command ?? '');
   if (tokens[0] !== 'singularity-flow') {
-    throw new SingularityFlowError(`Governed actions must invoke singularity-flow directly: ${item.command ?? ''}`);
+    throw new SingularityFlowError(`Actions must invoke singularity-flow directly: ${item.command ?? ''}`);
   }
   const argv = tokens.slice(1);
   const effect = effectFor(argv);
@@ -102,7 +102,7 @@ export function previewAction(item = {}) {
 function normalizeAction(item, index, revision, decisionValues = {}, usedDecisions = new Set()) {
   const tokens = tokenize(item.command);
   if (tokens[0] !== 'singularity-flow') {
-    throw new SingularityFlowError(`Governed actions must invoke singularity-flow directly: ${item.command}`);
+    throw new SingularityFlowError(`Actions must invoke singularity-flow directly: ${item.command}`);
   }
   const argv = tokens.slice(1);
   let parameterized = false;
@@ -123,7 +123,7 @@ function normalizeAction(item, index, revision, decisionValues = {}, usedDecisio
   const effect = effectFor(argv);
   const references = (item.references ?? []).map((reference) => {
     if (!reference || typeof reference !== 'object' || !/^sfref:v1:(story|initiative):[A-Za-z0-9][A-Za-z0-9._-]{0,127}:[a-f0-9]{12,64}$/.test(reference.handle ?? '')) {
-      throw new SingularityFlowError(`Action '${item.command}' contains an invalid governed reference.`);
+      throw new SingularityFlowError(`Action '${item.command}' contains an invalid reference.`);
     }
     return {
       handle: reference.handle,
@@ -221,7 +221,7 @@ export async function createActionPlan(root, lifecycleSnapshot, {
 }
 
 export async function loadActionPlan(root, planId) {
-  if (!/^[a-f0-9]{12,64}$/i.test(String(planId ?? ''))) throw new SingularityFlowError('Enter a valid governed action plan ID.');
+  if (!/^[a-f0-9]{12,64}$/i.test(String(planId ?? ''))) throw new SingularityFlowError('Enter a valid action plan ID.');
   const stored = await readJson(path.join(planDirectory(root), `${planId}.json`));
   const migrated = readRecord('action-plan', stored);
   const plan = migrated.record;

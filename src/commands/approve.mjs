@@ -101,7 +101,7 @@ export async function approveCommand(positionals, options) {
   if (!forAgent) {
   console.log(`\nReviewing ${workflow.workItem.id} / ${phase.id}`);
   console.log(`Reviewer: ${session.actor.name ?? session.actor.email ?? session.actor.login} · authority: ${approvalAuthority.authorityLabel} (${approvalAuthority.authorityGroup})`);
-  console.log(`governed agent: ${session.agent} (prompt/audit context only)`);
+  console.log(`Agent: ${session.agent} (prompt/audit context only)`);
   console.log(`Artifacts: ${phase.artifacts.map((item) => `${item.path} (${item.sha256?.slice(0, 18) ?? 'no hash'})`).join(', ')}`);
   console.log(`Checks: ${phase.checks.map((item) => `${item.command}=${item.status}`).join(', ') || 'none'}`);
   console.log(`Tokens: ${phase.usage.map((item) => item.totalTokens ?? item.status).join(', ') || 'unavailable'}`);
@@ -205,7 +205,7 @@ export async function approveCommand(positionals, options) {
   if (!forAgent) console.log(publication.pushed
     ? `Approval decision committed ${publication.sha.slice(0, 8)} and pushed to ${config.git?.remote ?? 'origin'}/${workflowPublicationBranch(root, workflow)}.`
     : `Approval decision committed ${publication.sha.slice(0, 8)} locally; push is disabled by git.publish: off.`);
-  if (!forAgent) console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; governed agent ${result.approval.agent}.`);
+  if (!forAgent) console.log(`Approved ${result.phase.id} by ${result.approval.approvedBy} through ${result.approval.authorityGroup}; agent ${result.approval.agent}.`);
   if (result.approval.selfApproval) console.warn(`Warning: ${result.phase.id} was self-approved; this is not independent review.`);
   const receiptsLine = await recordRequiredReceiptsAfterTransition(root, workflow);
   if (receiptsLine && !forAgent) console.log(receiptsLine);

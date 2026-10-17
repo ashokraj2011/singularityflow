@@ -1098,7 +1098,7 @@ function assertRequestedCapability(capabilities, capability, remote, { exactBoot
   if (!configured) {
     throw new SingularityFlowError(
       `${CONFIGURATION_BRANCH} already exists on '${remote}' but does not define requested capability '${id}'. `
-      + 'Propose the capability through the governed capability-map workflow instead of re-running bootstrap.');
+      + 'Propose the capability through the capability-map workflow instead of re-running bootstrap.');
   }
   // Existing approved values win. Name, kind, repositories, Jira and teams can all evolve through
   // reviewed capability proposals; repeating an old bootstrap request on a new laptop must not turn

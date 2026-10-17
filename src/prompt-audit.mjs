@@ -402,7 +402,7 @@ function executionProjection(record, invocation) {
   if (!invocation) return {
     observation: 'not-observed',
     reason: record.source === 'vscode-governed-handoff'
-      ? 'This governed prompt was handed to the Copilot host; the kernel did not observe the host invocation.'
+      ? 'This phase prompt was handed to the Copilot host; the kernel did not observe the host invocation.'
       : 'Prompt composition does not prove that a model invocation occurred.',
     invocationId: null,
     operationId: null,
@@ -672,7 +672,7 @@ export function renderPromptAudit(record) {
     '## Grounding and references',
     '',
     `- Supporting evidence records: ${evidence.length}`,
-    `- Governed references: ${references.length}`,
+    `- References: ${references.length}`,
     `- Composition cache: ${record.compositionCache ? `${record.compositionCache.hit ? 'hit' : 'miss'} (${record.compositionCache.key})` : 'unavailable'}`,
     `- Approved-input/reference duplicates removed: ${record.composition?.deduplicatedReferences?.length ?? 0}`,
     '',
@@ -693,7 +693,7 @@ export function renderPromptAudit(record) {
     `- Stakeholder request bodies referenced from capsule: ${record.composition?.stakeholderProjection?.referencedRequestIds?.length ?? 0}`,
     `- Source bytes: ${record.composition?.economics?.source?.sourceBytes == null ? 'unavailable' : record.composition.economics.source.sourceBytes.toLocaleString('en-US')}`,
     `- Managed source bytes excluded before prompt composition: ${(record.composition?.economics?.source?.managedSourceBytesExcluded ?? record.composition?.inputLinearization?.managedBytesExcluded ?? 0).toLocaleString('en-US')} (source linearization; not a token-savings claim)`,
-    `- Managed governed-reference bytes excluded before prompt composition: ${(record.composition?.economics?.source?.managedReferenceBytesExcluded ?? 0).toLocaleString('en-US')} (reference projection; not a token-savings claim)`,
+    `- Managed reference bytes excluded before prompt composition: ${(record.composition?.economics?.source?.managedReferenceBytesExcluded ?? 0).toLocaleString('en-US')} (reference projection; not a token-savings claim)`,
     `- Duplicate approved-reference preview bytes excluded from prompt: ${(record.composition?.economics?.prompt?.deduplicatedPromptBytes ?? duplicateReferenceBytes).toLocaleString('en-US')}`,
     `- Budget-evicted prompt bytes: ${(record.composition?.economics?.prompt?.budgetEvictedPromptBytes ?? 0).toLocaleString('en-US')}`,
     `- Final prompt bytes: ${(record.composition?.economics?.prompt?.finalPromptBytes ?? record.bytes).toLocaleString('en-US')}`,
@@ -1125,6 +1125,6 @@ export async function readPromptAudit(root, id = 'latest') {
   const data = await entries(target.logFile, target.directory);
   const status = await statusSnapshot(root, target, config, data);
   const record = id === 'latest' ? data.records.at(-1) : data.records.find((entry) => entry.id === id);
-  if (!record) throw new SingularityFlowError(id === 'latest' ? 'No governed prompts have been captured.' : `Prompt-audit record '${id}' was not found.`);
+  if (!record) throw new SingularityFlowError(id === 'latest' ? 'No phase prompts have been captured.' : `Prompt-audit record '${id}' was not found.`);
   return { status, record: (await enrichRecords(root, [record], target))[0] };
 }

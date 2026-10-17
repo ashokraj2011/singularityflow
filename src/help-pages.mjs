@@ -102,7 +102,7 @@ const PAGES = Object.freeze({
       'Copilot: /sf-pause, /sf-pause off, /sf-pause status. /sf-resume still resumes a Story.',
       'No Story, approval, branch, artifact, or checkout changes. No Git, network, or test execution.',
       'Already-running commands and autonomous flights are not aborted. Explicit shell commands',
-      'remain available and enforce their normal gates; pause is not a governance bypass.',
+      'remain available and enforce their normal gates; pause is not a way around Flow Gates.',
       'Switch from the SFlow custom agent to the host default Agent and start a new chat to remove',
       'previously loaded instructions. Reload skills or the IDE after updating an older installation.'
     ]
@@ -116,7 +116,7 @@ const PAGES = Object.freeze({
       'Remote failures, non-advertisement and ambiguity remain distinct. Explicit local-only',
       'bootstrap uses the package-approved unmanaged-local-v1 preset and never claims organization',
       'authority. Remote bootstrap also requires a separately installed trusted policy provider and',
-      'a fresh governance-kernel grant; the proposed configuration cannot authorize itself.'
+      'a fresh kernel grant; the proposed configuration cannot authorize itself.'
     ],
     options: [
       ['--remote NAME', 'Select one configured remote explicitly.'],
@@ -290,7 +290,7 @@ const PAGES = Object.freeze({
       'enforcement remains unavailable until CMP binds the shipped universal Candidate through',
       'the existing Story review, approval, and publication transaction.',
       '',
-      'Repository binding follows the normal CLI rule: a governed current checkout wins; otherwise',
+      'Repository binding follows the normal CLI rule: a current Singularity Flow checkout wins; otherwise',
       'the explicitly selected workspace repository is used. The resolved repository is always',
       'printed and returned in JSON. Baseline precedence is explicit --base, generation intent,',
       'current work interval, delivery evidence, Story base, then HEAD.',
@@ -326,7 +326,7 @@ const PAGES = Object.freeze({
       '',
       '`comprehension backfill validate` checks one bounded, repository-local historical proposal.',
       'It keeps historically-confirmed, historically-inferred, and unknown labels distinct, but',
-      'all remain untrusted and non-authoritative until the existing governed review accepts them.',
+      'all remain untrusted and non-authoritative until the existing review accepts them.',
       '',
       '`comprehension record-preview --experimental` emits the proposed record-mode summary without',
       'writing it. It contains exact subject digests, aggregate counts, and closed reason classes,',
@@ -392,7 +392,7 @@ const PAGES = Object.freeze({
     ],
     examples: [
       ['singularity-flow change show WRK-123 --shadow --json', 'Inspect one existing Candidate without writing or changing lifecycle state.'],
-      ['singularity-flow change show --shadow', 'Resolve the Story from the current governed branch and render its known gaps.']
+      ['singularity-flow change show --shadow', 'Resolve the Story from the current Story branch and render its known gaps.']
     ],
     seeAlso: ['comprehension', 'candidate', 'status', 'doctor']
   },
@@ -723,7 +723,7 @@ const PAGES = Object.freeze({
       'records. Missing task-contract bytes, approved authority bundles, raw Device evidence, or',
       'non-durable execution events remain explicit gaps. Verification proves content-addressed',
       'local-export integrity only; it never claims a signature, fresh Authority Store check, or',
-      'governance approval, and it never invokes a model.',
+      'sign-off, and it never invokes a model.',
       '',
       '`evidence reconstruct` stays in the source repository. It first refuses counterfeit or',
       'non-canonical local trace material, then refreshes and compares the approved Program,',
@@ -815,13 +815,13 @@ const PAGES = Object.freeze({
       'revalidates every field and creates no Story, branch, worktree, approval, or authorization.',
       'Starting requires the exact SHA-256 printed on the Plan and revalidates all pinned inputs.',
       '',
-      'This release is the single-repository Story-rail pilot. It creates the governed Story and',
+      'This release is the single-repository Story-rail pilot. It creates the Story and',
       'then pauses at a checkpoint. It never answers clarification, approves, waives policy, retries',
       'a failed model attempt, expands scope, merges, deploys, or silently resumes.'
     ],
     options: [
       ['--work-type ID', 'Select an Auto-eligible Story work type.'],
-      ['--goal ID', 'Seed a Plan from one exact active personal or governed Goal record.'],
+      ['--goal ID', 'Seed a Plan from one exact active personal or repository Goal record.'],
       ['--from-adhoc ID', 'With auto adopt, verify confirmed effects and create a model-free, provenance-preserving Auto Plan.'],
       ['--from-branch BRANCH', 'Pin one branch that is currently published by every selected repository.'],
       ['--pace MODE', 'continuous, phase, or interval:DURATION; policy may only restrict it.'],
@@ -841,7 +841,7 @@ const PAGES = Object.freeze({
   receipt: {
     summary: 'Replay a compact, deterministic evidence receipt for the latest submitted phase.',
     description: [
-      'The receipt is composed from the durable review packet and governed Story records. It does',
+      'The receipt is composed from the durable review packet and Story records. It does',
       'not create a second evidence store and does not trust machine-local state. The same packet',
       'therefore produces the same receipt hash in a fresh clone.',
       '',
@@ -849,7 +849,7 @@ const PAGES = Object.freeze({
       'JSON when another tool needs the exact availability and integrity fields.'
     ],
     options: [
-      ['--work-id ID', 'Select a Story when the current branch is not its governed branch.'],
+      ['--work-id ID', 'Select a Story when the current branch is not its Story branch.'],
       ['--packet SHA256', 'Replay a specific retained review packet instead of the latest one.'],
       ['--markdown', 'Render the receipt as bounded Markdown.'],
       ['--json', 'Emit the complete deterministic receipt and its receiptSha256.']
@@ -888,14 +888,14 @@ const PAGES = Object.freeze({
     summary: 'Inspect exactly what SFlow supplied, omitted, expanded, and could not observe.',
     description: [
       'Context X-Ray is a read-only projection over content-free machine-local Evidence Packet',
-      'telemetry and governed phase usage. It never invokes a model, expands a sealed handle,',
+      'telemetry and phase usage. It never invokes a model, expands a sealed handle,',
       're-runs a tool, reconciles telemetry, or changes lifecycle state.',
       '',
       'Provider observations remain separate from SFlow byte measurements and token estimates.',
       'Every unavailable value stays unavailable; omitted context is not described as tokens saved.'
     ],
     options: [
-      ['--work-id ID', 'Inspect a governed Story other than the one active on this branch.'],
+      ['--work-id ID', 'Inspect a Story other than the one active on this branch.'],
       ['--phase ID', 'Limit the projection to one phase.'],
       ['--packet CTX-ID', 'Inspect one retained content-free packet observation.'],
       ['--profile ID', 'Compile with one approved profile from the pinned token-economy policy.'],
@@ -913,7 +913,7 @@ const PAGES = Object.freeze({
   tokens: {
     summary: 'Read the content-free Token Ledger with field-level status and assurance.',
     description: [
-      'The Token Ledger joins governed phase usage to SFlow-controlled packet measurements without',
+      'The Token Ledger joins phase usage to SFlow-controlled packet measurements without',
       'recording prompts, completions, source, tool arguments, or tool results. Requested and',
       'resolved models remain separate, and missing cache fields never become zero.',
       '',
@@ -921,7 +921,7 @@ const PAGES = Object.freeze({
       'classifies improved, inconclusive, cheaper-but-worse, no-improvement, or unavailable.'
     ],
     options: [
-      ['--work-id ID', 'Read a governed Story other than the one active on this branch.'],
+      ['--work-id ID', 'Read a Story other than the one active on this branch.'],
       ['--phase ID', 'Limit provider and packet totals to one phase.'],
       ['--packet CTX-ID', 'Limit packet context to one retained observation.'],
       ['--today', 'Show one content-free repository-wide aggregate for the current local calendar day; it cannot be combined with Story, phase, or packet selectors.'],
@@ -936,7 +936,7 @@ const PAGES = Object.freeze({
     seeAlso: ['context', 'telemetry', 'progress', 'report']
   },
   copilot: {
-    summary: 'Launch Copilot CLI in the active workspace repository with governed context and consented local usage capture.',
+    summary: 'Launch Copilot CLI in the active workspace repository with context and consented local usage capture.',
     description: [
       'This is the short form of `singularity-flow workspace copilot`. It resolves the active',
       'workspace repository, starts the normal Copilot CLI without changing its interaction model,',
@@ -954,12 +954,12 @@ const PAGES = Object.freeze({
     ],
     examples: [
       ['singularity-flow copilot', 'Continue in the selected workspace repository.'],
-      ['singularity-flow copilot --mode plan --dry-run', 'Preview a governed Plan-mode launch.']
+      ['singularity-flow copilot --mode plan --dry-run', 'Preview a Plan-mode launch.']
     ],
     seeAlso: ['workspace', 'session', 'telemetry', 'home']
   },
   journal: {
-    summary: 'Review private machine-local work memory without creating governance evidence.',
+    summary: 'Review private machine-local work memory without creating evidence.',
     description: [
       'The local work journal records a bounded set of outcome facts beside the machine workspace',
       'registry. It never stores prompts, source bytes, command output, credentials, or raw activity,',
@@ -1016,10 +1016,10 @@ const PAGES = Object.freeze({
       'declared once under integrations.targets and name their secrets; the values come from the',
       'environment of the machine that delivers. A Story pins its actions when it starts.',
       '',
-      'Deliveries run after the governed commit is published and are kept in this repository\'s',
+      'Deliveries run after the commit is published and are kept in this repository\'s',
       'action outbox on this machine. A failure never undoes a transition: it is retried by later',
       'transitions, by sync, or by integrations retry, and each delivery is sent at most once.',
-      'The outbox is machine-local and never governance evidence.',
+      'The outbox is machine-local and never evidence.',
       '',
       'integrations record commits one receipt per delivery that went out, under the Story\'s',
       'evidence/step-actions/, so everyone sees what was delivered. Only deliveries that match what',
@@ -1060,7 +1060,7 @@ const PAGES = Object.freeze({
     seeAlso: ['sync', 'doctor', 'workflow']
   },
   goal: {
-    summary: 'Manage personal outcomes and repository-owned governed Goal Executions.',
+    summary: 'Manage personal outcomes and repository-owned Goal Executions.',
     description: [
       'GOL-* Goals are workspace-scoped personal advisory records. GEX-* Goal Executions are',
       'repository-owned contracts with typed success oracles, immutable plan generations, exact-hash',
@@ -1072,34 +1072,34 @@ const PAGES = Object.freeze({
     ],
     options: [
       ['--success TEXT', 'Observable success criterion. Required for create; repeatable.'],
-      ['--work-id ID', 'Link an existing governed Story or Initiative while creating the Goal.'],
-      ['--kind story|initiative', 'Kind of governed work being linked. Defaults to story.'],
+      ['--work-id ID', 'Link an existing Story or Initiative while creating the Goal.'],
+      ['--kind story|initiative', 'Kind of work being linked. Defaults to story.'],
       ['--repository ID', 'Workspace repository containing the linked work. Defaults to the selected repository.'],
       ['--status active|achieved|abandoned|all', 'Filter the Goal list.'],
       ['--reason TEXT', 'Required explanation when abandoning a Goal.'],
       ['--note TEXT', 'Optional completion note; it is not proof or lifecycle approval.'],
       ['--mode governed', 'List repository-owned GEX lifecycle branches.'],
-      ['--generation N', 'Select the exact governed plan generation for approval.'],
+      ['--generation N', 'Select the exact plan generation for approval.'],
       ['--confirm PLAN-HASH|GOAL-ID', 'Exact plan hash or Goal ID required by the selected transition.'],
-      ['--criterion CLAUSE-ID', 'Limit governed oracle evaluation or trace to one criterion.'],
+      ['--criterion CLAUSE-ID', 'Limit oracle evaluation or trace to one criterion.'],
       ['--json', 'Emit the versioned command result and complete Goal record.']
     ],
     examples: [
       ['singularity-flow goal create "Reduce checkout failures" --success "Retry checkout completes without hanging"',
         'Creates and selects a personal outcome Goal.'],
       ['singularity-flow goal link GOL-20260818-001 PAY-1187 --kind story --repository checkout',
-        'Links existing governed work without changing that Story.'],
+        'Links existing work without changing that Story.'],
       ['singularity-flow goal next', 'Returns one grounded next action for the active Goal.'],
       ['singularity-flow goal govern GOL-20260818-001', 'Creates a separate repository-owned GEX identity without changing the personal Goal.'],
-      ['singularity-flow goal plan approve GEX-… --generation 1 --confirm <PLAN-HASH>', 'Approves only the exact immutable governed plan envelope.']
+      ['singularity-flow goal plan approve GEX-… --generation 1 --confirm <PLAN-HASH>', 'Approves only the exact immutable plan envelope.']
     ],
     seeAlso: ['home', 'session', 'nextsteps', 'story', 'initiative']
   },
   bootstrap: {
-    summary: 'Put an existing repository under governance without pushing to its protected branch.',
+    summary: 'Put an existing repository under Singularity Flow without pushing to its protected branch.',
     description: [
       'Clones the repository and establishes two orphan branches: `sflow/config`, which carries the',
-      'governed definition and this repository\'s capability, and `state`, the append-only ledger.',
+      'workflow definition and this repository\'s capability, and `state`, the append-only ledger.',
       '',
       'Nothing is written to the application branch — not the definition, not a review branch, not a',
       'commit. `start` materializes the approved configuration from `sflow/config` into each Story',
@@ -1120,14 +1120,14 @@ const PAGES = Object.freeze({
     seeAlso: ['init', 'capability', 'start']
   },
   start: {
-    summary: 'Begin governed work on a Story and create its lifecycle branch.',
+    summary: 'Begin work on a Story and create its lifecycle branch.',
     description: [
       'Creates the Story branch from the application branch, pins the configuration and work-type',
       'resolution that will govern the whole Story, and publishes the opening commit.',
       '',
       'The resolution is pinned once, here. Later edits to the configuration do not reach a Story',
-      'that has already started — they stop it instead, which is the point: what governed the work',
-      'is what governed it when the work began.'
+      'that has already started — they stop it instead, which is the point: a Story is held to the',
+      'Flow Policy it started with.'
     ],
     options: [
       ['--work-type ID', 'Which workflow to run. Required when the terminal is not interactive.'],
@@ -1163,17 +1163,17 @@ const PAGES = Object.freeze({
     seeAlso: ['phase', 'artifact', 'nextsteps']
   },
   phase: {
-    summary: 'Check, begin, inspect, safely roll over, or publish a governed phase generation.',
+    summary: 'Check, begin, inspect, safely roll over, or publish a phase generation.',
     description: [
       '`phase enter` bundles pause, active checkout/agent binding, pinned phase policy, recovery,',
       'clarification and reference verification into one model-free entry packet. It is read-only.',
-      '`--compose` explicitly records/reuses the governed prompt when entry is admitted; it never',
+      '`--compose` explicitly records/reuses the phase prompt when entry is admitted; it never',
       'begins a generation, runs tests, commits, submits or approves. Prompt text is returned once.',
       '`phase draft-check` validates the current artifact without mutation and returns structured',
       'correction findings before any publication attempt.',
       '`phase begin` establishes a code-generation boundary before source mutation. `phase publish`',
       'records a new generation: it registers the artifacts, captures authorship and model usage,',
-      'and commits the result as one governed transition.',
+      'and commits the result as one transition.',
       'Begin is local and idempotent: it creates no lifecycle event, commit, push, or ledger entry.',
       'Publish verifies and binds the exact generation-start receipt into artifact-generated.',
       '`phase rollover` previews an exact digest before opening a successor to changed consumed bytes.',
@@ -1190,7 +1190,7 @@ const PAGES = Object.freeze({
       ['--authored human|governed-agent|external-tool', 'Who produced the artifact. Record it explicitly.'],
       ['--change-origin ORIGIN', 'Repeat to attest human, Copilot, formatter, compiler, migration, or generator contributions.'],
       ['--from FILE', 'Import the artifact from a file authored elsewhere.'],
-      ['--usage-json FILE', 'Attach model usage for a governed-agent generation.']
+      ['--usage-json FILE', 'Attach model usage for an agent-authored generation.']
     ],
     examples: [
       ['singularity-flow phase draft-check planning --json',
@@ -1217,7 +1217,7 @@ const PAGES = Object.freeze({
     summary: 'Approve the phase awaiting review and advance the Story.',
     description: [
       'Records an approval decision against the exact artifact hashes that were submitted, advances',
-      'to the next phase, and commits the decision as one governed transition.',
+      'to the next phase, and commits the decision as one transition.',
       '',
       'Approval is an outward, attributed act: it is recorded against your Git identity and the',
       'authority group that permits it, and self-approval is reported as such.'
@@ -1335,12 +1335,12 @@ const PAGES = Object.freeze({
     summary: 'Diagnose a fault and create or preview its policy-bounded repair plan.',
     description: [
       'Runs deterministic diagnosis first, joins the exact baseline to changed paths and available',
-      'governed records, computes the most restrictive effective action ceiling, and pins scope,',
+      'records, computes the most restrictive effective action ceiling, and pins scope,',
       'verification and budgets before any repair worktree can be created.',
       '',
       'Diagnostic paths are evidence only. Mutation scope remains empty until at least one explicit',
       '`--allow-path` is reviewed. `--auto` is a request, never extra authority. It degrades to the policy ceiling, and this',
-      'build refuses autonomous mutation unless a separately governed adapter is configured.'
+      'build refuses autonomous mutation unless a separately approved adapter is configured.'
     ],
     options: [
       ['--diagnose-only', 'Record deterministic facts and dispositions without creating a repair.'],
@@ -1360,7 +1360,7 @@ const PAGES = Object.freeze({
     seeAlso: ['fault', 'repair', 'regression', 'constitution']
   },
   repair: {
-    summary: 'Authorize, inspect, attempt, or cancel an isolated governed repair.',
+    summary: 'Authorize, inspect, attempt, or cancel an isolated repair.',
     description: [
       'Authorization is bound to the exact RepairPlan hash and creates a local repair branch and',
       'isolated worktree from the pinned baseline. A patch is checked for scope and safety before',
@@ -1395,7 +1395,7 @@ const PAGES = Object.freeze({
       ['--json', 'Emit the versioned approval-chain projection, including current and invalidated decisions.']
     ],
     examples: [
-      ['singularity-flow approvals PAY-1', 'Show each phase, its governed document, required authority, and approver.'],
+      ['singularity-flow approvals PAY-1', 'Show each phase, its document, required authority, and approver.'],
       ['singularity-flow approval-chain PAY-1 --json', 'Read the same chain through the compatibility alias as structured data.']
     ],
     seeAlso: ['status', 'progress', 'inbox', 'review', 'approve']
@@ -1403,7 +1403,7 @@ const PAGES = Object.freeze({
   nextsteps: {
     summary: 'List the actions that are valid right now, and the command for each.',
     description: [
-      'Reads the governed state and reports only transitions the Story can actually take, so it is',
+      'Reads the lifecycle state and reports only transitions the Story can actually take, so it is',
       'the fastest way out of "what am I allowed to do here".'
     ],
     examples: [
@@ -1433,7 +1433,7 @@ const PAGES = Object.freeze({
     summary: 'Diagnose the repository, the Story, and the tooling around them.',
     description: [
       'Reports on Git identity, remote access, model provider availability, platform shell support,',
-      'the capability ledger, and the governed state of the current Story. Exits non-zero when it',
+      'the capability ledger, and the lifecycle state of the current Story. Exits non-zero when it',
       'finds something blocking.'
     ],
     options: [
@@ -1452,7 +1452,7 @@ const PAGES = Object.freeze({
   pr: {
     summary: 'Preview or open the pull request for a Story.',
     description: [
-      'Builds the pull-request body entirely from governed state — the approved artifacts and the',
+      'Builds the pull-request body entirely from lifecycle state — the approved artifacts and the',
       'hashes they were approved at — and targets the Epic branch when the Story belongs to one.',
       '',
       'Preview is the default. Opening it requires --create and a typed confirmation, because it is',
@@ -1672,7 +1672,7 @@ const PAGES = Object.freeze({
       ['--base DIRECTORY', 'Parent directory; preflight checks it before destination creation.'],
       ['--branch BRANCH', 'Explicit remote branch. When omitted for a single remote, its advertised HEAD is used.'],
       ['--clone', 'Materialize application checkouts during workspace setup; the default registers planned paths and defers cloning until work needs code.'],
-      ['--initialize', 'Explicitly check out the lead and initialize its governed state branch; implies --clone unless --no-clone is given, which is refused.'],
+      ['--initialize', 'Explicitly check out the lead and initialize its Flow Ledger branch; implies --clone unless --no-clone is given, which is refused.'],
       ['--network', 'Allow workspace doctor to contact pending-session remotes and exact URLs supplied with --repository.'],
       ['--confirm ID', 'Exact workspace ID required before a bootstrap session may materialize.'],
       ['--reason TEXT', 'Human recovery or abandonment reason recorded with the bootstrap receipt.'],
@@ -1780,7 +1780,7 @@ const PAGES = Object.freeze({
       '',
       '`inspect-repository` remains a compatibility diagnostic that',
       'reports whether a repository is already mapped, known but unassigned, new, ambiguous, or',
-      'not conclusively inspectable. It also detects a self-hosted map on a new laptop; an ungoverned',
+      'not conclusively inspectable. It also detects a self-hosted map on a new laptop; an unmapped',
       'target becomes the first map only by explicit choice. A bounded scan also finds matching pending',
       'proposals; incomplete pending-proposal coverage blocks creation. Only an explicit new-mapping choice proceeds to metadata.',
       '',
@@ -1793,7 +1793,7 @@ const PAGES = Object.freeze({
       'publish as one proposal. An empty destination moves direct children to the top level.',
       '',
       'For monorepos, source/shared roots bound world-model grounding. A blobless or blobless-sparse',
-      'clone policy bounds what new workspaces download; sparse mode always retains governed files.',
+      'clone policy bounds what new workspaces download; sparse mode always retains files.',
       '',
       '`capability fsck` verifies the approved map, registered workspace bindings, state projection,',
       'and every retained proposal.',
@@ -1856,7 +1856,7 @@ const PAGES = Object.freeze({
     summary: 'Inspect and repair the append-only capability ledger.',
     description: [
       'The ledger is an orphan branch with no shared ancestry with application branches, and it must',
-      'never be merged into one. Every governed publication appends to it.',
+      'never be merged into one. Every publication appends to it.',
       '',
       'When a publication reports that its ledger mirror is pending, `ledger reconcile` is what',
       'completes the attestation. When a clone cannot reach a recorded source pin, `ledger repair`',
@@ -1933,7 +1933,7 @@ const PAGES = Object.freeze({
     seeAlso: ['factory-reset', 'reset-all', 'reinstall']
   },
   governance: {
-    summary: 'Rebuild the governance of this repository onto the current model, or restore it.',
+    summary: 'Rebuild this repository\'s Flow Policy onto the current model, or restore it.',
     description: [
       '`governance rebuild --dry-run` exports the approved configuration into a scratch directory,',
       'replaces every framework-owned workflow, template and agent with the current package while',
@@ -1969,7 +1969,7 @@ const PAGES = Object.freeze({
     seeAlso: ['factory-reset', 'workflow', 'configuration']
   },
   validate: {
-    summary: 'Check the governed state of the current Story against its pinned configuration.',
+    summary: 'Check the lifecycle state of the current Story against its pinned configuration.',
     examples: [['singularity-flow validate --strict', 'Fail on warnings as well as errors.']],
     seeAlso: ['gate', 'doctor', 'status']
   },
@@ -1981,7 +1981,7 @@ const PAGES = Object.freeze({
   init: {
     summary: 'Initialise Singularity Flow inside a repository you already have, manually or from a deterministic repository proposal.',
     description: [
-      'The compatible manual form writes missing governed definition, template, and agent assets.',
+      'The compatible manual form writes missing workflow definition, template, and agent assets.',
       'It stages and commits nothing. Use `bootstrap` to govern a repository from its URL instead.',
       '',
       '`--smart-detect` is a separate deterministic operation for a fresh local repository. It',
@@ -1991,7 +1991,7 @@ const PAGES = Object.freeze({
       'proposal digest (or unambiguous `--yes` defaults), commits only its declared paths, records',
       'the accepted origins, and preserves unrelated staged and working-tree changes.',
       '',
-      'Smart detection refuses an already governed repository. Change existing law through the',
+      'Smart detection refuses a repository that already has approved configuration. Change existing law through the',
       'configuration authority instead of replacing it with a fresh initialization.'
     ],
     options: [
@@ -2006,7 +2006,7 @@ const PAGES = Object.freeze({
       ['--activation local-confirmation|review-proposal|proposal-only', 'Choose the activation channel. Proposal modes never make their contents active law.']
     ],
     examples: [
-      ['singularity-flow init', 'Initialise governance manually in the current repository.'],
+      ['singularity-flow init', 'Initialise Singularity Flow manually in the current repository.'],
       ['singularity-flow init --smart-detect --dry-run --json', 'Inspect the byte-identical proposal with no side effects.'],
       ['singularity-flow init --smart-detect --output init-proposal.json --json', 'Export a non-active proposal that can later be accepted by exact digest.'],
       ['singularity-flow init --smart-detect --yes', 'Activate only when all defaults and verification are unambiguous.'],
@@ -2059,12 +2059,12 @@ const PAGES = Object.freeze({
   return: {
     summary: 'Return to a published Story on this machine from a verified durable locator.',
     description: [
-      'Fetches the configured remote, resolves the Story from published governed state, and verifies',
+      'Fetches the configured remote, resolves the Story from published lifecycle state, and verifies',
       'its integrity-bound return locator before changing the checkout. It never scans arbitrary',
       'directories, stashes local work, resets a branch, or invents a repository from local memory.',
       '',
       'Preview first. Applying requires the exact Work ID and a clean worktree, creates or advances',
-      'only the local Story branch by fast-forward, and then reconstructs the governed session.'
+      'only the local Story branch by fast-forward, and then reconstructs the session.'
     ],
     options: [
       ['--apply', 'Apply the verified plan; without this flag the command is read-only.'],
@@ -2075,7 +2075,7 @@ const PAGES = Object.freeze({
     ],
     examples: [
       ['singularity-flow return PAY-1', 'Verify the published Story and show the non-mutating return plan.'],
-      ['singularity-flow return PAY-1 --apply --confirm PAY-1', 'Fast-forward the local PAY-1 branch and attach its governed session.']
+      ['singularity-flow return PAY-1 --apply --confirm PAY-1', 'Fast-forward the local PAY-1 branch and attach its session.']
     ],
     seeAlso: ['resume', 'session', 'home', 'sync']
   },
@@ -2089,7 +2089,7 @@ const PAGES = Object.freeze({
       'writes a repository file, commits, pushes, or changes lifecycle state.',
       '',
       'New Stories carry an immutable workflow snapshot containing the exact effective policy,',
-      'phase templates, and selected governed-agent bytes. The workflow show, verify, and drift',
+      'phase templates, and selected agent bytes. The workflow show, verify, and drift',
       'actions inspect that closure without fetching a remote or changing lifecycle state.',
       '',
       'Reference repositories are separate from capability delivery repositories. Their branch is',
@@ -2107,7 +2107,7 @@ const PAGES = Object.freeze({
       ['singularity-flow story workflow drift --work-id PAY-1', 'Compare pinned provenance with the locally approved configuration observation.'],
       ['singularity-flow story references verify --work-id PAY-1 --json', 'Verify every local reference is clean, detached, and at its pinned commit.'],
       ['singularity-flow story references materialize --work-id PAY-1', 'Recreate only missing local reference checkouts from immutable Story pins.'],
-      ['singularity-flow story branch create --parent PAY-1 --name PAY-1-ui', 'Create a governed child branch.'],
+      ['singularity-flow story branch create --parent PAY-1 --name PAY-1-ui', 'Create a child branch.'],
       ['singularity-flow story intent-amendment propose --file amended-spec.md --reason "Retry policy changed" --authored human', 'Propose corrected approved intent from any active downstream phase in any workflow, without a convergence finding or rework loop. The CLI binds exact bytes, declared authorship and changed clauses; omitted authorship/AI declarations remain unknown. Only scope authority approval applies it.'],
       ['singularity-flow story checks PAY-1', 'Record configured repository-check evidence against the submitted packet.']
     ],
@@ -2136,8 +2136,8 @@ const PAGES = Object.freeze({
   reopen: {
     summary: 'Reopen completed work and return it to an earlier phase.',
     description: [
-      'Ordinary reopen targets remain limited by the final phase policy. When the final governance',
-      'gate proves that an earlier phase owns corrupt or missing evidence, --gate-recovery previews',
+      'Ordinary reopen targets remain limited by the final phase policy. When the final Flow Gate',
+      'proves that an earlier phase owns corrupt or missing evidence, --gate-recovery previews',
       'a content-bound exception. Repeat it with the emitted --confirm digest; it never changes',
       'application files and is invalidated by any HEAD, workflow, target, or finding change.'
     ],
@@ -2180,7 +2180,7 @@ function section(title, body) {
  * with the old "detail has not been written" dead end.
  */
 function catalogPage(command, definition, synopsis) {
-  const classification = definition?.classification === 'read' ? 'read-only' : 'governed mutation';
+  const classification = definition?.classification === 'read' ? 'read-only' : 'mutation';
   const flags = [...new Set(synopsis.flatMap((line) => [...line.matchAll(/--[a-z][a-z0-9-]*/g)].map((match) => match[0])))];
   const title = command.replaceAll('-', ' ');
   return {
@@ -2270,13 +2270,13 @@ export function renderCommandHelp(name) {
  */
 export const OVERVIEW_GROUPS = Object.freeze([
   ['Start here', [
-    ['quickstart', 'Walk through one complete governed change. Offline, no model, about 8 seconds.'],
+    ['quickstart', 'Walk through one complete change. Offline, no model, about 8 seconds.'],
     ['bootstrap <REPOSITORY-URL>', 'Set up a capability, its configuration branch and its ledger.'],
     ['next', 'What to do next, here, right now.']
   ]],
-  ['One governed change, in order', [
+  ['One change, in order', [
     ['start <WORK-ID>', 'Open a Story and pin the configuration it will be judged against.'],
-    ['agent <PHASE>', 'Run the governed agent for a phase and register what it produced.'],
+    ['agent <PHASE>', 'Run the agent for a phase and register what it produced.'],
     ['submit', 'Submit the current phase for approval.'],
     ['approve', 'Approve a submitted phase. Also: reject, reopen, cancel.'],
     ['finalize', 'Complete the Story and open its pull request.']

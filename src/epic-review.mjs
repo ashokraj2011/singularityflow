@@ -245,7 +245,7 @@ export async function epicReviewDecision(root, initiativeId, storyReference, {
   const selectedAgent = agent ?? preview.defaultAgent;
   if (!preview.availableAgents.some((entry) => entry.id === selectedAgent)) {
     throw new SingularityFlowError(
-      `Unknown governed agent '${selectedAgent ?? ''}'. Choose one of: ${preview.availableAgents.map((entry) => entry.id).join(', ')}.`
+      `Unknown agent '${selectedAgent ?? ''}'. Choose one of: ${preview.availableAgents.map((entry) => entry.id).join(', ')}.`
     );
   }
   if (!preview.reviewerAuthority.authorized) throw new SingularityFlowError(preview.reviewerAuthority.reason);

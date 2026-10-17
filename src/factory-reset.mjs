@@ -165,7 +165,7 @@ function changedResetEntries(root, { caseInsensitive }) {
   // uncommitted" and deleted the work anyway.
   if (result.status !== 0) {
     throw new SingularityFlowError(
-      `Cannot determine whether ${root} has uncommitted governed changes: `
+      `Cannot determine whether ${root} has uncommitted changes: `
       + `${(result.stderr || result.stdout).trim().split('\n')[0] || 'git status failed'}. `
       + 'Refusing to reset without that answer.'
     );

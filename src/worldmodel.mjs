@@ -573,7 +573,7 @@ async function compose(root, options, {
   const session = await loadSession(root, { required: false });
   const explicitAgent = optionString(options, 'agent');
   let agent = explicitAgent ?? session?.agent;
-  if (!agent) throw new SingularityFlowError('Provide --agent (governed-agent ID) or start a governed-agent session first.');
+  if (!agent) throw new SingularityFlowError('Provide --agent (an agent ID) or start an agent session first.');
   const workId = optionString(options, 'work-id');
   if (workId && !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(workId)) {
     throw new SingularityFlowError('Provide a valid work ID containing only letters, numbers, dots, underscores, or hyphens.');
@@ -1056,7 +1056,7 @@ async function compose(root, options, {
   if (cacheEnabled) console.error(`Composition cache: ${cached.hit ? 'hit' : 'miss'} ${cached.key.slice(0, 12)}.`);
 
   if (dryRun) {
-    console.log(`phase: ${signals.phase}  governed agent: ${agent}  prompt: ${promptStudy ? `${promptStudy.variant.id} · ${promptStudy.studyRunId}` : 'agent default'}  clarification: ${clarificationPolicy.mode}  change requests: ${openChangeRequests.length}  reference repositories: ${referenceRepositories.repositories.length}  AST facts: ${structural.record?.factsReturned ?? 0}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}`);
+    console.log(`phase: ${signals.phase}  agent: ${agent}  prompt: ${promptStudy ? `${promptStudy.variant.id} · ${promptStudy.studyRunId}` : 'agent default'}  clarification: ${clarificationPolicy.mode}  change requests: ${openChangeRequests.length}  reference repositories: ${referenceRepositories.repositories.length}  AST facts: ${structural.record?.factsReturned ?? 0}  rules matched: ${injection.matchedRules}  rule files: ${injection.sections.length}  agent skills: ${remote.skills.length}`);
     files.forEach((section) => console.log(`  ${section.category}:${section.path} (${section.injectedBytes}/${section.bytes} bytes)${section.truncated ? ' (truncated)' : ''}`));
     remote.skills.forEach((skill) => console.log(`  agent:${session?.agent ?? 'unknown'}/${skill.id} (${skill.size} bytes) @${skill.sha256.slice(0, 12)}`));
     return;
@@ -1291,7 +1291,7 @@ async function showPrompt(root, options) {
   const suffix = '--- END GOVERNED PHASE PROMPT ---\n';
   process.stdout.write(suffix);
   if (recordHandoff) {
-    if (!agent) throw new SingularityFlowError('Prompt audit requires an active governed agent or --agent ID.');
+    if (!agent) throw new SingularityFlowError('Prompt audit requires an active agent or --agent ID.');
     const phaseRecord = config.workflow?.phases?.[phase] ?? null;
     const generationPrompt = config.workflow && phaseRecord
       ? await readPromptGeneration(root, config.workflow, phaseRecord, {

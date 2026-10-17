@@ -131,7 +131,7 @@ function printCommandRoutes(command, { skill = null, indent = '', label = null }
   if (label) console.log(`${indent}${label}:`);
   const guidance = safeCommandGuidance({ command, skill });
   if (!guidance) {
-    console.log(`${indent}Copilot: unavailable — ask /sf-next for a current governed action.`);
+    console.log(`${indent}Copilot: unavailable — ask /sf-next for a current action.`);
     console.log(`${indent}Shell: unavailable — the supplied command was not safe to display.`);
     console.log(`${indent}VS Code (model-free): not available for this action`);
     return;
@@ -356,7 +356,7 @@ async function postPublicationSessionStep(label, workId, operation) {
   try {
     return { ok: true, value: await operation() };
   } catch (error) {
-    console.warn(`Warning: governed publication succeeded, but ${label} could not be completed: ${redactDiagnosticText(error?.message ?? String(error))}`);
+    console.warn(`Warning: publication succeeded, but ${label} could not be completed: ${redactDiagnosticText(error?.message ?? String(error))}`);
     printCommandRoutes(`singularity-flow resume ${workId} --fetch`, {
       label: 'Refresh local phase/session state'
     });
@@ -427,7 +427,7 @@ export async function storyInboxCommand(options) {
 async function verifyFetchedStoryContext(target, storyKey, property) {
   const seedFile = path.join(target, 'singularity', 'seeds', `${storyKey}.yml`);
   if (!existsSync(seedFile)) {
-    throw new SingularityFlowError(`Fetched branch '${storyKey}' has no governed seed at singularity/seeds/${storyKey}.yml.`);
+    throw new SingularityFlowError(`Fetched branch '${storyKey}' has no Story seed at singularity/seeds/${storyKey}.yml.`);
   }
   const seed = YAML.parse(await readFile(seedFile, 'utf8'));
   if (seed?.story?.workId !== storyKey || seed?.story?.jiraKey !== storyKey) {
@@ -435,13 +435,13 @@ async function verifyFetchedStoryContext(target, storyKey, property) {
   }
   const expectedPlan = property.story?.planId ?? null;
   if (expectedPlan && seed.story.planId !== expectedPlan) {
-    throw new SingularityFlowError(`Jira lineage says plan '${expectedPlan}', but the governed seed says '${seed.story.planId}'.`);
+    throw new SingularityFlowError(`Jira lineage says plan '${expectedPlan}', but the Story seed says '${seed.story.planId}'.`);
   }
   for (const record of seed.governedContext ?? []) {
     const current = await snapshot(path.join(target, record.path));
     if (!current.exists || current.sha256 !== record.sha256) {
       throw new SingularityFlowError(
-        `Governed Story input '${record.id}' failed verification. Expected ${record.sha256}; `
+        `Story input '${record.id}' failed verification. Expected ${record.sha256}; `
         + `found ${current.exists ? current.sha256 : 'missing'}.`
       );
     }
@@ -450,7 +450,7 @@ async function verifyFetchedStoryContext(target, storyKey, property) {
   const actualStory = (seed.governedContext ?? []).find((record) => record.id === 'story-specification');
   if (expectedStoryHash && actualStory?.sha256 !== expectedStoryHash) {
     throw new SingularityFlowError(
-      `Jira lineage Story specification hash ${expectedStoryHash} does not match the governed seed hash ${actualStory?.sha256 ?? 'missing'}.`
+      `Jira lineage Story specification hash ${expectedStoryHash} does not match the Story seed hash ${actualStory?.sha256 ?? 'missing'}.`
     );
   }
   return seed;
@@ -600,7 +600,7 @@ export async function storyFetchCommand(positionals, options) {
   let repositoryReadiness;
   const inspectSeedPrerequisites = async () => {
     if (readinessRequired && !/^[a-f0-9]{40,64}$/u.test(readinessBase ?? '')) {
-      throw new SingularityFlowError('Governed Jira Story seed has no exact base commit for required non-test prerequisites.', {
+      throw new SingularityFlowError('Jira Story seed has no exact base commit for required non-test prerequisites.', {
         code: 'STORY_REPOSITORY_READINESS_REQUIRED'
       });
     }
@@ -674,7 +674,7 @@ export async function storyFetchCommand(positionals, options) {
       config,
       workflow,
       { type: LIFECYCLE_EVENT.BINDING },
-      `[${storyKey}][init] start governed Story workflow`,
+      `[${storyKey}][init] start Story workflow`,
       [],
       { expectedRemoteSha: expectedStoryCommit }
     );
@@ -1024,7 +1024,7 @@ export async function storyCommand(positionals, options) {
         : null;
       const result = { workId: workflow.workItem.id, workType: workflow.workItem.workType, current, packet };
       if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
-      if (!current) return console.log(`Story ${workflow.workItem.id} has no open governed work interval${workflow.currentPhase ? ` in phase ${workflow.currentPhase}` : ''}.`);
+      if (!current) return console.log(`Story ${workflow.workItem.id} has no open work interval${workflow.currentPhase ? ` in phase ${workflow.currentPhase}` : ''}.`);
       console.log(`Story ${workflow.workItem.id} · ${current.phaseId} generation ${current.generation}`);
       console.log(`Baseline: ${current.baselineSha256.slice(0, 12)} · source ${current.sourceBaseCommit.slice(0, 12)} · ${current.status}`);
       if (current.finalReconciliation) console.log(`Final reconciliation: ${current.finalReconciliation.reconciliationSha256.slice(0, 12)}`);
@@ -1081,7 +1081,7 @@ export async function storyCommand(positionals, options) {
       console.log(`Changed: ${result.summary.changedPaths} · planned: ${result.summary.planned} · unplanned: ${result.summary.unplanned} · protected: ${result.summary.protected}`);
       result.decision.reasons.forEach((reason) => console.warn(`Escalation: ${reason}`));
       console.log(`Local report: ${result.localPath}`);
-      console.log('This preview changed no governed state. Submission records the final reconciliation atomically.');
+      console.log('This preview changed no lifecycle state. Submission records the final reconciliation atomically.');
       return;
     }
     if (action === 'escalate') {
@@ -1735,7 +1735,7 @@ export async function phaseIntentAmendmentSource(root, config, workflow, sourceP
   if (!intentAmendmentSource(workflow, sourcePhaseId)) {
     throw new SingularityFlowError(
       'An intent amendment requires an active phase after an approved scope. '
-      + (!specification ? 'This workflow has no scope artifact; request a governed workflow/scope change first.'
+      + (!specification ? 'This workflow has no scope artifact; request a workflow/scope change first.'
         : specification.status !== 'approved' ? 'Review and revise the scope draft through its ordinary publication and approval route first.'
           : 'Use the current active phase; reopen a closed Story through its ordinary reviewed route first.'),
       { code: 'INTENT_AMENDMENT_SOURCE_INVALID', details: {
@@ -1953,7 +1953,7 @@ async function proposeIntentAmendment(root, config, workflow, options) {
   const afterClauses = extractClauses(proposedText, { sourcePath: specificationPath });
   const diff = clauseDiff(beforeClauses, afterClauses);
   if (!diff.changed.length) {
-    throw new SingularityFlowError('The proposed specification does not change any governed clause.', {
+    throw new SingularityFlowError('The proposed specification does not change any clause.', {
       code: 'INTENT_AMENDMENT_EMPTY'
     });
   }
@@ -2534,7 +2534,7 @@ export async function storyReworkRollForwardCommand(_positionals, options) {
   };
   if (optionBoolean(options, 'json')) return console.log(JSON.stringify(result, null, 2));
   console.log(`Abandoned ${result.changeRequestId} and safely returned ${result.workId} to ${result.phase ?? 'its closed state'}.`);
-  console.log(`Restored ${result.restoredPaths.length} path(s) in governed commit ${result.commit.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
+  console.log(`Restored ${result.restoredPaths.length} path(s) in commit ${result.commit.slice(0, 8)}${result.pushed ? ' and pushed' : ''}.`);
   console.log(`The discarded working bytes remain recoverable from local backup: ${result.backupPath}`);
 }
 

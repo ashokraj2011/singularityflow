@@ -314,7 +314,7 @@ function nonGenerativeCheckpoint(planned, phase) {
     kind: 'human-review',
     reason: submitting
       ? `${phase?.label ?? phase?.id ?? 'The phase'} artifact is generated and ready for review and submission.`
-      : 'The next governed action requires user review.'
+      : 'The next action requires user review.'
   };
 }
 

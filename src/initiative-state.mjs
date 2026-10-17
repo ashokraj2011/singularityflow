@@ -234,7 +234,7 @@ export async function initiativeStartPreflight(root, {
   assertAuthorityMembership(resolved);
   const actor = identity(root);
   if (!actor.email) {
-    throw new SingularityFlowError('Initiative governance requires a local Git email. Configure user.email before starting.');
+    throw new SingularityFlowError('Initiatives require a local Git email. Configure user.email before starting.');
   }
   return { portfolio, definition, resolved, actor };
 }
@@ -296,7 +296,7 @@ export function initiativeStatusMarkdown(initiative) {
     lines.push(`| ${phase.order + 1} | ${phase.label} | **${phase.status}** | ${phase.generation} | ${outputs.filter((item) => item.status !== 'not_generated').length}/${outputs.length} | ${checks.filter((item) => ['satisfied', 'waived', 'not_applicable'].includes(item.status)).length}/${checks.length} |`);
   }
   lines.push('', '## Recent history', '');
-  for (const event of initiative.history.slice(-20).reverse()) lines.push(`- ${event.at} — **${event.event}**${event.phase ? ` (${event.phase})` : ''} by ${event.actor ?? 'unknown'}${event.agent ? ` · governed agent ${event.agent}` : ''}${event.detail ? `: ${event.detail}` : ''}`);
+  for (const event of initiative.history.slice(-20).reverse()) lines.push(`- ${event.at} — **${event.event}**${event.phase ? ` (${event.phase})` : ''} by ${event.actor ?? 'unknown'}${event.agent ? ` · agent ${event.agent}` : ''}${event.detail ? `: ${event.detail}` : ''}`);
   return `${lines.join('\n')}\n`;
 }
 
@@ -486,7 +486,7 @@ export async function createInitiative(root, {
       observedAt: null
     }]))
   }));
-  await writeText(readmePath.absolute, `# ${id} — ${initiative.initiative.title}\n\nDurable initiative orchestration state for branch \`${id}\`.\n\n- [state.json](./state.json) — immutable profile resolution and lifecycle state\n- [STATUS.md](./STATUS.md) — human-readable progress\n- [breakdown.yml](./breakdown.yml) — Epic and repository-story plan\n- [repositories.lock.yml](./repositories.lock.yml) — observed repository heads\n- [artifacts/](./artifacts/) — governed phase outputs\n- [evidence/records/](./evidence/records/) — append-only evidence\n- [approvals/records/](./approvals/records/) — append-only decisions\n- [invalidations/records/](./invalidations/records/) — dependency-cone invalidations\n- [contracts/](./contracts/) — versioned cross-repository contracts\n`);
+  await writeText(readmePath.absolute, `# ${id} — ${initiative.initiative.title}\n\nDurable initiative orchestration state for branch \`${id}\`.\n\n- [state.json](./state.json) — immutable profile resolution and lifecycle state\n- [STATUS.md](./STATUS.md) — human-readable progress\n- [breakdown.yml](./breakdown.yml) — Epic and repository-story plan\n- [repositories.lock.yml](./repositories.lock.yml) — observed repository heads\n- [artifacts/](./artifacts/) — phase outputs\n- [evidence/records/](./evidence/records/) — append-only evidence\n- [approvals/records/](./approvals/records/) — append-only decisions\n- [invalidations/records/](./invalidations/records/) — dependency-cone invalidations\n- [contracts/](./contracts/) — versioned cross-repository contracts\n`);
   await saveInitiative(root, portfolio, initiative);
   return { portfolio, initiative };
 }
@@ -614,7 +614,7 @@ export async function selectInitiativePhaseOutputs(root, id, phaseId, includedId
   if (dropped.length) throw new SingularityFlowError(`${dropped.map((value) => `'${value}'`).join(', ')} ${dropped.length === 1 ? 'is' : 'are'} required by profile '${initiative.resolution.profile}' and cannot be removed from this Epic.`);
 
   const authored = Object.values(phase.outputs ?? {}).filter((output) => output.sha256 && !requested.includes(output.id)).map((output) => output.id);
-  if (authored.length) throw new SingularityFlowError(`${authored.map((value) => `'${value}'`).join(', ')} already ${authored.length === 1 ? 'has' : 'have'} content in this Epic. Remove the file through a governed change before dropping the output.`);
+  if (authored.length) throw new SingularityFlowError(`${authored.map((value) => `'${value}'`).join(', ')} already ${authored.length === 1 ? 'has' : 'have'} content in this Epic. Remove the file through a change before dropping the output.`);
 
   const before = Object.keys(phase.outputs ?? {}).filter((outputId) => initiativeOutputRequired(initiative, phaseId, availableById.get(outputId) ?? { id: outputId }));
   const phaseDefinition = initiative.resolution.phases.find((item) => item.id === phaseId);
@@ -1230,7 +1230,7 @@ export async function commitInitiativeChange(root, portfolio, initiative, event,
         code: typeof error?.code === 'string' ? error.code : 'LOCAL_PENDING_CLEANUP_FAILED'
       };
       console.warn(
-        `Warning: governed Initiative commit ${result.sha.slice(0, 8)} was pushed, but its local publication marker could not be cleared. `
+        `Warning: Initiative commit ${result.sha.slice(0, 8)} was pushed, but its local publication marker could not be cleared. `
         + 'Do not repeat the lifecycle action; run singularity-flow initiative sync to verify and clear the marker.'
       );
     }
@@ -1260,7 +1260,7 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
     const liveOwner = livePreparedPublicationOwner(pending, root);
     if (liveOwner) {
       throw new SingularityFlowError(
-        `Initiative '${initiative.initiative.id}' has an active governed publication command (PID ${liveOwner.pid}`
+        `Initiative '${initiative.initiative.id}' has an active publication command (PID ${liveOwner.pid}`
         + `${liveOwner.createdAt ? `, started ${liveOwner.createdAt}` : ''}). `
         + 'Return to that terminal and complete or interrupt the command; do not start another mutation. '
         + 'After interrupting it, run singularity-flow initiative sync again.'
@@ -1280,7 +1280,7 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
       };
     }
     throw new SingularityFlowError(
-      `Initiative '${initiative.initiative.id}' was interrupted before its governed commit completed. `
+      `Initiative '${initiative.initiative.id}' was interrupted before its commit completed. `
       + 'Inspect the working tree, run singularity-flow doctor, and repair or discard the partial local state before retrying.'
     );
   }
@@ -1309,7 +1309,7 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
     });
     if (!verification.valid) {
       throw new SingularityFlowError(
-        `Initiative '${initiative.initiative.id}' pending publication marker does not prove one exact governed commit: `
+        `Initiative '${initiative.initiative.id}' pending publication marker does not prove one exact commit: `
         + `${verification.failures.join('; ')}. The marker was retained and no commit was pushed. `
         + 'Run singularity-flow doctor --json and repair or discard the invalid recovery receipt.',
         {
@@ -1339,7 +1339,7 @@ export async function syncInitiativePublication(root, portfolio, initiative, { f
     if (!currentRecord.remoteFingerprint || !remoteAuthority?.url
       || remoteAuthority.fingerprint !== currentRecord.remoteFingerprint) {
       throw new SingularityFlowError(
-        `Initiative '${initiative.initiative.id}' publication remote '${currentRecord.remote}' changed after the governed commit was retained. `
+        `Initiative '${initiative.initiative.id}' publication remote '${currentRecord.remote}' changed after the commit was retained. `
         + 'The marker was retained and no ref was pushed.',
         { code: 'PENDING_PUBLICATION_REMOTE_CHANGED', details: { subject, markerPath: current.path } }
       );

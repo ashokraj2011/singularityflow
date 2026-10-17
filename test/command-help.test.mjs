@@ -72,7 +72,7 @@ test('every command has a complete current reference page', () => {
 
 test('an authored page carries description, examples and related commands', () => {
   const page = renderCommandHelp('start');
-  assert.match(page, /Begin governed work on a Story/);
+  assert.match(page, /Begin work on a Story/);
   assert.match(page, /\nDESCRIPTION\n/);
   assert.match(page, /\nOPTIONS\n/);
   assert.match(page, /\nEXAMPLES\n/);

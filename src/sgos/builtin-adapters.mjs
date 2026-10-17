@@ -92,7 +92,7 @@ async function storyObservation(root, process) {
   const subjectId = process?.authorityBinding?.subjectId;
   const pinned = process?.authorityBinding?.subjectAuthority;
   if (!pinned || pinned.revision !== process?.authorityBinding?.baselineRevision) {
-    fail('The SGOS Process does not carry an exact governed Story authority.',
+    fail('The SGOS Process does not carry an exact Story authority.',
       'SGOS_STORY_AUTHORITY_MISMATCH');
   }
   const observed = loadSgosStoryAuthority(root, {
@@ -170,7 +170,7 @@ async function assertRepositoryClean(root, context) {
   assertManifest(context.template, operationId(context.template));
   const observed = repositoryObservation(root);
   if (!observed.clean) {
-    fail('The repository has application or governance changes outside the SGOS sidecar.',
+    fail('The repository has application or configuration changes outside the SGOS sidecar.',
       'SGOS_REPOSITORY_NOT_CLEAN', { statusSha256: observed.statusSha256 });
   }
   return {

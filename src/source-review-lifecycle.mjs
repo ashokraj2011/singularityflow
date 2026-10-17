@@ -397,7 +397,7 @@ async function assertRetainedLifecycleEvent(root, config, workflow, record, kind
         || event.authorityGroup !== record.authorityGroup))
       || (kind === 'source-grounded-review' && event.agent !== record.provenance?.reviewerAgentId)
       || recordSha256(actorIdentity(event.actor)) !== recordSha256(actorIdentity(actor))) {
-    throw new SingularityFlowError('Source review sidecar has no matching committed governed lifecycle event.', {
+    throw new SingularityFlowError('Source review sidecar has no matching committed lifecycle event.', {
       code: 'SOURCE_REVIEW_EVENT_MISSING'
     });
   }
@@ -434,7 +434,7 @@ async function assertRetainedLifecycleEvent(root, config, workflow, record, kind
       || !sidecarAtFirst.stdout.equals(currentBytes)
       || !introducedProjection || parentHasEvent
       || recordSha256(introducedProjection.event) !== recordSha256(event)) {
-    throw new SingularityFlowError('Source review sidecar was not introduced with its governed lifecycle event.', {
+    throw new SingularityFlowError('Source review sidecar was not introduced with its lifecycle event.', {
       code: 'SOURCE_REVIEW_EVENT_MISSING'
     });
   }
@@ -758,7 +758,7 @@ export function evaluateSubmittedSourceReview(report, input, session) {
 export async function retainSourceReview(root, config, workflow, phaseId, report, evaluation, session, publicationEvent) {
   assertSourceReviewPublicationCurrent(workflow, checkPublishedGeneration(workflow, phaseId));
   if (!publicationEvent?.eventId) throw new SingularityFlowError(
-    'Source review report requires a governed lifecycle event.', { code: 'SOURCE_REVIEW_EVENT_REQUIRED' }
+    'Source review report requires a lifecycle event.', { code: 'SOURCE_REVIEW_EVENT_REQUIRED' }
   );
   const directory = sourceReviewDirectory(root, config, workflow, phaseId);
   const file = sourceReviewReportPath(root, config, workflow, phaseId, evaluation.reportSha256);
@@ -811,7 +811,7 @@ export async function retainSourceReviewDecision(root, config, workflow, phaseId
     { code: 'SOURCE_REVIEW_DISPOSITION_AUTHORITY_REQUIRED' }
   );
   if (!publicationEvent?.eventId) throw new SingularityFlowError(
-    'Source review human decision requires a governed lifecycle event.',
+    'Source review human decision requires a lifecycle event.',
     { code: 'SOURCE_REVIEW_EVENT_REQUIRED' }
   );
   const directory = path.join(sourceReviewDirectory(root, config, workflow, phaseId),

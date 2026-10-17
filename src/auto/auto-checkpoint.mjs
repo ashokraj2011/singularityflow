@@ -347,7 +347,7 @@ export async function buildAutoBoundaryCheckpoint(
       && state.finalReportSha256
     ? await readAutoFlightReport(operationalRoot, state.flightId) : null;
   if (finalReport && finalReport.reportSha256 !== state.finalReportSha256) {
-    throw new SingularityFlowError('Auto final report changed before its governed checkpoint.', {
+    throw new SingularityFlowError('Auto final report changed before its checkpoint.', {
       code: 'AUTO_CHECKPOINT_INVALID'
     });
   }
@@ -539,7 +539,7 @@ export async function readGovernedAutoCheckpoint(storyRoot, workflow, projection
   const target = path.resolve(storyRoot, payload.path);
   if (!workflow.auto?.acceptedPlanPath || path.basename(itemRoot) !== workflow.workItem.id
       || !target.startsWith(`${itemRoot}${path.sep}`)) {
-    throw new SingularityFlowError('Auto checkpoint path escapes its governed Story.', {
+    throw new SingularityFlowError('Auto checkpoint path escapes its Story.', {
       code: 'AUTO_CHECKPOINT_INVALID'
     });
   }
@@ -547,7 +547,7 @@ export async function readGovernedAutoCheckpoint(storyRoot, workflow, projection
   if (!commit || run('git', ['merge-base', '--is-ancestor', commit, 'HEAD'], {
     cwd: storyRoot, allowFailure: true
   }).status !== 0) {
-    throw new SingularityFlowError('Auto checkpoint is not contained in the governed Story history.', {
+    throw new SingularityFlowError('Auto checkpoint is not contained in the Story history.', {
       code: 'AUTO_CHECKPOINT_INVALID'
     });
   }
@@ -555,7 +555,7 @@ export async function readGovernedAutoCheckpoint(storyRoot, workflow, projection
     cwd: storyRoot, allowFailure: true
   });
   if (shown.status !== 0) {
-    throw new SingularityFlowError('Auto checkpoint bytes are unavailable from their governed commit.', {
+    throw new SingularityFlowError('Auto checkpoint bytes are unavailable from their commit.', {
       code: 'AUTO_CHECKPOINT_INVALID'
     });
   }
@@ -581,7 +581,7 @@ export async function readGovernedAutoCheckpoint(storyRoot, workflow, projection
       || record.checkpointClass !== payload.checkpointClass
       || record.checkpointSha256 !== payload.checkpointSha256
       || record.checkpointSha256 !== checkpointHash(record)) {
-    throw new SingularityFlowError('Auto checkpoint failed its governed digest binding.', {
+    throw new SingularityFlowError('Auto checkpoint failed its digest binding.', {
       code: 'AUTO_CHECKPOINT_INVALID'
     });
   }
@@ -600,7 +600,7 @@ export async function discoverLatestGovernedAutoCheckpoint(storyRoot, workflow, 
       && projection.event?.payload?.flightId === flightId
   ));
   if (!projections.length) {
-    throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no governed checkpoint for Auto flight '${flightId}'.`, {
+    throw new SingularityFlowError(`Story '${workflow.workItem.id}' has no checkpoint for Auto flight '${flightId}'.`, {
       code: 'AUTO_CHECKPOINT_NOT_FOUND'
     });
   }
@@ -639,7 +639,7 @@ async function ensureManagedRecoveryCheckout(controlRoot, storyRoot, pointer, ac
   if (run('git', ['merge-base', '--is-ancestor', pointer.commit, 'HEAD'], {
     cwd: managed, allowFailure: true
   }).status !== 0) {
-    throw new SingularityFlowError('Recovered Story branch does not contain the governed Auto checkpoint.', {
+    throw new SingularityFlowError('Recovered Story branch does not contain the Auto checkpoint.', {
       code: 'AUTO_RECOVERY_CHECKOUT_FAILED'
     });
   }
@@ -815,7 +815,7 @@ export async function rebuildAutoFlightState(controlRoot, {
     position: record.position,
     stopReason: 'governed-checkpoint-rebuilt',
     nextAction: record.status === 'completed'
-      ? 'The governed Auto flight is complete.'
+      ? 'The Auto flight is complete.'
       : 'Review the rebuilt checkpoint and resume with its exact checkpoint hash.'
   });
   const rebuilt = await mutateAutoFlightState(controlRoot, flightId, (state) => {
@@ -896,11 +896,11 @@ export async function rebuildAutoFlightState(controlRoot, {
     await mutateAutoFlightState(controlRoot, flightId, (state) => {
       state.status = 'recovery-required';
       state.stopReason = 'governed-checkpoint-diverged';
-      state.nextAction = 'Inspect Story commits after the governed Auto checkpoint; only an exact approved phase transition can be adopted.';
+      state.nextAction = 'Inspect Story commits after the Auto checkpoint; only an exact approved phase transition can be adopted.';
       state.lastError = { code: error.code ?? 'AUTO_RECOVERY_AUTHORITY_DIVERGED', message: error.message };
     }, { expectedCheckpoint: rebuilt.checkpointSha256 });
     throw new SingularityFlowError(
-      `Story '${workId}' moved beyond its governed Auto checkpoint without an adoptable phase transition.`, {
+      `Story '${workId}' moved beyond its Auto checkpoint without an adoptable phase transition.`, {
         code: 'AUTO_RECOVERY_AUTHORITY_DIVERGED', cause: error,
         details: { checkpointCommit: pointer.commit, currentHead: head(managed) }
       }

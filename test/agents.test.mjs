@@ -244,14 +244,14 @@ test('Copilot mapping punctuation does not relax identity, length or path safety
     assert.throws(() => validate(name), /Copilot agent mapping key/);
   }
   assert.throws(() => validate('Architect (QA)', 'Unknown Agent'), /lower-case kebab-case/);
-  assert.throws(() => validate('Architect (QA)', 'missing'), /unknown governed agent/);
+  assert.throws(() => validate('Architect (QA)', 'missing'), /unknown agent/);
 });
 
 test('agent mapping validation rejects malformed names and unknown agents', async () => {
   const root = await rootWithAgent();
   await mkdir(path.join(root, 'singularity'), { recursive: true });
   await writeFile(path.join(root, AGENT_MAPPING_PATH), 'version: 1\nmappings:\n  enterprise-architect: missing-pack\n');
-  await assert.rejects(() => loadAgentMappings(root), /unknown governed agent 'missing-pack'/);
+  await assert.rejects(() => loadAgentMappings(root), /unknown agent 'missing-pack'/);
   await writeFile(path.join(root, AGENT_MAPPING_PATH), 'version: 1\nmappings:\n  "bad\/agent": architecture\n');
   await assert.rejects(() => loadAgentMappings(root), /mapping key 'bad\/agent'/);
   await writeFile(path.join(root, AGENT_MAPPING_PATH), 'version: 2\nmappings: {}\n');

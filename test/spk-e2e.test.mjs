@@ -177,7 +177,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   assert.equal(secondSpecify, firstSpecify, 'a repeated fast-path verb answered differently');
   assert.equal(git(root, 'rev-parse', 'HEAD'), head, 'a fast-path checkpoint created a commit');
   assert.equal(git(root, 'status', '--porcelain'), '', 'a fast-path checkpoint left the tree dirty');
-  assert.match(firstSpecify, /No governed state, files, publications or external systems were changed/);
+  assert.match(firstSpecify, /No lifecycle state, files, publications or external systems were changed/);
   assert.deepEqual((await workflowOf(root)).phases.specification.artifacts, [],
     'a fast-path checkpoint registered an artifact nobody authored');
 
@@ -725,7 +725,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   assert.equal(complete.phases.release.specIndex, undefined,
     'a release/conformance report became a specification authority');
   const terminalGate = sflow(root, ['gate', '--terminal']);
-  assert.match(terminalGate.output, /Governance gate passed/i,
+  assert.match(terminalGate.output, /Flow Gate passed/i,
     'the full lifecycle completed but failed only when the terminal gate finally ran');
 
   // Terminal arithmetic trusts only the workflow aggregate's claim pointers. A current-generation
@@ -737,7 +737,7 @@ test('a Story runs specification through release from a fresh clone', async (t) 
   await write(root, `singularity/work-items/${WORK}/context/claims/unbound-injected-planned.json`,
     `${JSON.stringify(injected, null, 2)}\n`);
   const injectionGate = sflow(root, ['gate', '--terminal']);
-  assert.match(injectionGate.output, /Governance gate passed/i,
+  assert.match(injectionGate.output, /Flow Gate passed/i,
     'an unbound claim-map file participated in terminal governance');
 
   // Conversely, bytes reached through a pointer are immutable authority. Keeping the pointer while

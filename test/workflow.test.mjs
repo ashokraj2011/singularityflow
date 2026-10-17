@@ -426,9 +426,9 @@ test('agent selection changes only the local session and persists for later acti
   // isolated from a protected configuration edit.
   await writeFile(liveAgent, '---\nname: architect\nmetadata: [malformed\n---\n');
   const resumed = flow(root, ['resume', workId]);
-  assert.match(resumed.stdout, /Active governed agent: Product owner \(product-owner\)/i);
+  assert.match(resumed.stdout, /Active agent: Product owner \(product-owner\)/i);
   const result = flow(root, ['agent', workId, '--agent', 'architect'], { actor: 'Session Architect' });
-  assert.match(result.stdout, /Active governed agent: Architect \(architect\)/);
+  assert.match(result.stdout, /Active agent: Architect \(architect\)/);
   assert.match(result.stdout, /selection is local to this checkout/);
   const session = JSON.parse(await readFile(path.join(root, '.git/singularity-flow/session.json'), 'utf8'));
   assert.equal(session.agent, 'architect');

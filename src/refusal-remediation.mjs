@@ -695,7 +695,7 @@ const KNOWN = Object.freeze({
       'If this repository\'s old Singularity Flow data may be discarded, preview the guarded factory reset and review its exact remove and preserve scope before confirming anything.',
       'singularity-flow factory-reset --dry-run --json', 'remediation'),
     step('verify-agent-phase-contract',
-      'After applying one reviewed repair, verify the current workflow and governed-agent contract before retrying the original command.',
+      'After applying one reviewed repair, verify the current workflow and agent contract before retrying the original command.',
       'singularity-flow init --check --json')
   ],
   MCP_AGENT_TOOLS_MISMATCH: () => [

@@ -163,7 +163,7 @@ async function resolvedFlightWorldModel(root, revision) {
       source: 'application-projection',
       snapshotRef: revision,
       reason: projectedText == null
-        ? 'The committed application projection contains no world model. Governed state was not selected against dirty working-tree bytes.'
+        ? 'The committed application projection contains no world model. Lifecycle state was not selected against dirty working-tree bytes.'
         : 'The committed application projection contains a world-model manifest, but full exact-source validation was not performed against dirty working-tree bytes.'
     };
   }
@@ -1026,7 +1026,7 @@ export async function pinAcceptedChangeFlightPlan(root, definition, workflow, pl
     workId: workflow.workItem.id, planId: plan.planId,
     generatedFrom: plan.findings.map((finding) => finding.findingId),
     candidates: plan.verificationCandidates,
-    disclaimer: 'Candidates are not verification evidence until a governed result is recorded.'
+    disclaimer: 'Candidates are not verification evidence until a result is recorded.'
   };
   await writeJson(acceptedPath, plan);
   await writeJson(path.join(directory, 'context-package.json'), context);
@@ -1044,7 +1044,7 @@ export async function pinAcceptedChangeFlightPlan(root, definition, workflow, pl
 
 async function startChangeFlightPlanInScope(root, planId, options = {}) {
   const id = validatePlanId(planId);
-  if (options.confirm !== id) throw new SingularityFlowError(`Starting governed work requires --confirm ${id}.`, { code: 'CFP_START_TRANSACTION_INCOMPLETE' });
+  if (options.confirm !== id) throw new SingularityFlowError(`Starting work requires --confirm ${id}.`, { code: 'CFP_START_TRANSACTION_INCOMPLETE' });
   const existing = await startRecord(root, id);
   if (existing && !options.auto) {
     const worktreeExists = await lstat(existing.worktree).catch((error) => error?.code === 'ENOENT' ? null : Promise.reject(error));
@@ -1072,7 +1072,7 @@ async function startChangeFlightPlanInScope(root, planId, options = {}) {
   const related = await relatedStarts(root, plan);
   if (related.length && options.independent !== true) {
     const match = related[0];
-    throw new SingularityFlowError(`Related governed work '${match.workId}' already started from the same intent.`, {
+    throw new SingularityFlowError(`Related work '${match.workId}' already started from the same intent.`, {
       code: 'CFP_WORK_ALREADY_EXISTS',
       details: {
         existing: related.map((record) => ({ planId: record.planId, workId: record.workId, worktree: record.worktree })),

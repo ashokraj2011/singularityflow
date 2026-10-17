@@ -232,7 +232,7 @@ export function hasLocalGovernanceAuthority(root) {
     'for-each-ref', '--format=%(refname)',
     'refs/heads/sflow/config', 'refs/remotes/*/sflow/config',
     'refs/heads/state', 'refs/remotes/*/state'
-  ], 'Governance branches');
+  ], 'Configuration and Flow Ledger branches');
   if (refs.split(/\r?\n/).some((entry) => entry.trim())) return true;
 
   // A lifecycle branch is self-contained after Story creation. Its immutable configuration
@@ -257,7 +257,7 @@ export function hasLocalGovernanceAuthority(root) {
     'ls-files', '--',
     'singularity/work-items/*/workflow.json',
     'singularity/initiatives/*/state.json'
-  ], 'Tracked governed subjects');
+  ], 'Tracked subjects');
   if (governedSubjects.trim()) return true;
   // workItemRoot and initiativeRoot are configurable. If the configuration snapshot itself is the
   // damaged file being recovered, the exact roots are no longer available to route the command.
@@ -268,7 +268,7 @@ export function hasLocalGovernanceAuthority(root) {
     '-e', '"workItem"[[:space:]]*:',
     '-e', '"initiative"[[:space:]]*:',
     '--', ':(glob)**/workflow.json', ':(glob)**/state.json'
-  ], 'Tracked governed aggregates', { absentStatus: 1 });
+  ], 'Tracked aggregates', { absentStatus: 1 });
   if (configuredSubjects.trim()) return true;
   return false;
 }

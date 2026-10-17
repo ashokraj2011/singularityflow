@@ -316,7 +316,7 @@ test('phase add defaults to Story and incorrect clause phase lists eligible phas
   const before = await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8');
   const added = run('phase', 'add', 'writing', '--json');
   assert.notEqual(added.status, 0);
-  assert.match(added.stdout, /Phase 'writing' has no default governed agent/);
+  assert.match(added.stdout, /Phase 'writing' has no default agent/);
   assert.equal(await readFile(path.join(root, 'singularity', 'workflow.yml'), 'utf8'), before,
     'a missing default Story agent must be caught before writing a broken workflow');
 

@@ -109,7 +109,7 @@ export function assertJiraWriteOperationPolicy(operation, policy = {}) {
       || !artifact.path
       || !artifact.filename
     ) {
-      throw new SingularityFlowError(`Jira operation '${operation.id}' has invalid governed artifact metadata.`);
+      throw new SingularityFlowError(`Jira operation '${operation.id}' has invalid artifact metadata.`);
     }
     return operation;
   }
@@ -603,7 +603,7 @@ export async function createJiraWritePlan(root, initiativeId, {
         action: 'add-comment',
         subject: { type: 'story', id: story.id, epicId: epic.id, jiraKey: story.jiraKey ?? null },
         body: [
-          'Singularity Flow governed lineage',
+          'Singularity Flow lineage',
           `Epic: ${initiative.initiative.source?.key ?? initiativeId}`,
           `Plan ID: ${story.planId}`,
           `Delivery repository: ${story.repository}`,
@@ -767,7 +767,7 @@ export async function applyJiraWritePlan(root, initiativeId, {
         || governedOutput.sha256 !== operation.artifact.sha256
         || !['published', 'approved'].includes(governedOutput.status)
       ) {
-        throw new SingularityFlowError(`Jira artifact '${operation.artifact.reference}' no longer matches a published governed Epic output.`);
+        throw new SingularityFlowError(`Jira artifact '${operation.artifact.reference}' no longer matches a published Epic output.`);
       }
       const jiraKey = operation.subject.jiraKey
         ?? (operation.subject.type === 'epic' ? epicKeys[operation.subject.id] : storyKeys[operation.subject.id]);

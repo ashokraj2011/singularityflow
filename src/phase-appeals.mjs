@@ -140,7 +140,7 @@ export async function preparePhaseAppeal(root, config, workflow, { phaseId = wor
     const selected = set.entries.find(item => item.newPath === entry.path);
     if (!selected || !['added', 'modified'].includes(selected.status) || selected.newContent?.kind !== 'regular-file'
         || protectedViolations.some(item => item.path === entry.path) || outside.some(item => item.path === entry.path)) {
-      fail(`Cannot account for '${entry.path}' here. Governance/protected paths, boundary changes, links, renames and deletions require the owning configuration or reviewed recovery process.`, 'PHASE_APPEAL_PATH_UNSUPPORTED');
+      fail(`Cannot account for '${entry.path}' here. Protected paths, boundary changes, links, renames and deletions require the owning configuration or reviewed recovery process.`, 'PHASE_APPEAL_PATH_UNSUPPORTED');
     }
     const secured = await secureRepositoryPath(root, entry.path, { mustExist: true, type: 'file', label: 'Appealed file' });
     if (secured.entry.size > 262144) fail('An appealed file exceeds 256 KiB. Split the review; never truncate an approved diff.', 'PHASE_APPEAL_TOO_LARGE');
@@ -159,7 +159,7 @@ export async function preparePhaseAppeal(root, config, workflow, { phaseId = wor
     binding, changes, reason, diff, author: { actor: actorKey(identity(root)), provenance: 'configured-git-identity-not-proof-of-tool-authorship' },
     baseCommit: intent.baseline.commit, capturedHead: head(root), requestedDisposition: 'account-scope',
     limitations: ['Scope accounting claims no new requirement or passing test.', 'Existing phase, test, traceability and independent-review gates still apply.',
-      'An authorized human reviews the exact bytes. This does not prove independent tool authorship.', 'Intent changes and risk decisions use their separate governed workflows.'] };
+      'An authorized human reviews the exact bytes. This does not prove independent tool authorship.', 'Intent changes and risk decisions use their separate workflows.'] };
   return validatePhaseAppeal({ ...value, packetSha256: hash(value) });
 }
 

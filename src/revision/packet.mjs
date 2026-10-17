@@ -122,7 +122,7 @@ export async function buildRevisionPacket({
   if (attachmentSet) {
     if (typeof verifyAttachmentSet !== 'function'
         || await verifyAttachmentSet(attachmentSet.attachmentSetSha256) !== true) {
-      fail('REV_ATTACHMENT_SET_UNVERIFIED', 'Selected attachment set is not verified in the governed store.');
+      fail('REV_ATTACHMENT_SET_UNVERIFIED', 'Selected attachment set is not verified in the store.');
     }
     const subject = routePlan.subject;
     const binding = routeInput.context;

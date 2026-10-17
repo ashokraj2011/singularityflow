@@ -410,7 +410,7 @@ Usage:
     Seeded workflows and their shared dependencies are read-only. Duplicate before customizing.
   singularity-flow workflow phase add <ID> [--label TEXT] [--lanes a,b]
     [--agents a,b] [--task code|analyze|none] [--authorities group-a,group-b] [--minimum N]
-    [--governs story|initiative] [--propose]    defaults to Story; a new Story phase needs a default governed agent
+    [--governs story|initiative] [--propose]    defaults to Story; a new Story phase needs a default agent
     (a phase runs nowhere until a workflow lists it)
   singularity-flow workflow phase edit <ID> [--label TEXT] [--agents a,b]
     [--task code|analyze|none] [--authorities group-a,group-b] [--minimum N] [--propose]
@@ -1031,7 +1031,7 @@ Usage:
     [--repository ID] [--metadata KEY=VALUE]... [--jira-project KEY] [--jira-board TEXT]
     [--teams A,B] [--owns A,B] [--json]
   singularity-flow capability remove <CAPABILITY-ID> [--reparent-children-to ID] [--json]
-    (add, set, and remove author only the checkout; use map or remote edit for governed publication)
+    (add, set, and remove author only the checkout; use map or remote edit to publish)
   singularity-flow capability map <CAPABILITY-ID> [--lead URL] [--repository URL]... [--name TEXT]
     [--kind collection|delivery] [--type tech|business] [--parent ID] [--lead-repository URL]
     [--source-roots DIR,...] [--shared-roots DIR,...]
@@ -1039,7 +1039,7 @@ Usage:
     [--metadata KEY=VALUE]... [--doc KEY=VALUE]... [--resource KEY=VALUE]...
     [--jira-project KEY] [--teams A,B] [--json]
     (--repository is repeatable and required for delivery; omit it for collection. --lead-repository
-     says which delivery repository holds governed state when there are several. Remote mapping
+     says which delivery repository holds lifecycle state when there are several. Remote mapping
      pushes a review branch against sflow/config and never writes an application branch.)
   singularity-flow capability map-team <TEAM-ID> --lead <LEAD-URL> --name <TEAM-NAME>
     [--jira-project KEY] [--member <CHILD-ID>=<GIT-URL>]...

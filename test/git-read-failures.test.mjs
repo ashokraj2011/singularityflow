@@ -195,7 +195,7 @@ test('routing refuses a governance probe Git could not answer instead of choosin
   // Every probe succeeded and found nothing, including `git grep` exiting 1 for no match.
   assert.equal(hasLocalGovernanceAuthority(root), false);
   await writeFile(path.join(root, '.git/index'), 'not an index');
-  assert.throws(() => hasLocalGovernanceAuthority(root), refusal('Tracked governed subjects'));
+  assert.throws(() => hasLocalGovernanceAuthority(root), refusal('Tracked subjects'));
 });
 
 test('remotes, the remote default branch and commit identity refuse a configuration Git cannot read', async (t) => {

@@ -201,7 +201,7 @@ function resolveNextInitiativeAction(initiative, phaseId = null, { checklist = n
       action: NEXT_ACTIONS.COMPLETE,
       phaseId: null,
       title: 'Every phase is approved.',
-      detail: 'The initiative has no further governed phase.',
+      detail: 'The initiative has no further phase.',
       command: null
     };
   }
@@ -352,7 +352,7 @@ export function initiativePhaseWork(initiative, phaseId = initiative?.currentPha
     kind: 'approve',
     label: `Approve ${definition?.label ?? phaseId}`,
     done: phase.status === 'approved',
-    detail: 'The governed decision that advances the Epic'
+    detail: 'The decision that advances the Epic'
   });
 
   // Exactly one step is "now": the first thing not yet done. Everything after it waits on it, and

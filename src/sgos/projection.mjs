@@ -325,7 +325,7 @@ function humanSemantics(process, task, request) {
     authorityRequired: clone(request.authorityRequired),
     choices,
     whatRemainsRunning: active > 0
-      ? `${active} active execution${active === 1 ? '' : 's'} remain governed until a runtime boundary; this response does not cancel them.`
+      ? `${active} active execution${active === 1 ? '' : 's'} remain active until a runtime boundary; this response does not cancel them.`
       : 'No execution remains active in this Process; unrelated Processes are unaffected.',
     resumeBehavior: 'After a valid response, the kernel rechecks the exact Process revision, request digest, authority, and Program dependencies before any task becomes runnable.',
     expiresAt: request.expiresAt,

@@ -4,7 +4,7 @@ import {
 } from './ast-language-catalog.mjs';
 
 export function assertAstProgrammingLanguagesSupported(paths, catalog, {
-  boundary = 'governed operation', classifyUnknown = true
+  boundary = 'operation', classifyUnknown = true
 } = {}) {
   const unsupported = unsupportedAstProgrammingPaths(paths, catalog, { classifyUnknown });
   if (!unsupported.length) return { supported: true, unsupported: [] };

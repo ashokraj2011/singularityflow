@@ -71,7 +71,7 @@ test('NCL-004 a refusal that changed something is rejected outright', () => {
 
 test('NCL-004 reassurance is derived from effects, never authored beside them', () => {
   const preserved = renderCommandResult(base());
-  assert.match(preserved, /No governed state, files, publications or external systems were changed\./);
+  assert.match(preserved, /No lifecycle state, files, publications or external systems were changed\./);
 
   // The same catalog message on a result that did change something must not reassure. `preserves`
   // marks a message as permitted to reassure; the effects decide whether it actually does.

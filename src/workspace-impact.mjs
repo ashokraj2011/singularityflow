@@ -61,14 +61,14 @@ async function resolvedRepositoryWorldModel(root, commit, dirty) {
           outputDir, sha256: sha256(projected.stdout), sourceTreeSha256: null,
           snapshotRef: commit,
           reason: dirty
-            ? 'The analysis is pinned to committed HEAD; governed state was not selected against dirty working-tree bytes.'
+            ? 'The analysis is pinned to committed HEAD; lifecycle state was not selected against dirty working-tree bytes.'
             : 'Repository configuration was unavailable, so only the committed application projection was inspected.'
         }
       : {
           present: false, status: 'not-projected', source: 'application-projection',
           outputDir, sha256: null, sourceTreeSha256: null, snapshotRef: commit,
           reason: dirty
-            ? 'Committed HEAD does not project a world model; governed state was not selected against dirty working-tree bytes.'
+            ? 'Committed HEAD does not project a world model; lifecycle state was not selected against dirty working-tree bytes.'
             : 'Committed HEAD does not project a world model and repository configuration was unavailable for governed-state resolution.'
         };
   }
@@ -214,13 +214,13 @@ async function materializeSandbox(workspace, record) {
           || resolved.sourceTreeSha256 !== repository.worldModel.sourceTreeSha256
           || resolved.snapshotRef !== repository.worldModel.snapshotRef
           || resolved.treeSha !== repository.worldModel.treeSha) {
-          throw new SingularityFlowError(`Governed world model for '${repository.id}' changed after impact preparation.`);
+          throw new SingularityFlowError(`World model for '${repository.id}' changed after impact preparation.`);
         }
         const sandboxDefinition = await loadDefinition(target);
         const sandboxSource = await worldModelSourceSnapshot(target, sandboxDefinition);
         if (sandboxSource.sha256 !== repository.worldModel.sourceTreeSha256) {
           throw new SingularityFlowError(
-            `Governed world model for '${repository.id}' describes ${repository.worldModel.sourceTreeSha256}, `
+            `World model for '${repository.id}' describes ${repository.worldModel.sourceTreeSha256}, `
             + `but its detached repository snapshot is ${sandboxSource.sha256}.`
           );
         }
@@ -376,7 +376,7 @@ export async function promoteWorkspaceImpact(workspacePath, id) {
     throw new SingularityFlowError(`Workspace impact analysis '${id}' is not complete.`);
   }
   if (report.freshness !== 'current') {
-    throw new SingularityFlowError(`Workspace impact analysis '${id}' is stale; run it again before using it as governed intake context.`);
+    throw new SingularityFlowError(`Workspace impact analysis '${id}' is stale; run it again before using it as intake context.`);
   }
   if (report.promotedDocument) {
     const promoted = path.join(workspace.path, report.promotedDocument.path);
@@ -388,7 +388,7 @@ export async function promoteWorkspaceImpact(workspacePath, id) {
           workspaceId: workspace.id,
           document: report.promotedDocument,
           alreadyPromoted: true,
-          next: 'Start governed work and select this staged report as an intake source. No Work ID or branch was created automatically.'
+          next: 'Start work and select this staged report as an intake source. No Work ID or branch was created automatically.'
         };
       }
     }
@@ -403,6 +403,6 @@ export async function promoteWorkspaceImpact(workspacePath, id) {
     analysisId: id,
     workspaceId: workspace.id,
     document: staged.added[0],
-    next: 'Start governed work and select this staged report as an intake source. No Work ID or branch was created automatically.'
+    next: 'Start work and select this staged report as an intake source. No Work ID or branch was created automatically.'
   };
 }

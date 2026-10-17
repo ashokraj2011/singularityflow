@@ -143,7 +143,7 @@ export async function contextXray(root, workflow, {
   if (!ledger.packets.length) gaps.push(unavailable(
     'CXR_PACKET_NOT_FOUND',
     'No machine-local Evidence Packet telemetry is retained for this phase.',
-    'Request the governed context packet before inspecting X-Ray.'
+    'Request the context packet before inspecting X-Ray.'
   ));
   return Object.freeze({
     schemaVersion: 1, // schema-transient: Context X-Ray is a read-only projection

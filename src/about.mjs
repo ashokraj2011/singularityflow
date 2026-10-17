@@ -8,7 +8,7 @@ brand and uses the short, collision-safe sflow- command namespace.
 
 What it provides:
   - YAML-defined feature, bugfix, chore, Figma-mobile, and custom workflows
-  - Session governed agents, phase-aware prompts, and repository world-model grounding
+  - Session agents, phase-aware prompts, and repository world-model grounding
   - Configurable artifact templates, phase inputs, approvals, and quality gates
   - Jira or manual intake with supporting documents
   - Requirements-to-code traceability, verification, and conformance reporting

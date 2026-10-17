@@ -40,7 +40,7 @@ function render(value) {
     } else if (value.eligibility?.promotionReasons?.length) {
       lines.push(`Promotion required: ${value.eligibility.promotionReasons.join('; ')}`);
       lines.push(...adhocActionLines(
-        `singularity-flow adhoc promote ${value.sessionId}`, 'Prepare the governed handoff'
+        `singularity-flow adhoc promote ${value.sessionId}`, 'Prepare the handoff'
       ));
     }
     return lines.join('\n');

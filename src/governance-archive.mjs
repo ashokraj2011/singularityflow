@@ -115,7 +115,7 @@ export function assertStoryNotArchived(root, workflow) {
   const archivedAt = hard ? null : entry.archivedAt;
   throw new SingularityFlowError(
     `Story '${entry.id}' was ${hard ? 'discontinued by pilot hard cutover' : 'archived by governance rebuild'} ${plan}${archivedAt ? ` on ${archivedAt}` : ''}; it is read-only. `
-    + 'Start a new Story with a new ID under the current governance.',
+    + 'Start a new Story with a new ID under the current Flow Policy.',
     { code: 'STORY_ARCHIVED_BY_REBUILD', exitCode: 2, details: { workId: entry.id, plan, archivedAt,
       mode: hard ? 'hard-cutover' : 'governance-rebuild' } }
   );

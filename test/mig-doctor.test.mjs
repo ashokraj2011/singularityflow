@@ -230,7 +230,7 @@ test('schema census refuses a governed root symlink without traversing its targe
 
   await assert.rejects(schemaCensus(root), (error) => {
     assert.equal(error.code, 'SCHEMA_CENSUS_ROOT_UNSAFE');
-    assert.match(error.message, /refused a governed root/);
+    assert.match(error.message, /refused a root/);
     assert.doesNotMatch(JSON.stringify({
       message: error.message,
       code: error.code,

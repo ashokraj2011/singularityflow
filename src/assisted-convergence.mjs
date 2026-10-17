@@ -244,7 +244,7 @@ export function buildAssistedConvergenceRecord({
     candidates,
     unknownReferences: unknown,
     disclaimer: 'Candidates are proposals for a human to adjudicate. They are not deterministic facts, '
-      + 'they change no deterministic fact, and none of them is a governed finding until a person disposes of it.'
+      + 'they change no deterministic fact, and none of them is a finding until a person disposes of it.'
   };
   return { ...record, recordSha256: assistedConvergenceRecordSha256(record) };
 }

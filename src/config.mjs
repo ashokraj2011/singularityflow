@@ -935,7 +935,7 @@ export function normalizeModelProviders(value = {}) {
 
 export function validateDefinition(definition, { storyBootstrap = false } = {}) {
   if (![2, 3].includes(definition?.version)) throw new SingularityFlowError('workflow.yml version must be 2 or 3. Version 1 is not supported and is not migrated. Run singularity-flow factory-reset --dry-run, review the reset plan, then apply its exact confirmation to install the current configuration.');
-  if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError('Legacy role-prompt configuration is no longer supported. Define governed Agent Markdown under .github/agents.');
+  if (Object.hasOwn(definition, 'personas') || Object.hasOwn(definition, 'personaPromptsRoot')) throw new SingularityFlowError('Legacy role-prompt configuration is no longer supported. Define Agent Markdown under .github/agents.');
   if (!definition.workTypes || !Object.keys(definition.workTypes).length) throw new SingularityFlowError('workflow.yml must define at least one work type.');
   if (!definition.phases || !Object.keys(definition.phases).length) throw new SingularityFlowError('workflow.yml must define phases.');
   // Settings of removed features (the registered World Model, its views, CALM architecture intent and
@@ -1338,7 +1338,7 @@ async function validateDefinitionRuntimeRoots(root, definition, portfolio = null
     [definition.workItemRoot, 'Story state root'],
     [definition.templatesRoot, 'Repository templates root'],
     ['singularity/world-model', 'World-model output root'],
-    [definition.agentPromptsRoot, 'Governed-agent prompt root'],
+    [definition.agentPromptsRoot, 'Agent prompt root'],
     [portfolio?.initiativeRoot ?? definition.initiativeRoot, 'Initiative state root'],
     [portfolio?.templatesRoot, 'Initiative templates root']
   ]) {
@@ -1374,7 +1374,7 @@ export async function validateAgentBriefHeadingContracts(root, definition) {
         }
         if (isAgentTemplateReference(producer.template)) {
           throw new SingularityFlowError(
-            `Work type '${workTypeId}' phase '${consumer.id}' cannot declare preserved headings for dynamic Agent template '${producer.template}'. Use a governed repository template so the heading contract can be validated before Story start.`,
+            `Work type '${workTypeId}' phase '${consumer.id}' cannot declare preserved headings for dynamic Agent template '${producer.template}'. Use a repository template so the heading contract can be validated before Story start.`,
             { code: 'AGENT_BRIEF_PRESERVE_TEMPLATE_DYNAMIC' }
           );
         }
@@ -1431,7 +1431,7 @@ export function validateCapturedAgentBriefHeadingContracts(definition, templates
         `Work type '${workTypeId}' phase '${consumer.id}' cannot prevalidate preserved headings from skill phase '${producer.id}'.`,
         { code: 'SKP_INPUT_PROJECTION_UNSUPPORTED' });
       if (isAgentTemplateReference(producer.template)) throw new SingularityFlowError(
-        `Work type '${workTypeId}' phase '${consumer.id}' cannot declare preserved headings for dynamic Agent template '${producer.template}'. Use a governed repository template so the heading contract can be validated before Story start.`,
+        `Work type '${workTypeId}' phase '${consumer.id}' cannot declare preserved headings for dynamic Agent template '${producer.template}'. Use a repository template so the heading contract can be validated before Story start.`,
         { code: 'AGENT_BRIEF_PRESERVE_TEMPLATE_DYNAMIC' });
       let parsed = parsedByTemplate.get(producer.template);
       if (!parsed) {
@@ -1486,7 +1486,7 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     } catch (error) {
       if (!(error instanceof SingularityFlowError && /contains unknown field/.test(error.message))) throw await diagnosed(error);
       throw await diagnosed(new SingularityFlowError(
-        `${error.message} If you typed this field, check its spelling. This build is ${VERSION}. A governed configuration written by a newer release carries policy `
+        `${error.message} If you typed this field, check its spelling. This build is ${VERSION}. An approved configuration written by a newer release carries policy `
         + 'this version cannot enforce, so it is refused rather than partly applied. Upgrade Singularity Flow, or check '
         + 'out the configuration revision that matches this build.',
         { code: error.code ?? 'CONFIGURATION_UNKNOWN_FIELD', cause: error }
@@ -1521,7 +1521,7 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
         if (phase.kind === 'skill') {
           if (!phase.defaultAgent) {
             throw new SingularityFlowError(
-              `Work type '${workTypeId}' skill phase '${phase.id}' has no selected governed agent.`,
+              `Work type '${workTypeId}' skill phase '${phase.id}' has no selected agent.`,
               { code: 'SKP_AGENT_UNAVAILABLE' }
             );
           }
@@ -1557,7 +1557,7 @@ async function loadDefinitionUncached(root, { storyBootstrap = false } = {}) {
     );
   }
   if (existsSync(path.join(root, LEGACY_CONTROL_ROOT)) || existsSync(path.join(root, 'singularity/config.json'))) {
-    throw new SingularityFlowError('Legacy workflow configuration is not supported by the governed-agent model. Recreate it with singularity-flow init.');
+    throw new SingularityFlowError('Legacy workflow configuration is not supported by the agent model. Recreate it with singularity-flow init.');
   }
   throw new SingularityFlowError(`Missing ${WORKFLOW_PATH}. Run: singularity-flow init`, {
     code: 'WORKFLOW_CONFIGURATION_MISSING'
@@ -2185,6 +2185,6 @@ export async function renderArtifactTemplate(root, definition, resolvedPhase, va
 
 export async function agentPrompt(root, definition, agentId) {
   const agent = definition.agents?.[agentId] ?? (await discoverAgents(root)).find((candidate) => candidate.id === agentId);
-  if (!agent) throw new SingularityFlowError(`Unknown governed agent '${agentId}'.`);
+  if (!agent) throw new SingularityFlowError(`Unknown agent '${agentId}'.`);
   return agent.prompt;
 }

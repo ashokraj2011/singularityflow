@@ -166,7 +166,7 @@ export function normalizeJiraPolicy(value = {}) {
   allowedFields.forEach((field) => safeId(field, 'jira allowed field'));
   unique(allowedFields, 'jira allowed fields');
   const unsafe = allowedFields.filter((field) => FORBIDDEN_JIRA_FIELDS.has(field));
-  if (unsafe.length) throw new SingularityFlowError(`jira allowedFields cannot include governed fields: ${unsafe.join(', ')}.`);
+  if (unsafe.length) throw new SingularityFlowError(`jira allowedFields cannot include fields that Singularity Flow owns: ${unsafe.join(', ')}.`);
   const forbiddenFields = [...new Set([...(writeConfig.forbiddenFields ?? []), ...FORBIDDEN_JIRA_FIELDS])];
   const allowedHosts = [...(value.allowedHosts ?? [])].map((entry, index) => hostname(String(entry), `jira.allowedHosts[${index}]`));
   unique(allowedHosts, 'jira allowedHosts');

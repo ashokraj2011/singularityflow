@@ -63,7 +63,7 @@ async function choose(label, entries, { selection = null, nonInteractiveHint = n
   }
   if (label === 'agent' && process.env.SINGULARITY_FLOW_GITHUB_AGENT) {
     const selected = process.env.SINGULARITY_FLOW_GITHUB_AGENT;
-    if (!entries.some(([id]) => id === selected)) throw new SingularityFlowError(`Unknown GitHub-selected governed agent '${selected}'.`);
+    if (!entries.some(([id]) => id === selected)) throw new SingularityFlowError(`Unknown GitHub-selected agent '${selected}'.`);
     return selected;
   }
   if (!input.isTTY || !output.isTTY) {
@@ -110,7 +110,7 @@ export async function selectAgent(root, definition, actor, workId = null, {
     : definition;
   const allowed = allowedAgents ? new Set(allowedAgents) : null;
   const entries = Object.entries(effective.agents ?? {}).filter(([id]) => !allowed || allowed.has(id));
-  if (!entries.length) throw new SingularityFlowError(`No governed agent is available${phaseId ? ` for phase '${phaseId}'` : ''}.`);
+  if (!entries.length) throw new SingularityFlowError(`No agent is available${phaseId ? ` for phase '${phaseId}'` : ''}.`);
   const defaultAgent = phaseId ? entries.find(([, agent]) => agent.defaultFor.includes(phaseId))?.[0] : null;
   const agent = selection ?? defaultAgent ?? (entries.length === 1 ? entries[0][0] : await choose('agent', entries, { selection, nonInteractiveHint }));
   return setAgentSession(root, effective, actor, agent, workId, { phaseId, source: 'explicit-override' });
@@ -118,7 +118,7 @@ export async function selectAgent(root, definition, actor, workId = null, {
 
 export async function setAgentSession(root, definition, actor, agent, workId = null, { phaseId = null, nativeCopilotAgent = null, source = null } = {}) {
   const profile = definition.agents?.[agent];
-  if (!profile) throw new SingularityFlowError(`Unknown governed agent '${agent}'.`);
+  if (!profile) throw new SingularityFlowError(`Unknown agent '${agent}'.`);
   const compatible = !phaseId || !profile.phases.length || profile.phases.includes(phaseId);
   const existing = await loadSession(root, { required: false });
   const copilot = await loadCopilotSession(root);
@@ -173,7 +173,7 @@ export async function setNativeCopilotAgentSession(root, resolved, actor = null)
 export async function loadSession(root, { required = true } = {}) {
   const file = sessionPath(root);
   if (!(await exists(file))) {
-    if (required) throw new SingularityFlowError('No active governed-agent session. Run singularity-flow resume <WORK-ID>.');
+    if (required) throw new SingularityFlowError('No active agent session. Run singularity-flow resume <WORK-ID>.');
     return null;
   }
   return readRecord(SESSION_FAMILY, await readFile(file)).record;
@@ -381,7 +381,7 @@ export async function activateWorkItemSession(root, definition, workflow) {
     ? definition.agents?.[phase.defaultAgent]
     : definition.agentCatalog?.find((agent) => agent.defaultFor.includes(phaseId));
   const defaultAgentId = phase?.defaultAgent ?? defaultAgent?.id;
-  if (!defaultAgentId || !definition.agents?.[defaultAgentId]) throw new SingularityFlowError(`Phase '${phaseId}' has no configured governed agent.`);
+  if (!defaultAgentId || !definition.agents?.[defaultAgentId]) throw new SingularityFlowError(`Phase '${phaseId}' has no configured agent.`);
   const valid = validAgentSession(definition, existing, workflow.workItem.id, null, phaseId);
   const selected = valid ? existing.agent : defaultAgent?.id;
   const activeAgent = selected ?? defaultAgentId;

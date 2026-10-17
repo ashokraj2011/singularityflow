@@ -79,7 +79,7 @@ function candidateRecoveryAuthority(state, phase, disposition) {
   const baseCheckpointSha256 = state.boundaryCheckpoint?.checkpointSha256 ?? null;
   if (!SHA256.test(String(baseCheckpointSha256 ?? ''))) {
     throw new SingularityFlowError(
-      'Auto Candidate freeze has no governed boundary from which recovery can be proven.', {
+      'Auto Candidate freeze has no boundary from which recovery can be proven.', {
         code: 'AUTO_CANDIDATE_RECOVERY_INVALID'
       }
     );
@@ -552,7 +552,7 @@ async function finishAtBoundary(root, flightId, state, phaseId, boundary) {
   let completed = await mutateAutoExecutorState(root, flightId, (draft) => {
     draft.status = 'completed';
     draft.stopReason = 'requested-boundary-reached';
-    draft.nextAction = `The ratified Auto boundary '${boundary}:${phaseId}' was reached; inspect the governed Story.`;
+    draft.nextAction = `The ratified Auto boundary '${boundary}:${phaseId}' was reached; inspect the Story.`;
   }, { expectedCheckpoint: state.checkpointSha256 });
   completed = await attachFinalReport(root, completed);
   completed = await persistGovernedBoundary(root, completed, 'completion');
@@ -643,7 +643,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         return mutateAutoExecutorState(root, flightId, (draft) => {
           draft.status = 'recovery-required';
           draft.stopReason = 'governed-checkpoint-publication-failed';
-          draft.nextAction = 'Repair or synchronize Story publication, then recover from the last governed Auto checkpoint.';
+          draft.nextAction = 'Repair or synchronize Story publication, then recover from the last Auto checkpoint.';
           draft.lastError = {
             code: checkpointError.code ?? 'AUTO_CHECKPOINT_PUBLICATION_FAILED',
             message: checkpointError.message
@@ -749,7 +749,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
   try { continuation = await verifyAutoFlightContinuation(root, state); }
   catch (error) {
     return stopActive('halted', 'continuation-binding-mismatch',
-      'Inspect the governed Story binding and create a continuation or replacement Plan before continuing.', {
+      'Inspect the Story binding and create a continuation or replacement Plan before continuing.', {
       lastError: { code: error.code ?? 'AUTO_PLAN_STALE', message: error.message }
     });
   }
@@ -797,7 +797,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         draft.counters.phasesCompleted = (draft.counters.phasesCompleted ?? 0) + 1;
         draft.status = 'completed';
         draft.stopReason = 'story-complete';
-        draft.nextAction = 'The ratified Auto Story reached its governed completion boundary.';
+        draft.nextAction = 'The ratified Auto Story reached its completion boundary.';
       }, { expectedCheckpoint: state.checkpointSha256 });
       state = await attachFinalReport(root, state);
       return persistGovernedBoundary(root, state, 'completion', {
@@ -885,7 +885,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
     }
   } catch (error) {
     if (error.code === 'AUTO_FLIGHT_STALE') {
-      return stopActive('halted', 'external-state-change', 'Inspect the governed Story and create a replacement Plan.', {
+      return stopActive('halted', 'external-state-change', 'Inspect the Story and create a replacement Plan.', {
         lastError: { code: error.code, message: error.message }
       });
     }
@@ -924,7 +924,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           || recovered.attemptNumber !== state.counters.authoringAttempts[phase.id]
           || recovered.modelInvocations !== state.counters.modelInvocations) {
         return stopActive('recovery-required', 'candidate-recovery-binding-mismatch',
-          'The retained Candidate does not bind the current governed generation and was not adopted.', {
+          'The retained Candidate does not bind the current generation and was not adopted.', {
             lastError: {
               code: 'AUTO_CANDIDATE_RECOVERY_CONFLICT',
               message: 'Candidate attempt or baseline differs from the current Auto authority.'
@@ -1005,7 +1005,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         if (reservation?.authorizationSource !== 'ratified-auto-repair-policy'
             || !state.activeRepairPlanId) {
           return stopActive('recovery-required', 'repair-authorization-checkpoint-missing',
-            'The bounded repair has no exact governed authorization checkpoint. Re-authorize the preserved Repair Plan before another model call.');
+            'The bounded repair has no exact authorization checkpoint. Re-authorize the preserved Repair Plan before another model call.');
         }
         try {
           const recovered = await authorizeAutomaticAutoRepair(
@@ -1021,7 +1021,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           const humanStop = await stoppedByHuman(root, flightId, error, activeAccountedAt);
           if (humanStop) return humanStop;
           return stopActive('recovery-required', 'repair-authorization-checkpoint-missing',
-            'The policy-authorized repair reservation could not be bound to an exact governed checkpoint. Recover the preserved refusal before another model call.', {
+            'The policy-authorized repair reservation could not be bound to an exact checkpoint. Recover the preserved refusal before another model call.', {
               lastError: {
                 code: error.code ?? 'AUTO_CHECKPOINT_PUBLICATION_FAILED',
                 message: error.message
@@ -1257,7 +1257,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
             return mutateAutoExecutorState(root, flightId, (draft) => {
               draft.status = 'recovery-required';
               draft.stopReason = 'governed-checkpoint-publication-failed';
-              draft.nextAction = 'Repair Story publication, then recover from the last governed Auto checkpoint.';
+              draft.nextAction = 'Repair Story publication, then recover from the last Auto checkpoint.';
               draft.lastError = {
                 code: checkpointError.code ?? 'AUTO_CHECKPOINT_PUBLICATION_FAILED',
                 message: checkpointError.message
@@ -1768,7 +1768,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           state = await persistGovernedBoundary(root, state, 'phase-boundary');
         } catch (preservationError) {
           return stopActive('recovery-required', 'verification-receipt-preservation-failed',
-            'Auto could not bind the failed Candidate verification receipt into governed authority. Repair recovery state before continuing.', {
+            'Auto could not bind the failed Candidate verification receipt into authority. Repair recovery state before continuing.', {
               lastError: {
                 code: preservationError.code ?? 'AUTO_CANDIDATE_VERIFICATION_CORRUPT',
                 message: preservationError.message
@@ -1832,7 +1832,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
         const current = await readAutoFlightState(root, flightId);
         if (current.status === 'running') {
           return stopActive('recovery-required', 'automatic-repair-authorization-failed',
-            'Automatic repair did not reach a complete governed authorization boundary. Recover the exact refusal before continuing.', {
+            'Automatic repair did not reach a complete authorization boundary. Recover the exact refusal before continuing.', {
               lastError: {
                 code: repairError.code ?? 'AUTO_REPAIR_NOT_ELIGIBLE',
                 message: repairError.message
@@ -1926,8 +1926,8 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
             ? `Choose what happens next for '${current.pendingDecision.label}' with singularity-flow decision choose.`
             : `Review and decide phase '${phase.id}' through the normal human approval path.`
           : draft.status === 'running'
-            ? 'Continue across the exact governed phase boundary.'
-            : 'The ratified Auto endpoint was reached; inspect the governed Story.';
+            ? 'Continue across the exact phase boundary.'
+            : 'The ratified Auto endpoint was reached; inspect the Story.';
       }, { expectedCheckpoint: state.checkpointSha256 });
       if (stopped.activeAttemptId) await recordAutoAttemptCompleted(root, flightId, stopped.activeAttemptId, {
         candidateSha256: stopped.candidate?.candidateSha256 ?? null,
@@ -1950,7 +1950,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
       const next = await verifyAutoFlightContinuation(root, stopped);
       if (!next.phaseTransition) {
         return stopActive('halted', 'phase-transition-missing',
-          'Submission completed without one exact adjacent governed phase transition.', {
+          'Submission completed without one exact adjacent phase transition.', {
             lastError: { code: 'AUTO_CHECKPOINT_STALE', message: 'No adjacent phase transition was recorded.' }
           });
       }
@@ -1959,7 +1959,7 @@ async function executeAutoFlightStepLocked(root, flightId, confirmation, runtime
           draft.counters.phasesCompleted = (draft.counters.phasesCompleted ?? 0) + 1;
           draft.status = 'completed';
           draft.stopReason = 'story-complete';
-          draft.nextAction = 'The ratified Auto Story reached its governed completion boundary.';
+          draft.nextAction = 'The ratified Auto Story reached its completion boundary.';
         }, {
           expectedCheckpoint: stopped.checkpointSha256,
           expectedStatuses: ['running']

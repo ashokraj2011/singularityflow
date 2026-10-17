@@ -1773,7 +1773,7 @@ export async function saveConfigurationFile(root, requestedPath, content, { expe
   const definition = await loadDefinition(root);
   const portfolio = await loadPortfolio(root, { required: false });
   const currentAuthority = editorConfigurationPathAuthority(root, definition, portfolio);
-  if (!allowedConfigurationPath(definition, relative, portfolio, null, currentAuthority)) throw new SingularityFlowError(`Editor editing is restricted to workflow and portfolio YAML, templates, governed-agent prompts, repository skills, world-model builder prompts, and repository agent Markdown. Generated world-model files, initiative state, and agent locks are read-only.`);
+  if (!allowedConfigurationPath(definition, relative, portfolio, null, currentAuthority)) throw new SingularityFlowError(`Editor editing is restricted to workflow and portfolio YAML, templates, agent prompts, repository skills, world-model builder prompts, and repository agent Markdown. Generated world-model files, initiative state, and agent locks are read-only.`);
   if (relative === WORKFLOW_PATH) {
     try {
       const candidateDefinition = validateDefinition(YAML.parse(content));
@@ -1865,7 +1865,7 @@ export async function deleteConfigurationFile(root, requestedPath) {
     || relative.startsWith(`${PROMPTS_ROOT}/`)
     || relative.startsWith('.github/agents/')
     || relative === ENVIRONMENT_DECLARATION_PATH;
-  if (!deletable) throw new SingularityFlowError('Editor deletion is restricted to artifact templates, unreferenced governed-agent prompts, repository skills, repository agents, and the optional environment declaration.');
+  if (!deletable) throw new SingularityFlowError('Editor deletion is restricted to artifact templates, unreferenced agent prompts, repository skills, repository agents, and the optional environment declaration.');
   const references = [];
   const impact = await loadImpactDefinition(root) ?? { studies: [] };
   if (relative.startsWith(`${templatesRoot}/`)) {

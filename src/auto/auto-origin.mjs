@@ -160,16 +160,16 @@ export async function readVerifiedAcceptedAutoBinding(root, definition, workflow
     });
   };
 
-  if (!workId || workId !== state?.story?.workId) fail('The governed Story does not match the Auto flight.');
+  if (!workId || workId !== state?.story?.workId) fail('The Story does not match the Auto flight.');
   if (workflow.executionOrigin?.mode !== 'auto'
       || workflow.executionOrigin?.flightId !== state.flightId
       || workflow.executionOrigin?.planId !== state.planId
       || workflow.executionOrigin?.planSha256 !== state.planSha256) {
-    fail('The governed Story execution origin does not match the Auto flight.');
+    fail('The Story execution origin does not match the Auto flight.');
   }
   if (workflow.auto?.acceptedPlanPath !== expectedPlanRelative
       || workflow.auto?.ratificationPath !== expectedRatificationRelative) {
-    fail('The governed Story points outside its canonical Auto binding paths.');
+    fail('The Story points outside its canonical Auto binding paths.');
   }
 
   let loadedPlan;
@@ -185,13 +185,13 @@ export async function readVerifiedAcceptedAutoBinding(root, definition, workflow
     ratification = loadedRatification.record;
   } catch (error) {
     if (error?.code === 'SCHEMA_VERSION_ARCHIVED') {
-      fail('The governed accepted Plan uses a retired schema and must be recreated before Auto execution can continue.', {
+      fail('The accepted Plan uses a retired schema and must be recreated before Auto execution can continue.', {
         storedVersion: error.details?.storedVersion ?? null,
         nextAction: 'Create and review a new Auto Plan; packet-v2 confirmation is required.'
       });
     }
     if (error instanceof SingularityFlowError) throw error;
-    fail(`The governed Auto binding cannot be read: ${error.message}`);
+    fail(`The Auto binding cannot be read: ${error.message}`);
   }
   if (loadedPlan.storedVersion === 2 || loadedRatification.storedVersion === 2) {
     let compatibility;
@@ -205,7 +205,7 @@ export async function readVerifiedAcceptedAutoBinding(root, definition, workflow
       });
     } catch (error) {
       if (error instanceof SingularityFlowError) throw error;
-      fail(`The governed legacy Auto binding cannot be verified: ${error.message}`);
+      fail(`The legacy Auto binding cannot be verified: ${error.message}`);
     }
     return Object.freeze({ acceptedPlan, ratification, compatibility });
   }
@@ -213,7 +213,7 @@ export async function readVerifiedAcceptedAutoBinding(root, definition, workflow
       || acceptedPlan.planSha256 !== state.planSha256
       || acceptedPlan.confirmation?.protocol !== AUTO_PLAN_CONFIRMATION_PROTOCOL
       || autoPlanHash(acceptedPlan) !== acceptedPlan.planSha256) {
-    fail('The governed accepted Plan failed its identity or integrity check.');
+    fail('The accepted Plan failed its identity or integrity check.');
   }
   const ratificationCopy = structuredClone(ratification);
   delete ratificationCopy.recordSha256;
@@ -224,14 +224,14 @@ export async function readVerifiedAcceptedAutoBinding(root, definition, workflow
       || ratification.planSha256 !== state.planSha256
       || ratification.authorizationSha256 !== ratificationAuthorizationSha256(ratification)
       || ratification.recordSha256 !== recordSha256(ratificationCopy)) {
-    fail('The governed Auto ratification failed its identity or integrity check.');
+    fail('The Auto ratification failed its identity or integrity check.');
   }
   const packet = buildAutoPlanPacket(acceptedPlan);
   if (ratification.confirmationProtocol !== AUTO_PLAN_CONFIRMATION_PROTOCOL
       || ratification.confirmedSha256 !== packet.packetSha256
       || ratification.packetSha256 !== packet.packetSha256
       || ratification.validationSha256 !== packet.validationSha256) {
-    fail('The governed Auto ratification is not bound to the accepted Plan packet.');
+    fail('The Auto ratification is not bound to the accepted Plan packet.');
   }
   return Object.freeze({ acceptedPlan, ratification, compatibility: null });
 }

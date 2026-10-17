@@ -452,7 +452,7 @@ async function acceptedPlan(root, workflow, flightPlanId) {
   const binding = workflow?.changeFlightPlan;
   if (!binding?.acceptedPath || binding.planId !== flightPlanId) {
     throw new SingularityFlowError(`Accepted Change Flight Plan '${flightPlanId}' was not found for this work item.`, {
-      code: 'EPC_FLIGHT_PLAN_NOT_FOUND', details: { nextAction: 'Start or attach the governed work created from that Flight Plan.' }
+      code: 'EPC_FLIGHT_PLAN_NOT_FOUND', details: { nextAction: 'Start or attach the work created from that Flight Plan.' }
     });
   }
   const resolved = await secureRepositoryPath(root, binding.acceptedPath, {
@@ -460,8 +460,8 @@ async function acceptedPlan(root, workflow, flightPlanId) {
   });
   const plan = readRecord('change-flight-plan', await readFile(resolved.absolute)).record;
   if (plan.planId !== flightPlanId || changeFlightPlanSha256(plan) !== binding.acceptedPlanSha256) {
-    throw new SingularityFlowError('The accepted Change Flight Plan does not match its governed workflow binding.', {
-      code: 'EPC_FLIGHT_PLAN_STALE', details: { nextAction: 'Recover the governed Flight Plan binding before requesting context.' }
+    throw new SingularityFlowError('The accepted Change Flight Plan does not match its workflow binding.', {
+      code: 'EPC_FLIGHT_PLAN_STALE', details: { nextAction: 'Recover the Flight Plan binding before requesting context.' }
     });
   }
   return plan;
@@ -480,7 +480,7 @@ async function resolveBinding(root, { workId, flightPlanId }) {
     try { plan = await readChangeFlightPlan(root, flightPlanId); }
     catch (error) {
       throw new SingularityFlowError(`Change Flight Plan '${flightPlanId}' is unavailable.`, {
-        code: 'EPC_FLIGHT_PLAN_NOT_FOUND', details: { nextAction: 'Refresh the preview or attach its governed work item.' }, cause: error
+        code: 'EPC_FLIGHT_PLAN_NOT_FOUND', details: { nextAction: 'Refresh the preview or attach its Story.' }, cause: error
       });
     }
     bindingMode = 'preview';
@@ -600,7 +600,7 @@ export async function compileEvidencePacket(root, request = {}) {
     });
     if (requested(slices, 'impact')) unavailable.push({
       code: 'EPC_FLIGHT_PLAN_NOT_FOUND', subject: 'impact',
-      reason: 'This governed work item has no accepted Change Flight Plan; current-work context is used instead.',
+      reason: 'This Story has no accepted Change Flight Plan; current-work context is used instead.',
       nextAction: 'Continue with current phase context or start work from a Change Flight Plan.'
     });
   }
@@ -614,7 +614,7 @@ export async function compileEvidencePacket(root, request = {}) {
     candidates.push(...briefs);
     if (!briefs.length) unavailable.push({
       code: 'EPC_SOURCE_UNAVAILABLE', subject: 'approved-agent-briefs', reason: 'No approved brief is available for the current phase.',
-      nextAction: 'Continue with governed Flight Plan context or prepare the phase brief.'
+      nextAction: 'Continue with Flight Plan context or prepare the phase brief.'
     });
   }
   let analogues = [];
@@ -625,7 +625,7 @@ export async function compileEvidencePacket(root, request = {}) {
       });
       candidates.push(...historyCandidates(analogues));
       if (!analogues.length) unavailable.push({
-        code: 'EPC_HISTORY_UNAVAILABLE', subject: 'history', reason: 'No authorized completed work has an exact governed overlap.',
+        code: 'EPC_HISTORY_UNAVAILABLE', subject: 'history', reason: 'No authorized completed work has an exact overlap.',
         nextAction: 'Continue without historical guidance.'
       });
     } catch (error) {
@@ -816,7 +816,7 @@ export async function compileEvidencePacket(root, request = {}) {
     const requiredBytes = Buffer.byteLength(JSON.stringify(packet));
     if (knowledge) {
       throw new SingularityFlowError(
-        'Bounded knowledge guidance and provenance cannot fit without evicting mandatory governance context.',
+        'Bounded knowledge guidance and provenance cannot fit without evicting mandatory Flow Policy context.',
         {
           code: 'EPC_KNOWLEDGE_OUTPUT_BUDGET',
           details: {
@@ -831,7 +831,7 @@ export async function compileEvidencePacket(root, request = {}) {
     throw new SingularityFlowError('Mandatory Evidence Packet metadata cannot fit the requested output budget.', {
       code: 'TKN_MANDATORY_CONTEXT_OVERFLOW', details: {
         requiredBytes, configuredLimitBytes: maximumOutputBytes,
-        unsafeReason: 'Applicable governance context cannot be truncated or budget-evicted.',
+        unsafeReason: 'Applicable Flow Policy context cannot be truncated or budget-evicted.',
         nextAction: 'Select an approved larger token-economy profile, narrow the operation, or split the work.'
       }
     });

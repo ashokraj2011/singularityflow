@@ -97,7 +97,7 @@ export function storyPullRequestBody(workflow, seed = null, {
     .map(() => `${phaseId} contains self-approval; it is valid but not independent review.`));
   warnings.push(...selfApprovals);
   if (workflow.publication?.status === 'pending') warnings.push('Publication is pending synchronization with the remote.');
-  if (warnings.length) lines.push('### Governance warnings', '', bulleted(warnings, ''), '');
+  if (warnings.length) lines.push('### Flow Policy warnings', '', bulleted(warnings, ''), '');
 
   // What the evidence shows, from the one evaluator every surface uses; the label is its own.
   lines.push('### Evidence', '', evidence ?? '_The evidence matrix could not be evaluated for this preview._', '');
@@ -130,7 +130,7 @@ export function storyPullRequestBody(workflow, seed = null, {
     }
   }
 
-  lines.push('---', '', 'Editable draft generated deterministically by Singularity Flow from committed workflow state. This description is not a governed lifecycle artifact.');
+  lines.push('---', '', 'Editable draft generated deterministically by Singularity Flow from committed workflow state. This description is not a lifecycle artifact.');
   return lines.join('\n');
 }
 

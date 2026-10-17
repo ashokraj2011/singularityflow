@@ -107,12 +107,12 @@ export async function readContextExpansionHandle(root, handle, { revalidate = tr
     try {
       workflow = await loadStoryAggregate(root, await loadConfig(root), record.workId);
     } catch {
-      throw new SingularityFlowError('Context expansion is not authorized for visible governed work.', {
-        code: 'EPC_EXPANSION_UNAUTHORIZED', details: { nextAction: 'Attach the governed work item and request context again.' }
+      throw new SingularityFlowError('Context expansion is not authorized for visible work.', {
+        code: 'EPC_EXPANSION_UNAUTHORIZED', details: { nextAction: 'Attach the Story and request context again.' }
       });
     }
     if (record.lifecycleRevision && recordSha256(workflow) !== record.lifecycleRevision) {
-      throw new SingularityFlowError('Context expansion is stale because governed work changed.', {
+      throw new SingularityFlowError('Context expansion is stale because work changed.', {
         code: 'EPC_EXPANSION_STALE', details: { nextAction: 'Request a refreshed context packet.' }
       });
     }

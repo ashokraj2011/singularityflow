@@ -174,7 +174,7 @@ export async function verifyWorkIntervalBaseline(root, config, workflow, {
   const current = workflow.workIntervals?.current;
   if (!current || current.phaseId !== phase.id || !(current.status === 'open'
     || (allowReconciled && current.status === 'reconciled'))) {
-    throw new SingularityFlowError(`Phase '${phase.id}' has no open governed work interval.`);
+    throw new SingularityFlowError(`Phase '${phase.id}' has no open work interval.`);
   }
   const itemTarget = await secureRepositoryPath(root, itemDirectory, { label: 'Story directory', type: 'directory' });
   const itemAbsolute = itemTarget.absolute;
@@ -326,7 +326,7 @@ export async function changedApplicationPathsSinceBaseline(root, workflow, {
 } = {}) {
   const current = workflow.workIntervals?.current;
   if (!current || current.phaseId !== phaseId || !['open', 'reconciled'].includes(current.status)) {
-    throw new SingularityFlowError(`Phase '${phaseId ?? ''}' has no active governed work interval.`);
+    throw new SingularityFlowError(`Phase '${phaseId ?? ''}' has no active work interval.`);
   }
   return pathsSince(root, current.sourceBaseCommit, applicationPathContext(workflow));
 }
@@ -383,7 +383,7 @@ export async function reconcileWorkInterval(root, config, workflow, {
   const phase = activePhase(workflow, phaseId);
   const current = workflow.workIntervals?.current;
   if (!current || current.phaseId !== phase.id || current.status !== 'open') {
-    throw new SingularityFlowError(`Phase '${phase.id}' has no open governed work interval.`);
+    throw new SingularityFlowError(`Phase '${phase.id}' has no open work interval.`);
   }
   const baseline = await verifyWorkIntervalBaseline(root, config, workflow, { phaseId: phase.id, itemDirectory });
   const pathContext = applicationPathContext(config, workflow);
@@ -650,7 +650,7 @@ export function closeWorkInterval(workflow, {
 
 export async function createLocalCheckpoint(root, workflow, { name = null, note = null } = {}) {
   const current = workflow.workIntervals?.current;
-  if (!current || current.status !== 'open') throw new SingularityFlowError('The current Story phase has no open governed work interval.');
+  if (!current || current.status !== 'open') throw new SingularityFlowError('The current Story phase has no open work interval.');
   const paths = await pathsSince(root, current.sourceBaseCommit, applicationPathContext(workflow));
   const evidence = await fileEvidence(root, paths);
   const untracked = new Set(splitNull(run('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: root }).stdout).map(posix));
@@ -688,7 +688,7 @@ export async function createLocalCheckpoint(root, workflow, { name = null, note 
 
 export function escalationPlan(config, workflow, { target = null } = {}) {
   const current = workflow.workIntervals?.current;
-  if (!current) throw new SingularityFlowError('This Story has no governed work interval to escalate.');
+  if (!current) throw new SingularityFlowError('This Story has no work interval to escalate.');
   const requested = target ?? (config.workTypes?.feature ? 'feature' : null);
   if (!requested || !config.workTypes?.[requested]) {
     throw new SingularityFlowError(`No escalation workflow '${requested ?? ''}' is configured.`);

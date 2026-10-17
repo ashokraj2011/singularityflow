@@ -59,7 +59,7 @@ export function buildAutoQualityComparison({
   const treatment = study.groups?.find((group) => group.assistanceMode === 'governed-agent');
   if (!baseline || !treatment || baseline.id === treatment.id) {
     refuse(
-      `Impact study '${study.id}' must have distinct baseline and governed-agent groups before it can evaluate Auto.`,
+      `Impact study '${study.id}' must have distinct baseline and agent-assisted groups before it can evaluate Auto.`,
       'AUTO_COMPARISON_STUDY_INCOMPATIBLE', { studyId: study.id }
     );
   }
@@ -85,7 +85,7 @@ export function buildAutoQualityComparison({
       || receipt.assistance?.planned !== 'governed-agent'
       || receipt.assistance?.actual !== 'governed-agent') {
     refuse(
-      `Auto Story '${report.story.workId}' is not an observed governed-agent treatment in Impact study '${study.id}'.`,
+      `Auto Story '${report.story.workId}' is not an observed agent-assisted treatment in Impact study '${study.id}'.`,
       'AUTO_COMPARISON_TREATMENT_UNPROVEN', {
         expectedGroup: treatment.id, actualGroup: receipt.study.groupId ?? null,
         plannedAssistance: receipt.assistance?.planned ?? null,

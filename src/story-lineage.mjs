@@ -774,7 +774,7 @@ export async function finalizeStoryDelivery(root, config, workflow, { persist = 
     seed = YAML.parse(await readFile(seedPath, 'utf8'));
   } catch {
     throw new SingularityFlowError(
-      `Story '${workflow.workItem.id}' has no readable governed seed at singularity/seeds/${workflow.workItem.id}.yml. `
+      `Story '${workflow.workItem.id}' has no readable Story seed at singularity/seeds/${workflow.workItem.id}.yml. `
       + 'Fetch or synchronize the canonical Story branch before finalizing.'
     );
   }
@@ -788,7 +788,7 @@ export async function finalizeStoryDelivery(root, config, workflow, { persist = 
     const current = await snapshot(file);
     if (!current.exists || current.sha256 !== record.sha256) {
       throw new SingularityFlowError(
-        `Governed Story input '${record.id}' does not match its approved hash. `
+        `Story input '${record.id}' does not match its approved hash. `
         + `Expected ${record.sha256}; found ${current.exists ? current.sha256 : 'missing'}. Re-fetch the Story branch.`
       );
     }
@@ -929,8 +929,8 @@ export async function promoteStoryBranch(root, config, workflow, {
     if (admission?.subject?.kind !== 'story' || admission.subject.id !== subject.id
         || !['work-completed', 'impact-finalized'].includes(admission.eventType)) {
       throw new SingularityFlowError(
-        `Story '${subject.id}' direct promotion requires its exact finalized governed Candidate commit. `
-        + 'Finalize the Story again after any later governed change; no remote ref was changed.',
+        `Story '${subject.id}' direct promotion requires its exact finalized Candidate commit. `
+        + 'Finalize the Story again after any later change; no remote ref was changed.',
         { code: 'STORY_PROMOTION_CANDIDATE_INVALID' }
       );
     }

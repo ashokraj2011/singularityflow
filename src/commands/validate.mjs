@@ -56,11 +56,11 @@ export async function gateCommand(options) {
   if (result.errors.length) {
     const commands = [...new Set(result.findings.map((finding) => finding.recovery?.command).filter(Boolean))];
     commands.forEach((command) => console.error(`  ${style.action('Recover:')} ${command}`));
-    throw new SingularityFlowError(`Governance gate failed:\n- ${result.errors.join('\n- ')}`, {
+    throw new SingularityFlowError(`Flow Gate failed:\n- ${result.errors.join('\n- ')}`, {
       exitCode: 2,
       code: 'GOVERNANCE_GATE_FAILED',
       details: { findings: result.findings }
     });
   }
-  console.log('Singularity Flow governance gate passed.');
+  console.log('Flow Gate passed.');
 }

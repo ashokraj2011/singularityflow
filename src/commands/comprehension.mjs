@@ -64,7 +64,7 @@ async function resolveReplayStory(root, options) {
   if (!selected) {
     throw new SingularityFlowError(
       requestedWorkId
-        ? `No governed Story matches '${requestedWorkId}'.`
+        ? `No Story matches '${requestedWorkId}'.`
         : 'No active Story matches the current branch. Provide --work-id WORK-ID.',
       { code: 'CMP_STORY_CONTEXT_REQUIRED' }
     );

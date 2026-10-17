@@ -94,7 +94,7 @@ test('Auto list is read-only and stop retains halt semantics at the governed che
     allowFailure: true
   });
   assert.notEqual(stopped.status, 0);
-  assert.match(stopped.stdout, /governed halt checkpoint could not be published/);
+  assert.match(stopped.stdout, /its halt checkpoint could not be published/);
   const recovery = await readAutoFlightState(root, flightId);
   assert.equal(recovery.status, 'recovery-required');
   assert.equal(recovery.stopReason, 'halt-checkpoint-publication-failed');

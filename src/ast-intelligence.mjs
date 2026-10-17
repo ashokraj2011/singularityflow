@@ -212,7 +212,7 @@ function assertWorkBinding(expected, actual) {
   if (!expected) return;
   if (!actual || recordSha256(expected) !== recordSha256(actual)) {
     throw new SingularityFlowError(
-      'AST runtime no longer matches the requested governed work item, phase, scope, configuration, or lifecycle revision.',
+      'AST runtime no longer matches the requested Story, phase, scope, configuration, or lifecycle revision.',
       { code: 'AST_WORK_BINDING_MISMATCH', details: { workId: expected.workId, phaseId: expected.phaseId } }
     );
   }
@@ -246,7 +246,7 @@ async function loadRuntime(root, requestedWorkBinding = null) {
     }
     if (expectedBinding && !state) {
       throw new SingularityFlowError(
-        `AST cannot load the governed workflow for '${expectedBinding.workId}'.`,
+        `AST cannot load the workflow for '${expectedBinding.workId}'.`,
         { code: 'AST_WORK_BINDING_UNAVAILABLE' }
       );
     }
@@ -1979,7 +1979,7 @@ export async function astContext(root, options = {}, workBinding = null) {
     const payload = readCursorPayload(root, handle, 'context');
     const boundWork = payload.binding.workBinding ?? null;
     if (workBinding && recordSha256(workBinding) !== recordSha256(boundWork)) {
-      throw new SingularityFlowError('AST read cursor belongs to different governed work.', { code: 'AST_READ_CURSOR_STALE' });
+      throw new SingularityFlowError('AST read cursor belongs to different work.', { code: 'AST_READ_CURSOR_STALE' });
     }
     const envelope = applyFactPriority(
       await buildOrContext(root, cursorOptions(payload), 'context', boundWork),

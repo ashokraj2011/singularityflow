@@ -1092,7 +1092,7 @@ async function learnCommand(root, positionals, options) {
     }
     const result = await service.reset(missionId, confirm);
     return emit(result, options, 'learn.reset',
-      `Reset machine-local learning workspace ${result.missionId}; Git and governed work were unchanged.`,
+      `Reset machine-local learning workspace ${result.missionId}; Git and work were unchanged.`,
     { changed: true });
   }
   const { registry } = await packRegistry(root, options);
@@ -1164,7 +1164,7 @@ async function learnCommand(root, positionals, options) {
     if (action === 'explain-change') {
       const result = await catalog.explainChange({ ...request, stepId: positionals[3] });
       return emit(result, options, 'learn.explain-change',
-        `Step ${result.stepId} changes no repository, Git, Device, or governed Process state.`);
+        `Step ${result.stepId} changes no repository, Git, Device, or Process state.`);
     }
     const answer = await jsonFile(root, optionString(options, 'answers'), '--answers');
     if (action === 'quiz') {

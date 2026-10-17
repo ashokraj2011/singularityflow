@@ -161,7 +161,7 @@ test('Copilot session-start never synthesizes a phase agent for deterministic co
     sessionId: 'copilot-deterministic', source: 'startup'
   });
   assert.match(started.additionalContext, /kernel-owned and deterministic/);
-  assert.doesNotMatch(started.additionalContext, /Governed agent architect is active/);
+  assert.doesNotMatch(started.additionalContext, /Agent architect is active/);
   assert.equal(await loadSession(root, { required: false }), null);
   const status = await agentSessionStatus(root, definition, current);
   assert.equal(status.ready, true);
@@ -231,7 +231,7 @@ Inspect boundaries and contracts.
   await setAgentSession(root, definition, 'User <user@example.com>', 'architect', 'HOOK-1', { phaseId: 'design' });
   const hook = await copilotAgentStartHook(root, { agentName: 'enterprise-delivery' });
   assert.match(hook.additionalContext, new RegExp(`Working repository: ${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
-  assert.match(hook.additionalContext, /Governed artifacts for HOOK-1 live under singularity\/work-items\/HOOK-1\//);
+  assert.match(hook.additionalContext, /Artifacts for HOOK-1 live under singularity\/work-items\/HOOK-1\//);
   assert.match(hook.additionalContext, /Use this exact repository as the cwd for every shell and file tool/);
   assert.match(hook.additionalContext, /Never search \$HOME, a parent directory, or outside this repository/);
   // Selecting a governed agent directly says how to run the step; the agent alone runs nothing.
@@ -259,7 +259,7 @@ test('session start gates only work-item selection and then activates the phase 
   const start = await sessionStartAgentHook(root, definition, current, { sessionId: 'copilot-new', source: 'startup' });
   assert.match(start.additionalContext, /work-item selection is required/);
   assert.match(start.additionalContext, new RegExp(`Working repository: ${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
-  assert.match(start.additionalContext, /Governed artifacts for HOOK-1 live under singularity\/work-items\/HOOK-1\//);
+  assert.match(start.additionalContext, /Artifacts for HOOK-1 live under singularity\/work-items\/HOOK-1\//);
   assert.match(start.additionalContext, /Use this exact repository as the cwd for every shell and file tool/);
   assert.match(start.additionalContext, /Never search \$HOME, a parent directory, or outside this repository/);
   let status = await agentSessionStatus(root, definition, current);

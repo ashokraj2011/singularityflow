@@ -592,7 +592,7 @@ export function rollbackFailedStoryWorktree(
     throw new SingularityFlowError(
       `${originalError.message}\n${dirty
         ? `The isolated checkout contains ${changedPaths.length} changed path(s) and was retained at ${recovery.repositoryPath}. Review git status there, preserve those changes, and retry Story start.`
-        : `The governed Story state was retained at ${recovery.repositoryPath}; open that folder and run singularity-flow doctor.`}`,
+        : `The Story state was retained at ${recovery.repositoryPath}; open that folder and run singularity-flow doctor.`}`,
       {
         code: originalError.code ?? 'STORY_WORKTREE_RECOVERY_REQUIRED',
         details: { repositoryPath: recovery.repositoryPath, ...(dirty ? {

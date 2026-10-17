@@ -286,7 +286,7 @@ function assertReplayableSuffix(process, program, taskInstanceIds) {
     const task = process.taskInstances[taskInstanceId];
     const template = templates.get(task.taskTemplateId);
     if (task.attemptIds.length >= retryCeiling(template)) {
-      fail(`Task '${template.taskTemplateId}' has no remaining governed attempt.`,
+      fail(`Task '${template.taskTemplateId}' has no remaining attempt.`,
         'SGOS_REPLAY_ATTEMPT_CEILING', {
           taskInstanceId, attempts: task.attemptIds.length,
           maximumAttempts: retryCeiling(template)

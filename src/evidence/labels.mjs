@@ -50,7 +50,7 @@ export function completionLabel({ workflow, rows = [], terminal = null, gate = n
   if (closed && !decisive) {
     return {
       label: COMPLETION_LABELS.notEvaluated, kind: 'not-evaluated',
-      reasons: ['no final governance evaluation is recorded for the current evidence']
+      reasons: ['no final Flow Gate evaluation is recorded for the current evidence']
     };
   }
   const reasons = [];

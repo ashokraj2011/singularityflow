@@ -101,12 +101,12 @@ export function selectContextCandidates(candidates, maximumContentBytes) {
       .map((kind) => [kind, mandatory.filter((candidate) => candidate.kind === kind)
         .reduce((total, candidate) => total + candidate.bytes, 0)]));
     throw new SingularityFlowError(
-      `Mandatory governance context requires ${requiredBytes} bytes but the context-content limit is ${maximumContentBytes} bytes.`,
+      `Mandatory Flow Policy context requires ${requiredBytes} bytes but the context-content limit is ${maximumContentBytes} bytes.`,
       {
         code: 'TKN_MANDATORY_CONTEXT_OVERFLOW',
         details: {
           requiredBytes, configuredLimitBytes: maximumContentBytes, byClass,
-          unsafeReason: 'Applicable governance context cannot be truncated or budget-evicted.',
+          unsafeReason: 'Applicable Flow Policy context cannot be truncated or budget-evicted.',
           nextAction: 'Select an approved larger token-economy profile, narrow the operation, or split the work.'
         }
       }

@@ -691,7 +691,7 @@ export function validateConfiguredSkillPhase(phase, phaseId) {
       || policy.generation.allowedProducers.length !== 1
       || policy.generation.allowedProducers[0] !== 'governed-agent'
       || policy.approval?.mode !== 'required' || policy.approval.minimum < 1) {
-    fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' must use governed generation and human approval.`);
+    fail('SKP_PHASE_BINDING_INVALID', `Skill phase '${phaseId}' must use generation and human approval.`);
   }
   if (policy.writeScope === 'source-and-artifact'
       && (policy.generation.task !== 'code' || !refs.sourceScope || !refs.codeDeliverySha256)) {

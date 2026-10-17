@@ -217,7 +217,7 @@ async function buildGovernanceRebuild(root, { remote = 'origin' } = {}) {
 
     const blockers = [];
     if (source.dirty.length) {
-      blockers.push({ code: 'GOVERNANCE_REBUILD_CONFIGURATION_DIRTY', message: `Commit or discard governance changes first: ${source.dirty.join(', ')}.` });
+      blockers.push({ code: 'GOVERNANCE_REBUILD_CONFIGURATION_DIRTY', message: `Commit or discard configuration changes first: ${source.dirty.join(', ')}.` });
     }
     if (compiled.loadError) {
       blockers.push({ code: compiled.loadError.code, message: `The rebuilt configuration does not load: ${compiled.loadError.message}` });

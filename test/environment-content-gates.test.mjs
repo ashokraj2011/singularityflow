@@ -70,7 +70,7 @@ test('commit and governed publication refuse force-added environment-local paths
 
   assert.throws(() => admitGovernedPublication(root, ['config']), (error) => {
     assert.equal(error.code, 'ENVIRONMENT_LOCAL_CONTENT_REFUSED');
-    assert.match(error.message, /Governed publication was refused/);
+    assert.match(error.message, /Publication was refused/);
     return true;
   });
 });

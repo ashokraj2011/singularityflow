@@ -63,8 +63,8 @@ function artifactActions(workflow, phase, findings, { modelEnabled = true } = {}
   return [action({
     id: `complete-artifact:${phase.id}`,
     detail: first.line
-      ? `Complete all ${findings.length} authoring blocker(s), starting at ${first.path}:${first.line}. Use the configured producer ${generationSkill(phase, workflow)} to re-author from the governed prompt before retrying.`
-      : `Complete all ${findings.length} authoring blocker(s) at ${first.path}. Use the configured producer ${generationSkill(phase, workflow)} to re-author from the governed prompt before retrying.`,
+      ? `Complete all ${findings.length} authoring blocker(s), starting at ${first.path}:${first.line}. Use the configured producer ${generationSkill(phase, workflow)} to re-author from the phase prompt before retrying.`
+      : `Complete all ${findings.length} authoring blocker(s) at ${first.path}. Use the configured producer ${generationSkill(phase, workflow)} to re-author from the phase prompt before retrying.`,
     // The draft is unpublished and this step's to finish: its drafting skill rechecks it and lists
     // every blocker with its line. A view of the document cannot fix any of them.
     command: `singularity-flow phase prepublish ${phase.id} --for-agent --json`,

@@ -35,7 +35,7 @@ export async function verifyAutoFlightContinuation(root, state) {
   // Containment plus the accepted Plan's repository authority is the identity proof; requiring an
   // equal Git common directory would incorrectly reject that supported topology.
   if (branch(state.worktree) !== state.story.branch) {
-    throw new SingularityFlowError('The Auto worktree branch no longer matches the governed Story.', {
+    throw new SingularityFlowError('The Auto worktree branch no longer matches the Story.', {
       code: 'AUTO_FLIGHT_BINDING_MISMATCH',
       details: { expected: state.story.branch, actual: branch(state.worktree) }
     });
@@ -71,7 +71,7 @@ export async function verifyAutoFlightContinuation(root, state) {
     });
   }
   if (binding.acceptedPlan.planSha256 !== plan.planSha256) {
-    throw new SingularityFlowError('The local Plan and governed accepted Plan differ.', {
+    throw new SingularityFlowError('The local Plan and accepted Plan differ.', {
       code: 'AUTO_FLIGHT_BINDING_MISMATCH'
     });
   }
@@ -110,7 +110,7 @@ export async function verifyAutoFlightContinuation(root, state) {
   // Auto never answers a workflow decision: the person in its approval groups does.
   if (workflow.pendingDecision) {
     throw new SingularityFlowError(
-      `The governed Story is waiting for a decision: '${workflow.pendingDecision.label}'. Choose with singularity-flow decision choose before Auto resumes.`,
+      `The Story is waiting for a decision: '${workflow.pendingDecision.label}'. Choose with singularity-flow decision choose before Auto resumes.`,
       { code: 'AUTO_HUMAN_DECISION_REQUIRED', details: { decision: workflow.pendingDecision.decision, after: workflow.pendingDecision.after } }
     );
   }
@@ -131,7 +131,7 @@ export async function verifyAutoFlightContinuation(root, state) {
       && workflow.status === 'closed';
     if ((!adjacent && !terminal) || previousPhase?.status !== 'approved') {
       throw new SingularityFlowError(
-        `The governed Story moved from phase '${state.story.phase}' to '${workflow.currentPhase}'. Create a continuation Plan before Auto resumes.`,
+        `The Story moved from phase '${state.story.phase}' to '${workflow.currentPhase}'. Create a continuation Plan before Auto resumes.`,
         {
           code: 'AUTO_PLAN_AMENDMENT_REQUIRED',
           details: { previousPhase: state.story.phase, currentPhase: workflow.currentPhase }
@@ -151,7 +151,7 @@ export async function verifyAutoFlightContinuation(root, state) {
     humanDecisions = onlyHumanDecisionCommits(state.worktree, definition, workflow,
       state.lastSuccessfulStoryRevision, currentHead);
     if (!humanDecisions) {
-      throw new SingularityFlowError('The governed Story revision changed after the last Auto checkpoint.', {
+      throw new SingularityFlowError('The Story revision changed after the last Auto checkpoint.', {
         code: 'AUTO_CHECKPOINT_STALE',
         details: { expected: state.lastSuccessfulStoryRevision, actual: currentHead }
       });
@@ -192,7 +192,7 @@ async function verifyGovernedPhaseAdvance(root, definition, workflow, state, cur
         && committedWorkflow?.phases?.[state.story.phase]?.status === 'approved'
         && committedWorkflow.currentPhase === workflow.currentPhase
         && committedWorkflow.status === workflow.status) return;
-    throw new SingularityFlowError('The phase changed without a distinct governed approval boundary.', {
+    throw new SingularityFlowError('The phase changed without a distinct approval boundary.', {
       code: 'AUTO_CHECKPOINT_STALE'
     });
   }
@@ -207,7 +207,7 @@ async function verifyGovernedPhaseAdvance(root, definition, workflow, state, cur
   const revisions = phaseAdvanceRead(root, ['rev-list', '--reverse', `${prior}..${currentHead}`],
     'The phase-advance revisions').trim().split(/\s+/).filter(Boolean);
   if (!revisions.length) {
-    throw new SingularityFlowError('The governed phase advance has no committed transition.', {
+    throw new SingularityFlowError('The phase advance has no committed transition.', {
       code: 'AUTO_CHECKPOINT_STALE'
     });
   }
@@ -226,7 +226,7 @@ async function verifyGovernedPhaseAdvance(root, definition, workflow, state, cur
     const changed = phaseAdvanceRead(root, ['diff-tree', '--no-commit-id', '--name-only', '-r', '-z', revision],
       `The paths changed by ${revision}`).split('\0').filter(Boolean).map(posix);
     if (changed.some((entry) => !entry.startsWith(itemPrefix))) {
-      throw new SingularityFlowError('The phase-advance tail contains changes outside governed Story state.', {
+      throw new SingularityFlowError('The phase-advance tail contains changes outside Story state.', {
         code: 'AUTO_CHECKPOINT_STALE', details: { revision }
       });
     }
@@ -234,7 +234,7 @@ async function verifyGovernedPhaseAdvance(root, definition, workflow, state, cur
       cwd: root, allowFailure: true
     });
     if (shown.status !== 0) {
-      throw new SingularityFlowError('The phase-advance commit lacks governed Story state.', {
+      throw new SingularityFlowError('The phase-advance commit lacks Story state.', {
         code: 'AUTO_CHECKPOINT_STALE', details: { revision }
       });
     }

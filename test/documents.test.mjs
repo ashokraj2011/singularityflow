@@ -844,5 +844,5 @@ test('the gate accepts a superseded generation composed from a document detached
   assert.doesNotMatch(gate.stdout, /supporting evidence is detached/);
   // The gate no longer reads composition receipts (they went with the registered World Model), so
   // the replaced generation is simply not held against the Story.
-  assert.match(gate.stdout, /Singularity Flow governance gate passed\./);
+  assert.match(gate.stdout, /Flow Gate passed\./);
 });

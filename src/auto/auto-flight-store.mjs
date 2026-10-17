@@ -452,7 +452,7 @@ async function requestQuiescentTransition(root, id, {
       if (state.stopRequested?.requestId !== requestId) return state;
       state.status = 'recovery-required';
       state.stopReason = `${kind}-quiescence-unproven`;
-      state.nextAction = 'Inspect and stop the active execution owner, then run governed Auto recovery.';
+      state.nextAction = 'Inspect and stop the active execution owner, then run Auto recovery.';
       state.lastError = {
         code: error.code,
         message: error.message
@@ -474,7 +474,7 @@ async function requestQuiescentTransition(root, id, {
       if (state.stopRequested?.requestId !== requestId) return state;
       state.status = 'recovery-required';
       state.stopReason = `${kind}-execution-quiescence-unproven`;
-      state.nextAction = 'Inspect and stop the active Execution Unit, then run governed Auto recovery.';
+      state.nextAction = 'Inspect and stop the active Execution Unit, then run Auto recovery.';
       state.lastError = {
         code: error.code ?? 'AUTO_EXECUTION_QUIESCENCE_UNPROVEN', message: error.message
       };
@@ -520,7 +520,7 @@ async function requestQuiescentTransition(root, id, {
     return requestStopMutation(root, id, (state) => {
       if (state.checkpointSha256 !== quiesced.checkpointSha256
           || state.stopRequested?.requestId !== requestId) {
-        throw new SingularityFlowError(`Auto flight '${id}' changed while its governed stop checkpoint was published.`, {
+        throw new SingularityFlowError(`Auto flight '${id}' changed while its stop checkpoint was published.`, {
           code: 'AUTO_CHECKPOINT_STALE'
         });
       }
@@ -540,13 +540,13 @@ async function requestQuiescentTransition(root, id, {
       if (state.stopRequested?.requestId !== requestId) return state;
       state.status = 'recovery-required';
       state.stopReason = `${kind}-checkpoint-publication-failed`;
-      state.nextAction = 'Repair or synchronize Story publication, then recover from the last governed Auto checkpoint.';
+      state.nextAction = 'Repair or synchronize Story publication, then recover from the last Auto checkpoint.';
       state.lastError = {
         code: error.code ?? 'AUTO_CHECKPOINT_PUBLICATION_FAILED', message: error.message
       };
     });
     throw new SingularityFlowError(
-      `Auto flight '${id}' quiesced, but its governed ${kind} checkpoint could not be published.`, {
+      `Auto flight '${id}' quiesced, but its ${kind} checkpoint could not be published.`, {
         code: 'AUTO_CHECKPOINT_PUBLICATION_FAILED', cause: error,
         details: {
           flightId: id, status: recovery.status,
@@ -653,7 +653,7 @@ export async function resumeAutoFlight(root, id, confirmation, options = {}) {
   if (current.status === 'waiting-human' && current.position === 'submitted'
       && !continuation.phaseTransition) {
     throw new SingularityFlowError(
-      `Auto flight '${id}' is waiting for the governed phase decision.`, {
+      `Auto flight '${id}' is waiting for the phase decision.`, {
         code: 'AUTO_HUMAN_BOUNDARY_PENDING',
         details: { phase: current.story.phase }
       }
@@ -677,7 +677,7 @@ export async function resumeAutoFlight(root, id, confirmation, options = {}) {
         state.stopRequested = null;
         state.status = 'completed';
         state.stopReason = 'story-complete';
-        state.nextAction = 'The ratified Auto Story reached its governed completion boundary.';
+        state.nextAction = 'The ratified Auto Story reached its completion boundary.';
       }, { expectedCheckpoint: current.checkpointSha256 });
       const report = await persistAutoFlightReport(root, completed);
       completed = await mutateAutoFlightState(root, id, (state) => {
@@ -886,7 +886,7 @@ export async function authorizeAutoAuthoringAttempt(root, id, phase) {
     state.counters.authoringAttempts[phase] = attempts + 1;
     state.counters.modelInvocations += 1;
     state.stopReason = 'authoring-attempt-authorized';
-    state.nextAction = 'Exactly one governed model invocation may now run for this phase.';
+    state.nextAction = 'Exactly one model invocation may now run for this phase.';
   });
 }
 
@@ -1111,7 +1111,7 @@ function reportIdentityHash(report) {
 }
 
 function reportShapeFailure(id, detail) {
-  throw new SingularityFlowError(`Auto flight report '${id}' failed its governed integrity check.`, {
+  throw new SingularityFlowError(`Auto flight report '${id}' failed its integrity check.`, {
     code: 'AUTO_FLIGHT_CORRUPT', details: { detail }
   });
 }
@@ -1217,7 +1217,7 @@ export function validateAutoFlightReportRecord(value, { expectedFlightId = null 
       || !['story-authority', 'flight-checkpoint'].includes(report.approvalSource)
       || !Array.isArray(report.approvals)
       || unknown.length) {
-    throw new SingularityFlowError(`Auto flight report '${id}' failed its governed integrity check.`, {
+    throw new SingularityFlowError(`Auto flight report '${id}' failed its integrity check.`, {
       code: 'AUTO_FLIGHT_CORRUPT', details: { unknown }
     });
   }

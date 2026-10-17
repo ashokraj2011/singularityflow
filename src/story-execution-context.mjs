@@ -177,7 +177,7 @@ function pinnedAttachedSkills(closure, agentId) {
   if (!Array.isArray(entries) || entries.some((entry) => !entry || !id.test(String(entry.id ?? ''))
       || !Array.isArray(entry.phases) || entry.phases.some((phase) => !id.test(String(phase)))
       || typeof (entry.use ?? '') !== 'string')) {
-    fail(`Saved skill attachments of governed agent '${agentId}' are invalid.`, 'WFA_SNAPSHOT_INVALID');
+    fail(`Saved skill attachments of agent '${agentId}' are invalid.`, 'WFA_SNAPSHOT_INVALID');
   }
   return entries.map((entry) => ({ id: entry.id, phases: [...entry.phases], use: entry.use ?? '' }));
 }
@@ -197,13 +197,13 @@ function parsedSnapshotAgents(closure) {
     const logicalId = `agent:${agentId}`;
     const asset = closure.manifest.assets.find((entry) => entry.logicalId === logicalId);
     const bytes = closure.assetBytes.get(logicalId);
-    if (!asset || !bytes) fail(`Saved governed agent '${agentId}' is unavailable.`, 'WFA_DEPENDENCY_UNAVAILABLE');
-    const text = utf8(bytes, `Saved governed agent '${agentId}'`);
+    if (!asset || !bytes) fail(`Saved agent '${agentId}' is unavailable.`, 'WFA_DEPENDENCY_UNAVAILABLE');
+    const text = utf8(bytes, `Saved agent '${agentId}'`);
     let parsed;
     try { parsed = parseAgentDependencies(text, { source: logicalId, agentId }); }
     catch (error) {
       fail(
-        `Saved governed agent '${agentId}' cannot be interpreted by ${parserProfile}: ${error.message}`,
+        `Saved agent '${agentId}' cannot be interpreted by ${parserProfile}: ${error.message}`,
         'WFA_RUNTIME_INCOMPATIBLE',
         { agentId, parserProfile }
       );
@@ -213,7 +213,7 @@ function parsedSnapshotAgents(closure) {
       ...parsed,
       ...(attachedSkills ? { attachedSkills } : {}),
       scope: 'workflow-snapshot', source: logicalId, file: null, text,
-      sha256: hash(asset.blob.sha256, `Saved governed agent '${agentId}'`).slice(7)
+      sha256: hash(asset.blob.sha256, `Saved agent '${agentId}'`).slice(7)
     };
   }
   return { agents, parserProfile, composerProfile };
@@ -352,7 +352,7 @@ export async function resolveStoryExecutionCatalog(root, definition, workflow) {
       phaseIds: Object.freeze(entry.phaseBindings.map((binding) => binding.phaseId))
     })));
   if (!Object.keys(parsed.agents).length) {
-    fail('Story snapshot contains no governed-agent bytes.', 'WFA_DEPENDENCY_UNAVAILABLE');
+    fail('Story snapshot contains no agent bytes.', 'WFA_DEPENDENCY_UNAVAILABLE');
   }
   const policy = immutable(structuredClone(closure.policy));
   const agents = immutable(parsed.agents);
@@ -513,7 +513,7 @@ export async function resolveStoryExecutionContext(root, definition, workflow, {
   const agent = selectedId ? catalog.agents[selectedId] : null;
   if (!selectedId || !agent) {
     fail(
-      `Governed agent '${selectedId ?? 'unavailable'}' is not captured by this Story's execution closure.`,
+      `Agent '${selectedId ?? 'unavailable'}' is not captured by this Story's execution closure.`,
       catalog.mode === 'workflow-snapshot' ? 'WFA_DEPENDENCY_UNAVAILABLE' : 'WFA_RUNTIME_INCOMPATIBLE',
       { agentId: selectedId, allowedAgents: Object.keys(catalog.agents).sort(compareText) }
     );

@@ -582,7 +582,7 @@ test('portfolio Jira policy blocks unsafe fields and normalizes legacy write con
   assert.equal(policy.writeMode, 'approved');
   assert.equal(policy.allowedHosts[0], 'jira.example.com');
   assert.ok(policy.writePolicy.operations.includes('create-story'));
-  assert.throws(() => normalizeJiraPolicy({ allowedFields: ['summary', 'status'] }), /governed fields/);
+  assert.throws(() => normalizeJiraPolicy({ allowedFields: ['summary', 'status'] }), /fields that Singularity Flow owns: status\./);
   assert.throws(() => normalizeJiraPolicy({ deployment: 'data-center', authentication: { permitted: ['user-token'] } }), /not supported/);
 });
 

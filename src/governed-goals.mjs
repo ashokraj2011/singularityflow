@@ -87,7 +87,7 @@ export function assertGovernedGoalId(value) {
   const id = String(value ?? '').trim().toUpperCase();
   if (!GOVERNED_GOAL_ID.test(id)) {
     throw new SingularityFlowError(
-      "A governed Goal ID must use 'GEX-' followed by a 26-character ULID.",
+      "A repository Goal ID must use 'GEX-' followed by a 26-character ULID.",
       { code: 'GOVERNED_GOAL_ID_INVALID', details: { id } }
     );
   }
@@ -103,7 +103,7 @@ function git(root, args, { allowFailure = false } = {}) {
   const result = run('git', args, { cwd: root, allowFailure: true });
   if (!allowFailure && result.status !== 0) {
     throw new SingularityFlowError(
-      `Git could not ${args[0]} the governed Goal: ${(result.stderr || result.stdout).trim() || 'unknown error'}`,
+      `Git could not ${args[0]} the repository Goal: ${(result.stderr || result.stdout).trim() || 'unknown error'}`,
       { code: 'GOVERNED_GOAL_GIT_FAILED', details: { operation: args[0], status: result.status } }
     );
   }
@@ -118,7 +118,7 @@ async function remoteGit(root, args, { allowFailure = false } = {}) {
   });
   if (!allowFailure && result.status !== 0) {
     throw new SingularityFlowError(
-      `Git could not ${args[0]} the governed Goal: ${(result.stderr || result.stdout).trim() || 'unknown error'}`,
+      `Git could not ${args[0]} the repository Goal: ${(result.stderr || result.stdout).trim() || 'unknown error'}`,
       { code: 'GOVERNED_GOAL_GIT_FAILED', details: { operation: args[0], status: result.status } }
     );
   }
@@ -149,7 +149,7 @@ async function fetchGoalBranch(root, id, policy, { required = false } = {}) {
   );
   if (result.status !== 0 && required) {
     throw new SingularityFlowError(
-      `Governed Goal '${id}' could not refresh ${policy.remote}/${id}: ${(result.stderr || result.stdout).trim()}. No files were changed.`,
+      `Repository Goal '${id}' could not refresh ${policy.remote}/${id}: ${(result.stderr || result.stdout).trim()}. No files were changed.`,
       { code: 'GOVERNED_GOAL_REMOTE_UNAVAILABLE', details: { id, remote: policy.remote } }
     );
   }
@@ -165,13 +165,13 @@ async function resolveGoalRevision(root, id, policy, { refresh = true, mutation 
   const local = refSha(root, localRef);
   const remote = refSha(root, remoteRef);
   if (!local && !remote) {
-    throw new SingularityFlowError(`Governed Goal '${id}' was not found locally or on ${policy.remote}.`, {
+    throw new SingularityFlowError(`Repository Goal '${id}' was not found locally or on ${policy.remote}.`, {
       code: 'GOVERNED_GOAL_NOT_FOUND', details: { id, remote: policy.remote }
     });
   }
   if (local && remote && local !== remote && !isAncestor(root, local, remote) && !isAncestor(root, remote, local)) {
     throw new SingularityFlowError(
-      `Governed Goal '${id}' has divergent local and ${policy.remote} lifecycle branches. Reconcile them before continuing.`,
+      `Repository Goal '${id}' has divergent local and ${policy.remote} lifecycle branches. Reconcile them before continuing.`,
       { code: 'GOVERNED_GOAL_BRANCH_DIVERGED', details: { id, local, remote } }
     );
   }
@@ -182,14 +182,14 @@ async function resolveGoalRevision(root, id, policy, { refresh = true, mutation 
 function readJsonAtRef(root, ref, relative, family) {
   const result = git(root, ['show', `${ref}:${relative}`], { allowFailure: true });
   if (result.status !== 0) {
-    throw new SingularityFlowError(`Governed Goal record '${relative}' is missing at ${ref.slice(0, 12)}.`, {
+    throw new SingularityFlowError(`Repository Goal record '${relative}' is missing at ${ref.slice(0, 12)}.`, {
       code: 'GOVERNED_GOAL_RECORD_MISSING', details: { ref, relative }
     });
   }
   let parsed;
   try { parsed = JSON.parse(result.stdout); }
   catch (error) {
-    throw new SingularityFlowError(`Governed Goal record '${relative}' is invalid JSON: ${error.message}`, {
+    throw new SingularityFlowError(`Repository Goal record '${relative}' is invalid JSON: ${error.message}`, {
       code: 'GOVERNED_GOAL_RECORD_INVALID', cause: error
     });
   }
@@ -206,20 +206,20 @@ function validateRecordHash(record, label) {
 
 function validateContract(contract, id) {
   if (contract.id !== id || contract.authority !== GOVERNED_GOAL_AUTHORITY) {
-    throw new SingularityFlowError(`Governed Goal '${id}' has an invalid contract identity.`, {
+    throw new SingularityFlowError(`Repository Goal '${id}' has an invalid contract identity.`, {
       code: 'GOVERNED_GOAL_RECORD_INVALID'
     });
   }
-  validateRecordHash(contract, `Governed Goal '${id}' contract`);
+  validateRecordHash(contract, `Repository Goal '${id}' contract`);
   const calculated = hash({ ...contract, contractSha256: undefined, recordSha256: undefined });
   if (contract.contractSha256 !== calculated) {
-    throw new SingularityFlowError(`Governed Goal '${id}' contract hash does not match its contents.`, {
+    throw new SingularityFlowError(`Repository Goal '${id}' contract hash does not match its contents.`, {
       code: 'GOVERNED_GOAL_CONTRACT_DRIFT'
     });
   }
   if (!Array.isArray(contract.criteria) || !contract.criteria.length
       || contract.criteria.some((criterion) => !GOVERNED_GOAL_ORACLE_TYPES.includes(criterion.oracle?.type))) {
-    throw new SingularityFlowError(`Governed Goal '${id}' must bind every criterion to one typed oracle.`, {
+    throw new SingularityFlowError(`Repository Goal '${id}' must bind every criterion to one typed oracle.`, {
       code: 'GOVERNED_GOAL_ORACLE_REQUIRED'
     });
   }
@@ -227,13 +227,13 @@ function validateContract(contract, id) {
     if (criterion.oracle.type === 'governed-work'
         && (!criterion.oracle.subject?.kind || !criterion.oracle.subject?.id
           || !criterion.oracle.subject?.repositoryId || !criterion.oracle.allowedTerminalStates?.length)) {
-      throw new SingularityFlowError(`Governed Goal '${id}' criterion '${criterion.id}' has an incomplete governed-work oracle.`, {
+      throw new SingularityFlowError(`Repository Goal '${id}' criterion '${criterion.id}' has an incomplete governed-work oracle.`, {
         code: 'GOVERNED_GOAL_ORACLE_INVALID'
       });
     }
     if (criterion.oracle.type === 'human-judgment'
         && (!criterion.oracle.authority || !criterion.oracle.question)) {
-      throw new SingularityFlowError(`Governed Goal '${id}' criterion '${criterion.id}' has an incomplete human-judgment oracle.`, {
+      throw new SingularityFlowError(`Repository Goal '${id}' criterion '${criterion.id}' has an incomplete human-judgment oracle.`, {
         code: 'GOVERNED_GOAL_ORACLE_INVALID'
       });
     }
@@ -244,11 +244,11 @@ function validateState(state, id) {
   if (state.id !== id || state.authority !== GOVERNED_GOAL_AUTHORITY
       || !GOVERNED_GOAL_STATES.includes(state.status)
       || !GOVERNED_GOAL_ASSURANCE_LEVELS.includes(state.assurance)) {
-    throw new SingularityFlowError(`Governed Goal '${id}' has an invalid operational state.`, {
+    throw new SingularityFlowError(`Repository Goal '${id}' has an invalid operational state.`, {
       code: 'GOVERNED_GOAL_RECORD_INVALID'
     });
   }
-  validateRecordHash(state, `Governed Goal '${id}' state`);
+  validateRecordHash(state, `Repository Goal '${id}' state`);
 }
 
 export function planSha256(plan) {
@@ -261,18 +261,18 @@ export function planSha256(plan) {
 function validatePlan(plan, id) {
   if (plan.goalId !== id || plan.planSha256 !== planSha256(plan)) {
     throw new SingularityFlowError(
-      `Governed Goal '${id}' plan generation ${plan.generation ?? '?'} has drifted and requires a new generation.`,
+      `Repository Goal '${id}' plan generation ${plan.generation ?? '?'} has drifted and requires a new generation.`,
       { code: 'GOVERNED_GOAL_PLAN_DRIFT' }
     );
   }
-  validateRecordHash(plan, `Governed Goal '${id}' plan`);
+  validateRecordHash(plan, `Repository Goal '${id}' plan`);
 }
 
 export function proposalForGoal(context, { statement, successCriteria, links = [] } = {}) {
   const normalizedStatement = String(statement ?? '').replace(/\s+/g, ' ').trim();
   const criteria = [...new Set((successCriteria ?? []).map((item) => String(item).replace(/\s+/g, ' ').trim()).filter(Boolean))];
-  if (normalizedStatement.length < 3) throw new SingularityFlowError('A governed Goal proposal needs an outcome.', { code: 'GOVERNED_GOAL_OUTCOME_REQUIRED' });
-  if (!criteria.length) throw new SingularityFlowError('A governed Goal proposal needs at least one observable success criterion.', { code: 'GOVERNED_GOAL_CRITERION_REQUIRED' });
+  if (normalizedStatement.length < 3) throw new SingularityFlowError('A repository Goal proposal needs an outcome.', { code: 'GOVERNED_GOAL_OUTCOME_REQUIRED' });
+  if (!criteria.length) throw new SingularityFlowError('A repository Goal proposal needs at least one observable success criterion.', { code: 'GOVERNED_GOAL_CRITERION_REQUIRED' });
   return {
     schemaVersion: 1,
     mode: GOVERNED_GOAL_AUTHORITY,
@@ -362,7 +362,7 @@ function goalMarkdown(contract, state) {
     + `## Outcome\n\n${contract.outcome.statement} [${contract.id}:REQ-001]\n\n`
     + `## Success criteria\n\n${contract.criteria.map((criterion) =>
       `- **${criterion.id}** ${criterion.statement} [${criterion.clauseId}] (\`${criterion.oracle.type}\`)`).join('\n')}\n\n`
-    + `## Linked governed work\n\n${contract.linkedWork.length
+    + `## Linked work\n\n${contract.linkedWork.length
       ? contract.linkedWork.map((link) => `- ${link.kind} \`${link.id}\` in \`${link.repositoryId}\``).join('\n')
       : '- None yet'}\n`;
 }
@@ -411,14 +411,14 @@ async function materializeGoalProjection(root, worktree, baseCommit, id) {
         || !file.startsWith(`${relative}/`) || file.includes('\\') || path.posix.isAbsolute(file)
         || file.split('/').some((part) => !part || part === '.' || part === '..')) {
       throw new SingularityFlowError(
-        `Governed Goal '${id}' contains an unsafe or unsupported retained path '${file || 'unknown'}'.`,
+        `Repository Goal '${id}' contains an unsafe or unsupported retained path '${file || 'unknown'}'.`,
         { code: 'GOVERNED_GOAL_RECORD_INVALID' }
       );
     }
     return { mode, object, file };
   });
   if (entries.length > GOAL_MATERIALIZATION_LIMITS.files) {
-    throw new SingularityFlowError(`Governed Goal '${id}' exceeds its retained file limit.`, {
+    throw new SingularityFlowError(`Repository Goal '${id}' exceeds its retained file limit.`, {
       code: 'GOVERNED_GOAL_RECORD_INVALID'
     });
   }
@@ -435,7 +435,7 @@ async function materializeGoalProjection(root, worktree, baseCommit, id) {
   for (const entry of entries) {
     const newline = batch.stdout.indexOf(0x0a, cursor);
     if (newline < 0) {
-      throw new SingularityFlowError(`Governed Goal '${id}' retained object stream was truncated.`, {
+      throw new SingularityFlowError(`Repository Goal '${id}' retained object stream was truncated.`, {
         code: 'GOVERNED_GOAL_RECORD_INVALID'
       });
     }
@@ -447,7 +447,7 @@ async function materializeGoalProjection(root, worktree, baseCommit, id) {
     if (object !== entry.object || type !== 'blob' || !Number.isSafeInteger(size) || size < 0
         || total > GOAL_MATERIALIZATION_LIMITS.bytes || end >= batch.stdout.length
         || batch.stdout[end] !== 0x0a) {
-      throw new SingularityFlowError(`Governed Goal '${id}' retained object failed bounded materialization.`, {
+      throw new SingularityFlowError(`Repository Goal '${id}' retained object failed bounded materialization.`, {
         code: 'GOVERNED_GOAL_RECORD_INVALID'
       });
     }
@@ -458,7 +458,7 @@ async function materializeGoalProjection(root, worktree, baseCommit, id) {
     cursor = end + 1;
   }
   if (cursor !== batch.stdout.length) {
-    throw new SingularityFlowError(`Governed Goal '${id}' retained object stream had trailing bytes.`, {
+    throw new SingularityFlowError(`Repository Goal '${id}' retained object stream had trailing bytes.`, {
       code: 'GOVERNED_GOAL_RECORD_INVALID'
     });
   }
@@ -501,7 +501,7 @@ async function writeGoalWorktreeOwner(root, worktree, id) {
   const target = goalWorktreeOwnerPath(worktree);
   const administrative = realpathSync(path.dirname(target));
   if (!administrative.startsWith(`${common}${path.sep}`)) {
-    throw new SingularityFlowError(`Governed Goal '${id}' worktree administration escaped Git common storage.`, {
+    throw new SingularityFlowError(`Repository Goal '${id}' worktree administration escaped Git common storage.`, {
       code: 'GOVERNED_GOAL_WORKTREE_UNSAFE'
     });
   }
@@ -552,7 +552,7 @@ async function commitDetached(root, baseCommit, id, policy, message, writer, {
 } = {}) {
   if (branch(root) === id) {
     throw new SingularityFlowError(
-      `Governed Goal '${id}' is checked out in this repository. Switch to a working branch before mutating it; the Goal writer will update its lifecycle branch without changing your checkout.`,
+      `Repository Goal '${id}' is checked out in this repository. Switch to a working branch before mutating it; the Goal writer will update its lifecycle branch without changing your checkout.`,
       { code: 'GOVERNED_GOAL_BRANCH_CHECKED_OUT' }
     );
   }
@@ -560,7 +560,7 @@ async function commitDetached(root, baseCommit, id, policy, message, writer, {
     const preflight = git(root, ['push', '--dry-run', policy.remote, `${baseCommit}:refs/heads/${id}`], { allowFailure: true });
     if (preflight.status !== 0) {
       throw new SingularityFlowError(
-        `Governed Goal '${id}' publication preflight failed: ${(preflight.stderr || preflight.stdout).trim()}. No files were changed.`,
+        `Repository Goal '${id}' publication preflight failed: ${(preflight.stderr || preflight.stdout).trim()}. No files were changed.`,
         { code: 'GOVERNED_GOAL_PUBLICATION_PREFLIGHT_FAILED' }
       );
     }
@@ -571,13 +571,13 @@ async function commitDetached(root, baseCommit, id, policy, message, writer, {
   const expectedRemoteSha = policy.mode === 'off' ? undefined : refSha(root, remoteRef);
   if (expectedRemoteSha && expectedRemoteSha !== baseCommit) {
     throw new SingularityFlowError(
-      `Governed Goal '${id}' remote lifecycle branch changed before its Candidate was prepared. Reload and retry.`,
+      `Repository Goal '${id}' remote lifecycle branch changed before its Candidate was prepared. Reload and retry.`,
       { code: 'GOVERNED_GOAL_STALE_REVISION' }
     );
   }
   if (initialLocal && initialLocal !== baseCommit) {
     if (!isAncestor(root, initialLocal, baseCommit)) {
-      throw new SingularityFlowError(`Governed Goal '${id}' local lifecycle branch diverged before publication.`, {
+      throw new SingularityFlowError(`Repository Goal '${id}' local lifecycle branch diverged before publication.`, {
         code: 'GOVERNED_GOAL_BRANCH_DIVERGED'
       });
     }
@@ -671,7 +671,7 @@ export async function createGovernedGoal(context, personalGoal, {
   const policy = publicationPolicy(config);
   await fetchGoalBranch(root, goalId, policy, { required: false });
   if (refSha(root, `refs/heads/${goalId}`) || refSha(root, `refs/remotes/${policy.remote}/${goalId}`)) {
-    throw new SingularityFlowError(`Governed Goal '${goalId}' already exists. Inspect it instead of overwriting it.`, {
+    throw new SingularityFlowError(`Repository Goal '${goalId}' already exists. Inspect it instead of overwriting it.`, {
       code: 'GOVERNED_GOAL_EXISTS'
     });
   }
@@ -681,7 +681,7 @@ export async function createGovernedGoal(context, personalGoal, {
   const contract = createContract(context, personalGoal, goalId, actor, createdAt);
   const state = createState(context, contract, actor, createdAt, baseCommit);
   const publication = await commitDetached(root, baseCommit, goalId, policy,
-    `Create governed Goal ${goalId}`,
+    `Create repository Goal ${goalId}`,
     async (worktree) => {
       await writeGoalProjection(worktree, contract, state);
       await writeJson(path.join(worktree, governedGoalRelative(goalId, 'records/0001-created.json')), withRecordHash({
@@ -749,7 +749,7 @@ async function mutateGovernedGoal(context, id, config, message, mutate, { now = 
   const pending = await readPendingPublication(root, { kind: 'goal', id, migrate: false });
   if (pending) {
     throw new SingularityFlowError(
-      `Governed Goal '${id}' has an unpublished commit ${pending.record.commit?.slice(0, 8) ?? 'unknown'}. Run 'singularity-flow goal sync ${id}' before another mutation.`,
+      `Repository Goal '${id}' has an unpublished commit ${pending.record.commit?.slice(0, 8) ?? 'unknown'}. Run 'singularity-flow goal sync ${id}' before another mutation.`,
       { code: 'GOVERNED_GOAL_PUBLICATION_PENDING', details: { id, commit: pending.record.commit ?? null } }
     );
   }
@@ -816,7 +816,7 @@ export async function syncGovernedGoal(context, id, { config = {} } = {}) {
       if (changed.status > 1 || untracked.status !== 0
           || changed.status === 1 || untracked.stdout) {
         throw new SingularityFlowError(
-          `Governed Goal '${goalId}' publication is complete, but its managed lifecycle worktree contains changes. `
+          `Repository Goal '${goalId}' publication is complete, but its managed lifecycle worktree contains changes. `
           + 'It was preserved for inspection.',
           { code: 'GOVERNED_GOAL_WORKTREE_RECOVERY_REQUIRED' }
         );
@@ -830,13 +830,13 @@ export async function syncGovernedGoal(context, id, { config = {} } = {}) {
       };
     }
     if (!local && !remote) {
-      throw new SingularityFlowError(`Governed Goal '${goalId}' has no retained lifecycle branch.`, {
+      throw new SingularityFlowError(`Repository Goal '${goalId}' has no retained lifecycle branch.`, {
         code: 'GOVERNED_GOAL_NOT_FOUND'
       });
     }
     if (local && remote && local !== remote) {
       throw new SingularityFlowError(
-        `Governed Goal '${goalId}' has no exact pending-publication receipt for its different local commit. `
+        `Repository Goal '${goalId}' has no exact pending-publication receipt for its different local commit. `
         + 'Automatic push was refused; inspect the lifecycle branch and recovery records.',
         { code: 'GOVERNED_GOAL_RECOVERY_RECEIPT_REQUIRED' }
       );
@@ -851,13 +851,13 @@ export async function syncGovernedGoal(context, id, { config = {} } = {}) {
     const active = livePreparedPublicationOwner(pending, recoveryRoot);
     if (active) {
       throw new SingularityFlowError(
-        `Governed Goal '${goalId}' still has an active publication command (PID ${active.pid}).`,
+        `Repository Goal '${goalId}' still has an active publication command (PID ${active.pid}).`,
         { code: 'GOVERNED_GOAL_PUBLICATION_ACTIVE' }
       );
     }
     if (!lifecycleWorktree) {
       throw new SingularityFlowError(
-        `Governed Goal '${goalId}' has no exact managed lifecycle worktree matching its interrupted pre-commit transaction. `
+        `Repository Goal '${goalId}' has no exact managed lifecycle worktree matching its interrupted pre-commit transaction. `
         + 'The journal was retained; no user-created worktree was removed.',
         { code: 'GOVERNED_GOAL_PREPARED_RECOVERY_REQUIRED' }
       );
@@ -865,7 +865,7 @@ export async function syncGovernedGoal(context, id, { config = {} } = {}) {
     const recovery = await recoverPreparedPublication(recoveryRoot, pending);
     if (!recovery) {
       throw new SingularityFlowError(
-        `Governed Goal '${goalId}' interrupted transaction could not be restored automatically.`,
+        `Repository Goal '${goalId}' interrupted transaction could not be restored automatically.`,
         { code: 'GOVERNED_GOAL_PREPARED_RECOVERY_REQUIRED' }
       );
     }
@@ -883,7 +883,7 @@ export async function syncGovernedGoal(context, id, { config = {} } = {}) {
 
   if (pending.record.commit && local !== pending.record.commit) {
     throw new SingularityFlowError(
-      `Governed Goal '${goalId}' recovery marker does not match its local lifecycle branch.`,
+      `Repository Goal '${goalId}' recovery marker does not match its local lifecycle branch.`,
       { code: 'GOVERNED_GOAL_RECOVERY_MISMATCH' }
     );
   }
@@ -905,12 +905,12 @@ export async function syncGovernedGoal(context, id, { config = {} } = {}) {
 export async function compileGovernedGoalPlan(context, id, { config = {}, assisted = false, now } = {}) {
   if (assisted) {
     throw new SingularityFlowError(
-      'Assisted governed Goal planning is not enabled. The deterministic compiler is available without a model.',
+      'Assisted repository Goal planning is not enabled. The deterministic compiler is available without a model.',
       { code: 'GOVERNED_GOAL_ASSISTED_UNAVAILABLE' }
     );
   }
-  return mutateGovernedGoal(context, id, config, `Compile governed Goal plan ${id}`, ({ contract, state, additions, at }) => {
-    if (['abandoned', 'achieved'].includes(state.status)) throw new SingularityFlowError(`Governed Goal '${id}' is ${state.status}.`, { code: 'GOVERNED_GOAL_TERMINAL' });
+  return mutateGovernedGoal(context, id, config, `Compile repository Goal plan ${id}`, ({ contract, state, additions, at }) => {
+    if (['abandoned', 'achieved'].includes(state.status)) throw new SingularityFlowError(`Repository Goal '${id}' is ${state.status}.`, { code: 'GOVERNED_GOAL_TERMINAL' });
     const generation = state.planGeneration + 1;
     const steps = contract.linkedWork.map((link, index) => ({
       id: `step-${String(index + 1).padStart(3, '0')}`,
@@ -932,7 +932,7 @@ export async function compileGovernedGoalPlan(context, id, { config = {}, assist
       stoppingPoint: 'underlying-governed-boundary'
     }));
     if (!steps.length) {
-      throw new SingularityFlowError(`Governed Goal '${id}' has no resolved work to plan. Link work to the personal Goal before promotion.`, {
+      throw new SingularityFlowError(`Repository Goal '${id}' has no resolved work to plan. Link work to the personal Goal before promotion.`, {
         code: 'GOVERNED_GOAL_PLAN_EMPTY'
       });
     }
@@ -967,7 +967,7 @@ export async function compileGovernedGoalPlan(context, id, { config = {}, assist
 export async function approveGovernedGoalPlan(context, id, {
   config = {}, generation, confirmation, now
 } = {}) {
-  return mutateGovernedGoal(context, id, config, `Approve governed Goal plan ${id}`, ({ contract, state, plan, additions, at, actor }) => {
+  return mutateGovernedGoal(context, id, config, `Approve repository Goal plan ${id}`, ({ contract, state, plan, additions, at, actor }) => {
     if (!plan || Number(generation) !== plan.generation) {
       throw new SingularityFlowError(`Approve the current plan generation ${plan?.generation ?? 'after compiling one'}.`, {
         code: 'GOVERNED_GOAL_PLAN_GENERATION_INVALID'
@@ -992,10 +992,10 @@ export async function approveGovernedGoalPlan(context, id, {
 }
 
 function assertExecutable(state, plan, id) {
-  if (state.paused) throw new SingularityFlowError(`Governed Goal '${id}' is paused. Resume it before execution.`, { code: 'GOVERNED_GOAL_PAUSED' });
+  if (state.paused) throw new SingularityFlowError(`Repository Goal '${id}' is paused. Resume it before execution.`, { code: 'GOVERNED_GOAL_PAUSED' });
   if (!plan || !state.approvedPlan || state.approvedPlan.planSha256 !== plan.planSha256
       || state.approvedPlan.generation !== plan.generation) {
-    throw new SingularityFlowError(`Governed Goal '${id}' has no current exact-hash plan approval.`, {
+    throw new SingularityFlowError(`Repository Goal '${id}' has no current exact-hash plan approval.`, {
       code: 'GOVERNED_GOAL_PLAN_NOT_APPROVED'
     });
   }
@@ -1003,7 +1003,7 @@ function assertExecutable(state, plan, id) {
 }
 
 export async function runGovernedGoalNext(context, id, linkStates, { config = {}, now } = {}) {
-  return mutateGovernedGoal(context, id, config, `Advance governed Goal ${id}`, ({ contract, state, plan, additions, at, actor }) => {
+  return mutateGovernedGoal(context, id, config, `Advance repository Goal ${id}`, ({ contract, state, plan, additions, at, actor }) => {
     assertExecutable(state, plan, contract.id);
     const completed = new Set(state.completedStepIds);
     for (const step of plan.steps) {
@@ -1042,10 +1042,10 @@ export async function runGovernedGoalNext(context, id, linkStates, { config = {}
 }
 
 export async function verifyGovernedGoal(context, id, linkStates, { config = {}, criterionId = null, now } = {}) {
-  return mutateGovernedGoal(context, id, config, `Verify governed Goal ${id}`, ({ contract, state, plan, additions, at, actor }) => {
+  return mutateGovernedGoal(context, id, config, `Verify repository Goal ${id}`, ({ contract, state, plan, additions, at, actor }) => {
     assertExecutable(state, plan, contract.id);
     const selected = criterionId ? contract.criteria.filter((criterion) => criterion.id === criterionId) : contract.criteria;
-    if (!selected.length) throw new SingularityFlowError(`Governed Goal '${id}' has no criterion '${criterionId}'.`, { code: 'GOVERNED_GOAL_CRITERION_NOT_FOUND' });
+    if (!selected.length) throw new SingularityFlowError(`Repository Goal '${id}' has no criterion '${criterionId}'.`, { code: 'GOVERNED_GOAL_CRITERION_NOT_FOUND' });
     const evaluations = selected.map((criterion) => {
       if (criterion.oracle.type === 'governed-work') {
         const subject = criterion.oracle.subject;
@@ -1080,10 +1080,10 @@ export async function verifyGovernedGoal(context, id, linkStates, { config = {},
 
 export async function pauseGovernedGoal(context, id, { config = {}, reason, now } = {}) {
   const detail = String(reason ?? '').trim();
-  if (detail.length < 3) throw new SingularityFlowError('Pausing a governed Goal requires a reason.', { code: 'GOVERNED_GOAL_REASON_REQUIRED' });
-  return mutateGovernedGoal(context, id, config, `Pause governed Goal ${id}`, ({ state, at, actor, plan }) => {
-    if (['abandoned', 'achieved'].includes(state.status)) throw new SingularityFlowError(`Governed Goal '${id}' is ${state.status}.`, { code: 'GOVERNED_GOAL_TERMINAL' });
-    if (state.paused) throw new SingularityFlowError(`Governed Goal '${id}' is already paused.`, { code: 'GOVERNED_GOAL_ALREADY_PAUSED' });
+  if (detail.length < 3) throw new SingularityFlowError('Pausing a repository Goal requires a reason.', { code: 'GOVERNED_GOAL_REASON_REQUIRED' });
+  return mutateGovernedGoal(context, id, config, `Pause repository Goal ${id}`, ({ state, at, actor, plan }) => {
+    if (['abandoned', 'achieved'].includes(state.status)) throw new SingularityFlowError(`Repository Goal '${id}' is ${state.status}.`, { code: 'GOVERNED_GOAL_TERMINAL' });
+    if (state.paused) throw new SingularityFlowError(`Repository Goal '${id}' is already paused.`, { code: 'GOVERNED_GOAL_ALREADY_PAUSED' });
     state.paused = { at, actor, reason: detail, previousStatus: state.status };
     state.status = 'waiting';
     return { event: 'goal-paused', plan, detail };
@@ -1091,8 +1091,8 @@ export async function pauseGovernedGoal(context, id, { config = {}, reason, now 
 }
 
 export async function resumeGovernedGoal(context, id, { config = {}, now } = {}) {
-  return mutateGovernedGoal(context, id, config, `Resume governed Goal ${id}`, ({ state, plan }) => {
-    if (!state.paused) throw new SingularityFlowError(`Governed Goal '${id}' is not paused.`, { code: 'GOVERNED_GOAL_NOT_PAUSED' });
+  return mutateGovernedGoal(context, id, config, `Resume repository Goal ${id}`, ({ state, plan }) => {
+    if (!state.paused) throw new SingularityFlowError(`Repository Goal '${id}' is not paused.`, { code: 'GOVERNED_GOAL_NOT_PAUSED' });
     state.status = state.paused.previousStatus === 'waiting'
       ? (state.approvedPlan ? 'ready' : 'awaiting-plan-approval') : state.paused.previousStatus;
     state.paused = null;
@@ -1102,11 +1102,11 @@ export async function resumeGovernedGoal(context, id, { config = {}, now } = {})
 
 export async function abandonGovernedGoal(context, id, { config = {}, confirmation, reason, now } = {}) {
   const goalId = assertGovernedGoalId(id);
-  if (confirmation !== goalId) throw new SingularityFlowError(`Abandoning a governed Goal requires exact confirmation '${goalId}'.`, { code: 'GOVERNED_GOAL_CONFIRMATION_REQUIRED' });
+  if (confirmation !== goalId) throw new SingularityFlowError(`Abandoning a repository Goal requires exact confirmation '${goalId}'.`, { code: 'GOVERNED_GOAL_CONFIRMATION_REQUIRED' });
   const detail = String(reason ?? '').trim();
-  if (detail.length < 3) throw new SingularityFlowError('Abandoning a governed Goal requires a reason.', { code: 'GOVERNED_GOAL_REASON_REQUIRED' });
-  return mutateGovernedGoal(context, goalId, config, `Abandon governed Goal ${goalId}`, ({ state, plan }) => {
-    if (state.status === 'abandoned') throw new SingularityFlowError(`Governed Goal '${goalId}' is already abandoned.`, { code: 'GOVERNED_GOAL_TERMINAL' });
+  if (detail.length < 3) throw new SingularityFlowError('Abandoning a repository Goal requires a reason.', { code: 'GOVERNED_GOAL_REASON_REQUIRED' });
+  return mutateGovernedGoal(context, goalId, config, `Abandon repository Goal ${goalId}`, ({ state, plan }) => {
+    if (state.status === 'abandoned') throw new SingularityFlowError(`Repository Goal '${goalId}' is already abandoned.`, { code: 'GOVERNED_GOAL_TERMINAL' });
     state.status = 'abandoned';
     state.paused = null;
     return { event: 'goal-abandoned', plan, detail };
@@ -1134,7 +1134,7 @@ export function governedGoalTrace(loaded, { criterionId = null } = {}) {
   const criteria = criterionId
     ? loaded.contract.criteria.filter((criterion) => criterion.id === criterionId)
     : loaded.contract.criteria;
-  if (!criteria.length) throw new SingularityFlowError(`Governed Goal '${loaded.contract.id}' has no criterion '${criterionId}'.`, { code: 'GOVERNED_GOAL_CRITERION_NOT_FOUND' });
+  if (!criteria.length) throw new SingularityFlowError(`Repository Goal '${loaded.contract.id}' has no criterion '${criterionId}'.`, { code: 'GOVERNED_GOAL_CRITERION_NOT_FOUND' });
   return {
     goalId: loaded.contract.id,
     lifecycleBranch: loaded.contract.lifecycleBranch,

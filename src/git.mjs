@@ -120,7 +120,7 @@ export function assertNotDefaultBranch(root, config = {}, action = 'This operati
   if (protectedBranchNames(root, config).has(current)) {
     throw new SingularityFlowError(
       `${action} cannot run on protected application branch '${current}'. `
-      + 'Switch to a governed Story, Epic, or configuration review branch first.'
+      + 'Switch to a Story, Epic, or configuration review branch first.'
     );
   }
   return current;
@@ -2773,7 +2773,7 @@ function treePaths(root, tree, env = immutableLocalGitEnvironment()) {
 const ADMITTED_PROSPECTIVE_TREES = new Map();
 
 export function admitExactProspectiveTree(root, {
-  baselineCommit, candidateTree, label = 'Governed Candidate', allowGitlinks = false
+  baselineCommit, candidateTree, label = 'Candidate', allowGitlinks = false
 } = {}) {
   const oid = /^[a-f0-9]{40}(?:[a-f0-9]{24})?$/u;
   if (!oid.test(String(baselineCommit ?? '')) || !oid.test(String(candidateTree ?? ''))) {
@@ -2848,7 +2848,7 @@ export function admitExactProspectiveTree(root, {
         return { path: item, mode: selected.mode, oid: selected.oid, forceScan: false };
       }
       throw new SingularityFlowError(
-        `Cannot scan '${item}' for secrets: governed gitlinks are not admitted as binary evidence.`,
+        `Cannot scan '${item}' for secrets: gitlinks are not admitted as binary evidence.`,
         { code: 'SECRET_SCAN_UNREADABLE' }
       );
     }
@@ -3270,7 +3270,7 @@ function prospectiveGovernedTreeAndSecretScan(root, scope, expectedHead) {
     git(['add', '-A', '--', ...scope], { cwd: root, env });
     const tree = git(['write-tree'], { cwd: root, env }).stdout.trim();
     admitExactProspectiveTree(root, {
-      baselineCommit: expectedHead, candidateTree: tree, label: 'Governed publication'
+      baselineCommit: expectedHead, candidateTree: tree, label: 'Publication'
     });
     return tree;
   } finally {
@@ -3301,13 +3301,13 @@ function governedPublicationScope(root, paths, expectedHead) {
   const scope = [...new Set((paths ?? []).filter(Boolean))].filter((candidate) =>
     existsSync(path.join(root, candidate))
       || Boolean(git(['ls-files', '-z', '--', candidate], { cwd: root, env }).stdout));
-  if (!scope.length) throw new SingularityFlowError('Governed publication requires at least one allowed path.');
+  if (!scope.length) throw new SingularityFlowError('Publication requires at least one allowed path.');
   const stagedOverlap = git(
     ['diff', '--cached', '--name-only', '-z', expectedHead, '--', ...scope], { cwd: root, env }
   ).stdout.split('\0').filter(Boolean);
   if (stagedOverlap.length) {
     throw new SingularityFlowError(
-      `Governed publication cannot replace already staged governed path(s): ${stagedOverlap.join(', ')}. `
+      `Publication cannot replace already staged path(s): ${stagedOverlap.join(', ')}. `
       + 'Commit or unstage those paths, then retry.'
     );
   }
@@ -3331,7 +3331,7 @@ function publicationLocalRefCas(root, request) {
       || !oid.test(request.treeOid)
       || request.expectedOldOid.length !== request.newCommitOid.length
       || request.treeOid.length !== request.newCommitOid.length) {
-    throw new SingularityFlowError('The governed publication ref transaction is not an exact, owner-bound request.', {
+    throw new SingularityFlowError('The publication ref transaction is not an exact, owner-bound request.', {
       code: 'PUBLICATION_REF_REQUEST_INVALID'
     });
   }
@@ -3343,12 +3343,12 @@ function publicationLocalRefCas(root, request) {
     cwd: root, env, allowFailure: true
   });
   if (symbolic.status === 0) {
-    throw new SingularityFlowError('The governed publication branch became a symbolic ref before its compare-and-swap.', {
+    throw new SingularityFlowError('The publication branch became a symbolic ref before its compare-and-swap.', {
       code: 'PUBLICATION_SYMBOLIC_REF_UNSUPPORTED'
     });
   }
   if (symbolic.status !== 1) {
-    throw new SingularityFlowError('The governed publication branch type could not be verified before its compare-and-swap.', {
+    throw new SingularityFlowError('The publication branch type could not be verified before its compare-and-swap.', {
       code: 'PUBLICATION_REF_REQUEST_UNVERIFIED'
     });
   }
@@ -3396,7 +3396,7 @@ export async function commitIsolated(root, message, paths, {
   const initialRef = checkedOutRef();
   if (expectedRef !== undefined && initialRef !== expectedRef) {
     throw new SingularityFlowError(
-      `Governed publication checkout changed before its commit began (expected ${expectedRef ?? 'detached HEAD'}, `
+      `Publication checkout changed before its commit began (expected ${expectedRef ?? 'detached HEAD'}, `
       + `found ${initialRef ?? 'detached HEAD'}). Reload the lifecycle state and retry.`,
       {
         code: 'PUBLICATION_BRANCH_CHANGED',
@@ -3442,13 +3442,13 @@ export async function commitIsolated(root, message, paths, {
     });
     if (trackedWorktreeDrift.status > 1 || untrackedWorktreeDrift.status !== 0) {
       throw new SingularityFlowError(
-        'Git could not verify the governed publication snapshot after staging.',
+        'Git could not verify the publication snapshot after staging.',
         { code: 'PUBLICATION_SNAPSHOT_UNVERIFIED' }
       );
     }
     if (trackedWorktreeDrift.status === 1 || untrackedWorktreeDrift.stdout) {
       throw new SingularityFlowError(
-        'Repository bytes changed while the governed publication snapshot was being staged. '
+        'Repository bytes changed while the publication snapshot was being staged. '
         + 'The commit was not created; wait for editor, formatter, generator, and test writes to finish, then retry.',
         { code: 'PUBLICATION_SNAPSHOT_CHANGED' }
       );
@@ -3457,7 +3457,7 @@ export async function commitIsolated(root, message, paths, {
       const stabilityAfter = await stabilityGuard();
       if (stabilityAfter !== stabilityBefore) {
         throw new SingularityFlowError(
-          'Repository bytes changed while the governed publication snapshot was being staged. '
+          'Repository bytes changed while the publication snapshot was being staged. '
           + 'The commit was not created; wait for editor, formatter, generator, and test writes to finish, then retry.',
           {
             code: 'PUBLICATION_SNAPSHOT_CHANGED',
@@ -3469,11 +3469,11 @@ export async function commitIsolated(root, message, paths, {
 
     const tree = git(['write-tree'], { cwd: root, env }).stdout.trim();
     admitExactProspectiveTree(root, {
-      baselineCommit: expectedHead, candidateTree: tree, label: 'Governed publication'
+      baselineCommit: expectedHead, candidateTree: tree, label: 'Publication'
     });
     if (expectedTree != null && tree !== expectedTree) {
       throw new SingularityFlowError(
-        'Governed publication bytes changed after Candidate verification. The commit was not created; freeze and verify a new Candidate.',
+        'Publication bytes changed after Candidate verification. The commit was not created; freeze and verify a new Candidate.',
         {
           code: 'PUBLICATION_CANDIDATE_DRIFT',
           details: { expectedCandidateTree: expectedTree, observedTree: tree }
@@ -3481,7 +3481,7 @@ export async function commitIsolated(root, message, paths, {
       );
     }
     const priorTree = git(['rev-parse', `${expectedHead}^{tree}`], { cwd: root, env }).stdout.trim();
-    if (tree === priorTree) throw new SingularityFlowError('No governed changes are ready to commit.');
+    if (tree === priorTree) throw new SingularityFlowError('No changes are ready to commit.');
 
     const signing = sign ? [signingKey ? `-S${signingKey}` : '-S'] : [];
     const boundTransaction = transaction?.id
@@ -3517,7 +3517,7 @@ export async function commitIsolated(root, message, paths, {
     const observedRef = checkedOutRef();
     if (expectedRef !== undefined && observedRef !== expectedRef) {
       throw new SingularityFlowError(
-        `Governed publication checkout changed while its commit was being prepared (expected ${expectedRef ?? 'detached HEAD'}, `
+        `Publication checkout changed while its commit was being prepared (expected ${expectedRef ?? 'detached HEAD'}, `
         + `found ${observedRef ?? 'detached HEAD'}). The commit was not installed; reload the lifecycle state and retry.`,
         {
           code: 'PUBLICATION_BRANCH_CHANGED',
@@ -3527,7 +3527,7 @@ export async function commitIsolated(root, message, paths, {
     }
     const ref = expectedRef !== undefined ? expectedRef : observedRef;
     if (!ref) {
-      throw new SingularityFlowError('Detached HEAD is not supported for governed publication.');
+      throw new SingularityFlowError('Detached HEAD is not supported for publication.');
     }
     if (boundTransaction?.id) {
       const outcome = publicationLocalRefCas(root, Object.freeze({
@@ -3536,7 +3536,7 @@ export async function commitIsolated(root, message, paths, {
       }));
       if (outcome !== 'applied') {
         const error = new SingularityFlowError(
-          'Governed publication could not prove whether its exact branch compare-and-swap applied. '
+          'Publication could not prove whether its exact branch compare-and-swap applied. '
           + 'The commit and transaction journal were retained for exact recovery; do not retry publication before reconciliation.',
           { code: 'PUBLICATION_REF_OUTCOME_UNKNOWN' }
         );
@@ -3562,7 +3562,7 @@ export async function commitIsolated(root, message, paths, {
       });
       if (update.status !== 0) {
         throw new SingularityFlowError(
-          `Governed publication lost its branch-head race: ${(update.stderr || update.stdout).trim() || 'compare-and-swap failed'}. `
+          `Publication lost its branch-head race: ${(update.stderr || update.stdout).trim() || 'compare-and-swap failed'}. `
           + 'Reload the lifecycle state and retry.'
         );
       }
@@ -3573,7 +3573,7 @@ export async function commitIsolated(root, message, paths, {
     const refBeforeIndexRefresh = checkedOutRef();
     if (expectedRef !== undefined && refBeforeIndexRefresh !== expectedRef) {
       throw new SingularityFlowError(
-        `Governed publication checkout changed after ${expectedRef} advanced (found ${refBeforeIndexRefresh ?? 'detached HEAD'}). `
+        `Publication checkout changed after ${expectedRef} advanced (found ${refBeforeIndexRefresh ?? 'detached HEAD'}). `
         + `Commit ${sourceCommit.slice(0, 12)} was retained on its captured branch; recover or publish that exact commit before retrying.`,
         {
           code: 'PUBLICATION_BRANCH_CHANGED',
@@ -3599,7 +3599,7 @@ export async function commitIsolated(root, message, paths, {
         cwd: root, env: localEnv, allowFailure: true
       });
       throw new SingularityFlowError(
-        `Governed publication checkout changed while ${expectedRef}'s index was being refreshed (found ${refAfterIndexRefresh ?? 'detached HEAD'}). `
+        `Publication checkout changed while ${expectedRef}'s index was being refreshed (found ${refAfterIndexRefresh ?? 'detached HEAD'}). `
         + `Commit ${sourceCommit.slice(0, 12)} was retained on its captured branch and was not published.`,
         {
           code: 'PUBLICATION_BRANCH_CHANGED',

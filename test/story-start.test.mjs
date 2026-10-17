@@ -817,7 +817,7 @@ test('desktop resume restores the original branch when the requested agent is in
 
   await assert.rejects(
     () => startStory(root, { id, agent: 'not-a-governed-agent' }),
-    /no valid governed agent/u
+    /no valid agent/u
   );
   assert.equal(run('git', ['branch', '--show-current'], root).stdout.trim(), 'main');
   assert.equal(run('git', ['rev-parse', 'HEAD'], root).stdout.trim(), originalHead);

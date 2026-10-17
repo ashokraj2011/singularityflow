@@ -194,7 +194,7 @@ export async function recoveryPlan(root, config, workflow, { fetch = false, phas
     id: 'branch', safe: true, automatic: false,
     command: `singularity-flow resume ${workflow.workItem.id} --fetch`,
     skill: '/sf-resume',
-    detail: `Switch to ${workflow.workItem.branch} and attach the governed Story checkout.`
+    detail: `Switch to ${workflow.workItem.branch} and attach the Story checkout.`
   });
   if (pending.status === 'pending') {
     blockers.push({

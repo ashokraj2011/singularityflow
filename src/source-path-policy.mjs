@@ -17,7 +17,7 @@ function normalizePaths(value, label, { files = false } = {}) {
       throw new SingularityFlowError(`${label} entries must be canonical repository-relative paths without globs or '..'.`);
     }
     if (raw === '.git' || raw.startsWith('.git/') || raw === 'singularity' || raw.startsWith('singularity/')) {
-      throw new SingularityFlowError(`${label} cannot include Git or Singularity Flow governance paths.`);
+      throw new SingularityFlowError(`${label} cannot include Git or Singularity Flow paths.`);
     }
     const folded = raw.toLocaleLowerCase('en-US');
     if (caseFolded.has(folded) && !paths.includes(raw)) {

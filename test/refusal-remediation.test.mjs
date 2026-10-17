@@ -856,7 +856,7 @@ test('a JSON refusal carries its findings, obligations and coverage gaps, and no
   });
   assert.doesNotMatch(JSON.stringify(trp), /private-detail/);
 
-  const gate = envelopeOf(new FlowError('Governance gate failed', {
+  const gate = envelopeOf(new FlowError('Flow Gate failed', {
     code: 'GOVERNANCE_GATE_FAILED',
     details: { findings: [{ code: 'STORY_PHASE_INCOMPLETE', category: 'lifecycle', phase: 'code',
       details: { message: 'terminal: phase code is not approved' }, recovery: { command: 'singularity-flow recover W-1' } }],

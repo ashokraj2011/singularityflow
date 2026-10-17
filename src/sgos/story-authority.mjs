@@ -29,7 +29,7 @@ function exactTreeContent(root, revision, relative, { optional = false } = {}) {
     filter: (candidate) => candidate === relative
   });
   if (observed.status !== 'ok') {
-    fail(`Governed Story state at '${revision}' is unavailable.`,
+    fail(`Story state at '${revision}' is unavailable.`,
       'SGOS_STORY_STATE_UNAVAILABLE', {
         revision,
         path: relative,
@@ -39,7 +39,7 @@ function exactTreeContent(root, revision, relative, { optional = false } = {}) {
   }
   const content = observed.contents.get(relative);
   if (content == null && !optional) {
-    fail(`Governed Story state '${relative}' does not exist at the Process baseline.`,
+    fail(`Story state '${relative}' does not exist at the Process baseline.`,
       'SGOS_STORY_STATE_UNAVAILABLE', { revision, path: relative, status: 'missing' });
   }
   return content ?? null;
@@ -76,7 +76,7 @@ function storyPath(root, revision, subjectId) {
       workItemRootFromDefinitionText(definition ?? '')
     );
   } catch (error) {
-    fail('The Process baseline does not declare a safe governed Story-state path.',
+    fail('The Process baseline does not declare a safe Story-state path.',
       'SGOS_STORY_STATE_PATH_INVALID', {
         revision, subjectId, cause: error?.message ?? String(error)
       });
@@ -109,7 +109,7 @@ export function loadSgosStoryAuthority(root, { subjectId, revision } = {}) {
       });
   }
   if (state?.workItem?.id !== id) {
-    fail('The Process-baseline Story state belongs to another governed subject.',
+    fail('The Process-baseline Story state belongs to another subject.',
       'SGOS_STORY_STATE_SUBJECT_MISMATCH', {
         expectedSubjectId: id,
         observedSubjectId: state?.workItem?.id ?? null,
@@ -139,7 +139,7 @@ export function loadSgosStoryAuthority(root, { subjectId, revision } = {}) {
 
 export function assertSgosStoryAuthority(expected, observed) {
   if (canonicalJson(expected) !== canonicalJson(observed)) {
-    fail('Governed Story authority does not match the exact Process baseline.',
+    fail('Story authority does not match the exact Process baseline.',
       'SGOS_STORY_AUTHORITY_MISMATCH', { expected, observed });
   }
   return observed;

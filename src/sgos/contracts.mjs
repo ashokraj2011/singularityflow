@@ -172,7 +172,7 @@ export function deterministicSgosId(prefix, identity) {
 }
 
 export function recordSelfSha256(record, hashField) {
-  if (!plainObject(record)) fail('A governed record must be a plain object.');
+  if (!plainObject(record)) fail('A record must be a plain object.');
   if (typeof hashField !== 'string' || !hashField) fail('A self-hash field is required.');
   const core = cloneJson(record);
   delete core[hashField];

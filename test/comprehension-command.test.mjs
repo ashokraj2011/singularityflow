@@ -577,7 +577,7 @@ test('comprehension replay refuses missing Story context and options it would ot
     '--no-model', 'comprehension', 'replay', '--work-id', 'MISSING-STORY', '--json'
   ]);
   assert.notEqual(missing.status, 0);
-  assert.match(missing.stdout, /No governed Story matches 'MISSING-STORY'/);
+  assert.match(missing.stdout, /No Story matches 'MISSING-STORY'/);
   const ignored = command(root, [
     '--no-model', 'comprehension', 'replay', '--work-id', 'CMP-STORY',
     '--phase', 'implementation', '--json'

@@ -11,7 +11,7 @@ export async function postPublicationStep(label, workId, operation) {
   try {
     return { ok: true, value: await operation() };
   } catch (error) {
-    console.warn(`Warning: governed publication succeeded, but ${label} could not be completed: ${redactDiagnosticText(error?.message ?? String(error))}`);
+    console.warn(`Warning: publication succeeded, but ${label} could not be completed: ${redactDiagnosticText(error?.message ?? String(error))}`);
     printCommandRoutes(`singularity-flow resume ${workId} --fetch`, {
       label: 'Refresh local phase/session state'
     });

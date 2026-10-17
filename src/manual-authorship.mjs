@@ -113,7 +113,7 @@ export function effectivePhasePublicationProducer(phase, {
     }
     if (requestedProducer != null && requestedProducer !== 'deterministic') {
       throw new SingularityFlowError(
-        `Phase '${phase.id}' is a convergence phase and records deterministic authorship only; human and model review decisions are separate governed records.`,
+        `Phase '${phase.id}' is a convergence phase and records deterministic authorship only; human and model review decisions are separate records.`,
         { code: 'CONVERGENCE_AUTHORSHIP_INVALID' }
       );
     }
@@ -208,7 +208,7 @@ export function assertProducerAllowed(phase, producer) {
   const allowed = allowedPublicationProducers(phase);
   if (isConvergencePhase(phase) && producer !== 'deterministic') {
     throw new SingularityFlowError(
-      `Phase '${phase.id}' is a convergence phase and records deterministic authorship only; human and model review decisions are separate governed records.`,
+      `Phase '${phase.id}' is a convergence phase and records deterministic authorship only; human and model review decisions are separate records.`,
       { code: 'CONVERGENCE_AUTHORSHIP_INVALID', details: { phase: phase.id, producer } }
     );
   }

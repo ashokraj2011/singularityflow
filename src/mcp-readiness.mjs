@@ -373,7 +373,7 @@ export async function probeMcpHost(root, definition, serverId, {
     });
   }
   const server = definition.mcpServers?.[serverId];
-  if (!server) throw new SingularityFlowError(`Unknown governed MCP server '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
+  if (!server) throw new SingularityFlowError(`Unknown MCP server '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
   const entry = (await hostEntryMap(root)).get(server.hostReference);
   if (!entry) throw new SingularityFlowError(`Host entry '${server.hostReference}' is absent.`, { code: 'MCP_HOST_CONFIG_MISSING' });
   if (!structurallyValidHostEntry(entry)) {
@@ -1049,7 +1049,7 @@ export async function warmMcpHost(root, definition, serverId, {
 } = {}) {
   if (!network) throw new SingularityFlowError('MCP warm-up performs network access. Re-run with --network.', { code: 'MCP_NETWORK_CONSENT_REQUIRED' });
   const server = definition.mcpServers?.[serverId];
-  if (!server) throw new SingularityFlowError(`Unknown governed MCP server '${serverId}'.`);
+  if (!server) throw new SingularityFlowError(`Unknown MCP server '${serverId}'.`);
   const entry = (await hostEntryMap(root)).get(server.hostReference);
   if (!entry) throw new SingularityFlowError(`Host entry '${server.hostReference}' is absent.`);
   if (isPlaywrightServer(server)) {
@@ -1102,7 +1102,7 @@ export async function verifyMcpHostOffline(root, definition, serverId, {
   beforeLaunchValidation
 } = {}) {
   const server = definition.mcpServers?.[serverId];
-  if (!server) throw new SingularityFlowError(`Unknown governed MCP server '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
+  if (!server) throw new SingularityFlowError(`Unknown MCP server '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
   if (!isPlaywrightServer(server)) {
     throw new SingularityFlowError(
       `MCP offline verification is not available for '${serverId}'.`,
@@ -1199,7 +1199,7 @@ async function playwrightWarmReadiness(root, server, entry, {
       || receipt.hostEntrySha256 !== recordSha256(entry)
       || receipt.policySha256 !== policyHash(server)
       || canonicalJson(receipt.authProfile ?? null) !== canonicalJson(authProfile)) {
-    return staleWarm('The package warm receipt no longer matches the governed host entry, policy, or authentication profile.', receipt);
+    return staleWarm('The package warm receipt no longer matches the host entry, policy, or authentication profile.', receipt);
   }
   const checkedAt = Date.parse(receipt.checkedAt);
   if (!Number.isFinite(checkedAt) || checkedAt > Date.now() + 60_000) {
@@ -1329,7 +1329,7 @@ export async function serveMcpHost(root, definition, serverId, {
   beforeLaunchValidation
 } = {}) {
   const server = definition.mcpServers?.[serverId];
-  if (!server) throw new SingularityFlowError(`Unknown governed MCP server '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
+  if (!server) throw new SingularityFlowError(`Unknown MCP server '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
   if (!isPlaywrightServer(server)) {
     throw new SingularityFlowError(`No managed stdio launcher is available for '${serverId}'.`, {
       code: 'MCP_SERVE_UNSUPPORTED'
@@ -1669,7 +1669,7 @@ export async function smokeMcpHost(root, definition, serverId, {
 } = {}) {
   const server = evidence?.workflow?.resolution?.mcpServers?.[serverId]
     ?? definition.mcpServers?.[serverId];
-  if (!server) throw new SingularityFlowError(`Unknown governed MCP server '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
+  if (!server) throw new SingularityFlowError(`Unknown MCP server '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
   if (!targetUrl) throw new SingularityFlowError('MCP smoke requires --url with an authorized HTTPS or loopback target.', { code: 'MCP_SMOKE_URL_REQUIRED' });
   const url = safeMcpTargetUrl(targetUrl, { label: 'MCP smoke URL' });
   if (evidence?.workflow) {
@@ -1834,7 +1834,7 @@ export async function attestMcpHost(root, definition, serverId, {
     });
   }
   const server = definition.mcpServers?.[serverId];
-  if (!server) throw new SingularityFlowError(`Unknown governed MCP server '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
+  if (!server) throw new SingularityFlowError(`Unknown MCP server '${serverId}'.`, { code: 'MCP_SERVER_UNKNOWN' });
   const rows = matchingHostRows(await inspectMcpHostEntries(root), server);
   if (!rows.length) throw new SingularityFlowError(`Host entry '${server.hostReference}' is not configured.`, { code: 'MCP_HOST_CONFIG_MISSING' });
   if (rows.some((row) => row.error || !row.structurallyValid)) throw new SingularityFlowError(`Host entry '${server.hostReference}' is invalid.`, { code: 'MCP_HOST_CONFIG_INVALID' });

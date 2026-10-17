@@ -294,7 +294,7 @@ test('init never installs generic branch configuration when approved authority a
       cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test' }
     });
     assert.notEqual(refused.status, 0);
-    assert.match(refused.stderr, /already governed by approved configuration/);
+    assert.match(refused.stderr, /already has approved configuration/);
     assert.match(refused.stderr, /will not install generic configuration/);
   }
   assert.equal(git(root, 'rev-parse', 'HEAD'), beforeHead);
@@ -327,7 +327,7 @@ test('init validates an external workspace capability authority from one retaine
     cwd: root, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', ...env }
   });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /already governed by approved configuration sflow\/config/);
+  assert.match(refused.stderr, /already has approved configuration sflow\/config/);
   assert.match(refused.stderr, /workspace refresh-configuration/);
   assert.equal(git(root, 'rev-parse', 'HEAD'), beforeHead);
   assert.equal(git(root, 'status', '--porcelain'), beforeStatus);
@@ -359,7 +359,7 @@ test('init keeps an external workspace authority inside a linked Story worktree'
     cwd: linked, encoding: 'utf8', env: { ...process.env, NODE_ENV: 'test', ...env }
   });
   assert.notEqual(refused.status, 0);
-  assert.match(refused.stderr, /already governed by approved configuration sflow\/config/);
+  assert.match(refused.stderr, /already has approved configuration sflow\/config/);
   assert.equal(git(linked, 'rev-parse', 'HEAD'), beforeHead);
   assert.equal(git(linked, 'status', '--porcelain'), beforeStatus);
   await assert.rejects(readFile(path.join(linked, 'singularity/workflow.yml')), {

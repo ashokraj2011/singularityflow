@@ -163,7 +163,7 @@ export function readRefTreeResult(root, ref, pathspecs = [], {
   if (listed.status !== 0) {
     return result('unavailable', new Map(), [diagnostic(
       listed.timedOut ? 'REF_TREE_LIST_TIMEOUT' : listed.error?.code === 'ENOBUFS' ? 'REF_TREE_LIST_OVERFLOW' : 'REF_TREE_LIST_FAILED',
-      `Git could not list governed state at '${ref}'.`, { ref }
+      `Git could not list lifecycle state at '${ref}'.`, { ref }
     )], 0, 0);
   }
 
@@ -219,13 +219,13 @@ export function readRefTreeResult(root, ref, pathspecs = [], {
         return result('unavailable', new Map(), [diagnostic(
           checked.timedOut ? 'REF_TREE_SIZE_TIMEOUT'
             : checked.error?.code === 'ENOBUFS' ? 'REF_TREE_SIZE_OVERFLOW' : 'REF_TREE_SIZE_FAILED',
-          `Git could not size governed state objects at '${ref}'.`, { ref }
+          `Git could not size lifecycle state objects at '${ref}'.`, { ref }
         )], listedEntries.length, 0);
       }
       const lines = String(checked.stdout ?? '').trimEnd().split(/\r?\n/);
       if (lines.length !== group.length) {
         return result('unavailable', new Map(), [diagnostic(
-          'REF_TREE_SIZE_INVALID', `Git returned incomplete governed-state object sizes at '${ref}'.`, { ref }
+          'REF_TREE_SIZE_INVALID', `Git returned incomplete lifecycle-state object sizes at '${ref}'.`, { ref }
         )], listedEntries.length, 0);
       }
       for (let index = 0; index < group.length; index += 1) {
@@ -234,7 +234,7 @@ export function readRefTreeResult(root, ref, pathspecs = [], {
         if (oid !== group[index].oid || type !== group[index].type
             || !Number.isSafeInteger(size) || size < 0) {
           return result('unavailable', new Map(), [diagnostic(
-            'REF_TREE_SIZE_INVALID', `Git returned an invalid governed-state object size at '${ref}'.`,
+            'REF_TREE_SIZE_INVALID', `Git returned an invalid lifecycle-state object size at '${ref}'.`,
             { ref, path: group[index].file }
           )], listedEntries.length, 0);
         }
@@ -249,7 +249,7 @@ export function readRefTreeResult(root, ref, pathspecs = [], {
     // materialized. Existing path-only filters remain source-compatible.
     if (filter && !filter(file, Object.freeze({ oid, size, mode, type }))) continue;
     if (size > maxObjectBytes) {
-      errors.push(diagnostic('REF_TREE_OBJECT_TOO_LARGE', `${file} exceeds the governed-state object limit.`, {
+      errors.push(diagnostic('REF_TREE_OBJECT_TOO_LARGE', `${file} exceeds the lifecycle-state object limit.`, {
         path: file, bytes: size, maximumBytes: maxObjectBytes
       }));
       continue;
@@ -278,7 +278,7 @@ export function readRefTreeResult(root, ref, pathspecs = [], {
     if (batch.status !== 0 || decoded.errors.length) {
       const failure = batch.status !== 0 ? diagnostic(
         batch.timedOut ? 'REF_TREE_BATCH_TIMEOUT' : batch.error?.code === 'ENOBUFS' ? 'REF_TREE_BATCH_OVERFLOW' : 'REF_TREE_BATCH_FAILED',
-        `Git could not read all governed state objects at '${ref}'.`, { ref }
+        `Git could not read all lifecycle state objects at '${ref}'.`, { ref }
       ) : null;
       const allErrors = [...errors, ...(failure ? [failure] : []), ...decoded.errors];
       return result(read ? 'partial' : 'unavailable', contents, allErrors, entries.length, read);
@@ -292,7 +292,7 @@ export function readRefTree(root, ref, pathspecs = [], options = {}) {
   const observed = readRefTreeResult(root, ref, pathspecs, options);
   if (observed.status === 'ok' || observed.status === 'missing') return observed.contents;
   throw new SingularityFlowError(
-    `Governed state at '${ref}' is ${observed.status}; it was not treated as absent. ${observed.errors[0]?.message ?? ''}`.trim(),
+    `Lifecycle state at '${ref}' is ${observed.status}; it was not treated as absent. ${observed.errors[0]?.message ?? ''}`.trim(),
     {
       code: observed.status === 'partial' ? 'REF_TREE_PARTIAL' : 'REF_TREE_UNAVAILABLE',
       details: {

@@ -102,7 +102,7 @@ export async function resolveGovernedWork(context, {
       };
       if (!required) return unavailable;
       throw new SingularityFlowError(
-        `Governed ${kind} '${reference}' may exist, but its state authority is unreadable or conflicting.`,
+        `The ${kind} '${reference}' may exist, but its state authority is unreadable or conflicting.`,
         { code: 'GOAL_SUBJECT_STATE_UNAVAILABLE', details: unavailable }
       );
     }
@@ -113,13 +113,13 @@ export async function resolveGovernedWork(context, {
     const unreadable = index.unreadable.length
       ? ` ${index.unreadable.length} state file(s) could not be read; run singularity-flow doctor.` : '';
     throw new SingularityFlowError(
-      `No governed ${kind} matches '${reference}' in repository '${repository.id}'.${unreadable}`,
+      `No ${kind} matches '${reference}' in repository '${repository.id}'.${unreadable}`,
       { code: 'GOAL_SUBJECT_NOT_FOUND', details: { kind, reference, repositoryId: repository.id } }
     );
   }
   const ids = [...new Set(matches.map((item) => item.id))];
   if (ids.length > 1) {
-    throw new SingularityFlowError(`Governed work reference '${reference}' is ambiguous: ${ids.join(', ')}.`, {
+    throw new SingularityFlowError(`Work reference '${reference}' is ambiguous: ${ids.join(', ')}.`, {
       code: 'GOAL_SUBJECT_AMBIGUOUS', details: { kind, reference, candidates: ids }
     });
   }
@@ -137,7 +137,7 @@ export async function resolveGovernedWork(context, {
     };
     if (!required) return unavailable;
     throw new SingularityFlowError(
-      `Governed ${kind} '${selected.id}' has conflicting or unreadable state and cannot satisfy a Goal oracle.`,
+      `The ${kind} '${selected.id}' has conflicting or unreadable state and cannot satisfy a Goal oracle.`,
       { code: 'GOAL_SUBJECT_STATE_UNAVAILABLE', details: unavailable }
     );
   }
@@ -202,7 +202,7 @@ function nextActionFor(context, goal, links) {
       action: action({
         id: alreadySelected ? 'inspect-linked-story-next' : 'attach-linked-story',
         label: alreadySelected
-          ? `See the next governed action for ${active.id}`
+          ? `See the next action for ${active.id}`
           : `Attach ${active.id} in repository ${active.repositoryId}`,
         command: alreadySelected
           ? `singularity-flow nextsteps ${active.id}`
@@ -217,7 +217,7 @@ function nextActionFor(context, goal, links) {
     return {
       action: action({
         id: 'inspect-linked-initiative-next',
-        label: `See the next governed action for ${active.id}`,
+        label: `See the next action for ${active.id}`,
         command: `singularity-flow initiative next ${active.id}`,
         rank: 'NOW', kind: 'workflow'
       }),
@@ -241,7 +241,7 @@ function nextActionFor(context, goal, links) {
     return {
       action: action({
         id: 'repair-goal-links',
-        label: 'Review unavailable governed-work links',
+        label: 'Review unavailable work links',
         command: `singularity-flow goal show ${goal.id}`,
         rank: 'NOW', kind: 'remediation'
       }),
@@ -380,9 +380,9 @@ function goalReference(positionals, index = 2) {
 
 function linkArguments(positionals) {
   const args = positionals.slice(2);
-  if (!args.length) throw new SingularityFlowError('Enter the governed Work ID to link.');
+  if (!args.length) throw new SingularityFlowError('Enter the Work ID to link.');
   if (args.length > 2) {
-    throw new SingularityFlowError('Goal link and unlink accept at most a Goal ID and one governed Work ID.', {
+    throw new SingularityFlowError('Goal link and unlink accept at most a Goal ID and one Work ID.', {
       code: 'GOAL_ARGUMENTS_INVALID'
     });
   }
@@ -490,7 +490,7 @@ export async function run(_argv, { positionals, options, operation }) {
         const missing = resolved.filter((item) => item.availability !== 'available');
         if (missing.length) {
           throw new SingularityFlowError(
-            `Governed Goal '${governedId}' cannot become ready because ${missing.map((item) => `${item.repositoryId}:${item.id}`).join(', ')} could not be resolved.`,
+            `Repository Goal '${governedId}' cannot become ready because ${missing.map((item) => `${item.repositoryId}:${item.id}`).join(', ')} could not be resolved.`,
             { code: 'GOVERNED_GOAL_SUBJECT_UNRESOLVED', details: { missing } }
           );
         }
@@ -536,7 +536,7 @@ export async function run(_argv, { positionals, options, operation }) {
 
     if (subcommand === 'run-until-blocked') {
       throw new SingularityFlowError(
-        'Bounded governed Goal execution is intentionally unavailable. Use run-next; it stops at every underlying Story or Initiative boundary.',
+        'Bounded repository Goal execution is intentionally unavailable. Use run-next; it stops at every underlying Story or Initiative boundary.',
         { code: 'GOVERNED_GOAL_BOUNDED_EXECUTION_UNAVAILABLE' }
       );
     }

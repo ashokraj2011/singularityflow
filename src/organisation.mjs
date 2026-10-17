@@ -5569,7 +5569,7 @@ export async function capabilityFsck(url, {
         }
         const storyBranch = executeGitQuery(canonicalRoot, 'repository.branch') ?? '';
         if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(storyBranch)) {
-          throw new SingularityFlowError('Pinned configuration is not checked out on a governed Story branch.');
+          throw new SingularityFlowError('Pinned configuration is not checked out on a Story branch.');
         }
         const localConfig = await loadDefinition(canonicalRoot);
         const workflowFile = path.join(
@@ -5586,7 +5586,7 @@ export async function capabilityFsck(url, {
             || workflowSource?.commit !== pinned.commit
             || workflowSource?.filesSha256 !== pinned.filesSha256) {
           throw new SingularityFlowError(
-            'Pinned configuration is not bound to this branch\'s governed Story resolution.'
+            'Pinned configuration is not bound to this branch\'s Story resolution.'
           );
         }
         checks.push(capabilityFsckCheck(
@@ -6997,7 +6997,7 @@ export async function activateCapabilityProposal(url, branch, {
           run('git', ['merge', '--abort'], { cwd: root, env, allowFailure: true });
           const nextAction = { command: capabilityCommand('proposal', { remote, branch: proposalBranch }), skill: '/sf-capability-map' };
           throw new SingularityFlowError(
-            `Capability proposal could not create its governed merge commit. Nothing was pushed; the proposal remains on '${proposalBranch}'.`, {
+            `Capability proposal could not create its merge commit. Nothing was pushed; the proposal remains on '${proposalBranch}'.`, {
               code: 'CAPABILITY_PROPOSAL_COMMIT_FAILED',
               details: capabilityRecovery({
                 stage: 'activation', state: 'merge-commit-failed', remote,
@@ -7869,7 +7869,7 @@ export function assertGovernanceVisible(root, paths = [CAPABILITIES_PATH, PORTFO
   }
   if (!ignored.length) return { visible: true, ignored: [] };
   throw new SingularityFlowError(
-    `Git is ignoring ${ignored.join(', ')}, so governed writes would be silently dropped. `
+    `Git is ignoring ${ignored.join(', ')}, so writes would be silently dropped. `
     + 'Remove the matching .gitignore rule: singularity/ is meant to be visible and committed.');
 }
 
@@ -8114,7 +8114,7 @@ async function initializeWorkspaceStateUnderLease(root, {
       : (trackedHead || 'main');
     if (current !== applicationBranch) {
       throw new SingularityFlowError(
-        `Cannot initialize repository governance from '${current}'. Switch to the application branch '${applicationBranch}' first.`
+        `Cannot initialize Singularity Flow from '${current}'. Switch to the application branch '${applicationBranch}' first.`
       );
     }
     const sourceHead = run('git', ['rev-parse', 'HEAD'], { cwd: root, env: gitEnv }).stdout.trim();
@@ -8122,7 +8122,7 @@ async function initializeWorkspaceStateUnderLease(root, {
     const remoteReview = await observeBranch(governanceBranch);
     if (remoteReview) {
       throw new SingularityFlowError(
-        `Governance review branch '${governanceBranch}' already exists. Review or remove that proposal before retrying.`
+        `Configuration review branch '${governanceBranch}' already exists. Review or remove that proposal before retrying.`
       );
     }
     const localReview = run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${governanceBranch}`], {
@@ -8130,7 +8130,7 @@ async function initializeWorkspaceStateUnderLease(root, {
     });
     if (localReview.status === 0) {
       throw new SingularityFlowError(
-        `Local governance review branch '${governanceBranch}' already exists. Resume or remove it before retrying.`
+        `Local configuration review branch '${governanceBranch}' already exists. Resume or remove it before retrying.`
       );
     }
     run('git', ['switch', '-c', governanceBranch], { cwd: root, env: gitEnv });

@@ -313,7 +313,7 @@ test('an active Story session hook injects the repository and governed work-item
   };
   const result = await sessionStartAgentHook(repository, definition, workflow, { sessionId: 'path-hook' });
   assert.match(result.additionalContext, new RegExp(`Working repository: ${repository.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
-  assert.match(result.additionalContext, /Governed artifacts for GROUND-1 live under singularity\/work-items\/GROUND-1\//);
+  assert.match(result.additionalContext, /Artifacts for GROUND-1 live under singularity\/work-items\/GROUND-1\//);
   assert.match(result.additionalContext, /Use this exact repository as the cwd for every shell and file tool/);
   assert.match(result.additionalContext, /Never search \$HOME, a parent directory, or outside this repository/);
 });
@@ -335,7 +335,7 @@ test('an active Story session hook uses the immutable non-default work-item root
     agentCatalog: [{ id: 'developer', defaultFor: ['implementation'], phases: ['implementation'] }]
   };
   const result = await sessionStartAgentHook(repository, customDefinition, current, { sessionId: 'custom-path-hook' });
-  assert.match(result.additionalContext, /Governed artifacts for GROUND-CUSTOM live under governed\/story-state\/GROUND-CUSTOM\//);
+  assert.match(result.additionalContext, /Artifacts for GROUND-CUSTOM live under governed\/story-state\/GROUND-CUSTOM\//);
   assert.doesNotMatch(result.additionalContext, /singularity\/work-items\/GROUND-CUSTOM|different\/live-configuration/);
 });
 

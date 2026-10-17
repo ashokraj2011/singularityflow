@@ -239,7 +239,7 @@ async function completedWorkflowAtTarget(root, record, pending = null) {
   }
   const failures = [];
   if (identity.parents.length !== 1 || identity.parents[0] !== record.baseCommit) {
-    failures.push('the governed start parent does not equal the accepted Story base');
+    failures.push('the start parent does not equal the accepted Story base');
   }
   const projection = completionProjection(root, record, commit, identity);
   failures.push(...projection.failures);
@@ -294,7 +294,7 @@ async function completedWorkflowAtTarget(root, record, pending = null) {
       allowPublicationOff: true
     });
     if (!verification.valid) failures.push(...verification.failures);
-    if (!verification.candidateVerified) failures.push('the governed start has no verified Candidate binding');
+    if (!verification.candidateVerified) failures.push('the start has no verified Candidate binding');
     const candidateAuthority = await verifyPendingPublicationCandidateAuthority(root, publicationRecord);
     if (!candidateAuthority.valid || !candidateAuthority.candidateVerified) {
       failures.push(...candidateAuthority.failures);
@@ -311,7 +311,7 @@ async function completedWorkflowAtTarget(root, record, pending = null) {
       }
     }
   } else if (projection.event) {
-    failures.push('the governed start publication identity is unavailable');
+    failures.push('the start publication identity is unavailable');
   }
   return { completed: failures.length === 0, failures: [...new Set(failures)], commit };
 }

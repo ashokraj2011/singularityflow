@@ -39,10 +39,10 @@ export function verifyCapabilityPublicationRecoveryPlan(record) {
   const pending = record?.capabilityPublications ?? [];
   const expectedSha256 = record?.event?.payload?.capabilityPublicationPlanSha256 ?? null;
   if (!Array.isArray(plan) || !plan.length) failures.push('authenticated capability publication plan is missing');
-  if (!expectedSha256) failures.push('governed event does not bind a capability publication plan digest');
+  if (!expectedSha256) failures.push('event does not bind a capability publication plan digest');
   if (Array.isArray(plan) && expectedSha256
     && capabilityPublicationPlanSha256(plan) !== expectedSha256) {
-    failures.push('capability publication plan digest does not match the governed event');
+    failures.push('capability publication plan digest does not match the event');
   }
   if (!Array.isArray(pending)) failures.push('remaining capability publications are invalid');
   if (Array.isArray(plan) && Array.isArray(pending)) {
@@ -53,7 +53,7 @@ export function verifyCapabilityPublicationRecoveryPlan(record) {
     for (const entry of pending) {
       const identity = JSON.stringify(capabilityPublicationIdentity(entry));
       if (!identities.has(identity)) {
-        failures.push(`remaining capability publication '${entry?.repository ?? 'unknown'}' is not in the governed plan`);
+        failures.push(`remaining capability publication '${entry?.repository ?? 'unknown'}' is not in the plan`);
       }
       if (!['not-attempted', 'rejected', 'transport-indeterminate'].includes(entry?.pushOutcome)) {
         failures.push(`remaining capability publication '${entry?.repository ?? 'unknown'}' has an invalid push outcome`);

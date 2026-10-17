@@ -158,7 +158,7 @@ const REASONS = Object.freeze({
   'no-pending-publication': 'this Story has no retained commit to replay',
   'not-a-document-upload': 'the retained commit is not a document upload, so it cannot be replayed automatically',
   'branch-moved': 'the checked-out branch is no longer at the retained commit',
-  'not-a-single-parent-commit': 'the retained commit is not a single-parent governed commit',
+  'not-a-single-parent-commit': 'the retained commit is not a single-parent commit',
   'remote-branch-missing': 'the Story branch is not on its remote',
   'already-published': 'the retained commit is already on the remote; run singularity-flow sync',
   'remote-not-advanced': 'nobody else has published to the Story; run singularity-flow sync to retry the push',
@@ -205,7 +205,7 @@ export async function replayPendingDocumentUpload(root, config, workflow, { dryR
       const publication = await commitAndPublish(
         root, config, published,
         { type: LIFECYCLE_EVENT.EVIDENCE_RECORDED, payload: { operation: 'document-upload' } },
-        `[${workId}][documents][upload] governed evidence (replayed from ${plan.commit.slice(0, 8)})`,
+        `[${workId}][documents][upload] evidence (replayed from ${plan.commit.slice(0, 8)})`,
         [],
         {
           beforeStateWrite: async () => {

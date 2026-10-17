@@ -99,7 +99,7 @@ export async function initializeStoryImpact(root, config, workflow, source) {
       const agentId = workflow.phases?.[phaseId]?.defaultAgent ?? null;
       const agentSha256 = agentId ? workflow.resolution?.agents?.[agentId]?.sha256 ?? null : null;
       if (!agentId || !agentSha256) {
-        throw new SingularityFlowError(`Prompt study '${study.studyRunId}' cannot pin the governed agent for phase '${phaseId}'.`);
+        throw new SingularityFlowError(`Prompt study '${study.studyRunId}' cannot pin the agent for phase '${phaseId}'.`);
       }
       return [phaseId, { id: agentId, sha256: agentSha256 }];
     }));
@@ -202,7 +202,7 @@ export async function resolveImpactPromptOverride(root, workflow, phaseId, { age
   if (!governedAgent || (agentId != null && governedAgent.id !== agentId)
     || (agentSha256 != null && governedAgent.sha256 !== agentSha256)) {
     throw new SingularityFlowError(
-      `Prompt study '${experiment.studyRunId}' requires governed agent '${governedAgent?.id ?? 'unavailable'}'@${governedAgent?.sha256 ?? 'unavailable'} for phase '${phaseId}'. Agent overrides would contaminate the comparison.`,
+      `Prompt study '${experiment.studyRunId}' requires agent '${governedAgent?.id ?? 'unavailable'}'@${governedAgent?.sha256 ?? 'unavailable'} for phase '${phaseId}'. Agent overrides would contaminate the comparison.`,
       { code: 'IMPACT_EXPERIMENT_AGENT_MISMATCH' }
     );
   }
@@ -258,7 +258,7 @@ export async function verifyImpactPlanBinding(root, workflow) {
       const pinnedAgent = experiment.governedAgents?.[phaseId];
       if (!pinnedAgent || pinnedAgent.id !== expectedAgent
         || pinnedAgent.sha256 !== workflow.resolution?.agents?.[expectedAgent]?.sha256) {
-        errors.push(`Prompt-study governed agent does not match the Story for ${phaseId}.`);
+        errors.push(`Prompt-study agent does not match the Story for ${phaseId}.`);
       }
       try {
         const target = await secureRepositoryPath(root, prompt.path, {
@@ -454,7 +454,7 @@ function assertEvidenceAuthority(workflow, record) {
       : authority.authority === 'attested' ? attested
         : kernel || external;
   if (!accepted) {
-    throw new SingularityFlowError(`Impact metric '${metric}' is governed by '${authority.authority}' authority; evidence from '${record.provider.id}' with '${assurance}' assurance is not authoritative.`);
+    throw new SingularityFlowError(`Impact metric '${metric}' is owned by '${authority.authority}' authority; evidence from '${record.provider.id}' with '${assurance}' assurance is not authoritative.`);
   }
   return authority;
 }
@@ -849,13 +849,13 @@ export async function verifyImpactReceipt(root, workflow) {
       risk: plan.classification.confirmed?.risk
     };
     for (const [key, value] of Object.entries(expectedSubject)) {
-      if (receipt.subject?.[key] !== value) errors.push(`Receipt subject ${key} does not match the governed measurement plan.`);
+      if (receipt.subject?.[key] !== value) errors.push(`Receipt subject ${key} does not match the measurement plan.`);
     }
     if (receipt.study?.id !== plan.study.id
       || receipt.study?.configurationSha256 !== plan.study.configurationSha256
       || (plan.study.definitionSha256 != null && receipt.study?.definitionSha256 !== plan.study.definitionSha256)
       || receipt.study?.groupId !== plan.group.id) {
-      errors.push('Receipt study or cohort does not match the governed measurement plan.');
+      errors.push('Receipt study or cohort does not match the measurement plan.');
     }
     const expectedExperiment = await promptExperimentReceipt(root, workflow, plan);
     if (canonicalJson(receipt.experiment ?? null) !== canonicalJson(expectedExperiment)) {
@@ -873,7 +873,7 @@ export async function verifyImpactReceipt(root, workflow) {
   const expectedExposure = exposureSummary(workflow);
   if (canonicalJson(receipt.assistance?.exposure ?? []) !== canonicalJson(expectedExposure)
     || receipt.assistance?.actual !== actualAssistance(expectedExposure)) {
-    errors.push('Receipt assistance exposure does not match the governed exposure records.');
+    errors.push('Receipt assistance exposure does not match the exposure records.');
   }
   if (ref.status !== 'active') errors.push(`Receipt is ${ref.status}.`);
   return { valid: errors.length === 0, errors, receipt };

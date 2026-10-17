@@ -299,7 +299,7 @@ export function assertSkillArtifactSetEvidence(phase, set, catalog, outputs, wor
     const declaration = set.members.find((entry) => posix(path.posix.join(base, entry.path)) === expected);
     if (!member || !declaration || declaration.required !== output.required
         || declaration.authority !== 'governed' || member.directory) {
-      fail(`Skill output '${phase.id}/${output.id}' is not an exact governed artifact-set member.`);
+      fail(`Skill output '${phase.id}/${output.id}' is not an exact artifact-set member.`);
     }
     if (output.required && (!member.exists || !member.sha256)) {
       fail(`Required skill output '${phase.id}/${output.id}' is missing at ${expected}.`, 'SKP_OUTPUT_MISSING');

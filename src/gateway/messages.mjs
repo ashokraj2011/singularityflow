@@ -92,7 +92,7 @@ export const RESULT_MESSAGES = Object.freeze({
 
   // ---- Home
   'home.active-work-leads': M('You have work in progress'),
-  'home.governed-goal-active': M('Governed Goal {goal} is {status}'),
+  'home.governed-goal-active': M('Repository Goal {goal} is {status}'),
   'home.auto-unavailable': M('Some Auto status could not be read',
     'Home did not treat unreadable private Auto records as an empty flight list. Run the displayed diagnostic command.'),
   'home.briefing-unavailable': M('The cross-workspace briefing is unavailable', 'Only this workspace was read.'),

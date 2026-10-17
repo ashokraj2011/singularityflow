@@ -412,7 +412,7 @@ async function workItemPlanningParts(root, definition, {
   }
   const phase = workflow.phases[selectedPhase];
   if (phase.status !== 'in_progress') throw new SingularityFlowError(`Work-item phase '${selectedPhase}' must be in_progress to start a planning session.`);
-  if (targetId && targetId !== 'artifact') throw new SingularityFlowError(`Story planning supports the governed 'artifact' promotion target.`);
+  if (targetId && targetId !== 'artifact') throw new SingularityFlowError(`Story planning supports only the 'artifact' promotion target.`);
   const itemDirectory = workDir(root, definition, id);
   const itemRelative = workDirRelative(definition, id);
   const target = path.join(itemDirectory, phase.requiredArtifact.path);
@@ -583,8 +583,8 @@ export async function createPlanningContext(root, {
     retainedPrompt: executionContext?.planningPrompt ?? null,
     requireRetained: Boolean(workflow?.workflowSnapshot)
   });
-  if (!prompt.config.enabled) throw new SingularityFlowError('Governed Copilot planning is disabled by workflow.yml.');
-  if (!definition.agents[selectedAgent]) throw new SingularityFlowError(`No governed agent is configured for planning phase '${phaseId ?? 'current'}'.`);
+  if (!prompt.config.enabled) throw new SingularityFlowError('Copilot planning is disabled by workflow.yml.');
+  if (!definition.agents[selectedAgent]) throw new SingularityFlowError(`No agent is configured for planning phase '${phaseId ?? 'current'}'.`);
   const parts = scope === 'initiative'
     ? await initiativePlanningParts(root, definition, { id, phaseId, agent: selectedAgent, targetId })
     : scope === 'work-item'
@@ -634,7 +634,7 @@ export async function createPlanningContext(root, {
     prompt: { path: prompt.path, sha256: prompt.sha256, bytes: prompt.size },
     context: { path: contextPath, sha256: contextInfo.sha256, bytes: contextInfo.size, truncated: fitted.truncated, governedBytes: Buffer.byteLength(parts.governed) },
     sources: parts.sources,
-    warnings: [...parts.warnings, ...(fitted.truncated ? [`Governed context was truncated to ${prompt.config.maxContextBytes} bytes.`] : [])],
+    warnings: [...parts.warnings, ...(fitted.truncated ? [`Context was truncated to ${prompt.config.maxContextBytes} bytes.`] : [])],
     promotion: null
   };
   await writeJson(manifestPath, manifest);
@@ -712,7 +712,7 @@ async function loadPlanningPack(root, sessionId, { requireCurrentHead = true } =
     }
   }
   if (changedSources.length && requireCurrentHead) {
-    throw new SingularityFlowError(`Governed planning source changed after context creation: ${changedSources[0].path}. Rebuild the context before promotion.`);
+    throw new SingularityFlowError(`Planning source changed after context creation: ${changedSources[0].path}. Rebuild the context before promotion.`);
   }
   return {
     directory,
@@ -770,7 +770,7 @@ export async function promotePlanningArtifacts(root, { sessionId, artifacts = []
   const pack = await loadPlanningPack(root, sessionId);
   const actor = identity(root);
   if (agent && agent !== pack.manifest.agent) {
-    throw new SingularityFlowError(`Planning context was composed with governed agent '${pack.manifest.agent}', not '${agent}'. Rebuild the context to use a different agent.`);
+    throw new SingularityFlowError(`Planning context was composed with agent '${pack.manifest.agent}', not '${agent}'. Rebuild the context to use a different agent.`);
   }
   const selectedAgent = pack.manifest.agent;
   const promotedAt = nowIso();

@@ -103,14 +103,14 @@ export async function doctorSnapshot(root, {
       blocked
         ? [
             schemaReport.totals.outsideRange
-              ? 'Upgrade sflow for newer records; use the named archival reader or governed republication for records below a family read range.'
+              ? 'Upgrade sflow for newer records; use the named archival reader or republication for records below a family read range.'
               : null,
             schemaReport.totals.unreadable
-              ? 'Inspect the bounded unreadable entries in doctor --json and restore the exact record from its authority or use its governed quarantine/recovery command; never hand-edit immutable evidence.'
+              ? 'Inspect the bounded unreadable entries in doctor --json and restore the exact record from its authority or use its quarantine/recovery command; never hand-edit immutable evidence.'
               : null
           ].filter(Boolean).join(' ')
         : advisory
-          ? 'Classify remaining versioned governed records in src/schema-migrations.mjs, then rerun singularity-flow doctor.'
+          ? 'Classify remaining versioned records in src/schema-migrations.mjs, then rerun singularity-flow doctor.'
           : null
     ));
   } catch (error) {
@@ -147,8 +147,8 @@ export async function doctorSnapshot(root, {
     shellReady
       ? null
       : process.platform === 'win32'
-        ? 'Governed state still works. To run quality commands, install Git for Windows so a shell is available.'
-        : `Governed state still works. To run quality commands, install ${buildShell.command}.`
+        ? 'Lifecycle state still works. To run quality commands, install Git for Windows so a shell is available.'
+        : `Lifecycle state still works. To run quality commands, install ${buildShell.command}.`
   ));
   /**
    * The documentation version, beside the CLI version `[DOC:REQ-004]`.
@@ -403,8 +403,8 @@ export async function doctorSnapshot(root, {
           ? `Run singularity-flow recover ${workflow.workItem.id} --phase ${active.id}.`
           : registration.status === 'repairable'
             ? isConvergencePhase(active)
-              ? `Run singularity-flow story advance --work-id ${workflow.workItem.id}; after review, confirm that same advancement so SFlow records the repair in the governed commit.`
-              : `Run ${submitRoute(workflow, active).command}; SFlow records the repair in the governed commit.`
+              ? `Run singularity-flow story advance --work-id ${workflow.workItem.id}; after review, confirm that same advancement so SFlow records the repair in the commit.`
+              : `Run ${submitRoute(workflow, active).command}; SFlow records the repair in the commit.`
             : null;
         checks.push(check('artifact-registration', status, message, fix, {
           phase: active.id,
@@ -450,18 +450,18 @@ export async function doctorSnapshot(root, {
     legacyPending.length ? 'fail' : 'pass',
     legacyPending.length
       ? `${legacyPending.length} legacy publication marker(s) remain outside the machine-local recovery plane: ${legacyPending.map((file) => path.relative(root, file)).join(', ')}.`
-      : 'No orphaned legacy publication markers remain in the governed tree.',
+      : 'No orphaned legacy publication markers remain in the tree.',
     legacyPending.length
       ? 'Open the matching Story or Initiative so Singularity Flow can migrate its marker, then run its sync command. Remove only markers whose retained commit has already been published.'
       : null
   ));
   const session = await loadSession(root, { required: false });
   if (!workflow && session && activeSubject?.id === session.workId) {
-    checks.push(check('session', 'pass', `governed agent '${session.agent}' is active for ${activeSubject.kind} ${session.workId}.`));
+    checks.push(check('session', 'pass', `agent '${session.agent}' is active for ${activeSubject.kind} ${session.workId}.`));
   } else if (!workflow) checks.push(check('session', session ? 'warn' : 'skip', session ? `Session selects ${session.agent} for ${session.workId}, but that subject is not open.` : 'No agent session is active.'));
   else if (!session) checks.push(check('session', 'warn', 'No agent is selected for this terminal.', `Run singularity-flow resume ${workflow.workItem.id}.`));
   else if (session.workId !== workflow.workItem.id) checks.push(check('session', 'warn', `Session belongs to ${session.workId}, not ${workflow.workItem.id}.`, `Run singularity-flow resume ${workflow.workItem.id}.`));
-  else checks.push(check('session', 'pass', `governed agent '${session.agent}' is active for ${session.workId}.`));
+  else checks.push(check('session', 'pass', `agent '${session.agent}' is active for ${session.workId}.`));
   if (performance) {
     performanceReport = await appendPerformanceCheck(checks, root, definition, workflow);
   }

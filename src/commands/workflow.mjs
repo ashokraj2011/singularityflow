@@ -27,6 +27,7 @@ export async function run(argv, { positionals, options }) {
   if (method === 'markup') return (await import('./workflow-markup.mjs')).run(argv, { positionals, options });
   if (method === 'import-team') return (await import('./workflow-import-team.mjs')).run(argv, { positionals, options });
   if (method === 'check') return (await import('./workflow-check.mjs')).run(argv, { positionals, options });
+  if (method === 'build') return (await import('./workflow-build.mjs')).run(argv, { positionals, options });
   if (!['proposals', 'proposal'].includes(method)) return (await import('./legacy.mjs')).run(argv);
   const root = repoRoot();
   // Before the remote is asked: an upload that failed is often the same network or sign-in problem.

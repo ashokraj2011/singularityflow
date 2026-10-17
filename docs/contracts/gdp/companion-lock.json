@@ -4,10 +4,13 @@
   "status": "contract-only",
   "baselineCommit": "70db564e59224b03729bab0f9a340807f3086c61",
   "lastReview": {
-    "reviewedAtCommit": "fa62ca486832e84b5b12279d87af105af55edc4d",
-    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-14-TEAM-IMPORT-SESSIONS.md",
+    "reviewedAtCommit": "21842018cd8ba2de507ce2d9719aad4d0f1f6b14",
+    "evidence": "docs/contracts/gdp/COMPANION-LOCK-REVIEW-2026-10-17-WORKFLOW-BUILDS.md",
     "companionIds": [
-      "migration-registry"
+      "candidate-custody",
+      "migration-registry",
+      "publication-unit-of-work",
+      "sgos-record-contracts"
     ]
   },
   "companions": [
@@ -69,7 +72,7 @@
     {
       "id": "sgos-record-contracts",
       "path": "src/sgos/contracts.mjs",
-      "sha256": "sha256:416ffdd49e64d036d01f165d6e495961fff0dff64c3c980ca735e1653a38b081"
+      "sha256": "sha256:52fc02fc568712cb87eba5246656535ad255b4b2449a0c68933e513211c407cd"
     },
     {
       "id": "sgos-execution-unit-v1",
@@ -79,12 +82,12 @@
     {
       "id": "candidate-custody",
       "path": "src/auto/auto-candidate.mjs",
-      "sha256": "sha256:3fd036ef47c490f1842eee10ea527b15e30ea839b40aa1d2bef894448b49e8e2"
+      "sha256": "sha256:8dca4ae7661c33ea4d4ba4baaa9488243f7457341d5a8e037a9c3ddd3a303443"
     },
     {
       "id": "publication-unit-of-work",
       "path": "src/publication-unit-of-work.mjs",
-      "sha256": "sha256:91ce95ee66f799798de11264c023a39e05f7c05927bf55b8efa1d235e0c748b4"
+      "sha256": "sha256:40c741224e7cc4d89a1b4171b692527bbc1cb89aff8e89ec8a15d875c8d42af0"
     },
     {
       "id": "action-authorization",
@@ -94,7 +97,7 @@
     {
       "id": "migration-registry",
       "path": "src/schema-migrations.mjs",
-      "sha256": "sha256:00321fc2cd686da3e36dc7b2fb4902dda6d64e10929aa2245e116d7a950b0dfc"
+      "sha256": "sha256:2ed65ecee765ba3fcec3c7f259f970f51992dd376776b00a94ed8ffc3aa70a1d"
     },
     {
       "id": "smart-initialization-v1",

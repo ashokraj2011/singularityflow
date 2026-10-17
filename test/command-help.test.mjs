@@ -179,6 +179,9 @@ test('workflow help shows the check that explains a workflow and says what does 
   const page = renderCommandHelp('workflow');
   assert.match(page, /workflow check \[WORKFLOW\] \[--change-set FILE\|-\] \[--json\]/);
   assert.match(page, /explain each workflow in plain words and list what does not make sense/);
+  assert.match(page, /workflow build start \[--from-workflow ID\] \[--folder DIR\]\.\.\. \[--file FILE\]\.\.\. \[--notes FILE\|-\]\.\.\./);
+  assert.match(page, /workflow build add --build ID/);
+  assert.match(page, /workflow build status \[--build ID\]/);
 });
 
 test('workflow help shows the three team import commands and their Copilot route', () => {

@@ -18,6 +18,11 @@ const CLIENT_CALL = /\b(curl|wget|fetch|axios(?:\.(?:get|post|put|patch|delete))
 const NEGATIVE = /\b(never|must not|mustn't|do not|don't|should not|shouldn't|avoid)\b/iu;
 const POSITIVE = /\b(always|must|should|make sure to|be sure to)\b/iu;
 const LIMIT = /\b(at most|no more than|up to|maximum of|max(?:imum)?|at least|no fewer than|minimum of|min(?:imum)?)\s+(\d+)\s+([a-z][a-z-]*)/iu;
+// Commands a team runs to check its work, as runbooks and skills write them. Recorded, never run.
+const COMMAND = /^(?:\$\s+)?((?:npm|pnpm|yarn|npx|mvn|\.\/mvnw|gradle|\.\/gradlew|pytest|tox|nox|make|go|dotnet|cargo|bundle|rake|ruff|eslint|tsc|bash|sh|pwsh|\.\/[\w./-]+\.(?:sh|ps1|py))(?:\s+[^\s|;&]+)*)/u;
+const COMMAND_FIRST = /^(?:npm|pnpm|yarn)\s+(?:run|test|ci|install|build|lint)\b|^npx\s|^(?:mvn|\.\/mvnw)\s|^(?:gradle|\.\/gradlew)\s|^(?:python3?\s+-m\s+)?pytest\b|^tox\b|^nox\b|^make(?:\s|$)|^go\s+(?:test|build|vet)\b|^dotnet\s+(?:test|build)\b|^cargo\s+(?:test|build|clippy)\b|^bundle\s+exec\b|^rake\b|^ruff\b|^eslint\b|^tsc\b|^(?:bash|sh|pwsh)\s+\S+\.(?:sh|ps1)\b|^\.\/[\w./-]+\.(?:sh|ps1|py)\b/u;
+// Where a person has to look at the work before it goes on: sign-off, approval, review by someone.
+const CHECKPOINT = /\b(sign(?:s|ed)?[- ]off|approv(?:e|es|ed|al)\b|review(?:ed)? by|must be reviewed|needs? (?:a )?(?:human |manual )?review)/iu;
 const STOP_WORDS = new Set(['a', 'an', 'the', 'to', 'of', 'in', 'on', 'for', 'with', 'and', 'or', 'any', 'all', 'your', 'you',
   'it', 'its', 'this', 'that', 'these', 'those', 'be', 'is', 'are', 'was', 'when', 'if', 'before', 'after', 'each', 'every',
   'please', 'also', 'just', 'then', 'there', 'their', 'them', 'our', 'we', 'us', 'from', 'by', 'as', 'at', 'into']);
@@ -54,6 +59,14 @@ function endpoint(value) {
   return String(value).replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/gu, '{$1}').replace(/[?#].*$/u, '').replace(/[.,;:]+$/u, '');
 }
 
+/** A check or build command on one line of code, as written (one command, no shell chaining). */
+function commandOn(text) {
+  if (text == null) return null;
+  const line = String(text).trim().replace(/^\$\s+/u, '');
+  if (!COMMAND_FIRST.test(line)) return null;
+  return (COMMAND.exec(line)?.[1] ?? line).trim().slice(0, 200);
+}
+
 function apiCallOn(line) {
   const direct = METHOD_TARGET.exec(line);
   const client = CLIENT_CALL.exec(line);
@@ -78,9 +91,13 @@ function apiCallOn(line) {
  * - links: `{ url, kind, host, line }` for web links and `{ target, kind: 'relative', line }` for paths;
  * - apiCalls: `{ method, target, host, via, line }`;
  * - rules: `{ polarity: 'do'|'never', words, text, line }` for sentences that say always/must or never/do not;
- * - limits: `{ bound: 'max'|'min', value, unit, subject, text, line }`.
+ * - limits: `{ bound: 'max'|'min', value, unit, subject, text, line }`;
+ * - commands: `{ command, line }` for check and build commands in code (`npm test`, `mvn verify`, `./scripts/x.sh`);
+ * - checkpoints: `{ text, line }` for prose that asks for a sign-off, an approval or someone's review.
  */
 export function scanGuidanceText(text, { startLine = 1 } = {}) {
+  const commands = [];
+  const checkpoints = [];
   const links = [];
   const apiCalls = [];
   const rules = [];
@@ -92,7 +109,13 @@ export function scanGuidanceText(text, { startLine = 1 } = {}) {
     if (FENCE.test(raw)) { fenced = !fenced; return; }
     const call = apiCallOn(raw);
     if (call) apiCalls.push({ ...call, line });
+    const command = commandOn(fenced ? raw : null);
+    if (command) commands.push({ command, line });
     if (fenced) return;
+    for (const span of raw.matchAll(/`([^`\n]+)`/gu)) {
+      const inline = commandOn(span[1]);
+      if (inline && !commands.some((entry) => entry.line === line && entry.command === inline)) commands.push({ command: inline, line });
+    }
     const seen = new Set();
     for (const match of raw.matchAll(MARKDOWN_LINK)) {
       const target = match[2];
@@ -112,6 +135,7 @@ export function scanGuidanceText(text, { startLine = 1 } = {}) {
       }
     }
     const prose = raw.replace(/`[^`]*`/gu, ' ').replace(/^\s*(?:[-*+]|\d+[.)])\s+/u, '');
+    if (CHECKPOINT.test(prose) && !/^\s*#/u.test(raw)) checkpoints.push({ text: prose.trim(), line });
     for (const sentence of prose.split(/(?<=[.!?;])\s+/u)) {
       const negative = NEGATIVE.exec(sentence);
       const positive = negative ? null : POSITIVE.exec(sentence);
@@ -128,7 +152,7 @@ export function scanGuidanceText(text, { startLine = 1 } = {}) {
       }
     }
   });
-  return { links, apiCalls, rules, limits };
+  return { links, apiCalls, rules, limits, commands, checkpoints };
 }
 
 const sameWords = (a, b) => a.length === b.length && a.every((word, index) => word === b[index]);

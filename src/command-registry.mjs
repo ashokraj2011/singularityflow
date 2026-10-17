@@ -284,7 +284,8 @@ const WORKFLOW_AUTHOR_MUTATION_ACTIONS = Object.freeze(['create', 'save', 'delet
 const WORKFLOW_AUTHOR_ACTIONS = Object.freeze([...WORKFLOW_AUTHOR_READ_ACTIONS, ...WORKFLOW_AUTHOR_MUTATION_ACTIONS]);
 const WORKFLOW_STUDIO_ACTIONS = Object.freeze(['show', 'apply']);
 const WORKFLOW_IMPORT_TEAM_ACTIONS = Object.freeze(['inspect', 'compile', 'status']);
-const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS, 'author', 'studio', 'import-team', 'markup', 'intent']);
+const WORKFLOW_BUILD_ACTIONS = Object.freeze(['start', 'add', 'status']);
+const WORKFLOW_SUBCOMMANDS = Object.freeze([...WORKFLOW_READ_SUBCOMMANDS, ...WORKFLOW_MUTATION_SUBCOMMANDS, 'author', 'studio', 'import-team', 'build', 'markup', 'intent']);
 const DOCUMENTS_READ_SUBCOMMANDS = Object.freeze(['list', 'view', 'preview', 'browse', 'artifacts']);
 const DOCUMENTS_MUTATION_SUBCOMMANDS = Object.freeze(['detach', 'scope', 'store', 'upload', 'add', 'fetch']);
 const DOCUMENTS_SUBCOMMANDS = Object.freeze([...DOCUMENTS_READ_SUBCOMMANDS, ...DOCUMENTS_MUTATION_SUBCOMMANDS]);
@@ -651,6 +652,11 @@ function resolveWorkflowCommandOperation(definition, positionals, options) {
     return optionBoolean(options, 'dry-run') || !options?.out
       ? never('workflow.import-team.compile.preview', definition, 'read')
       : never('workflow.import-team.compile', definition, 'mutation');
+  }
+  if (subcommand === 'build') {
+    const action = positionals[2] ?? 'status';
+    if (!WORKFLOW_BUILD_ACTIONS.includes(action)) return unknownSubcommand('workflow build', action, WORKFLOW_BUILD_ACTIONS);
+    return never(`workflow.build.${action}`, definition, 'read');
   }
   if (WORKFLOW_READ_SUBCOMMANDS.includes(subcommand)) {
     return never(`workflow.${subcommand}`, definition, 'read');
@@ -1795,6 +1801,7 @@ export function operationCatalog() {
     never('workflow.import-team.status', workflowDefinition, 'read'),
     never('workflow.import-team.compile.preview', workflowDefinition, 'read'),
     never('workflow.import-team.compile', workflowDefinition, 'mutation'),
+    ...WORKFLOW_BUILD_ACTIONS.map((name) => never(`workflow.build.${name}`, workflowDefinition, 'read')),
     never('workflow.markup.example', workflowDefinition, 'read'),
     never('workflow.intent.catalog', workflowDefinition, 'read'),
     never('workflow.intent.show', workflowDefinition, 'read'),

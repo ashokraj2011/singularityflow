@@ -424,6 +424,12 @@ Usage:
   singularity-flow workflow validate [TYPE] [--json] [--for-start]
                                                         verify every code phase has a clause source and plan owner
   singularity-flow workflow simulate [TYPE] | diff <TYPE>
+  singularity-flow workflow build start [--from-workflow ID] [--folder DIR]... [--file FILE]... [--notes FILE|-]...
+    [--describe TEXT] [--name LABEL] [--json]
+                                                        start a progressive build: what a workflow or a team's material holds, each item
+                                                        with its file and lines (screened, never run or fetched; kept on this computer)
+  singularity-flow workflow build add --build ID [--folder DIR]... [--file FILE]... [--notes FILE|-]... [--json]
+  singularity-flow workflow build status [--build ID] [--json]
   singularity-flow workflow check [WORKFLOW] [--change-set FILE|-] [--json]
                                                         explain each workflow in plain words and list what does not make sense, with where
 

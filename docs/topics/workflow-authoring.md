@@ -14,6 +14,7 @@ aliases:
   - skill-where-used
   - authoring-skill
   - workflow-check
+  - workflow-build
 questions:
   - How do I export or import several workflows with their dependencies?
   - What happens when an imported workflow uses names my repository already has?
@@ -25,6 +26,7 @@ questions:
   - How do I design an artifact template and choose it for a step?
   - How do I turn my team's agents, skills and instructions into a workflow?
   - Does my workflow make sense, and what does each step do?
+  - How do I bring my team's agents, runbooks and API specs in to build a workflow?
 commands:
   - workflow
   - configuration
@@ -34,7 +36,7 @@ related:
   - agents-and-routing
   - artifacts-and-generation
   - workflow-markup
-version: 66
+version: 67
 ---
 Author work types, ordered phases, gates, artifacts, inputs, and approval policy through approved configuration. Existing work remains pinned to the resolution it started with.
 
@@ -1260,6 +1262,38 @@ whichever surface started it. **Check** runs compile with `--dry-run` and offers
 choices as buttons. **Write bundle…** saves the ready bundle beside the team directory.
 **Import in Workflow Studio…** opens Studio's Import preview with that file. The panel needs no
 open repository until the import itself; with one open, it can preview the import into it.
+
+## Start a workflow build from what you have
+
+A workflow build collects what a new workflow will be made from: a workflow this repository already
+has, a team's own material, a description, or a mix. Each thing found becomes an item with the file
+and line it came from. Nothing is run, fetched or called, and nothing in a repository changes; the
+build is kept on this computer for 14 days after its last change.
+
+```bash
+singularity-flow workflow build start --folder ../payments-team --name "Payments release"
+singularity-flow workflow build start --from-workflow feature --folder ../payments-team
+singularity-flow workflow build add --build <ID> --file ../runbook.md --notes notes.txt
+cat meeting-notes.md | singularity-flow workflow build add --build <ID> --notes -
+singularity-flow workflow build status
+singularity-flow workflow build status --build <ID> --json
+```
+
+| Found | From |
+|---|---|
+| Process | An agent or prompt file that numbers its steps or hands off to other agents |
+| Steps, agents, skills | The workflow the build starts from, at their place in `singularity/workflow.yml` |
+| Agents, skills, instruction files, prompt files | Copilot agent and chat mode files, hidden tool folders, `SKILL.md` folders, `*.instructions.md`, `AGENTS.md`, `*.prompt.md` |
+| API calls | OpenAPI and Swagger operations, Postman requests, `.http` and `.rest` requests, and `curl`, `fetch`, `requests` and `METHOD /path` lines in documents and scripts |
+| Tools and MCP servers | Servers in `mcp.json` or `.vscode/mcp.json`, and the server tools an agent asks for |
+| Links | Web links, by kind: ticket, wiki page, repository, file share or web page |
+| Commands | Check and build commands in code, such as `npm test`, `mvn verify` or `./scripts/check.sh` |
+| Sign-off points | Sentences that ask for a sign-off, an approval or someone's review |
+| Documents and scripts | READMEs, runbooks and other text, and shell or PowerShell scripts |
+
+A file whose name looks like a credential, key or environment file is never read, and a file whose
+text looks like it holds a credential is withheld: it is listed by name, and its text is kept
+nowhere. Single files and notes are screened before they are copied into the build.
 
 ## Check that a workflow makes sense
 

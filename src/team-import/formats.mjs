@@ -55,9 +55,13 @@ export function blockedPath(relative) {
 
 const TEXT_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.yml', '.yaml', '.json', '.mdc']);
 
-/** Whether a file may be captured as text at all (others are inventoried by size only). */
-export function textCandidate(relative) {
-  return TEXT_EXTENSIONS.has(path.posix.extname(relative).toLowerCase()) || !path.posix.extname(relative);
+/**
+ * Whether a file may be captured as text at all (others are inventoried by size only). `extra` adds
+ * extensions a caller reads as well (the workflow builder reads request files and scripts).
+ */
+export function textCandidate(relative, extra = null) {
+  const extension = path.posix.extname(relative).toLowerCase();
+  return TEXT_EXTENSIONS.has(extension) || Boolean(extra?.has(extension)) || !extension;
 }
 
 /**
